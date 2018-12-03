@@ -1,0 +1,8 @@
+#once
+
+#if exists(VULKAN_SDK)
+#import VULKAN_SDK
+.VulkanSDKPath = '$VULKAN_SDK$'
+#else
+.VulkanSDKPath = '/usr/local'
+#endif

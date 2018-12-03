@@ -1481,7 +1481,7 @@ struct LightTypeImpl
     static Light* create() { return (Light*)(new T); }
 };
 #define DEFINE_LIGHT_TYPE(NAME) \
-    LightType LightTypeImpl<NAME>::type = { #NAME, &LightTypeImpl<NAME>::create };
+    template<> LightType LightTypeImpl<NAME>::type = { #NAME, &LightTypeImpl<NAME>::create };
 template<typename T>
 LightType* getLightType()
 {
@@ -1887,7 +1887,8 @@ struct LightEnv : public RefObject
                 ParameterBlockEncoder arrayEncoder = lightTypeEncoder.beginField(1);
                 for (size_t ii = 0; ii < lightCount; ++ii)
                 {
-                    lightTypeArray->lights[ii]->fillInParameterBlock(arrayEncoder.beginArrayElement(ii));
+                    auto parameterBlock = arrayEncoder.beginArrayElement(ii);
+                    lightTypeArray->lights[ii]->fillInParameterBlock(parameterBlock);
                 }
             }
         }

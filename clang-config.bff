@@ -75,8 +75,8 @@ Compiler('Compiler-Clang')
 		+ .BaseIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
-		+ ' -DWIN32'
 		+ ' -D_WIN32'
+		+ ' -D_WIN64'
 		+ ' -D_CRT_SECURE_NO_WARNINGS'
 		+ ' -gcodeview'
 #endif //__WINDOWS__
@@ -149,17 +149,3 @@ Compiler('Compiler-Clang')
 .Clang_x64_Configs = {
 	.Clang_x64_DebugConfig, .Clang_x64_ProfileConfig, .Clang_x64_ReleaseConfig
 }
-
-.Clang_x64_ConfigNames = { }
-ForEach(.Config in .Clang_x64_Configs)
-{
-    Using(.Config)
-    ^Clang_x64_ConfigNames + '$ConfigName$'
-}
-
-#if exists(VULKAN_SDK)
-#import VULKAN_SDK
-.VulkanSDKPath = '$VULKAN_SDK$'
-#else
-.VulkanSDKPath = '/usr/local'
-#endif

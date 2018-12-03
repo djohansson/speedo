@@ -7,15 +7,16 @@
 			"label": "FastBuild (Cache)",
 			"type": "shell",
 			"windows": {
-				"command": "${workspaceRoot}/bin/windows-x64/fbuild.exe",
+				"command": "fbuild.exe",
 			},
 			"linux": {
-				"command": "${workspaceRoot}/bin/linux-x64/fbuild",
+				"command": "fbuild",
 			},
 			"osx": {
-				"command": "${workspaceRoot}/bin/osx-x64/fbuild",
+				"command": "fbuild",
 			},
 			"args": [
+			//	"-showcmds",
 				"-cache",
 			//	"-cacheverbose",
 				"-summary",
@@ -24,52 +25,29 @@
 			"group": {
                 "kind": "build",
                 "isDefault": true
-            },
-            "problemMatcher": {
-                "owner": "cpp",
-                "fileLocation": ["relative", "${workspaceRoot}"],
-                "pattern": {
-                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
             }
 		},
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
 			"windows": {
-				"command": "${workspaceRoot}/bin/windows-x64/fbuild.exe",
+				"command": "fbuild.exe",
 			},
 			"linux": {
-				"command": "${workspaceRoot}/bin/linux-x64/fbuild",
+				"command": "fbuild",
 			},
 			"osx": {
-				"command": "${workspaceRoot}/bin/osx-x64/fbuild",
+				"command": "fbuild",
 			},
 			"args": [
 				"-clean",
+			//	"-showcmds",
 				"-cache",
 			//	"-cacheverbose",
 				"-summary",
 				"all"
 			],
-			"group": "build",
-            "problemMatcher": {
-                "owner": "cpp",
-                "fileLocation": ["relative", "${workspaceRoot}"],
-                "pattern": {
-                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
-            }
+			"group": "build"
         }
     ]
 }

@@ -188,7 +188,7 @@ convention for interface methods.
 #endif
 
 
-#if !defined(SLANG_STATIC) && !defined(SLANG_STATIC)
+#if !defined(SLANG_STATIC)
     #define SLANG_DYNAMIC
 #endif
 
