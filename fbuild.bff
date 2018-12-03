@@ -1,0 +1,126 @@
+#include "config.bff"
+
+.ProjectName = 'slang'
+.ProjectPath = '$_WORKING_DIR_$'
+.IntermediateFilePath = '$ProjectPath$/intermediate'
+.BuildOutputPath = '$ProjectPath$/build'
+
+ForEach(.Config in .Clang_x64_Configs)
+{
+	Using(.Config)
+	.IntermediateFilePath + '/$ConfigName$'
+	.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$VulkanSDKPath$/include'
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/tools'
+			+ ' -I$ProjectPath$/external'
+			+ ' -I$ProjectPath$/external/dxc'
+			+ ' -I$ProjectPath$/external/glm'
+			+ ' -I$ProjectPath$/external/glslang'
+			+ ' -I$ProjectPath$/external/stb'
+			+ ' -I$ProjectPath$/external/tinyobjloader'
+			+ ' -I$ProjectPath$/external/imgui'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-unused-local-typedef'
+	
+	ObjectList('core-$ConfigName$')
+	{
+		.IntermediateFilePath + '/core'
+		.CompilerInputPath = '$ProjectPath$/source/core'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ProjectName$-$ConfigName$')
+	{
+		.IntermediateFilePath + '/$ProjectName$'
+		.CompilerInputPath = '$ProjectPath$/source/$ProjectName$'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ProjectName$c-$ConfigName$')
+	{
+		.IntermediateFilePath + '/$ProjectName$c'
+		.CompilerInputPath = '$ProjectPath$/source/$ProjectName$c'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	Executable('$ProjectName$c-$ConfigName$-exe')
+	{
+		.IntermediateFilePath + '/$ProjectName$c'
+		.Libraries = {
+			'core-$ConfigName$'
+			'$ProjectName$-$ConfigName$',
+			'$ProjectName$c-$ConfigName$'
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/$ProjectName$c'
+	#if __WINDOWS__
+		.LinkerOutput + '.exe'
+	#endif //__WINDOWS__
+	}
+
+	ObjectList('gfx-$ConfigName$')
+	{
+		.IntermediateFilePath + '/gfx'
+		.CompilerInputPath = '$ProjectPath$/tools/gfx'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('hello-world-$ConfigName$')
+	{
+		.IntermediateFilePath + '/hello-world'
+		.CompilerInputPath = '$ProjectPath$/examples/hello-world'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	Executable('hello-world-$ConfigName$-exe')
+	{
+		.IntermediateFilePath + '/hello-world'
+		.Libraries = {
+			'core-$ConfigName$',
+			'gfx-$ConfigName$'
+			'$ProjectName$-$ConfigName$',
+			'hello-world-$ConfigName$'
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/hello-world'
+	#if __WINDOWS__
+		.LinkerOutput + '.exe'
+	#endif //__WINDOWS__
+	}
+
+	ObjectList('model-viewer-$ConfigName$')
+	{
+		.IntermediateFilePath + '/model-viewer'
+		.CompilerInputPath = '$ProjectPath$/examples/model-viewer'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	Executable('model-viewer-$ConfigName$-exe')
+	{
+		.IntermediateFilePath + '/model-viewer'
+		.Libraries = {
+			'core-$ConfigName$',
+			'gfx-$ConfigName$'
+			'$ProjectName$-$ConfigName$',
+			'model-viewer-$ConfigName$'
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/model-viewer'
+	#if __WINDOWS__
+		.LinkerOutput + '.exe'
+	#endif //__WINDOWS__
+	}
+
+	Alias('$ConfigName$')
+	{
+		.Targets =
+		{
+			'$ProjectName$c-$ConfigName$-exe',
+			//'hello-world-$ConfigName$-exe'
+			//'model-viewer-$ConfigName$-exe'
+		}
+	}
+}
+
+Alias('all')
+{
+	.Targets = .Clang_x64_ConfigNames
+}

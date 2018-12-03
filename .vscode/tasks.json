@@ -1,0 +1,75 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+		{
+			"label": "FastBuild (Cache)",
+			"type": "shell",
+			"windows": {
+				"command": "${workspaceRoot}/bin/windows-x64/fbuild.exe",
+			},
+			"linux": {
+				"command": "${workspaceRoot}/bin/linux-x64/fbuild",
+			},
+			"osx": {
+				"command": "${workspaceRoot}/bin/osx-x64/fbuild",
+			},
+			"args": [
+				"-cache",
+			//	"-cacheverbose",
+				"-summary",
+				"all"
+			],
+			"group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["relative", "${workspaceRoot}"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            }
+		},
+		{
+			"label": "FastBuild (Clean, Cache)",
+			"type": "shell",
+			"windows": {
+				"command": "${workspaceRoot}/bin/windows-x64/fbuild.exe",
+			},
+			"linux": {
+				"command": "${workspaceRoot}/bin/linux-x64/fbuild",
+			},
+			"osx": {
+				"command": "${workspaceRoot}/bin/osx-x64/fbuild",
+			},
+			"args": [
+				"-clean",
+				"-cache",
+			//	"-cacheverbose",
+				"-summary",
+				"all"
+			],
+			"group": "build",
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["relative", "${workspaceRoot}"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            }
+        }
+    ]
+}

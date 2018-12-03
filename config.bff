@@ -1,0 +1,165 @@
+#once
+
+#if __WINDOWS__
+.LLVMBasePath = 'C:\Program Files\LLVM\bin'
+.WindowsSDKBasePath = 'C:\Program Files (x86)\Windows Kits\10'
+.WindowsLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\um\x86'
+.WindowsIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\um'
+.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\ucrt\x86'
+.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\ucrt'
+.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\shared'
+Settings
+{
+	#import TMP
+	#import windir
+	.Environment =
+	{
+		'TMP=$TMP$',
+		'SystemRoot=$windir$'
+	}
+	.CachePath = '$TMP$\.fbuild.cache'
+}
+.BaseIncludePaths = ' -I"$WindowsIncludePath$"'
+    + ' -I"$WindowsUcrtIncludePath$"'
+	+ ' -I"$WindowsSharedIncludePath$"'
+.BaseLibPaths = ' -L"$WindowsLibPath$"'
+    + ' -L"$WindowsUcrtLibPath$"'
+#endif //__WINDOWS__
+#if __OSX__
+.LLVMBasePath = '/usr/local/opt/llvm/bin'
+Settings
+{
+	.CachePath = "/tmp/.fbuild.cache"
+}
+.BaseIncludePaths = ' -I/usr/local/opt/llvm/include/c++/v1'
+.BaseLibPaths = ' -L/usr/local/opt/llvm/lib'
+#endif //__OSX__
+#if __LINUX__
+.LLVMBasePath = '/usr/bin'
+Settings
+{
+	.CachePath = "/tmp/.fbuild.cache"
+}
+.BaseIncludePaths = ' -I/usr/include'
+.BaseLibPaths = ' -L/usr/lib'
+#endif //__LINUX__
+
+.ClangPath = '$LLVMBasePath$'
+
+Compiler('Compiler-Clang')
+{
+#if __WINDOWS__
+	.Executable = '$ClangPath$/clang++.exe'
+#else
+	.Executable = '$ClangPath$/clang++'
+#endif //__WINDOWS__
+}
+
+.Clang_BaseConfig = [
+	.CompilerInfo  = 'Clang'
+    .Librarian = '$LLVMBasePath$/llvm-ar'
+	.Linker = '$ClangPath$/clang++'
+#if __WINDOWS__
+	.PlatformInfo = 'Windows'
+	.Librarian + '.exe'
+	.Linker + '.exe'
+#endif //__WINDOWS__
+#if __OSX__
+	.PlatformInfo = 'OSX'
+#endif //__OSX__
+#if __LINUX__
+	.PlatformInfo = 'Linux'
+#endif //__LINUX__
+	.Compiler = 'Compiler-Clang'
+	.BaseCompilerOptions = '-o "%2" "%1" -c -g'
+		+ .BaseIncludePaths
+#if __WINDOWS__
+		+ ' -D__WINDOWS__'
+		+ ' -DWIN32'
+		+ ' -D_WIN32'
+		+ ' -D_CRT_SECURE_NO_WARNINGS'
+		+ ' -gcodeview'
+#endif //__WINDOWS__
+#if __OSX__
+		+ ' -D__APPLE__'
+		+ ' -D__OSX__'
+		+ ' -stdlib=libc++'
+#endif //__LINUX__
+#if __LINUX__
+		+ ' -D__LINUX__'
+		+ ' -D__linux__'
+		+ ' -stdlib=libc++'
+#endif //__LINUX__
+	.CompilerOptionsC = ' -std=c11'
+	.CompilerOptionsCpp = ' -std=c++17'
+	.CompilerOptions = .BaseCompilerOptions
+		+ ' -Wall'
+	.BaseLinkerOptions = '"%1" -o "%2" -g'
+		+ .BaseLibPaths
+	.LinkerOptions = .BaseLinkerOptions
+#if __WINDOWS__
+	+ ' -lstdc++' // I think this gets translated to windows sdk headers/libs somehow
+#else
+	+ ' -lc++'
+#endif
+//#if __OSX__
+//	+ ' -rpath @executable_path/(something)'
+//#endif
+	.LibrarianOptions = 'rcs "%2" "%1"'
+	.CompilerDebugOptimizations = ' -O0'
+	.CompilerReleaseOptimizations = ' -O3'
+	.LibrarianDebugOptimizations = ''
+	.LibrarianReleaseOptimizations = ''
+	.LinkerDebugOptimizations = ''
+	.LinkerReleaseOptimizations = ''
+]
+.Clang_x64_BaseConfig = [
+	Using(.Clang_BaseConfig)
+	.ArchInfo = 'x64'
+	.CompilerOptions + ' -m64'
+]
+.Clang_x64_DebugConfig = [
+	Using(.Clang_x64_BaseConfig)
+	.ConfigName = 'debug'
+	.CompilerOptions + ' -DDEBUG -D_DEBUG -DPROFILING_ENABLED'
+		+ .CompilerDebugOptimizations
+	.LibrarianOptions + .LibrarianDebugOptimizations
+	.LinkerOptions + .LinkerDebugOptimizations
+#if __WINDOWS__
+		+ ' -lmsvcrtd'
+#endif //__WINDOWS__
+]
+.Clang_x64_ReleaseConfig = [
+	Using(.Clang_x64_BaseConfig)
+	.ConfigName = 'release'
+	.CompilerOptions + ' -DRELEASE -DNDEBUG'
+		+ .CompilerReleaseOptimizations
+	.LibrarianOptions + .LibrarianReleaseOptimizations
+	.LinkerOptions + .LinkerReleaseOptimizations
+#if __WINDOWS__
+		+ ' -lmsvcrt'
+#endif //__WINDOWS__
+]
+.Clang_x64_ProfileConfig = [
+	Using(.Clang_x64_ReleaseConfig)
+	.ConfigName = 'profile'
+	.CompilerOptions + ' -DPROFILING_ENABLED'
+]
+
+.Clang_x64_Configs = {
+	.Clang_x64_DebugConfig, .Clang_x64_ProfileConfig, .Clang_x64_ReleaseConfig
+}
+
+.Clang_x64_ConfigNames = { }
+ForEach(.Config in .Clang_x64_Configs)
+{
+    Using(.Config)
+    ^Clang_x64_ConfigNames + '$ConfigName$'
+}
+
+#if exists(VULKAN_SDK)
+#import VULKAN_SDK
+.VulkanSDKPath = '$VULKAN_SDK$'
+#else
+.VulkanSDKPath = '/usr/local'
+#endif
