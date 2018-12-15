@@ -191,7 +191,7 @@ static int glslang_dissassembleSPIRV(glslang_CompileRequest* request)
 }
 
 extern "C"
-#ifdef _MSC_VER
+#ifdef _WIN32
 _declspec(dllexport)
 #else
 __attribute__((__visibility__("default")))
