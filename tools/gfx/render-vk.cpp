@@ -490,6 +490,29 @@ public:
     Desc m_desc;
 };
 
+static VkImageViewType _calcImageViewType(TextureResource::Type type, const TextureResource::Desc& desc)
+{
+    switch (type)
+    {
+        case Resource::Type::Texture1D:        return desc.arraySize > 1 ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
+        case Resource::Type::Texture2D:        return desc.arraySize > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+        case Resource::Type::TextureCube:      return desc.arraySize > 1 ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
+        case Resource::Type::Texture3D:
+        {
+            // Can't have an array and 3d texture
+            assert(desc.arraySize <= 1);
+            if (desc.arraySize <= 1)
+            {
+                return VK_IMAGE_VIEW_TYPE_3D;
+            }
+            break;
+        }
+        default: break;
+    }
+
+    return VK_IMAGE_VIEW_TYPE_MAX_ENUM;
+}
+
 /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! VkRenderer::Buffer !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
 Result VKRenderer::Buffer::init(const VulkanApi& api, size_t bufferSize, VkBufferUsageFlags usage, VkMemoryPropertyFlags reqMemoryProperties)
@@ -1656,8 +1679,56 @@ Result VKRenderer::createSamplerState(SamplerState::Desc const& desc, SamplerSta
 
 Result VKRenderer::createTextureView(TextureResource* texture, ResourceView::Desc const& desc, ResourceView** outView)
 {
-    assert(!"unimplemented");
+    auto resourceImpl = (TextureResourceImpl*)texture;
+    auto textureDesc = resourceImpl->getDesc();
+    
+    int aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+    switch(desc.type)
+    {
+    default:
+        assert(!"unhandled");
     return SLANG_FAIL;
+    //case ResourceView::Type::RenderTarget: // TODO
+    //case ResourceView::Type::UnorderedAccess: // TODO
+    case ResourceView::Type::Depth:
+        aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+        aspectFlags &= ~VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+    case ResourceView::Type::DepthStencil:
+        aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+        aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        aspectFlags &= ~VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+    case ResourceView::Type::ShaderResource:
+        break;
+    }
+    
+    VkImageViewType viewType = _calcImageViewType(resourceImpl->getType(), textureDesc);
+
+    VkImageViewCreateInfo viewInfo = {};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = resourceImpl->m_image;
+    viewInfo.viewType = viewType;
+    viewInfo.format = VulkanUtil::getVkFormat(desc.format);
+    viewInfo.subresourceRange.aspectMask = aspectFlags;
+    viewInfo.subresourceRange.baseMipLevel = 0; // TODO
+    viewInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    viewInfo.subresourceRange.baseArrayLayer = 0; // TODO
+    viewInfo.subresourceRange.layerCount = 1; // TODO
+    viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY; // TODO
+    viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY; // TODO
+    viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY; // TODO
+    viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY; // TODO
+
+    VkImageView imageView;
+    SLANG_VK_RETURN_ON_FAIL(m_api.vkCreateImageView(m_device, &viewInfo, nullptr, &imageView));
+
+    RefPtr<TextureResourceViewImpl> viewImpl = new TextureResourceViewImpl();
+    viewImpl->m_texture = resourceImpl;
+    viewImpl->m_view = imageView;
+    *outView = viewImpl.detach();
+    
+    return SLANG_OK;
 }
 
 Result VKRenderer::createBufferView(BufferResource* buffer, ResourceView::Desc const& desc, ResourceView** outView)
@@ -2013,29 +2084,6 @@ void VKRenderer::dispatchCompute(int x, int y, int z)
         0, nullptr);
 
     m_api.vkCmdDispatch(commandBuffer, x, y, z);
-}
-
-static VkImageViewType _calcImageViewType(TextureResource::Type type, const TextureResource::Desc& desc)
-{
-    switch (type)
-    {
-        case Resource::Type::Texture1D:        return desc.arraySize > 1 ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
-        case Resource::Type::Texture2D:        return desc.arraySize > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-        case Resource::Type::TextureCube:      return desc.arraySize > 1 ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
-        case Resource::Type::Texture3D:
-        {
-            // Can't have an array and 3d texture
-            assert(desc.arraySize <= 1);
-            if (desc.arraySize <= 1)
-            {
-                return VK_IMAGE_VIEW_TYPE_3D;
-            }
-            break;
-        }
-        default: break;
-    }
-
-    return VK_IMAGE_VIEW_TYPE_MAX_ENUM;
 }
 
 #if 0
@@ -2505,7 +2553,7 @@ void VKRenderer::setDescriptorSet(PipelineType pipelineType, PipelineLayout* lay
 
 Result VKRenderer::createProgram(const ShaderProgram::Desc& desc, ShaderProgram** outProgram)
 {
-    ShaderProgramImpl* impl = new ShaderProgramImpl(desc.pipelineType);
+    RefPtr<ShaderProgramImpl> impl = new ShaderProgramImpl(desc.pipelineType);
     if( desc.pipelineType == PipelineType::Compute)
     {
         auto computeKernel = desc.findKernel(StageType::Compute);
@@ -2519,7 +2567,7 @@ Result VKRenderer::createProgram(const ShaderProgram::Desc& desc, ShaderProgram*
         impl->m_vertex = compileEntryPoint(*vertexKernel, VK_SHADER_STAGE_VERTEX_BIT, impl->m_buffers[0]);
         impl->m_fragment = compileEntryPoint(*fragmentKernel, VK_SHADER_STAGE_FRAGMENT_BIT, impl->m_buffers[1]);
     }
-    *outProgram = impl;
+    *outProgram = impl.detach();
     return SLANG_OK;
 }
 
@@ -2643,7 +2691,7 @@ Result VKRenderer::createGraphicsPipelineState(const GraphicsPipelineStateDesc& 
     VkPipeline pipeline = VK_NULL_HANDLE;
     SLANG_VK_CHECK(m_api.vkCreateGraphicsPipelines(m_device, pipelineCache, 1, &pipelineInfo, nullptr, &pipeline));
 
-    RefPtr<PipelineStateImpl> pipelineStateImpl;
+    RefPtr<PipelineStateImpl> pipelineStateImpl = new PipelineStateImpl(m_api);
     pipelineStateImpl->m_pipeline = pipeline;
     pipelineStateImpl->m_pipelineLayout = pipelineLayoutImpl;
     pipelineStateImpl->m_shaderProgram = programImpl;
