@@ -1690,10 +1690,6 @@ Result VKRenderer::createTextureView(TextureResource* texture, ResourceView::Des
     return SLANG_FAIL;
     //case ResourceView::Type::RenderTarget: // TODO
     //case ResourceView::Type::UnorderedAccess: // TODO
-    case ResourceView::Type::Depth:
-        aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-        aspectFlags &= ~VK_IMAGE_ASPECT_COLOR_BIT;
-        break;
     case ResourceView::Type::DepthStencil:
         aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
         aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
