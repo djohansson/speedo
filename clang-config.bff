@@ -49,16 +49,16 @@ Settings
 Compiler('Compiler-Clang')
 {
 #if __WINDOWS__
-	.Executable = '$ClangPath$/clang++.exe'
+	.Executable = '$ClangPath$/clang.exe'
 #else
-	.Executable = '$ClangPath$/clang++'
+	.Executable = '$ClangPath$/clang'
 #endif //__WINDOWS__
 }
 
 .Clang_BaseConfig = [
 	.CompilerInfo  = 'Clang'
     .Librarian = '$LLVMBasePath$/llvm-ar'
-	.Linker = '$ClangPath$/clang++'
+	.Linker = '$ClangPath$/clang'
 #if __WINDOWS__
 	.PlatformInfo = 'Windows'
 	.Librarian + '.exe'
@@ -78,33 +78,36 @@ Compiler('Compiler-Clang')
 		+ ' -D_WIN32'
 		+ ' -D_WIN64'
 		+ ' -D_CRT_SECURE_NO_WARNINGS'
+		+ ' -D_WIN32_LEAN_AND_MEAN'
+		+ ' -DNOMINMAX'
 		+ ' -gcodeview'
+		+ ' -fms-extensions'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
 		+ ' -D__OSX__'
-		+ ' -stdlib=libc++'
 #endif //__LINUX__
 #if __LINUX__
 		+ ' -D__LINUX__'
 		+ ' -D__linux__'
-		+ ' -stdlib=libc++'
 #endif //__LINUX__
 	.CompilerOptionsC = ' -std=c11'
 	.CompilerOptionsCpp = ' -std=c++17'
+#if !__WINDOWS__
+		+ ' -stdlib=libc++'
+#endif
 	.CompilerOptions = .BaseCompilerOptions
 		+ ' -Wall'
 	.BaseLinkerOptions = '"%1" -o "%2" -g'
 		+ .BaseLibPaths
-	.LinkerOptions = .BaseLinkerOptions
-#if __WINDOWS__
-	+ ' -lstdc++' // I think this gets translated to windows sdk headers/libs somehow
-#else
-	+ ' -lc++'
+	.LinkerOptionsCpp = ''
+#if !__WINDOWS__
+		+ ' -lc++'
 #endif
 //#if __OSX__
 //	+ ' -rpath @executable_path/(something)'
 //#endif
+	.LinkerOptions = .BaseLinkerOptions
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.CompilerDebugOptimizations = ' -O0'
 	.CompilerReleaseOptimizations = ' -O3'

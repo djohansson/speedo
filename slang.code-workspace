@@ -4,5 +4,14 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"files.associations": {
+			"xiosbase": "cpp",
+			"thread": "cpp",
+			"ios": "cpp",
+			"internal.h": "c",
+			"memory": "cpp",
+			"vector": "cpp"
+		}
+	}
 }

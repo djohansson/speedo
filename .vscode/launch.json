@@ -104,6 +104,39 @@
             "externalConsole": true
         },
         {
+            "name": "(Windows) debug/volcano",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build.output/debug/volcano.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/examples/volcano",
+            "environment": [],
+            "externalConsole": true
+        },
+        {
+            "name": "(Windows) release/volcano",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build.output/release/volcano.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/examples/volcano",
+            "environment": [],
+            "externalConsole": true
+        },
+        {
+            "name": "(Windows) profile/volcano",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build.output/profile/volcano.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/examples/volcano",
+            "environment": [],
+            "externalConsole": true
+        },
+        {
             "name": "(lldb) debug/slangc",
             "type": "cppdbg",
             "request": "launch",

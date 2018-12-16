@@ -15,27 +15,26 @@ ForEach(.Config in .Clang_x64_Configs)
 	^AllConfigNames + '$ConfigName$'
 
 	.IntermediateFilePath + '/$ConfigName$'
-	.CompilerOptions + .CompilerOptionsCpp
-			+ ' -I$ProjectPath$'
-			+ ' -I$ProjectPath$/source'
-			+ ' -I$ProjectPath$/tools'
-			+ ' -I$ProjectPath$/external'
-			+ ' -I$ProjectPath$/external/dxc'
-			+ ' -I$ProjectPath$/external/glm'
-			+ ' -I$ProjectPath$/external/glslang'
-			+ ' -I$ProjectPath$/external/stb'
-			+ ' -I$ProjectPath$/external/tinyobjloader'
-			+ ' -I$ProjectPath$/external/imgui'
-			+ ' -I$VulkanSDKPath$/include'
-			+ ' -Wno-unused-variable'
-			+ ' -Wno-unused-local-typedef'
-			+ ' -DSLANG_STATIC'
+
+	// + ' -Wno-unused-variable'
+	// + ' -Wno-unused-local-typedef'
+	// + ' -Wno-undefined-var-template'
+	// + ' -Wno-inconsistent-missing-override'
+	// + ' -Wno-reorder'
+	// + ' -Wno-int-to-pointer-cast'
 	
 	Library('$ConfigName$-core')
 	{
 		.IntermediateFilePath + '/core'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -DSLANG_STATIC'
+
 		.CompilerInputPath = '$ProjectPath$/source/core'
 		.CompilerOutputPath = '$IntermediateFilePath$'
+		
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/core'
 	#if __WINDOWS__
 		.LibrarianOutput + '.lib'
@@ -45,8 +44,15 @@ ForEach(.Config in .Clang_x64_Configs)
 	Library('$ConfigName$-slang')
 	{
 		.IntermediateFilePath + '/slang'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -DSLANG_STATIC'
+		
 		.CompilerInputPath = '$ProjectPath$/source/slang'
 		.CompilerOutputPath = '$IntermediateFilePath$'
+		
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/slang'
 	#if __WINDOWS__
 		.LibrarianOutput + '.lib'
@@ -56,6 +62,12 @@ ForEach(.Config in .Clang_x64_Configs)
 	ObjectList('$ConfigName$-slangc')
 	{
 		.IntermediateFilePath + '/slangc'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -DSLANG_STATIC'
+			
 		.CompilerInputPath = '$ProjectPath$/source/slangc'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 	}
@@ -63,21 +75,163 @@ ForEach(.Config in .Clang_x64_Configs)
 	Executable('$ConfigName$-slangc-exe')
 	{
 		.IntermediateFilePath + '/slangc'
+
 		.Libraries = {
 			'$ConfigName$-core',
 			'$ConfigName$-slang',
 			'$ConfigName$-slangc',
 		}
+
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/slangc'
+		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
 		.LinkerOutput + '.exe'
+	#endif //__WINDOWS__
+	}
+
+	Library('$ConfigName$-glfw')
+	{
+		.IntermediateFilePath + '/glfw'
+
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -D_GLFW_WIN32=1'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/glfw/src/context.c',
+			'$ProjectPath$/external/glfw/src/init.c',
+			'$ProjectPath$/external/glfw/src/input.c',
+			'$ProjectPath$/external/glfw/src/monitor.c',
+			'$ProjectPath$/external/glfw/src/vulkan.c',
+			'$ProjectPath$/external/glfw/src/window.c',
+			'$ProjectPath$/external/glfw/src/win32_init.c',
+			'$ProjectPath$/external/glfw/src/win32_joystick.c',
+			'$ProjectPath$/external/glfw/src/win32_monitor.c',
+			'$ProjectPath$/external/glfw/src/win32_time.c',
+			'$ProjectPath$/external/glfw/src/win32_thread.c',
+			'$ProjectPath$/external/glfw/src/win32_window.c',
+			'$ProjectPath$/external/glfw/src/wgl_context.c',
+			'$ProjectPath$/external/glfw/src/egl_context.c',
+			'$ProjectPath$/external/glfw/src/osmesa_context.c',
+		}
+		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/glfw'
+	#if __WINDOWS__
+		.LibrarianOutput + '.lib'
+	#endif //__WINDOWS__
+	}
+
+	ObjectList('$ConfigName$-glslang-OGLCompilersDLL')
+	{
+		.IntermediateFilePath + '/glslang-OGLCompilersDLL'
+
+		.CompilerOptions + .CompilerOptionsCpp
+				+ ' -I$ProjectPath$/external/glslang/OGLCompilersDLL'
+				+ ' -DENABLE_HLSL'
+				+ ' -DENABLE_OPT=0'
+				+ ' -DAMD_EXTENSIONS'
+				+ ' -DNV_EXTENSIONS'
+
+		.CompilerInputPath = '$ProjectPath$/external/glslang/OGLCompilersDLL'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-glslang-glslang')
+	{
+		.IntermediateFilePath + '/glslang-glslang'
+
+		.CompilerOptions + .CompilerOptionsCpp
+				+ ' -I$ProjectPath$/external/glslang'
+				+ ' -I$ProjectPath$/external/glslang/OGLCompilersDLL'
+				+ ' -DENABLE_HLSL'
+				+ ' -DENABLE_OPT=0'
+				+ ' -DAMD_EXTENSIONS'
+				+ ' -DNV_EXTENSIONS'
+		
+		.CompilerInputPath = '$ProjectPath$/external/glslang/glslang'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	#if __WINDOWS__
+		.CompilerInputExcludePath = '$ProjectPath$/external/glslang/glslang/OSDependent/Unix'
+	#endif
+	}
+
+	ObjectList('$ConfigName$-glslang-hlsl')
+	{
+		.IntermediateFilePath + '/glslang-hlsl'
+
+		.CompilerOptions + .CompilerOptionsCpp
+				+ ' -I$ProjectPath$/external/glslang'
+				+ ' -DENABLE_HLSL'
+				+ ' -DENABLE_OPT=0'
+				+ ' -DAMD_EXTENSIONS'
+				+ ' -DNV_EXTENSIONS'
+
+		.CompilerInputPath = '$ProjectPath$/external/glslang/hlsl'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-glslang-SPIRV')
+	{
+		.IntermediateFilePath + '/glslang-SPIRV'
+
+		.CompilerOptions + .CompilerOptionsCpp
+				+ ' -I$ProjectPath$/external/glslang'
+				+ ' -DENABLE_HLSL'
+				+ ' -DENABLE_OPT=0'
+				+ ' -DAMD_EXTENSIONS'
+				+ ' -DNV_EXTENSIONS'	
+
+		.CompilerInputPath = '$ProjectPath$/external/glslang/SPIRV'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-slang-glslang')
+	{
+		.IntermediateFilePath + '/slang-glslang'
+
+		.CompilerOptions + .CompilerOptionsCpp
+				+ ' -I$ProjectPath$/external/glslang'
+				+ ' -DENABLE_HLSL'
+				+ ' -DENABLE_OPT=0'
+				+ ' -DAMD_EXTENSIONS'
+				+ ' -DNV_EXTENSIONS'	
+
+		.CompilerInputPath = '$ProjectPath$/source/slang-glslang'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/slang-glslang'
+	}
+
+	DLL('$ConfigName$-slang-glslang-dll')
+	{
+		.IntermediateFilePath + '/slang-glslang'
+		.Libraries = {
+			'$ConfigName$-core',
+			'$ConfigName$-slang',
+			'$ConfigName$-slang-glslang',
+			'$ConfigName$-glslang-glslang',
+			'$ConfigName$-glslang-hlsl',
+			'$ConfigName$-glslang-OGLCompilersDLL',
+			'$ConfigName$-glslang-SPIRV',
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/slang-glslang'
+		.LinkerOptions + .LinkerOptionsCpp
+			+ ' -shared'
+	#if __WINDOWS__
+		.LinkerOutput + '.dll'
 	#endif //__WINDOWS__
 	}
 
 	Library('$ConfigName$-gfx')
 	{
 		.IntermediateFilePath + '/gfx'
-		.CompilerOptions + ' -DSLANG_STATIC'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -I$ProjectPath$/tools'
+			+ ' -I$ProjectPath$/external/imgui'
+			+ ' -I$VulkanSDKPath$/include'
+		
 		.CompilerInputPath = '$ProjectPath$/tools/gfx'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/gfx'
@@ -89,6 +243,13 @@ ForEach(.Config in .Clang_x64_Configs)
 	ObjectList('$ConfigName$-hello-world')
 	{
 		.IntermediateFilePath + '/hello-world'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -I$ProjectPath$/tools'
+			+ ' -DSLANG_STATIC'
+
 		.CompilerInputPath = '$ProjectPath$/examples/hello-world'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 	}
@@ -103,6 +264,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-hello-world',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/hello-world'
+		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
 		.LinkerOutput + '.exe'
 		.LinkerOptions + ' -luser32'
@@ -112,6 +274,13 @@ ForEach(.Config in .Clang_x64_Configs)
 	ObjectList('$ConfigName$-model-viewer')
 	{
 		.IntermediateFilePath + '/model-viewer'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -I$ProjectPath$/tools'
+			+ ' -DSLANG_STATIC'
+
 		.CompilerInputPath = '$ProjectPath$/examples/model-viewer'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 	}
@@ -126,8 +295,56 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-model-viewer',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/model-viewer'
+		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
 		.LinkerOutput + '.exe'
+	#endif //__WINDOWS__
+	}
+
+	ObjectList('$ConfigName$-volcano')
+	{
+		.IntermediateFilePath + '/volcano'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -I$ProjectPath$/external/glm'
+			+ ' -I$ProjectPath$/external/stb'
+			+ ' -I$ProjectPath$/external/tinyobjloader'
+			+ ' -I$ProjectPath$/external/glfw/include'
+			+ ' -I$ProjectPath$/external/VulkanMemoryAllocator/src'
+			+ ' -I$ProjectPath$/external/imgui'
+			+ ' -I$ProjectPath$/external/cereal/include'
+			+ ' -I$VulkanSDKPath$/include'
+			+ ' -DSLANG_STATIC'
+			+ ' -DVOLCANO_USE_GLFW'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-reorder'
+			+ ' -Wno-unused-private-field'
+
+		.CompilerInputPath = '$ProjectPath$/examples/volcano'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	Executable('$ConfigName$-volcano-exe')
+	{
+		.IntermediateFilePath + '/volcano'
+		.Libraries = {
+			'$ConfigName$-core',
+			'$ConfigName$-gfx',
+			'$ConfigName$-slang',
+			'$ConfigName$-volcano',
+			'$ConfigName$-glfw',
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano'
+		.LinkerOptions + .LinkerOptionsCpp
+			+ ' -L$VulkanSDKPath$/lib'
+	#if __WINDOWS__
+		.LinkerOutput + '.exe'
+		.LinkerOptions + ' -luser32'
+			+ ' -lgdi32'
+			+ ' -lshell32'
+			+ ' -lvulkan-1'
 	#endif //__WINDOWS__
 	}
 
@@ -135,9 +352,11 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.Targets =
 		{
+			'$ConfigName$-slang-glslang-dll',
 			'$ConfigName$-slangc-exe',
 			'$ConfigName$-hello-world-exe',
 			'$ConfigName$-model-viewer-exe',
+			'$ConfigName$-volcano-exe',
 		}
 	}
 }
@@ -145,4 +364,5 @@ ForEach(.Config in .Clang_x64_Configs)
 Alias('all')
 {
 	.Targets = .AllConfigNames
+//	.Targets = { 'debug' }
 }
