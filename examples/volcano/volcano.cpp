@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include <xxhash.h>
+
 #include <vulkan/vulkan.h>
 
 #if defined(VOLCANO_USE_GLFW)
@@ -148,6 +150,124 @@ struct Swapchain
 	VmaAllocation myDepthImageMemory = VK_NULL_HANDLE;
 	VkImageView myDepthImageView = VK_NULL_HANDLE;
 };
+
+static inline uint64_t hash(const VkShaderModuleCreateInfo& info)
+{
+	XXH64_hash_t result = 0;
+
+	//#VkShaderModuleCreateInfo
+    // VkStructureType              sType;
+    //!const void*                  pNext; // todo: may contain VkShaderModuleValidationCacheCreateInfoEXT, but dont care about that for now
+    //+VkShaderModuleCreateFlags    flags;
+    //>size_t                       codeSize;
+    //>const uint32_t*              pCode;
+
+	result = XXH64(&info.flags, sizeof(info.flags), result);
+
+	if (const uint32_t* code = info.pCode)
+	{
+		result = XXH64(code, info.codeSize, result);
+	}
+
+	return result;
+}
+
+using ShaderModuleHashSet = std::unordered_map<VkShaderModule, uint64_t>;
+
+static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const ShaderModuleHashSet& shaderHashes)
+{
+	XXH64_hash_t result = 0;
+
+	//#VkGraphicsPipelineCreateInfo
+	// VkStructureType                                  sType;
+    // const void*                                      pNext;
+    //+VkPipelineCreateFlags                            flags;
+    //>uint32_t                                         stageCount;
+    //>const VkPipelineShaderStageCreateInfo*           pStages;
+    //>const VkPipelineVertexInputStateCreateInfo*      pVertexInputState; // todo
+    //>const VkPipelineInputAssemblyStateCreateInfo*    pInputAssemblyState; // todo
+    //>const VkPipelineTessellationStateCreateInfo*     pTessellationState; // todo
+    //>const VkPipelineViewportStateCreateInfo*         pViewportState; // todo
+    //>const VkPipelineRasterizationStateCreateInfo*    pRasterizationState; // todo
+    //>const VkPipelineMultisampleStateCreateInfo*      pMultisampleState; // todo
+    //>const VkPipelineDepthStencilStateCreateInfo*     pDepthStencilState;
+    //>const VkPipelineColorBlendStateCreateInfo*       pColorBlendState; // todo
+    //>const VkPipelineDynamicStateCreateInfo*          pDynamicState; // todo
+    //+VkPipelineLayout                                 layout;
+    //+VkRenderPass                                     renderPass;
+    //+uint32_t                                         subpass;
+    //+VkPipeline                                       basePipelineHandle;
+    //+int32_t                                          basePipelineIndex;
+
+	result = XXH64(&info.flags, sizeof(info.flags), result);
+
+	for (uint32_t stageIt = 0; stageIt < info.stageCount; stageIt++)
+	{
+		const VkPipelineShaderStageCreateInfo& stage = info.pStages[stageIt];
+
+		//#VkPipelineShaderStageCreateInfo
+		// VkStructureType                     sType;
+		// const void*                         pNext;
+		//+VkPipelineShaderStageCreateFlags    flags;
+		//+VkShaderStageFlagBits               stage;
+		//!VkShaderModule                      module; // this is a pointer to a vulkan object representing the binary SPIR-V module. we replace this with a hash of the SPIR-V source.
+		//>const char*                         pName;
+		//>const VkSpecializationInfo*         pSpecializationInfo;
+
+		result = XXH64(&stage.flags, sizeof(stage.flags), result);
+		result = XXH64(&stage.stage, sizeof(stage.stage), result);
+		auto shaderHash = shaderHashes.find(stage.module);
+    	if (shaderHash != shaderHashes.end())
+			result = XXH64(&shaderHash->second, sizeof(ShaderModuleHashSet::value_type), result);
+		result = XXH64(stage.pName, strlen(stage.pName), result);
+
+		if (const VkSpecializationInfo* specialization = stage.pSpecializationInfo)
+		{
+			//#VkSpecializationInfo
+			//>uint32_t                           mapEntryCount;
+			//>const VkSpecializationMapEntry*    pMapEntries;
+			// size_t                             dataSize;
+			// const void*                        pData;
+
+			for (uint32_t mapEntryIt = 0; mapEntryIt < specialization->mapEntryCount; mapEntryIt++)
+			{
+				const VkSpecializationMapEntry& mapEntry = specialization->pMapEntries[mapEntryIt];
+
+				//#VkSpecializationMapEntry
+				//+uint32_t    constantID;
+				//+uint32_t    offset;
+				//+size_t      size;
+
+				result = XXH64(&mapEntry, sizeof(mapEntry), result);
+			}
+		}
+	}
+
+	if (const VkPipelineDepthStencilStateCreateInfo* depthStencilStatePtr = info.pDepthStencilState)
+	{
+		const VkPipelineDepthStencilStateCreateInfo& depthStencilState = *depthStencilStatePtr;
+
+		//#VkPipelineDepthStencilStateCreateInfo
+		// VkStructureType                           sType;
+		// const void*                               pNext;
+		//+VkPipelineDepthStencilStateCreateFlags    flags;
+		//+VkBool32                                  depthTestEnable;
+		//+VkBool32                                  depthWriteEnable;
+		//+VkCompareOp                               depthCompareOp;
+		//+VkBool32                                  depthBoundsTestEnable;
+		//+VkBool32                                  stencilTestEnable;
+		//+VkStencilOpState                          front;
+		//+VkStencilOpState                          back;
+		//+float                                     minDepthBounds;
+		//+float                                     maxDepthBounds;
+
+		result = XXH64(&depthStencilState.flags, sizeof(depthStencilState) - offsetof(VkPipelineDepthStencilStateCreateInfo, flags), result);
+	}
+
+	result = XXH64(&info.layout, sizeof(info) - offsetof(VkGraphicsPipelineCreateInfo, layout), result);
+
+	return result;
+}
 
 static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
 {
@@ -418,7 +538,7 @@ public:
 		// }
 
 		loadTexture("chalet.jpg", myHouseImage);
-		loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
+		//loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
 
 		// create uniform buffer
 		createBuffer(
@@ -1289,6 +1409,8 @@ private:
 
 	void createGraphicsPipelines()
 	{
+		ShaderModuleHashSet shaderModules;
+
 		std::vector<char> vsCode;
 		loadSPIRVFile("vert.spv", vsCode);
 
@@ -1299,6 +1421,7 @@ private:
 
 		VkShaderModule vsModule;
 		CHECK_VK(vkCreateShaderModule(myDevice, &vsCreateInfo, nullptr, &vsModule));
+		shaderModules[vsModule] = hash(vsCreateInfo);
 
 		VkPipelineShaderStageCreateInfo vsStageInfo = {};
 		vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1316,6 +1439,7 @@ private:
 
 		VkShaderModule fsModule;
 		CHECK_VK(vkCreateShaderModule(myDevice, &fsCreateInfo, nullptr, &fsModule));
+		shaderModules[fsModule] = hash(fsCreateInfo);
 
 		struct AlphaTestSpecializationData
 		{
@@ -1331,18 +1455,18 @@ private:
 		alphaTestSpecializationMapEntries[1].size = sizeof(alphaTestSpecializationData.alphaTestRef);
 		alphaTestSpecializationMapEntries[1].offset = offsetof(AlphaTestSpecializationData, alphaTestRef);
 
-		VkSpecializationInfo alphaTestSpecializationInfo = {};
-		alphaTestSpecializationInfo.dataSize = sizeof(alphaTestSpecializationData);
-		alphaTestSpecializationInfo.mapEntryCount = static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
-		alphaTestSpecializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
-		alphaTestSpecializationInfo.pData = &alphaTestSpecializationData;
+		VkSpecializationInfo specializationInfo = {};
+		specializationInfo.dataSize = sizeof(alphaTestSpecializationData);
+		specializationInfo.mapEntryCount = static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
+		specializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
+		specializationInfo.pData = &alphaTestSpecializationData;
 
 		VkPipelineShaderStageCreateInfo fsStageInfo = {};
 		fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 		fsStageInfo.module = fsModule;
 		fsStageInfo.pName = "main";
-		fsStageInfo.pSpecializationInfo = &alphaTestSpecializationInfo;
+		fsStageInfo.pSpecializationInfo = &specializationInfo;
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vsStageInfo, fsStageInfo };
 
@@ -1471,23 +1595,33 @@ private:
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 		pipelineInfo.basePipelineIndex = -1;
 
-		alphaTestSpecializationData.alphaTestMethod = 0;
-		CHECK_VK(vkCreateGraphicsPipelines(
-			myDevice,
-			VK_NULL_HANDLE,
-			1,
-			&pipelineInfo,
-			nullptr,
-			&myGraphicsPipelines.data[GraphicsPipelines::NoAlphaTest]));
+		auto hashAndCache = [](
+			const VkGraphicsPipelineCreateInfo& info,
+			const ShaderModuleHashSet& shaderHashes,
+			uint64_t& outHash)
+		{
+			return outHash = hash(info, shaderHashes);
+		};
 
-		alphaTestSpecializationData.alphaTestMethod = 1;
+		alphaTestSpecializationData.alphaTestMethod = 0;
+
 		CHECK_VK(vkCreateGraphicsPipelines(
 			myDevice,
 			VK_NULL_HANDLE,
 			1,
 			&pipelineInfo,
 			nullptr,
-			&myGraphicsPipelines.data[GraphicsPipelines::AlphaTest]));
+			&myGraphicsPipelines[hashAndCache(pipelineInfo, shaderModules, myHousePipelineHash)]));
+
+		// alphaTestSpecializationData.alphaTestMethod = 1;
+
+		// CHECK_VK(vkCreateGraphicsPipelines(
+		// 	myDevice,
+		// 	VK_NULL_HANDLE,
+		// 	1,
+		// 	&pipelineInfo,
+		// 	nullptr,
+		// 	&myGraphicsPipelines[hashAndCache(pipelineInfo, shaderModules, foo)])); /*AlphaTest*/
 
 		vkDestroyShaderModule(myDevice, vsModule, nullptr);
 		vkDestroyShaderModule(myDevice, fsModule, nullptr);
@@ -2084,7 +2218,7 @@ private:
 			vkCmdBindPipeline(
 				cmd,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				myGraphicsPipelines.data[segmentIt & 1]);
+				myGraphicsPipelines[myHousePipelineHash]);
 			
 			VkBuffer vertexBuffers[] = { myHouseModel.myVertexBuffer };
 			VkDeviceSize vertexOffsets[] = { 0 };
@@ -2278,8 +2412,8 @@ private:
 
 		vkDestroySwapchainKHR(myDevice, mySwapchain.swapchain, nullptr);
 
-		for (uint32_t pipelineIt = 0; pipelineIt < GraphicsPipelines::Count; pipelineIt++)
-			vkDestroyPipeline(myDevice, myGraphicsPipelines.data[pipelineIt], nullptr);
+		for (auto& pipelineIt : myGraphicsPipelines)
+			vkDestroyPipeline(myDevice, pipelineIt.second, nullptr);
 		
 		vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 		vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
@@ -2299,8 +2433,8 @@ private:
 			// vmaDestroyBuffer(myAllocator, myQuadModel.myVertexBuffer, myQuadModel.myVertexBufferMemory);
 			// vmaDestroyBuffer(myAllocator, myQuadModel.myIndexBuffer, myQuadModel.myIndexBufferMemory);
 
-			vmaDestroyImage(myAllocator, myVulkanImage.myImage, myVulkanImage.myImageMemory);
-			vkDestroyImageView(myDevice, myVulkanImage.myImageView, nullptr);
+			// vmaDestroyImage(myAllocator, myVulkanImage.myImage, myVulkanImage.myImageMemory);
+			// vkDestroyImageView(myDevice, myVulkanImage.myImageView, nullptr);
 
 			vmaDestroyBuffer(myAllocator, myHouseModel.myVertexBuffer, myHouseModel.myVertexBufferMemory);
 			vmaDestroyBuffer(myAllocator, myHouseModel.myIndexBuffer, myHouseModel.myIndexBufferMemory);
@@ -2352,18 +2486,7 @@ private:
 	VkDescriptorSet myDescriptorSet = VK_NULL_HANDLE;
 	VkRenderPass myRenderPass = VK_NULL_HANDLE;
 	VkPipelineLayout myPipelineLayout = VK_NULL_HANDLE;
-	struct GraphicsPipelines
-	{
-		enum
-		{
-			NoAlphaTest,
-			AlphaTest,
-
-			Count
-		};
-
-		VkPipeline data[Count] = { VK_NULL_HANDLE };
-	} myGraphicsPipelines;
+	std::unordered_map<uint64_t, VkPipeline> myGraphicsPipelines;
 	VkSampler mySampler = VK_NULL_HANDLE;
 	VkBuffer myUniformBuffer = VK_NULL_HANDLE;
 	VmaAllocation myUniformBufferMemory = VK_NULL_HANDLE;
@@ -2381,8 +2504,10 @@ private:
 
 	//Model myQuadModel;
 	Model myHouseModel;
-	Texture myVulkanImage;
+	//Texture myVulkanImage;
 	Texture myHouseImage;
+
+	uint64_t myHousePipelineHash = 0; // temp
 
 	std::filesystem::path myResourcePath;
 
@@ -2393,8 +2518,8 @@ private:
 	bool myUIEnableFlag = false;
 	bool myCreateFrameResourcesFlag = false;
 
-	static constexpr uint32_t NX = 8;
-	static constexpr uint32_t NY = 4;
+	static constexpr uint32_t NX = 4;
+	static constexpr uint32_t NY = 2;
 };
 
 static VulkanApplication* theApp = nullptr;
