@@ -332,6 +332,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
 		.LinkerOutput + '.exe'
+		.LinkerOptions + ' -lgdi32'
 	#endif //__WINDOWS__
 	}
 

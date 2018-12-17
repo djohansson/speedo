@@ -88,6 +88,7 @@
 #include <imgui.cpp>
 #include <imgui_draw.cpp>
 #include <imgui_demo.cpp>
+#include <imgui_widgets.cpp>
 #include <examples/imgui_impl_vulkan.cpp>
 
 
@@ -614,7 +615,7 @@ public:
 				ImGui::ShowFontSelector("Fonts");
 				if (ImGui::Button("Show User Guide"))
 				{
-					ImGui::SetNextWindowPosCenter();
+					ImGui::SetNextWindowPosCenter(0);
 					ImGui::OpenPopup("UserGuide");
 				}
 				if (ImGui::BeginPopup("UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
@@ -698,8 +699,8 @@ private:
 				if (!parseObj(&attrib, &shapes, &materials, buffer.get(), bufferSize, option))
 					throw std::runtime_error("Failed to load model.");
 			#else
-				std::string err;
-				if (!tinyobj::LoadObj(&attrib, &shapes, &materials,  &err, &file))
+				std::string warn, err;
+				if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &file))
 					throw std::runtime_error(err);
 			#endif
 			}
@@ -2077,8 +2078,6 @@ private:
 			fd->RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 		//ImGui_ImplVulkanH_CreateWindowDataCommandBuffers(myDevice, myQueueFamilyIndex, myWindowData.get(), nullptr);
-
-
 
 		createRenderPass();
 		createGraphicsPipelines();

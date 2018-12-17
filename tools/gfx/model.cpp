@@ -216,20 +216,25 @@ Result ModelLoader::load(
         baseDir = makeString(inputPath, lastSlash);
     }
 
-    std::string diagnostics;
+    std::string warn, err;
     bool shouldTriangulate = true;
     bool success = tinyobj::LoadObj(
         &objVertexAttributes,
         &objShapes,
         &objMaterials,
-        &diagnostics,
+        &warn,
+        &err,
         inputPath,
         baseDir.size() ? baseDir.c_str() : nullptr,
         shouldTriangulate);
 
-    if(!diagnostics.empty())
+    if(!warn.empty())
     {
-        log("%s", diagnostics.c_str());
+        log("warnings: %s", warn.c_str());
+    }
+    if(!err.empty())
+    {
+        log("errors: %s", err.c_str());
     }
     if(!success)
     {
