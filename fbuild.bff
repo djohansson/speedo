@@ -121,6 +121,40 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif //__WINDOWS__
 	}
 
+	Library('$ConfigName$-murmur3')
+	{
+		.IntermediateFilePath + '/murmur3'
+
+		.CompilerOptions + .CompilerOptionsC
+		
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/murmur3/murmur3.c',
+		}
+		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/murmur3'
+	#if __WINDOWS__
+		.LibrarianOutput + '.lib'
+	#endif //__WINDOWS__
+	}
+
+	Library('$ConfigName$-xxhash')
+	{
+		.IntermediateFilePath + '/xxhash'
+
+		.CompilerOptions + .CompilerOptionsC
+		
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/xxhash/xxhash.c',
+		}
+		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/xxhash'
+	#if __WINDOWS__
+		.LibrarianOutput + '.lib'
+	#endif //__WINDOWS__
+	}
+
 	ObjectList('$ConfigName$-glslang-OGLCompilersDLL')
 	{
 		.IntermediateFilePath + '/glslang-OGLCompilersDLL'
@@ -309,6 +343,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
 			+ ' -I$ProjectPath$/external/glm'
+			+ ' -I$ProjectPath$/external/xxhash'
 			+ ' -I$ProjectPath$/external/stb'
 			+ ' -I$ProjectPath$/external/tinyobjloader'
 			+ ' -I$ProjectPath$/external/glfw/include'
@@ -335,6 +370,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-slang',
 			'$ConfigName$-volcano',
 			'$ConfigName$-glfw',
+			'$ConfigName$-xxhash',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano'
 		.LinkerOptions + .LinkerOptionsCpp
@@ -363,6 +399,6 @@ ForEach(.Config in .Clang_x64_Configs)
 
 Alias('all')
 {
-	.Targets = .AllConfigNames
-//	.Targets = { 'debug' }
+//	.Targets = .AllConfigNames
+	.Targets = { 'debug' }
 }
