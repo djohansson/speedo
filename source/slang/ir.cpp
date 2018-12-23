@@ -11,10 +11,10 @@ namespace Slang
 {
     struct IRSpecContext;
 
-    IRGlobalValue* cloneGlobalValueWithMangledName(
-        IRSpecContext*  context,
-        Name*   mangledName,
-        IRGlobalValue*  originalVal);
+    IRInst* cloneGlobalValueWithLinkage(
+        IRSpecContext*          context,
+        IRInst*                 originalVal,
+        IRLinkageDecoration*    originalLinkage);
 
     struct IROpMapEntry
     {
@@ -75,11 +75,11 @@ namespace Slang
         return kIROps[kIROpCount].info;
     }
 
-    IROp findIROp(char const* name)
+    IROp findIROp(const UnownedStringSlice& name)
     {
         for (auto ee : kIROps)
         {
-            if (strcmp(name, ee.info.name) == 0)
+            if (name == ee.info.name)
                 return ee.op;
         }
 
@@ -166,6 +166,19 @@ namespace Slang
         }
     }
 
+    // IRInstListBase
+
+    void IRInstListBase::Iterator::operator++()
+    {
+        if (inst)
+        {
+            inst = inst->next;
+        }
+    }
+
+    IRInstListBase::Iterator IRInstListBase::begin() { return Iterator(first); }
+    IRInstListBase::Iterator IRInstListBase::end() { return Iterator(last ? last->next : nullptr); }
+
     //
 
     IRUse* IRInst::getOperands()
@@ -180,9 +193,9 @@ namespace Slang
         return (IRUse*)(this + 1);
     }
 
-    IRDecoration* IRInst::findDecorationImpl(IRDecorationOp decorationOp)
+    IRDecoration* IRInst::findDecorationImpl(IROp decorationOp)
     {
-        for( auto dd = firstDecoration; dd; dd = dd->next )
+        for(auto dd : getDecorations())
         {
             if(dd->op == decorationOp)
                 return dd;
@@ -239,14 +252,31 @@ namespace Slang
 
     void IRBlock::addParam(IRParam* param)
     {
-        auto lastParam = getLastParam();
-        if (lastParam)
+        // If there are any existing parameters,
+        // then insert after the last of them.
+        //
+        if (auto lastParam = getLastParam())
         {
             param->insertAfter(lastParam);
         }
+        //
+        // Otherwise, if there are any existing
+        // "ordinary" instructions, insert before
+        // the first of them.
+        //
+        else if(auto firstOrdinary = getFirstOrdinaryInst())
+        {
+            param->insertBefore(firstOrdinary);
+        }
+        //
+        // Otherwise the block currently has neither
+        // parameters nor orindary instructions,
+        // so we can safely insert at the end of
+        // the list of (raw) children.
+        //
         else
         {
-            param->insertAtStart(this);
+            param->insertAtEnd(this);
         }
     }
 
@@ -525,6 +555,23 @@ namespace Slang
         return entryBlock->getFirstParam();
     }
 
+    IRParam* IRGlobalValueWithParams::getLastParam()
+    {
+        auto entryBlock = getFirstBlock();
+        if(!entryBlock) return nullptr;
+
+        return entryBlock->getLastParam();
+    }
+
+    IRInstList<IRParam> IRGlobalValueWithParams::getParams()
+    {
+        auto entryBlock = getFirstBlock();
+        if(!entryBlock) return IRInstList<IRParam>();
+
+        return entryBlock->getParams();
+    }
+
+
     // IRFunc
 
     IRType* IRFunc::getResultType() { return getDataType()->getResultType(); }
@@ -585,7 +632,7 @@ namespace Slang
     }
 
 
-    void IRBuilder::setInsertInto(IRParentInst* insertInto)
+    void IRBuilder::setInsertInto(IRInst* insertInto)
     {
         insertIntoParent = insertInto;
         insertBeforeInst = nullptr;
@@ -620,7 +667,7 @@ namespace Slang
     // Given two parent instructions, pick the better one to use as as
     // insertion location for a "hoistable" instruction.
     //
-    IRParentInst* mergeCandidateParentsForHoistableInst(IRParentInst* left, IRParentInst* right)
+    IRInst* mergeCandidateParentsForHoistableInst(IRInst* left, IRInst* right)
     {
         // If the candidates are both the same, then who cares?
         if(left == right) return left;
@@ -681,7 +728,7 @@ namespace Slang
         // If the non-block on the left or right is a descendent of
         // the other, then that is what we should use.
         //
-        IRParentInst* parentNonBlock = nullptr;
+        IRInst* parentNonBlock = nullptr;
         for (auto ll = leftNonBlock; ll; ll = ll->getParent())
         {
             if (ll == rightNonBlock)
@@ -715,7 +762,7 @@ namespace Slang
             parentNonBlock = leftNonBlock;
         }
 
-        IRParentInst* parent = parentNonBlock;
+        IRInst* parent = parentNonBlock;
 
         // At this point we've found a non-block parent where we
         // could stick things, but we have to fix things up in
@@ -791,19 +838,6 @@ namespace Slang
         return inst;
     }
 
-
-    IRDecoration* createEmptyDecoration(
-        IRModule* module,
-        IRDecorationOp op,
-        size_t sizeInBytes)
-    {
-        SLANG_ASSERT(sizeInBytes >= sizeof(IRDecoration));
-        SLANG_ASSERT(module);
-        IRDecoration* decor = (IRDecoration*)module->memoryArena.allocateAndZero(sizeInBytes);
-        decor->op = op;
-        return decor;
-    }
-
     // Given an instruction that represents a constant, a type, etc.
     // Try to "hoist" it as far toward the global scope as possible
     // to insert it at a location where it will be maximally visible.
@@ -814,7 +848,7 @@ namespace Slang
     {
         // Start with the assumption that we would insert this instruction
         // into the global scope (the instruction that represents the module)
-        IRParentInst* parent = builder->getModule()->getModuleInst();
+        IRInst* parent = builder->getModule()->getModuleInst();
 
         // The above decision might be invalid, because there might be
         // one or more operands of the instruction that are defined in
@@ -1177,13 +1211,14 @@ namespace Slang
         return code;
     }
 
-    UnownedStringSlice IRConstant::getStringSlice() const
+    UnownedStringSlice IRConstant::getStringSlice()
     {
         assert(op == kIROp_StringLit);
         // If the transitory decoration is set, then this is uses the transitoryStringVal for the text storage.
         // This is typically used when we are using a transitory IRInst held on the stack (such that it can be looked up in cached), 
         // that just points to a string elsewhere, and NOT the typical normal style, where the string is held after the instruction in memory.
-        if (firstDecoration && firstDecoration->op == kIRDecorationOp_Transitory)
+        //
+        if(findDecorationImpl(kIROp_TransitoryDecoration))
         {
             return UnownedStringSlice(value.transitoryStringVal.chars, value.transitoryStringVal.numChars);
         }
@@ -1217,6 +1252,10 @@ namespace Slang
                 // ... we can just compare as bits
                 return value.intVal == rhs.value.intVal;
             }
+            case kIROp_PtrLit:
+            {
+                return value.ptrVal == rhs.value.ptrVal;
+            }
             case kIROp_StringLit:
             {
                 return getStringSlice() == rhs.getStringSlice();
@@ -1242,6 +1281,10 @@ namespace Slang
                 SLANG_COMPILE_TIME_ASSERT(sizeof(IRFloatingPointValue) == sizeof(IRIntegerValue));
                 // ... we can just compare as bits
                 return combineHash(code, Slang::GetHashCode(value.intVal));
+            }
+            case kIROp_PtrLit:
+            {
+                return combineHash(code, Slang::GetHashCode(value.ptrVal));
             }
             case kIROp_StringLit:
             {
@@ -1283,6 +1326,10 @@ namespace Slang
 
         switch (keyInst.op)
         {
+        default:
+            SLANG_UNEXPECTED("missing case for IR constant");
+            break;
+
             case kIROp_BoolLit:
             case kIROp_IntLit:
             {
@@ -1294,6 +1341,12 @@ namespace Slang
             {
                 irValue = static_cast<IRConstant*>(createInstWithSizeImpl(builder, keyInst.op, keyInst.getFullType(), prefixSize + sizeof(IRFloatingPointValue)));
                 irValue->value.floatVal = keyInst.value.floatVal;
+                break;
+            }
+            case kIROp_PtrLit:
+            {
+                irValue = static_cast<IRConstant*>(createInstWithSizeImpl(builder, keyInst.op, keyInst.getFullType(), prefixSize + sizeof(void*)));
+                irValue->value.ptrVal = keyInst.value.ptrVal;
                 break;
             }
             case kIROp_StringLit:
@@ -1363,8 +1416,10 @@ namespace Slang
         memset(&keyInst, 0, sizeof(keyInst));
         
         // Mark that this is on the stack...
-        static IRDecoration stackDecoration = IRDecoration::make(kIRDecorationOp_Transitory);
-        keyInst.firstDecoration = &stackDecoration;
+        IRDecoration stackDecoration;
+        memset(&stackDecoration, 0, sizeof(stackDecoration));
+        stackDecoration.op = kIROp_TransitoryDecoration;
+        stackDecoration.insertAtEnd(&keyInst);
             
         keyInst.op = kIROp_StringLit;
         keyInst.typeUse.usedValue = getStringType();
@@ -1375,6 +1430,19 @@ namespace Slang
 
         return static_cast<IRStringLit*>(findOrEmitConstant(this, keyInst));
     }
+
+    IRPtrLit* IRBuilder::getPtrValue(void* value)
+    {
+        IRType* type = getPtrType(getVoidType());
+
+        IRConstant keyInst;
+        memset(&keyInst, 0, sizeof(keyInst));
+        keyInst.op = kIROp_PtrLit;
+        keyInst.typeUse.usedValue = type;
+        keyInst.value.ptrVal = value;
+        return (IRPtrLit*) findOrEmitConstant(this, keyInst);
+    }
+
  
     IRInst* findOrEmitHoistableInst(
         IRBuilder*              builder,
@@ -1695,6 +1763,48 @@ namespace Slang
         return inst;
     }
 
+    IRInst* IRBuilder::emitExtractExistentialValue(
+        IRType* type,
+        IRInst* existentialValue)
+    {
+        auto inst = createInst<IRInst>(
+            this,
+            kIROp_ExtractExistentialValue,
+            type,
+            1,
+            &existentialValue);
+        addInst(inst);
+        return inst;
+    }
+
+    IRType* IRBuilder::emitExtractExistentialType(
+        IRInst* existentialValue)
+    {
+        auto type = getTypeKind();
+        auto inst = createInst<IRInst>(
+            this,
+            kIROp_ExtractExistentialType,
+            type,
+            1,
+            &existentialValue);
+        addInst(inst);
+        return (IRType*) inst;
+    }
+
+    IRInst* IRBuilder::emitExtractExistentialWitnessTable(
+        IRInst* existentialValue)
+    {
+        auto type = getWitnessTableType();
+        auto inst = createInst<IRInst>(
+            this,
+            kIROp_ExtractExistentialWitnessTable,
+            type,
+            1,
+            &existentialValue);
+        addInst(inst);
+        return inst;
+    }
+
     IRInst* IRBuilder::emitSpecializeInst(
         IRType*         type,
         IRInst*         genericVal,
@@ -1748,16 +1858,30 @@ namespace Slang
         return inst;
     }
 
+    IRInst* IRBuilder::createIntrinsicInst(
+        IRType*         type,
+        IROp            op,
+        UInt            argCount,
+        IRInst* const* args)
+    {
+        return createInstWithTrailingArgs<IRInst>(
+            this,
+            op,
+            type,
+            argCount,
+            args);
+    }
+
+
     IRInst* IRBuilder::emitIntrinsicInst(
         IRType*         type,
         IROp            op,
         UInt            argCount,
         IRInst* const* args)
     {
-        auto inst = createInstWithTrailingArgs<IRInst>(
-            this,
-            op,
+        auto inst = createIntrinsicInst(
             type,
+            op,
             argCount,
             args);
         addInst(inst);
@@ -1803,6 +1927,15 @@ namespace Slang
         return emitIntrinsicInst(type, kIROp_makeStruct, argCount, args);
     }
 
+    IRInst* IRBuilder::emitMakeExistential(
+        IRType* type,
+        IRInst* value,
+        IRInst* witnessTable)
+    {
+        IRInst* args[] = {value, witnessTable};
+        return emitIntrinsicInst(type, kIROp_MakeExistential, SLANG_COUNT_OF(args), args);
+    }
+
     IRModule* IRBuilder::createModule()
     {
         auto module = new IRModule();
@@ -1825,8 +1958,8 @@ namespace Slang
     }
 
     void addGlobalValue(
-        IRBuilder*      builder,
-        IRGlobalValue*  value)
+        IRBuilder*  builder,
+        IRInst*     value)
     {
         // Try to find a suitable parent for the
         // global value we are emitting.
@@ -1915,6 +2048,18 @@ namespace Slang
         return globalConstant;
     }
 
+    IRGlobalParam* IRBuilder::createGlobalParam(
+        IRType* valueType)
+    {
+        IRGlobalParam* inst = createInst<IRGlobalParam>(
+            this,
+            kIROp_GlobalParam,
+            valueType);
+        maybeSetSourceLoc(this, inst);
+        addGlobalValue(this, inst);
+        return inst;
+    }
+
     IRWitnessTable* IRBuilder::createWitnessTable()
     {
         IRWitnessTable* witnessTable = createInst<IRWitnessTable>(
@@ -1953,6 +2098,16 @@ namespace Slang
             nullptr);
         addGlobalValue(this, structType);
         return structType;
+    }
+
+    IRInterfaceType* IRBuilder::createInterfaceType()
+    {
+        IRInterfaceType* interfaceType = createInst<IRInterfaceType>(
+            this,
+            kIROp_InterfaceType,
+            nullptr);
+        addGlobalValue(this, interfaceType);
+        return interfaceType;
     }
 
     IRStructKey* IRBuilder::createStructKey()
@@ -2004,21 +2159,6 @@ namespace Slang
         auto irGeneric = createGeneric();
         addGlobalValue(this, irGeneric);
         return irGeneric;
-    }
-
-
-    IRWitnessTable * IRBuilder::lookupWitnessTable(Name* mangledName)
-    {
-        IRWitnessTable * result;
-        if (sharedBuilder->witnessTableMap.TryGetValue(mangledName, result))
-            return result;
-        return nullptr;
-    }
-
-
-    void IRBuilder::registerWitnessTable(IRWitnessTable * table)
-    {
-        sharedBuilder->witnessTableMap[table->mangledName] = table;
     }
 
     IRBlock* IRBuilder::createBlock()
@@ -2157,19 +2297,6 @@ namespace Slang
             nullptr,
             dstPtr,
             srcVal);
-
-        addInst(inst);
-        return inst;
-    }
-
-    IRNotePatchConstantFunc* IRBuilder::emitNotePatchConstantFunc(
-        IRInst* func)
-    {
-        auto inst = createInst<IRNotePatchConstantFunc>(
-            this,
-            kIROp_NotePatchConstantFunc,
-            nullptr,
-            func);
 
         addInst(inst);
         return inst;
@@ -2549,18 +2676,40 @@ namespace Slang
         return inst;
     }
 
-    IRHighLevelDeclDecoration* IRBuilder::addHighLevelDeclDecoration(IRInst* inst, Decl* decl)
+    IRDecoration* IRBuilder::addDecoration(IRInst* value, IROp op, IRInst* const* operands, Int operandCount)
     {
-        auto decoration = addDecoration<IRHighLevelDeclDecoration>(inst, kIRDecorationOp_HighLevelDecl);
-        decoration->decl = decl;
+        auto decoration = createInstWithTrailingArgs<IRDecoration>(
+            this,
+            op,
+            getVoidType(),
+            operandCount,
+            operands);
+
+        // Decoration order should not, in general, be semantically
+        // meaningful, so we will elect to insert a new decoration
+        // at the start of an instruction (constant time) rather
+        // than at the end of any existing list of deocrations
+        // (which would take time linear in the number of decorations).
+        //
+        // TODO: revisit this if maintaining decoration ordering
+        // from input source code is desirable.
+        //
+        decoration->insertAtStart(value);
+
         return decoration;
     }
 
-    IRLayoutDecoration* IRBuilder::addLayoutDecoration(IRInst* inst, Layout* layout)
+
+    void IRBuilder::addHighLevelDeclDecoration(IRInst* inst, Decl* decl)
     {
-        auto decoration = addDecoration<IRLayoutDecoration>(inst);
-        decoration->layout = addRefObjectToFree(layout);
-        return decoration;
+        auto ptrConst = getPtrValue(addRefObjectToFree(decl));
+        addDecoration(inst, kIROp_HighLevelDeclDecoration, ptrConst);
+    }
+
+    void IRBuilder::addLayoutDecoration(IRInst* inst, Layout* layout)
+    {
+        auto ptrConst = getPtrValue(addRefObjectToFree(layout));
+        addDecoration(inst, kIROp_LayoutDecoration, ptrConst);
     }
 
     //
@@ -2568,11 +2717,13 @@ namespace Slang
 
     struct IRDumpContext
     {
-        StringBuilder* builder;
-        int     indent = 0;
+        StringBuilder*  builder = nullptr;
+        int             indent  = 0;
+        IRDumpMode      mode    = IRDumpMode::Simplified;
 
-        UInt                        idCounter = 1;
-        Dictionary<IRInst*, UInt>  mapValueToID;
+        Dictionary<IRInst*, String> mapValueToName;
+        Dictionary<String, UInt>    uniqueNameCounters;
+        UInt                        uniqueIDCounter = 1;
     };
 
     static void dump(
@@ -2584,19 +2735,25 @@ namespace Slang
 
     static void dump(
         IRDumpContext*  context,
+        String const&   text)
+    {
+        context->builder->append(text);
+    }
+
+    /*
+    static void dump(
+        IRDumpContext*  context,
         UInt            val)
     {
         context->builder->append(UnambigousUInt(val));
-//        fprintf(context->file, "%llu", (unsigned long long)val);
     }
+    */
 
     static void dump(
         IRDumpContext*          context,
         IntegerLiteralValue     val)
     {
         context->builder->append(val);
-
-//        fprintf(context->file, "%llu", (unsigned long long)val);
     }
 
     static void dump(
@@ -2604,8 +2761,6 @@ namespace Slang
         FloatingPointLiteralValue   val)
     {
         context->builder->append(val);
-
-//        fprintf(context->file, "%llu", (unsigned long long)val);
     }
 
     static void dumpIndent(
@@ -2617,28 +2772,143 @@ namespace Slang
         }
     }
 
-    bool opHasResult(IRInst* inst);
+    bool opHasResult(IRInst* inst)
+    {
+        auto type = inst->getDataType();
+        if (!type) return false;
+
+        // As a bit of a hack right now, we need to check whether
+        // the function returns the distinguished `Void` type,
+        // since that is conceptually the same as "not returning
+        // a value."
+        if(type->op == kIROp_VoidType)
+            return false;
+
+        return true;
+    }
 
     bool instHasUses(IRInst* inst)
     {
         return inst->firstUse != nullptr;
     }
 
-    static UInt getID(
+    static void scrubName(
+        String const& name,
+        StringBuilder&  sb)
+    {
+        // Note: this function duplicates a lot of the logic
+        // in `EmitVisitor::scrubName`, so we should consider
+        // whether they can share code at some point.
+        //
+        // There is no requirement that assembly dumps and output
+        // code follow the same model, though, so this is just
+        // a nice-to-have rather than a maintenance problem
+        // waiting to happen.
+
+        // Allow an empty nam
+        // Special case a name that is the empty string, just in case.
+        if(name.Length() == 0)
+        {
+            sb.append('_');
+        }
+
+        int prevChar = -1;
+        for(auto c : name)
+        {
+            if(c == '.')
+            {
+                c = '_';
+            }
+
+            if(((c >= 'a') && (c <= 'z'))
+                || ((c >= 'A') && (c <= 'Z')))
+            {
+                // Ordinary ASCII alphabetic characters are assumed
+                // to always be okay.
+            }
+            else if((c >= '0') && (c <= '9'))
+            {
+                // We don't want to allow a digit as the first
+                // byte in a name.
+                if(prevChar == -1)
+                {
+                    sb.append('_');
+                }
+            }
+            else
+            {
+                // If we run into a character that wouldn't normally
+                // be allowed in an identifier, we need to translate
+                // it into something that *is* valid.
+                //
+                // Our solution for now will be very clumsy: we will
+                // emit `x` and then the hexadecimal version of
+                // the byte we were given.
+                sb.append("x");
+                sb.append(uint32_t((unsigned char) c), 16);
+
+                // We don't want to apply the default handling below,
+                // so skip to the top of the loop now.
+                prevChar = c;
+                continue;
+            }
+
+            sb.append(c);
+            prevChar = c;
+        }
+
+        // If the whole thing ended with a digit, then add
+        // a final `_` just to make sure that we can append
+        // a unique ID suffix without risk of collisions.
+        if(('0' <= prevChar) && (prevChar <= '9'))
+        {
+            sb.append('_');
+        }
+    }
+
+    static String createName(
         IRDumpContext*  context,
         IRInst*         value)
     {
-        UInt id = 0;
-        if (context->mapValueToID.TryGetValue(value, id))
-            return id;
-
-        if (opHasResult(value) || instHasUses(value))
+        if(auto nameHintDecoration = value->findDecoration<IRNameHintDecoration>())
         {
-            id = context->idCounter++;
-        }
+            String nameHint = nameHintDecoration->getName();
 
-        context->mapValueToID.Add(value, id);
-        return id;
+            StringBuilder sb;
+            scrubName(nameHint, sb);
+
+            String key = sb.ProduceString();
+            UInt count = 0;
+            context->uniqueNameCounters.TryGetValue(key, count);
+
+            context->uniqueNameCounters[key] = count+1;
+
+            if(count)
+            {
+                sb.append(count);
+            }
+            return sb.ProduceString();
+        }
+        else
+        {
+            StringBuilder sb;
+            auto id = context->uniqueIDCounter++;
+            sb.append(id);
+            return sb.ProduceString();
+        }
+    }
+
+    static String getName(
+        IRDumpContext*  context,
+        IRInst*         value)
+    {
+        String name;
+        if (context->mapValueToName.TryGetValue(value, name))
+            return name;
+
+        name = createName(context, value);
+        context->mapValueToName.Add(value, name);
+        return name;
     }
 
     static void dumpID(
@@ -2651,26 +2921,10 @@ namespace Slang
             return;
         }
 
-        if (auto globalValue = as<IRGlobalValue>(inst))
-        {
-            auto mangledName = globalValue->mangledName;
-            if(mangledName)
-            {
-                auto mangledNameText = getText(mangledName);
-                if (mangledNameText.Length() > 0)
-                {
-                    dump(context, "@");
-                    dump(context, mangledNameText.Buffer());
-                    return;
-                }
-            }
-        }
-
-        UInt id = getID(context, inst);
-        if (id)
+        if( opHasResult(inst) || instHasUses(inst) )
         {
             dump(context, "%");
-            dump(context, id);
+            dump(context, getName(context, inst));
         }
         else
         {
@@ -2786,6 +3040,38 @@ namespace Slang
         IRDumpContext*  context,
         IRType*         type);
 
+    static bool shouldFoldInstIntoUses(
+        IRDumpContext*  context,
+        IRInst*         inst)
+    {
+        // Never fold an instruction into its use site
+        // in the "detailed" mode, so that we always
+        // accurately reflect the structure of the IR.
+        //
+        if(context->mode == IRDumpMode::Detailed)
+            return false;
+
+        if(as<IRConstant>(inst))
+            return true;
+
+        if(as<IRType>(inst))
+            return true;
+
+        return false;
+    }
+
+    static void dumpInst(
+        IRDumpContext*  context,
+        IRInst*         inst);
+
+    static void dumpInstBody(
+        IRDumpContext*  context,
+        IRInst*         inst);
+
+    static void dumpInstExpr(
+        IRDumpContext*  context,
+        IRInst*         inst);
+
     static void dumpOperand(
         IRDumpContext*  context,
         IRInst*         inst)
@@ -2797,25 +3083,10 @@ namespace Slang
             return;
         }
 
-        switch (inst->op)
+        if(shouldFoldInstIntoUses(context, inst))
         {
-        case kIROp_IntLit:
-            dump(context, ((IRConstant*)inst)->value.intVal);
+            dumpInstExpr(context, inst);
             return;
-
-        case kIROp_FloatLit:
-            dump(context, ((IRConstant*)inst)->value.floatVal);
-            return;
-
-        case kIROp_BoolLit:
-            dump(context, ((IRConstant*)inst)->value.intVal ? "true" : "false");
-            return;
-        case kIROp_StringLit:
-            dumpEncodeString(context, static_cast<IRConstant*>(inst)->getStringSlice());
-            return;
-
-        default:
-            break;
         }
 
         dumpID(context, inst);
@@ -2846,9 +3117,39 @@ namespace Slang
 
     }
 
-    static void dumpInst(
+    void dumpIRDecorations(
         IRDumpContext*  context,
-        IRInst*         inst);
+        IRInst*         inst)
+    {
+        for(auto dd : inst->getDecorations())
+        {
+            // Certain decorations aren't helpful to appear
+            // in output dumps, so we will only include them
+            // in the "detailed" dumping mode.
+            //
+            // For all other modes, we will check the opcode
+            // and skip selected decorations.
+            //
+            if(context->mode != IRDumpMode::Detailed)
+            {
+                switch(dd->op)
+                {
+                default:
+                    break;
+
+                case kIROp_HighLevelDeclDecoration:
+                case kIROp_LayoutDecoration:
+                    continue;
+                }
+            }
+
+            dump(context, "[");
+            dumpInstBody(context, dd);
+            dump(context, "]\n");
+
+            dumpIndent(context);
+        }
+    }
 
     static void dumpBlock(
         IRDumpContext*  context,
@@ -2879,6 +3180,7 @@ namespace Slang
                 inst = inst->getNextInst();
 
                 dumpIndent(context);
+                dumpIRDecorations(context, param);
                 dump(context, "param ");
                 dumpID(context, param);
                 dumpInstTypeClause(context, param->getFullType());
@@ -2895,81 +3197,12 @@ namespace Slang
         }
     }
 
-    void dumpIRDecorations(
-        IRDumpContext*  context,
-        IRInst*         inst)
-    {
-        for( auto dd = inst->firstDecoration; dd; dd = dd->next )
-        {
-            switch( dd->op )
-            {
-            case kIRDecorationOp_Target:
-                {
-                    auto decoration = (IRTargetDecoration*) dd;
-
-                    dump(context, "\n");
-                    dumpIndent(context);
-                    dump(context, "[target(");
-                    dump(context, StringRepresentation::getData(decoration->targetName));
-                    dump(context, ")]");
-                }
-                break;
-
-            case kIRDecorationOp_TargetIntrinsic:
-                {
-                    auto decoration = (IRTargetIntrinsicDecoration*) dd;
-
-                    dump(context, "\n");
-                    dumpIndent(context);
-                    dump(context, "[targetIntrinsic(");
-                    dump(context, StringRepresentation::getData(decoration->targetName));
-                    dump(context, ", ");
-                    dump(context, StringRepresentation::getData(decoration->definition));
-                    dump(context, ")]");
-                }
-                break;
-
-            case kIRDecorationOp_VulkanRayPayload:
-                {
-                    dump(context, "\n[__vulkanRayPayload]");
-                }
-                break;
-            case kIRDecorationOp_VulkanCallablePayload:
-                {
-                    dump(context, "\n[__vulkanCallPayload]");
-                }
-                break;
-            case kIRDecorationOp_VulkanHitAttributes:
-                {
-                    dump(context, "\n[__vulkanHitAttributes]");
-                }
-                break;
-            case kIRDecorationOp_ReadNone:
-                {
-                    dump(context, "\n[__readNone]");
-                }
-                break;
-            case kIRDecorationOp_EarlyDepthStencil:
-                {
-                    dump(context, "\n[earlydepthstencil]");
-                }
-                break;
-            case kIRDecorationOp_GloballyCoherent:
-                {
-                    dump(context, "\n[globallycoherent]");
-                }
-                break;
-            }
-        }
-    }
-
     void dumpIRGlobalValueWithCode(
         IRDumpContext*          context,
         IRGlobalValueWithCode*  code)
     {
         auto opInfo = getIROpInfo(code->op);
 
-        dump(context, "\n");
         dumpIndent(context);
         dump(context, opInfo.name);
         dump(context, " ");
@@ -2998,19 +3231,9 @@ namespace Slang
         }
 
         context->indent--;
-        dump(context, "}\n");
+        dump(context, "}");
     }
 
-
-    String dumpIRFunc(IRFunc* func)
-    {
-        IRDumpContext dumpContext;
-        StringBuilder sbDump;
-        dumpContext.builder = &sbDump;
-        dumpIRGlobalValueWithCode(&dumpContext, func);
-        auto strFunc = sbDump.ToString();
-        return strFunc;
-    }
 
     void dumpIRWitnessTableEntry(
         IRDumpContext*          context,
@@ -3025,11 +3248,10 @@ namespace Slang
 
     void dumpIRParentInst(
         IRDumpContext*  context,
-        IRParentInst*   inst)
+        IRInst*         inst)
     {
         auto opInfo = getIROpInfo(inst->op);
 
-        dump(context, "\n");
         dumpIndent(context);
         dump(context, opInfo.name);
         dump(context, " ");
@@ -3050,7 +3272,7 @@ namespace Slang
         dump(context, "{\n");
         context->indent++;
 
-        for (auto child = inst->getFirstChild(); child; child = child->getNextInst())
+        for(auto child : inst->getChildren())
         {
             dumpInst(context, child);
         }
@@ -3079,75 +3301,56 @@ namespace Slang
         dump(context, "}\n");
     }
 
-    static void dumpInst(
+    static void dumpInstExpr(
         IRDumpContext*  context,
         IRInst*         inst)
     {
         if (!inst)
         {
-            dumpIndent(context);
             dump(context, "<null>");
             return;
         }
 
         auto op = inst->op;
-
-        dumpIRDecorations(context, inst);
-
-        // There are several ops we want to special-case here,
-        // so that they will be more pleasant to look at.
-        //
-        switch (op)
-        {
-        case kIROp_Func:
-        case kIROp_GlobalVar:
-        case kIROp_GlobalConstant:
-        case kIROp_Generic:
-            dumpIRGlobalValueWithCode(context, (IRGlobalValueWithCode*)inst);
-            return;
-
-        case kIROp_WitnessTable:
-        case kIROp_StructType:
-            dumpIRParentInst(context, (IRWitnessTable*)inst);
-            return;
-
-        case kIROp_WitnessTableEntry:
-            dumpIRWitnessTableEntry(context, (IRWitnessTableEntry*)inst);
-            return;
-
-        default:
-            break;
-        }
-
-        // Okay, we have a seemingly "ordinary" op now
-        dumpIndent(context);
-
         auto opInfo = getIROpInfo(op);
-        auto dataType = inst->getDataType();
-        auto rate = inst->getRate();
 
-        if(rate)
+        // Special-case the literal instructions.
+        if(auto irConst = as<IRConstant>(inst))
         {
-            dump(context, "@");
-            dumpOperand(context, rate);
-            dump(context, " ");
-        }
+            switch (op)
+            {
+            case kIROp_IntLit:
+                dump(context, irConst->value.intVal);
+                return;
 
-        if(opHasResult(inst) || instHasUses(inst))
-        {
-            dump(context, "let  ");
-            dumpID(context, inst);
-            dumpInstTypeClause(context, dataType);
-            dump(context, "\t= ");
-        }
-        else
-        {
-            // No result, okay...
+            case kIROp_FloatLit:
+                dump(context, irConst->value.floatVal);
+                return;
+
+            case kIROp_BoolLit:
+                dump(context, irConst->value.intVal ? "true" : "false");
+                return;
+
+            case kIROp_StringLit:
+                dumpEncodeString(context, irConst->getStringSlice());
+                return;
+
+            case kIROp_PtrLit:
+                dump(context, "<ptr>");
+                return;
+
+            default:
+                break;
+            }
         }
 
         dump(context, opInfo.name);
 
         UInt argCount = inst->getOperandCount();
+
+        if(argCount == 0)
+            return;
+
         UInt ii = 0;
 
         // Special case: make printing of `call` a bit
@@ -3173,22 +3376,84 @@ namespace Slang
             first = false;
         }
 
-        // Special cases: literals and other instructions with no real operands
-        switch (inst->op)
+        dump(context, ")");
+
+    }
+
+    static void dumpInstBody(
+        IRDumpContext*  context,
+        IRInst*         inst)
+    {
+        if (!inst)
         {
-        case kIROp_IntLit:
-        case kIROp_FloatLit:
-        case kIROp_BoolLit:
-        case kIROp_StringLit:
-            dumpOperand(context, inst);
-            break;
+            dump(context, "<null>");
+            return;
+        }
+
+        auto op = inst->op;
+
+        dumpIRDecorations(context, inst);
+
+        // There are several ops we want to special-case here,
+        // so that they will be more pleasant to look at.
+        //
+        switch (op)
+        {
+        case kIROp_Func:
+        case kIROp_GlobalVar:
+        case kIROp_GlobalConstant:
+        case kIROp_Generic:
+            dumpIRGlobalValueWithCode(context, (IRGlobalValueWithCode*)inst);
+            return;
+
+        case kIROp_WitnessTable:
+        case kIROp_StructType:
+            dumpIRParentInst(context, inst);
+            return;
+
+        case kIROp_WitnessTableEntry:
+            dumpIRWitnessTableEntry(context, (IRWitnessTableEntry*)inst);
+            return;
 
         default:
             break;
         }
 
-        dump(context, ")");
+        // Okay, we have a seemingly "ordinary" op now
+        auto dataType = inst->getDataType();
+        auto rate = inst->getRate();
 
+        if(rate)
+        {
+            dump(context, "@");
+            dumpOperand(context, rate);
+            dump(context, " ");
+        }
+
+        if(opHasResult(inst) || instHasUses(inst))
+        {
+            dump(context, "let  ");
+            dumpID(context, inst);
+            dumpInstTypeClause(context, dataType);
+            dump(context, "\t= ");
+        }
+        else
+        {
+            // No result, okay...
+        }
+
+        dumpInstExpr(context, inst);
+    }
+
+    static void dumpInst(
+        IRDumpContext*  context,
+        IRInst*         inst)
+    {
+        if(shouldFoldInstIntoUses(context, inst))
+            return;
+
+        dumpIndent(context);
+        dumpInstBody(context, inst);
         dump(context, "\n");
     }
 
@@ -3202,47 +3467,99 @@ namespace Slang
         }
     }
 
-    void printSlangIRAssembly(StringBuilder& builder, IRModule* module)
+    void printSlangIRAssembly(StringBuilder& builder, IRModule* module, IRDumpMode mode)
     {
         IRDumpContext context;
         context.builder = &builder;
         context.indent = 0;
+        context.mode = mode;
 
         dumpIRModule(&context, module);
     }
 
-    void dumpIR(IRGlobalValue* globalVal)
+    void dumpIR(IRInst* globalVal, ISlangWriter* writer, IRDumpMode mode)
     {
         StringBuilder sb;
 
         IRDumpContext context;
         context.builder = &sb;
         context.indent = 0;
+        context.mode = mode;
 
         dumpInst(&context, globalVal);
 
-        fprintf(stderr, "%s\n", sb.Buffer());
-        fflush(stderr);
+        writer->write(sb.Buffer(), sb.Length());
+        writer->flush();
     }
 
-    String getSlangIRAssembly(IRModule* module)
+    String getSlangIRAssembly(IRModule* module, IRDumpMode mode)
     {
         StringBuilder sb;
-        printSlangIRAssembly(sb, module);
+        printSlangIRAssembly(sb, module, mode);
         return sb;
     }
 
-    void dumpIR(IRModule* module)
+    void dumpIR(IRModule* module, ISlangWriter* writer, IRDumpMode mode)
     {
-        String ir = getSlangIRAssembly(module);
-        fprintf(stderr, "%s\n", ir.Buffer());
-        fflush(stderr);
+        String ir = getSlangIRAssembly(module, mode);
+        writer->write(ir.Buffer(), ir.Length());
+        writer->flush();
     }
 
+    //
+    //
+    //
 
-    //
-    //
-    //
+    IRDecoration* IRInst::getFirstDecoration()
+    {
+        return as<IRDecoration>(getFirstDecorationOrChild());
+    }
+
+    IRDecoration* IRInst::getLastDecoration()
+    {
+        IRDecoration* decoration = getFirstDecoration();
+        if (!decoration) return nullptr;
+
+        while (auto nextDecoration = decoration->getNextDecoration())
+            decoration = nextDecoration;
+
+        return decoration;
+    }
+
+    IRInstList<IRDecoration> IRInst::getDecorations()
+    {
+        return IRInstList<IRDecoration>(
+            getFirstDecoration(),
+            getLastDecoration());
+    }
+
+    IRInst* IRInst::getFirstChild()
+    {
+        // The children come after any decorations,
+        // so if there are any decorations, then the
+        // first child is right after the last decoration.
+        //
+        if(auto lastDecoration = getLastDecoration())
+            return lastDecoration->getNextInst();
+        //
+        // Otherwise, there must be no decorations, so
+        // that the first "child or decoration" is a child.
+        //
+        return getFirstDecorationOrChild();
+    }
+
+    IRInst* IRInst::getLastChild()
+    {
+        // The children come after any decorations, so
+        // that the last item in the list of children
+        // and decorations is the last child *unless*
+        // it is a decoration, in which case there are
+        // no children.
+        //
+        auto lastChild = getLastDecorationOrChild();
+        return as<IRDecoration>(lastChild) ? nullptr : lastChild;
+    }
+
 
     IRRate* IRInst::getRate()
     {
@@ -3332,13 +3649,13 @@ namespace Slang
     void IRInst::insertBefore(IRInst* other)
     {
         SLANG_ASSERT(other);
-        insertBefore(other, other->parent);
+        _insertAt(other->getPrevInst(), other, other->getParent());
     }
 
-    void IRInst::insertAtStart(IRParentInst* newParent)
+    void IRInst::insertAtStart(IRInst* newParent)
     {
         SLANG_ASSERT(newParent);
-        insertBefore(newParent->children.first, newParent);
+        _insertAt(nullptr, newParent->getFirstDecorationOrChild(), newParent);
     }
 
     void IRInst::moveToStart()
@@ -3348,52 +3665,49 @@ namespace Slang
         insertAtStart(p);
     }
 
-    void IRInst::insertBefore(IRInst* other, IRParentInst* newParent)
+    void IRInst::_insertAt(IRInst* inPrev, IRInst* inNext, IRInst* inParent)
     {
         // Make sure this instruction has been removed from any previous parent
         this->removeFromParent();
 
-        SLANG_ASSERT(other || newParent);
-        if (!other) other = newParent->children.first;
-        if (!newParent) newParent = other->parent;
-        SLANG_ASSERT(newParent);
+        SLANG_ASSERT(inParent);
+        SLANG_ASSERT(!inPrev || (inPrev->getNextInst() == inNext) && (inPrev->getParent() == inParent));
+        SLANG_ASSERT(!inNext || (inNext->getPrevInst() == inPrev) && (inNext->getParent() == inParent));
 
-        auto nn = other;
-        auto pp = other ? other->getPrevInst() : nullptr;
-
-        if( pp )
+        if( inPrev )
         {
-            pp->next = this;
+            inPrev->next = this;
         }
         else
         {
-            newParent->children.first = this;
+            inParent->m_decorationsAndChildren.first = this;
         }
 
-        if (nn)
+        if (inNext)
         {
-            nn->prev = this;
+            inNext->prev = this;
         }
         else
         {
-            newParent->children.last = this;
+            inParent->m_decorationsAndChildren.last = this;
         }
 
-        this->prev = pp;
-        this->next = nn;
-        this->parent = newParent;
+        this->prev = inPrev;
+        this->next = inNext;
+        this->parent = inParent;
     }
 
     void IRInst::insertAfter(IRInst* other)
     {
         SLANG_ASSERT(other);
-        insertAfter(other, other->parent);
+
+        _insertAt(other, other->getNextInst(), other->getParent());
     }
 
-    void IRInst::insertAtEnd(IRParentInst* newParent)
+    void IRInst::insertAtEnd(IRInst* newParent)
     {
         SLANG_ASSERT(newParent);
-        insertAfter(newParent->children.last, newParent);
+        _insertAt(newParent->getLastDecorationOrChild(), nullptr, newParent);
     }
 
     void IRInst::moveToEnd()
@@ -3401,42 +3715,6 @@ namespace Slang
         auto p = parent;
         removeFromParent();
         insertAtEnd(p);
-    }
-
-    void IRInst::insertAfter(IRInst* other, IRParentInst* newParent)
-    {
-        // Make sure this instruction has been removed from any previous parent
-        this->removeFromParent();
-
-        SLANG_ASSERT(other || newParent);
-        if (!other) other = newParent->children.last;
-        if (!newParent) newParent = other->parent;
-        SLANG_ASSERT(newParent);
-
-        auto pp = other;
-        auto nn = other ? other->next : nullptr;
-
-        if (pp)
-        {
-            pp->next = this;
-        }
-        else
-        {
-            newParent->children.first = this;
-        }
-
-        if (nn)
-        {
-            nn->prev = this;
-        }
-        else
-        {
-            newParent->children.last = this;
-        }
-
-        this->prev = pp;
-        this->next = nn;
-        this->parent = newParent;
     }
 
     // Remove this instruction from its parent block,
@@ -3460,7 +3738,7 @@ namespace Slang
         }
         else
         {
-            oldParent->children.first = nn;
+            oldParent->m_decorationsAndChildren.first = nn;
         }
 
         if(nn)
@@ -3470,7 +3748,7 @@ namespace Slang
         }
         else
         {
-            oldParent->children.last = pp;
+            oldParent->m_decorationsAndChildren.last = pp;
         }
 
         prev = nullptr;
@@ -3494,23 +3772,16 @@ namespace Slang
     {
         removeFromParent();
         removeArguments();
-
-        // If this is a parent instruction then we had
-        // better remove all its children as well.
-        //
-        if(auto parentInst = as<IRParentInst>(this))
-        {
-            parentInst->removeAndDeallocateAllChildren();
-        }
+        removeAndDeallocateAllDecorationsAndChildren();
 
         // Run destructor to be sure...
         this->~IRInst();
     }
 
-    void IRParentInst::removeAndDeallocateAllChildren()
+    void IRInst::removeAndDeallocateAllDecorationsAndChildren()
     {
         IRInst* nextChild = nullptr;
-        for( IRInst* child = getFirstChild(); child; child = nextChild )
+        for( IRInst* child = getFirstDecorationOrChild(); child; child = nextChild )
         {
             nextChild = child->getNextInst();
             child->removeAndDeallocate();
@@ -3525,9 +3796,6 @@ namespace Slang
         // but this is good enough for now if we are conservative:
 
         if(as<IRType>(this))
-            return false;
-
-        if(as<IRGlobalValue>(this))
             return false;
 
         if(as<IRConstant>(this))
@@ -3567,6 +3835,21 @@ namespace Slang
             }
             return true;
 
+            // All of the cases for "global values" are side-effect-free.
+        case kIROp_StructType:
+        case kIROp_StructField:
+        case kIROp_Func:
+        case kIROp_Generic:
+        case kIROp_GlobalVar:
+        case kIROp_GlobalConstant:
+        case kIROp_GlobalParam:
+        case kIROp_StructKey:
+        case kIROp_GlobalGenericParam:
+        case kIROp_WitnessTable:
+        case kIROp_WitnessTableEntry:
+        case kIROp_Block:
+            return false;
+
         case kIROp_Nop:
         case kIROp_Specialize:
         case kIROp_lookup_interface_method:
@@ -3576,7 +3859,6 @@ namespace Slang
         case kIROp_makeArray:
         case kIROp_makeStruct:
         case kIROp_Load:    // We are ignoring the possibility of loads from bad addresses, or `volatile` loads
-        case kIROp_BufferLoad:
         case kIROp_FieldExtract:
         case kIROp_FieldAddress:
         case kIROp_getElement:
@@ -3627,2433 +3909,45 @@ namespace Slang
         return nullptr;
     }
 
-
     //
-    // Legalization of entry points for GLSL:
+    // IRType
     //
 
-    IRGlobalVar* addGlobalVariable(
-        IRModule*   module,
-        IRType*     valueType)
+    IRType* unwrapArray(IRType* type)
     {
-        auto session = module->session;
-
-        SharedIRBuilder shared;
-        shared.module = module;
-        shared.session = session;
-
-        IRBuilder builder;
-        builder.sharedBuilder = &shared;
-        return builder.createGlobalVar(valueType);
-    }
-
-    void moveValueBefore(
-        IRGlobalValue*  valueToMove,
-        IRGlobalValue*  placeBefore)
-    {
-        valueToMove->removeFromParent();
-        valueToMove->insertBefore(placeBefore);
-    }
-
-    // When scalarizing shader inputs/outputs for GLSL, we need a way
-    // to refer to a conceptual "value" that might comprise multiple
-    // IR-level values. We could in principle introduce tuple types
-    // into the IR so that everything stays at the IR level, but
-    // it seems easier to just layer it over the top for now.
-    //
-    // The `ScalarizedVal` type deals with the "tuple or single value?"
-    // question, and also the "l-value or r-value?" question.
-    struct ScalarizedValImpl : RefObject
-    {};
-    struct ScalarizedTupleValImpl;
-    struct ScalarizedTypeAdapterValImpl;
-    struct ScalarizedVal
-    {
-        enum class Flavor
+        IRType* t = type;
+        while( auto arrayType = as<IRArrayTypeBase>(t) )
         {
-            // no value (null pointer)
-            none,
-
-            // A simple `IRInst*` that represents the actual value
-            value,
-
-            // An `IRInst*` that represents the address of the actual value
-            address,
-
-            // A `TupleValImpl` that represents zero or more `ScalarizedVal`s
-            tuple,
-
-            // A `TypeAdapterValImpl` that wraps a single `ScalarizedVal` and
-            // represents an implicit type conversion applied to it on read
-            // or write.
-            typeAdapter,
-        };
-
-        // Create a value representing a simple value
-        static ScalarizedVal value(IRInst* irValue)
-        {
-            ScalarizedVal result;
-            result.flavor = Flavor::value;
-            result.irValue = irValue;
-            return result;
+            t = arrayType->getElementType();
         }
-
-
-        // Create a value representing an address
-        static ScalarizedVal address(IRInst* irValue)
-        {
-            ScalarizedVal result;
-            result.flavor = Flavor::address;
-            result.irValue = irValue;
-            return result;
-        }
-
-        static ScalarizedVal tuple(ScalarizedTupleValImpl* impl)
-        {
-            ScalarizedVal result;
-            result.flavor = Flavor::tuple;
-            result.impl = (ScalarizedValImpl*)impl;
-            return result;
-        }
-
-        static ScalarizedVal typeAdapter(ScalarizedTypeAdapterValImpl* impl)
-        {
-            ScalarizedVal result;
-            result.flavor = Flavor::typeAdapter;
-            result.impl = (ScalarizedValImpl*)impl;
-            return result;
-        }
-
-        Flavor                      flavor = Flavor::none;
-        IRInst*                     irValue = nullptr;
-        RefPtr<ScalarizedValImpl>   impl;
-    };
-
-    // This is the case for a value that is a "tuple" of other values
-    struct ScalarizedTupleValImpl : ScalarizedValImpl
-    {
-        struct Element
-        {
-            IRStructKey*    key;
-            ScalarizedVal   val;
-        };
-
-        IRType*         type;
-        List<Element>   elements;
-    };
-
-    // This is the case for a value that is stored with one type,
-    // but needs to present itself as having a different type
-    struct ScalarizedTypeAdapterValImpl : ScalarizedValImpl
-    {
-        ScalarizedVal   val;
-        IRType*         actualType;   // the actual type of `val`
-        IRType*         pretendType;     // the type this value pretends to have
-    };
-
-    struct GlobalVaryingDeclarator
-    {
-        enum class Flavor
-        {
-            array,
-        };
-
-        Flavor                      flavor;
-        IRInst*                     elementCount;
-        GlobalVaryingDeclarator*    next;
-    };
-
-    struct GLSLSystemValueInfo
-    {
-        // The name of the built-in GLSL variable
-        char const* name;
-
-        // The name of an outer array that wraps
-        // the variable, in the case of a GS input
-        char const*     outerArrayName;
-
-        // The required type of the built-in variable
-        IRType*     requiredType;
-    };
-
-    void requireGLSLVersionImpl(
-        ExtensionUsageTracker*  tracker,
-        ProfileVersion          version);
-
-    void requireGLSLExtension(
-        ExtensionUsageTracker*  tracker,
-        String const&           name);
-
-    struct GLSLLegalizationContext
-    {
-        Session*                session;
-        ExtensionUsageTracker*  extensionUsageTracker;
-        DiagnosticSink*         sink;
-        Stage                   stage;
-
-        void requireGLSLExtension(String const& name)
-        {
-            Slang::requireGLSLExtension(extensionUsageTracker, name);
-        }
-
-        void requireGLSLVersion(ProfileVersion version)
-        {
-            Slang::requireGLSLVersionImpl(extensionUsageTracker, version);
-        }
-
-        Stage getStage()
-        {
-            return stage;
-        }
-
-        DiagnosticSink* getSink()
-        {
-            return sink;
-        }
-
-        IRBuilder* builder;
-        IRBuilder* getBuilder() { return builder; }
-    };
-
-    GLSLSystemValueInfo* getGLSLSystemValueInfo(
-        GLSLLegalizationContext*    context,
-        VarLayout*                  varLayout,
-        LayoutResourceKind          kind,
-        Stage                       stage,
-        GLSLSystemValueInfo*        inStorage)
-    {
-        char const* name = nullptr;
-        char const* outerArrayName = nullptr;
-
-        auto semanticNameSpelling = varLayout->systemValueSemantic;
-        if(semanticNameSpelling.Length() == 0)
-            return nullptr;
-
-        auto semanticName = semanticNameSpelling.ToLower();
-
-        IRType* requiredType = nullptr;
-
-        if(semanticName == "sv_position")
-        {
-            // This semantic can either work like `gl_FragCoord`
-            // when it is used as a fragment shader input, or
-            // like `gl_Position` when used in other stages.
-            //
-            // Note: This isn't as simple as testing input-vs-output,
-            // because a user might have a VS output `SV_Position`,
-            // and then pass it along to a GS that reads it as input.
-            //
-            if( stage == Stage::Fragment
-                && kind == LayoutResourceKind::VaryingInput )
-            {
-                name = "gl_FragCoord";
-            }
-            else if( stage == Stage::Geometry
-                && kind == LayoutResourceKind::VaryingInput )
-            {
-                // As a GS input, the correct syntax is `gl_in[...].gl_Position`,
-                // but that is not compatible with picking the array dimension later,
-                // of course.
-                outerArrayName = "gl_in";
-                name = "gl_Position";
-            }
-            else
-            {
-                name = "gl_Position";
-            }
-        }
-        else if(semanticName == "sv_target")
-        {
-            // Note: we do *not* need to generate some kind of `gl_`
-            // builtin for fragment-shader outputs: they are just
-            // ordinary `out` variables, with ordinary `location`s,
-            // as far as GLSL is concerned.
-            return nullptr;
-        }
-        else if(semanticName == "sv_clipdistance")
-        {
-            // TODO: type conversion is required here.
-            name = "gl_ClipDistance";
-        }
-        else if(semanticName == "sv_culldistance")
-        {
-            context->requireGLSLExtension("ARB_cull_distance");
-
-            // TODO: type conversion is required here.
-            name = "gl_CullDistance";
-        }
-        else if(semanticName == "sv_coverage")
-        {
-            // TODO: deal with `gl_SampleMaskIn` when used as an input.
-
-            // TODO: type conversion is required here.
-            name = "gl_SampleMask";
-        }
-        else if(semanticName == "sv_depth")
-        {
-            name = "gl_FragDepth";
-        }
-        else if(semanticName == "sv_depthgreaterequal")
-        {
-            // TODO: layout(depth_greater) out float gl_FragDepth;
-            name = "gl_FragDepth";
-        }
-        else if(semanticName == "sv_depthlessequal")
-        {
-            // TODO: layout(depth_greater) out float gl_FragDepth;
-            name = "gl_FragDepth";
-        }
-        else if(semanticName == "sv_dispatchthreadid")
-        {
-            name = "gl_GlobalInvocationID";
-        }
-        else if(semanticName == "sv_domainlocation")
-        {
-            name = "gl_TessCoord";
-        }
-        else if(semanticName == "sv_groupid")
-        {
-            name = "gl_WorkGroupID";
-        }
-        else if(semanticName == "sv_groupindex")
-        {
-            name = "gl_LocalInvocationIndex";
-        }
-        else if(semanticName == "sv_groupthreadid")
-        {
-            name = "gl_LocalInvocationID";
-        }
-        else if(semanticName == "sv_gsinstanceid")
-        {
-            name = "gl_InvocationID";
-        }
-        else if(semanticName == "sv_instanceid")
-        {
-            name = "gl_InstanceIndex";
-        }
-        else if(semanticName == "sv_isfrontface")
-        {
-            name = "gl_FrontFacing";
-        }
-        else if(semanticName == "sv_outputcontrolpointid")
-        {
-            name = "gl_InvocationID";
-        }
-        else if(semanticName == "sv_primitiveid")
-        {
-            name = "gl_PrimitiveID";
-        }
-        else if (semanticName == "sv_rendertargetarrayindex")
-        {
-            switch (context->getStage())
-            {
-            case Stage::Geometry:
-                context->requireGLSLVersion(ProfileVersion::GLSL_150);
-                break;
-
-            case Stage::Fragment:
-                context->requireGLSLVersion(ProfileVersion::GLSL_430);
-                break;
-
-            default:
-                context->requireGLSLVersion(ProfileVersion::GLSL_450);
-                context->requireGLSLExtension("GL_ARB_shader_viewport_layer_array");
-                break;
-            }
-
-            name = "gl_Layer";
-            requiredType = context->getBuilder()->getBasicType(BaseType::Int);
-        }
-        else if (semanticName == "sv_sampleindex")
-        {
-            name = "gl_SampleID";
-        }
-        else if (semanticName == "sv_stencilref")
-        {
-            context->requireGLSLExtension("ARB_shader_stencil_export");
-            name = "gl_FragStencilRef";
-        }
-        else if (semanticName == "sv_tessfactor")
-        {
-            name = "gl_TessLevelOuter";
-        }
-        else if (semanticName == "sv_vertexid")
-        {
-            name = "gl_VertexIndex";
-        }
-        else if (semanticName == "sv_viewportarrayindex")
-        {
-            name = "gl_ViewportIndex";
-        }
-        else if (semanticName == "nv_x_right")
-        {
-            context->requireGLSLVersion(ProfileVersion::GLSL_450);
-            context->requireGLSLExtension("GL_NVX_multiview_per_view_attributes");
-
-            // The actual output in GLSL is:
-            //
-            //    vec4 gl_PositionPerViewNV[];
-            //
-            // and is meant to support an arbitrary number of views,
-            // while the HLSL case just defines a second position
-            // output.
-            //
-            // For now we will hack this by:
-            //   1. Mapping an `NV_X_Right` output to `gl_PositionPerViewNV[1]`
-            //      (that is, just one element of the output array)
-            //   2. Adding logic to copy the traditional `gl_Position` output
-            //      over to `gl_PositionPerViewNV[0]`
-            //
-
-            name = "gl_PositionPerViewNV[1]";
-
-//            shared->requiresCopyGLPositionToPositionPerView = true;
-        }
-        else if (semanticName == "nv_viewport_mask")
-        {
-            context->requireGLSLVersion(ProfileVersion::GLSL_450);
-            context->requireGLSLExtension("GL_NVX_multiview_per_view_attributes");
-
-            name = "gl_ViewportMaskPerViewNV";
-//            globalVarExpr = createGLSLBuiltinRef("gl_ViewportMaskPerViewNV",
-//                getUnsizedArrayType(getIntType()));
-        }
-
-        if( name )
-        {
-            inStorage->name = name;
-            inStorage->outerArrayName = outerArrayName;
-            inStorage->requiredType = requiredType;
-            return inStorage;
-        }
-
-        context->getSink()->diagnose(varLayout->varDecl.getDecl()->loc, Diagnostics::unknownSystemValueSemantic, semanticNameSpelling);
-        return nullptr;
-    }
-
-    ScalarizedVal createSimpleGLSLGlobalVarying(
-        GLSLLegalizationContext*    context,
-        IRBuilder*                  builder,
-        IRType*                     inType,
-        VarLayout*                  inVarLayout,
-        TypeLayout*                 inTypeLayout,
-        LayoutResourceKind          kind,
-        Stage                       stage,
-        UInt                        bindingIndex,
-        GlobalVaryingDeclarator*    declarator)
-    {
-        // Check if we have a system value on our hands.
-        GLSLSystemValueInfo systemValueInfoStorage;
-        auto systemValueInfo = getGLSLSystemValueInfo(
-            context,
-            inVarLayout,
-            kind,
-            stage,
-            &systemValueInfoStorage);
-
-        IRType* type = inType;
-
-        // A system-value semantic might end up needing to override the type
-        // that the user specified.
-        if( systemValueInfo && systemValueInfo->requiredType )
-        {
-            type = systemValueInfo->requiredType;
-        }
-
-        // Construct the actual type and type-layout for the global variable
-        //
-        RefPtr<TypeLayout> typeLayout = inTypeLayout;
-        for( auto dd = declarator; dd; dd = dd->next )
-        {
-            // We only have one declarator case right now...
-            SLANG_ASSERT(dd->flavor == GlobalVaryingDeclarator::Flavor::array);
-
-            auto arrayType = builder->getArrayType(
-                type,
-                dd->elementCount);
-
-            RefPtr<ArrayTypeLayout> arrayTypeLayout = new ArrayTypeLayout();
-//            arrayTypeLayout->type = arrayType;
-            arrayTypeLayout->rules = typeLayout->rules;
-            arrayTypeLayout->originalElementTypeLayout =  typeLayout;
-            arrayTypeLayout->elementTypeLayout = typeLayout;
-            arrayTypeLayout->uniformStride = 0;
-
-            if( auto resInfo = inTypeLayout->FindResourceInfo(kind) )
-            {
-                // TODO: it is kind of gross to be re-running some
-                // of the type layout logic here.
-
-                UInt elementCount = (UInt) GetIntVal(dd->elementCount);
-                arrayTypeLayout->addResourceUsage(
-                    kind,
-                    resInfo->count * elementCount);
-            }
-
-            type = arrayType;
-            typeLayout = arrayTypeLayout;
-        }
-
-        // We need to construct a fresh layout for the variable, even
-        // if the original had its own layout, because it might be
-        // an `inout` parameter, and we only want to deal with the case
-        // described by our `kind` parameter.
-        RefPtr<VarLayout> varLayout = new VarLayout();
-        varLayout->varDecl = inVarLayout->varDecl;
-        varLayout->typeLayout = typeLayout;
-        varLayout->flags = inVarLayout->flags;
-        varLayout->systemValueSemantic = inVarLayout->systemValueSemantic;
-        varLayout->systemValueSemanticIndex = inVarLayout->systemValueSemanticIndex;
-        varLayout->semanticName = inVarLayout->semanticName;
-        varLayout->semanticIndex = inVarLayout->semanticIndex;
-        varLayout->stage = inVarLayout->stage;
-        varLayout->AddResourceInfo(kind)->index = bindingIndex;
-
-        // Simple case: just create a global variable of the matching type,
-        // and then use the value of the global as a replacement for the
-        // value of the original parameter.
-        //
-        auto globalVariable = addGlobalVariable(builder->getModule(), type);
-        moveValueBefore(globalVariable, builder->getFunc());
-
-        ScalarizedVal val = ScalarizedVal::address(globalVariable);
-
-        if( systemValueInfo )
-        {
-            globalVariable->mangledName = builder->getSession()->getNameObj(systemValueInfo->name);
-
-            if( auto fromType = systemValueInfo->requiredType )
-            {
-                // We may need to adapt from the declared type to/from
-                // the actual type of the GLSL global.
-                auto toType = inType;
-
-                if( fromType != toType )
-                {
-                    RefPtr<ScalarizedTypeAdapterValImpl> typeAdapter = new ScalarizedTypeAdapterValImpl;
-                    typeAdapter->actualType = systemValueInfo->requiredType;
-                    typeAdapter->pretendType = inType;
-                    typeAdapter->val = val;
-
-                    val = ScalarizedVal::typeAdapter(typeAdapter);
-                }
-            }
-
-            if(auto outerArrayName = systemValueInfo->outerArrayName)
-            {
-                auto decoration = builder->addDecoration<IRGLSLOuterArrayDecoration>(globalVariable);
-                decoration->outerArrayName = outerArrayName;
-            }
-        }
-
-        builder->addLayoutDecoration(globalVariable, varLayout);
-
-        return val;
-    }
-
-    ScalarizedVal createGLSLGlobalVaryingsImpl(
-        GLSLLegalizationContext*    context,
-        IRBuilder*                  builder,
-        IRType*                     type,
-        VarLayout*                  varLayout,
-        TypeLayout*                 typeLayout,
-        LayoutResourceKind          kind,
-        Stage                       stage,
-        UInt                        bindingIndex,
-        GlobalVaryingDeclarator*    declarator)
-    {
-        if( as<IRBasicType>(type) )
-        {
-            return createSimpleGLSLGlobalVarying(
-                context,
-                builder, type, varLayout, typeLayout, kind, stage, bindingIndex, declarator);
-        }
-        else if( as<IRVectorType>(type) )
-        {
-            return createSimpleGLSLGlobalVarying(
-                context,
-                builder, type, varLayout, typeLayout, kind, stage, bindingIndex, declarator);
-        }
-        else if( as<IRMatrixType>(type) )
-        {
-            // TODO: a matrix-type varying should probably be handled like an array of rows
-            return createSimpleGLSLGlobalVarying(
-                context,
-                builder, type, varLayout, typeLayout, kind, stage, bindingIndex, declarator);
-        }
-        else if( auto arrayType = as<IRArrayType>(type) )
-        {
-            // We will need to SOA-ize any nested types.
-
-            auto elementType = arrayType->getElementType();
-            auto elementCount = arrayType->getElementCount();
-            auto arrayLayout = dynamic_cast<ArrayTypeLayout*>(typeLayout);
-            SLANG_ASSERT(arrayLayout);
-            auto elementTypeLayout = arrayLayout->elementTypeLayout;
-
-            GlobalVaryingDeclarator arrayDeclarator;
-            arrayDeclarator.flavor = GlobalVaryingDeclarator::Flavor::array;
-            arrayDeclarator.elementCount = elementCount;
-            arrayDeclarator.next = declarator;
-
-            return createGLSLGlobalVaryingsImpl(
-                context,
-                builder,
-                elementType,
-                varLayout,
-                elementTypeLayout,
-                kind,
-                stage,
-                bindingIndex,
-                &arrayDeclarator);
-        }
-        else if( auto streamType = as<IRHLSLStreamOutputType>(type))
-        {
-            auto elementType = streamType->getElementType();
-            auto streamLayout = dynamic_cast<StreamOutputTypeLayout*>(typeLayout);
-            SLANG_ASSERT(streamLayout);
-            auto elementTypeLayout = streamLayout->elementTypeLayout;
-
-            return createGLSLGlobalVaryingsImpl(
-                context,
-                builder,
-                elementType,
-                varLayout,
-                elementTypeLayout,
-                kind,
-                stage,
-                bindingIndex,
-                declarator);
-        }
-        else if(auto structType = as<IRStructType>(type))
-        {
-            // We need to recurse down into the individual fields,
-            // and generate a variable for each of them.
-
-            auto structTypeLayout = dynamic_cast<StructTypeLayout*>(typeLayout);
-            SLANG_ASSERT(structTypeLayout);
-            RefPtr<ScalarizedTupleValImpl> tupleValImpl = new ScalarizedTupleValImpl();
-
-
-            // Construct the actual type for the tuple (including any outer arrays)
-            IRType* fullType = type;
-            for( auto dd = declarator; dd; dd = dd->next )
-            {
-                SLANG_ASSERT(dd->flavor == GlobalVaryingDeclarator::Flavor::array);
-                fullType = builder->getArrayType(
-                    fullType,
-                    dd->elementCount);
-            }
-
-            tupleValImpl->type = fullType;
-
-            // Okay, we want to walk through the fields here, and
-            // generate one variable for each.
-            UInt fieldCounter = 0;
-            for(auto field : structType->getFields())
-            {
-                UInt fieldIndex = fieldCounter++;
-
-                auto fieldLayout = structTypeLayout->fields[fieldIndex];
-
-                UInt fieldBindingIndex = bindingIndex;
-                if(auto fieldResInfo = fieldLayout->FindResourceInfo(kind))
-                    fieldBindingIndex += fieldResInfo->index;
-
-                auto fieldVal = createGLSLGlobalVaryingsImpl(
-                    context,
-                    builder,
-                    field->getFieldType(),
-                    fieldLayout,
-                    fieldLayout->typeLayout,
-                    kind,
-                    stage,
-                    fieldBindingIndex,
-                    declarator);
-
-                ScalarizedTupleValImpl::Element element;
-                element.val = fieldVal;
-                element.key = field->getKey();
-
-                tupleValImpl->elements.Add(element);
-            }
-
-            return ScalarizedVal::tuple(tupleValImpl);
-        }
-
-        // Default case is to fall back on the simple behavior
-        return createSimpleGLSLGlobalVarying(
-            context,
-            builder, type, varLayout, typeLayout, kind, stage, bindingIndex, declarator);
-    }
-
-    ScalarizedVal createGLSLGlobalVaryings(
-        GLSLLegalizationContext*    context,
-        IRBuilder*                  builder,
-        IRType*                     type,
-        VarLayout*                  layout,
-        LayoutResourceKind          kind,
-        Stage                       stage)
-    {
-        UInt bindingIndex = 0;
-        if(auto rr = layout->FindResourceInfo(kind))
-            bindingIndex = rr->index;
-        return createGLSLGlobalVaryingsImpl(
-            context,
-            builder, type, layout, layout->typeLayout, kind, stage, bindingIndex, nullptr);
-    }
-
-    IRType* getFieldType(
-        IRType*         baseType,
-        IRStructKey*    fieldKey)
-    {
-        if(auto structType = as<IRStructType>(baseType))
-        {
-            for(auto ff : structType->getFields())
-            {
-                if(ff->getKey() == fieldKey)
-                    return ff->getFieldType();
-            }
-        }
-
-        SLANG_UNEXPECTED("no such field");
-        UNREACHABLE_RETURN(nullptr);
-    }
-
-    ScalarizedVal extractField(
-        IRBuilder*              builder,
-        ScalarizedVal const&    val,
-        UInt                    fieldIndex,
-        IRStructKey*            fieldKey)
-    {
-        switch( val.flavor )
-        {
-        case ScalarizedVal::Flavor::value:
-            return ScalarizedVal::value(
-                builder->emitFieldExtract(
-                    getFieldType(val.irValue->getDataType(), fieldKey),
-                    val.irValue,
-                    fieldKey));
-
-        case ScalarizedVal::Flavor::address:
-            {
-                auto ptrType = as<IRPtrTypeBase>(val.irValue->getDataType());
-                auto valType = ptrType->getValueType();
-                auto fieldType = getFieldType(valType, fieldKey);
-                auto fieldPtrType = builder->getPtrType(ptrType->op, fieldType);
-                return ScalarizedVal::address(
-                    builder->emitFieldAddress(
-                        fieldPtrType,
-                        val.irValue,
-                        fieldKey));
-            }
-
-        case ScalarizedVal::Flavor::tuple:
-            {
-                auto tupleVal = val.impl.As<ScalarizedTupleValImpl>();
-                return tupleVal->elements[fieldIndex].val;
-            }
-
-        default:
-            SLANG_UNEXPECTED("unimplemented");
-            UNREACHABLE_RETURN(ScalarizedVal());
-        }
-
-    }
-
-    ScalarizedVal adaptType(
-        IRBuilder*              builder,
-        IRInst*                 val,
-        IRType*                 toType,
-        IRType*                 /*fromType*/)
-    {
-        // TODO: actually consider what needs to go on here...
-        return ScalarizedVal::value(builder->emitConstructorInst(
-            toType,
-            1,
-            &val));
-    }
-
-    ScalarizedVal adaptType(
-        IRBuilder*              builder,
-        ScalarizedVal const&    val,
-        IRType*                 toType,
-        IRType*                 fromType)
-    {
-        switch( val.flavor )
-        {
-        case ScalarizedVal::Flavor::value:
-            return adaptType(builder, val.irValue, toType, fromType);
-            break;
-
-        case ScalarizedVal::Flavor::address:
-            {
-                auto loaded = builder->emitLoad(val.irValue);
-                return adaptType(builder, loaded, toType, fromType);
-            }
-            break;
-
-        default:
-            SLANG_UNEXPECTED("unimplemented");
-            UNREACHABLE_RETURN(ScalarizedVal());
-        }
-    }
-
-    void assign(
-        IRBuilder*              builder,
-        ScalarizedVal const&    left,
-        ScalarizedVal const&    right)
-    {
-        switch( left.flavor )
-        {
-        case ScalarizedVal::Flavor::address:
-            switch( right.flavor )
-            {
-            case ScalarizedVal::Flavor::value:
-                {
-                    builder->emitStore(left.irValue, right.irValue);
-                }
-                break;
-
-            case ScalarizedVal::Flavor::address:
-                {
-                    auto val = builder->emitLoad(right.irValue);
-                    builder->emitStore(left.irValue, val);
-                }
-                break;
-
-            case ScalarizedVal::Flavor::tuple:
-                {
-                    // We are assigning from a tuple to a destination
-                    // that is not a tuple. We will perform assignment
-                    // element-by-element.
-                    auto rightTupleVal = right.impl.As<ScalarizedTupleValImpl>();
-                    UInt elementCount = rightTupleVal->elements.Count();
-
-                    for( UInt ee = 0; ee < elementCount; ++ee )
-                    {
-                        auto rightElement = rightTupleVal->elements[ee];
-                        auto leftElementVal = extractField(
-                            builder,
-                            left,
-                            ee,
-                            rightElement.key);
-                        assign(builder, leftElementVal, rightElement.val);
-                    }
-                }
-                break;
-
-            default:
-                SLANG_UNEXPECTED("unimplemented");
-                break;
-            }
-            break;
-
-        case ScalarizedVal::Flavor::tuple:
-            {
-                // We have a tuple, so we are going to need to try and assign
-                // to each of its constituent fields.
-                auto leftTupleVal = left.impl.As<ScalarizedTupleValImpl>();
-                UInt elementCount = leftTupleVal->elements.Count();
-
-                for( UInt ee = 0; ee < elementCount; ++ee )
-                {
-                    auto rightElementVal = extractField(
-                        builder,
-                        right,
-                        ee,
-                        leftTupleVal->elements[ee].key);
-                    assign(builder, leftTupleVal->elements[ee].val, rightElementVal);
-                }
-            }
-            break;
-
-        case ScalarizedVal::Flavor::typeAdapter:
-            {
-                // We are trying to assign to something that had its type adjusted,
-                // so we will need to adjust the type of the right-hand side first.
-                //
-                // In this case we are converting to the actual type of the GLSL variable,
-                // from the "pretend" type that it had in the IR before.
-                auto typeAdapter = left.impl.As<ScalarizedTypeAdapterValImpl>();
-                auto adaptedRight = adaptType(builder, right, typeAdapter->actualType, typeAdapter->pretendType);
-                assign(builder, typeAdapter->val, adaptedRight);
-            }
-            break;
-
-        default:
-            SLANG_UNEXPECTED("unimplemented");
-            break;
-        }
-    }
-
-    ScalarizedVal getSubscriptVal(
-        IRBuilder*      builder,
-        IRType*         elementType,
-        ScalarizedVal   val,
-        IRInst*         indexVal)
-    {
-        switch( val.flavor )
-        {
-        case ScalarizedVal::Flavor::value:
-            return ScalarizedVal::value(
-                builder->emitElementExtract(
-                    elementType,
-                    val.irValue,
-                    indexVal));
-
-        case ScalarizedVal::Flavor::address:
-            return ScalarizedVal::address(
-                builder->emitElementAddress(
-                    builder->getPtrType(elementType),
-                    val.irValue,
-                    indexVal));
-
-        case ScalarizedVal::Flavor::tuple:
-            {
-                auto inputTuple = val.impl.As<ScalarizedTupleValImpl>();
-
-                RefPtr<ScalarizedTupleValImpl> resultTuple = new ScalarizedTupleValImpl();
-                resultTuple->type = elementType;
-
-                UInt elementCount = inputTuple->elements.Count();
-                UInt elementCounter = 0;
-
-                auto structType = as<IRStructType>(elementType);
-                for(auto field : structType->getFields())
-                {
-                    auto tupleElementType = field->getFieldType();
-
-                    UInt elementIndex = elementCounter++;
-
-                    SLANG_RELEASE_ASSERT(elementIndex < elementCount);
-                    auto inputElement = inputTuple->elements[elementIndex];
-
-                    ScalarizedTupleValImpl::Element resultElement;
-                    resultElement.key = inputElement.key;
-                    resultElement.val = getSubscriptVal(
-                        builder,
-                        tupleElementType,
-                        inputElement.val,
-                        indexVal);
-
-                    resultTuple->elements.Add(resultElement);
-                }
-                SLANG_RELEASE_ASSERT(elementCounter == elementCount);
-
-                return ScalarizedVal::tuple(resultTuple);
-            }
-
-        default:
-            SLANG_UNEXPECTED("unimplemented");
-            UNREACHABLE_RETURN(ScalarizedVal());
-        }
-    }
-
-    ScalarizedVal getSubscriptVal(
-        IRBuilder*      builder,
-        IRType*         elementType,
-        ScalarizedVal   val,
-        UInt            index)
-    {
-        return getSubscriptVal(
-            builder,
-            elementType,
-            val,
-            builder->getIntValue(
-                builder->getIntType(),
-                index));
-    }
-
-    IRInst* materializeValue(
-        IRBuilder*              builder,
-        ScalarizedVal const&    val);
-
-    IRInst* materializeTupleValue(
-        IRBuilder*      builder,
-        ScalarizedVal   val)
-    {
-        auto tupleVal = val.impl.As<ScalarizedTupleValImpl>();
-        SLANG_ASSERT(tupleVal);
-
-        UInt elementCount = tupleVal->elements.Count();
-        auto type = tupleVal->type;
-
-        if( auto arrayType = as<IRArrayType>(type))
-        {
-            // The tuple represent an array, which means that the
-            // individual elements are expected to yield arrays as well.
-            //
-            // We will extract a value for each array element, and
-            // then use these to construct our result.
-
-            List<IRInst*> arrayElementVals;
-            UInt arrayElementCount = (UInt) GetIntVal(arrayType->getElementCount());
-
-            for( UInt ii = 0; ii < arrayElementCount; ++ii )
-            {
-                auto arrayElementPseudoVal = getSubscriptVal(
-                    builder,
-                    arrayType->getElementType(),
-                    val,
-                    ii);
-
-                auto arrayElementVal = materializeValue(
-                    builder,
-                    arrayElementPseudoVal);
-
-                arrayElementVals.Add(arrayElementVal);
-            }
-
-            return builder->emitMakeArray(
-                arrayType,
-                arrayElementVals.Count(),
-                arrayElementVals.Buffer());
-        }
-        else
-        {
-            // The tuple represents a value of some aggregate type,
-            // so we can simply materialize the elements and then
-            // construct a value of that type.
-            //
-            // TODO: this should be using a `makeStruct` instruction.
-
-            List<IRInst*> elementVals;
-            for( UInt ee = 0; ee < elementCount; ++ee )
-            {
-                auto elementVal = materializeValue(builder, tupleVal->elements[ee].val);
-                elementVals.Add(elementVal);
-            }
-
-            return builder->emitConstructorInst(
-                tupleVal->type,
-                elementVals.Count(),
-                elementVals.Buffer());
-        }
-    }
-
-    IRInst* materializeValue(
-        IRBuilder*              builder,
-        ScalarizedVal const&    val)
-    {
-        switch( val.flavor )
-        {
-        case ScalarizedVal::Flavor::value:
-            return val.irValue;
-
-        case ScalarizedVal::Flavor::address:
-            {
-                auto loadInst = builder->emitLoad(val.irValue);
-                return loadInst;
-            }
-            break;
-
-        case ScalarizedVal::Flavor::tuple:
-            {
-                auto tupleVal = val.impl.As<ScalarizedTupleValImpl>();
-                return materializeTupleValue(builder, val);
-            }
-            break;
-
-        case ScalarizedVal::Flavor::typeAdapter:
-            {
-                // Somebody is trying to use a value where its actual type
-                // doesn't match the type it pretends to have. To make this
-                // work we need to adapt the type from its actual type over
-                // to its pretend type.
-                auto typeAdapter = val.impl.As<ScalarizedTypeAdapterValImpl>();
-                auto adapted = adaptType(builder, typeAdapter->val, typeAdapter->pretendType, typeAdapter->actualType);
-                return materializeValue(builder, adapted);
-            }
-            break;
-
-        default:
-            SLANG_UNEXPECTED("unimplemented");
-            break;
-        }
+        return t;
     }
 
     IRTargetIntrinsicDecoration* findTargetIntrinsicDecoration(
         IRInst*        val,
         String const&   targetName)
     {
-        for( auto dd = val->firstDecoration; dd; dd = dd->next )
+        for(auto dd : val->getDecorations())
         {
-            if(dd->op != kIRDecorationOp_TargetIntrinsic)
+            if(dd->op != kIROp_TargetIntrinsicDecoration)
                 continue;
 
             auto decoration = (IRTargetIntrinsicDecoration*) dd;
-            if(String(decoration->targetName) == targetName)
+            if(String(decoration->getTargetName()) == targetName)
                 return decoration;
         }
 
         return nullptr;
     }
 
-    void legalizeRayTracingEntryPointParameterForGLSL(
-        GLSLLegalizationContext*    context,
-        IRParam*                    pp,
-        VarLayout*                  paramLayout)
-    {
-        auto builder = context->getBuilder();
-        auto paramType = pp->getDataType();
-
-        if(auto paramPtrType = as<IROutTypeBase>(paramType) )
-        {
-            // This is either an `out` or `in out` parameter.
-            // We want to treat `out` parameters the same
-            // as `in out` for our purposes, since there are
-            // no pure `out` parameters defined for the ray
-            // tracing stages.
-
-            // Unlike the default legalization strategy for
-            // `out` and `in out` entry point parameters,
-            // we will not introduce an intermediate temporary.
-            //
-            // Instead we will simply create a global variable
-            // and replace uses of the parameter with uses
-            // of that global variable.
-
-            auto valueType = paramPtrType->getValueType();
-
-            auto globalVariable = addGlobalVariable(builder->getModule(), valueType);
-            builder->addLayoutDecoration(globalVariable, paramLayout);
-            moveValueBefore(globalVariable, builder->getFunc());
-
-            pp->replaceUsesWith(globalVariable);
-        }
-        else
-        {
-            // This is the `in` parameter case, so that the parameter
-            // was not a pointer. We will allocate a global variable
-            // to represent the parameter, and then perform a load
-            // form it at the start of the function.
-            //
-            auto valueType = paramType;
-            auto globalVariable = addGlobalVariable(builder->getModule(), valueType);
-            builder->addLayoutDecoration(globalVariable, paramLayout);
-            moveValueBefore(globalVariable, builder->getFunc());
-
-            auto irLoad = builder->emitLoad(globalVariable);
-            pp->replaceUsesWith(irLoad);
-        }
-
-    }
-
-    void legalizeEntryPointParameterForGLSL(
-        GLSLLegalizationContext*    context,
-        IRFunc*                     func,
-        IRParam*                    pp,
-        VarLayout*                  paramLayout)
-    {
-        auto builder = context->getBuilder();
-        auto stage = context->getStage();
-
-        // We need to create a global variable that will replace the parameter.
-        // It seems superficially obvious that the variable should have
-        // the same type as the parameter.
-        // However, if the parameter was a pointer, in order to
-        // support `out` or `in out` parameter passing, we need
-        // to be sure to allocate a variable of the pointed-to
-        // type instead.
-        //
-        // We also need to replace uses of the parameter with
-        // uses of the variable, and the exact logic there
-        // will differ a bit between the pointer and non-pointer
-        // cases.
-        auto paramType = pp->getDataType();
-
-        // First we will special-case stage input/outputs that
-        // don't fit into the standard varying model.
-        // For right now we are only doing special-case handling
-        // of geometry shader output streams.
-        if( auto paramPtrType = as<IROutTypeBase>(paramType) )
-        {
-            auto valueType = paramPtrType->getValueType();
-            if( auto gsStreamType = as<IRHLSLStreamOutputType>(valueType) )
-            {
-                // An output stream type like `TriangleStream<Foo>` should
-                // more or less translate into `out Foo` (plus scalarization).
-
-                auto globalOutputVal = createGLSLGlobalVaryings(
-                    context,
-                    builder,
-                    valueType,
-                    paramLayout,
-                    LayoutResourceKind::VaryingOutput,
-                    stage);
-
-                // TODO: a GS output stream might be passed into other
-                // functions, so that we should really be modifying
-                // any function that has one of these in its parameter
-                // list (and in the limit we should be leagalizing any
-                // type that nests these...).
-                //
-                // For now we will just try to deal with `Append` calls
-                // directly in this function.
-
-
-
-                for( auto bb = func->getFirstBlock(); bb; bb = bb->getNextBlock() )
-                {
-                    for( auto ii = bb->getFirstInst(); ii; ii = ii->getNextInst() )
-                    {
-                        // Is it a call?
-                        if(ii->op != kIROp_Call)
-                            continue;
-
-                        // Is it calling the append operation?
-                        auto callee = ii->getOperand(0);
-                        for(;;)
-                        {
-                            // If the instruction is `specialize(X,...)` then
-                            // we want to look at `X`, and if it is `generic { ... return R; }`
-                            // then we want to look at `R`. We handle this
-                            // iteratively here.
-                            //
-                            // TODO: This idiom seems to come up enough that we
-                            // should probably have a dedicated convenience routine
-                            // for this.
-                            //
-                            // Alternatively, we could switch the IR encoding so
-                            // that decorations are added to the generic instead of the
-                            // value it returns.
-                            //
-                            switch(callee->op)
-                            {
-                            case kIROp_Specialize:
-                                {
-                                    callee = cast<IRSpecialize>(callee)->getOperand(0);
-                                    continue;
-                                }
-
-                            case kIROp_Generic:
-                                {
-                                    auto genericResult = findGenericReturnVal(cast<IRGeneric>(callee));
-                                    if(genericResult)
-                                    {
-                                        callee = genericResult;
-                                        continue;
-                                    }
-                                }
-
-                            default:
-                                break;
-                            }
-                            break;
-                        }
-                        if(callee->op != kIROp_Func)
-                            continue;
-
-                        // HACK: we will identify the operation based
-                        // on the target-intrinsic definition that was
-                        // given to it.
-                        auto decoration = findTargetIntrinsicDecoration(callee, "glsl");
-                        if(!decoration)
-                            continue;
-
-                        if(StringRepresentation::asSlice(decoration->definition) != UnownedStringSlice::fromLiteral("EmitVertex()"))
-                        {
-                            continue;
-                        }
-
-                        // Okay, we have a declaration, and we want to modify it!
-
-                        builder->setInsertBefore(ii);
-
-                        assign(builder, globalOutputVal, ScalarizedVal::value(ii->getOperand(2)));
-                    }
-                }
-
-                return;
-            }
-        }
-
-        // When we have an HLSL ray tracing shader entry point,
-        // we don't want to translate the inputs/outputs for GLSL/SPIR-V
-        // according to our default rules, for two reasons:
-        //
-        // 1. The input and output for these stages are expected to
-        // be packaged into `struct` types rather than be scalarized,
-        // so the usual scalarization approach we take here should
-        // not be applied.
-        //
-        // 2. An `in out` parameter isn't just sugar for a combination
-        // of an `in` and an `out` parameter, and instead represents the
-        // read/write "payload" that was passed in. It should legalize
-        // to a single variable, and we can lower reads/writes of it
-        // directly, rather than introduce an intermediate temporary.
-        //
-        switch( stage )
-        {
-        default:
-            break;
-
-        case Stage::AnyHit:
-        case Stage::Callable:
-        case Stage::ClosestHit:
-        case Stage::Intersection:
-        case Stage::Miss:
-        case Stage::RayGeneration:
-            legalizeRayTracingEntryPointParameterForGLSL(context, pp, paramLayout);
-            return;
-        }
-
-        // Is the parameter type a special pointer type
-        // that indicates the parameter is used for `out`
-        // or `inout` access?
-        if(auto paramPtrType = as<IROutTypeBase>(paramType) )
-        {
-            // Okay, we have the more interesting case here,
-            // where the parameter was being passed by reference.
-            // We are going to create a local variable of the appropriate
-            // type, which will replace the parameter, along with
-            // one or more global variables for the actual input/output.
-
-            auto valueType = paramPtrType->getValueType();
-
-            auto localVariable = builder->emitVar(valueType);
-            auto localVal = ScalarizedVal::address(localVariable);
-
-            if( auto inOutType = as<IRInOutType>(paramPtrType) )
-            {
-                // In the `in out` case we need to declare two
-                // sets of global variables: one for the `in`
-                // side and one for the `out` side.
-                auto globalInputVal = createGLSLGlobalVaryings(
-                    context,
-                    builder, valueType, paramLayout, LayoutResourceKind::VaryingInput, stage);
-
-                assign(builder, localVal, globalInputVal);
-            }
-
-            // Any places where the original parameter was used inside
-            // the function body should instead use the new local variable.
-            // Since the parameter was a pointer, we use the variable instruction
-            // itself (which is an `alloca`d pointer) directly:
-            pp->replaceUsesWith(localVariable);
-
-            // We also need one or more global variables to write the output to
-            // when the function is done. We create them here.
-            auto globalOutputVal = createGLSLGlobalVaryings(
-                    context,
-                    builder, valueType, paramLayout, LayoutResourceKind::VaryingOutput, stage);
-
-            // Now we need to iterate over all the blocks in the function looking
-            // for any `return*` instructions, so that we can write to the output variable
-            for( auto bb = func->getFirstBlock(); bb; bb = bb->getNextBlock() )
-            {
-                auto terminatorInst = bb->getLastInst();
-                if(!terminatorInst)
-                    continue;
-
-                switch( terminatorInst->op )
-                {
-                default:
-                    continue;
-
-                case kIROp_ReturnVal:
-                case kIROp_ReturnVoid:
-                    break;
-                }
-
-                // We dont' re-use `builder` here because we don't want to
-                // disrupt the source location it is using for inserting
-                // temporary variables at the top of the function.
-                //
-                IRBuilder terminatorBuilder;
-                terminatorBuilder.sharedBuilder = builder->sharedBuilder;
-                terminatorBuilder.setInsertBefore(terminatorInst);
-
-                // Assign from the local variabel to the global output
-                // variable before the actual `return` takes place.
-                assign(&terminatorBuilder, globalOutputVal, localVal);
-            }
-        }
-        else
-        {
-            // This is the "easy" case where the parameter wasn't
-            // being passed by reference. We start by just creating
-            // one or more global variables to represent the parameter,
-            // and attach the required layout information to it along
-            // the way.
-
-            auto globalValue = createGLSLGlobalVaryings(
-                context,
-                builder, paramType, paramLayout, LayoutResourceKind::VaryingInput, stage);
-
-            // Next we need to replace uses of the parameter with
-            // references to the variable(s). We are going to do that
-            // somewhat naively, by simply materializing the
-            // variables at the start.
-            IRInst* materialized = materializeValue(builder, globalValue);
-
-            pp->replaceUsesWith(materialized);
-        }
-    }
-
-    void legalizeEntryPointForGLSL(
-        Session*                session,
-        IRModule*               module,
-        IRFunc*                 func,
-        EntryPointLayout*       entryPointLayout,
-        DiagnosticSink*         sink,
-        ExtensionUsageTracker*  extensionUsageTracker)
-    {
-        GLSLLegalizationContext context;
-        context.session = session;
-        context.stage = entryPointLayout->profile.GetStage();
-        context.sink = sink;
-        context.extensionUsageTracker = extensionUsageTracker;
-
-        Stage stage = entryPointLayout->profile.GetStage();
-
-        // We require that the entry-point function has no uses,
-        // because otherwise we'd invalidate the signature
-        // at all existing call sites.
-        //
-        // TODO: the right thing to do here is to split any
-        // function that both gets called as an entry point
-        // and as an ordinary function.
-        SLANG_ASSERT(!func->firstUse);
-
-        // We create a dummy IR builder, since some of
-        // the functions require it.
-        //
-        // TODO: make some of these free functions...
-        //
-        SharedIRBuilder shared;
-        shared.module = module;
-        shared.session = session;
-        IRBuilder builder;
-        builder.sharedBuilder = &shared;
-        builder.setInsertInto(func);
-
-        context.builder = &builder;
-
-        // We will start by looking at the return type of the
-        // function, because that will enable us to do an
-        // early-out check to avoid more work.
-        //
-        // Specifically, we need to check if the function has
-        // a `void` return type, because there is no work
-        // to be done on its return value in that case.
-        auto resultType = func->getResultType();
-        if(as<IRVoidType>(resultType))
-        {
-            // In this case, the function doesn't return a value
-            // so we don't need to transform its `return` sites.
-            //
-            // We can also use this opportunity to quickly
-            // check if the function has any parameters, and if
-            // it doesn't use the chance to bail out immediately.
-            if( func->getParamCount() == 0 )
-            {
-                // This function is already legal for GLSL
-                // (at least in terms of parameter/result signature),
-                // so we won't bother doing anything at all.
-                return;
-            }
-
-            // If the function does have parameters, then we need
-            // to let the logic later in this function handle them.
-        }
-        else
-        {
-            // Function returns a value, so we need
-            // to introduce a new global variable
-            // to hold that value, and then replace
-            // any `returnVal` instructions with
-            // code to write to that variable.
-
-            auto resultGlobal = createGLSLGlobalVaryings(
-                &context,
-                &builder,
-                resultType,
-                entryPointLayout->resultLayout,
-                LayoutResourceKind::VaryingOutput,
-                stage);
-
-            for( auto bb = func->getFirstBlock(); bb; bb = bb->getNextBlock() )
-            {
-                // TODO: This is silly, because we are looking at every instruction,
-                // when we know that a `returnVal` should only ever appear as a
-                // terminator...
-                for( auto ii = bb->getFirstInst(); ii; ii = ii->getNextInst() )
-                {
-                    if(ii->op != kIROp_ReturnVal)
-                        continue;
-
-                    IRReturnVal* returnInst = (IRReturnVal*) ii;
-                    IRInst* returnValue = returnInst->getVal();
-
-                    // Make sure we add these instructions to the right block
-                    builder.setInsertInto(bb);
-
-                    // Write to our global variable(s) from the value being returned.
-                    assign(&builder, resultGlobal, ScalarizedVal::value(returnValue));
-
-                    // Emit a `returnVoid` to end the block
-                    auto returnVoid = builder.emitReturn();
-
-                    // Remove the old `returnVal` instruction.
-                    returnInst->removeAndDeallocate();
-
-                    // Make sure to resume our iteration at an
-                    // appropriate instruciton, since we deleted
-                    // the one we had been using.
-                    ii = returnVoid;
-                }
-            }
-        }
-
-        // Next we will walk through any parameters of the entry-point function,
-        // and turn them into global variables.
-        if( auto firstBlock = func->getFirstBlock() )
-        {
-            // Any initialization code we insert for parameters needs
-            // to be at the start of the "ordinary" instructions in the block:
-            builder.setInsertBefore(firstBlock->getFirstOrdinaryInst());
-
-            UInt paramCounter = 0;
-            for( auto pp = firstBlock->getFirstParam(); pp; pp = pp->getNextParam() )
-            {
-                UInt paramIndex = paramCounter++;
-
-                // We assume that the entry-point layout includes information
-                // on each parameter, and that these arrays are kept aligned.
-                // Note that this means that any transformations that mess
-                // with function signatures will need to also update layout info...
-                //
-                SLANG_ASSERT(entryPointLayout->fields.Count() > paramIndex);
-                auto paramLayout = entryPointLayout->fields[paramIndex];
-
-                legalizeEntryPointParameterForGLSL(
-                    &context,
-                    func,
-                    pp,
-                    paramLayout);
-            }
-
-            // At this point we should have eliminated all uses of the
-            // parameters of the entry block. Also, our control-flow
-            // rules mean that the entry block cannot be the target
-            // of any branches in the code, so there can't be
-            // any control-flow ops that try to match the parameter
-            // list.
-            //
-            // We can safely go through and destroy the parameters
-            // themselves, and then clear out the parameter list.
-
-            for( auto pp = firstBlock->getFirstParam(); pp; )
-            {
-                auto next = pp->getNextParam();
-                pp->removeAndDeallocate();
-                pp = next;
-            }
-        }
-
-        // Finally, we need to patch up the type of the entry point,
-        // because it is no longer accurate.
-
-        IRFuncType* voidFuncType = builder.getFuncType(
-            0,
-            nullptr,
-            builder.getVoidType());
-        func->setFullType(voidFuncType);
-
-        // TODO: we should technically be constructing
-        // a new `EntryPointLayout` here to reflect
-        // the way that things have been moved around.
-    }
-
-    // Needed for lookup up entry-point layouts.
-    //
-    // TODO: maybe arrange so that codegen is driven from the layout layer
-    // instead of the input/request layer.
-    EntryPointLayout* findEntryPointLayout(
-        ProgramLayout*      programLayout,
-        EntryPointRequest*  entryPointRequest);
-
-    struct IRSpecSymbol : RefObject
-    {
-        IRGlobalValue*          irGlobalValue;
-        RefPtr<IRSpecSymbol>    nextWithSameName;
-    };
-
-    struct IRSpecEnv
-    {
-        IRSpecEnv*  parent = nullptr;
-
-        // A map from original values to their cloned equivalents.
-        typedef Dictionary<IRInst*, IRInst*> ClonedValueDictionary;
-        ClonedValueDictionary clonedValues;
-    };
-
-    struct IRSharedSpecContext
-    {
-        // The code-generation target in use
-        CodeGenTarget target;
-
-        // The specialized module we are building
-        RefPtr<IRModule>   module;
-
-        // The original, unspecialized module we are copying
-        IRModule*   originalModule;
-
-        // A map from mangled symbol names to zero or
-        // more global IR values that have that name,
-        // in the *original* module.
-        typedef Dictionary<Name*, RefPtr<IRSpecSymbol>> SymbolDictionary;
-        SymbolDictionary symbols;
-
-        SharedIRBuilder sharedBuilderStorage;
-        IRBuilder builderStorage;
-
-        // The "global" specialization environment.
-        IRSpecEnv globalEnv;
-    };
-
-    struct IRSharedGenericSpecContext : IRSharedSpecContext
-    {
-        // Instructions to be processed (for generic specialization context)
-        List<IRInst*> workList;
-        HashSet<IRInst*> workListSet;
-        void addToWorkList(IRInst* inst)
-        {
-            if(!workListSet.Contains(inst))
-            {
-                workList.Add(inst);
-                workListSet.Add(inst);
-            }
-        }
-        IRInst* popWorkList()
-        {
-            UInt count = workList.Count();
-            if(count != 0)
-            {
-                IRInst* inst = workList[count - 1];
-                workList.FastRemoveAt(count - 1);
-                workListSet.Remove(inst);
-                return inst;
-            }
-            return nullptr;
-        }
-    };
-
-    struct IRSpecContextBase
-    {
-        // A map from the mangled name of a global variable
-        // to the layout to use for it.
-        Dictionary<Name*, VarLayout*> globalVarLayouts;
-
-        IRSharedSpecContext* shared;
-
-        IRSharedSpecContext* getShared() { return shared; }
-
-        IRModule* getModule() { return getShared()->module; }
-
-        IRModule* getOriginalModule() { return getShared()->originalModule; }
-
-        IRSharedSpecContext::SymbolDictionary& getSymbols() { return getShared()->symbols; }
-
-        // The current specialization environment to use.
-        IRSpecEnv* env = nullptr;
-        IRSpecEnv* getEnv()
-        {
-            // TODO: need to actually establish environments on contexts we create.
-            //
-            // Or more realistically we need to change the whole approach
-            // to specialization and cloning so that we don't try to share
-            // logic between two very different cases.
-
-
-            return env;
-        }
-
-        // The IR builder to use for creating nodes
-        IRBuilder*  builder;
-
-        // A callback to be used when a value that is not registerd in `clonedValues`
-        // is needed during cloning. This gives the subtype a chance to intercept
-        // the operation and clone (or not) as needed.
-        virtual IRInst* maybeCloneValue(IRInst* originalVal)
-        {
-            return originalVal;
-        }
-    };
-
-    void registerClonedValue(
-        IRSpecContextBase*  context,
-        IRInst*    clonedValue,
-        IRInst*    originalValue)
-    {
-        if(!originalValue)
-            return;
-
-        // TODO: now that things are scoped using environments, we
-        // shouldn't be running into the cases where a value with
-        // the same key already exists. This should be changed to
-        // an `Add()` call.
-        //
-        context->getEnv()->clonedValues[originalValue] = clonedValue;
-    }
-
-    // Information on values to use when registering a cloned value
-    struct IROriginalValuesForClone
-    {
-        IRInst*        originalVal = nullptr;
-        IRSpecSymbol*   sym = nullptr;
-
-        IROriginalValuesForClone() {}
-
-        IROriginalValuesForClone(IRInst* originalValue)
-            : originalVal(originalValue)
-        {}
-
-        IROriginalValuesForClone(IRSpecSymbol* symbol)
-            : sym(symbol)
-        {}
-    };
-
-    void registerClonedValue(
-        IRSpecContextBase*              context,
-        IRInst*                        clonedValue,
-        IROriginalValuesForClone const& originalValues)
-    {
-        registerClonedValue(context, clonedValue, originalValues.originalVal);
-        for( auto s = originalValues.sym; s; s = s->nextWithSameName )
-        {
-            registerClonedValue(context, clonedValue, s->irGlobalValue);
-        }
-    }
-
-    void cloneDecorations(
-        IRSpecContextBase*  context,
-        IRInst*        clonedValue,
-        IRInst*        originalValue)
-    {
-        for (auto dd = originalValue->firstDecoration; dd; dd = dd->next)
-        {
-            switch (dd->op)
-            {
-            case kIRDecorationOp_HighLevelDecl:
-                {
-                    auto originalDecoration = (IRHighLevelDeclDecoration*)dd;
-
-                    context->builder->addHighLevelDeclDecoration(clonedValue, originalDecoration->decl);
-                }
-                break;
-
-            case kIRDecorationOp_LoopControl:
-                {
-                    auto originalDecoration = (IRLoopControlDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRLoopControlDecoration>(clonedValue);
-                    newDecoration->mode = originalDecoration->mode;
-                }
-                break;
-
-            case kIRDecorationOp_TargetIntrinsic:
-                {
-                    auto originalDecoration = (IRTargetIntrinsicDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRTargetIntrinsicDecoration>(clonedValue);
-                    newDecoration->targetName = originalDecoration->targetName;
-                    newDecoration->definition = originalDecoration->definition;
-                }
-                break;
-
-            case kIRDecorationOp_Semantic:
-                {
-                    auto originalDecoration = (IRSemanticDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRSemanticDecoration>(clonedValue);
-                    newDecoration->semanticName = originalDecoration->semanticName;
-                }
-                break;
-
-            case kIRDecorationOp_InterpolationMode:
-                {
-                    auto originalDecoration = (IRInterpolationModeDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRInterpolationModeDecoration>(clonedValue);
-                    newDecoration->mode = originalDecoration->mode;
-                }
-                break;
-
-            case kIRDecorationOp_NameHint:
-                {
-                    auto originalDecoration = (IRNameHintDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRNameHintDecoration>(clonedValue);
-                    newDecoration->name = originalDecoration->name;
-                }
-                break;
-
-            case kIRDecorationOp_VulkanRayPayload:
-                {
-                    context->builder->addDecoration<IRVulkanRayPayloadDecoration>(clonedValue);
-                }
-                break;
-
-            case kIRDecorationOp_VulkanCallablePayload:
-                {
-                    context->builder->addDecoration<IRVulkanCallablePayloadDecoration>(clonedValue);
-                }
-                break;
-            case kIRDecorationOp_EarlyDepthStencil:
-                {
-                    context->builder->addDecoration<IREarlyDepthStencilDecoration>(clonedValue);
-                }
-                break;
-            case kIRDecorationOp_GloballyCoherent:
-                {
-                    context->builder->addDecoration<IRGloballyCoherentDecoration>(clonedValue);
-                }
-                break;
-            case kIRDecorationOp_VulkanHitAttributes:
-                {
-                    context->builder->addDecoration<IRVulkanHitAttributesDecoration>(clonedValue);
-                }
-                break;
-
-            case kIRDecorationOp_RequireGLSLExtension:
-                {
-                    auto originalDecoration = (IRRequireGLSLExtensionDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRRequireGLSLExtensionDecoration>(clonedValue);
-                    newDecoration->extensionName = originalDecoration->extensionName;
-                }
-                break;
-
-            case kIRDecorationOp_RequireGLSLVersion:
-                {
-                    auto originalDecoration = (IRRequireGLSLVersionDecoration*)dd;
-                    auto newDecoration = context->builder->addDecoration<IRRequireGLSLVersionDecoration>(clonedValue);
-                    newDecoration->languageVersion = originalDecoration->languageVersion;
-                }
-                break;
-
-            case kIRDecorationOp_ReadNone:
-                {
-                    context->builder->addDecoration<IRReadNoneDecoration>(clonedValue);
-                }
-                break;
-
-            default:
-                // Don't clone any decorations we don't understand.
-                break;
-            }
-        }
-
-        // We will also clone the location here, just because this is a convenient bottleneck
-        clonedValue->sourceLoc = originalValue->sourceLoc;
-    }
-
-    // We use an `IRSpecContext` for the case where we are cloning
-    // code from one or more input modules to create a "linked" output
-    // module. Along the way, we will resolve profile-specific functions
-    // to the best definition for a given target.
-    //
-    struct IRSpecContext : IRSpecContextBase
-    {
-        // Override the "maybe clone" logic so that we always clone
-        virtual IRInst* maybeCloneValue(IRInst* originalVal) override;
-    };
-
-
-    IRGlobalValue* cloneGlobalValue(IRSpecContext* context, IRGlobalValue* originalVal);
-
-    IRInst* cloneValue(
-        IRSpecContextBase*  context,
-        IRInst*        originalValue);
-
-    IRType* cloneType(
-        IRSpecContextBase*  context,
-        IRType*             originalType);
-
-    IRInst* IRSpecContext::maybeCloneValue(IRInst* originalValue)
-    {
-        if (auto globalValue = as<IRGlobalValue>(originalValue))
-        {
-            return cloneGlobalValue(this, globalValue);
-        }
-
-        switch (originalValue->op)
-        {
-        case kIROp_BoolLit:
-            {
-                IRConstant* c = (IRConstant*)originalValue;
-                return builder->getBoolValue(c->value.intVal != 0);
-            }
-            break;
-
-
-        case kIROp_IntLit:
-            {
-                IRConstant* c = (IRConstant*)originalValue;
-                return builder->getIntValue(cloneType(this, c->getDataType()), c->value.intVal);
-            }
-            break;
-
-        case kIROp_FloatLit:
-            {
-                IRConstant* c = (IRConstant*)originalValue;
-                return builder->getFloatValue(cloneType(this, c->getDataType()), c->value.floatVal);
-            }
-            break;
-
-        default:
-            {
-                // In the deafult case, assume that we have some sort of "hoistable"
-                // instruction that requires us to create a clone of it.
-
-                UInt argCount = originalValue->getOperandCount();
-                IRInst* clonedValue = createInstWithTrailingArgs<IRInst>(
-                    builder,
-                    originalValue->op,
-                    cloneType(this, originalValue->getFullType()),
-                    0, nullptr,
-                    argCount, nullptr);
-                registerClonedValue(this, clonedValue, originalValue);
-                for (UInt aa = 0; aa < argCount; ++aa)
-                {
-                    IRInst* originalArg = originalValue->getOperand(aa);
-                    IRInst* clonedArg = cloneValue(this, originalArg);
-                    clonedValue->getOperands()[aa].init(clonedValue, clonedArg);
-                }
-                cloneDecorations(this, clonedValue, originalValue);
-
-                addHoistableInst(builder, clonedValue);
-
-                return clonedValue;
-            }
-            break;
-        }
-    }
-
-    IRInst* cloneValue(
-        IRSpecContextBase*  context,
-        IRInst*        originalValue);
-
-    // Find a pre-existing cloned value, or return null if none is available.
-    IRInst* findClonedValue(
-        IRSpecContextBase*  context,
-        IRInst*        originalValue)
-    {
-        IRInst* clonedValue = nullptr;
-        for (auto env = context->getEnv(); env; env = env->parent)
-        {
-            if (env->clonedValues.TryGetValue(originalValue, clonedValue))
-            {
-                return clonedValue;
-            }
-        }
-
-        return nullptr;
-    }
-
-    IRInst* cloneValue(
-        IRSpecContextBase*  context,
-        IRInst*        originalValue)
-    {
-        if (!originalValue)
-            return nullptr;
-
-        if (IRInst* clonedValue = findClonedValue(context, originalValue))
-            return clonedValue;
-
-        return context->maybeCloneValue(originalValue);
-    }
-
-    IRType* cloneType(
-        IRSpecContextBase*  context,
-        IRType*             originalType)
-    {
-        return (IRType*)cloneValue(context, originalType);
-    }
-
-    IRInst* maybeCloneValueWithMangledName(
-        IRSpecContextBase*  context,
-        IRGlobalValue*      originalValue)
-    {
-        for(auto ii : context->shared->module->getGlobalInsts())
-        {
-            auto gv = as<IRGlobalValue>(ii);
-            if (!gv)
-                continue;
-
-            if (gv->mangledName == originalValue->mangledName)
-                return gv;
-        }
-        return cloneValue(context, originalValue);
-    }
-
-    IRInst* cloneInst(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRInst*                         originalInst,
-        IROriginalValuesForClone const& originalValues);
-
-    IRInst* cloneInst(
-        IRSpecContextBase*  context,
-        IRBuilder*          builder,
-        IRInst*             originalInst)
-    {
-        return cloneInst(context, builder, originalInst, originalInst);
-    }
-
-    void cloneGlobalValueWithCodeCommon(
-        IRSpecContextBase*      context,
-        IRGlobalValueWithCode*  clonedValue,
-        IRGlobalValueWithCode*  originalValue);
-
-    IRRate* cloneRate(
-        IRSpecContextBase*  context,
-        IRRate*             rate)
-    {
-        return (IRRate*) cloneType(context, rate);
-    }
-
-    void maybeSetClonedRate(
-        IRSpecContextBase*  context,
-        IRBuilder*          builder,
-        IRInst*             clonedValue,
-        IRInst*             originalValue)
-    {
-        if(auto rate = originalValue->getRate() )
-        {
-            clonedValue->setFullType(builder->getRateQualifiedType(
-                cloneRate(context, rate),
-                clonedValue->getFullType()));
-        }
-    }
-
-    IRGlobalVar* cloneGlobalVarImpl(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRGlobalVar*                    originalVar,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedVar = builder->createGlobalVar(
-            cloneType(context, originalVar->getDataType()->getValueType()));
-
-        maybeSetClonedRate(context, builder, clonedVar, originalVar);
-
-        registerClonedValue(context, clonedVar, originalValues);
-
-        auto mangledName = originalVar->mangledName;
-        clonedVar->mangledName = mangledName;
-
-        cloneDecorations(context, clonedVar, originalVar);
-
-        VarLayout* layout = nullptr;
-        if (context->globalVarLayouts.TryGetValue(mangledName, layout))
-        {
-            builder->addLayoutDecoration(clonedVar, layout);
-        }
-
-        // Clone any code in the body of the variable, since this
-        // represents the initializer.
-        cloneGlobalValueWithCodeCommon(
-            context,
-            clonedVar,
-            originalVar);
-
-        return clonedVar;
-    }
-
-    IRGlobalConstant* cloneGlobalConstantImpl(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRGlobalConstant*               originalVal,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedVal = builder->createGlobalConstant(
-            cloneType(context, originalVal->getFullType()));
-        registerClonedValue(context, clonedVal, originalValues);
-
-        auto mangledName = originalVal->mangledName;
-        clonedVal->mangledName = mangledName;
-
-        cloneDecorations(context, clonedVal, originalVal);
-
-        // Clone any code in the body of the constant, since this
-        // represents the initializer.
-        cloneGlobalValueWithCodeCommon(
-            context,
-            clonedVal,
-            originalVal);
-
-        return clonedVal;
-    }
-
-    IRGeneric* cloneGenericImpl(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRGeneric*                      originalVal,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedVal = builder->emitGeneric();
-        registerClonedValue(context, clonedVal, originalValues);
-
-        auto mangledName = originalVal->mangledName;
-        clonedVal->mangledName = mangledName;
-
-        cloneDecorations(context, clonedVal, originalVal);
-
-        // Clone any code in the body of the generic, since this
-        // computes its result value.
-        cloneGlobalValueWithCodeCommon(
-            context,
-            clonedVal,
-            originalVal);
-
-        return clonedVal;
-    }
-
-    void cloneSimpleGlobalValueImpl(
-        IRSpecContextBase*              context,
-        IRGlobalValue*                  originalInst,
-        IROriginalValuesForClone const& originalValues,
-        IRGlobalValue*                  clonedInst,
-        bool                            registerValue = true)
-    {
-        if (registerValue)
-            registerClonedValue(context, clonedInst, originalValues);
-
-        auto mangledName = originalInst->mangledName;
-        clonedInst->mangledName = mangledName;
-
-        cloneDecorations(context, clonedInst, originalInst);
-
-        // Set up an IR builder for inserting into the inst
-        IRBuilder builderStorage = *context->builder;
-        IRBuilder* builder = &builderStorage;
-        builder->setInsertInto(clonedInst);
-
-        // Clone any children of the instruction
-        for (auto child : originalInst->getChildren())
-        {
-            cloneInst(context, builder, child);
-        }
-    }
-
-    IRStructKey* cloneStructKeyImpl(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRStructKey*                    originalVal,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedVal = builder->createStructKey();
-        cloneSimpleGlobalValueImpl(context, originalVal, originalValues, clonedVal);
-        return clonedVal;
-    }
-
-    IRGlobalGenericParam* cloneGlobalGenericParamImpl(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRGlobalGenericParam*           originalVal,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedVal = builder->emitGlobalGenericParam();
-        cloneSimpleGlobalValueImpl(context, originalVal, originalValues, clonedVal);
-        return clonedVal;
-    }
-
-
-    IRWitnessTable* cloneWitnessTableImpl(
-        IRSpecContextBase*  context,
-        IRBuilder*          builder,
-        IRWitnessTable* originalTable,
-        IROriginalValuesForClone const& originalValues,
-        IRWitnessTable* dstTable = nullptr,
-        bool registerValue = true)
-    {
-        auto clonedTable = dstTable ? dstTable : builder->createWitnessTable();
-        cloneSimpleGlobalValueImpl(context, originalTable, originalValues, clonedTable, registerValue);
-        return clonedTable;
-    }
-
-    IRWitnessTable* cloneWitnessTableWithoutRegistering(
-        IRSpecContextBase*  context,
-        IRBuilder*          builder,
-        IRWitnessTable* originalTable,
-        IRWitnessTable* dstTable = nullptr)
-    {
-        return cloneWitnessTableImpl(context, builder, originalTable, IROriginalValuesForClone(), dstTable, false);
-    }
-
-    IRStructType* cloneStructTypeImpl(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRStructType*                   originalStruct,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedStruct = builder->createStructType();
-        cloneSimpleGlobalValueImpl(context, originalStruct, originalValues, clonedStruct);
-        return clonedStruct;
-    }
-
-    void cloneGlobalValueWithCodeCommon(
-        IRSpecContextBase*      context,
-        IRGlobalValueWithCode*  clonedValue,
-        IRGlobalValueWithCode*  originalValue)
-    {
-        // Next we are going to clone the actual code.
-        IRBuilder builderStorage = *context->builder;
-        IRBuilder* builder = &builderStorage;
-        builder->setInsertInto(clonedValue);
-
-
-        // We will walk through the blocks of the function, and clone each of them.
-        //
-        // We need to create the cloned blocks first, and then walk through them,
-        // because blocks might be forward referenced (this is not possible
-        // for other cases of instructions).
-        for (auto originalBlock = originalValue->getFirstBlock();
-            originalBlock;
-            originalBlock = originalBlock->getNextBlock())
-        {
-            IRBlock* clonedBlock = builder->createBlock();
-            clonedValue->addBlock(clonedBlock);
-            registerClonedValue(context, clonedBlock, originalBlock);
-
 #if 0
-            // We can go ahead and clone parameters here, while we are at it.
-            builder->curBlock = clonedBlock;
-            for (auto originalParam = originalBlock->getFirstParam();
-                originalParam;
-                originalParam = originalParam->getNextParam())
-            {
-                IRParam* clonedParam = builder->emitParam(
-                    context->maybeCloneType(
-                        originalParam->getFullType()));
-                cloneDecorations(context, clonedParam, originalParam);
-                registerClonedValue(context, clonedParam, originalParam);
-            }
-#endif
-        }
-
-        // Okay, now we are in a good position to start cloning
-        // the instructions inside the blocks.
-        {
-            IRBlock* ob = originalValue->getFirstBlock();
-            IRBlock* cb = clonedValue->getFirstBlock();
-            while (ob)
-            {
-                SLANG_ASSERT(cb);
-
-                builder->setInsertInto(cb);
-                for (auto oi = ob->getFirstInst(); oi; oi = oi->getNextInst())
-                {
-                    cloneInst(context, builder, oi);
-                }
-
-                ob = ob->getNextBlock();
-                cb = cb->getNextBlock();
-            }
-        }
-
-    }
-
-    void checkIRDuplicate(IRInst* inst, IRParentInst* moduleInst, Name* mangledName)
-    {
-#ifdef _DEBUG
-        for (auto child : moduleInst->getChildren())
-        {
-            if (child == inst)
-                continue;
-
-            if (child->op == kIROp_Func)
-            {
-                auto extName = ((IRGlobalValue*)child)->mangledName;
-                if (extName == mangledName ||
-                    (extName && mangledName &&
-                        extName->text == mangledName->text))
-                    SLANG_UNEXPECTED("duplicate global var");
-            }
-        }
-#else
-        SLANG_UNREFERENCED_PARAMETER(inst);
-        SLANG_UNREFERENCED_PARAMETER(moduleInst);
-        SLANG_UNREFERENCED_PARAMETER(mangledName);
-#endif
-    }
-
-    void cloneFunctionCommon(
-        IRSpecContextBase*  context,
-        IRFunc*         clonedFunc,
-        IRFunc*         originalFunc,
-        bool checkDuplicate = true)
-    {
-        // First clone all the simple properties.
-        clonedFunc->mangledName = originalFunc->mangledName;
-        clonedFunc->setFullType(cloneType(context, originalFunc->getFullType()));
-
-        cloneDecorations(context, clonedFunc, originalFunc);
-
-        cloneGlobalValueWithCodeCommon(
-            context,
-            clonedFunc,
-            originalFunc);
-
-        // Shuffle the function to the end of the list, because
-        // it needs to follow its dependencies.
-        //
-        // TODO: This isn't really a good requirement to place on the IR...
-        clonedFunc->moveToEnd();
-        if (checkDuplicate)
-            checkIRDuplicate(clonedFunc, context->getModule()->getModuleInst(), clonedFunc->mangledName);
-    }
-
-    IRFunc* specializeIRForEntryPoint(
-        IRSpecContext*  context,
-        EntryPointRequest*  entryPointRequest,
-        EntryPointLayout*   entryPointLayout)
-    {
-        // Look up the IR symbol by name
-        auto mangledName = context->getModule()->session->getNameObj(getMangledName(entryPointRequest->decl));
-        RefPtr<IRSpecSymbol> sym;
-        if (!context->getSymbols().TryGetValue(mangledName, sym))
-        {
-            SLANG_UNEXPECTED("no matching IR symbol");
-            return nullptr;
-        }
-
-        // TODO: deal with the case where we might
-        // have multiple versions...
-
-        auto globalValue = sym->irGlobalValue;
-        if (globalValue->op != kIROp_Func)
-        {
-            SLANG_UNEXPECTED("expected an IR function");
-            return nullptr;
-        }
-        auto originalFunc = (IRFunc*)globalValue;
-
-        // Create a clone for the IR function
-        auto clonedFunc = context->builder->createFunc();
-
-        // Note: we do *not* register this cloned declaration
-        // as the cloned value for the original symbol.
-        // This is kind of a kludge, but it ensures that
-        // in the unlikely case that the function is both
-        // used as an entry point and a callable function
-        // (yes, this would imply recursion...) we actually
-        // have two copies, which lets us arbitrarily
-        // transform the entry point to meet target requirements.
-        //
-        // TODO: The above statement is kind of bunk, though,
-        // because both versions of the function would have
-        // the same mangled name... :(
-
-        // We need to clone all the properties of the original
-        // function, including any blocks, their parameters,
-        // and their instructions.
-        cloneFunctionCommon(context, clonedFunc, originalFunc);
-
-        // We need to attach the layout information for
-        // the entry point to this declaration, so that
-        // we can use it to inform downstream code emit.
-        context->builder->addLayoutDecoration(
-            clonedFunc,
-            entryPointLayout);
-
-        // We will also go on and attach layout information
-        // to the function parameters, so that we have it
-        // available directly on the parameters, rather
-        // than having to look it up on the original entry-point layout.
-        if( auto firstBlock = clonedFunc->getFirstBlock() )
-        {
-            UInt paramLayoutCount = entryPointLayout->fields.Count();
-            UInt paramCounter = 0;
-            for( auto pp = firstBlock->getFirstParam(); pp; pp = pp->getNextParam() )
-            {
-                UInt paramIndex = paramCounter++;
-                if( paramIndex < paramLayoutCount )
-                {
-                    auto paramLayout = entryPointLayout->fields[paramIndex];
-                    context->builder->addLayoutDecoration(
-                        pp,
-                        paramLayout);
-                }
-                else
-                {
-                    SLANG_UNEXPECTED("too many parameters");
-                }
-            }
-        }
-
-        return clonedFunc;
-    }
-
     IRFunc* cloneSimpleFuncWithoutRegistering(IRSpecContextBase* context, IRFunc* originalFunc)
     {
         auto clonedFunc = context->builder->createFunc();
         cloneFunctionCommon(context, clonedFunc, originalFunc, false);
         return clonedFunc;
     }
-
-    // Get a string form of the target so that we can
-    // use it to match against target-specialization modifiers
-    //
-    // TODO: We shouldn't be using strings for this.
-    String getTargetName(IRSpecContext* context)
-    {
-        switch( context->shared->target )
-        {
-        case CodeGenTarget::HLSL:
-            return "hlsl";
-
-        case CodeGenTarget::GLSL:
-            return "glsl";
-
-        default:
-            SLANG_UNEXPECTED("unhandled case");
-            UNREACHABLE_RETURN("unknown");
-        }
-    }
-
-    // How specialized is a given declaration for the chosen target?
-    enum class TargetSpecializationLevel
-    {
-        specializedForOtherTarget = 0,
-        notSpecialized,
-        specializedForTarget,
-    };
-
-    TargetSpecializationLevel getTargetSpecialiationLevel(
-        IRGlobalValue*  inVal,
-        String const&   targetName)
-    {
-        // HACK: Currently the front-end is placing modifiers related
-        // to target specialization on nodes like functions, even when
-        // those functions are being returned by a generic. This
-        // means that we need to try and inspect the value being
-        // returned by the generic if we are looking at a generic.
-        IRInst* val = inVal;
-        while( auto genericVal = as<IRGeneric>(val) )
-        {
-            auto firstBlock = genericVal->getFirstBlock();
-            if(!firstBlock) break;
-
-            auto returnInst = as<IRReturnVal>(firstBlock->getLastInst());
-            if(!returnInst) break;
-
-            val = returnInst->getVal();
-        }
-
-        TargetSpecializationLevel result = TargetSpecializationLevel::notSpecialized;
-        for( auto dd = val->firstDecoration; dd; dd = dd->next )
-        {
-            if(dd->op != kIRDecorationOp_Target)
-                continue;
-
-            auto decoration = (IRTargetDecoration*) dd;
-            if(String(decoration->targetName) == targetName)
-                return TargetSpecializationLevel::specializedForTarget;
-
-            result = TargetSpecializationLevel::specializedForOtherTarget;
-        }
-
-        return result;
-    }
+#endif
 
     IRInst* findGenericReturnVal(IRGeneric* generic)
     {
@@ -6088,7 +3982,7 @@ namespace Slang
     }
 
     bool isDefinition(
-        IRGlobalValue* inVal)
+        IRInst* inVal)
     {
         IRInst* val = inVal;
         // unwrap any generic declarations to see
@@ -6106,1070 +4000,27 @@ namespace Slang
             val = returnVal;
         }
 
+        // TODO: the logic here should probably
+        // be that anything with an `IRImportDecoration`
+        // is considered to be a declaration rather than definition.
+
         switch (val->op)
         {
         case kIROp_WitnessTable:
         case kIROp_GlobalConstant:
         case kIROp_Func:
         case kIROp_Generic:
-            return ((IRParentInst*)val)->getFirstChild() != nullptr;
+            return val->getFirstChild() != nullptr;
 
         case kIROp_StructType:
         case kIROp_GlobalVar:
+        case kIROp_GlobalParam:
             return true;
 
         default:
             return false;
         }
     }
-
-    // Is `newVal` marked as being a better match for our
-    // chosen code-generation target?
-    //
-    // TODO: there is a missing step here where we need
-    // to check if things are even available in the first place...
-    bool isBetterForTarget(
-        IRSpecContext*  context,
-        IRGlobalValue*  newVal,
-        IRGlobalValue*  oldVal)
-    {
-        String targetName = getTargetName(context);
-
-        // For right now every declaration might have zero or more
-        // modifiers, representing the targets for which it is specialized.
-        // Each modifier has a single string "tag" to represent a target.
-        // We thus decide that a declaration is "more specialized" by:
-        //
-        // - Does it have a modifier with a tag with the string for the current target?
-        //   If yes, it is the most specialized it can be.
-        //
-        // - Does it have a no tags? Then it is "unspecialized" and that is okay.
-        //
-        // - Does it have a modifier with a tag for a *different* target?
-        //   If yes, then it shouldn't even be usable on this target.
-        //
-        // Longer term a better approach is to think of this in terms
-        // of a "disjunction of conjunctions" that is:
-        //
-        //     (A and B and C) or (A and D) or (E) or (F and G) ...
-        //
-        // A code generation target would then consist of a
-        // conjunction of invidual tags:
-        //
-        //    (HLSL and SM_4_0 and Vertex and ...)
-        //
-        // A declaration is *applicable* on a target if one of
-        // its conjunctions of tags is a subset of the target's.
-        //
-        // One declaration is *better* than another on a target
-        // if it is applicable and its tags are a superset
-        // of the other's.
-
-        auto newLevel = getTargetSpecialiationLevel(newVal, targetName);
-        auto oldLevel = getTargetSpecialiationLevel(oldVal, targetName);
-        if(newLevel != oldLevel)
-            return UInt(newLevel) > UInt(oldLevel);
-
-        // All other factors being equal, a definition is
-        // better than a declaration.
-        auto newIsDef = isDefinition(newVal);
-        auto oldIsDef = isDefinition(oldVal);
-        if (newIsDef != oldIsDef)
-            return newIsDef;
-
-        return false;
-    }
-
-    IRFunc* cloneFuncImpl(
-        IRSpecContextBase*  context,
-        IRBuilder*          builder,
-        IRFunc*             originalFunc,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedFunc = builder->createFunc();
-        registerClonedValue(context, clonedFunc, originalValues);
-        cloneFunctionCommon(context, clonedFunc, originalFunc);
-        return clonedFunc;
-    }
-
-
-    IRInst* cloneInst(
-        IRSpecContextBase*              context,
-        IRBuilder*                      builder,
-        IRInst*                         originalInst,
-        IROriginalValuesForClone const& originalValues)
-    {
-        switch (originalInst->op)
-        {
-            // We need to special-case any instruction that is not
-            // allocated like an ordinary `IRInst` with trailing args.
-        case kIROp_Func:
-            return cloneFuncImpl(context, builder, cast<IRFunc>(originalInst), originalValues);
-
-        case kIROp_GlobalVar:
-            return cloneGlobalVarImpl(context, builder, cast<IRGlobalVar>(originalInst), originalValues);
-
-        case kIROp_GlobalConstant:
-            return cloneGlobalConstantImpl(context, builder, cast<IRGlobalConstant>(originalInst), originalValues);
-
-        case kIROp_WitnessTable:
-            return cloneWitnessTableImpl(context, builder, cast<IRWitnessTable>(originalInst), originalValues);
-
-        case kIROp_StructType:
-            return cloneStructTypeImpl(context, builder, cast<IRStructType>(originalInst), originalValues);
-
-        case kIROp_Generic:
-            return cloneGenericImpl(context, builder, cast<IRGeneric>(originalInst), originalValues);
-
-        case kIROp_StructKey:
-            return cloneStructKeyImpl(context, builder, cast<IRStructKey>(originalInst), originalValues);
-
-        case kIROp_GlobalGenericParam:
-            return cloneGlobalGenericParamImpl(context, builder, cast<IRGlobalGenericParam>(originalInst), originalValues);
-
-        default:
-            break;
-        }
-
-        // The common case is that we just need to construct a cloned
-        // instruction with the right number of operands, intialize
-        // it, and then add it to the sequence.
-        UInt argCount = originalInst->getOperandCount();
-        IRInst* clonedInst = createInstWithTrailingArgs<IRInst>(
-            builder, originalInst->op,
-            cloneType(context, originalInst->getFullType()),
-            0, nullptr,
-            argCount, nullptr);
-        registerClonedValue(context, clonedInst, originalValues);
-        auto oldBuilder = context->builder;
-        context->builder = builder;
-        for (UInt aa = 0; aa < argCount; ++aa)
-        {
-            IRInst* originalArg = originalInst->getOperand(aa);
-            IRInst* clonedArg = cloneValue(context, originalArg);
-            clonedInst->getOperands()[aa].init(clonedInst, clonedArg);
-        }
-        builder->addInst(clonedInst);
-        context->builder = oldBuilder;
-        cloneDecorations(context, clonedInst, originalInst);
-
-        return clonedInst;
-    }
-
-    IRGlobalValue* cloneGlobalValueImpl(
-        IRSpecContext*                  context,
-        IRGlobalValue*                  originalInst,
-        IROriginalValuesForClone const& originalValues)
-    {
-        auto clonedValue = cloneInst(context, &context->shared->builderStorage, originalInst, originalValues);
-        clonedValue->moveToEnd();
-        return cast<IRGlobalValue>(clonedValue);
-    }
-
-
-    // Clone a global value, which has the given `mangledName`.
-    // The `originalVal` is a known global IR value with that name, if one is available.
-    // (It is okay for this parameter to be null).
-    IRGlobalValue* cloneGlobalValueWithMangledName(
-        IRSpecContext*  context,
-        Name*           mangledName,
-        IRGlobalValue*  originalVal)
-    {
-        // If the global value being cloned is already in target module, don't clone
-        // Why checking this?
-        //   When specializing a generic function G (which is already in target module),
-        //   where G calls a normal function F (which is already in target module),
-        //   then when we are making a copy of G via cloneFuncCommom(), it will recursively clone F,
-        //   however we don't want to make a duplicate of F in the target module.
-        if (originalVal->getParent() == context->getModule()->getModuleInst())
-            return originalVal;
-
-        // Check if we've already cloned this value, for the case where
-        // an original value has already been established.
-        if (originalVal)
-        {
-            if (IRInst* clonedVal = findClonedValue(context, originalVal))
-            {
-                return cast<IRGlobalValue>(clonedVal);
-            }
-        }
-
-        if(getText(mangledName).Length() == 0)
-        {
-            // If there is no mangled name, then we assume this is a local symbol,
-            // and it can't possibly have multiple declarations.
-            return cloneGlobalValueImpl(context, originalVal, IROriginalValuesForClone());
-        }
-
-        //
-        // We will scan through all of the available declarations
-        // with the same mangled name as `originalVal` and try
-        // to pick the "best" one for our target.
-
-        RefPtr<IRSpecSymbol> sym;
-        if( !context->getSymbols().TryGetValue(mangledName, sym) )
-        {
-            if(!originalVal)
-                return nullptr;
-
-            // This shouldn't happen!
-            SLANG_UNEXPECTED("no matching values registered");
-            UNREACHABLE_RETURN(cloneGlobalValueImpl(context, originalVal, IROriginalValuesForClone()));
-        }
-
-        // We will try to track the "best" declaration we can find.
-        //
-        // Generally, one declaration wil lbe better than another if it is
-        // more specialized for the chosen target. Otherwise, we simply favor
-        // definitions over declarations.
-        //
-        IRGlobalValue* bestVal = sym->irGlobalValue;
-        for( auto ss = sym->nextWithSameName; ss; ss = ss->nextWithSameName )
-        {
-            IRGlobalValue* newVal = ss->irGlobalValue;
-            if(isBetterForTarget(context, newVal, bestVal))
-                bestVal = newVal;
-        }
-
-        // Check if we've already cloned this value, for the case where
-        // we didn't have an original value (just a name), but we've
-        // now found a representative value.
-        if (!originalVal)
-        {
-            if (IRInst* clonedVal = findClonedValue(context, bestVal))
-            {
-                return cast<IRGlobalValue>(clonedVal);
-            }
-        }
-
-        return cloneGlobalValueImpl(context, bestVal, IROriginalValuesForClone(sym));
-    }
-
-    IRGlobalValue* cloneGlobalValueWithMangledName(IRSpecContext* context, Name* mangledName)
-    {
-        return cloneGlobalValueWithMangledName(context, mangledName, nullptr);
-    }
-
-    // Clone a global value, where `originalVal` is one declaration/definition, but we might
-    // have to consider others, in order to find the "best" version of the symbol.
-    IRGlobalValue* cloneGlobalValue(IRSpecContext* context, IRGlobalValue* originalVal)
-    {
-        // We are being asked to clone a particular global value, but in
-        // the IR that comes out of the front-end there could still
-        // be multiple, target-specific, declarations of any given
-        // global value, all of which share the same mangled name.
-        return cloneGlobalValueWithMangledName(
-            context,
-            originalVal->mangledName,
-            originalVal);
-    }
-
-    StructTypeLayout* getGlobalStructLayout(
-        ProgramLayout*  programLayout);
-
-    void insertGlobalValueSymbol(
-        IRSharedSpecContext*    sharedContext,
-        IRGlobalValue*          gv)
-    {
-        auto mangledName = gv->mangledName;
-
-        // Don't try to register a symbol for global values
-        // with no mangled name, since these represent symbols
-        // that shouldn't get "linkage"
-        if (!getText(mangledName).Length())
-            return;
-
-        RefPtr<IRSpecSymbol> sym = new IRSpecSymbol();
-        sym->irGlobalValue = gv;
-
-        RefPtr<IRSpecSymbol> prev;
-        if (sharedContext->symbols.TryGetValue(mangledName, prev))
-        {
-            sym->nextWithSameName = prev->nextWithSameName;
-            prev->nextWithSameName = sym;
-        }
-        else
-        {
-            sharedContext->symbols.Add(mangledName, sym);
-        }
-    }
-
-    void insertGlobalValueSymbols(
-        IRSharedSpecContext*    sharedContext,
-        IRModule*               originalModule)
-    {
-        if (!originalModule)
-            return;
-
-        for(auto ii : originalModule->getGlobalInsts())
-        {
-            auto gv = as<IRGlobalValue>(ii);
-            if (!gv)
-                continue;
-            insertGlobalValueSymbol(sharedContext, gv);
-        }
-    }
-
-    void initializeSharedSpecContext(
-        IRSharedSpecContext*    sharedContext,
-        Session*                session,
-        IRModule*               module,
-        IRModule*               originalModule,
-        CodeGenTarget           target)
-    {
-
-        SharedIRBuilder* sharedBuilder = &sharedContext->sharedBuilderStorage;
-        sharedBuilder->module = nullptr;
-        sharedBuilder->session = session;
-
-        IRBuilder* builder = &sharedContext->builderStorage;
-        builder->sharedBuilder = sharedBuilder;
-
-        if( !module )
-        {
-            module = builder->createModule();
-        }
-
-        sharedBuilder->module = module;
-        sharedContext->module = module;
-        sharedContext->originalModule = originalModule;
-        sharedContext->target = target;
-        // We will populate a map with all of the IR values
-        // that use the same mangled name, to make lookup easier
-        // in other steps.
-        insertGlobalValueSymbols(sharedContext, originalModule);
-    }
-
-    // implementation provided in parameter-binding.cpp
-    RefPtr<ProgramLayout> specializeProgramLayout(
-        TargetRequest * targetReq,
-        ProgramLayout* programLayout,
-        SubstitutionSet typeSubst);
-
-    struct IRSpecializationState
-    {
-        ProgramLayout*      programLayout;
-        CodeGenTarget       target;
-        TargetRequest*      targetReq;
-
-        IRModule* irModule = nullptr;
-        RefPtr<ProgramLayout> newProgramLayout;
-
-        IRSharedSpecContext sharedContextStorage;
-        IRSpecContext contextStorage;
-
-        IRSpecEnv globalEnv;
-
-        IRSharedSpecContext* getSharedContext() { return &sharedContextStorage; }
-        IRSpecContext* getContext() { return &contextStorage; }
-
-        IRSpecializationState()
-        {
-            contextStorage.env = &globalEnv;
-        }
-
-        ~IRSpecializationState()
-        {
-            newProgramLayout = nullptr;
-            contextStorage = IRSpecContext();
-            sharedContextStorage = IRSharedSpecContext();
-        }
-    };
-
-    IRSpecializationState* createIRSpecializationState(
-        EntryPointRequest*  entryPointRequest,
-        ProgramLayout*      programLayout,
-        CodeGenTarget       target,
-        TargetRequest*      targetReq)
-    {
-        IRSpecializationState* state = new IRSpecializationState();
-
-        state->programLayout = programLayout;
-        state->target = target;
-        state->targetReq = targetReq;
-
-
-        auto compileRequest = entryPointRequest->compileRequest;
-        auto translationUnit = entryPointRequest->getTranslationUnit();
-        auto originalIRModule = translationUnit->irModule;
-
-        auto sharedContext = state->getSharedContext();
-        initializeSharedSpecContext(
-            sharedContext,
-            compileRequest->mSession,
-            nullptr,
-            originalIRModule,
-            target);
-
-        state->irModule = sharedContext->module;
-
-        // We also need to attach the IR definitions for symbols from
-        // any loaded modules:
-        for (auto loadedModule : compileRequest->loadedModulesList)
-        {
-            insertGlobalValueSymbols(sharedContext, loadedModule->irModule);
-        }
-
-        auto context = state->getContext();
-        context->shared = sharedContext;
-        context->builder = &sharedContext->builderStorage;
-
-        // Now specialize the program layout using the substitution
-        //
-        // TODO: The specialization of the layout is conceptually an AST-level operations,
-        // and shouldn't be done here in the IR at all.
-        //
-        RefPtr<ProgramLayout> newProgramLayout = specializeProgramLayout(
-            targetReq,
-            programLayout,
-            SubstitutionSet(entryPointRequest->globalGenericSubst));
-
-        // TODO: we need to register the (IR-level) arguments of the global generic parameters as the
-        // substitutions for the generic parameters in the original IR.
-
-        // applyGlobalGenericParamSubsitution(...);
-
-
-        state->newProgramLayout = newProgramLayout;
-
-        // Next, we want to optimize lookup for layout infromation
-        // associated with global declarations, so that we can
-        // look things up based on the IR values (using mangled names)
-        auto globalStructLayout = getGlobalStructLayout(newProgramLayout);
-        for (auto globalVarLayout : globalStructLayout->fields)
-        {
-            auto mangledName = compileRequest->mSession->getNameObj(getMangledName(globalVarLayout->varDecl));
-            context->globalVarLayouts.AddIfNotExists(mangledName, globalVarLayout);
-        }
-
-        // for now, clone all unreferenced witness tables
-        for (auto sym :context->getSymbols())
-        {
-            if (sym.Value->irGlobalValue->op == kIROp_WitnessTable)
-                cloneGlobalValue(context, (IRWitnessTable*)sym.Value->irGlobalValue);
-        }
-        return state;
-    }
-
-    void destroyIRSpecializationState(IRSpecializationState* state)
-    {
-        delete state;
-    }
-
-    IRModule* getIRModule(IRSpecializationState* state)
-    {
-        return state->irModule;
-    }
-
-    IRGlobalValue* getSpecializedGlobalValueForDeclRef(
-        IRSpecializationState*  state,
-        DeclRef<Decl> const&    declRef)
-    {
-        // We will start be ensuring that we have code for
-        // the declaration itself.
-        auto decl = declRef.getDecl();
-        auto mangledDeclName = getMangledName(decl);
-
-        IRGlobalValue* irDeclVal = cloneGlobalValueWithMangledName(
-            state->getContext(),
-            state->getContext()->getModule()->session->getNameObj(mangledDeclName));
-        if(!irDeclVal)
-            return nullptr;
-
-        // Now we need to deal with specializing the given
-        // IR value based on the substitutions applied to
-        // our declaration reference.
-
-        if(!declRef.substitutions)
-            return irDeclVal;
-
-        SLANG_UNEXPECTED("unhandled");
-        UNREACHABLE_RETURN(nullptr);
-    }
-
-    void specializeIRForEntryPoint(
-        IRSpecializationState*  state,
-        EntryPointRequest*  entryPointRequest,
-        ExtensionUsageTracker*  extensionUsageTracker)
-    {
-        auto target = state->target;
-
-        auto compileRequest = entryPointRequest->compileRequest;
-        auto session = compileRequest->mSession;
-        auto translationUnit = entryPointRequest->getTranslationUnit();
-        auto originalIRModule = translationUnit->irModule;
-        if (!originalIRModule)
-        {
-            // We should already have emitted IR for the original
-            // translation unit, and it we don't have it, then
-            // we are now in trouble.
-            return;
-        }
-
-        auto context = state->getContext();
-        auto newProgramLayout = state->newProgramLayout;
-
-        auto entryPointLayout = findEntryPointLayout(newProgramLayout, entryPointRequest);
-
-
-        // Next, we make sure to clone the global value for
-        // the entry point function itself, and rely on
-        // this step to recursively copy over anything else
-        // it might reference.
-        auto irEntryPoint = specializeIRForEntryPoint(context, entryPointRequest, entryPointLayout);
-
-        // HACK: right now the bindings for global generic parameters are coming in
-        // as part of the original IR module, and we need to make sure these get
-        // copied over, even if they aren't referenced.
-        //
-        for(auto inst : originalIRModule->getGlobalInsts())
-        {
-            auto bindInst = as<IRBindGlobalGenericParam>(inst);
-            if(!bindInst)
-                continue;
-
-            cloneValue(context, bindInst);
-        }
-
-
-        // TODO: *technically* we should consider the case where
-        // we have global variables with initializers, since
-        // these should get run whether or not the entry point
-        // references them.
-
-        // For GLSL only, we will need to perform "legalization" of
-        // the entry point and any entry-point parameters.
-        switch (target)
-        {
-        case CodeGenTarget::GLSL:
-            {
-                legalizeEntryPointForGLSL(
-                    session,
-                    context->getModule(),
-                    irEntryPoint,
-                    entryPointLayout,
-                    &compileRequest->mSink,
-                    extensionUsageTracker);
-            }
-            break;
-
-        default:
-            break;
-        }
-    }
-
-    struct IRGenericSpecContext : IRSpecContextBase
-    {
-        IRSpecContextBase* parent = nullptr;
-
-        IRSharedSpecContext* getShared() { return shared; }
-
-        // Override the "maybe clone" logic so that we always clone
-        virtual IRInst* maybeCloneValue(IRInst* originalVal) override;
-    };
-
-    IRInst* IRGenericSpecContext::maybeCloneValue(IRInst* originalVal)
-    {
-        if (parent)
-        {
-            return parent->maybeCloneValue(originalVal);
-        }
-        else
-        {
-            return originalVal;
-        }
-    }
-
-    // See the work list for the generic spec context with
-    // every relevant instruction from `inst` through its
-    // descendents.
-    void addToSpecializationWorkListRec(
-        IRSharedGenericSpecContext* sharedContext,
-        IRInst*                     inst)
-    {
-        if(auto genericInst = as<IRGeneric>(inst))
-        {
-            // We do *not* consider generics, or instructions nested under them.
-            return;
-        }
-        else if(auto parentInst = as<IRParentInst>(inst))
-        {
-            // For a parent instruction, we will scan through its contents,
-            // since that will be where the `specialize` instructions are
-
-            for(auto child : parentInst->children)
-            {
-                addToSpecializationWorkListRec(sharedContext, child);
-            }
-        }
-        else
-        {
-            // Default case: consider this instruction for specialization.
-            sharedContext->addToWorkList(inst);
-        }
-    }
-
-    IRInst* specializeGeneric(
-        IRSharedGenericSpecContext* sharedContext,
-        IRSpecContextBase*          parentContext,
-        IRGeneric*                  genericVal,
-        IRSpecialize*               specializeInst)
-    {
-        // First, we want to see if an existing specialization
-        // has already been made. To do that we will need to
-        // compute the mangled name of the specialized value,
-        // so that we can look for existing declarations.
-        String specMangledName = mangleSpecializedFuncName(getText(genericVal->mangledName), specializeInst);
-        auto specMangledNameObj = sharedContext->module->session->getNameObj(specMangledName);
-
-        // Now look up an existing symbol with a matching name
-        RefPtr<IRSpecSymbol> symb;
-        if (sharedContext->symbols.TryGetValue(specMangledNameObj, symb))
-        {
-            return symb->irGlobalValue;
-        }
-
-        // TODO: This is a terrible linear search, and we should
-        // avoid it by building a dictionary ahead of time,
-        // as is being done for the `IRSpecContext` used above.
-        // We can probalby use the same basic context, actually.
-        for(auto ii : sharedContext->module->getGlobalInsts())
-        {
-            auto gv = as<IRGlobalValue>(ii);
-            if (!gv)
-                continue;
-
-            if (gv->mangledName == specMangledNameObj)
-                return gv;
-        }
-
-        // If we get to this point, then we need to construct a
-        // new IR value to represent the result of specialization.
-
-        // We need to establish a new mapping from inst->inst to
-        // handle the specialization, because we don't want the
-        // clones we register in this pass to cause confusion
-        // in later steps that might clone the same code.
-
-        IRSpecEnv env;
-        env.parent = &sharedContext->globalEnv;
-        if (parentContext)
-        {
-            env.parent = parentContext->getEnv();
-        }
-
-        // The result of specialization should be inserted
-        // into the global scope, at the same location as
-        // the original generic.
-        IRBuilder builderStorage;
-        IRBuilder* builder = &builderStorage;
-        builder->sharedBuilder = &sharedContext->sharedBuilderStorage;
-        builder->setInsertBefore(genericVal);
-
-        IRGenericSpecContext context;
-        context.shared = sharedContext;
-        context.parent = parentContext;
-        context.builder = builder;
-        context.env = &env;
-
-        // Register the arguments of the `specialize` instruction to be used
-        // as the "cloned" value for each of the parameters of the generic.
-        //
-        UInt argCounter = 0;
-        for (auto param = genericVal->getFirstParam(); param; param = param->getNextParam())
-        {
-            UInt argIndex = argCounter++;
-            SLANG_ASSERT(argIndex < specializeInst->getArgCount());
-
-            IRInst* arg = specializeInst->getArg(argIndex);
-
-            registerClonedValue(&context, arg, param);
-        }
-
-        // Okay, now we want to run through the body of the generic
-        // and clone stuff into the parent scope (which had
-        // better be the global scope).
-        for (auto bb : genericVal->getBlocks())
-        {
-            // We expect a generic to only ever contain a single block.
-            SLANG_ASSERT(bb == genericVal->getFirstBlock());
-
-            for (auto ii : bb->getChildren())
-            {
-                // Skip parameters, since they were handled earlier.
-                if (auto param = as<IRParam>(ii))
-                    continue;
-
-                // The last block of the generic is expected to end with
-                // a `return` instruction for the specialized value that
-                // comes out of the abstraction.
-                //
-                // We thus use that cloned value as the result of the
-                // specialization step.
-                if (auto returnValInst = as<IRReturnVal>(ii))
-                {
-                    auto clonedResult = cloneValue(&context, returnValInst->getVal());
-                    if (auto clonedGlobalValue = as<IRGlobalValue>(clonedResult))
-                    {
-                        clonedGlobalValue->mangledName = specMangledNameObj;
-
-                        // TODO: create a symbol for it and add it to the map.
-                    }
-
-                    return clonedResult;
-                }
-
-                // Otherwise, clone the instruction into the global scope
-                IRInst* clonedInst = cloneInst(&context, context.builder, ii);
-
-                // Now that we've cloned the instruction to a location outside
-                // of a generic, we should consider whether it can now be specialized.
-                addToSpecializationWorkListRec(sharedContext, clonedInst);
-            }
-        }
-
-        // If we reach this point, something went wrong, because we
-        // never encountered a `return` inside the body of the generic.
-        SLANG_UNEXPECTED("no return from generic");
-        UNREACHABLE_RETURN(nullptr);
-    }
-
-    // Find the value in the given witness table that
-    // satisfies the given requirement (or return
-    // null if not found).
-    IRInst* findWitnessVal(
-        IRWitnessTable* witnessTable,
-        IRInst*         requirementKey)
-    {
-        // For now we will do a dumb linear search
-        for( auto entry : witnessTable->getEntries() )
-        {
-            // If the keys matched, then we use the value from this entry.
-            if (requirementKey == entry->requirementKey.get())
-            {
-                auto satisfyingVal = entry->satisfyingVal.get();
-                return satisfyingVal;
-            }
-        }
-
-        // No matching entry found.
-        return nullptr;
-    }
-
-    static bool canSpecializeGeneric(
-        IRGeneric*  generic)
-    {
-        IRGeneric* g = generic;
-        for(;;)
-        {
-            auto val = findGenericReturnVal(g);
-            if(!val)
-                return false;
-
-            if (auto nestedGeneric = as<IRGeneric>(val))
-            {
-                // The outer generic returns an *inner* generic
-                // (so that multiple calls to `specialize` are
-                // needed to resolve it). We should look at
-                // what the nested generic returns to figure
-                // out whether specialization is allowed.
-                g = nestedGeneric;
-                continue;
-            }
-
-            // We've found the leaf value that will be produced after
-            // all of the specialization is done. Now we want to know
-            // if that is a value suitable for actually specializing
-
-            if (auto globalValue = as<IRGlobalValue>(val))
-            {
-                if (isDefinition(globalValue))
-                    return true;
-                return false;
-            }
-            else
-            {
-                // There might be other cases with a declaration-vs-definition
-                // thing that we need to handle.
-
-                return true;
-            }
-        }
-    }
-
-    // Add any instruction that uses `inst` to the work list,
-    // so that it can be evaluated (or re-evaluated) for specialization.
-    void addUsesToWorkList(
-        IRSharedGenericSpecContext* sharedContext,
-        IRInst*                     inst)
-    {
-        for(auto u = inst->firstUse; u; u = u->nextUse)
-        {
-            sharedContext->addToWorkList(u->getUser());
-        }
-    }
-
-    void specializeGenericsForInst(
-        IRSharedGenericSpecContext* sharedContext,
-        IRInst*                     inst)
-    {
-        switch(inst->op)
-        {
-        default:
-            // The default behavior is to do nothing.
-            // An instruction is specialize-able once its operands
-            // are specialized, and after that it is also safe
-            // to consider the instruction specialized.
-            break;
-
-        case kIROp_Specialize:
-            {
-                // We have a `specialize` instruction, so lets see
-                // whether we have an opportunity to perform the
-                // specialization here and now.
-                IRSpecialize* specInst = cast<IRSpecialize>(inst);
-
-                // Look at the base of the `specialize`, and see if
-                // it directly names a generic, so that we can apply
-                // specialization here and now.
-                auto baseVal = specInst->getBase();
-                if(auto genericVal = as<IRGeneric>(baseVal))
-                {
-                    if (canSpecializeGeneric(genericVal))
-                    {
-                        // Okay, we have a candidate for specialization here.
-                        //
-                        // We will apply the specialization logic to the body of the generic,
-                        // which will yield, e.g., a specialized `IRFunc`.
-                        //
-                        auto specializedVal = specializeGeneric(sharedContext, nullptr, genericVal, specInst);
-                        //
-                        // Then we will replace the use sites for the `specialize`
-                        // instruction with uses of the specialized value.
-                        //
-                        addUsesToWorkList(sharedContext, specInst);
-                        specInst->replaceUsesWith(specializedVal);
-                        specInst->removeAndDeallocate();
-                    }
-                }
-            }
-            break;
-
-        case kIROp_lookup_interface_method:
-            {
-                // We have a `lookup_interface_method` instruction,
-                // so let's see whether it is a lookup in a known
-                // witness table.
-                IRLookupWitnessMethod* lookupInst = cast<IRLookupWitnessMethod>(inst);
-
-                // We only want to deal with the case where the witness-table
-                // argument points to a concrete global table (and not, e.g., a
-                // `specialize` instruction that will yield a table)
-                auto witnessTable = as<IRWitnessTable>(lookupInst->witnessTable.get());
-                if(!witnessTable)
-                    break;
-
-                // Use the witness table to look up the value that
-                // satisfies the requirement.
-                auto requirementKey = lookupInst->getRequirementKey();
-                auto satisfyingVal = findWitnessVal(witnessTable, requirementKey);
-                // We expect to always find something, but lets just
-                // be careful here.
-                if(!satisfyingVal)
-                    break;
-
-                // If we get through all of the above checks, then we
-                // have a (more) concrete method that implements the interface,
-                // and so we should dispatch to that directly, rather than
-                // use the `lookup_interface_method` instruction.
-                addUsesToWorkList(sharedContext, lookupInst);
-                lookupInst->replaceUsesWith(satisfyingVal);
-                lookupInst->removeAndDeallocate();
-            }
-            break;
-        }
-    }
-
-    static bool isInstSpecialized(
-        IRSharedGenericSpecContext* sharedContext,
-        IRInst*                     inst)
-    {
-        // If an instruction is still on our work list, then
-        // it isn't specialized, and conversely we say that
-        // if it *isn't* on the work list, it must be specialized.
-        //
-        // Note: if we end up with bugs in this logic, we could
-        // maintain an explicit set of specialized insts instead.
-        //
-        return !sharedContext->workListSet.Contains(inst);
-    }
-
-    static bool canSpecializeInst(
-        IRSharedGenericSpecContext* sharedContext,
-        IRInst*                     inst)
-    {
-        // We can specialize an instruction once all its
-        // operands are specialized.
-
-        UInt operandCount = inst->getOperandCount();
-        for(UInt ii = 0; ii < operandCount; ++ii)
-        {
-            IRInst* operand = inst->getOperand(ii);
-            if(!isInstSpecialized(sharedContext, operand))
-                return false;
-        }
-        return true;
-    }
-
-    // Go through the code in the module and try to identify
-    // calls to generic functions where the generic arguments
-    // are known, and specialize the callee based on those
-    // known values.
-    void specializeGenerics(
-        IRModule*   module,
-        CodeGenTarget target)
-    {
-        IRSharedGenericSpecContext sharedContextStorage;
-        auto sharedContext = &sharedContextStorage;
-
-        initializeSharedSpecContext(
-            sharedContext,
-            module->session,
-            module,
-            module,
-            target);
-
-        auto moduleInst = module->getModuleInst();
-
-        // First things first, let's deal with any bindings for global generic parameters.
-        for(auto inst : moduleInst->getChildren())
-        {
-            auto bindInst = as<IRBindGlobalGenericParam>(inst);
-            if(!bindInst)
-                continue;
-
-            // HACK: Our current front-end emit logic can end up emitting multiple
-            // `bindGlobalGeneric` instructions for the same parameter. This is
-            // a buggy behavior, but a real fix would require refactoring the way
-            // global generic arguments are specified today.
-            //
-            // For now we will do a sanity check to detect parameters that
-            // have already been specialized.
-            if( !as<IRGlobalGenericParam>(bindInst->getOperand(0)) )
-            {
-                // parameter operand is no longer a parameter, so it
-                // seems things must have been specialized already.
-                continue;
-            }
-
-            auto param = bindInst->getParam();
-            auto val = bindInst->getVal();
-
-            param->replaceUsesWith(val);
-        }
-        {
-            // Now we will do a second pass to clean up the
-            // generic parameters and their bindings.
-            IRInst* next = nullptr;
-            for(auto inst = moduleInst->getFirstChild(); inst; inst = next)
-            {
-                next = inst->getNextInst();
-
-                switch(inst->op)
-                {
-                default:
-                    break;
-
-                case kIROp_GlobalGenericParam:
-                case kIROp_BindGlobalGenericParam:
-                    // A "bind" instruction should have no uses in the
-                    // first place, and all the global generic parameters
-                    // should have had their uses replaced.
-                    SLANG_ASSERT(!inst->firstUse);
-                    inst->removeAndDeallocate();
-                    break;
-                }
-            }
-        }
-
-        // Our goal here is to find `specialize` instructions that
-        // can be replaced with references to, e.g., a suitably
-        // specialized function, and to resolve any `lookup_interface_method`
-        // instructions to the concrete value fetched from a witness
-        // table.
-        //
-        // We need to be careful of a few things:
-        //
-        // * It would not in general make sense to consider specialize-able
-        //   instructions under an `IRGeneric`, since that could mean "specialziing"
-        //   code to parameter values that are still unknown.
-        //
-        // * We *also* need to be careful not to specialize something when one
-        //   or more of its inputs is also a `specialize` or `lookup_interface_method`
-        //   instruction, because then we'd be propagating through non-concrete
-        //   values.
-        //
-        // The approach we use here is to build a work list of instructions
-        // that *can* become fully specialized, but aren't yet. Any
-        // instruction on the work list will be considered to be "unspecialized"
-        // and any instruction not on the work list is considered specialized.
-        //
-        // We will start by recursively walking all the instructions to add
-        // the appropriate ones to  our work list:
-        //
-        addToSpecializationWorkListRec(sharedContext, moduleInst);
-
-        // Now we are going to repeatedly walk our work list, and filter
-        // it to create a new work list.
-        List<IRInst*> workListCopy;
-        for(;;)
-        {
-            // Swap out the work list on the context so we can
-            // process it here without worrying about concurrent
-            // modifications.
-            workListCopy.Clear();
-            workListCopy.SwapWith(sharedContext->workList);
-
-            if(workListCopy.Count() == 0)
-                break;
-
-            for(auto inst : workListCopy)
-            {
-                // We need to check whether it is possible to specialize
-                // the instruction yet (it might not be because its
-                // operands haven't been specialized)
-                if(!canSpecializeInst(sharedContext, inst))
-                {
-                    // Put it back on the fresh work list, so that
-                    // we can re-consider it in another iteration.
-                    sharedContext->workList.Add(inst);
-                }
-                else
-                {
-                    // Okay, perform any specialization step on this
-                    // instruction that makes sense (which might be
-                    // doing nothing).
-                    specializeGenericsForInst(sharedContext, inst);
-
-                    // Remove the instruction from consideration.
-                    sharedContext->workListSet.Remove(inst);
-                }
-            }
-        }
-
-        // Once the work list has gone dry, we should have the invariant
-        // that there are no `specialize` instructions inside of non-generic
-        // functions that in turn reference a generic function, *except*
-        // in the case where that generic is for a builtin function, in
-        // which case we wouldn't want to specialize it anyway.
-    }
-
-    void applyGlobalGenericParamSubstitution(
-        IRSpecContext*  /*context*/)
-    {
-        // TODO: we need to figure out how to apply this
-    }
-
 
     void markConstExpr(
         IRBuilder*  builder,

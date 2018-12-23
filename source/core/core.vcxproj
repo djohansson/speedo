@@ -191,9 +191,12 @@
     <ClInclude Include="slang-object-scope-manager.h" />
     <ClInclude Include="slang-random-generator.h" />
     <ClInclude Include="slang-shared-library.h" />
+    <ClInclude Include="slang-std-writers.h" />
     <ClInclude Include="slang-string-slice-pool.h" />
     <ClInclude Include="slang-string-util.h" />
     <ClInclude Include="slang-string.h" />
+    <ClInclude Include="slang-test-tool-util.h" />
+    <ClInclude Include="slang-writer.h" />
     <ClInclude Include="smart-pointer.h" />
     <ClInclude Include="stream.h" />
     <ClInclude Include="text-io.h" />
@@ -209,9 +212,12 @@
     <ClCompile Include="slang-object-scope-manager.cpp" />
     <ClCompile Include="slang-random-generator.cpp" />
     <ClCompile Include="slang-shared-library.cpp" />
+    <ClCompile Include="slang-std-writers.cpp" />
     <ClCompile Include="slang-string-slice-pool.cpp" />
     <ClCompile Include="slang-string-util.cpp" />
     <ClCompile Include="slang-string.cpp" />
+    <ClCompile Include="slang-test-tool-util.cpp" />
+    <ClCompile Include="slang-writer.cpp" />
     <ClCompile Include="stream.cpp" />
     <ClCompile Include="text-io.cpp" />
     <ClCompile Include="token-reader.cpp" />
