@@ -94,7 +94,15 @@ ForEach(.Config in .Clang_x64_Configs)
 		.IntermediateFilePath + '/glfw'
 
 		.CompilerOptions + .CompilerOptionsC
+	#if __WINDOWS__
 			+ ' -D_GLFW_WIN32=1'
+	#endif
+	#if __OSX__
+			+ ' -D_GLFW_COCOA=1'
+	#endif //__OSX__
+	#if __LINUX__
+			+ ' -D_GLFW_X11=1'
+	#endif //__LINUX__
 
 		.CompilerInputFiles = {
 			'$ProjectPath$/external/glfw/src/context.c',
@@ -103,6 +111,11 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/glfw/src/monitor.c',
 			'$ProjectPath$/external/glfw/src/vulkan.c',
 			'$ProjectPath$/external/glfw/src/window.c',
+			'$ProjectPath$/external/glfw/src/egl_context.c',
+			'$ProjectPath$/external/glfw/src/osmesa_context.c',
+		}
+	#if __WINDOWS__
+		.CompilerInputFiles + {
 			'$ProjectPath$/external/glfw/src/win32_init.c',
 			'$ProjectPath$/external/glfw/src/win32_joystick.c',
 			'$ProjectPath$/external/glfw/src/win32_monitor.c',
@@ -110,9 +123,30 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/glfw/src/win32_thread.c',
 			'$ProjectPath$/external/glfw/src/win32_window.c',
 			'$ProjectPath$/external/glfw/src/wgl_context.c',
-			'$ProjectPath$/external/glfw/src/egl_context.c',
-			'$ProjectPath$/external/glfw/src/osmesa_context.c',
 		}
+	#endif
+	#if __OSX__
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/glfw/src/cocoa_init.m',
+			'$ProjectPath$/external/glfw/src/cocoa_joystick.m',
+            '$ProjectPath$/external/glfw/src/cocoa_monitor.m',
+			'$ProjectPath$/external/glfw/src/cocoa_window.m',
+			'$ProjectPath$/external/glfw/src/cocoa_time.c',
+			'$ProjectPath$/external/glfw/src/posix_thread.c',
+            '$ProjectPath$/external/glfw/src/nsgl_context.m',
+		}
+	#endif //__OSX__
+	#if __LINUX__
+		.CompilerInputFiles + {
+		    '$ProjectPath$/external/glfw/src/x11_init.c',
+			'$ProjectPath$/external/glfw/src/x11_monitor.c',
+			'$ProjectPath$/external/glfw/src/x11_window.c',
+            '$ProjectPath$/external/glfw/src/xkb_unicode.c',
+			'$ProjectPath$/external/glfw/src/posix_time.c',
+			'$ProjectPath$/external/glfw/src/posix_thread.c',
+			'$ProjectPath$/external/glfw/src/glx_context.c',
+		}
+	#endif //__LINUX__
 		.CompilerOutputPath = '$IntermediateFilePath$'
 
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/glfw'

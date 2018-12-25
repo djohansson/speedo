@@ -86,7 +86,7 @@ Compiler('Compiler-Clang')
 #if __OSX__
 		+ ' -D__APPLE__'
 		+ ' -D__OSX__'
-#endif //__LINUX__
+#endif //__OSX__
 #if __LINUX__
 		+ ' -D__LINUX__'
 		+ ' -D__linux__'
