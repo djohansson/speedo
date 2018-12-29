@@ -1,9 +1,16 @@
 // emit.cpp
 #include "emit.h"
 
+#include "../core/slang-writer.h"
+#include "ir-dce.h"
+#include "ir-existential.h"
+#include "ir-glsl-legalize.h"
 #include "ir-insts.h"
+#include "ir-link.h"
 #include "ir-restructure.h"
 #include "ir-restructure-scoping.h"
+#include "ir-specialize.h"
+#include "ir-specialize-resources.h"
 #include "ir-ssa.h"
 #include "ir-validate.h"
 #include "legalize-types.h"
@@ -1419,7 +1426,7 @@ struct EmitVisitor
     bool isTargetIntrinsicModifierApplicable(
         IRTargetIntrinsicDecoration*    decoration)
     {
-        auto targetName = String(decoration->targetName);
+        auto targetName = String(decoration->getTargetName());
 
         // If no target name was specified, then the modifier implicitly
         // applies to all targets.
@@ -2170,7 +2177,7 @@ struct EmitVisitor
         // then use that name instead.
         if(auto intrinsicDecoration = findTargetIntrinsicDecoration(context, inst))
         {
-            return String(intrinsicDecoration->definition);
+            return String(intrinsicDecoration->getDefinition());
         }
 
         // If we have a name hint on the instruction, then we will try to use that
@@ -2200,7 +2207,7 @@ struct EmitVisitor
             // name hint already ends with one.
             //
 
-            String nameHint = nameHintDecoration->name->text;
+            String nameHint = nameHintDecoration->getName();
             nameHint = scrubName(nameHint);
 
             StringBuilder sb;
@@ -2226,17 +2233,9 @@ struct EmitVisitor
 
 
         // If the instruction has a mangled name, then emit using that.
-        if (auto globalValue = as<IRGlobalValue>(inst))
+        if(auto linkageDecoration = inst->findDecoration<IRLinkageDecoration>())
         {
-            auto mangledName = globalValue->mangledName;
-            if (mangledName)
-            {
-                auto mangledNameText = getText(mangledName);
-                if (mangledNameText.Length() != 0)
-                {
-                    return getText(mangledName);
-                }
-            }
+            return linkageDecoration->getMangledName();
         }
 
         // Otherwise fall back to a construct temporary name
@@ -2362,6 +2361,7 @@ struct EmitVisitor
         case kIROp_Var:
         case kIROp_GlobalVar:
         case kIROp_GlobalConstant:
+        case kIROp_GlobalParam:
         case kIROp_Param:
             return false;
 
@@ -2383,7 +2383,6 @@ struct EmitVisitor
         case kIROp_FieldAddress:
         case kIROp_getElementPtr:
         case kIROp_Specialize:
-        case kIROp_BufferElementRef:
             return true;
         }
 
@@ -2535,25 +2534,6 @@ struct EmitVisitor
         // effects in between, so it seems safe to fold things in.
         return true;
     }
-
-    bool isDerefBaseImplicit(
-        EmitContext*    /*context*/,
-        IRInst*        inst)
-    {
-        auto type = inst->getDataType();
-
-        if(as<IRUniformParameterGroupType>(type) && !as<IRParameterBlockType>(type))
-        {
-            // TODO: we need to be careful here, because
-            // HLSL shader model 6 allows these as explicit
-            // types.
-            return true;
-        }
-
-        return false;
-    }
-
-
 
     void emitIROperand(
         EmitContext*    ctx,
@@ -2948,9 +2928,9 @@ struct EmitVisitor
         EmitContext*    /* ctx */,
         IRInst*         inst)
     {
-        for (auto dd = inst->firstDecoration; dd; dd = dd->next)
+        for(auto dd : inst->getDecorations())
         {
-            if (dd->op != kIRDecorationOp_TargetIntrinsic)
+            if (dd->op != kIROp_TargetIntrinsicDecoration)
                 continue;
 
             auto targetIntrinsic = (IRTargetIntrinsicDecoration*)dd;
@@ -2998,7 +2978,7 @@ struct EmitVisitor
         args++;
         argCount--;
 
-        auto name = String(targetIntrinsic->definition);
+        auto name = String(targetIntrinsic->getDefinition());
 
 
         if(isOrdinaryName(name))
@@ -3431,7 +3411,7 @@ struct EmitVisitor
         // (which is `func` above), so we need to walk
         // upwards to find it.
         //
-        IRGlobalValue* valueForName = func;
+        IRInst* valueForName = func;
         for(;;)
         {
             auto parentBlock = as<IRBlock>(valueForName->parent);
@@ -3445,9 +3425,17 @@ struct EmitVisitor
             valueForName = parentGeneric;
         }
 
+        // If we reach this point, we are assuming that the value
+        // has some kind of linkage, and thus a mangled name.
+        //
+        auto linkageDecoration = valueForName->findDecoration<IRLinkageDecoration>();
+        SLANG_ASSERT(linkageDecoration);
+        auto mangledName = String(linkageDecoration->getMangledName());
+
+
         // We will use the `UnmangleContext` utility to
         // help us split the original name into its pieces.
-        UnmangleContext um(getText(valueForName->mangledName));
+        UnmangleContext um(mangledName);
         um.startUnmangling();
 
         // We'll read through the qualified name of the
@@ -3532,19 +3520,19 @@ struct EmitVisitor
                 decoratedValue = getSpecializedValue(specInst);
             }
 
-            for( auto decoration = decoratedValue->firstDecoration; decoration; decoration = decoration->next )
+            for( auto decoration : decoratedValue->getDecorations() )
             {
                 switch(decoration->op)
                 {
                 default:
                     break;
 
-                case kIRDecorationOp_RequireGLSLExtension:
-                    requireGLSLExtension(String(((IRRequireGLSLExtensionDecoration*)decoration)->extensionName));
+                case kIROp_RequireGLSLExtensionDecoration:
+                    requireGLSLExtension(String(((IRRequireGLSLExtensionDecoration*)decoration)->getExtensionName()));
                     break;
 
-                case kIRDecorationOp_RequireGLSLVersion:
-                    requireGLSLVersion(int(((IRRequireGLSLVersionDecoration*)decoration)->languageVersion));
+                case kIROp_RequireGLSLVersionDecoration:
+                    requireGLSLVersion(int(((IRRequireGLSLVersionDecoration*)decoration)->getLanguageVersion()));
                     break;
                 }
             }
@@ -3645,13 +3633,16 @@ struct EmitVisitor
 
                 IRFieldExtract* fieldExtract = (IRFieldExtract*) inst;
 
-                if (!isDerefBaseImplicit(ctx, fieldExtract->getBase()))
-                {
-                    auto prec = kEOp_Postfix;
-                    needClose = maybeEmitParens(outerPrec, prec);
+                auto prec = kEOp_Postfix;
+                needClose = maybeEmitParens(outerPrec, prec);
 
-                    emitIROperand(ctx, fieldExtract->getBase(), mode, leftSide(outerPrec, prec));
-                    emit(".");
+                auto base = fieldExtract->getBase();
+                emitIROperand(ctx, base, mode, leftSide(outerPrec, prec));
+                emit(".");
+                if(getTarget(ctx) == CodeGenTarget::GLSL
+                    && as<IRUniformParameterGroupType>(base->getDataType()))
+                {
+                    emit("_data.");
                 }
                 emit(getIRName(fieldExtract->getField()));
             }
@@ -3663,15 +3654,17 @@ struct EmitVisitor
 
                 IRFieldAddress* ii = (IRFieldAddress*) inst;
 
-                if (!isDerefBaseImplicit(ctx, ii->getBase()))
+                auto prec = kEOp_Postfix;
+                needClose = maybeEmitParens(outerPrec, prec);
+
+                auto base = ii->getBase();
+                emitIROperand(ctx, base, mode, leftSide(outerPrec, prec));
+                emit(".");
+                if(getTarget(ctx) == CodeGenTarget::GLSL
+                    && as<IRUniformParameterGroupType>(base->getDataType()))
                 {
-                    auto prec = kEOp_Postfix;
-                    needClose = maybeEmitParens(outerPrec, prec);
-
-                    emitIROperand(ctx, ii->getBase(), mode, leftSide(outerPrec, prec));
-                    emit(".");
+                    emit("_data.");
                 }
-
                 emit(getIRName(ii->getField()));
             }
             break;
@@ -3774,7 +3767,15 @@ struct EmitVisitor
             break;
 
         case kIROp_Load:
-            emitIROperand(ctx, inst->getOperand(0), mode, outerPrec);
+            {
+                auto base = inst->getOperand(0);
+                emitIROperand(ctx, base, mode, outerPrec);
+                if(getTarget(ctx) == CodeGenTarget::GLSL
+                    && as<IRUniformParameterGroupType>(base->getDataType()))
+                {
+                    emit("._data");
+                }
+            }
             break;
 
         case kIROp_Store:
@@ -3794,39 +3795,6 @@ struct EmitVisitor
             }
             break;
 
-        case kIROp_BufferLoad:
-        case kIROp_BufferElementRef:
-            {
-                auto prec = kEOp_Postfix;
-                needClose = maybeEmitParens(outerPrec, prec);
-
-                emitIROperand(ctx, inst->getOperand(0), mode, leftSide(outerPrec, prec));
-                emit("[");
-                emitIROperand(ctx, inst->getOperand(1), mode, kEOp_General);
-                emit("]");
-            }
-            break;
-
-        case kIROp_BufferStore:
-            {
-                auto precAssign = kEOp_Assign;
-                needClose = maybeEmitParens(outerPrec, precAssign);
-
-                auto outerPrecSubscript = precAssign;
-                auto precSubscript = kEOp_Postfix;
-                bool needCloseSubscript = maybeEmitParens(outerPrecSubscript, precSubscript);
-
-                emitIROperand(ctx, inst->getOperand(0), mode, leftSide(outerPrecSubscript, precSubscript));
-                emit("[");
-                emitIROperand(ctx, inst->getOperand(1), mode, kEOp_General);
-                emit("]");
-                maybeCloseParens(needCloseSubscript);
-
-                emit(" = ");
-                emitIROperand(ctx, inst->getOperand(2), mode, rightSide(outerPrec, precAssign));
-            }
-            break;
-
         case kIROp_GroupMemoryBarrierWithGroupSync:
             emit("GroupMemoryBarrierWithGroupSync()");
             break;
@@ -3840,7 +3808,7 @@ struct EmitVisitor
                 auto prec = kEOp_Postfix;
                 needClose = maybeEmitParens(outerPrec, prec);
 
-                emit(decoration->outerArrayName);
+                emit(decoration->getOuterArrayName());
                 emit("[");
                 emitIROperand(ctx, inst->getOperand(1), mode, kEOp_General);
                 emit("].");
@@ -4008,12 +3976,6 @@ struct EmitVisitor
             }
             break;
 
-        case kIROp_NotePatchConstantFunc:
-        {
-            // No-op
-            break;
-        }
-
         case kIROp_Var:
             {
                 auto ptrType = cast<IRPtrType>(inst->getDataType());
@@ -4148,13 +4110,13 @@ struct EmitVisitor
         if (auto semanticDecoration = inst->findDecoration<IRSemanticDecoration>())
         {
             Emit(" : ");
-            emit(semanticDecoration->semanticName);
+            emit(semanticDecoration->getSemanticName());
             return;
         }
 
         if(auto layoutDecoration = inst->findDecoration<IRLayoutDecoration>())
         {
-            auto layout = layoutDecoration->layout;
+            auto layout = layoutDecoration->getLayout();
             if(auto varLayout = layout->dynamicCast<VarLayout>())
             {
                 emitIRSemantics(ctx, varLayout);
@@ -4177,7 +4139,7 @@ struct EmitVisitor
         if (!decoration)
             return nullptr;
 
-        return (VarLayout*) decoration->layout;
+        return (VarLayout*) decoration->getLayout();
     }
 
     void emitIRLayoutSemantics(
@@ -4394,7 +4356,7 @@ struct EmitVisitor
                     //
                     if (auto loopControlDecoration = loopInst->findDecoration<IRLoopControlDecoration>())
                     {
-                        switch (loopControlDecoration->mode)
+                        switch (loopControlDecoration->getMode())
                         {
                         case kIRLoopControl_Unroll:
                             // Note: loop unrolling control is only available in HLSL, not GLSL
@@ -4508,23 +4470,6 @@ struct EmitVisitor
         }
     }
 
-
-
-    IRInst* findFirstInst(IRFunc* irFunc, IROp op)
-    {
-        for (auto block : irFunc->getBlocks())
-        {
-            for (auto inst : block->getChildren())
-            {
-                if (inst->op == op)
-                {
-                    return inst;
-                }
-            }
-        }
-        return nullptr;
-    }
-
     void emitAttributeSingleString(const char* name, FuncDecl* entryPoint, Attribute* attrib)
     {
         assert(attrib);
@@ -4583,11 +4528,11 @@ struct EmitVisitor
     {
         SLANG_UNUSED(attrib);
 
-        auto irPatchFunc = static_cast<IRNotePatchConstantFunc*>(findFirstInst(irFunc, kIROp_NotePatchConstantFunc));
+        auto irPatchFunc = irFunc->findDecoration<IRPatchConstantFuncDecoration>();
         assert(irPatchFunc);
         if (!irPatchFunc)
         {
-            SLANG_DIAGNOSE_UNEXPECTED(getSink(), entryPoint->loc, "Unable to find NotePatchConstantFunc instruction");
+            SLANG_DIAGNOSE_UNEXPECTED(getSink(), entryPoint->loc, "Unable to find [patchConstantFunc(...)] decoration");
             return;
         }
 
@@ -4937,7 +4882,7 @@ struct EmitVisitor
             {
                 if (auto layoutDecor = pp->findDecoration<IRLayoutDecoration>())
                 {
-                    Layout* layout = layoutDecor->layout;
+                    Layout* layout = layoutDecor->getLayout();
                     VarLayout* varLayout = dynamic_cast<VarLayout*>(layout);
 
                     if (varLayout)
@@ -5093,7 +5038,7 @@ struct EmitVisitor
     {
         if( auto layoutDecoration = func->findDecoration<IRLayoutDecoration>() )
         {
-            return layoutDecoration->layout->dynamicCast<EntryPointLayout>();
+            return layoutDecoration->getLayout()->dynamicCast<EntryPointLayout>();
         }
         return nullptr;
     }
@@ -5102,7 +5047,7 @@ struct EmitVisitor
     {
         if (auto layoutDecoration = func->findDecoration<IRLayoutDecoration>())
         {
-            if (auto entryPointLayout = layoutDecoration->layout->dynamicCast<EntryPointLayout>())
+            if (auto entryPointLayout = layoutDecoration->getLayout()->dynamicCast<EntryPointLayout>())
             {
                 return entryPointLayout;
             }
@@ -5308,13 +5253,13 @@ struct EmitVisitor
         bool isGLSL = (ctx->shared->target == CodeGenTarget::GLSL);
         bool anyModifiers = false;
 
-        for(auto dd = varInst->firstDecoration; dd; dd = dd->next)
+        for(auto dd : varInst->getDecorations())
         {
-            if(dd->op != kIRDecorationOp_InterpolationMode)
+            if(dd->op != kIROp_InterpolationModeDecoration)
                 continue;
 
             auto decoration = (IRInterpolationModeDecoration*)dd;
-            auto mode = decoration->mode;
+            auto mode = decoration->getMode();
 
             switch(mode)
             {
@@ -5618,63 +5563,19 @@ struct EmitVisitor
         }
     }
 
-    void emitHLSLParameterBlock(
-        EmitContext*            ctx,
-        IRGlobalVar*            varDecl,
-        IRParameterBlockType*   type)
-    {
-        emit("cbuffer ");
-
-        // Generate a dummy name for the block
-        emit("_S");
-        Emit(ctx->shared->uniqueIDCounter++);
-
-        auto varLayout = getVarLayout(ctx, varDecl);
-        SLANG_RELEASE_ASSERT(varLayout);
-
-        EmitVarChain blockChain(varLayout);
-
-        EmitVarChain containerChain = blockChain;
-        EmitVarChain elementChain = blockChain;
-
-        auto typeLayout = varLayout->typeLayout;
-        if( auto parameterGroupTypeLayout = typeLayout.As<ParameterGroupTypeLayout>() )
-        {
-            containerChain = EmitVarChain(parameterGroupTypeLayout->containerVarLayout, &blockChain);
-            elementChain = EmitVarChain(parameterGroupTypeLayout->elementVarLayout, &blockChain);
-
-            typeLayout = parameterGroupTypeLayout->elementVarLayout->getTypeLayout();
-        }
-
-        emitHLSLRegisterSemantic(LayoutResourceKind::ConstantBuffer, &containerChain);
-
-        emit("\n{\n");
-        indent();
-
-        auto elementType = type->getElementType();
-
-
-        emitIRType(ctx, elementType, getIRName(varDecl));
-
-        emitHLSLParameterGroupFieldLayoutSemantics(&elementChain);
-        emit(";\n");
-
-        dedent();
-        emit("}\n");
-    }
-
     void emitHLSLParameterGroup(
         EmitContext*                    ctx,
-        IRGlobalVar*                    varDecl,
+        IRGlobalParam*                  varDecl,
         IRUniformParameterGroupType*    type)
     {
-        if(auto parameterBlockType = as<IRParameterBlockType>(type))
+        if(as<IRTextureBufferType>(type))
         {
-            emitHLSLParameterBlock(ctx, varDecl, parameterBlockType);
-            return;
+            emit("tbuffer ");
         }
-
-        emit("cbuffer ");
+        else
+        {
+            emit("cbuffer ");
+        }
         emit(getIRName(varDecl));
 
         auto varLayout = getVarLayout(ctx, varDecl);
@@ -5701,111 +5602,72 @@ struct EmitVisitor
 
         auto elementType = type->getElementType();
 
-        if(auto structType = as<IRStructType>(elementType))
-        {
-            auto structTypeLayout = typeLayout.As<StructTypeLayout>();
-            SLANG_RELEASE_ASSERT(structTypeLayout);
-
-            UInt fieldIndex = 0;
-            for(auto ff : structType->getFields())
-            {
-                // TODO: need a plan to deal with the case where the IR-level
-                // `struct` type might not match the high-level type, so that
-                // the numbering of fields is different.
-                //
-                // The right plan is probably to require that the lowering pass
-                // create a fresh layout for any type/variable that it splits
-                // in this fashion, so that the layout information it attaches
-                // can always be assumed to apply to the actual instruciton.
-                //
-
-                auto fieldLayout = structTypeLayout->fields[fieldIndex++];
-
-                auto fieldKey = ff->getKey();
-                auto fieldType = ff->getFieldType();
-
-                // Fields of `void` type aren't valid in HLSL/GLSL.
-                //
-                // TODO: legalization should get rid of any fields that have
-                // empty, or effectively empty types (e.g., emptry structs
-                // should be translated over to `void`).
-                if(as<IRVoidType>(fieldType))
-                    continue;
-
-                emitIRVarModifiers(ctx, fieldLayout, fieldKey, fieldType);
-
-                emitIRType(ctx, fieldType, getIRName(fieldKey));
-
-                emitHLSLParameterGroupFieldLayoutSemantics(fieldLayout, &elementChain);
-
-                emit(";\n");
-            }
-        }
-        else
-        {
-            // TODO: during legalization we should turn `ParameterGroup<X>` where `X`
-            // is not a `struct` type into `ParameterGroup<S>` where `S` is defined
-            // as something like `struct S { X _; };`
-            //
-            emit("/* unexpected */");
-        }
+        emitIRType(ctx, elementType, getIRName(varDecl));
+        emit(";\n");
 
         dedent();
         emit("}\n");
     }
 
-    void emitGLSLParameterBlock(
-        EmitContext*            ctx,
-        IRGlobalVar*            varDecl,
-        IRParameterBlockType*   type)
+        /// Emit the array brackets that go on the end of a declaration of the given type.
+    void emitArrayBrackets(
+        EmitContext*    ctx,
+        IRType*         inType)
     {
-        auto varLayout = getVarLayout(ctx, varDecl);
-        SLANG_RELEASE_ASSERT(varLayout);
+        SLANG_UNUSED(ctx);
 
-        EmitVarChain blockChain(varLayout);
-
-        EmitVarChain containerChain = blockChain;
-        EmitVarChain elementChain = blockChain;
-
-        auto typeLayout = varLayout->typeLayout;
-        if( auto parameterGroupTypeLayout = typeLayout.As<ParameterGroupTypeLayout>() )
+        // A declaration may require zero, one, or
+        // more array brackets. When writing out array
+        // brackets from left to right, they represent
+        // the structure of the type from the "outside"
+        // in (that is, if we have a 5-element array of
+        // 3-element arrays we should output `[5][3]`),
+        // because of C-style declarator rules.
+        //
+        // This conveniently means that we can print
+        // out all the array brackets with a looping
+        // rather than a recursive structure.
+        //
+        // We will peel the input type like an onion,
+        // looking at one layer at a time until we
+        // reach a non-array type in the middle.
+        //
+        IRType* type = inType;
+        for(;;)
         {
-            containerChain = EmitVarChain(parameterGroupTypeLayout->containerVarLayout, &blockChain);
-            elementChain = EmitVarChain(parameterGroupTypeLayout->elementVarLayout, &blockChain);
+            if(auto arrayType = as<IRArrayType>(type))
+            {
+                emit("[");
+                EmitVal(arrayType->getElementCount(), kEOp_General);
+                emit("]");
 
-            typeLayout = parameterGroupTypeLayout->elementVarLayout->getTypeLayout();
+                // Continue looping on the next layer in.
+                //
+                type = arrayType->getElementType();
+            }
+            else if(auto unsizedArrayType = as<IRUnsizedArrayType>(type))
+            {
+                emit("[]");
+
+                // Continue looping on the next layer in.
+                //
+                type = unsizedArrayType->getElementType();
+            }
+            else
+            {
+                // This layer wasn't an array, so we are done.
+                //
+                return;
+            }
         }
-
-        emitGLSLLayoutQualifier(LayoutResourceKind::DescriptorTableSlot, &containerChain);
-        emit("layout(std140) uniform ");
-
-        // Generate a dummy name for the block
-        emit("_S");
-        Emit(ctx->shared->uniqueIDCounter++);
-
-        emit("\n{\n");
-        indent();
-
-        auto elementType = type->getElementType();
-
-        emitIRType(ctx, elementType, getIRName(varDecl));
-        emit(";\n");
-
-        dedent();
-        emit("};\n");
     }
+
 
     void emitGLSLParameterGroup(
         EmitContext*                    ctx,
-        IRGlobalVar*                    varDecl,
+        IRGlobalParam*                  varDecl,
         IRUniformParameterGroupType*    type)
     {
-        if(auto parameterBlockType = as<IRParameterBlockType>(type))
-        {
-            emitGLSLParameterBlock(ctx, varDecl, parameterBlockType);
-            return;
-        }
-
         auto varLayout = getVarLayout(ctx, varDecl);
         SLANG_RELEASE_ASSERT(varLayout);
 
@@ -5814,7 +5676,7 @@ struct EmitVisitor
         EmitVarChain containerChain = blockChain;
         EmitVarChain elementChain = blockChain;
 
-        auto typeLayout = varLayout->typeLayout;
+        auto typeLayout = varLayout->typeLayout->unwrapArray();
         if( auto parameterGroupTypeLayout = typeLayout.As<ParameterGroupTypeLayout>() )
         {
             containerChain = EmitVarChain(parameterGroupTypeLayout->containerVarLayout, &blockChain);
@@ -5841,76 +5703,33 @@ struct EmitVisitor
             emit("layout(std140) uniform ");
         }
 
-        emit(getIRName(varDecl));
+        // Generate a dummy name for the block
+        emit("_S");
+        Emit(ctx->shared->uniqueIDCounter++);
 
         emit("\n{\n");
         indent();
 
         auto elementType = type->getElementType();
 
-        if(auto structType = as<IRStructType>(elementType))
-        {
-            auto structTypeLayout = typeLayout.As<StructTypeLayout>();
-            SLANG_RELEASE_ASSERT(structTypeLayout);
-
-            UInt fieldIndex = 0;
-            for(auto ff : structType->getFields())
-            {
-                // TODO: need a plan to deal with the case where the IR-level
-                // `struct` type might not match the high-level type, so that
-                // the numbering of fields is different.
-                //
-                // The right plan is probably to require that the lowering pass
-                // create a fresh layout for any type/variable that it splits
-                // in this fashion, so that the layout information it attaches
-                // can always be assumed to apply to the actual instruciton.
-                //
-
-                auto fieldLayout = structTypeLayout->fields[fieldIndex++];
-
-                auto fieldKey = ff->getKey();
-                auto fieldType = ff->getFieldType();
-                if(as<IRVoidType>(fieldType))
-                    continue;
-
-                // Note: we will emit matrix-layout modifiers here, but
-                // we will refrain from emitting other modifiers that
-                // might not be appropriate to the context (e.g., we
-                // shouldn't go emitting `uniform` just because these
-                // things are uniform...).
-                //
-                // TODO: we need a more refined set of modifiers that
-                // we should allow on fields, because we might end
-                // up supporting layout that isn't the default for
-                // the given block type (e.g., something other than
-                // `std140` for a uniform block).
-                //
-                emitIRMatrixLayoutModifiers(ctx, fieldLayout);
-
-                emitIRType(ctx, fieldType, getIRName(fieldKey));
-
-//                    emitHLSLParameterGroupFieldLayoutSemantics(layout, fieldLayout);
-
-                emit(";\n");
-            }
-        }
-        else
-        {
-            emit("/* unexpected */");
-        }
-
-        // TODO: we should consider always giving parameter blocks
-        // names when outputting GLSL, since that shouldn't affect
-        // the semantics of things, and will reduce the risk of
-        // collisions in the global namespace...
+        emitIRType(ctx, elementType, "_data");
+        emit(";\n");
 
         dedent();
-        emit("};\n");
+        emit("} ");
+
+        emit(getIRName(varDecl));
+
+        // If the underlying variable was an array (or array of arrays, etc.)
+        // we need to emit all those array brackets here.
+        emitArrayBrackets(ctx, varDecl->getDataType());
+
+        emit(";\n");
     }
 
     void emitIRParameterGroup(
         EmitContext*                    ctx,
-        IRGlobalVar*                    varDecl,
+        IRGlobalParam*                  varDecl,
         IRUniformParameterGroupType*    type)
     {
         switch (ctx->shared->target)
@@ -5974,19 +5793,9 @@ struct EmitVisitor
         emit(";\n");
     }
 
-    IRType* unwrapArray(IRType* type)
-    {
-        IRType* t = type;
-        while( auto arrayType = as<IRArrayTypeBase>(t) )
-        {
-            t = arrayType->getElementType();
-        }
-        return t;
-    }
-
     void emitIRStructuredBuffer_GLSL(
         EmitContext*                    ctx,
-        IRGlobalVar*                    varDecl,
+        IRGlobalParam*                  varDecl,
         IRHLSLStructuredBufferTypeBase* structuredBufferType)
     {
         // Shader storage buffer is an OpenGL 430 feature
@@ -6025,26 +5834,21 @@ struct EmitVisitor
 
 
         auto elementType = structuredBufferType->getElementType();
-        emitIRType(ctx, elementType, getIRName(varDecl) + "[]");
+        emitIRType(ctx, elementType, "_data[]");
         emit(";\n");
 
         dedent();
-        emit("}");
+        emit("} ");
 
-        // TODO: we need to consider the case where the type of the variable is
-        // an *array* of structured buffers, in which case we need to declare
-        // the block as an array too.
-        //
-        // The main challenge here is that then the block will have a name,
-        // and also the field inside the block will have a name, so that when
-        // the user had written `a[i][j]` we now need to emit `a[i].someName[j]`.
+        emit(getIRName(varDecl));
+        emitArrayBrackets(ctx, varDecl->getDataType());
 
         emit(";\n");
     }
 
     void emitIRByteAddressBuffer_GLSL(
         EmitContext*                    ctx,
-        IRGlobalVar*                    varDecl,
+        IRGlobalParam*                  varDecl,
         IRByteAddressBufferTypeBase*    /* byteAddressBufferType */)
     {
         // TODO: A lot of this logic is copy-pasted from `emitIRStructuredBuffer_GLSL`.
@@ -6084,20 +5888,13 @@ struct EmitVisitor
         emit("\n{\n");
         indent();
 
-        emit("uint ");
-        emit(getIRName(varDecl));
-        emit("[];\n");
+        emit("uint _data[];\n");
 
         dedent();
-        emit("}");
+        emit("} ");
 
-        // TODO: we need to consider the case where the type of the variable is
-        // an *array* of structured buffers, in which case we need to declare
-        // the block as an array too.
-        //
-        // The main challenge here is that then the block will have a name,
-        // and also the field inside the block will have a name, so that when
-        // the user had written `a[i][j]` we now need to emit `a[i].someName[j]`.
+        emit(getIRName(varDecl));
+        emitArrayBrackets(ctx, varDecl->getDataType());
 
         emit(";\n");
     }
@@ -6129,6 +5926,73 @@ struct EmitVisitor
             Emit("}\n");
         }
 
+        // An ordinary global variable won't have a layout
+        // associated with it, since it is not a shader
+        // parameter.
+        //
+        SLANG_ASSERT(!getVarLayout(ctx, varDecl));
+        VarLayout* layout = nullptr;
+
+        // An ordinary global variable (which is not a
+        // shader parameter) may need special
+        // modifiers to indicate it as such.
+        //
+        switch (getTarget(ctx))
+        {
+        case CodeGenTarget::HLSL:
+            // HLSL requires the `static` modifier on any
+            // global variables; otherwise they are assumed
+            // to be uniforms.
+            Emit("static ");
+            break;
+
+        default:
+            break;
+        }
+
+        emitIRVarModifiers(ctx, layout, varDecl, varType);
+
+        emitIRRateQualifiers(ctx, varDecl);
+        emitIRType(ctx, varType, getIRName(varDecl));
+
+        // TODO: These shouldn't be needed for ordinary
+        // global variables.
+        //
+        emitIRSemantics(ctx, varDecl);
+        emitIRLayoutSemantics(ctx, varDecl);
+
+        if (varDecl->getFirstBlock())
+        {
+            Emit(" = ");
+            emit(initFuncName);
+            Emit("()");
+        }
+
+        emit(";\n\n");
+    }
+
+    void emitIRGlobalParam(
+        EmitContext*    ctx,
+        IRGlobalParam*  varDecl)
+    {
+        auto rawType = varDecl->getDataType();
+
+        auto varType = rawType;
+        if( auto outType = as<IROutTypeBase>(varType) )
+        {
+            varType = outType->getValueType();
+        }
+
+        // When a global shader parameter represents a "parameter group"
+        // (either a constant buffer or a parameter block with non-resource
+        // data in it), we will prefer to emit it as an ordinary `cbuffer`
+        // declaration or `uniform` block, even when emitting HLSL for
+        // D3D profiles that support the explicit `ConstantBuffer<T>` type.
+        //
+        // Alternatively, we could make this choice based on profile, and
+        // prefer `ConstantBuffer<T>` on profiles that support it and/or when
+        // the input code used that syntax.
+        //
         if (auto paramBlockType = as<IRUniformParameterGroupType>(varType))
         {
             emitIRParameterGroup(
@@ -6140,8 +6004,31 @@ struct EmitVisitor
 
         if(getTarget(ctx) == CodeGenTarget::GLSL)
         {
-            // When outputting GLSL, we need to transform any declaration of
-            // a `*StructuredBuffer<T>` into an ordinary `buffer` declaration.
+            // There are a number of types that are (or can be)
+            // "first-class" in D3D HLSL, but are second-class in GLSL in
+            // that they require explicit global declarations for each value/object,
+            // and don't support declaration as ordinary variables.
+            //
+            // This includes constant buffers (`uniform` blocks) and well as
+            // structured and byte-address buffers (both mapping to `buffer` blocks).
+            //
+            // We intercept these types, and arrays thereof, to produce the required
+            // global declarations. This assumes that earlier "legalization" passes
+            // already performed the work of pulling fields with these types out of
+            // aggregates.
+            //
+            // Note: this also assumes that these types are not used as function
+            // parameters/results, local variables, etc. Additional legalization
+            // steps are required to guarantee these conditions.
+            //
+            if (auto paramBlockType = as<IRUniformParameterGroupType>(unwrapArray(varType)))
+            {
+                emitGLSLParameterGroup(
+                    ctx,
+                    varDecl,
+                    paramBlockType);
+                return;
+            }
             if( auto structuredBufferType = as<IRHLSLStructuredBufferTypeBase>(unwrapArray(varType)) )
             {
                 emitIRStructuredBuffer_GLSL(
@@ -6150,9 +6037,6 @@ struct EmitVisitor
                     structuredBufferType);
                 return;
             }
-
-            // When outputting GLSL, we need to transform any declaration of
-            // a `*ByteAddressBuffer<T>` into an ordinary `buffer` declaration.
             if( auto byteAddressBufferType = as<IRByteAddressBufferTypeBase>(unwrapArray(varType)) )
             {
                 emitIRByteAddressBuffer_GLSL(
@@ -6166,39 +6050,35 @@ struct EmitVisitor
             // when outputting GLSL (well, except in the case where they
             // actually *require* redeclaration...).
             //
-            // TODO: can we detect this more robustly?
-            if(getText(varDecl->mangledName).StartsWith("gl_"))
+            // Note: these won't be variables the user declare explicitly
+            // in their code, but rather variables that we generated as
+            // part of legalizing the varying input/output signature of
+            // an entry point for GL/Vulkan.
+            //
+            // TODO: This could be handled more robustly by attaching an
+            // appropriate decoration to these variables to indicate their
+            // purpose.
+            //
+            if(auto linkageDecoration = varDecl->findDecoration<IRLinkageDecoration>())
             {
-                // The variable represents an OpenGL system value,
-                // so we will assume that it doesn't need to be declared.
-                //
-                // TODO: handle case where we *should* declare the variable.
-                return;
+                if(linkageDecoration->getMangledName().startsWith("gl_"))
+                {
+                    // The variable represents an OpenGL system value,
+                    // so we will assume that it doesn't need to be declared.
+                    //
+                    // TODO: handle case where we *should* declare the variable.
+                    return;
+                }
             }
         }
 
         // Need to emit appropriate modifiers here.
 
+        // We expect/require all shader parameters to
+        // have some kind of layout information associted with them.
+        //
         auto layout = getVarLayout(ctx, varDecl);
-
-        if (!layout)
-        {
-            // A global variable without a layout is just an
-            // ordinary global variable, and may need special
-            // modifiers to indicate it as such.
-            switch (getTarget(ctx))
-            {
-            case CodeGenTarget::HLSL:
-                // HLSL requires the `static` modifier on any
-                // global variables; otherwise they are assumed
-                // to be uniforms.
-                Emit("static ");
-                break;
-
-            default:
-                break;
-            }
-        }
+        SLANG_ASSERT(layout);
 
         emitIRVarModifiers(ctx, layout, varDecl, varType);
 
@@ -6209,15 +6089,12 @@ struct EmitVisitor
 
         emitIRLayoutSemantics(ctx, varDecl);
 
-        if (varDecl->getFirstBlock())
-        {
-            Emit(" = ");
-            emit(initFuncName);
-            Emit("()");
-        }
+        // A shader parameter cannot have an initializer,
+        // so we do need to consider emitting one here.
 
         emit(";\n\n");
     }
+
 
     void emitIRGlobalConstantInitializer(
         EmitContext*        ctx,
@@ -6230,7 +6107,7 @@ struct EmitVisitor
 
         // We expect the terminator to be a `return`
         // instruction with a value.
-        auto returnInst = (IRReturnVal*) block->getLastInst();
+        auto returnInst = (IRReturnVal*) block->getLastDecorationOrChild();
         SLANG_RELEASE_ASSERT(returnInst->op == kIROp_ReturnVal);
 
         // We will emit the value in the `GlobalConstant` mode, which
@@ -6290,6 +6167,10 @@ struct EmitVisitor
 
         case kIROp_GlobalVar:
             emitIRGlobalVar(ctx, (IRGlobalVar*) inst);
+            break;
+
+        case kIROp_GlobalParam:
+            emitIRGlobalParam(ctx, (IRGlobalParam*) inst);
             break;
 
         case kIROp_GlobalConstant:
@@ -6363,12 +6244,9 @@ struct EmitVisitor
             ensureInstOperand(ctx, inst->getOperand(ii));
         }
 
-        if(auto parentInst = as<IRParentInst>(inst))
+        for(auto child : inst->getDecorationsAndChildren())
         {
-            for(auto child : parentInst->getChildren())
-            {
-                ensureInstOperandsRec(ctx, child);
-            }
+            ensureInstOperandsRec(ctx, child);
         }
     }
 
@@ -6564,6 +6442,31 @@ void legalizeTypes(
     TypeLegalizationContext*    context,
     IRModule*                   module);
 
+static void dumpIRIfEnabled(
+    CompileRequest* compileRequest,
+    IRModule*       irModule,
+    char const*     label = nullptr)
+{
+    if(compileRequest->shouldDumpIR)
+    {
+        WriterHelper writer(compileRequest->getWriter(WriterChannel::StdError));
+
+        if(label)
+        {
+            writer.put("### ");
+            writer.put(label);
+            writer.put(":\n");
+        }
+
+        dumpIR(irModule, writer.getWriter());
+
+        if( label )
+        {
+            writer.put("###\n");
+        }
+    }
+}
+
 String emitEntryPoint(
     EntryPointRequest*  entryPoint,
     ProgramLayout*      programLayout,
@@ -6617,15 +6520,12 @@ String emitEntryPoint(
             session,
             irModule);
 
-        specializeIRForEntryPoint(
+        auto irEntryPoint = specializeIRForEntryPoint(
             irSpecializationState,
-            entryPoint,
-            &sharedContext.extensionUsageTracker);
+            entryPoint);
 
 #if 0
-        fprintf(stderr, "### CLONED:\n");
-        dumpIR(irModule);
-        fprintf(stderr, "###\n");
+        dumpIRIfEnabled(compileRequest, irModule, "CLONED");
 #endif
 
         validateIRModuleIfEnabled(compileRequest, irModule);
@@ -6633,10 +6533,59 @@ String emitEntryPoint(
         // If the user specified the flag that they want us to dump
         // IR, then do it here, for the target-specific, but
         // un-specialized IR.
-        if (translationUnit->compileRequest->shouldDumpIR)
+        dumpIRIfEnabled(compileRequest, irModule);
+
+
+
+        // For GLSL only, we will need to perform "legalization" of
+        // the entry point and any entry-point parameters.
+        //
+        // TODO: We should consider moving this legalization work
+        // as late as possible, so that it doesn't affect how other
+        // optimization passes need to work.
+        //
+        switch (target)
         {
-            dumpIR(irModule);
+        case CodeGenTarget::GLSL:
+            {
+                legalizeEntryPointForGLSL(
+                    session,
+                    irModule,
+                    irEntryPoint,
+                    &compileRequest->mSink,
+                    &sharedContext.extensionUsageTracker);
+            }
+            break;
+
+        default:
+            break;
         }
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "GLSL LEGALIZED");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
+
+
+        // Any code that makes use of existential (interface) types
+        // needs to be simplified to use concrete types instead,
+        // wherever this is possible.
+        //
+        // Note: we are applying this *before* doing specialization
+        // of generics because this pass could expose concrete
+        // types and/or witness tables that allow for further
+        // specialization.
+        //
+        // TODO: Simplification of existential-based and generics-based
+        // code may each open up opportunities for the other, so
+        // in the long run these will need to be merged into a
+        // single pass that looks for all simplification opportunities.
+        //
+        // TODO: We also need a legalization pass that will "expose"
+        // existential values that are nested inside of other types,
+        // so that the simplifications can be applied.
+        //
+        simplifyExistentialTypes(irModule);
 
         // Next, we need to ensure that the code we emit for
         // the target doesn't contain any operations that would
@@ -6644,13 +6593,13 @@ String emitEntryPoint(
         // none of our target supports generics, or interfaces,
         // so we need to specialize those away.
         //
-        specializeGenerics(irModule, sharedContext.target);
+        specializeGenerics(irModule);
+
+
 
         // Debugging code for IR transformations...
 #if 0
-        fprintf(stderr, "### SPECIALIZED:\n");
-        dumpIR(irModule);
-        fprintf(stderr, "###\n");
+        dumpIRIfEnabled(compileRequest, irModule, "SPECIALIZED");
 #endif
         validateIRModuleIfEnabled(compileRequest, irModule);
 
@@ -6665,9 +6614,7 @@ String emitEntryPoint(
 
         //  Debugging output of legalization
 #if 0
-        fprintf(stderr, "### LEGALIZED:\n");
-        dumpIR(irModule);
-        fprintf(stderr, "###\n");
+        dumpIRIfEnabled(compileRequest, irModule, "LEGALIZED");
 #endif
         validateIRModuleIfEnabled(compileRequest, irModule);
 
@@ -6679,9 +6626,47 @@ String emitEntryPoint(
         constructSSA(irModule);
 
 #if 0
-        fprintf(stderr, "### AFTER SSA:\n");
-        dumpIR(irModule);
-        fprintf(stderr, "###\n");
+        dumpIRIfEnabled(compileRequest, irModule, "AFTER SSA");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
+        // After type legalization and subsequent SSA cleanup we expect
+        // that any resource types passed to functions are exposed
+        // as their own top-level parameters (which might have
+        // resource or array-of-...-resource types).
+        //
+        // Many of our targets place restrictions on how certain
+        // resource types can be used, so that having them as
+        // function parameters is invalid. To clean this up,
+        // we will try to specialize called functions based
+        // on the actual resources that are being passed to them
+        // at specific call sites.
+        //
+        // Because the legalization may depend on what target
+        // we are compiling for (certain things might be okay
+        // for D3D targets that are not okay for Vulkan), we
+        // pass down the target request along with the IR.
+        //
+        specializeResourceParameters(compileRequest, targetRequest, irModule);
+
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "AFTER RESOURCE SPECIALIZATION");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
+        // The resource-based specialization pass above
+        // may create specialized versions of functions, but
+        // it does not try to completely eliminate the original
+        // functions, so there might still be invalid code in
+        // our IR module.
+        //
+        // To clean up the code, we will apply a fairly general
+        // dead-code-elimination (DCE) pass that only retains
+        // whatever code is "live."
+        //
+        eliminateDeadCode(compileRequest, irModule);
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "AFTER DCE");
 #endif
         validateIRModuleIfEnabled(compileRequest, irModule);
 

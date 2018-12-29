@@ -293,6 +293,9 @@ namespace Slang
         RefPtr<Type>	type;
         bool					IsLeftValue;
 
+        template <typename T>
+        T* As();
+
         QualType()
             : IsLeftValue(false)
         {}
@@ -1108,6 +1111,13 @@ namespace Slang
 
 #include "object-meta-end.h"
 
+
+    template <typename T>
+    SLANG_FORCE_INLINE T* QualType::As()
+    {
+        return type ? type->As<T>() : nullptr;
+    }
+
     inline RefPtr<Type> GetSub(DeclRef<GenericTypeConstraintDecl> const& declRef)
     {
         return declRef.Substitute(declRef.getDecl()->sub.Ptr());
@@ -1140,6 +1150,14 @@ namespace Slang
     // Create an instance of a syntax class by name
     SyntaxNodeBase* createInstanceOfSyntaxClassByName(
         String const&   name);
+
+    // `Val`
+
+    inline bool areValsEqual(Val* left, Val* right)
+    {
+        if(!left || !right) return left == right;
+        return left->EqualsVal(right);
+    }
 
     //
 

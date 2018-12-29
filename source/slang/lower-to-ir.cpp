@@ -3,6 +3,7 @@
 
 #include "../../slang.h"
 
+#include "check.h"
 #include "ir.h"
 #include "ir-constexpr.h"
 #include "ir-insts.h"
@@ -384,6 +385,48 @@ void setValue(IRGenContext* context, Decl* decl, LoweredValInfo value)
     context->env->mapDeclToValue[decl] = value;
 }
 
+ModuleDecl* findModuleDecl(Decl* decl)
+{
+    for (auto dd = decl; dd; dd = dd->ParentDecl)
+    {
+        if (auto moduleDecl = dynamic_cast<ModuleDecl*>(dd))
+            return moduleDecl;
+    }
+    return nullptr;
+}
+
+bool isFromStdLib(Decl* decl)
+{
+    for (auto dd = decl; dd; dd = dd->ParentDecl)
+    {
+        if (dd->HasModifier<FromStdLibModifier>())
+            return true;
+    }
+    return false;
+}
+
+bool isImportedDecl(IRGenContext* context, Decl* decl)
+{
+    ModuleDecl* moduleDecl = findModuleDecl(decl);
+    if (!moduleDecl)
+        return false;
+
+    // HACK: don't treat standard library code as
+    // being imported for right now, just because
+    // we don't load its IR in the same way as
+    // for other imports.
+    //
+    // TODO: Fix this the right way, by having standard
+    // library declarations have IR modules that we link
+    // in via the normal means.
+    if (isFromStdLib(decl))
+        return false;
+
+    if (moduleDecl != context->shared->mainModuleDecl)
+        return true;
+
+    return false;
+}
 
     /// Should the given `decl` nested in `parentDecl` be treated as a static rather than instance declaration?
 bool isEffectivelyStatic(
@@ -415,9 +458,9 @@ IROp getIntrinsicOp(
     // based on the name of the declaration...
 
     auto name = decl->getName();
-    auto nameText = getText(name);
+    auto nameText = getUnownedStringSliceText(name);
 
-    IROp op = findIROp(nameText.Buffer());
+    IROp op = findIROp(nameText);
     SLANG_ASSERT(op != kIROp_Invalid);
     return op;
 }
@@ -954,6 +997,51 @@ IRType* getIntType(
     return context->irBuilder->getBasicType(BaseType::Int);
 }
 
+static IRGeneric* getOuterGeneric(IRInst* gv)
+{
+    auto parentBlock = as<IRBlock>(gv->getParent());
+    if (!parentBlock) return nullptr;
+
+    auto parentGeneric = as<IRGeneric>(parentBlock->getParent());
+    return parentGeneric;
+}
+
+static void addLinkageDecoration(
+    IRGenContext*               context,
+    IRInst*                     inInst,
+    Decl*                       decl,
+    UnownedStringSlice const&   mangledName)
+{
+    // If the instruction is nested inside one or more generics,
+    // then the mangled name should really apply to the outer-most
+    // generic, and not the declaration nested inside.
+
+    auto builder = context->irBuilder;
+
+    IRInst* inst = inInst;
+    while (auto outerGeneric = getOuterGeneric(inst))
+    {
+        inst = outerGeneric;
+    }
+
+    if(isImportedDecl(context, decl))
+    {
+        builder->addImportDecoration(inst, mangledName);
+    }
+    else
+    {
+        builder->addExportDecoration(inst, mangledName);
+    }
+}
+
+static void addLinkageDecoration(
+    IRGenContext*               context,
+    IRInst*                     inst,
+    Decl*                       decl)
+{
+    addLinkageDecoration(context, inst, decl, getMangledName(decl).getUnownedSlice());
+}
+
 IRStructKey* getInterfaceRequirementKey(
     IRGenContext*   context,
     Decl*           requirementDecl)
@@ -973,8 +1061,8 @@ IRStructKey* getInterfaceRequirementKey(
     // this requirement in the IR, and to allow lookup
     // into the declaration.
     requirementKey = builder->createStructKey();
-    requirementKey->mangledName = context->getSession()->getNameObj(
-        getMangledName(requirementDecl));
+
+    addLinkageDecoration(context, requirementKey, requirementDecl);
 
     context->shared->interfaceRequirementKeys.Add(requirementDecl, requirementKey);
 
@@ -1200,6 +1288,22 @@ struct ValLoweringVisitor : ValVisitor<ValLoweringVisitor, LoweredValInfo, Lower
         return lowerGenericIntrinsicType(type, elementType, count);
     }
 
+    IRType* visitExtractExistentialType(ExtractExistentialType* type)
+    {
+        auto declRef = type->declRef;
+        auto existentialType = lowerType(context, GetType(declRef));
+        IRInst* existentialVal = getSimpleVal(context, emitDeclRef(context, declRef, existentialType));
+        return getBuilder()->emitExtractExistentialType(existentialVal);
+    }
+
+    LoweredValInfo visitExtractExistentialSubtypeWitness(ExtractExistentialSubtypeWitness* witness)
+    {
+        auto declRef = witness->declRef;
+        auto existentialType = lowerType(context, GetType(declRef));
+        IRInst* existentialVal = getSimpleVal(context, emitDeclRef(context, declRef, existentialType));
+        return LoweredValInfo::simple(getBuilder()->emitExtractExistentialWitnessTable(existentialVal));
+    }
+
     // We do not expect to encounter the following types in ASTs that have
     // passed front-end semantic checking.
 #define UNEXPECTED_CASE(NAME) IRType* visit##NAME(NAME*) { SLANG_UNEXPECTED(#NAME); UNREACHABLE_RETURN(nullptr); }
@@ -1238,39 +1342,39 @@ void addVarDecorations(
     {
         if(mod.As<HLSLNoInterpolationModifier>())
         {
-            builder->addDecoration<IRInterpolationModeDecoration>(inst)->mode = IRInterpolationMode::NoInterpolation;
+            builder->addInterpolationModeDecoration(inst, IRInterpolationMode::NoInterpolation);
         }
         else if(mod.As<HLSLNoPerspectiveModifier>())
         {
-            builder->addDecoration<IRInterpolationModeDecoration>(inst)->mode = IRInterpolationMode::NoPerspective;
+            builder->addInterpolationModeDecoration(inst, IRInterpolationMode::NoPerspective);
         }
         else if(mod.As<HLSLLinearModifier>())
         {
-            builder->addDecoration<IRInterpolationModeDecoration>(inst)->mode = IRInterpolationMode::Linear;
+            builder->addInterpolationModeDecoration(inst, IRInterpolationMode::Linear);
         }
         else if(mod.As<HLSLSampleModifier>())
         {
-            builder->addDecoration<IRInterpolationModeDecoration>(inst)->mode = IRInterpolationMode::Sample;
+            builder->addInterpolationModeDecoration(inst, IRInterpolationMode::Sample);
         }
         else if(mod.As<HLSLCentroidModifier>())
         {
-            builder->addDecoration<IRInterpolationModeDecoration>(inst)->mode = IRInterpolationMode::Centroid;
+            builder->addInterpolationModeDecoration(inst, IRInterpolationMode::Centroid);
         }
         else if(mod.As<VulkanRayPayloadAttribute>())
         {
-            builder->addDecoration<IRVulkanRayPayloadDecoration>(inst);
+            builder->addSimpleDecoration<IRVulkanRayPayloadDecoration>(inst);
         }
         else if(mod.As<VulkanCallablePayloadAttribute>())
         {
-            builder->addDecoration<IRVulkanCallablePayloadDecoration>(inst);
+            builder->addSimpleDecoration<IRVulkanCallablePayloadDecoration>(inst);
         }
         else if(mod.As<VulkanHitAttributesAttribute>())
         {
-            builder->addDecoration<IRVulkanHitAttributesDecoration>(inst);
+            builder->addSimpleDecoration<IRVulkanHitAttributesDecoration>(inst);
         }
         else if(mod.As<GloballyCoherentModifier>())
         {
-            builder->addDecoration<IRGloballyCoherentDecoration>(inst);
+            builder->addSimpleDecoration<IRGloballyCoherentDecoration>(inst);
         }
 
         // TODO: what are other modifiers we need to propagate through?
@@ -1294,7 +1398,7 @@ void maybeSetRate(
     }
 }
 
-static Name* getNameForNameHint(
+static String getNameForNameHint(
     IRGenContext*   context,
     Decl*           decl)
 {
@@ -1311,9 +1415,9 @@ static Name* getNameForNameHint(
     // There is no point in trying to provide a name hint for something with no name,
     // or with an empty name
     if(!leafName)
-        return nullptr;
+        return String();
     if(leafName->text.Length() == 0)
-        return nullptr;
+        return String();
 
 
     if(auto varDecl = dynamic_cast<VarDeclBase*>(decl))
@@ -1326,7 +1430,7 @@ static Name* getNameForNameHint(
         // TODO: consider whether global/static variables should
         // follow different rules.
         //
-        return leafName;
+        return leafName->text;
     }
 
     // For other cases of declaration, we want to consider
@@ -1338,9 +1442,9 @@ static Name* getNameForNameHint(
         parentDecl = genericParentDecl->ParentDecl;
 
     auto parentName = getNameForNameHint(context, parentDecl);
-    if(!parentName)
+    if(parentName.Length() == 0)
     {
-        return leafName;
+        return leafName->text;
     }
 
     // TODO: at some point we will start giving `ModuleDecl`s names,
@@ -1351,11 +1455,11 @@ static Name* getNameForNameHint(
     // combining the name of the parent and the leaf declaration.
 
     StringBuilder sb;
-    sb.append(parentName->text);
+    sb.append(parentName);
     sb.append(".");
     sb.append(leafName->text);
 
-    return context->getSession()->getNameObj(sb.ProduceString());
+    return sb.ProduceString();
 }
 
 /// Try to add an appropriate name hint to the instruction,
@@ -1365,10 +1469,10 @@ static void addNameHint(
     IRInst*         inst,
     Decl*           decl)
 {
-    Name* name = getNameForNameHint(context, decl);
-    if(!name)
+    String name = getNameForNameHint(context, decl);
+    if(name.Length() == 0)
         return;
-    context->irBuilder->addDecoration<IRNameHintDecoration>(inst)->name = name;
+    context->irBuilder->addNameHintDecoration(inst, name.getUnownedSlice());
 }
 
 /// Add a name hint based on a fixed string.
@@ -1377,8 +1481,7 @@ static void addNameHint(
     IRInst*         inst,
     char const*     text)
 {
-    Name* name = context->getSession()->getNameObj(text);
-    context->irBuilder->addDecoration<IRNameHintDecoration>(inst)->name = name;
+    context->irBuilder->addNameHintDecoration(inst, UnownedTerminatedStringSlice(text));
 }
 
 LoweredValInfo createVar(
@@ -2001,6 +2104,32 @@ struct ExprLoweringVisitorBase : ExprVisitor<Derived, LoweredValInfo>
         UNREACHABLE_RETURN(LoweredValInfo());
     }
 
+    LoweredValInfo visitCastToInterfaceExpr(
+        CastToInterfaceExpr* expr)
+    {
+        // We have an expression that is "up-casting" some concrete value
+        // to an existential type (aka interface type), using a subtype witness
+        // (which will lower as a witness table) to show that the conversion
+        // is valid.
+        //
+        // At the IR level, this will become a `makeExistential` instruction,
+        // which collects the above information into a single IR-level value.
+        // A dynamic CPU implementation of Slang might encode an existential
+        // as a "fat pointer" representation, which includes a pointer to
+        // data for the concrete value, plus a pointer to the witness table.
+        //
+        // Note: if/when Slang supports more general existential types, such
+        // as compositions of interface (e.g., `IReadable & IWritable`), then
+        // we should probably extend the AST and IR mechanism here to accept
+        // a sequence of witness tables.
+        //
+        auto existentialType = lowerType(context, expr->type);
+        auto concreteValue = getSimpleVal(context, lowerRValueExpr(context, expr->valueArg));
+        auto witnessTable = lowerSimpleVal(context, expr->witnessArg);
+        auto existentialValue = getBuilder()->emitMakeExistential(existentialType, concreteValue, witnessTable);
+        return LoweredValInfo::simple(existentialValue);
+    }
+
     LoweredValInfo subscriptValue(
         IRType*         type,
         LoweredValInfo  baseVal,
@@ -2073,6 +2202,27 @@ struct ExprLoweringVisitorBase : ExprVisitor<Derived, LoweredValInfo>
         // to be an l-value).
         return leftVal;
     }
+
+    LoweredValInfo visitLetExpr(LetExpr* expr)
+    {
+        // TODO: deal with the case where we might want to capture
+        // a reference to the bound value...
+
+        auto initVal = lowerLValueExpr(context, expr->decl->initExpr);
+        setGlobalValue(context, expr->decl, initVal);
+        auto bodyVal = lowerSubExpr(expr->body);
+        return bodyVal;
+    }
+
+    LoweredValInfo visitExtractExistentialValueExpr(ExtractExistentialValueExpr* expr)
+    {
+        auto existentialType = lowerType(context, GetType(expr->declRef));
+        auto existentialVal = getSimpleVal(context, emitDeclRef(context, expr->declRef, existentialType));
+
+        auto openedType = lowerType(context, expr->type);
+
+        return LoweredValInfo::simple(getBuilder()->emitExtractExistentialValue(openedType, existentialVal));
+    }
 };
 
 struct LValueExprLoweringVisitor : ExprLoweringVisitorBase<LValueExprLoweringVisitor>
@@ -2143,7 +2293,6 @@ struct LValueExprLoweringVisitor : ExprLoweringVisitorBase<LValueExprLoweringVis
         context->shared->extValues.Add(swizzledLValue);
         return LoweredValInfo::swizzledLValue(swizzledLValue);
     }
-
 };
 
 struct RValueExprLoweringVisitor : ExprLoweringVisitorBase<RValueExprLoweringVisitor>
@@ -2410,8 +2559,7 @@ struct StmtLoweringVisitor : StmtVisitor<StmtLoweringVisitor>
     {
         if( stmt->FindModifier<UnrollAttribute>() )
         {
-            auto decoration = getBuilder()->addDecoration<IRLoopControlDecoration>(inst);
-            decoration->mode = kIRLoopControl_Unroll;
+            getBuilder()->addLoopControlDecoration(inst, kIRLoopControl_Unroll);
         }
         // TODO: handle other cases here
     }
@@ -3463,7 +3611,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         // alias is somehow generic.
         if(outerGeneric)
         {
-            setMangledName(outerGeneric, getMangledName(decl));
+            addLinkageDecoration(context, outerGeneric, decl);
         }
 
         auto type = lowerType(subContext, decl->type.type);
@@ -3501,7 +3649,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             // and so it should lower as a parameter of its own.
 
             auto inst = getBuilder()->emitGlobalGenericParam();
-            setMangledName(inst, getMangledName(decl));
+            addLinkageDecoration(context, inst, decl);
             return LoweredValInfo::simple(inst);
         }
 
@@ -3517,7 +3665,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
     LoweredValInfo visitGlobalGenericParamDecl(GlobalGenericParamDecl* decl)
     {
         auto inst = getBuilder()->emitGlobalGenericParam();
-        setMangledName(inst, getMangledName(decl));
+        addLinkageDecoration(context, inst, decl);
         return LoweredValInfo::simple(inst);
     }
 
@@ -3645,8 +3793,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         // on the type that is conforming, and the type that it conforms to.
         //
         // TODO: This approach doesn't really make sense for generic `extension` conformances.
-        auto mangledName = context->getSession()->getNameObj(
-            getMangledNameForConformanceWitness(subType, superType));
+        auto mangledName = getMangledNameForConformanceWitness(subType, superType);
 
         // A witness table may need to be generic, if the outer
         // declaration (either a type declaration or an `extension`)
@@ -3668,7 +3815,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
 
         // Create the IR-level witness table
         auto irWitnessTable = subBuilder->createWitnessTable();
-        setMangledName(irWitnessTable, mangledName);
+        addLinkageDecoration(context, irWitnessTable, inheritanceDecl, mangledName.getUnownedSlice());
 
         // Register the value now, rather than later, to avoid any possible infinite recursion.
         setGlobalValue(context, inheritanceDecl, LoweredValInfo::simple(irWitnessTable));
@@ -3744,8 +3891,41 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         return false;
     }
 
+    LoweredValInfo lowerGlobalShaderParam(VarDeclBase* decl)
+    {
+        IRType* paramType = lowerType(context, decl->getType());
+
+        auto builder = getBuilder();
+
+        auto irParam = builder->createGlobalParam(paramType);
+        auto paramVal = LoweredValInfo::simple(irParam);
+
+        addLinkageDecoration(context, irParam, decl);
+        addNameHint(context, irParam, decl);
+        maybeSetRate(context, irParam, decl);
+        addVarDecorations(context, irParam, decl);
+
+        if (decl)
+        {
+            builder->addHighLevelDeclDecoration(irParam, decl);
+        }
+
+        // A global variable's SSA value is a *pointer* to
+        // the underlying storage.
+        setGlobalValue(context, decl, paramVal);
+
+        irParam->moveToEnd();
+
+        return paramVal;
+    }
+
     LoweredValInfo lowerGlobalVarDecl(VarDeclBase* decl)
     {
+        if(isGlobalShaderParameter(decl))
+        {
+            return lowerGlobalShaderParam(decl);
+        }
+
         IRType* varType = lowerType(context, decl->getType());
 
         auto builder = getBuilder();
@@ -3764,7 +3944,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             irGlobal = builder->createGlobalVar(varType);
             globalVal = LoweredValInfo::ptr(irGlobal);
         }
-        irGlobal->mangledName = context->getSession()->getNameObj(getMangledName(decl));
+        addLinkageDecoration(context, irGlobal, decl);
         addNameHint(context, irGlobal, decl);
 
         maybeSetRate(context, irGlobal, decl);
@@ -4102,12 +4282,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
 
     LoweredValInfo visitInterfaceDecl(InterfaceDecl* decl)
     {
-        // The interface decl is not itself a type in the IR
-        // (yet), so the only thing we need to do here is
-        // enumerate the requirements that the interface
-        // imposes on implementations.
-        //
-        // These members will turn into the keys that will
+        // The members of an interface will turn into the keys that will
         // be used for lookup operations into witness
         // tables that promise conformance to the interface.
         //
@@ -4136,36 +4311,28 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             }
         }
 
-        return LoweredValInfo();
-    }
 
-    IRGeneric* getOuterGeneric(IRGlobalValue* gv)
-    {
-        auto parentBlock = as<IRBlock>(gv->getParent());
-        if (!parentBlock) return nullptr;
+        NestedContext nestedContext(this);
+        auto subBuilder = nestedContext.getBuilder();
+        auto subContext = nestedContext.getContet();
 
-        auto parentGeneric = as<IRGeneric>(parentBlock->getParent());
-        return parentGeneric;
-    }
+        // Emit any generics that should wrap the actual type.
+        emitOuterGenerics(subContext, decl, decl);
 
-    void setMangledName(IRGlobalValue* inst, Name* name)
-    {
-        // If the instruction is nested inside one or more generics,
-        // then the mangled name should really apply to the outer-most
-        // generic, and not the declaration nested inside.
+        IRInterfaceType* irInterface = subBuilder->createInterfaceType();
+        addNameHint(context, irInterface, decl);
+        addLinkageDecoration(context, irInterface, decl);
+        subBuilder->setInsertInto(irInterface);
 
-        IRGlobalValue* gv = inst;
-        while (auto outerGeneric = getOuterGeneric(gv))
-        {
-            gv = outerGeneric;
-        }
+        // TODO: are there any interface members that should be
+        // nested inside the interface type itself?
 
-        gv->mangledName = name;
-    }
+        irInterface->moveToEnd();
 
-    void setMangledName(IRGlobalValue* inst, String const& name)
-    {
-        setMangledName(inst, context->getSession()->getNameObj(name));
+        addTargetIntrinsicDecorations(irInterface, decl);
+
+
+        return LoweredValInfo::simple(finishOuterGenerics(subBuilder, irInterface));
     }
 
     LoweredValInfo visitEnumCaseDecl(EnumCaseDecl* decl)
@@ -4243,7 +4410,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         IRStructType* irStruct = subBuilder->createStructType();
         addNameHint(context, irStruct, decl);
 
-        setMangledName(irStruct, getMangledName(decl));
+        addLinkageDecoration(context, irStruct, decl);
 
         subBuilder->setInsertInto(irStruct);
 
@@ -4308,13 +4475,11 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
 
         addVarDecorations(context, irFieldKey, fieldDecl);
 
-        irFieldKey->mangledName = context->getSession()->getNameObj(
-            getMangledName(fieldDecl));
+        addLinkageDecoration(context, irFieldKey, fieldDecl);
 
         if (auto semanticModifier = fieldDecl->FindModifier<HLSLSimpleSemantic>())
         {
-            auto semanticDecoration = builder->addDecoration<IRSemanticDecoration>(irFieldKey);
-            semanticDecoration->semanticName = semanticModifier->name.getName();
+            builder->addSemanticDecoration(irFieldKey, semanticModifier->name.getName()->text.getUnownedSlice());
         }
 
         // We allow a field to be marked as a target intrinsic,
@@ -4585,47 +4750,9 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         }
     }
 
-    ModuleDecl* findModuleDecl(Decl* decl)
-    {
-        for (auto dd = decl; dd; dd = dd->ParentDecl)
-        {
-            if (auto moduleDecl = dynamic_cast<ModuleDecl*>(dd))
-                return moduleDecl;
-        }
-        return nullptr;
-    }
-
-    bool isFromStdLib(Decl* decl)
-    {
-        for (auto dd = decl; dd; dd = dd->ParentDecl)
-        {
-            if (dd->HasModifier<FromStdLibModifier>())
-                return true;
-        }
-        return false;
-    }
-
     bool isImportedDecl(Decl* decl)
     {
-        ModuleDecl* moduleDecl = findModuleDecl(decl);
-        if (!moduleDecl)
-            return false;
-
-        // HACK: don't treat standard library code as
-        // being imported for right now, just because
-        // we don't load its IR in the same way as
-        // for other imports.
-        //
-        // TODO: Fix this the right way, by having standard
-        // library declarations have IR modules that we link
-        // in via the normal means.
-        if (isFromStdLib(decl))
-            return false;
-
-        if (moduleDecl != this->context->shared->mainModuleDecl)
-            return true;
-
-        return false;
+        return Slang::isImportedDecl(context, decl);
     }
 
     bool isConstExprVar(Decl* decl)
@@ -4662,20 +4789,12 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         auto subBuilder = subContext->irBuilder;
 
         // Of course, a generic might itself be nested inside of other generics...
-        auto nextOuterGeneric = emitOuterGenerics(subContext, genericDecl, leafDecl);
+        emitOuterGenerics(subContext, genericDecl, leafDecl);
 
         // We need to create an IR generic
 
         auto irGeneric = subBuilder->emitGeneric();
         subBuilder->setInsertInto(irGeneric);
-
-        if (!nextOuterGeneric)
-        {
-            // If this is the outer-most generic, then it will be the
-            // global symbol that gets the mangled name from the inner
-            // declaration actually being lowered.
-            irGeneric->mangledName = context->getSession()->getNameObj(getMangledName(leafDecl));
-        }
 
         auto irBlock = subBuilder->emitBlock();
         subBuilder->setInsertInto(irBlock);
@@ -4779,18 +4898,18 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
 
         for (auto targetMod : decl->GetModifiersOfType<TargetIntrinsicModifier>())
         {
-            auto decoration = builder->addDecoration<IRTargetIntrinsicDecoration>(irInst);
-            decoration->targetName = builder->addStringToFree(targetMod->targetToken.Content);
-            
+            String definition;
             auto definitionToken = targetMod->definitionToken;
             if (definitionToken.type == TokenType::StringLiteral)
             {
-                decoration->definition = builder->addStringToFree(getStringLiteralTokenValue(definitionToken));
+                definition = getStringLiteralTokenValue(definitionToken);
             }
             else
             {
-                decoration->definition = builder->addStringToFree(definitionToken.Content);
+                definition = definitionToken.Content;
             }
+
+            builder->addTargetIntrinsicDecoration(irInst, targetMod->targetToken.Content, definition.getUnownedSlice());
         }
     }
 
@@ -4851,8 +4970,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
 
         IRFunc* irFunc = subBuilder->createFunc();
         addNameHint(context, irFunc, decl);
-
-        setMangledName(irFunc, getMangledName(decl));
+        addLinkageDecoration(context, irFunc, decl);
 
         List<IRType*> paramTypes;
 
@@ -5076,12 +5194,12 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                     // Convert the patch constant function into IRInst
                     IRInst* irPatchConstantFunc = getSimpleVal(context, ensureDecl(subContext, patchConstantFunc));
 
-                    // Emit the note patch constant func
-                    subContext->irBuilder->emitIntrinsicInst(
-                        nullptr,
-                        kIROp_NotePatchConstantFunc,
-                        1,
-                        &irPatchConstantFunc);
+                    // Attach a decoration so that our IR function references
+                    // the patch constant function.
+                    //
+                    subContext->irBuilder->addPatchConstantFuncDecoration(
+                        irFunc,
+                        irPatchConstantFunc);
 
                 }
             }
@@ -5122,8 +5240,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
             // a specialized definition of the particular function for the given
             // target, and we need to reflect that at the IR level.
 
-            auto decoration = getBuilder()->addDecoration<IRTargetDecoration>(irFunc);
-            decoration->targetName = getBuilder()->addStringToFree(targetMod->targetToken.Content);
+            getBuilder()->addTargetDecoration(irFunc, targetMod->targetToken.Content);
         }
 
         // If this declaration was marked as having a target-specific lowering
@@ -5138,23 +5255,21 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         //
         for(auto extensionMod : decl->GetModifiersOfType<RequiredGLSLExtensionModifier>())
         {
-            auto decoration = getBuilder()->addDecoration<IRRequireGLSLExtensionDecoration>(irFunc);
-            decoration->extensionName = getBuilder()->addStringToFree(extensionMod->extensionNameToken.Content);
+            getBuilder()->addRequireGLSLExtensionDecoration(irFunc, extensionMod->extensionNameToken.Content);
         }
         for(auto versionMod : decl->GetModifiersOfType<RequiredGLSLVersionModifier>())
         {
-            auto decoration = getBuilder()->addDecoration<IRRequireGLSLVersionDecoration>(irFunc);
-            decoration->languageVersion = Int(getIntegerLiteralValue(versionMod->versionNumberToken));
+            getBuilder()->addRequireGLSLVersionDecoration(irFunc, Int(getIntegerLiteralValue(versionMod->versionNumberToken)));
         }
 
         if(decl->FindModifier<ReadNoneAttribute>())
         {
-            getBuilder()->addDecoration<IRReadNoneDecoration>(irFunc);
+            getBuilder()->addSimpleDecoration<IRReadNoneDecoration>(irFunc);
         }
 
         if (decl->FindModifier<EarlyDepthStencilAttribute>())
         {
-            getBuilder()->addDecoration<IREarlyDepthStencilDecoration>(irFunc);
+            getBuilder()->addSimpleDecoration<IREarlyDepthStencilDecoration>(irFunc);
         }
 
         // For convenience, ensure that any additional global
@@ -5414,6 +5529,14 @@ LoweredValInfo emitDeclRef(
     }
     else if(auto thisTypeSubst = subst.As<ThisTypeSubstitution>())
     {
+        if(decl.Ptr() == thisTypeSubst->interfaceDecl)
+        {
+            // This is a reference to the interface type itself,
+            // through the this-type substitution, so it is really
+            // a reference to the this-type.
+            return lowerType(context, thisTypeSubst->witness->sub);
+        }
+
         // Somebody is trying to look up an interface requirement
         // "through" some concrete type. We need to lower this decl-ref
         // as a lookup of the corresponding member in a witness table.
@@ -5479,10 +5602,14 @@ static void lowerEntryPointToIR(
     }
     auto loweredEntryPointFunc = ensureDecl(context, entryPointFuncDecl);
 
+    // Attach a marker decoraton so that we recognize
+    // this as an entry point.
+    auto builder = context->irBuilder;
+    builder->addEntryPointDecoration(getSimpleVal(context, loweredEntryPointFunc));
+
     // Now lower all the arguments supplied for global generic
     // type parameters.
     //
-    auto builder = context->irBuilder;
     builder->setInsertInto(builder->getModule()->getModuleInst());
     for (RefPtr<Substitutions> subst = entryPointRequest->globalGenericSubst; subst; subst = subst->outer)
     {
@@ -5614,7 +5741,9 @@ IRModule* generateIRForTranslationUnit(
     // then we can dump the initial IR for the module here.
     if(compileRequest->shouldDumpIR)
     {
-        dumpIR(module);
+        ISlangWriter* writer = translationUnit->compileRequest->getWriter(WriterChannel::StdError);
+
+        dumpIR(module, writer);
     }
 
     return module;

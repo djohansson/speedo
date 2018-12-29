@@ -10,8 +10,8 @@ struct Params_0
 layout(binding = 0)
 layout(std140) uniform _S1
 {
-    Params_0 gParams_0;
-};
+    Params_0 _data;
+} gParams_0;
 
 layout(binding = 1)
 uniform texture2D gParams_alphaMap_0;
@@ -33,13 +33,11 @@ rayPayloadInNV ShadowRay_0 _S3;
 
 void main()
 {
-    SphereHitAttributes_0 _S4 = _S2;
-
-    if(bool(gParams_0.mode_0))
+    if(bool(gParams_0._data.mode_0))
     {
         float val_0 = textureLod(
             sampler2D(gParams_alphaMap_0, gParams_sampler_0),
-            _S4.normal_0.xy,
+            _S2.normal_0.xy,
             float(0)).x;
 
 

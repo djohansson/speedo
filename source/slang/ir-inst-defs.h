@@ -149,45 +149,36 @@ INST(Nop, nop, 0, 0)
 // This is a parent instruction that holds zero or more
 // `field` instructions.
 //
-// Note: we are being a bit slippery here, because a `struct`
-// instruction is really an `IRParentInst`, but we want it
-// to also be caught in any dynamic cast to `IRType`, so we
-// ensure that it comes at the *end* of the range for `IRType`,
-// and the start of the range for `IRParentInst` (and `IRGlobalValue`)
 INST(StructType, struct, 0, PARENT)
+INST(InterfaceType, interface, 0, PARENT)
 
-INST_RANGE(Type, VoidType, StructType)
+INST_RANGE(Type, VoidType, InterfaceType)
 
-/*IRParentInst*/
+/*IRGlobalValueWithCode*/
+    /* IRGlobalValueWIthParams*/
+        INST(Func, func, 0, PARENT)
+        INST(Generic, generic, 0, PARENT)
+    INST_RANGE(GlobalValueWithParams, Func, Generic)
 
-    /*IRGlobalValue*/
+    INST(GlobalVar, global_var, 0, 0)
+    INST(GlobalConstant, global_constant, 0, 0)
+INST_RANGE(GlobalValueWithCode, Func, GlobalConstant)
 
-        /*IRGlobalValueWithCode*/
-            /* IRGlobalValueWIthParams*/
-                INST(Func, func, 0, PARENT)
-                INST(Generic, generic, 0, PARENT)
-            INST_RANGE(GlobalValueWithParams, Func, Generic)
+INST(GlobalParam, global_param, 0, 0)
 
-            INST(GlobalVar, global_var, 0, 0)
-            INST(GlobalConstant, global_constant, 0, 0)
-        INST_RANGE(GlobalValueWithCode, Func, GlobalConstant)
+INST(StructKey, key, 0, 0)
+INST(GlobalGenericParam, global_generic_param, 0, 0)
+INST(WitnessTable, witness_table, 0, 0)
 
-        INST(StructKey, key, 0, 0)
-        INST(GlobalGenericParam, global_generic_param, 0, 0)
-        INST(WitnessTable, witness_table, 0, 0)
+INST(Module, module, 0, PARENT)
 
-    INST_RANGE(GlobalValue, StructType, WitnessTable)
-
-    INST(Module, module, 0, PARENT)
-
-    INST(Block, block, 0, PARENT)
-
-INST_RANGE(ParentInst, StructType, Block)
+INST(Block, block, 0, PARENT)
 
 /* IRConstant */
     INST(BoolLit, boolConst, 0, 0)
     INST(IntLit, integer_constant, 0, 0)
     INST(FloatLit, float_constant, 0, 0)
+    INST(PtrLit, ptr_constant, 0, 0)
     INST(StringLit, string_constant, 0, 0)
 INST_RANGE(Constant, BoolLit, StringLit)
 
@@ -216,10 +207,6 @@ INST(Var, var, 0, 0)
 
 INST(Load, load, 1, 0)
 INST(Store, store, 2, 0)
-
-INST(BufferLoad, bufferLoad, 2, 0)
-INST(BufferStore, bufferStore, 3, 0)
-INST(BufferElementRef, bufferElementRef, 2, 0)
 
 INST(FieldExtract, get_field, 2, 0)
 INST(FieldAddress, get_field_addr, 2, 0)
@@ -367,7 +354,57 @@ INST(SampleGrad, sampleGrad, 4, 0)
 
 INST(GroupMemoryBarrierWithGroupSync, GroupMemoryBarrierWithGroupSync, 0, 0)
 
-INST(NotePatchConstantFunc, notePatchConstantFunc, 1, 0)
+/* Decoration */
+
+INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
+    INST(LayoutDecoration,                  layout,                 1, 0)
+    INST(LoopControlDecoration,             loopControl,            1, 0)
+    /* TargetSpecificDecoration */
+        INST(TargetDecoration,              target,                 1, 0)
+        INST(TargetIntrinsicDecoration,     targetIntrinsic,        2, 0)
+    INST_RANGE(TargetSpecificDecoration, TargetDecoration, TargetIntrinsicDecoration)
+    INST(GLSLOuterArrayDecoration,          glslOuterArray,         1, 0)
+    INST(SemanticDecoration,                semantic,               1, 0)
+    INST(InterpolationModeDecoration,       interpolationMode,      1, 0)
+    INST(NameHintDecoration,                nameHint,               1, 0)
+
+    /**  The decorated _instruction_ is transitory. Such a decoration should NEVER be found on an output instruction a module. 
+        Typically used mark an instruction so can be specially handled - say when creating a IRConstant literal, and the payload of 
+        needs to be special cased for lookup. */
+    INST(TransitoryDecoration,              transitory,             0, 0)
+
+    INST(VulkanRayPayloadDecoration,        vulkanRayPayload,       0, 0)
+    INST(VulkanHitAttributesDecoration,     vulkanHitAttributes,    0, 0)
+    INST(RequireGLSLVersionDecoration,      requireGLSLVersion,     1, 0)
+    INST(RequireGLSLExtensionDecoration,    requireGLSLExtension,   1, 0)
+    INST(ReadNoneDecoration,                readNone,               0, 0)
+    INST(VulkanCallablePayloadDecoration,   vulkanCallablePayload,  0, 0)
+    INST(EarlyDepthStencilDecoration,       earlyDepthStencil,      0, 0)
+    INST(GloballyCoherentDecoration,        globallyCoherent,       0, 0)
+    INST(PatchConstantFuncDecoration,       patchConstantFunc,      1, 0)
+
+        /// An `[entryPoint]` decoration marks a function that represents a shader entry point.
+    INST(EntryPointDecoration,              entryPoint,             0, 0)
+
+        /// A `[dependsOn(x)]` decoration indicates that the parent instruction depends on `x`
+        /// even if it does not otherwise reference it.
+    INST(DependsOnDecoration,               dependsOn,              1, 0)
+
+    /* LinkageDecoration */
+        INST(ImportDecoration, import, 1, 0)
+        INST(ExportDecoration, export, 1, 0)
+    INST_RANGE(LinkageDecoration, ImportDecoration, ExportDecoration)
+
+INST_RANGE(Decoration, HighLevelDeclDecoration, ExportDecoration)
+
+
+//
+
+
+INST(MakeExistential,                   makeExistential,                2, 0)
+INST(ExtractExistentialValue,           extractExistentialValue,        1, 0)
+INST(ExtractExistentialType,            extractExistentialType,         1, 0)
+INST(ExtractExistentialWitnessTable,    extractExistentialWitnessTable, 1, 0)
 
 PSEUDO_INST(Pos)
 PSEUDO_INST(PreInc)

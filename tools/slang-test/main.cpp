@@ -2,6 +2,7 @@
 
 #include "../../source/core/slang-io.h"
 #include "../../source/core/token-reader.h"
+#include "../../source/core/slang-std-writers.h"
 
 #include "../../slang-com-helper.h"
 
@@ -12,10 +13,12 @@ using namespace Slang;
 #include "os.h"
 #include "render-api-util.h"
 #include "test-context.h"
+#include "test-reporter.h"
+#include "options.h"
+#include "slangc-tool.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "external/stb/stb_image.h"
-
 
 #ifdef _WIN32
 #define SLANG_TEST_SUPPORT_HLSL 1
@@ -27,16 +30,6 @@ using namespace Slang;
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-
-// A category that a test can be tagged with
-struct TestCategory
-{
-    // The name of the category, from the user perspective
-    String name;
-
-    // The logical "super-category" of this category
-    TestCategory* parent;
-};
 
 // Options for a particular test
 struct TestOptions
@@ -74,268 +67,9 @@ struct TestInput
 
 typedef TestResult(*TestCallback)(TestContext* context, TestInput& input);
 
-struct Options
-{
-    char const* appName = "slang-test";
-
-    // Directory to use when looking for binaries to run
-    char const* binDir = "";
-
-    // only run test cases with names that have this prefix
-    char const* testPrefix = nullptr;
-
-    // generate extra output (notably: command lines we run)
-    bool shouldBeVerbose = false;
-
-    // force generation of baselines for HLSL tests
-    bool generateHLSLBaselines = false;
-
-    // Dump expected/actual output on failures, for debugging.
-    // This is especially intended for use in continuous
-    // integration builds.
-    bool dumpOutputOnFailure = false;
-
-    // kind of output to generate
-    TestOutputMode outputMode = TestOutputMode::Default;
-
-    // Only run tests that match one of the given categories
-    Dictionary<TestCategory*, TestCategory*> includeCategories;
-
-    // Exclude test that match one these categories
-    Dictionary<TestCategory*, TestCategory*> excludeCategories;
-
-    // By default we can test against all apis
-    RenderApiFlags enabledApis = RenderApiFlag::AllOf;
-
-    // By default we potentially synthesize test for all 
-    // TODO: Vulkan is disabled by default for now as the majority as vulkan synthesized tests fail  
-    RenderApiFlags synthesizedTestApis = RenderApiFlag::AllOf & ~RenderApiFlag::Vulkan;
-};
-
 // Globals
 
-Options g_options;
-Dictionary<String, TestCategory*> g_testCategories;
-TestCategory* g_defaultTestCategory;
-
-// pre declare
-
-TestCategory* findTestCategory(String const& name);
-
 /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!! Functions !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
-
-
-Result parseOptions(int* argc, char** argv)
-{
-    int argCount = *argc;
-    char const* const* argCursor = argv;
-    char const* const* argEnd = argCursor + argCount;
-
-    char const** writeCursor = (char const**) argv;
-
-    // first argument is the application name
-    if( argCursor != argEnd )
-    {
-        g_options.appName = *argCursor++;
-    }
-
-    // now iterate over arguments to collect options
-    while(argCursor != argEnd)
-    {
-        char const* arg = *argCursor++;
-        if( arg[0] != '-' )
-        {
-            *writeCursor++ = arg;
-            continue;
-        }
-
-        if( strcmp(arg, "--") == 0 )
-        {
-            while(argCursor != argEnd)
-            {
-                char const* nxtArg = *argCursor++;
-                *writeCursor++ = nxtArg;
-            }
-            break;
-        }
-
-        if( strcmp(arg, "-bindir") == 0 )
-        {
-            if( argCursor == argEnd )
-            {
-                fprintf(stderr, "error: expected operand for '%s'\n", arg);
-                return SLANG_FAIL;
-            }
-            g_options.binDir = *argCursor++;
-        }
-        else if( strcmp(arg, "-v") == 0 )
-        {
-            g_options.shouldBeVerbose = true;
-        }
-        else if( strcmp(arg, "-generate-hlsl-baselines") == 0 )
-        {
-            g_options.generateHLSLBaselines = true;
-        }
-        else if( strcmp(arg, "-release") == 0 )
-        {
-            // Assumed to be handle by .bat file that called us
-        }
-        else if( strcmp(arg, "-debug") == 0 )
-        {
-            // Assumed to be handle by .bat file that called us
-        }
-        else if( strcmp(arg, "-configuration") == 0 )
-        {
-            if( argCursor == argEnd )
-            {
-                fprintf(stderr, "error: expected operand for '%s'\n", arg);
-				return SLANG_FAIL;
-            }
-            argCursor++;
-            // Assumed to be handle by .bat file that called us
-        }
-        else if( strcmp(arg, "-platform") == 0 )
-        {
-            if( argCursor == argEnd )
-            {
-                fprintf(stderr, "error: expected operand for '%s'\n", arg);
-				return SLANG_FAIL;
-            }
-            argCursor++;
-            // Assumed to be handle by .bat file that called us
-        }
-        else if( strcmp(arg, "-appveyor") == 0 )
-        {
-            g_options.outputMode = TestOutputMode::AppVeyor;
-            g_options.dumpOutputOnFailure = true;
-        }
-        else if( strcmp(arg, "-travis") == 0 )
-        {
-            g_options.outputMode = TestOutputMode::Travis;
-            g_options.dumpOutputOnFailure = true;
-        }
-        else if (strcmp(arg, "-xunit") == 0)
-        {
-            g_options.outputMode = TestOutputMode::XUnit;
-        }
-        else if (strcmp(arg, "-xunit2") == 0)
-        {
-            g_options.outputMode = TestOutputMode::XUnit2;
-        }
-        else if (strcmp(arg, "-teamcity") == 0)
-        {
-            g_options.outputMode = TestOutputMode::TeamCity;
-        }
-        else if( strcmp(arg, "-category") == 0 )
-        {
-            if( argCursor == argEnd )
-            {
-                fprintf(stderr, "error: expected operand for '%s'\n", arg);
-                return SLANG_FAIL;
-            }
-            auto category = findTestCategory(*argCursor++);
-            if(category)
-            {
-                g_options.includeCategories.Add(category, category);
-            }
-        }
-        else if( strcmp(arg, "-exclude") == 0 )
-        {
-            if( argCursor == argEnd )
-            {
-                fprintf(stderr, "error: expected operand for '%s'\n", arg);
-                return SLANG_FAIL;
-            }
-            auto category = findTestCategory(*argCursor++);
-            if(category)
-            {
-                g_options.excludeCategories.Add(category, category);
-            }
-        }
-        else if (strcmp(arg, "-api") == 0)
-        {
-            if (argCursor == argEnd)
-            {
-                fprintf(stderr, "error: expecting an api expression (eg 'vk+dx12' or '+dx11') '%s'\n", arg);
-                return SLANG_FAIL;
-            }
-            const char* apiList = *argCursor++;
-
-            SlangResult res = RenderApiUtil::parseApiFlags(UnownedStringSlice(apiList), g_options.enabledApis, &g_options.enabledApis);
-            if (SLANG_FAILED(res))
-            {
-                fprintf(stderr, "error: unable to parse api expression '%s'\n", apiList);
-                return res;
-            }
-        }
-        else if (strcmp(arg, "-synthesizedTestApi") == 0)
-        {
-            if (argCursor == argEnd)
-            {
-                fprintf(stderr, "error: expected an api expression (eg 'vk+dx12' or '+dx11') '%s'\n", arg);
-                return SLANG_FAIL;
-            }
-            const char* apiList = *argCursor++;
-
-            SlangResult res = RenderApiUtil::parseApiFlags(UnownedStringSlice(apiList), g_options.synthesizedTestApis, &g_options.synthesizedTestApis);
-            if (SLANG_FAILED(res))
-            {
-                fprintf(stderr, "error: unable to parse api expression '%s'\n", apiList);
-                return res;
-            }
-        }
-        else
-        {
-            fprintf(stderr, "unknown option '%s'\n", arg);
-            return SLANG_FAIL;
-        }
-    }
-    
-    {
-        // Find out what apis are available
-        const int availableApis = RenderApiUtil::getAvailableApis();
-        // Only allow apis we know are available
-        g_options.enabledApis &= availableApis;
-
-        // Can only synth for apis that are available
-        g_options.synthesizedTestApis &= g_options.enabledApis;
-    }
-
-    // any arguments left over were positional arguments
-    argCount = (int)((char**)writeCursor - argv);
-    argCursor = argv;
-    argEnd = argCursor + argCount;
-
-    // first positional argument is a "filter" to apply
-    if( argCursor != argEnd )
-    {
-        g_options.testPrefix = *argCursor++;
-    }
-
-    // any remaining arguments represent an error
-    if(argCursor != argEnd)
-    {
-        fprintf(stderr, "unexpected arguments\n");
-        return SLANG_FAIL;
-    }
-
-    *argc = 0;
-	return SLANG_OK;
-}
-
-// Called for an error in the test-runner (not for an error involving
-// a test itself).
-void error(char const* message, ...)
-{
-    fprintf(stderr, "error: ");
-
-    va_list args;
-    va_start(args, message);
-    vfprintf(stderr, message, args);
-    va_end(args);
-
-    fprintf(stderr, "\n");
-}
 
 bool match(char const** ioCursor, char const* expected)
 {
@@ -420,30 +154,10 @@ String collectRestOfLine(char const** ioCursor)
     return getString(textBegin, textEnd);
 }
 
-TestCategory* addTestCategory(String const& name, TestCategory* parent)
-{
-    TestCategory* category = new TestCategory();
-    category->name = name;
 
-    category->parent = parent;
-
-    g_testCategories.Add(name, category);
-
-    return category;
-}
-
-TestCategory* findTestCategory(String const& name)
-{
-    TestCategory* category = nullptr;
-    if( !g_testCategories.TryGetValue(name, category) )
-    {
-        error("unknown test category name '%s'\n", name.Buffer());
-        return nullptr;
-    }
-    return category;
-}
 
 TestResult gatherTestOptions(
+    TestCategorySet*    categorySet, 
     char const**    ioCursor,
     FileTestList*   testList)
 {
@@ -474,12 +188,13 @@ TestResult gatherTestOptions(
                     cursor++;
 
                     auto categoryName = getString(categoryStart, categoryEnd);
-                    TestCategory* category = findTestCategory(categoryName);
+                    TestCategory* category = categorySet->find(categoryName);
 
                     if(!category)
                     {
                         return TestResult::Fail;
                     }
+                    
 
                     testOptions.categories.Add(category);
 
@@ -503,7 +218,7 @@ TestResult gatherTestOptions(
     // If no categories were specified, then add the default category
     if(testOptions.categories.Count() == 0)
     {
-        testOptions.categories.Add(g_defaultTestCategory);
+        testOptions.categories.Add(categorySet->defaultCategory);
     }
 
     if(*cursor == ':')
@@ -587,6 +302,7 @@ TestResult gatherTestOptions(
 
 // Try to read command-line options from the test file itself
 TestResult gatherTestsForFile(
+    TestCategorySet*    categorySet,
     String				filePath,
     FileTestList*       testList)
 {
@@ -617,7 +333,7 @@ TestResult gatherTestsForFile(
         }
         else if(match(&cursor, "//TEST"))
         {
-            if(gatherTestOptions(&cursor, testList) != TestResult::Pass)
+            if(gatherTestOptions(categorySet, &cursor, testList) != TestResult::Pass)
                 return TestResult::Fail;
         }
         else
@@ -631,19 +347,88 @@ TestResult gatherTestsForFile(
 
 OSError spawnAndWait(TestContext* context, const String& testPath, OSProcessSpawner& spawner)
 {
-    SLANG_UNUSED(context);
+    const auto& options = context->options;
+    
+    if (!options.useExes)
+    {
+        String exeName = Path::GetFileNameWithoutEXT(spawner.executableName_);
 
-    if(context->m_isVerbose)
+        if (options.shouldBeVerbose)
+        {
+            StringBuilder builder;
+
+            builder << "slang-test";
+
+            if (options.binDir)
+            {
+                builder << " -bindir " << options.binDir; 
+            }
+
+            builder << " " << exeName;
+
+            // TODO(js): Potentially this should handle escaping parameters for the command line if need be
+            const auto& argList = spawner.argumentList_;
+            for (UInt i = 0; i < argList.Count(); ++i)
+            {
+                builder << " " << argList[i];
+            }
+
+            context->reporter->messageFormat(TestMessageType::Info, "%s\n", builder.begin());
+        }
+
+        auto func = context->getInnerMainFunc(String(context->options.binDir), exeName);
+        if (func)
+        {
+            StringBuilder stdErrorString;
+            StringBuilder stdOutString;
+
+            // Say static so not released
+            StringWriter stdError(&stdErrorString, WriterFlag::IsConsole | WriterFlag::IsStatic);
+            StringWriter stdOut(&stdOutString, WriterFlag::IsConsole | WriterFlag::IsStatic);
+
+            StdWriters* prevStdWriters = StdWriters::getSingleton();
+
+            StdWriters stdWriters;
+            stdWriters.setWriter(SLANG_WRITER_CHANNEL_STD_ERROR, &stdError);
+            stdWriters.setWriter(SLANG_WRITER_CHANNEL_STD_OUTPUT, &stdOut);
+
+            if (exeName == "slangc")
+            {
+                stdWriters.setWriter(SLANG_WRITER_CHANNEL_DIAGNOSTIC, &stdError);
+            }
+            
+            List<const char*> args;
+            args.Add(exeName.Buffer());
+            for (int i = 0; i < int(spawner.argumentList_.Count()); ++i)
+            {
+                args.Add(spawner.argumentList_[i].Buffer());
+            }
+
+            SlangResult res = func(&stdWriters, context->getSession(), int(args.Count()), args.begin());
+
+            StdWriters::setSingleton(prevStdWriters);
+
+            spawner.standardError_ = stdErrorString;
+            spawner.standardOutput_ = stdOutString;
+
+            spawner.resultCode_ = TestToolUtil::getReturnCode(res);
+
+            return kOSError_None;
+        }
+    }
+
+    if (options.shouldBeVerbose)
     {
         String commandLine = spawner.getCommandLine();
-        context->messageFormat(TestMessageType::Info, "%s\n", commandLine.begin());
+        context->reporter->messageFormat(TestMessageType::Info, "%s\n", commandLine.begin());
     }
-    
+
+
     OSError err = spawner.spawnAndWaitForCompletion();
     if (err != kOSError_None)
     {
 //        fprintf(stderr, "failed to run test '%S'\n", testPath.ToWString());
-        context->messageFormat(TestMessageType::RunError, "failed to run test '%S'", testPath.ToWString().begin());
+        context->reporter->messageFormat(TestMessageType::RunError, "failed to run test '%S'", testPath.ToWString().begin());
     }
     return err;
 }
@@ -715,7 +500,7 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
 
     OSProcessSpawner spawner;
 
-    spawner.pushExecutablePath(String(g_options.binDir) + "slangc" + osGetExecutableSuffix());
+    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     for( auto arg : input.testOptions->args )
@@ -752,7 +537,7 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     // Otherwise we compare to the expected output
     if (actualOutput != expectedOutput)
     {
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
         result = TestResult::Fail;
     }
 
@@ -764,7 +549,7 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
         String actualOutputPath = outputStem + ".actual";
         Slang::File::WriteAllText(actualOutputPath, actualOutput);
 
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
     }
 
     return result;
@@ -772,12 +557,13 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
 
 TestResult runReflectionTest(TestContext* context, TestInput& input)
 {
+    const auto& options = context->options;
     auto filePath = input.filePath;
     auto outputStem = input.outputStem;
 
     OSProcessSpawner spawner;
 
-    spawner.pushExecutablePath(String(g_options.binDir) + "slang-reflection-test" + osGetExecutableSuffix());
+    spawner.pushExecutablePath(String(options.binDir) + "slang-reflection-test" + osGetExecutableSuffix());
     spawner.pushArgument(filePath);
 
     for( auto arg : input.testOptions->args )
@@ -825,7 +611,7 @@ TestResult runReflectionTest(TestContext* context, TestInput& input)
         String actualOutputPath = outputStem + ".actual";
         Slang::File::WriteAllText(actualOutputPath, actualOutput);
 
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
     }
 
     return result;
@@ -851,53 +637,6 @@ String getExpectedOutput(String const& outputStem)
     }
 
     return expectedOutput;
-}
-
-TestResult runEvalTest(TestContext* context, TestInput& input)
-{
-    // We are going to load and evaluate the code
-
-    auto filePath = input.filePath;
-    auto outputStem = input.outputStem;
-
-    OSProcessSpawner spawner;
-
-    spawner.pushExecutablePath(String(g_options.binDir) + "slang-eval-test" + osGetExecutableSuffix());
-    spawner.pushArgument(filePath);
-
-    for( auto arg : input.testOptions->args )
-    {
-        spawner.pushArgument(arg);
-    }
-
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
-
-    String actualOutput = getOutput(spawner);
-    String expectedOutput = getExpectedOutput(outputStem);
-
-    TestResult result = TestResult::Pass;
-
-    // Otherwise we compare to the expected output
-    if (actualOutput != expectedOutput)
-    {
-        result = TestResult::Fail;
-    }
-
-    // If the test failed, then we write the actual output to a file
-    // so that we can easily diff it from the command line and
-    // diagnose the problem.
-    if (result == TestResult::Fail)
-    {
-        String actualOutputPath = outputStem + ".actual";
-        Slang::File::WriteAllText(actualOutputPath, actualOutput);
-
-        context->dumpOutputDifference(expectedOutput, actualOutput);
-    }
-
-    return result;
 }
 
 static SlangCompileTarget _getCompileTarget(const UnownedStringSlice& name)
@@ -931,8 +670,8 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
     OSProcessSpawner actualSpawner;
     OSProcessSpawner expectedSpawner;
 
-    actualSpawner.pushExecutablePath(String(g_options.binDir) + "slangc" + osGetExecutableSuffix());
-    expectedSpawner.pushExecutablePath(String(g_options.binDir) + "slangc" + osGetExecutableSuffix());
+    actualSpawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
+    expectedSpawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
 
     actualSpawner.pushArgument(filePath);
 
@@ -1021,7 +760,7 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
         String actualOutputPath = outputStem + ".actual";
         Slang::File::WriteAllText(actualOutputPath, actualOutput);
 
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
     }
 
     return result;
@@ -1035,7 +774,7 @@ TestResult generateHLSLBaseline(TestContext* context, TestInput& input)
     auto outputStem = input.outputStem;
 
     OSProcessSpawner spawner;
-    spawner.pushExecutablePath(String(g_options.binDir) + "slangc" + osGetExecutableSuffix());
+    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     for( auto arg : input.testOptions->args )
@@ -1081,7 +820,7 @@ TestResult runHLSLComparisonTest(TestContext* context, TestInput& input)
 
     OSProcessSpawner spawner;
 
-    spawner.pushExecutablePath(String(g_options.binDir) + "slangc" + osGetExecutableSuffix());
+    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     for( auto arg : input.testOptions->args )
@@ -1163,7 +902,7 @@ TestResult runHLSLComparisonTest(TestContext* context, TestInput& input)
         String actualOutputPath = outputStem + ".actual";
         Slang::File::WriteAllText(actualOutputPath, actualOutput);
 
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
     }
 
     return result;
@@ -1182,7 +921,7 @@ TestResult doGLSLComparisonTestRun(TestContext* context,
 
     OSProcessSpawner spawner;
 
-    spawner.pushExecutablePath(String(g_options.binDir) + "slangc" + osGetExecutableSuffix());
+    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     if( langDefine )
@@ -1252,7 +991,7 @@ TestResult runGLSLComparisonTest(TestContext* context, TestInput& input)
 
     if (actualOutput != expectedOutput)
     {
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
 
         return TestResult::Fail;
     }
@@ -1261,7 +1000,7 @@ TestResult runGLSLComparisonTest(TestContext* context, TestInput& input)
 }
 
 
-TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, const char * langOption)
+TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, const char *const* langOpts, size_t numLangOpts)
 {
 	// TODO: delete any existing files at the output path(s) to avoid stale outputs leading to a false pass
 	auto filePath999 = input.filePath;
@@ -1275,7 +1014,7 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
 
 	OSProcessSpawner spawner;
 
-	spawner.pushExecutablePath(String(g_options.binDir) + "render-test" + osGetExecutableSuffix());
+	spawner.pushExecutablePath(String(context->options.binDir) + "render-test" + osGetExecutableSuffix());
 	spawner.pushArgument(filePath999);
 
 	for (auto arg : input.testOptions->args)
@@ -1283,7 +1022,10 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
 		spawner.pushArgument(arg);
 	}
 
-	spawner.pushArgument(langOption);
+    for (int i = 0; i < int(numLangOpts); ++i)
+    {
+        spawner.pushArgument(langOpts[i]);
+    }
 	spawner.pushArgument("-o");
     auto actualOutputFile = outputStem + ".actual.txt";
 	spawner.pushArgument(actualOutputFile);
@@ -1301,7 +1043,7 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
     auto expectedOutput = getExpectedOutput(outputStem);
     if (actualOutput != expectedOutput)
     {
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
 
         String actualOutputPath = outputStem + ".actual";
         Slang::File::WriteAllText(actualOutputPath, actualOutput);
@@ -1326,7 +1068,7 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
 	auto referenceProgramOutput = Split(File::ReadAllText(referenceOutput), '\n');
     auto printOutput = [&]()
     {
-        context->messageFormat(TestMessageType::TestFailure, "output mismatch! actual output: {\n%s\n}, \n%s\n", actualOutputContent.Buffer(), actualOutput.Buffer());
+        context->reporter->messageFormat(TestMessageType::TestFailure, "output mismatch! actual output: {\n%s\n}, \n%s\n", actualOutputContent.Buffer(), actualOutput.Buffer());
     };
     if (actualProgramOutput.Count() < referenceProgramOutput.Count())
     {
@@ -1339,16 +1081,8 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
 		auto actual = String(actualProgramOutput[i].Trim());
         if (actual != reference)
         {
-            // try to parse reference as float, and compare again
-            auto val = StringToFloat(reference);
-            auto uval = String((unsigned int)FloatAsInt(val), 16).ToUpper();
-            if (actual != uval)
-            {
-                printOutput();
-			    return TestResult::Fail;
-            }
-            else
-                return TestResult::Pass;
+            printOutput();
+            return TestResult::Fail;
         }
 	}
 	return TestResult::Pass;
@@ -1356,22 +1090,25 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
 
 TestResult runSlangComputeComparisonTest(TestContext* context, TestInput& input)
 {
-	return runComputeComparisonImpl(context, input, "-slang -compute");
+    const char* langOpts[] = { "-slang", "-compute" };
+	return runComputeComparisonImpl(context, input, langOpts, SLANG_COUNT_OF(langOpts));
 }
 
 TestResult runSlangComputeComparisonTestEx(TestContext* context, TestInput& input)
 {
-	return runComputeComparisonImpl(context, input, "");
+	return runComputeComparisonImpl(context, input, nullptr, 0);
 }
 
 TestResult runHLSLComputeTest(TestContext* context, TestInput& input)
 {
-    return runComputeComparisonImpl(context, input, "-hlsl-rewrite -compute");
+    const char* langOpts[] = { "--hlsl-rewrite", "-compute" };
+    return runComputeComparisonImpl(context, input, langOpts, SLANG_COUNT_OF(langOpts));
 }
 
 TestResult runSlangRenderComputeComparisonTest(TestContext* context, TestInput& input)
 {
-    return runComputeComparisonImpl(context, input, "-slang -gcompute");
+    const char* langOpts[] = { "-slang", "-gcompute" };
+    return runComputeComparisonImpl(context, input, langOpts, SLANG_COUNT_OF(langOpts));
 }
 
 TestResult doRenderComparisonTestRun(TestContext* context, TestInput& input, char const* langOption, char const* outputKind, String* outOutput)
@@ -1383,7 +1120,7 @@ TestResult doRenderComparisonTestRun(TestContext* context, TestInput& input, cha
 
     OSProcessSpawner spawner;
 
-    spawner.pushExecutablePath(String(g_options.binDir) + "render-test" + osGetExecutableSuffix());
+    spawner.pushExecutablePath(String(context->options.binDir) + "render-test" + osGetExecutableSuffix());
     spawner.pushArgument(filePath);
 
     for( auto arg : input.testOptions->args )
@@ -1423,8 +1160,73 @@ TestResult doRenderComparisonTestRun(TestContext* context, TestInput& input, cha
     return TestResult::Pass;
 }
 
+class STBImage
+{
+public:
+    typedef STBImage ThisType;
+
+        /// Reset back to default initialized state (frees any image set)
+    void reset();
+        /// True if rhs has same size and amount of channels
+    bool isComparable(const ThisType& rhs) const;
+
+        /// The width in pixels
+    int getWidth() const { return m_width; }
+        /// The height in pixels
+    int getHeight() const { return m_height; }
+        /// The number of channels (typically held as bytes in order)
+    int getNumChannels() const { return m_numChannels; }
+
+        /// Get the contained pixels, nullptr if nothing loaded
+    const unsigned char* getPixels() const { return m_pixels; }
+    unsigned char* getPixels() { return m_pixels; }
+
+        /// Read an image with filename. SLANG_OK on success
+    SlangResult read(const char* filename);
+
+    ~STBImage() { reset(); }
+
+    int m_width = 0;
+    int m_height = 0;
+    int m_numChannels = 0;
+    unsigned char* m_pixels = nullptr;
+};
+
+void STBImage::reset()
+{
+    if (m_pixels)
+    {
+        stbi_image_free(m_pixels);
+        m_pixels = nullptr;
+    }
+    m_width = 0;
+    m_height = 0;
+    m_numChannels = 0;
+}
+
+SlangResult STBImage::read(const char* filename)
+{
+    reset();
+
+    m_pixels = stbi_load(filename, &m_width, &m_height, &m_numChannels, 0);
+    if (!m_pixels)
+    {
+        return SLANG_FAIL;
+    }
+    return SLANG_OK;
+}
+
+bool STBImage::isComparable(const ThisType& rhs) const
+{
+    return (this == &rhs) ||
+        (m_width == rhs.m_width && m_height == rhs.m_height && m_numChannels == rhs.m_numChannels);
+}
+
+
 TestResult doImageComparison(TestContext* context, String const& filePath)
 {
+    auto reporter = context->reporter;
+
     // Allow a difference in the low bits of the 8-bit result, just to play it safe
     static const int kAbsoluteDiffCutoff = 2;
 
@@ -1434,78 +1236,85 @@ TestResult doImageComparison(TestContext* context, String const& filePath)
     String expectedPath = filePath + ".expected.png";
     String actualPath = filePath + ".actual.png";
 
-    int expectedX,  expectedY,  expectedN;
-    int actualX,    actualY,    actualN;
-
-    unsigned char* expectedData = stbi_load(expectedPath.begin(), &expectedX, &expectedY, &expectedN, 0);
-    unsigned char* actualData = stbi_load(actualPath.begin(), &actualX, &actualY, &actualN, 0);
-
-    if(!expectedData)   
+    STBImage expectedImage;
+    if (SLANG_FAILED(expectedImage.read(expectedPath.Buffer())))
     {
-        context->messageFormat(TestMessageType::RunError, "Unable to load image ;%s'", expectedPath.Buffer());
-        return TestResult::Fail;
-    }
-    if(!actualData)
-    {
-        context->messageFormat(TestMessageType::RunError, "Unable to load image '%s'", actualPath.Buffer());
+        reporter->messageFormat(TestMessageType::RunError, "Unable to load image ;%s'", expectedPath.Buffer());
         return TestResult::Fail;
     }
 
-    if(expectedX != actualX || expectedY != actualY || expectedN != actualN)    
+    STBImage actualImage;
+    if (SLANG_FAILED(actualImage.read(actualPath.Buffer())))
     {
-        context->messageFormat(TestMessageType::TestFailure, "Images are different sizes '%s' '%s'", actualPath.Buffer(), expectedPath.Buffer());
+        reporter->messageFormat(TestMessageType::RunError, "Unable to load image ;%s'", actualPath.Buffer());
         return TestResult::Fail;
     }
 
-    unsigned char* expectedCursor = expectedData;
-    unsigned char* actualCursor = actualData;
+    if (!expectedImage.isComparable(actualImage))
+    {
+        reporter->messageFormat(TestMessageType::TestFailure, "Images are different sizes '%s' '%s'", actualPath.Buffer(), expectedPath.Buffer());
+        return TestResult::Fail;
+    }
 
-    for( int y = 0; y < actualY; ++y )
-	{
-		for( int x = 0; x < actualX; ++x )
-		{
-			for( int n = 0; n < actualN; ++n )
-			{
-				int expectedVal = *expectedCursor++;
-				int actualVal = *actualCursor++;
+    {
+        const unsigned char* expectedPixels = expectedImage.getPixels();
+        const unsigned char* actualPixels = actualImage.getPixels();
 
-				int absoluteDiff = actualVal - expectedVal;
-				if(absoluteDiff < 0) absoluteDiff = -absoluteDiff;
+        const int height = actualImage.getHeight();
+        const int width = actualImage.getWidth();
+        const int numChannels = actualImage.getNumChannels();
+        const int rowSize = width * numChannels;
 
-				if( absoluteDiff < kAbsoluteDiffCutoff )
-				{
-					// There might be a difference, but we'll consider it to be inside tolerance
-					continue;
-				}
+        for (int y = 0; y < height; ++y)
+        {
+            for (int i = 0; i < rowSize; ++i)
+            {
+                int expectedVal = expectedPixels[i];
+                int actualVal = actualPixels[i];
 
-				float relativeDiff = 0.0f;
-				if( expectedVal != 0 )
-				{
-					relativeDiff = fabsf(float(actualVal) - float(expectedVal)) / float(expectedVal);
+                int absoluteDiff = actualVal - expectedVal;
+                if (absoluteDiff < 0) absoluteDiff = -absoluteDiff;
 
-					if( relativeDiff < kRelativeDiffCutoff )
-					{
-						// relative difference was small enough
-						continue;
-					}
-				}
+                if (absoluteDiff < kAbsoluteDiffCutoff)
+                {
+                    // There might be a difference, but we'll consider it to be inside tolerance
+                    continue;
+                }
 
-				// TODO: may need to do some local search sorts of things, to deal with
-				// cases where vertex shader results lead to rendering that is off
-				// by one pixel...
+                float relativeDiff = 0.0f;
+                if (expectedVal != 0)
+                {
+                    relativeDiff = fabsf(float(actualVal) - float(expectedVal)) / float(expectedVal);
 
-                context->messageFormat(TestMessageType::TestFailure, "image compare failure at (%d,%d) channel %d. expected %d got %d (absolute error: %d, relative error: %f)\n",
-                    x, y, n,
+                    if (relativeDiff < kRelativeDiffCutoff)
+                    {
+                        // relative difference was small enough
+                        continue;
+                    }
+                }
+
+                // TODO: may need to do some local search sorts of things, to deal with
+                // cases where vertex shader results lead to rendering that is off
+                // by one pixel...
+
+                const int x = i / numChannels;
+                const int channelIndex = i % numChannels;
+
+                reporter->messageFormat(TestMessageType::TestFailure, "image compare failure at (%d,%d) channel %d. expected %d got %d (absolute error: %d, relative error: %f)\n",
+                    x, y, channelIndex,
                     expectedVal,
                     actualVal,
                     absoluteDiff,
                     relativeDiff);
 
-			    // There was a difference we couldn't excuse!
-			    return TestResult::Fail;
-		    }
-		}
-	}
+                // There was a difference we couldn't excuse!
+                return TestResult::Fail;
+            }
+
+            expectedPixels += rowSize;
+            actualPixels += rowSize; 
+        }
+    }
 
     return TestResult::Pass;
 }
@@ -1533,7 +1342,7 @@ TestResult runHLSLRenderComparisonTestImpl(
 
     if (actualOutput != expectedOutput)
     {
-        context->dumpOutputDifference(expectedOutput, actualOutput);
+        context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
 
         return TestResult::Fail;
     }
@@ -1566,7 +1375,6 @@ TestResult skipTest(TestContext* /* context */, TestInput& /*input*/)
 {
     return TestResult::Ignored;
 }
-
 
 static bool hasRenderOption(RenderApiType apiType, const List<String>& options)
 {
@@ -1644,14 +1452,14 @@ bool isRenderTest(const String& command)
         command == "COMPARE_HLSL_GLSL_RENDER";
 }
 
-static bool canIgnoreTestWithDisabledRenderer(const TestOptions& testOptions)
+static bool canIgnoreTestWithDisabledRenderer(const TestOptions& testOptions, const Options& appOptions)
 {
     for (int i = 0; i < int(RenderApiType::CountOf); ++i)
     {
         RenderApiType apiType = RenderApiType(i);
         RenderApiFlag::Enum apiFlag = RenderApiFlag::Enum(1 << i);
         
-        if (hasRenderOption(apiType, testOptions) && (g_options.enabledApis & apiFlag) == 0)
+        if (hasRenderOption(apiType, testOptions) && (appOptions.enabledApis & apiFlag) == 0)
         {
             return true;
         }
@@ -1668,7 +1476,7 @@ TestResult runTest(
     FileTestList const& testList)
 {
     // If this test can be ignored
-    if (canIgnoreTestWithDisabledRenderer(testOptions))
+    if (canIgnoreTestWithDisabledRenderer(testOptions, context->options))
     {
         return TestResult::Ignored;
     }
@@ -1706,7 +1514,6 @@ TestResult runTest(
 #endif
         { "COMPARE_GLSL", &runGLSLComparisonTest },
         { "CROSS_COMPILE", &runCrossCompilerTest },
-        { "EVAL", &runEvalTest },
         { nullptr, nullptr },
     };
 
@@ -1722,10 +1529,11 @@ TestResult runTest(
         testInput.testList = &testList;
 
         {
-            TestContext::TestScope scope(context, outputStem);
+            TestReporter* reporter = context->reporter;
+            TestReporter::TestScope scope(reporter, outputStem);
 
             TestResult testResult = ii->callback(context, testInput);
-            context->addResult(testResult); 
+            reporter->addResult(testResult);
 
             return testResult;
        }
@@ -1764,20 +1572,20 @@ bool testCategoryMatches(
 }
 
 bool testPassesCategoryMask(
-    TestContext*        /*context*/,
+    TestContext*        context,
     TestOptions const&  test)
 {
     // Don't include a test we should filter out
     for( auto testCategory : test.categories )
     {
-        if(testCategoryMatches(testCategory, g_options.excludeCategories))
+        if(testCategoryMatches(testCategory, context->options.excludeCategories))
             return false;
     }
 
     // Otherwise inclue any test the user asked for
     for( auto testCategory : test.categories )
     {
-        if(testCategoryMatches(testCategory, g_options.includeCategories))
+        if(testCategoryMatches(testCategory, context->options.includeCategories))
             return true;
     }
 
@@ -1792,7 +1600,7 @@ void runTestsOnFile(
     // Gather a list of tests to run
     FileTestList testList;
 
-    if( gatherTestsForFile(filePath, &testList) == TestResult::Ignored )
+    if( gatherTestsForFile(&context->categorySet, filePath, &testList) == TestResult::Ignored )
     {
         // Test was explicitly ignored
         return;
@@ -1801,14 +1609,14 @@ void runTestsOnFile(
     // Note cases where a test file exists, but we found nothing to run
     if( testList.tests.Count() == 0 )
     {
-        context->addTest(filePath, TestResult::Ignored);
+        context->reporter->addTest(filePath, TestResult::Ignored);
         return;
     }
 
     List<TestOptions> synthesizedTests;
 
     // If dx12 is available synthesize Dx12 test
-    if ((g_options.synthesizedTestApis & RenderApiFlag::D3D12) != 0)
+    if ((context->options.synthesizedTestApis & RenderApiFlag::D3D12) != 0)
     {
         // If doesn't have option generate dx12 options from dx11
         if (!hasRenderOption(RenderApiType::D3D12, testList))
@@ -1831,7 +1639,7 @@ void runTestsOnFile(
     }
 
     // If Vulkan is available synthesize Vulkan test
-    if ((g_options.synthesizedTestApis & RenderApiFlag::Vulkan) != 0)
+    if ((context->options.synthesizedTestApis & RenderApiFlag::Vulkan) != 0)
     {
         // If doesn't have option generate dx12 options from dx11
         if (!hasRenderOption(RenderApiType::Vulkan, testList))
@@ -1928,9 +1736,9 @@ static bool shouldRunTest(
     if(!endsWithAllowedExtension(context, filePath))
         return false;
 
-    if( g_options.testPrefix )
+    if( context->options.testPrefix )
     {
-        if( strncmp(g_options.testPrefix, filePath.begin(), strlen(g_options.testPrefix)) != 0 )
+        if( strncmp(context->options.testPrefix, filePath.begin(), strlen(context->options.testPrefix)) != 0 )
         {
             return false;
         }
@@ -1957,115 +1765,141 @@ void runTestsInDirectory(
     }
 }
 
-
-//
-
-int main(
-    int		argc,
-    char**	argv)
+SlangResult innerMain(int argc, char** argv)
 {
+    StdWriters::initDefault();
+
+    // The context holds useful things used during testing
+    TestContext context;
+    SLANG_RETURN_ON_FAIL(SLANG_FAILED(context.init()))
+
+    auto& categorySet = context.categorySet;
+
     // Set up our test categories here
-
-    auto fullTestCategory = addTestCategory("full", nullptr);
-
-    auto quickTestCategory = addTestCategory("quick", fullTestCategory);
-
-    /*auto smokeTestCategory = */addTestCategory("smoke", quickTestCategory);
-
-    auto renderTestCategory = addTestCategory("render", fullTestCategory);
-
-	/*auto computeTestCategory = */addTestCategory("compute", fullTestCategory);
-
-    auto vulkanTestCategory = addTestCategory("vulkan", fullTestCategory);
-
-    auto unitTestCatagory = addTestCategory("unit-test", fullTestCategory);
-
-    auto compatibilityIssueCatagory = addTestCategory("compatibility-issue", fullTestCategory);
+    auto fullTestCategory = categorySet.add("full", nullptr);
+    auto quickTestCategory = categorySet.add("quick", fullTestCategory);
+    /*auto smokeTestCategory = */categorySet.add("smoke", quickTestCategory);
+    auto renderTestCategory = categorySet.add("render", fullTestCategory);
+    /*auto computeTestCategory = */categorySet.add("compute", fullTestCategory);
+    auto vulkanTestCategory = categorySet.add("vulkan", fullTestCategory);
+    auto unitTestCatagory = categorySet.add("unit-test", fullTestCategory);
+    auto compatibilityIssueCatagory = categorySet.add("compatibility-issue", fullTestCategory);
 
     // An un-categorized test will always belong to the `full` category
-    g_defaultTestCategory = fullTestCategory;
+    categorySet.defaultCategory = fullTestCategory;
 
-    //
-
-    if (SLANG_FAILED(parseOptions(&argc, argv)))
     {
-    	// Return exit code with error
-    	return 1;
+        // We can set the slangc command line tool, to just use the function defined here
+        context.setInnerMainFunc("slangc", &SlangCTool::innerMain);
     }
 
-    if( g_options.includeCategories.Count() == 0 )
+    SLANG_RETURN_ON_FAIL(Options::parse(argc, argv, &categorySet, StdWriters::getError(), &context.options));
+    
+    Options& options = context.options;
+
+    if (options.subCommand.Length())
     {
-        g_options.includeCategories.Add(fullTestCategory, fullTestCategory);
+        // Get the function from the tool
+        auto func = context.getInnerMainFunc(options.binDir, options.subCommand);
+        if (!func)
+        {
+            StdWriters::getError().print("error: Unable to launch tool '%s'\n", options.subCommand.Buffer());
+            return SLANG_FAIL;
+        }
+
+        // Copy args to a char* list
+        const auto& srcArgs = options.subCommandArgs;
+        List<const char*> args;
+        args.SetSize(srcArgs.Count());
+        for (UInt i = 0; i < srcArgs.Count(); ++i)
+        {
+            args[i] = srcArgs[i].Buffer();
+        }
+
+        return func(StdWriters::getSingleton(), context.getSession(), int(args.Count()), args.Buffer());
+    }
+
+    if( options.includeCategories.Count() == 0 )
+    {
+        options.includeCategories.Add(fullTestCategory, fullTestCategory);
     }
 
     // Exclude rendering tests when building under AppVeyor.
     //
     // TODO: this is very ad hoc, and we should do something cleaner.
-    if( g_options.outputMode == TestOutputMode::AppVeyor )
+    if( options.outputMode == TestOutputMode::AppVeyor )
     {
-        g_options.excludeCategories.Add(renderTestCategory, renderTestCategory);
-        g_options.excludeCategories.Add(vulkanTestCategory, vulkanTestCategory);
+        options.excludeCategories.Add(renderTestCategory, renderTestCategory);
+        options.excludeCategories.Add(vulkanTestCategory, vulkanTestCategory);
     }
 
-    // Setup the context 
-    TestContext context;
-    if (SLANG_FAILED(context.init(g_options.outputMode)))
     {
-        // Unable to initialize context
-        return 1;
-    }
+        // Setup the reporter
+        TestReporter reporter;
+        SLANG_RETURN_ON_FAIL(reporter.init(options.outputMode));
 
-    context.m_dumpOutputOnFailure = g_options.dumpOutputOnFailure;
-    context.m_isVerbose = g_options.shouldBeVerbose;
+        context.reporter = &reporter;
 
-    { 
-        TestContext::SuiteScope suiteScope(&context, "tests");
-        // Enumerate test files according to policy
-        // TODO: add more directories to this list
-        // TODO: allow for a command-line argument to select a particular directory
-        runTestsInDirectory(&context, "tests/");
-    }
+        reporter.m_dumpOutputOnFailure = options.dumpOutputOnFailure;
+        reporter.m_isVerbose = options.shouldBeVerbose;
 
-    // Run the unit tests (these are internal C++ tests - not specified via files in a directory) 
-    // They are registered with SLANG_UNIT_TEST macro
-    {
-        TestContext::SuiteScope suiteScope(&context, "unit tests");
-        TestContext::set(&context);
-
-        // Run the unit tests
-        TestRegister* cur = TestRegister::s_first;
-        while (cur)
         {
-            StringBuilder filePath;
-            filePath << "unit-tests/" << cur->m_name << ".internal";
-
-            TestOptions testOptions;
-            testOptions.categories.Add(unitTestCatagory);
-            testOptions.command = filePath;
-
-            if (shouldRunTest(&context, testOptions.command))
-            {
-                if (testPassesCategoryMask(&context, testOptions))
-                {
-                    context.startTest(testOptions.command);
-                    // Run the test function
-                    cur->m_func();
-                    context.endTest();
-                }
-                else
-                {
-                    context.addTest(testOptions.command, TestResult::Ignored);
-                }
-            }
-                
-            // Next
-            cur = cur->m_next;
+            TestReporter::SuiteScope suiteScope(&reporter, "tests");
+            // Enumerate test files according to policy
+            // TODO: add more directories to this list
+            // TODO: allow for a command-line argument to select a particular directory
+            runTestsInDirectory(&context, "tests/");
         }
 
-        TestContext::set(nullptr);
+        // Run the unit tests (these are internal C++ tests - not specified via files in a directory) 
+        // They are registered with SLANG_UNIT_TEST macro
+        {
+            TestReporter::SuiteScope suiteScope(&reporter, "unit tests");
+            TestReporter::set(&reporter);
+
+            // Run the unit tests
+            TestRegister* cur = TestRegister::s_first;
+            while (cur)
+            {
+                StringBuilder filePath;
+                filePath << "unit-tests/" << cur->m_name << ".internal";
+
+                TestOptions testOptions;
+                testOptions.categories.Add(unitTestCatagory);
+                testOptions.command = filePath;
+
+                if (shouldRunTest(&context, testOptions.command))
+                {
+                    if (testPassesCategoryMask(&context, testOptions))
+                    {
+                        reporter.startTest(testOptions.command);
+                        // Run the test function
+                        cur->m_func();
+                        reporter.endTest();
+                    }
+                    else
+                    {
+                        reporter.addTest(testOptions.command, TestResult::Ignored);
+                    }
+                }
+
+                // Next
+                cur = cur->m_next;
+            }
+
+            TestReporter::set(nullptr);
+        }
+
+        reporter.outputSummary();
+        return reporter.didAllSucceed() ? SLANG_OK : SLANG_FAIL;
     }
+}
 
-    context.outputSummary();
-
-    return context.didAllSucceed() ? 0 : 1; 
+int main(int argc, char** argv)
+{
+    const SlangResult res = innerMain(argc, argv);
+#ifdef _MSC_VER
+    _CrtDumpMemoryLeaks();
+#endif
+    return SLANG_SUCCEEDED(res) ? 0 : 1;
 }
