@@ -1,18 +1,12 @@
-cbuffer Uniforms
+cbuffer g_uniforms
 {
     float4x4 model;
     float4x4 view;
     float4x4 proj;
 };
 
-Texture2D<float4> g_texture;
-
-SamplerState TextureSampler
-{
-    Filter = MIN_MAG_MIP_LINEAR;
-    AddressU = Wrap;
-    AddressV = Wrap;
-};
+Texture2D g_texture;
+SamplerState g_sampler;
 
 struct AssembledVertex
 {
@@ -56,7 +50,7 @@ VertexStageOutput vertexMain(AssembledVertex assembledVertex)
 float4 fragmentMain(CoarseVertex coarseVertex : CoarseVertex) : SV_Target
 {
     //float3 color = coarseVertex.color;
-    float3 color = g_texture.Sample(TextureSampler, coarseVertex.texCoord);
+    float3 color = g_texture.Sample(g_sampler, coarseVertex.texCoord).rgb;
 
     return float4(color, 1.0);
 }
