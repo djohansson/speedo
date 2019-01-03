@@ -1,4 +1,8 @@
 #include "volcano.h"
+#include "math.h"
+#include "utils.h"
+#include "vk-swapchain.h"
+#include "vk-utils.h"
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
@@ -9,6 +13,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #if defined(__WINDOWS__)
 #include <execution>
@@ -91,91 +96,347 @@
 #include <imgui_widgets.cpp>
 #include <examples/imgui_impl_vulkan.cpp>
 
+#include <slang.h>
 
-template <typename T>
-constexpr auto sizeof_array(const T& array)
-{
-	return (sizeof(array) / sizeof(array[0]));
-}
 
-template <typename T, typename U, typename V>
-inline auto clamp(T x, U lowerlimit, V upperlimit)
-{
-	return (x < lowerlimit ? lowerlimit : (x > upperlimit ? upperlimit : x));
-}
+// reminders:
 
-template <typename T, typename U, typename V>
-inline auto ramp(T x, U edge0, V edge1)
-{
-	return (x - edge0) / (edge1 - edge0);
-}
+//#VkShaderModuleCreateInfo
+// VkStructureType              sType;
+//!const void*                  pNext; // todo: may contain VkShaderModuleValidationCacheCreateInfoEXT, but dont care about that for now
+//+VkShaderModuleCreateFlags    flags;
+//>size_t                       codeSize;
+//>const uint32_t*              pCode;
+	
+// }
+// ~ShaderModule()
+// {
+// 	vkDestroyShaderModule(device, shaderModule, nullptr);
+// }
 
-template <typename T, typename U, typename V>
-inline auto lerp(T a, U b, V t)
-{
-	return (1 - t) * a + t * b;
-}
 
-template <typename T>
-inline auto smoothstep(T x)
-{
-	return x * x * (3 - 2 * x);
-}
+// inline bool operator<(const ShaderModule& lhs, const ShaderModule& rhs) { return lhs.hash < rhs.hash; }
+// inline bool operator==(const ShaderModule& lhs, const ShaderModule& rhs) { return lhs.hash == rhs.hash; }
 
-template <typename T>
-inline auto smootherstep(T x)
-{
-	return x * x * x * (x * (x * 6 - 15) + 10);
-}
+// namespace std
+// {
+//     template<> struct hash<ShaderModule>
+//     {
+//         using argument_type = ShaderModule;
+//         using result_type = std::size_t;
+//         result_type operator()(argument_type const& s) const noexcept
+//         {
+//             return s.hash;
+//         }
+//     };
+// }
 
-struct SwapchainInfo
+// using ShaderModuleSet = std::unordered_set<ShaderModule>;
+using ShaderModuleSet = std::vector<std::pair<VkShaderModule, uint64_t>>;
+
+struct Texture
 {
-	VkSurfaceCapabilitiesKHR capabilities;
-	std::vector<VkSurfaceFormatKHR> formats;
-	std::vector<VkPresentModeKHR> presentModes;
-	uint32_t width;
-	uint32_t height;
+	VkImage myImage = VK_NULL_HANDLE;
+	VmaAllocation myImageMemory = VK_NULL_HANDLE;
+	VkImageView myImageView = VK_NULL_HANDLE;
 };
 
-struct Swapchain
+struct Model
 {
-	VkSwapchainKHR swapchain;
-	SwapchainInfo info;
-
-	std::vector<VkFramebuffer> myFrameBuffers;
-
-	std::vector<VkImage> myColorImages;
-	std::vector<VkImageView> myColorImageViews;
-
-	VkImage myDepthImage = VK_NULL_HANDLE;
-	VmaAllocation myDepthImageMemory = VK_NULL_HANDLE;
-	VkImageView myDepthImageView = VK_NULL_HANDLE;
+	VkBuffer myVertexBuffer = VK_NULL_HANDLE;
+	VmaAllocation myVertexBufferMemory = VK_NULL_HANDLE;
+	VkBuffer myIndexBuffer = VK_NULL_HANDLE;
+	VmaAllocation myIndexBufferMemory = VK_NULL_HANDLE;
+	uint32_t indexCount;
 };
 
-static inline uint64_t hash(const VkShaderModuleCreateInfo& info)
+
+struct ShaderStageSetup
 {
-	XXH64_hash_t result = 0;
+	Model model; // temp
+	Texture texture; // temp
 
-	//#VkShaderModuleCreateInfo
-    // VkStructureType              sType;
-    //!const void*                  pNext; // todo: may contain VkShaderModuleValidationCacheCreateInfoEXT, but dont care about that for now
-    //+VkShaderModuleCreateFlags    flags;
-    //>size_t                       codeSize;
-    //>const uint32_t*              pCode;
+	ShaderModuleSet shaderModules;
+	std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+	std::vector<VkDescriptorSet> descriptorSets;
 
-	result = XXH64(&info.flags, sizeof(info.flags), result);
+	uint64_t pipelineHash = 0; // temp
+};
 
-	if (const uint32_t* code = info.pCode)
+void loadSlangShaders(const char* path, VkDevice device, ShaderStageSetup& outShaderStageSetup)
+{
+    // First, we need to create a "session" for interacting with the Slang
+    // compiler. This scopes all of our application's interactions
+    // with the Slang library. At the moment, creating a session causes
+    // Slang to load and validate its standard library, so this is a
+    // somewhat heavy-weight operation. When possible, an application
+    // should try to re-use the same session across multiple compiles.
+    //
+    SlangSession* slangSession = spCreateSession(NULL);
+
+    // A compile request represents a single invocation of the compiler,
+    // to process some inputs and produce outputs (or errors).
+    //
+    SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
+
+	spSetDumpIntermediates(slangRequest, true);
+
+    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
+
+    // We will specify the desired "profile" for this one target in terms of the
+    // DirectX "shader model" that should be supported.
+    //
+   //spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_4_0"));
+
+    // A compile request can include one or more "translation units," which more or
+    // less amount to individual source files (think `.c` files, not the `.h` files they
+    // might include).
+    //
+    // For this example, our code will all be in the Slang language. The user may
+    // also specify HLSL input here, but that currently doesn't affect the compiler's
+    // behavior much.
+    //
+    int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+
+    // We will load source code for our translation unit from the file `shaders.slang`.
+    // There are also variations of this API for adding source code from application-provided buffers.
+    //
+    spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, path);
+
+    // Next we will specify the entry points we'd like to compile.
+    // It is often convenient to put more than one entry point in the same file,
+    // and the Slang API makes it convenient to use a single run of the compiler
+    // to compile all entry points.
+    //
+    // For each entry point, we need to specify the name of a function, the
+    // translation unit in which that function can be found, and the stage
+    // that we need to compile for (e.g., vertex, fragment, geometry, ...).
+    //
+    char const* vertexEntryPointName    = "vertexMain";
+    char const* fragmentEntryPointName  = "fragmentMain";
+    int vertexIndex   = spAddEntryPoint(slangRequest, translationUnitIndex, vertexEntryPointName,   SLANG_STAGE_VERTEX);
+    int fragmentIndex = spAddEntryPoint(slangRequest, translationUnitIndex, fragmentEntryPointName, SLANG_STAGE_FRAGMENT);
+
+    // Once all of the input options for the compiler have been specified,
+    // we can invoke `spCompile` to run the compiler and see if any errors
+    // were detected.
+    //
+    const SlangResult compileRes = spCompile(slangRequest);
+
+    // Even if there were no errors that forced compilation to fail, the
+    // compiler may have produced "diagnostic" output such as warnings.
+    // We will go ahead and print that output here.
+    //
+    if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
+    {
+		std::cout << diagnostics << std::endl;
+    }
+
+    // If compilation failed, there is no point in continuing any further.
+    if (SLANG_FAILED(compileRes))
+    {
+        spDestroyCompileRequest(slangRequest);
+        spDestroySession(slangSession);
+
+		throw std::runtime_error("failed to compile slang shaders!");
+    }
+
+	int depCount = spGetDependencyFileCount(slangRequest);
+	for(int dep = 0; dep < depCount; dep++)
 	{
-		result = XXH64(code, info.codeSize, result);
+		char const* depPath = spGetDependencyFilePath(slangRequest, dep);
+		// ... todo: add dependencies for hot reload
+		std::cout << depPath << std::endl;
 	}
 
-	return result;
+    // If compilation was successful, then we will extract the code for
+    // our two entry points as "blobs".
+    //
+    // If you are using a D3D API, then your application may want to
+    // take advantage of the fact taht these blobs are binary compatible
+    // with the `ID3DBlob`, `ID3D10Blob`, etc. interfaces.
+    //
+
+    ISlangBlob* vertexShaderBlob = nullptr;
+    spGetEntryPointCodeBlob(slangRequest, vertexIndex, 0, &vertexShaderBlob);
+
+    ISlangBlob* fragmentShaderBlob = nullptr;
+    spGetEntryPointCodeBlob(slangRequest, fragmentIndex, 0, &fragmentShaderBlob);
+
+    // We extract the begin/end pointers to the output code buffers
+    // using operations on the `ISlangBlob` interface.
+    //
+   
+	//loadSPIRVFile("vert.spv", vsCode);
+	//loadSPIRVFile("frag.spv", fsCode);
+
+	VkShaderModuleCreateInfo vsCreateInfo = {};
+	vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	vsCreateInfo.codeSize = vertexShaderBlob->getBufferSize();
+	vsCreateInfo.pCode = reinterpret_cast<const uint32_t*>(vertexShaderBlob->getBufferPointer());
+
+	uint64_t vsShaderModuleHash = XXH64(&vsCreateInfo.flags, sizeof(vsCreateInfo.flags), 0);
+	if (const uint32_t* code = vsCreateInfo.pCode)
+		vsShaderModuleHash = XXH64(code, vsCreateInfo.codeSize, vsShaderModuleHash);
+
+	VkShaderModule vsShaderModule;
+	CHECK_VK(vkCreateShaderModule(device, &vsCreateInfo, nullptr, &vsShaderModule));
+
+	outShaderStageSetup.shaderModules.emplace_back(vsShaderModule, vsShaderModuleHash);
+
+	VkShaderModuleCreateInfo fsCreateInfo = {};
+	fsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	fsCreateInfo.codeSize = fragmentShaderBlob->getBufferSize();
+	fsCreateInfo.pCode = reinterpret_cast<const uint32_t*>(fragmentShaderBlob->getBufferPointer());
+
+	uint64_t fsShaderModuleHash = XXH64(&fsCreateInfo.flags, sizeof(fsCreateInfo.flags), 0);
+	if (const uint32_t* code = fsCreateInfo.pCode)
+		fsShaderModuleHash = XXH64(code, fsCreateInfo.codeSize, fsShaderModuleHash);
+
+	VkShaderModule fsShaderModule;
+	CHECK_VK(vkCreateShaderModule(device, &fsCreateInfo, nullptr, &fsShaderModule));
+
+	outShaderStageSetup.shaderModules.emplace_back(fsShaderModule, fsShaderModuleHash);
+
+	// Once we've used the output blobs from the Slang compiler to initialize
+    // the API-specific shader program, we can release their memory.
+    //
+    vertexShaderBlob->release();
+    fragmentShaderBlob->release();
+
+	using BindingsMap = std::map<uint32_t, std::vector<VkDescriptorSetLayoutBinding>>;
+
+	BindingsMap bindingsMap;
+
+	auto createLayoutBinding = [&bindingsMap](slang::VariableLayoutReflection* parameter)
+	{
+		slang::TypeLayoutReflection* typeLayout = parameter->getTypeLayout();
+
+		std::cout << "name: " << parameter->getName() <<
+			", index: " << parameter->getBindingIndex() <<
+			", space: " << parameter->getBindingSpace() <<
+			", stage: " << parameter->getStage() <<
+			", kind: " << (int)typeLayout->getKind() <<
+			", typeName: " << typeLayout->getName();
+
+		unsigned categoryCount = parameter->getCategoryCount();
+		for (unsigned cc = 0; cc < categoryCount; cc++)
+		{ 
+			slang::ParameterCategory category = parameter->getCategoryByIndex(cc);
+
+			size_t offsetForCategory = parameter->getOffset(category);
+			size_t spaceForCategory = parameter->getBindingSpace(category);
+
+			std::cout << ", category: " << category <<
+				", offsetForCategory: " << offsetForCategory <<
+				", spaceForCategory: " << spaceForCategory;
+
+			if (category == slang::ParameterCategory::DescriptorTableSlot)
+			{
+				VkDescriptorSetLayoutBinding binding;
+				binding.binding = parameter->getBindingIndex();
+				binding.descriptorCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
+				binding.stageFlags = VK_SHADER_STAGE_ALL; // todo: have not find a good way to get a good value for this yet
+				binding.pImmutableSamplers = nullptr; // todo;
+
+				switch (parameter->getStage())
+				{
+				case SLANG_STAGE_VERTEX:
+					binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+					break;
+				case SLANG_STAGE_FRAGMENT:
+					binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+					break;
+				case SLANG_STAGE_HULL:
+				case SLANG_STAGE_DOMAIN:
+				case SLANG_STAGE_GEOMETRY:
+				case SLANG_STAGE_COMPUTE:
+				case SLANG_STAGE_RAY_GENERATION:
+				case SLANG_STAGE_INTERSECTION:
+				case SLANG_STAGE_ANY_HIT:
+				case SLANG_STAGE_CLOSEST_HIT:
+				case SLANG_STAGE_MISS:
+				case SLANG_STAGE_CALLABLE:
+				default:
+					//assert(false); // please implement me!
+					break;
+				}
+
+				switch (typeLayout->getKind())
+				{
+				case slang::TypeReflection::Kind::ConstantBuffer:
+					binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+					break;
+				case slang::TypeReflection::Kind::Resource:
+					binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; // "resource" might be more generic tho...
+					break;
+				case slang::TypeReflection::Kind::SamplerState:
+					binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+					break;
+				case slang::TypeReflection::Kind::None:
+				case slang::TypeReflection::Kind::Struct:
+				case slang::TypeReflection::Kind::Array:
+				case slang::TypeReflection::Kind::Matrix:
+				case slang::TypeReflection::Kind::Vector:
+				case slang::TypeReflection::Kind::Scalar:
+				case slang::TypeReflection::Kind::TextureBuffer:
+				case slang::TypeReflection::Kind::ShaderStorageBuffer:
+				case slang::TypeReflection::Kind::ParameterBlock:
+				case slang::TypeReflection::Kind::GenericTypeParameter:
+				case slang::TypeReflection::Kind::Interface:
+				default:
+					assert(false); // please implement me!
+					break;
+				}
+
+				bindingsMap[parameter->getBindingSpace()].push_back(binding);
+			}
+		}
+
+		std::cout << std::endl;
+
+		unsigned fieldCount = typeLayout->getFieldCount();
+		for (unsigned ff = 0; ff < fieldCount; ff++)
+		{
+			slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(ff);
+			
+			std::cout << "  name: " << field->getName() <<
+				", index: " << field->getBindingIndex() <<
+				", space: " << field->getBindingSpace(field->getCategory()) <<
+				", offset: " << field->getOffset(field->getCategory()) <<
+				", kind: " << (int)field->getType()->getKind() <<
+				", typeName: " << field->getType()->getName() << std::endl;
+		}
+	};
+
+	slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
+
+	for (unsigned pp = 0; pp < shaderReflection->getParameterCount(); pp++)
+		createLayoutBinding(shaderReflection->getParameterByIndex(pp));
+
+	for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
+	{
+		slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
+
+		for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
+			createLayoutBinding(epReflection->getParameterByIndex(pp));
+	}
+
+	for (auto& [space, bindings]: bindingsMap)
+	{	
+		outShaderStageSetup.descriptorSetLayouts.emplace_back(
+			createDescriptorSetLayout(device, bindings));
+	}
+
+    // Once we have extracted the output blobs, it is safe to destroy
+    // the compile request and even the session.
+    //
+    spDestroyCompileRequest(slangRequest);
+    spDestroySession(slangSession);
 }
 
-using ShaderModuleHashSet = std::unordered_map<VkShaderModule, uint64_t>;
 
-static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const ShaderModuleHashSet& shaderHashes)
+static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const ShaderModuleSet& shaderModules)
 {
 	XXH64_hash_t result = 0;
 
@@ -217,9 +478,9 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const Shad
 
 		result = XXH64(&stage.flags, sizeof(stage.flags), result);
 		result = XXH64(&stage.stage, sizeof(stage.stage), result);
-		auto shaderHash = shaderHashes.find(stage.module);
-    	if (shaderHash != shaderHashes.end())
-			result = XXH64(&shaderHash->second, sizeof(ShaderModuleHashSet::value_type), result);
+		// auto shaderModule = shaderModules.find(stage.module);
+    	// if (shaderModule != shaderModules.end())
+		// 	result = XXH64(&shaderModule->shaderModuleHash, sizeof(shaderModule->shaderModuleHash), result);
 		result = XXH64(stage.pName, strlen(stage.pName), result);
 
 		if (const VkSpecializationInfo* specialization = stage.pSpecializationInfo)
@@ -268,130 +529,6 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const Shad
 	result = XXH64(&info.layout, sizeof(info) - offsetof(VkGraphicsPipelineCreateInfo, layout), result);
 
 	return result;
-}
-
-static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
-{
-	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;
-}
-
-static inline void CHECK_VK(VkResult err)
-{
-	(void)err;
-	assert(err == VK_SUCCESS);
-}
-
-uint32_t getFormatSize(VkFormat format)
-{
-	switch (format)
-	{
-	case VK_FORMAT_R8G8B8A8_UNORM:
-		return 4;
-	default:
-		assert(false);
-		return 0;
-	};
-}
-
-bool hasStencilComponent(VkFormat format)
-{
-	switch (format)
-	{
-	case VK_FORMAT_D32_SFLOAT_S8_UINT:
-	case VK_FORMAT_D24_UNORM_S8_UINT:
-		return true;
-	default:
-		return false;
-	};
-}
-
-uint32_t findMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFlags properties)
-{
-	VkPhysicalDeviceMemoryProperties memProperties;
-	vkGetPhysicalDeviceMemoryProperties(device, &memProperties);
-
-	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
-		if ((typeFilter & (1 << i)) &&
-			(memProperties.memoryTypes[i].propertyFlags & properties))
-			return i;
-
-	return 0;
-}
-
-VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
-{
-	for (VkFormat format : candidates)
-	{
-		VkFormatProperties props;
-		vkGetPhysicalDeviceFormatProperties(device, format, &props);
-
-		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
-			return format;
-		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
-			return format;
-	}
-
-	return VK_FORMAT_UNDEFINED;
-}
-
-int getSuitableSwapchainAndQueueFamilyIndex(VkSurfaceKHR surface, VkPhysicalDevice device, SwapchainInfo& outSwapchainInfo)
-{
-	VkPhysicalDeviceProperties deviceProperties;
-	vkGetPhysicalDeviceProperties(device, &deviceProperties);
-
-	VkPhysicalDeviceFeatures deviceFeatures;
-	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &outSwapchainInfo.capabilities);
-
-	uint32_t formatCount;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-	if (formatCount != 0)
-	{
-		outSwapchainInfo.formats.resize(formatCount);
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-			outSwapchainInfo.formats.data());
-	}
-
-	assert(!outSwapchainInfo.formats.empty());
-
-	uint32_t presentModeCount;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-	if (presentModeCount != 0)
-	{
-		outSwapchainInfo.presentModes.resize(presentModeCount);
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-			outSwapchainInfo.presentModes.data());
-	}
-
-	assert(!outSwapchainInfo.presentModes.empty());
-
-	//if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-	{
-		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-
-		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
-			queueFamilies.data());
-
-		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
-		{
-			const auto& queueFamily = queueFamilies[i];
-
-			VkBool32 presentSupport = false;
-			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-
-			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-				presentSupport)
-			{
-				return i;
-			}
-		}
-	}
-
-	return -1;
 }
 
 struct Vertex
@@ -459,22 +596,6 @@ namespace std
 // 	static const uint32_t ourIndices[12];
 // };
 
-struct Texture
-{
-	VkImage myImage = VK_NULL_HANDLE;
-	VmaAllocation myImageMemory = VK_NULL_HANDLE;
-	VkImageView myImageView = VK_NULL_HANDLE;
-};
-
-struct Model
-{
-	VkBuffer myVertexBuffer = VK_NULL_HANDLE;
-	VmaAllocation myVertexBufferMemory = VK_NULL_HANDLE;
-	VkBuffer myIndexBuffer = VK_NULL_HANDLE;
-	VmaAllocation myIndexBufferMemory = VK_NULL_HANDLE;
-	uint32_t indexCount;
-};
-
 // const Vertex Quad::ourVertices[] =
 // {
 // 	{ { -1.0f, -1.0f, 0.0f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },
@@ -517,7 +638,7 @@ public:
 		createTextureSampler();
 
 		createDescriptorPool();
-		createDescriptorSetLayout();
+		//createDescriptorSetLayout();
 
 		createFrameResources(framebufferWidth, framebufferHeight);
 
@@ -527,7 +648,7 @@ public:
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-		loadModel("chalet.obj", myHouseModel);
+		loadModel("chalet.obj", myHouseSetup.model);
 
 		// {
 		// 	createDeviceLocalBuffer(Quad::ourVertices, static_cast<uint32_t>(sizeof_array(Quad::ourVertices)),
@@ -538,7 +659,7 @@ public:
 		// 		myQuadModel.myIndexBufferMemory);
 		// }
 
-		loadTexture("chalet.jpg", myHouseImage);
+		loadTexture("chalet.jpg", myHouseSetup.texture);
 		//loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
 
 		// create uniform buffer
@@ -550,7 +671,43 @@ public:
 			myUniformBufferMemory,
 			"myUniformBuffer");
 		
-		createDescriptorSet();
+		// begin temp
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = myUniformBuffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = VK_WHOLE_SIZE;
+
+		VkDescriptorImageInfo imageInfo = {};
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageView = myHouseSetup.texture.myImageView;
+		imageInfo.sampler = mySampler;
+
+		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
+		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[0].dstSet = myHouseSetup.descriptorSets[0];
+		descriptorWrites[0].dstBinding = 0;
+		descriptorWrites[0].dstArrayElement = 0;
+		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+		descriptorWrites[0].descriptorCount = 1;
+		descriptorWrites[0].pBufferInfo = &bufferInfo;
+		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[1].dstSet = myHouseSetup.descriptorSets[0];
+		descriptorWrites[1].dstBinding = 1;
+		descriptorWrites[1].dstArrayElement = 0;
+		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		descriptorWrites[1].descriptorCount = 1;
+		descriptorWrites[1].pImageInfo = &imageInfo;
+		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[2].dstSet = myHouseSetup.descriptorSets[0];
+		descriptorWrites[2].dstBinding = 2;
+		descriptorWrites[2].dstArrayElement = 0;
+		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+		descriptorWrites[2].descriptorCount = 1;
+		descriptorWrites[2].pImageInfo = &imageInfo;
+
+		vkUpdateDescriptorSets(myDevice, static_cast<uint32_t>(descriptorWrites.size()),
+			descriptorWrites.data(), 0, nullptr);
+		// end temp
 
 		float dpiScaleX = static_cast<float>(framebufferWidth) / windowWidth;
 		float dpiScaleY = static_cast<float>(framebufferHeight) / windowHeight;
@@ -815,7 +972,7 @@ private:
 
 			stbi_image_free(imageData);
 
-			outTexture.myImageView = createImageView2D(myHouseImage.myImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+			outTexture.myImageView = createImageView2D(myHouseSetup.texture.myImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
 		}
 		else
 		{
@@ -939,10 +1096,27 @@ private:
 			VK_DEBUG_REPORT_WARNING_BIT_EXT;
 
 		debugCallbackInfo.pfnCallback = static_cast<PFN_vkDebugReportCallbackEXT>(
-			[](VkDebugReportFlagsEXT /*flags*/, VkDebugReportObjectTypeEXT /*objectType*/, uint64_t /*object*/,
-				size_t /*location*/, int32_t /*messageCode*/, const char* layerPrefix, const char* message,
-				void* /*userData*/) -> VkBool32 {
+			[](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
+				size_t location, int32_t messageCode, const char* layerPrefix, const char* message,
+				void* userData) -> VkBool32
+		{
+			(void)objectType;
+			(void)object;
+			(void)location;
+			(void)messageCode;
+			(void)userData;
+
 			std::cout << layerPrefix << ": " << message << std::endl;
+	
+			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
+			// VK_DEBUG_REPORT_WARNING_BIT_EXT = 0x00000002,
+			// VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT = 0x00000004,
+			// VK_DEBUG_REPORT_ERROR_BIT_EXT = 0x00000008,
+			// VK_DEBUG_REPORT_DEBUG_BIT_EXT = 0x00000010,
+		
+			if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+				return VK_TRUE;
+			
 			return VK_FALSE;
 		});
 
@@ -1278,79 +1452,6 @@ private:
 		CHECK_VK(vkCreateDescriptorPool(myDevice, &poolInfo, nullptr, &myDescriptorPool));
 	}
 
-	void createDescriptorSetLayout()
-	{
-		VkDescriptorSetLayoutBinding uboLayoutBinding = {};
-		uboLayoutBinding.binding = 0;
-		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-		uboLayoutBinding.descriptorCount = 1;
-		uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-		uboLayoutBinding.pImmutableSamplers = nullptr;
-
-		VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
-		samplerLayoutBinding.binding = 1;
-		samplerLayoutBinding.descriptorCount = 1;
-		samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-		samplerLayoutBinding.pImmutableSamplers = &mySampler;
-
-		std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding,
-																samplerLayoutBinding };
-
-		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
-		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-		layoutInfo.pBindings = bindings.data();
-
-		CHECK_VK(vkCreateDescriptorSetLayout(myDevice, &layoutInfo, nullptr, &myDescriptorSetLayout));
-	}
-
-	void createDescriptorSet()
-	{
-		VkDescriptorSetLayout layouts[] = { myDescriptorSetLayout };
-		VkDescriptorSetAllocateInfo allocInfo = {};
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorPool = myDescriptorPool;
-		allocInfo.descriptorSetCount = 1;
-		allocInfo.pSetLayouts = layouts;
-
-		CHECK_VK(vkAllocateDescriptorSets(myDevice, &allocInfo, &myDescriptorSet));
-
-		updateDescriptorSet(myUniformBuffer, myHouseImage.myImageView);
-	}
-
-	void updateDescriptorSet(VkBuffer buffer, VkImageView imageView)
-	{
-		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = buffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = VK_WHOLE_SIZE;
-
-		VkDescriptorImageInfo imageInfo = {};
-		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = imageView;
-		imageInfo.sampler = mySampler;
-
-		std::array<VkWriteDescriptorSet, 2> descriptorWrites = {};
-		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[0].dstSet = myDescriptorSet;
-		descriptorWrites[0].dstBinding = 0;
-		descriptorWrites[0].dstArrayElement = 0;
-		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-		descriptorWrites[0].descriptorCount = 1;
-		descriptorWrites[0].pBufferInfo = &bufferInfo;
-		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[1].dstSet = myDescriptorSet;
-		descriptorWrites[1].dstBinding = 1;
-		descriptorWrites[1].dstArrayElement = 0;
-		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		descriptorWrites[1].descriptorCount = 1;
-		descriptorWrites[1].pImageInfo = &imageInfo;
-
-		vkUpdateDescriptorSets(myDevice, static_cast<uint32_t>(descriptorWrites.size()),
-			descriptorWrites.data(), 0, nullptr);
-	}
-
 	void createRenderPass()
 	{
 		VkAttachmentDescription colorAttachment = {};
@@ -1410,64 +1511,42 @@ private:
 
 	void createGraphicsPipelines()
 	{
-		ShaderModuleHashSet shaderModules;
+		loadSlangShaders("shaders.slang", myDevice, myHouseSetup);
 
-		std::vector<char> vsCode;
-		loadSPIRVFile("vert.spv", vsCode);
-
-		VkShaderModuleCreateInfo vsCreateInfo = {};
-		vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		vsCreateInfo.codeSize = vsCode.size();
-		vsCreateInfo.pCode = reinterpret_cast<const uint32_t*>(vsCode.data());
-
-		VkShaderModule vsModule;
-		CHECK_VK(vkCreateShaderModule(myDevice, &vsCreateInfo, nullptr, &vsModule));
-		shaderModules[vsModule] = hash(vsCreateInfo);
+		assert(myHouseSetup.shaderModules.size() == 2); // temp
 
 		VkPipelineShaderStageCreateInfo vsStageInfo = {};
 		vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-		vsStageInfo.module = vsModule;
+		vsStageInfo.module = myHouseSetup.shaderModules[0].first;
 		vsStageInfo.pName = "main";
 
-		std::vector<char> fsCode;
-		loadSPIRVFile("frag.spv", fsCode);
+		// struct AlphaTestSpecializationData
+		// {
+		// 	uint32_t alphaTestMethod = 0;
+		// 	float alphaTestRef = 0.5f;
+		// } alphaTestSpecializationData;
 
-		VkShaderModuleCreateInfo fsCreateInfo = {};
-		fsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		fsCreateInfo.codeSize = fsCode.size();
-		fsCreateInfo.pCode = reinterpret_cast<const uint32_t*>(fsCode.data());
+		// std::array<VkSpecializationMapEntry, 2> alphaTestSpecializationMapEntries;
+		// alphaTestSpecializationMapEntries[0].constantID = 0;
+		// alphaTestSpecializationMapEntries[0].size = sizeof(alphaTestSpecializationData.alphaTestMethod);
+		// alphaTestSpecializationMapEntries[0].offset = 0;
+		// alphaTestSpecializationMapEntries[1].constantID = 1;
+		// alphaTestSpecializationMapEntries[1].size = sizeof(alphaTestSpecializationData.alphaTestRef);
+		// alphaTestSpecializationMapEntries[1].offset = offsetof(AlphaTestSpecializationData, alphaTestRef);
 
-		VkShaderModule fsModule;
-		CHECK_VK(vkCreateShaderModule(myDevice, &fsCreateInfo, nullptr, &fsModule));
-		shaderModules[fsModule] = hash(fsCreateInfo);
-
-		struct AlphaTestSpecializationData
-		{
-			uint32_t alphaTestMethod = 0;
-			float alphaTestRef = 0.5f;
-		} alphaTestSpecializationData;
-
-		std::array<VkSpecializationMapEntry, 2> alphaTestSpecializationMapEntries;
-		alphaTestSpecializationMapEntries[0].constantID = 0;
-		alphaTestSpecializationMapEntries[0].size = sizeof(alphaTestSpecializationData.alphaTestMethod);
-		alphaTestSpecializationMapEntries[0].offset = 0;
-		alphaTestSpecializationMapEntries[1].constantID = 1;
-		alphaTestSpecializationMapEntries[1].size = sizeof(alphaTestSpecializationData.alphaTestRef);
-		alphaTestSpecializationMapEntries[1].offset = offsetof(AlphaTestSpecializationData, alphaTestRef);
-
-		VkSpecializationInfo specializationInfo = {};
-		specializationInfo.dataSize = sizeof(alphaTestSpecializationData);
-		specializationInfo.mapEntryCount = static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
-		specializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
-		specializationInfo.pData = &alphaTestSpecializationData;
+		// VkSpecializationInfo specializationInfo = {};
+		// specializationInfo.dataSize = sizeof(alphaTestSpecializationData);
+		// specializationInfo.mapEntryCount = static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
+		// specializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
+		// specializationInfo.pData = &alphaTestSpecializationData;
 
 		VkPipelineShaderStageCreateInfo fsStageInfo = {};
 		fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-		fsStageInfo.module = fsModule;
+		fsStageInfo.module = myHouseSetup.shaderModules[1].first;
 		fsStageInfo.pName = "main";
-		fsStageInfo.pSpecializationInfo = &specializationInfo;
+		fsStageInfo.pSpecializationInfo = nullptr;//&specializationInfo;
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vsStageInfo, fsStageInfo };
 
@@ -1569,10 +1648,12 @@ private:
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 		dynamicState.pDynamicStates = dynamicStates.data();
 
+		assert(myHouseSetup.descriptorSetLayouts.size() == 1); // temp
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 1;
-		pipelineLayoutInfo.pSetLayouts = &myDescriptorSetLayout;
+		pipelineLayoutInfo.setLayoutCount = myHouseSetup.descriptorSetLayouts.size();
+		pipelineLayoutInfo.pSetLayouts = myHouseSetup.descriptorSetLayouts.data();
 		pipelineLayoutInfo.pushConstantRangeCount = 0;
 		pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -1580,7 +1661,7 @@ private:
 
 		VkGraphicsPipelineCreateInfo pipelineInfo = {};
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		pipelineInfo.stageCount = 2;
+		pipelineInfo.stageCount = sizeof_array(shaderStages);
 		pipelineInfo.pStages = shaderStages;
 		pipelineInfo.pVertexInputState = &vertexInputInfo;
 		pipelineInfo.pInputAssemblyState = &inputAssembly;
@@ -1598,13 +1679,11 @@ private:
 
 		auto hashAndCache = [](
 			const VkGraphicsPipelineCreateInfo& info,
-			const ShaderModuleHashSet& shaderHashes,
+			const ShaderModuleSet& shaderModules, // TEMP - rewrite
 			uint64_t& outHash)
 		{
-			return outHash = hash(info, shaderHashes);
+			return outHash = hash(info, shaderModules);
 		};
-
-		alphaTestSpecializationData.alphaTestMethod = 0;
 
 		CHECK_VK(vkCreateGraphicsPipelines(
 			myDevice,
@@ -1612,20 +1691,13 @@ private:
 			1,
 			&pipelineInfo,
 			nullptr,
-			&myGraphicsPipelines[hashAndCache(pipelineInfo, shaderModules, myHousePipelineHash)]));
+			&myGraphicsPipelines[hashAndCache(pipelineInfo, myHouseSetup.shaderModules, myHouseSetup.pipelineHash)])); // TEMP - rewrite
 
-		// alphaTestSpecializationData.alphaTestMethod = 1;
-
-		// CHECK_VK(vkCreateGraphicsPipelines(
-		// 	myDevice,
-		// 	VK_NULL_HANDLE,
-		// 	1,
-		// 	&pipelineInfo,
-		// 	nullptr,
-		// 	&myGraphicsPipelines[hashAndCache(pipelineInfo, shaderModules, foo)])); /*AlphaTest*/
-
-		vkDestroyShaderModule(myDevice, vsModule, nullptr);
-		vkDestroyShaderModule(myDevice, fsModule, nullptr);
+		createDescriptorSets(
+			myDevice,
+			myDescriptorPool,
+			myHouseSetup.descriptorSetLayouts,
+			myHouseSetup.descriptorSets);
 	}
 
 	VkCommandBuffer beginSingleTimeCommands() const
@@ -2217,13 +2289,13 @@ private:
 			vkCmdBindPipeline(
 				cmd,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				myGraphicsPipelines[myHousePipelineHash]);
+				myGraphicsPipelines[myHouseSetup.pipelineHash]);
 			
-			VkBuffer vertexBuffers[] = { myHouseModel.myVertexBuffer };
+			VkBuffer vertexBuffers[] = { myHouseSetup.model.myVertexBuffer };
 			VkDeviceSize vertexOffsets[] = { 0 };
 
 			vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-			vkCmdBindIndexBuffer(cmd, myHouseModel.myIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(cmd, myHouseSetup.model.myIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
 		}
 
 		// draw geometry using secondary command buffers
@@ -2277,8 +2349,8 @@ private:
 							VK_PIPELINE_BIND_POINT_GRAPHICS,
 							myPipelineLayout,
 							0,
-							1,
-							&myDescriptorSet,
+							myHouseSetup.descriptorSets.size(),
+							myHouseSetup.descriptorSets.data(),
 							1,
 							&uniformBufferOffset);
 
@@ -2287,7 +2359,7 @@ private:
 						vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
 					};
 
-					drawModel(cmd, i * dx, j * dy, dx, dy, myHouseModel.indexCount);
+					drawModel(cmd, i * dx, j * dy, dx, dy, myHouseSetup.model.indexCount);
 				}
 			});
 		}
@@ -2435,16 +2507,16 @@ private:
 			// vmaDestroyImage(myAllocator, myVulkanImage.myImage, myVulkanImage.myImageMemory);
 			// vkDestroyImageView(myDevice, myVulkanImage.myImageView, nullptr);
 
-			vmaDestroyBuffer(myAllocator, myHouseModel.myVertexBuffer, myHouseModel.myVertexBufferMemory);
-			vmaDestroyBuffer(myAllocator, myHouseModel.myIndexBuffer, myHouseModel.myIndexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myHouseSetup.model.myVertexBuffer, myHouseSetup.model.myVertexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myHouseSetup.model.myIndexBuffer, myHouseSetup.model.myIndexBufferMemory);
 			
-			vmaDestroyImage(myAllocator, myHouseImage.myImage, myHouseImage.myImageMemory);
-			vkDestroyImageView(myDevice, myHouseImage.myImageView, nullptr);
+			vmaDestroyImage(myAllocator, myHouseSetup.texture.myImage, myHouseSetup.texture.myImageMemory);
+			vkDestroyImageView(myDevice, myHouseSetup.texture.myImageView, nullptr);
 		}
 
 		vkDestroySampler(myDevice, mySampler, nullptr);
 
-		vkDestroyDescriptorSetLayout(myDevice, myDescriptorSetLayout, nullptr);
+		//vkDestroyDescriptorSetLayout(myDevice, myDescriptorSetLayout, nullptr);
 		vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 
 		vmaDestroyAllocator(myAllocator);
@@ -2481,8 +2553,6 @@ private:
 	int myQueueFamilyIndex = -1;
 	VkQueue myQueue = VK_NULL_HANDLE;
 	VkDescriptorPool myDescriptorPool = VK_NULL_HANDLE;
-	VkDescriptorSetLayout myDescriptorSetLayout = VK_NULL_HANDLE;
-	VkDescriptorSet myDescriptorSet = VK_NULL_HANDLE;
 	VkRenderPass myRenderPass = VK_NULL_HANDLE;
 	VkPipelineLayout myPipelineLayout = VK_NULL_HANDLE;
 	std::unordered_map<uint64_t, VkPipeline> myGraphicsPipelines;
@@ -2501,12 +2571,13 @@ private:
 	std::unique_ptr<ImGui_ImplVulkanH_WindowData> myWindowData;
 	std::vector<ImFont*> myFonts;
 
-	//Model myQuadModel;
-	Model myHouseModel;
-	//Texture myVulkanImage;
-	Texture myHouseImage;
+	//VkDescriptorSetLayout myDescriptorSetLayout = VK_NULL_HANDLE;
+	//VkDescriptorSet myDescriptorSet = VK_NULL_HANDLE;
 
-	uint64_t myHousePipelineHash = 0; // temp
+	//Model myQuadModel;
+	//Texture myVulkanImage;
+
+	ShaderStageSetup myHouseSetup;
 
 	std::filesystem::path myResourcePath;
 
