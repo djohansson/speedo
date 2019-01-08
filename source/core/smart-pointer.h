@@ -91,9 +91,7 @@ namespace Slang
     template<typename T>
     struct RefPtr
     {
-        RefPtr()
-            : pointer(nullptr)
-        {}
+        RefPtr() = default;
 
         RefPtr(T* p)
             : pointer(p)
@@ -233,7 +231,7 @@ namespace Slang
         SLANG_FORCE_INLINE T*const* readRef() const { return &pointer; }
 
     private:
-        T* pointer;
+        T* pointer = nullptr;
         
 	};
 }

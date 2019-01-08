@@ -336,6 +336,7 @@ namespace Slang
 
     public:
 
+		String() = default;
         explicit String(StringRepresentation* buffer)
             : buffer(buffer)
         {}
@@ -344,9 +345,6 @@ namespace Slang
 		static String FromWString(const wchar_t * wstr, const wchar_t * wend);
 		static String FromWChar(const wchar_t ch);
 		static String FromUnicodePoint(unsigned int codePoint);
-		String()
-		{
-		}
 
             /// Returns a buffer which can hold at least count chars
         char* prepareForAppend(UInt count);
