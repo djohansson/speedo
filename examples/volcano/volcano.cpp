@@ -89,6 +89,7 @@
 #include <cereal/cereal.hpp>
 #include <cereal/types/vector.hpp>
 #include <cereal/archives/portable_binary.hpp>
+#include <cereal/archives/json.hpp>
 
 #include <imgui.cpp>
 #include <imgui_draw.cpp>
@@ -810,26 +811,41 @@ private:
 
 	void loadModel(const char* filename, Model& outModel) const
 	{
-		std::filesystem::path modelFile(myResourcePath);
-		modelFile = std::filesystem::absolute(modelFile);
+		std::filesystem::path modelFilePath(myResourcePath);
+		modelFilePath = std::filesystem::absolute(modelFilePath);
 
-		modelFile /= "models";
-		modelFile /= filename;
+		modelFilePath /= "models";
+		modelFilePath /= filename;
+
+		std::filesystem::path modelFileJson(modelFilePath);
+		modelFileJson += ".json";
 		
-		std::filesystem::path modelFileCereal(modelFile);
-		modelFileCereal += ".cereal";
+		std::filesystem::path modelFileCereal(modelFilePath);
+		modelFileCereal += ".pbin";
 
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 		
-		if (std::filesystem::exists(modelFileCereal) && std::filesystem::is_regular_file(modelFileCereal))
+		if (std::filesystem::exists(modelFileJson) && std::filesystem::is_regular_file(modelFileJson))
 		{
-			std::ifstream cerealFile(modelFileCereal.c_str(), std::ios::binary);
-			cereal::PortableBinaryInputArchive archive(cerealFile);
+			std::ifstream jsonFile(modelFileJson.c_str());
+			cereal::JSONInputArchive json(jsonFile);
 
-			archive(vertices, indices);
+			// TODO: add file timestamp checks to figure out if we need to reload & re-serialize source
+
+			if (std::filesystem::exists(modelFileCereal) && std::filesystem::is_regular_file(modelFileCereal) /*&& time stamp check */)
+			{
+				std::ifstream pbinFile(modelFileCereal.c_str(), std::ios::binary);
+				cereal::PortableBinaryInputArchive pbin(pbinFile);
+
+				pbin(vertices, indices);
+			}
+			else
+			{
+				assert(false);
+			}
 		}
-		else if (std::filesystem::exists(modelFile) && std::filesystem::is_regular_file(modelFile))
+		else if (std::filesystem::exists(modelFilePath) && std::filesystem::is_regular_file(modelFilePath))
 		{
 		#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
@@ -837,15 +853,54 @@ private:
 			using namespace tinyobj;
 		#endif
 
+			std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::filesystem::last_write_time(modelFilePath).time_since_epoch());
+			std::chrono::seconds s = std::chrono::duration_cast<std::chrono::seconds>(ms);
+			std::time_t timestamp = s.count();
+
+			std::string fileTimeStamp(std::asctime(std::localtime(&timestamp)));
+
+			std::ifstream file(modelFilePath.c_str(), std::ios::ate | std::ios::binary);
+			int64_t fileSize = file.tellg();
+			file.seekg(0);
+
+			auto loopOp = [&file] { return file.good(); };
+			auto readOp = [&file](char* dst, size_t size) { file.read(dst, size); return file.gcount(); };
+			auto xxh64Hash = [](auto loopOp, auto readOp)
+			{
+				auto xxh64State = XXH64_createState();
+				assert(xxh64State != nullptr);
+
+				constexpr uint64_t seed = 0;
+				auto xxh64ResetResult = XXH64_reset(xxh64State, seed);
+				assert(xxh64ResetResult != XXH_ERROR);
+
+				std::array<char, 16384> buffer;
+				while (loopOp()) 
+				{
+					size_t size = readOp(buffer.data(), buffer.size());
+					auto xxh64AddResult = XXH64_update(xxh64State, buffer.data(), size);
+					assert(xxh64AddResult != XXH_ERROR);
+				}
+
+				const uint64_t hash = XXH64_digest(xxh64State);
+				
+				XXH64_freeState(xxh64State);
+
+				return hash;
+			};
+
+			uint64_t fileHash = xxh64Hash(loopOp, readOp);
+
+			file.clear();
+			file.seekg(0);
+
+			std::string loaderType("tinyobjloader");
+			std::string loaderVersion("1.4.0");
+
 			attrib_t attrib;
 			std::vector<shape_t> shapes;
 			std::vector<material_t> materials;
-
-			std::ifstream file(modelFile.c_str(), std::ios::in|std::ios::binary);
-			file.ignore(std::numeric_limits<std::streamsize>::max());
-			file.clear(); // Since ignore will have set eof.
-			file.seekg(0, std::ios_base::beg);
-
 			{
 			#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 				std::streambuf* raw_buffer = file.rdbuf();
@@ -861,6 +916,8 @@ private:
 					throw std::runtime_error(err);
 			#endif
 			}
+
+			file.close();
 		
 			uint32_t indexCount = 0;
 			for (const auto& shape : shapes)
@@ -913,10 +970,19 @@ private:
 				}
 			}
 
-			std::ofstream cerealFile(modelFileCereal.c_str(), std::ios::binary);
-			cereal::PortableBinaryOutputArchive archive(cerealFile);
+			std::ofstream jsonFile(modelFileJson.c_str());
+			cereal::JSONOutputArchive json(jsonFile);
 
-			archive(vertices, indices);
+			json(CEREAL_NVP(fileTimeStamp));
+			json(CEREAL_NVP(fileSize));
+			json(CEREAL_NVP(fileHash));
+			json(CEREAL_NVP(loaderType));
+			json(CEREAL_NVP(loaderVersion));
+			
+			std::ofstream pbinFile(modelFileCereal.c_str(), std::ios::binary);
+			cereal::PortableBinaryOutputArchive pbin(pbinFile);
+
+			pbin(vertices, indices);
 		}
 		else
 		{
