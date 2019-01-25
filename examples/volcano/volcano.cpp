@@ -1010,7 +1010,11 @@ private:
 			pbinFile.seekg(0, std::ios_base::beg);
 
 			std::vector<unsigned char> pbinFileSha2(picosha2::k_digest_size);
-			picosha2::hash256(pbinFile, pbinFileSha2.begin(), pbinFileSha2.end());
+			picosha2::hash256(
+				std::istreambuf_iterator<char>(pbinFile),
+				std::istreambuf_iterator<char>(),
+				pbinFileSha2.begin(),
+				pbinFileSha2.end());
 
 			std::ofstream jsonFile(jsonFilePath.c_str());
 			cereal::JSONOutputArchive json(jsonFile);
