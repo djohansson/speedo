@@ -385,6 +385,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$/external/VulkanMemoryAllocator/src'
 			+ ' -I$ProjectPath$/external/imgui'
 			+ ' -I$ProjectPath$/external/cereal/include'
+			+ ' -I$ProjectPath$/external/picosha2'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DSLANG_STATIC'
 			+ ' -DVOLCANO_USE_GLFW'

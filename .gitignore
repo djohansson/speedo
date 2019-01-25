@@ -33,3 +33,7 @@ build.*/
 # IMGUI settings
 
 *imgui.ini
+
+# slang temp files
+
+examples/volcano/slang-dump-*.*
