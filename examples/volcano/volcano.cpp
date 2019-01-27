@@ -32,34 +32,33 @@
 #include <vulkan/vulkan.h>
 
 #if defined(VOLCANO_USE_GLFW)
-#	define GLFW_INCLUDE_NONE
-#	include <GLFW/glfw3.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #endif
 
 #if defined(__WINDOWS__)
-#	ifndef NOMINMAX
-#		define NOMINMAX 1
-#	endif
-#	include <wtypes.h>
-#	include <vulkan/vulkan_win32.h>
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
+#include <wtypes.h>
+#include <vulkan/vulkan_win32.h>
 #elif defined(__APPLE__)
-#	include <vulkan/vulkan_macos.h>
+#include <vulkan/vulkan_macos.h>
 #elif defined(__linux__)
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-#		include <X11/Xutil.h>
-#		include <vulkan/vulkan_xcb.h>
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-#		include <X11/Xutil.h>
-#		include <vulkan/vulkan_xlib.h>
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-#		include <linux/input.h>
-#		include <vulkan/vulkan_wayland.h>
-#	endif
+#if defined(VK_USE_PLATFORM_XCB_KHR)
+#include <X11/Xutil.h>
+#include <vulkan/vulkan_xcb.h>
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
+#include <X11/Xutil.h>
+#include <vulkan/vulkan_xlib.h>
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+#include <linux/input.h>
+#include <vulkan/vulkan_wayland.h>
+#endif
 #endif
 
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
-
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -100,7 +99,6 @@
 
 #include <slang.h>
 
-
 // reminders:
 
 //#VkShaderModuleCreateInfo
@@ -109,13 +107,12 @@
 //+VkShaderModuleCreateFlags    flags;
 //>size_t                       codeSize;
 //>const uint32_t*              pCode;
-	
+
 // }
 // ~ShaderModule()
 // {
 // 	vkDestroyShaderModule(device, shaderModule, nullptr);
 // }
-
 
 // inline bool operator<(const ShaderModule& lhs, const ShaderModule& rhs) { return lhs.hash < rhs.hash; }
 // inline bool operator==(const ShaderModule& lhs, const ShaderModule& rhs) { return lhs.hash == rhs.hash; }
@@ -152,10 +149,9 @@ struct Model
 	uint32_t indexCount;
 };
 
-
 struct ShaderStageSetup
 {
-	Model model; // temp
+	Model model;	 // temp
 	Texture texture; // temp
 
 	ShaderModuleSet shaderModules;
@@ -165,120 +161,120 @@ struct ShaderStageSetup
 	uint64_t pipelineHash = 0; // temp
 };
 
-void loadSlangShaders(const char* path, VkDevice device, ShaderStageSetup& outShaderStageSetup)
+void loadSlangShaders(const char *path, VkDevice device, ShaderStageSetup &outShaderStageSetup)
 {
-    // First, we need to create a "session" for interacting with the Slang
-    // compiler. This scopes all of our application's interactions
-    // with the Slang library. At the moment, creating a session causes
-    // Slang to load and validate its standard library, so this is a
-    // somewhat heavy-weight operation. When possible, an application
-    // should try to re-use the same session across multiple compiles.
-    //
-    SlangSession* slangSession = spCreateSession(NULL);
+	// First, we need to create a "session" for interacting with the Slang
+	// compiler. This scopes all of our application's interactions
+	// with the Slang library. At the moment, creating a session causes
+	// Slang to load and validate its standard library, so this is a
+	// somewhat heavy-weight operation. When possible, an application
+	// should try to re-use the same session across multiple compiles.
+	//
+	SlangSession *slangSession = spCreateSession(NULL);
 
-    // A compile request represents a single invocation of the compiler,
-    // to process some inputs and produce outputs (or errors).
-    //
-    SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
+	// A compile request represents a single invocation of the compiler,
+	// to process some inputs and produce outputs (or errors).
+	//
+	SlangCompileRequest *slangRequest = spCreateCompileRequest(slangSession);
 
 	spSetDumpIntermediates(slangRequest, true);
 
-    int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
+	int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
 
-    // We will specify the desired "profile" for this one target in terms of the
-    // DirectX "shader model" that should be supported.
-    //
-   //spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_4_0"));
+	// We will specify the desired "profile" for this one target in terms of the
+	// DirectX "shader model" that should be supported.
+	//
+	//spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_4_0"));
 
-    // A compile request can include one or more "translation units," which more or
-    // less amount to individual source files (think `.c` files, not the `.h` files they
-    // might include).
-    //
-    // For this example, our code will all be in the Slang language. The user may
-    // also specify HLSL input here, but that currently doesn't affect the compiler's
-    // behavior much.
-    //
-    int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+	// A compile request can include one or more "translation units," which more or
+	// less amount to individual source files (think `.c` files, not the `.h` files they
+	// might include).
+	//
+	// For this example, our code will all be in the Slang language. The user may
+	// also specify HLSL input here, but that currently doesn't affect the compiler's
+	// behavior much.
+	//
+	int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
 
-    // We will load source code for our translation unit from the file `shaders.slang`.
-    // There are also variations of this API for adding source code from application-provided buffers.
-    //
-    spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, path);
+	// We will load source code for our translation unit from the file `shaders.slang`.
+	// There are also variations of this API for adding source code from application-provided buffers.
+	//
+	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, path);
 
-    // Next we will specify the entry points we'd like to compile.
-    // It is often convenient to put more than one entry point in the same file,
-    // and the Slang API makes it convenient to use a single run of the compiler
-    // to compile all entry points.
-    //
-    // For each entry point, we need to specify the name of a function, the
-    // translation unit in which that function can be found, and the stage
-    // that we need to compile for (e.g., vertex, fragment, geometry, ...).
-    //
-    char const* vertexEntryPointName    = "vertexMain";
-    char const* fragmentEntryPointName  = "fragmentMain";
-    int vertexIndex   = spAddEntryPoint(slangRequest, translationUnitIndex, vertexEntryPointName,   SLANG_STAGE_VERTEX);
-    int fragmentIndex = spAddEntryPoint(slangRequest, translationUnitIndex, fragmentEntryPointName, SLANG_STAGE_FRAGMENT);
+	// Next we will specify the entry points we'd like to compile.
+	// It is often convenient to put more than one entry point in the same file,
+	// and the Slang API makes it convenient to use a single run of the compiler
+	// to compile all entry points.
+	//
+	// For each entry point, we need to specify the name of a function, the
+	// translation unit in which that function can be found, and the stage
+	// that we need to compile for (e.g., vertex, fragment, geometry, ...).
+	//
+	char const *vertexEntryPointName = "vertexMain";
+	char const *fragmentEntryPointName = "fragmentMain";
+	int vertexIndex = spAddEntryPoint(slangRequest, translationUnitIndex, vertexEntryPointName, SLANG_STAGE_VERTEX);
+	int fragmentIndex = spAddEntryPoint(slangRequest, translationUnitIndex, fragmentEntryPointName, SLANG_STAGE_FRAGMENT);
 
-    // Once all of the input options for the compiler have been specified,
-    // we can invoke `spCompile` to run the compiler and see if any errors
-    // were detected.
-    //
-    const SlangResult compileRes = spCompile(slangRequest);
+	// Once all of the input options for the compiler have been specified,
+	// we can invoke `spCompile` to run the compiler and see if any errors
+	// were detected.
+	//
+	const SlangResult compileRes = spCompile(slangRequest);
 
-    // Even if there were no errors that forced compilation to fail, the
-    // compiler may have produced "diagnostic" output such as warnings.
-    // We will go ahead and print that output here.
-    //
-    if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
-    {
+	// Even if there were no errors that forced compilation to fail, the
+	// compiler may have produced "diagnostic" output such as warnings.
+	// We will go ahead and print that output here.
+	//
+	if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
+	{
 		std::cout << diagnostics << std::endl;
-    }
+	}
 
-    // If compilation failed, there is no point in continuing any further.
-    if (SLANG_FAILED(compileRes))
-    {
-        spDestroyCompileRequest(slangRequest);
-        spDestroySession(slangSession);
+	// If compilation failed, there is no point in continuing any further.
+	if (SLANG_FAILED(compileRes))
+	{
+		spDestroyCompileRequest(slangRequest);
+		spDestroySession(slangSession);
 
 		throw std::runtime_error("failed to compile slang shaders!");
-    }
+	}
 
 	int depCount = spGetDependencyFileCount(slangRequest);
-	for(int dep = 0; dep < depCount; dep++)
+	for (int dep = 0; dep < depCount; dep++)
 	{
-		char const* depPath = spGetDependencyFilePath(slangRequest, dep);
+		char const *depPath = spGetDependencyFilePath(slangRequest, dep);
 		// ... todo: add dependencies for hot reload
 		std::cout << depPath << std::endl;
 	}
 
-    // If compilation was successful, then we will extract the code for
-    // our two entry points as "blobs".
-    //
-    // If you are using a D3D API, then your application may want to
-    // take advantage of the fact taht these blobs are binary compatible
-    // with the `ID3DBlob`, `ID3D10Blob`, etc. interfaces.
-    //
+	// If compilation was successful, then we will extract the code for
+	// our two entry points as "blobs".
+	//
+	// If you are using a D3D API, then your application may want to
+	// take advantage of the fact taht these blobs are binary compatible
+	// with the `ID3DBlob`, `ID3D10Blob`, etc. interfaces.
+	//
 
-    ISlangBlob* vertexShaderBlob = nullptr;
-    spGetEntryPointCodeBlob(slangRequest, vertexIndex, 0, &vertexShaderBlob);
+	ISlangBlob *vertexShaderBlob = nullptr;
+	spGetEntryPointCodeBlob(slangRequest, vertexIndex, 0, &vertexShaderBlob);
 
-    ISlangBlob* fragmentShaderBlob = nullptr;
-    spGetEntryPointCodeBlob(slangRequest, fragmentIndex, 0, &fragmentShaderBlob);
+	ISlangBlob *fragmentShaderBlob = nullptr;
+	spGetEntryPointCodeBlob(slangRequest, fragmentIndex, 0, &fragmentShaderBlob);
 
-    // We extract the begin/end pointers to the output code buffers
-    // using operations on the `ISlangBlob` interface.
-    //
-   
+	// We extract the begin/end pointers to the output code buffers
+	// using operations on the `ISlangBlob` interface.
+	//
+
 	//loadSPIRVFile("vert.spv", vsCode);
 	//loadSPIRVFile("frag.spv", fsCode);
 
 	VkShaderModuleCreateInfo vsCreateInfo = {};
 	vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	vsCreateInfo.codeSize = vertexShaderBlob->getBufferSize();
-	vsCreateInfo.pCode = reinterpret_cast<const uint32_t*>(vertexShaderBlob->getBufferPointer());
+	vsCreateInfo.pCode = reinterpret_cast<const uint32_t *>(vertexShaderBlob->getBufferPointer());
 
 	uint64_t vsShaderModuleHash = XXH64(&vsCreateInfo.flags, sizeof(vsCreateInfo.flags), 0);
-	if (const uint32_t* code = vsCreateInfo.pCode)
+	if (const uint32_t *code = vsCreateInfo.pCode)
 		vsShaderModuleHash = XXH64(code, vsCreateInfo.codeSize, vsShaderModuleHash);
 
 	VkShaderModule vsShaderModule;
@@ -289,10 +285,10 @@ void loadSlangShaders(const char* path, VkDevice device, ShaderStageSetup& outSh
 	VkShaderModuleCreateInfo fsCreateInfo = {};
 	fsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	fsCreateInfo.codeSize = fragmentShaderBlob->getBufferSize();
-	fsCreateInfo.pCode = reinterpret_cast<const uint32_t*>(fragmentShaderBlob->getBufferPointer());
+	fsCreateInfo.pCode = reinterpret_cast<const uint32_t *>(fragmentShaderBlob->getBufferPointer());
 
 	uint64_t fsShaderModuleHash = XXH64(&fsCreateInfo.flags, sizeof(fsCreateInfo.flags), 0);
-	if (const uint32_t* code = fsCreateInfo.pCode)
+	if (const uint32_t *code = fsCreateInfo.pCode)
 		fsShaderModuleHash = XXH64(code, fsCreateInfo.codeSize, fsShaderModuleHash);
 
 	VkShaderModule fsShaderModule;
@@ -301,37 +297,29 @@ void loadSlangShaders(const char* path, VkDevice device, ShaderStageSetup& outSh
 	outShaderStageSetup.shaderModules.emplace_back(fsShaderModule, fsShaderModuleHash);
 
 	// Once we've used the output blobs from the Slang compiler to initialize
-    // the API-specific shader program, we can release their memory.
-    //
-    vertexShaderBlob->release();
-    fragmentShaderBlob->release();
+	// the API-specific shader program, we can release their memory.
+	//
+	vertexShaderBlob->release();
+	fragmentShaderBlob->release();
 
 	using BindingsMap = std::map<uint32_t, std::vector<VkDescriptorSetLayoutBinding>>;
 
 	BindingsMap bindingsMap;
 
-	auto createLayoutBinding = [&bindingsMap](slang::VariableLayoutReflection* parameter)
-	{
-		slang::TypeLayoutReflection* typeLayout = parameter->getTypeLayout();
+	auto createLayoutBinding = [&bindingsMap](slang::VariableLayoutReflection *parameter) {
+		slang::TypeLayoutReflection *typeLayout = parameter->getTypeLayout();
 
-		std::cout << "name: " << parameter->getName() <<
-			", index: " << parameter->getBindingIndex() <<
-			", space: " << parameter->getBindingSpace() <<
-			", stage: " << parameter->getStage() <<
-			", kind: " << (int)typeLayout->getKind() <<
-			", typeName: " << typeLayout->getName();
+		std::cout << "name: " << parameter->getName() << ", index: " << parameter->getBindingIndex() << ", space: " << parameter->getBindingSpace() << ", stage: " << parameter->getStage() << ", kind: " << (int)typeLayout->getKind() << ", typeName: " << typeLayout->getName();
 
 		unsigned categoryCount = parameter->getCategoryCount();
 		for (unsigned cc = 0; cc < categoryCount; cc++)
-		{ 
+		{
 			slang::ParameterCategory category = parameter->getCategoryByIndex(cc);
 
 			size_t offsetForCategory = parameter->getOffset(category);
 			size_t spaceForCategory = parameter->getBindingSpace(category);
 
-			std::cout << ", category: " << category <<
-				", offsetForCategory: " << offsetForCategory <<
-				", spaceForCategory: " << spaceForCategory;
+			std::cout << ", category: " << category << ", offsetForCategory: " << offsetForCategory << ", spaceForCategory: " << spaceForCategory;
 
 			if (category == slang::ParameterCategory::DescriptorTableSlot)
 			{
@@ -339,7 +327,7 @@ void loadSlangShaders(const char* path, VkDevice device, ShaderStageSetup& outSh
 				binding.binding = parameter->getBindingIndex();
 				binding.descriptorCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
 				binding.stageFlags = VK_SHADER_STAGE_ALL; // todo: have not find a good way to get a good value for this yet
-				binding.pImmutableSamplers = nullptr; // todo;
+				binding.pImmutableSamplers = nullptr;	 // todo;
 
 				switch (parameter->getStage())
 				{
@@ -400,74 +388,68 @@ void loadSlangShaders(const char* path, VkDevice device, ShaderStageSetup& outSh
 		unsigned fieldCount = typeLayout->getFieldCount();
 		for (unsigned ff = 0; ff < fieldCount; ff++)
 		{
-			slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(ff);
-			
-			std::cout << "  name: " << field->getName() <<
-				", index: " << field->getBindingIndex() <<
-				", space: " << field->getBindingSpace(field->getCategory()) <<
-				", offset: " << field->getOffset(field->getCategory()) <<
-				", kind: " << (int)field->getType()->getKind() <<
-				", typeName: " << field->getType()->getName() << std::endl;
+			slang::VariableLayoutReflection *field = typeLayout->getFieldByIndex(ff);
+
+			std::cout << "  name: " << field->getName() << ", index: " << field->getBindingIndex() << ", space: " << field->getBindingSpace(field->getCategory()) << ", offset: " << field->getOffset(field->getCategory()) << ", kind: " << (int)field->getType()->getKind() << ", typeName: " << field->getType()->getName() << std::endl;
 		}
 	};
 
-	slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
+	slang::ShaderReflection *shaderReflection = slang::ShaderReflection::get(slangRequest);
 
 	for (unsigned pp = 0; pp < shaderReflection->getParameterCount(); pp++)
 		createLayoutBinding(shaderReflection->getParameterByIndex(pp));
 
 	for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 	{
-		slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
+		slang::EntryPointReflection *epReflection = shaderReflection->getEntryPointByIndex(epIndex);
 
 		for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
 			createLayoutBinding(epReflection->getParameterByIndex(pp));
 	}
 
-	for (auto& [space, bindings]: bindingsMap)
-	{	
+	for (auto &[space, bindings] : bindingsMap)
+	{
 		outShaderStageSetup.descriptorSetLayouts.emplace_back(
 			createDescriptorSetLayout(device, bindings));
 	}
 
-    // Once we have extracted the output blobs, it is safe to destroy
-    // the compile request and even the session.
-    //
-    spDestroyCompileRequest(slangRequest);
-    spDestroySession(slangSession);
+	// Once we have extracted the output blobs, it is safe to destroy
+	// the compile request and even the session.
+	//
+	spDestroyCompileRequest(slangRequest);
+	spDestroySession(slangSession);
 }
 
-
-static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const ShaderModuleSet& shaderModules)
+static inline uint64_t hash(const VkGraphicsPipelineCreateInfo &info, const ShaderModuleSet &shaderModules)
 {
 	XXH64_hash_t result = 0;
 
 	//#VkGraphicsPipelineCreateInfo
 	// VkStructureType                                  sType;
-    // const void*                                      pNext;
-    //+VkPipelineCreateFlags                            flags;
-    //>uint32_t                                         stageCount;
-    //>const VkPipelineShaderStageCreateInfo*           pStages;
-    //>const VkPipelineVertexInputStateCreateInfo*      pVertexInputState; // todo
-    //>const VkPipelineInputAssemblyStateCreateInfo*    pInputAssemblyState; // todo
-    //>const VkPipelineTessellationStateCreateInfo*     pTessellationState; // todo
-    //>const VkPipelineViewportStateCreateInfo*         pViewportState; // todo
-    //>const VkPipelineRasterizationStateCreateInfo*    pRasterizationState; // todo
-    //>const VkPipelineMultisampleStateCreateInfo*      pMultisampleState; // todo
-    //>const VkPipelineDepthStencilStateCreateInfo*     pDepthStencilState;
-    //>const VkPipelineColorBlendStateCreateInfo*       pColorBlendState; // todo
-    //>const VkPipelineDynamicStateCreateInfo*          pDynamicState; // todo
-    //+VkPipelineLayout                                 layout;
-    //+VkRenderPass                                     renderPass;
-    //+uint32_t                                         subpass;
-    //+VkPipeline                                       basePipelineHandle;
-    //+int32_t                                          basePipelineIndex;
+	// const void*                                      pNext;
+	//+VkPipelineCreateFlags                            flags;
+	//>uint32_t                                         stageCount;
+	//>const VkPipelineShaderStageCreateInfo*           pStages;
+	//>const VkPipelineVertexInputStateCreateInfo*      pVertexInputState; // todo
+	//>const VkPipelineInputAssemblyStateCreateInfo*    pInputAssemblyState; // todo
+	//>const VkPipelineTessellationStateCreateInfo*     pTessellationState; // todo
+	//>const VkPipelineViewportStateCreateInfo*         pViewportState; // todo
+	//>const VkPipelineRasterizationStateCreateInfo*    pRasterizationState; // todo
+	//>const VkPipelineMultisampleStateCreateInfo*      pMultisampleState; // todo
+	//>const VkPipelineDepthStencilStateCreateInfo*     pDepthStencilState;
+	//>const VkPipelineColorBlendStateCreateInfo*       pColorBlendState; // todo
+	//>const VkPipelineDynamicStateCreateInfo*          pDynamicState; // todo
+	//+VkPipelineLayout                                 layout;
+	//+VkRenderPass                                     renderPass;
+	//+uint32_t                                         subpass;
+	//+VkPipeline                                       basePipelineHandle;
+	//+int32_t                                          basePipelineIndex;
 
 	result = XXH64(&info.flags, sizeof(info.flags), result);
 
 	for (uint32_t stageIt = 0; stageIt < info.stageCount; stageIt++)
 	{
-		const VkPipelineShaderStageCreateInfo& stage = info.pStages[stageIt];
+		const VkPipelineShaderStageCreateInfo &stage = info.pStages[stageIt];
 
 		//#VkPipelineShaderStageCreateInfo
 		// VkStructureType                     sType;
@@ -481,11 +463,11 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const Shad
 		result = XXH64(&stage.flags, sizeof(stage.flags), result);
 		result = XXH64(&stage.stage, sizeof(stage.stage), result);
 		// auto shaderModule = shaderModules.find(stage.module);
-    	// if (shaderModule != shaderModules.end())
+		// if (shaderModule != shaderModules.end())
 		// 	result = XXH64(&shaderModule->shaderModuleHash, sizeof(shaderModule->shaderModuleHash), result);
 		result = XXH64(stage.pName, strlen(stage.pName), result);
 
-		if (const VkSpecializationInfo* specialization = stage.pSpecializationInfo)
+		if (const VkSpecializationInfo *specialization = stage.pSpecializationInfo)
 		{
 			//#VkSpecializationInfo
 			//>uint32_t                           mapEntryCount;
@@ -495,7 +477,7 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const Shad
 
 			for (uint32_t mapEntryIt = 0; mapEntryIt < specialization->mapEntryCount; mapEntryIt++)
 			{
-				const VkSpecializationMapEntry& mapEntry = specialization->pMapEntries[mapEntryIt];
+				const VkSpecializationMapEntry &mapEntry = specialization->pMapEntries[mapEntryIt];
 
 				//#VkSpecializationMapEntry
 				//+uint32_t    constantID;
@@ -507,9 +489,9 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo& info, const Shad
 		}
 	}
 
-	if (const VkPipelineDepthStencilStateCreateInfo* depthStencilStatePtr = info.pDepthStencilState)
+	if (const VkPipelineDepthStencilStateCreateInfo *depthStencilStatePtr = info.pDepthStencilState)
 	{
-		const VkPipelineDepthStencilStateCreateInfo& depthStencilState = *depthStencilStatePtr;
+		const VkPipelineDepthStencilStateCreateInfo &depthStencilState = *depthStencilStatePtr;
 
 		//#VkPipelineDepthStencilStateCreateInfo
 		// VkStructureType                           sType;
@@ -539,9 +521,9 @@ struct Vertex
 	glm::vec3 color;
 	glm::vec2 texCoord;
 
-	inline bool operator==(const Vertex& other) const
+	inline bool operator==(const Vertex &other) const
 	{
-    	return pos == other.pos && color == other.color && texCoord == other.texCoord;
+		return pos == other.pos && color == other.color && texCoord == other.texCoord;
 	}
 
 	static VkVertexInputBindingDescription getBindingDescription()
@@ -572,25 +554,26 @@ struct Vertex
 	}
 
 	template <class Archive>
-	void serialize(Archive & ar)
+	void serialize(Archive &ar)
 	{
 		ar(pos.x, pos.y, pos.z, color.x, color.y, color.z, texCoord.x, texCoord.y);
 	}
 };
 
-
 namespace std
 {
-    template<> struct hash<Vertex>
+template <>
+struct hash<Vertex>
+{
+	size_t operator()(Vertex const &vertex) const
 	{
-        size_t operator()(Vertex const& vertex) const
-		{
-            return ((hash<glm::vec3>()(vertex.pos) ^
-                   (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
-                   (hash<glm::vec2>()(vertex.texCoord) << 1);
-        }
-    };
-}
+		return ((hash<glm::vec3>()(vertex.pos) ^
+				 (hash<glm::vec3>()(vertex.color) << 1)) >>
+				1) ^
+			   (hash<glm::vec2>()(vertex.texCoord) << 1);
+	}
+};
+} // namespace std
 
 // struct Quad
 // {
@@ -619,17 +602,15 @@ namespace std
 
 class VulkanApplication
 {
-public:
-	VulkanApplication(void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char* resourcePath, bool /*verbose*/)
-		: myResourcePath(resourcePath)
-		, myCommandBufferThreadCount(4)
-		, myRequestedCommandBufferThreadCount(myCommandBufferThreadCount)
+  public:
+	VulkanApplication(void *view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char *resourcePath, bool /*verbose*/)
+		: myResourcePath(resourcePath), myCommandBufferThreadCount(4), myRequestedCommandBufferThreadCount(myCommandBufferThreadCount)
 	{
 		assert(std::filesystem::is_directory(myResourcePath));
 
 		createInstance();
 		createDebugCallback();
-		
+
 		createSurface(view);
 		createDevice();
 
@@ -672,7 +653,7 @@ public:
 			myUniformBuffer,
 			myUniformBufferMemory,
 			"myUniformBuffer");
-		
+
 		// begin temp
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = myUniformBuffer;
@@ -708,7 +689,7 @@ public:
 		descriptorWrites[2].pImageInfo = &imageInfo;
 
 		vkUpdateDescriptorSets(myDevice, static_cast<uint32_t>(descriptorWrites.size()),
-			descriptorWrites.data(), 0, nullptr);
+							   descriptorWrites.data(), 0, nullptr);
 		// end temp
 
 		float dpiScaleX = static_cast<float>(framebufferWidth) / windowWidth;
@@ -728,7 +709,7 @@ public:
 	{
 		// update input dependent state
 		{
-			ImGuiIO& io = ImGui::GetIO();
+			ImGuiIO &io = ImGui::GetIO();
 
 			static bool escBufferState = false;
 			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
@@ -739,12 +720,12 @@ public:
 			if (myCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
 				myCreateFrameResourcesFlag = true;
 		}
-		
+
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
 		{
 			CHECK_VK(vkDeviceWaitIdle(myDevice));
-		
+
 			cleanupFrameResources();
 
 			myCommandBufferThreadCount = myRequestedCommandBufferThreadCount;
@@ -770,7 +751,7 @@ public:
 			{
 				ImGui::Begin("GUI Options");
 				//static int styleIndex = 0;
-				ImGui::ShowStyleSelector("Styles"/*, &styleIndex*/);
+				ImGui::ShowStyleSelector("Styles" /*, &styleIndex*/);
 				ImGui::ShowFontSelector("Fonts");
 				if (ImGui::Button("Show User Guide"))
 				{
@@ -802,14 +783,13 @@ public:
 	void resize(int width, int height)
 	{
 		CHECK_VK(vkDeviceWaitIdle(myDevice));
-		
+
 		cleanupFrameResources();
 
 		createFrameResources(width, height);
 	}
 
-private:
-
+  private:
 	enum class FileState
 	{
 		Valid,
@@ -821,34 +801,34 @@ private:
 
 	inline static const std::string sc_modelLoaderType = "tinyobjloader";
 	inline static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
-		
-	static std::string getFileTimeStamp(const std::filesystem::path& filePath)
-		{
-			std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+
+	static std::string getFileTimeStamp(const std::filesystem::path &filePath)
+	{
+		std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
 			std::filesystem::last_write_time(filePath).time_since_epoch());
-			std::chrono::seconds s = std::chrono::duration_cast<std::chrono::seconds>(ms);
-			std::time_t timestamp = s.count();
-		
+		std::chrono::seconds s = std::chrono::duration_cast<std::chrono::seconds>(ms);
+		std::time_t timestamp = s.count();
+
 		return std::string(std::asctime(std::localtime(&timestamp)));
-		}
+	}
 
 	template <typename LoadOp>
-	static void loadPBin(const std::filesystem::path& pbinFilePath, LoadOp loadOp)
-		{
+	static void loadPBin(const std::filesystem::path &pbinFilePath, LoadOp loadOp)
+	{
 		if (!std::filesystem::exists(pbinFilePath) || !std::filesystem::is_regular_file(pbinFilePath))
 			throw std::runtime_error("Failed to open file.");
 
-			std::ifstream pbinFile(pbinFilePath, std::ios::binary);
+		std::ifstream pbinFile(pbinFilePath, std::ios::binary);
 
 		loadOp(cereal::PortableBinaryInputArchive(pbinFile));
 	}
 
 	template <typename SaveOp>
 	static void savePBin(
-		cereal::JSONOutputArchive& json,
-		const std::filesystem::path& pbinFilePath,
+		cereal::JSONOutputArchive &json,
+		const std::filesystem::path &pbinFilePath,
 		SaveOp saveOp)
-			{
+	{
 		std::fstream pbinFile(pbinFilePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
 
 		saveOp(cereal::PortableBinaryOutputArchive(pbinFile));
@@ -871,15 +851,15 @@ private:
 
 		json(CEREAL_NVP(pbinFileTimeStamp));
 		json(CEREAL_NVP(pbinFileSize));
-				json(CEREAL_NVP(pbinFileSha2));
+		json(CEREAL_NVP(pbinFileSha2));
 	}
 
 	static FileState getFileState(
-		cereal::JSONInputArchive& json,
-		const std::filesystem::path& filePath,
-		const std::string& id,
-		const std::string& loaderType,
-		const std::string& loaderVersion)
+		cereal::JSONInputArchive &json,
+		const std::filesystem::path &filePath,
+		const std::string &id,
+		const std::string &loaderType,
+		const std::string &loaderVersion)
 	{
 		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
 			return FileState::Missing;
@@ -913,19 +893,19 @@ private:
 
 			std::ifstream file(filePath, std::ios::binary);
 			std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
-			
+
 			picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
 			file.clear();
 			file.seekg(0, std::ios_base::beg);
 
 			if (fileSha2 != _fileSha2)
 				return FileState::Stale;
-			}
+		}
 
 		return FileState::Valid;
 	}
 
-	void loadModel(const char* filename, Model& outModel) const
+	void loadModel(const char *filename, Model &outModel) const
 	{
 		std::filesystem::path sourceFilePath(myResourcePath);
 		sourceFilePath = std::filesystem::absolute(sourceFilePath);
@@ -935,20 +915,18 @@ private:
 
 		std::filesystem::path jsonFilePath(sourceFilePath);
 		jsonFilePath += ".json";
-		
+
 		std::filesystem::path pbinFilePath(sourceFilePath);
 		pbinFilePath += ".pbin";
 
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 
-		auto loadPBinOp = [&vertices, &indices](cereal::PortableBinaryInputArchive&& pbin)
-		{
+		auto loadPBinOp = [&vertices, &indices](cereal::PortableBinaryInputArchive &&pbin) {
 			pbin(vertices, indices);
 		};
 
-		auto savePBinOp = [&vertices, &indices](cereal::PortableBinaryOutputArchive&& pbin)
-		{
+		auto savePBinOp = [&vertices, &indices](cereal::PortableBinaryOutputArchive &&pbin) {
 			pbin(vertices, indices);
 		};
 
@@ -959,91 +937,89 @@ private:
 			json(cereal::make_nvp("loaderType", std::string("null")));
 			json(cereal::make_nvp("loaderVersion", std::string("0")));
 		}
-		
+
 		std::ifstream jsonInFile(jsonFilePath);
 		cereal::JSONInputArchive jsonIn(jsonInFile);
 
 		if (getFileState(jsonIn, sourceFilePath, "sourceFile", sc_modelLoaderType, sc_modelLoaderVersion) == FileState::Stale ||
 			getFileState(jsonIn, pbinFilePath, "pbinFile", sc_modelLoaderType, sc_modelLoaderVersion) != FileState::Valid)
 		{
-		#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
+#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
-		#else
+#else
 			using namespace tinyobj;
-		#endif
+#endif
 
 			std::string sourceFileTimeStamp;
 			int64_t sourceFileSize;
 			std::vector<unsigned char> sourceFileSha2(picosha2::k_digest_size);
-			
+
 			attrib_t attrib;
 			std::vector<shape_t> shapes;
 			std::vector<material_t> materials;
 			{
 				std::ifstream sourceFile(sourceFilePath, std::ios::binary);
-				
+
 				picosha2::hash256(sourceFile, sourceFileSha2.begin(), sourceFileSha2.end());
 				sourceFile.clear();
-    			sourceFile.seekg(0, std::ios_base::beg);
+				sourceFile.seekg(0, std::ios_base::beg);
 
 				sourceFileTimeStamp = getFileTimeStamp(sourceFilePath);
 				sourceFileSize = std::filesystem::file_size(sourceFilePath);
 
-			#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-				std::streambuf* raw_buffer = file.rdbuf();
+#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
+				std::streambuf *raw_buffer = file.rdbuf();
 				std::streamsize bufferSize = file.gcount();
 				std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
 				raw_buffer->sgetn(buffer.get(), bufferSize);
 				LoadOption option;
 				if (!parseObj(&attrib, &shapes, &materials, buffer.get(), bufferSize, option))
 					throw std::runtime_error("Failed to load model.");
-			#else
+#else
 				std::string warn, err;
 				if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &sourceFile))
 					throw std::runtime_error(err);
-			#endif
+#endif
 			}
-		
+
 			uint32_t indexCount = 0;
-			for (const auto& shape : shapes)
-			#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
+			for (const auto &shape : shapes)
+#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 				for (uint32_t faceOffset = shape.face_offset; faceOffset < (shape.face_offset + shape.length); faceOffset++)
 					indexCount += attrib.face_num_verts[faceOffset];
-			#else
+#else
 				indexCount += shape.mesh.indices.size();
-			#endif
+#endif
 
 			std::unordered_map<Vertex, uint32_t> uniqueVertices;
 
 			vertices.reserve(indexCount / 3); // guesstimate
 			indices.reserve(indexCount);
 
-			for (const auto& shape : shapes)
+			for (const auto &shape : shapes)
 			{
-			#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
+#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 				for (uint32_t faceOffset = shape.face_offset; faceOffset < (shape.face_offset + shape.length); faceOffset++)
 				{
-					const index_t& index = attrib.indices[faceOffset];
-			#else
-				for (const auto& index : shape.mesh.indices)
+					const index_t &index = attrib.indices[faceOffset];
+#else
+				for (const auto &index : shape.mesh.indices)
 				{
-			#endif
+#endif
 					Vertex vertex = {};
 
 					vertex.pos =
-					{
-						attrib.vertices[3 * index.vertex_index + 0],
-						attrib.vertices[3 * index.vertex_index + 1],
-						attrib.vertices[3 * index.vertex_index + 2]
-					};
+						{
+							attrib.vertices[3 * index.vertex_index + 0],
+							attrib.vertices[3 * index.vertex_index + 1],
+							attrib.vertices[3 * index.vertex_index + 2]};
 
 					vertex.texCoord =
-					{
-						attrib.texcoords[2 * index.texcoord_index + 0],
-						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-					};
+						{
+							attrib.texcoords[2 * index.texcoord_index + 0],
+							1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
 
-					vertex.color = { 1.0f, 1.0f, 1.0f };
+					vertex.color = {1.0f, 1.0f, 1.0f};
 
 					if (uniqueVertices.count(vertex) == 0)
 					{
@@ -1054,7 +1030,7 @@ private:
 					indices.push_back(uniqueVertices[vertex]);
 				}
 			}
-			
+
 			jsonInFile.close();
 
 			std::ofstream jsonFile(jsonFilePath, std::ios::trunc);
@@ -1073,8 +1049,7 @@ private:
 		{
 			loadPBin(pbinFilePath, loadPBinOp);
 		}
-		
-		
+
 		if (vertices.empty() || indices.empty())
 		{
 			throw std::runtime_error("Failed to load model.");
@@ -1087,7 +1062,7 @@ private:
 			outModel.myVertexBuffer,
 			outModel.myVertexBufferMemory,
 			filename);
-			
+
 		createDeviceLocalBuffer(
 			indices.data(),
 			static_cast<uint32_t>(indices.size()),
@@ -1099,16 +1074,16 @@ private:
 		outModel.indexCount = indices.size();
 	}
 
-	void loadTexture(const char* filename, Texture& outTexture) const
+	void loadTexture(const char *filename, Texture &outTexture) const
 	{
 		std::filesystem::path imageFile(myResourcePath);
 		imageFile = std::filesystem::absolute(imageFile);
 
 		imageFile /= "images";
 		imageFile /= filename;
-		
+
 		int x, y, n;
-		unsigned char* imageData = nullptr;
+		unsigned char *imageData = nullptr;
 
 		if (std::filesystem::exists(imageFile) && std::filesystem::is_regular_file(imageFile))
 		{
@@ -1137,7 +1112,7 @@ private:
 		}
 	}
 
-	void loadSPIRVFile(const char* filename, std::vector<char>& outData)
+	void loadSPIRVFile(const char *filename, std::vector<char> &outData)
 	{
 		std::filesystem::path spirvFile(myResourcePath);
 		spirvFile = std::filesystem::absolute(spirvFile);
@@ -1183,16 +1158,16 @@ private:
 				std::cout << instanceLayers[i].layerName << "\n";
 		}
 
-		const char* enabledLayerNames[] = { "VK_LAYER_LUNARG_standard_validation" };
+		const char *enabledLayerNames[] = {"VK_LAYER_LUNARG_standard_validation"};
 
 		uint32_t instanceExtensionCount;
 		vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
 
 		std::vector<VkExtensionProperties> availableInstanceExtensions(instanceExtensionCount);
 		vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount,
-			availableInstanceExtensions.data());
+											   availableInstanceExtensions.data());
 
-		std::vector<const char*> instanceExtensions(instanceExtensionCount);
+		std::vector<const char *> instanceExtensions(instanceExtensionCount);
 		for (uint32_t i = 0; i < instanceExtensionCount; i++)
 		{
 			instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
@@ -1200,33 +1175,33 @@ private:
 		}
 
 		std::sort(instanceExtensions.begin(), instanceExtensions.end(),
-			[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
+				  [](const char *lhs, const char *rhs) { return strcmp(lhs, rhs) < 0; });
 
-		std::vector<const char*> requiredExtensions = {
+		std::vector<const char *> requiredExtensions = {
 			// must be sorted lexicographically for std::includes to work!
-			"VK_EXT_debug_report", 
+			"VK_EXT_debug_report",
 			"VK_KHR_surface",
 #if defined(_WIN32)
 			"VK_KHR_win32_surface",
 #elif defined(__APPLE__)
 			"VK_MVK_macos_surface",
 #elif defined(__linux__)
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-			"VK_KHR_xcb_surface",
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-			"VK_KHR_xlib_surface",
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-			"VK_KHR_wayland_surface",
-#	else // default to xcb
-			"VK_KHR_xcb_surface",
-#	endif
+#if defined(VK_USE_PLATFORM_XCB_KHR)
+		"VK_KHR_xcb_surface",
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
+		"VK_KHR_xlib_surface",
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+		"VK_KHR_wayland_surface",
+#else // default to xcb
+		"VK_KHR_xcb_surface",
+#endif
 #endif
 		};
 
 		assert(
 			std::includes(instanceExtensions.begin(), instanceExtensions.end(),
-				requiredExtensions.begin(), requiredExtensions.end(),
-				[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
+						  requiredExtensions.begin(), requiredExtensions.end(),
+						  [](const char *lhs, const char *rhs) { return strcmp(lhs, rhs) < 0; }));
 
 		// if (std::find(instanceExtensions.begin(), instanceExtensions.end(), "VK_KHR_display") ==
 		// instanceExtensions.end()) 	instanceExtensions.push_back("VK_KHR_display");
@@ -1253,41 +1228,40 @@ private:
 
 		debugCallbackInfo.pfnCallback = static_cast<PFN_vkDebugReportCallbackEXT>(
 			[](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
-				size_t location, int32_t messageCode, const char* layerPrefix, const char* message,
-				void* userData) -> VkBool32
-		{
-			(void)objectType;
-			(void)object;
-			(void)location;
-			(void)messageCode;
-			(void)userData;
+			   size_t location, int32_t messageCode, const char *layerPrefix, const char *message,
+			   void *userData) -> VkBool32 {
+				(void)objectType;
+				(void)object;
+				(void)location;
+				(void)messageCode;
+				(void)userData;
 
-			std::cout << layerPrefix << ": " << message << std::endl;
-	
-			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
-			// VK_DEBUG_REPORT_WARNING_BIT_EXT = 0x00000002,
-			// VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT = 0x00000004,
-			// VK_DEBUG_REPORT_ERROR_BIT_EXT = 0x00000008,
-			// VK_DEBUG_REPORT_DEBUG_BIT_EXT = 0x00000010,
-		
-			if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-				return VK_TRUE;
-			
-			return VK_FALSE;
-		});
+				std::cout << layerPrefix << ": " << message << std::endl;
 
-        auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(myInstance, "vkCreateDebugReportCallbackEXT");
-        assert(vkCreateDebugReportCallbackEXT != nullptr);
+				// VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
+				// VK_DEBUG_REPORT_WARNING_BIT_EXT = 0x00000002,
+				// VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT = 0x00000004,
+				// VK_DEBUG_REPORT_ERROR_BIT_EXT = 0x00000008,
+				// VK_DEBUG_REPORT_DEBUG_BIT_EXT = 0x00000010,
+
+				if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+					return VK_TRUE;
+
+				return VK_FALSE;
+			});
+
+		auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(myInstance, "vkCreateDebugReportCallbackEXT");
+		assert(vkCreateDebugReportCallbackEXT != nullptr);
 
 		CHECK_VK(vkCreateDebugReportCallbackEXT(myInstance, &debugCallbackInfo, nullptr,
-			&myDebugCallback));
+												&myDebugCallback));
 	}
 
-	void createSurface(void* view)
+	void createSurface(void *view)
 	{
 #if defined(VOLCANO_USE_GLFW)
-		CHECK_VK(glfwCreateWindowSurface(myInstance, reinterpret_cast<GLFWwindow*>(view), nullptr,
-			&mySurface));
+		CHECK_VK(glfwCreateWindowSurface(myInstance, reinterpret_cast<GLFWwindow *>(view), nullptr,
+										 &mySurface));
 #elif defined(_WIN32)
 		VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
 		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -1299,46 +1273,46 @@ private:
 		assert(vkCreateWin32SurfaceKHR != nullptr);
 		CHECK_VK(vkCreateWin32SurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
 #elif defined(__APPLE__)
-		VkMacOSSurfaceCreateInfoMVK surfaceCreateInfo = {};
-		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK;
-		surfaceCreateInfo.flags = 0;
-		surfaceCreateInfo.pView = view;
-		auto vkCreateMacOSSurfaceMVK = (PFN_vkCreateMacOSSurfaceMVK)vkGetInstanceProcAddr(
-			myInstance, "vkCreateMacOSSurfaceMVK");
-		assert(vkCreateMacOSSurfaceMVK != nullptr);
-		CHECK_VK(vkCreateMacOSSurfaceMVK(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
+	VkMacOSSurfaceCreateInfoMVK surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK;
+	surfaceCreateInfo.flags = 0;
+	surfaceCreateInfo.pView = view;
+	auto vkCreateMacOSSurfaceMVK = (PFN_vkCreateMacOSSurfaceMVK)vkGetInstanceProcAddr(
+		myInstance, "vkCreateMacOSSurfaceMVK");
+	assert(vkCreateMacOSSurfaceMVK != nullptr);
+	CHECK_VK(vkCreateMacOSSurfaceMVK(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
 #elif defined(__linux__)
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-		VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
-		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-		surfaceCreateInfo.flags = 0;
-		surfaceCreateInfo.connection = nullptr; //?;
-		surfaceCreateInfo.window = nullptr;		//?;
-		auto vkCreateXcbSurfaceKHR =
-			(PFN_vkCreateXcbSurfaceKHR)vkGetInstanceProcAddr(myInstance, "vkCreateXcbSurfaceKHR");
-		assert(vkCreateXcbSurfaceKHR != nullptr);
-		CHECK_VK(vkCreateXcbSurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-		VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {};
-		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-		surfaceCreateInfo.flags = 0;
-		surfaceCreateInfo.dpy = nullptr;	//?;
-		surfaceCreateInfo.window = nullptr; //?;
-		auto vkCreateXlibSurfaceKHR =
-			(PFN_vkCreateXlibSurfaceKHR)vkGetInstanceProcAddr(myInstance, "vkCreateXlibSurfaceKHR");
-		assert(vkCreateXlibSurfaceKHR != nullptr);
-		CHECK_VK(vkCreateXlibSurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-		VkWaylandSurfaceCreateInfoKHR surfaceCreateInfo = {};
-		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-		surfaceCreateInfo.flags = 0;
-		surfaceCreateInfo.wl_display = nullptr; //?;
-		surfaceCreateInfo.wl_surface = nullptr; //?;
-		auto vkCreateWaylandSurfaceKHR = (PFN_vkCreateWaylandSurfaceKHR)vkGetInstanceProcAddr(
-			myInstance, "vkCreateWaylandSurfaceKHR");
-		assert(vkCreateWaylandSurfaceKHR != nullptr);
-		CHECK_VK(vkCreateWaylandSurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
-#	endif
+#if defined(VK_USE_PLATFORM_XCB_KHR)
+	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.flags = 0;
+	surfaceCreateInfo.connection = nullptr; //?;
+	surfaceCreateInfo.window = nullptr;		//?;
+	auto vkCreateXcbSurfaceKHR =
+		(PFN_vkCreateXcbSurfaceKHR)vkGetInstanceProcAddr(myInstance, "vkCreateXcbSurfaceKHR");
+	assert(vkCreateXcbSurfaceKHR != nullptr);
+	CHECK_VK(vkCreateXcbSurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
+#elif defined(VK_USE_PLATFORM_XLIB_KHR)
+	VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.flags = 0;
+	surfaceCreateInfo.dpy = nullptr;	//?;
+	surfaceCreateInfo.window = nullptr; //?;
+	auto vkCreateXlibSurfaceKHR =
+		(PFN_vkCreateXlibSurfaceKHR)vkGetInstanceProcAddr(myInstance, "vkCreateXlibSurfaceKHR");
+	assert(vkCreateXlibSurfaceKHR != nullptr);
+	CHECK_VK(vkCreateXlibSurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+	VkWaylandSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.flags = 0;
+	surfaceCreateInfo.wl_display = nullptr; //?;
+	surfaceCreateInfo.wl_surface = nullptr; //?;
+	auto vkCreateWaylandSurfaceKHR = (PFN_vkCreateWaylandSurfaceKHR)vkGetInstanceProcAddr(
+		myInstance, "vkCreateWaylandSurfaceKHR");
+	assert(vkCreateWaylandSurfaceKHR != nullptr);
+	CHECK_VK(vkCreateWaylandSurfaceKHR(myInstance, &surfaceCreateInfo, nullptr, &mySurface));
+#endif
 #endif
 	}
 
@@ -1352,7 +1326,7 @@ private:
 		std::vector<VkPhysicalDevice> devices(deviceCount);
 		CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &deviceCount, devices.data()));
 
-		for (const auto& device : devices)
+		for (const auto &device : devices)
 		{
 			myQueueFamilyIndex = getSuitableSwapchainAndQueueFamilyIndex(mySurface, device, mySwapchain.info);
 			if (myQueueFamilyIndex >= 0)
@@ -1360,27 +1334,25 @@ private:
 				myPhysicalDevice = device;
 
 				const VkFormat requestSurfaceImageFormat[] =
-				{
-					VK_FORMAT_B8G8R8A8_UNORM,
-					VK_FORMAT_R8G8B8A8_UNORM,
-					VK_FORMAT_B8G8R8_UNORM,
-					VK_FORMAT_R8G8B8_UNORM
-				};
+					{
+						VK_FORMAT_B8G8R8A8_UNORM,
+						VK_FORMAT_R8G8B8A8_UNORM,
+						VK_FORMAT_B8G8R8_UNORM,
+						VK_FORMAT_R8G8B8_UNORM};
 				const VkColorSpaceKHR requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 				const VkPresentModeKHR requestPresentMode[] =
-				{
-					//VK_PRESENT_MODE_MAILBOX_KHR // not yet supported with IMGUI
-					VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-					VK_PRESENT_MODE_FIFO_KHR,
-					VK_PRESENT_MODE_IMMEDIATE_KHR
-				};
+					{
+						//VK_PRESENT_MODE_MAILBOX_KHR // not yet supported with IMGUI
+						VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+						VK_PRESENT_MODE_FIFO_KHR,
+						VK_PRESENT_MODE_IMMEDIATE_KHR};
 
-				// Request several formats, the first found will be used 
+				// Request several formats, the first found will be used
 				// If none of the requested image formats could be found, use the first available
 				mySurfaceFormat = mySwapchain.info.formats[0];
 				for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat); request_i++)
 				{
-					VkSurfaceFormatKHR requestedFormat = { requestSurfaceImageFormat[request_i], requestSurfaceColorSpace };
+					VkSurfaceFormatKHR requestedFormat = {requestSurfaceImageFormat[request_i], requestSurfaceColorSpace};
 					auto formatIt = std::find(mySwapchain.info.formats.begin(), mySwapchain.info.formats.end(), requestedFormat);
 					if (formatIt != mySwapchain.info.formats.end())
 					{
@@ -1398,7 +1370,7 @@ private:
 					if (modeIt != mySwapchain.info.presentModes.end())
 					{
 						myPresentMode = *modeIt;
-						
+
 						// not yet supported with IMGUI
 						//if (myPresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
 						//	myFrameCount = 3;
@@ -1427,14 +1399,14 @@ private:
 
 		uint32_t deviceExtensionCount;
 		vkEnumerateDeviceExtensionProperties(myPhysicalDevice, nullptr, &deviceExtensionCount,
-			nullptr);
+											 nullptr);
 
 		std::vector<VkExtensionProperties> availableDeviceExtensions(deviceExtensionCount);
 		vkEnumerateDeviceExtensionProperties(myPhysicalDevice, nullptr, &deviceExtensionCount,
-			availableDeviceExtensions.data());
+											 availableDeviceExtensions.data());
 
-		std::vector<const char*> deviceExtensions;
-        deviceExtensions.reserve(deviceExtensionCount);
+		std::vector<const char *> deviceExtensions;
+		deviceExtensions.reserve(deviceExtensionCount);
 		for (uint32_t i = 0; i < deviceExtensionCount; i++)
 		{
 #if defined(__APPLE__)
@@ -1448,17 +1420,16 @@ private:
 		}
 
 		std::sort(deviceExtensions.begin(), deviceExtensions.end(),
-			[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
+				  [](const char *lhs, const char *rhs) { return strcmp(lhs, rhs) < 0; });
 
-		std::vector<const char*> requiredDeviceExtensions = {
+		std::vector<const char *> requiredDeviceExtensions = {
 			// must be sorted lexicographically for std::includes to work!
-			"VK_KHR_swapchain"
-		};
+			"VK_KHR_swapchain"};
 
 		assert(
 			std::includes(deviceExtensions.begin(), deviceExtensions.end(),
-				requiredDeviceExtensions.begin(), requiredDeviceExtensions.end(),
-				[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
+						  requiredDeviceExtensions.begin(), requiredDeviceExtensions.end(),
+						  [](const char *lhs, const char *rhs) { return strcmp(lhs, rhs) < 0; }));
 
 		VkDeviceCreateInfo deviceCreateInfo = {};
 		deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -1482,7 +1453,7 @@ private:
 			info.minImageCount = myFrameCount;
 			info.imageFormat = mySurfaceFormat.format;
 			info.imageColorSpace = mySurfaceFormat.colorSpace;
-			info.imageExtent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+			info.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 			info.imageArrayLayers = 1;
 			info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 			info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // Assume that graphics family == present family
@@ -1507,7 +1478,7 @@ private:
 
 		myDepthFormat = findSupportedFormat(
 			myPhysicalDevice,
-			{ VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT },
+			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
@@ -1527,7 +1498,7 @@ private:
 		createRenderPass();
 
 		{
-			std::array<VkImageView, 2> attachments = { nullptr, mySwapchain.myDepthImageView };
+			std::array<VkImageView, 2> attachments = {nullptr, mySwapchain.myDepthImageView};
 			VkFramebufferCreateInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			info.renderPass = myRenderPass;
@@ -1547,11 +1518,11 @@ private:
 
 	void createAllocator()
 	{
-        auto vkGetBufferMemoryRequirements2KHR = (PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(myInstance, "vkGetBufferMemoryRequirements2KHR");
-        assert(vkGetBufferMemoryRequirements2KHR != nullptr);
+		auto vkGetBufferMemoryRequirements2KHR = (PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(myInstance, "vkGetBufferMemoryRequirements2KHR");
+		assert(vkGetBufferMemoryRequirements2KHR != nullptr);
 
-        auto vkGetImageMemoryRequirements2KHR = (PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(myInstance, "vkGetImageMemoryRequirements2KHR");
-        assert(vkGetImageMemoryRequirements2KHR != nullptr);
+		auto vkGetImageMemoryRequirements2KHR = (PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(myInstance, "vkGetImageMemoryRequirements2KHR");
+		assert(vkGetImageMemoryRequirements2KHR != nullptr);
 
 		VmaVulkanFunctions functions = {};
 		functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
@@ -1572,7 +1543,7 @@ private:
 		functions.vkDestroyImage = vkDestroyImage;
 		functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
 		functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
-		
+
 		VmaAllocatorCreateInfo allocatorInfo = {};
 		allocatorInfo.physicalDevice = myPhysicalDevice;
 		allocatorInfo.device = myDevice;
@@ -1584,19 +1555,18 @@ private:
 	{
 		constexpr uint32_t maxDescriptorCount = 1000;
 		VkDescriptorPoolSize poolSizes[] =
-		{
-			{ VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount },
-			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount }
-		};
+			{
+				{VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount}};
 
 		VkDescriptorPoolCreateInfo poolInfo = {};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1652,7 +1622,7 @@ private:
 		dependency.srcAccessMask = 0;
 		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-		std::array<VkAttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
+		std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
 		VkRenderPassCreateInfo renderPassInfo = {};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -1702,9 +1672,9 @@ private:
 		fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 		fsStageInfo.module = myHouseSetup.shaderModules[1].first;
 		fsStageInfo.pName = "main";
-		fsStageInfo.pSpecializationInfo = nullptr;//&specializationInfo;
+		fsStageInfo.pSpecializationInfo = nullptr; //&specializationInfo;
 
-		VkPipelineShaderStageCreateInfo shaderStages[] = { vsStageInfo, fsStageInfo };
+		VkPipelineShaderStageCreateInfo shaderStages[] = {vsStageInfo, fsStageInfo};
 
 		auto bindingDescription = Vertex::getBindingDescription();
 		auto attributeDescriptions = Vertex::getAttributeDescriptions();
@@ -1731,9 +1701,9 @@ private:
 		viewport.maxDepth = 1.0f;
 
 		VkRect2D scissor = {};
-		scissor.offset = { 0, 0 };
-		scissor.extent = { static_cast<uint32_t>(myWindowData->Width),
-						  static_cast<uint32_t>(myWindowData->Height) };
+		scissor.offset = {0, 0};
+		scissor.extent = {static_cast<uint32_t>(myWindowData->Width),
+						  static_cast<uint32_t>(myWindowData->Height)};
 
 		VkPipelineViewportStateCreateInfo viewportState = {};
 		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1778,7 +1748,7 @@ private:
 
 		VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
 		colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-			VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+											  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 		colorBlendAttachment.blendEnable = VK_FALSE;
 		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -1798,7 +1768,7 @@ private:
 		colorBlending.blendConstants[2] = 0.0f;
 		colorBlending.blendConstants[3] = 0.0f;
 
-		std::array<VkDynamicState, 2> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+		std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
 		VkPipelineDynamicStateCreateInfo dynamicState = {};
 		dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -1834,10 +1804,9 @@ private:
 		pipelineInfo.basePipelineIndex = -1;
 
 		auto hashAndCache = [](
-			const VkGraphicsPipelineCreateInfo& info,
-			const ShaderModuleSet& shaderModules, // TEMP - rewrite
-			uint64_t& outHash)
-		{
+								const VkGraphicsPipelineCreateInfo &info,
+								const ShaderModuleSet &shaderModules, // TEMP - rewrite
+								uint64_t &outHash) {
 			return outHash = hash(info, shaderModules);
 		};
 
@@ -1897,7 +1866,7 @@ private:
 	}
 
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
-		VkBuffer& outBuffer, VmaAllocation& outBufferMemory, const char* debugName) const
+					  VkBuffer &outBuffer, VmaAllocation &outBufferMemory, const char *debugName) const
 	{
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1908,19 +1877,19 @@ private:
 		VmaAllocationCreateInfo allocInfo = {};
 		allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
 		allocInfo.usage = (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? VMA_MEMORY_USAGE_GPU_ONLY
-			: VMA_MEMORY_USAGE_UNKNOWN;
+																		: VMA_MEMORY_USAGE_UNKNOWN;
 		allocInfo.requiredFlags = flags;
 		allocInfo.memoryTypeBits = 0; // memRequirements.memoryTypeBits;
-		allocInfo.pUserData = (void*)debugName;
+		allocInfo.pUserData = (void *)debugName;
 
 		CHECK_VK(vmaCreateBuffer(myAllocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory,
-			nullptr));
+								 nullptr));
 	}
 
 	template <typename T>
-	void createDeviceLocalBuffer(const T* bufferData, uint32_t bufferElementCount,
-		VkBufferUsageFlags usage, VkBuffer& outBuffer,
-		VmaAllocation& outBufferMemory, const char* debugName) const
+	void createDeviceLocalBuffer(const T *bufferData, uint32_t bufferElementCount,
+								 VkBufferUsageFlags usage, VkBuffer &outBuffer,
+								 VmaAllocation &outBufferMemory, const char *debugName) const
 	{
 		assert(bufferData != nullptr);
 		assert(bufferElementCount > 0);
@@ -1933,16 +1902,16 @@ private:
 		strcpy(buf, debugName);
 		strcat(buf, "_staging");
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			stagingBuffer, stagingBufferMemory, buf);
+					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					 stagingBuffer, stagingBufferMemory, buf);
 
-		void* data;
+		void *data;
 		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
 		memcpy(data, bufferData, bufferSize);
 		vmaUnmapMemory(myAllocator, stagingBufferMemory);
 
 		createBuffer(bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outBuffer, outBufferMemory, debugName);
+					 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outBuffer, outBufferMemory, debugName);
 
 		copyBuffer(stagingBuffer, outBuffer, bufferSize);
 
@@ -1950,7 +1919,7 @@ private:
 	}
 
 	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout,
-		VkImageLayout newLayout) const
+							   VkImageLayout newLayout) const
 	{
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
@@ -1992,7 +1961,7 @@ private:
 			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		}
 		else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-			newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+				 newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 		{
 			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -2001,11 +1970,11 @@ private:
 			destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT; // wrong of accessed by another shader type
 		}
 		else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-			newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+				 newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
 		{
 			barrier.srcAccessMask = 0;
 			barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-				VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+									VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 			destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
@@ -2018,7 +1987,7 @@ private:
 		}
 
 		vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0,
-			nullptr, 1, &barrier);
+							 nullptr, 1, &barrier);
 
 		endSingleTimeCommands(commandBuffer);
 	}
@@ -2035,18 +2004,18 @@ private:
 		region.imageSubresource.mipLevel = 0;
 		region.imageSubresource.baseArrayLayer = 0;
 		region.imageSubresource.layerCount = 1;
-		region.imageOffset = { 0, 0, 0 };
-		region.imageExtent = { width, height, 1 };
+		region.imageOffset = {0, 0, 0};
+		region.imageExtent = {width, height, 1};
 
 		vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1, &region);
+							   1, &region);
 
 		endSingleTimeCommands(commandBuffer);
 	}
 
 	void createImage2D(uint32_t width, uint32_t height, VkFormat format,
-		VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags,
-		VkImage& outImage, VmaAllocation& outImageMemory, const char* debugName) const
+					   VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags,
+					   VkImage &outImage, VmaAllocation &outImageMemory, const char *debugName) const
 	{
 		VkImageCreateInfo imageInfo = {};
 		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -2067,21 +2036,21 @@ private:
 		VmaAllocationCreateInfo allocInfo = {};
 		allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
 		allocInfo.usage = (memoryFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-			? VMA_MEMORY_USAGE_GPU_ONLY
-			: VMA_MEMORY_USAGE_UNKNOWN;
+							  ? VMA_MEMORY_USAGE_GPU_ONLY
+							  : VMA_MEMORY_USAGE_UNKNOWN;
 		allocInfo.requiredFlags = memoryFlags;
 		allocInfo.memoryTypeBits = 0; // memRequirements.memoryTypeBits;
-		allocInfo.pUserData = (void*)debugName;
+		allocInfo.pUserData = (void *)debugName;
 
 		VmaAllocationInfo outAllocInfo = {};
 		CHECK_VK(vmaCreateImage(myAllocator, &imageInfo, &allocInfo, &outImage, &outImageMemory,
-			&outAllocInfo));
+								&outAllocInfo));
 	}
 
 	template <typename T>
-	void createDeviceLocalImage2D(const T* imageData, uint32_t width, uint32_t height,
-		VkFormat format, VkImageUsageFlags usage,
-		VkImage& outImage, VmaAllocation& outImageMemory, const char* debugName) const
+	void createDeviceLocalImage2D(const T *imageData, uint32_t width, uint32_t height,
+								  VkFormat format, VkImageUsageFlags usage,
+								  VkImage &outImage, VmaAllocation &outImageMemory, const char *debugName) const
 	{
 		uint32_t pixelSizeBytes = getFormatSize(format); // todo
 		VkDeviceSize imageSize = width * height * pixelSizeBytes;
@@ -2092,23 +2061,23 @@ private:
 		strcpy(buf, debugName);
 		strcat(buf, "_staging");
 		createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			stagingBuffer, stagingBufferMemory, buf);
+					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					 stagingBuffer, stagingBufferMemory, buf);
 
-		void* data;
+		void *data;
 		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
 		memcpy(data, imageData, imageSize);
 		vmaUnmapMemory(myAllocator, stagingBufferMemory);
 
 		createImage2D(width, height, format, VK_IMAGE_TILING_OPTIMAL, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outImage, outImageMemory, debugName);
+					  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outImage, outImageMemory, debugName);
 
 		transitionImageLayout(outImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+							  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		copyBufferToImage(stagingBuffer, outImage, width, height);
 		transitionImageLayout(outImage, VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+							  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+							  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 		vmaDestroyBuffer(myAllocator, stagingBuffer, stagingBufferMemory);
 	}
@@ -2163,7 +2132,7 @@ private:
 	{
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
-		ImGuiIO& io = ImGui::GetIO();
+		ImGuiIO &io = ImGui::GetIO();
 		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
@@ -2182,7 +2151,7 @@ private:
 
 		fontPath /= "Cousine-Regular.ttf";
 		myFonts.push_back(io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 16.0f, &config));
-		
+
 		fontPath.replace_filename("DroidSans.ttf");
 		myFonts.push_back(io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 16.0f, &config));
 
@@ -2211,7 +2180,7 @@ private:
 		initInfo.Queue = myQueue;
 		initInfo.PipelineCache = VK_NULL_HANDLE;
 		initInfo.DescriptorPool = myDescriptorPool;
-		initInfo.Allocator = nullptr;//myAllocator;
+		initInfo.Allocator = nullptr; //myAllocator;
 		//initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
 		ImGui_ImplVulkan_Init(&initInfo, myWindowData->RenderPass);
@@ -2230,7 +2199,7 @@ private:
 		myWindowData = std::make_unique<ImGui_ImplVulkanH_WindowData>(/*myFrameCount*/);
 
 		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
-		myWindowData->FrameIndex = IMGUI_VK_QUEUED_FRAMES - 1;//myWindowData->FrameCount - 1;
+		myWindowData->FrameIndex = IMGUI_VK_QUEUED_FRAMES - 1; //myWindowData->FrameCount - 1;
 
 		myWindowData->Width = width;
 		myWindowData->Height = height;
@@ -2241,7 +2210,7 @@ private:
 		myWindowData->PresentMode = myPresentMode;
 
 		myWindowData->RenderPass = myRenderPass;
-	    
+
 		myWindowData->ClearEnable = false; // we will clear before IMGUI, using myWindowData->ClearValue
 		myWindowData->ClearValue.color.float32[0] = 0.4f;
 		myWindowData->ClearValue.color.float32[1] = 0.4f;
@@ -2252,12 +2221,12 @@ private:
 		for (uint32_t imageIt = 0; imageIt < mySwapchain.myColorImages.size(); imageIt++)
 		{
 			myWindowData->BackBuffer[imageIt] = mySwapchain.myColorImages[imageIt];
-    		myWindowData->BackBufferView[imageIt] = mySwapchain.myColorImageViews[imageIt];
-    		myWindowData->Framebuffer[imageIt] = mySwapchain.myFrameBuffers[imageIt];
+			myWindowData->BackBufferView[imageIt] = mySwapchain.myColorImageViews[imageIt];
+			myWindowData->Framebuffer[imageIt] = mySwapchain.myFrameBuffers[imageIt];
 		}
 
 		// Create SwapChain, RenderPass, Framebuffer, etc.
-        //ImGui_ImplVulkanH_CreateWindowDataSwapChainAndFramebuffer(myPhysicalDevice, myDevice, myWindowData.get(), nullptr, width, height);
+		//ImGui_ImplVulkanH_CreateWindowDataSwapChainAndFramebuffer(myPhysicalDevice, myDevice, myWindowData.get(), nullptr, width, height);
 		// ImGui_ImplVulkanH_CreateWindowDataSwapChainAndFramebuffer(
 		// 	myPhysicalDevice, myDevice, myWindowData.get(), nullptr, width, height, true, myDepthImageView, myDepthFormat);
 
@@ -2267,13 +2236,13 @@ private:
 		std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
 		for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
 		{
-			VkCommandPoolCreateInfo cmdPoolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+			VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 			cmdPoolInfo.queueFamilyIndex = myQueueFamilyIndex;
 			cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 			CHECK_VK(vkCreateCommandPool(myDevice, &cmdPoolInfo, nullptr, &myCommandPools[cmdIt]));
 			assert(myCommandPools[cmdIt] != VK_NULL_HANDLE);
 
-			VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+			VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 			cmdInfo.commandPool = myCommandPools[cmdIt];
 			cmdInfo.level = cmdIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 			cmdInfo.commandBufferCount = myFrameCount;
@@ -2289,16 +2258,16 @@ private:
 
 		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
 		{
-			VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+			VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 			CHECK_VK(vkCreateFence(myDevice, &fenceInfo, nullptr, &myFrameFences[frameIt]));
 
-			VkSemaphoreCreateInfo semaphoreInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+			VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 			CHECK_VK(vkCreateSemaphore(myDevice, &semaphoreInfo, nullptr, &myImageAcquiredSemaphores[frameIt]));
 			CHECK_VK(vkCreateSemaphore(myDevice, &semaphoreInfo, nullptr, &myRenderCompleteSemaphores[frameIt]));
 
 			// IMGUI uses primary command buffer only
-			ImGui_ImplVulkanH_FrameData* fd = &myWindowData->Frames[frameIt];
+			ImGui_ImplVulkanH_FrameData *fd = &myWindowData->Frames[frameIt];
 			fd->CommandPool = myCommandPools[0];
 			fd->CommandBuffer = myCommandBuffers[myCommandBufferThreadCount * frameIt];
 			fd->Fence = myFrameFences[frameIt];
@@ -2323,8 +2292,8 @@ private:
 
 	void updateUniformBuffers()
 	{
-		UniformBufferObject* data;
-		CHECK_VK(vmaMapMemory(myAllocator, myUniformBufferMemory, (void**)&data));
+		UniformBufferObject *data;
+		CHECK_VK(vmaMapMemory(myAllocator, myUniformBufferMemory, (void **)&data));
 
 		static auto start = std::chrono::high_resolution_clock::now();
 		auto now = std::chrono::high_resolution_clock::now();
@@ -2333,7 +2302,7 @@ private:
 
 		for (uint32_t n = 0; n < (NX * NY); n++)
 		{
-			UniformBufferObject& ubo = data[n];				
+			UniformBufferObject &ubo = data[n];
 
 			float tp = fmod((0.0025f * n) + t, period);
 			float s = smootherstep(
@@ -2349,12 +2318,12 @@ private:
 			glm::mat4 view0 = glm::mat4(1);
 			glm::mat4 proj0 = glm::frustum(-1.0, 1.0, -1.0, 1.0, 0.01, 10.0);
 
-			glm::mat4 view1 = 
+			glm::mat4 view1 =
 				glm::lookAt(
 					glm::vec3(1.5f, 1.5f, 1.0f),
 					glm::vec3(0.0f, 0.0f, -0.5f),
 					glm::vec3(0.0f, 0.0f, -1.0f));
-			glm::mat4 proj1 = 
+			glm::mat4 proj1 =
 				glm::perspective(
 					glm::radians(75.0f),
 					myWindowData->Width / static_cast<float>(myWindowData->Height),
@@ -2379,18 +2348,18 @@ private:
 				n * sizeof(UniformBufferObject),
 				sizeof(UniformBufferObject));
 		}
-		
+
 		vmaUnmapMemory(myAllocator, myUniformBufferMemory);
 	}
 
 	void submitFrame()
 	{
-		ImGui_ImplVulkanH_FrameData* oldFrame = &myWindowData->Frames[myWindowData->FrameIndex];
-		VkSemaphore& imageAquiredSemaphore = oldFrame->ImageAcquiredSemaphore;
+		ImGui_ImplVulkanH_FrameData *oldFrame = &myWindowData->Frames[myWindowData->FrameIndex];
+		VkSemaphore &imageAquiredSemaphore = oldFrame->ImageAcquiredSemaphore;
 
 		checkFlipOrPresentResult(vkAcquireNextImageKHR(myDevice, myWindowData->Swapchain,
-			UINT64_MAX, imageAquiredSemaphore,
-			VK_NULL_HANDLE, &myWindowData->FrameIndex));
+													   UINT64_MAX, imageAquiredSemaphore,
+													   VK_NULL_HANDLE, &myWindowData->FrameIndex));
 		/* MGPU method from vk 1.1 spec
 		{
 			VkAcquireNextImageInfoKHR nextImageInfo = {};
@@ -2406,11 +2375,11 @@ private:
 		}
 		 */
 
-		ImGui_ImplVulkanH_FrameData* newFrame = &myWindowData->Frames[myWindowData->FrameIndex];
+		ImGui_ImplVulkanH_FrameData *newFrame = &myWindowData->Frames[myWindowData->FrameIndex];
 
 		std::array<VkClearValue, 2> clearValues = {};
 		clearValues[0] = myWindowData->ClearValue;
-		clearValues[1].depthStencil = { 1.0f, 0 };
+		clearValues[1].depthStencil = {1.0f, 0};
 
 		// wait for previous command buffer to be submitted
 		{
@@ -2425,15 +2394,15 @@ private:
 		// begin secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
-			VkCommandBuffer& cmd =
+			VkCommandBuffer &cmd =
 				myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
 
-			VkCommandBufferInheritanceInfo inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+			VkCommandBufferInheritanceInfo inherit = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 			inherit.renderPass = myRenderPass;
 			inherit.framebuffer = myWindowData->Framebuffer[myWindowData->FrameIndex];
 
 			CHECK_VK(vkResetCommandBuffer(cmd, 0));
-			VkCommandBufferBeginInfo secBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+			VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 			secBeginInfo.flags =
 				VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
 				VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT |
@@ -2446,9 +2415,9 @@ private:
 				cmd,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
 				myGraphicsPipelines[myHouseSetup.pipelineHash]);
-			
-			VkBuffer vertexBuffers[] = { myHouseSetup.model.myVertexBuffer };
-			VkDeviceSize vertexOffsets[] = { 0 };
+
+			VkBuffer vertexBuffers[] = {myHouseSetup.model.myVertexBuffer};
+			VkDeviceSize vertexOffsets[] = {0};
 
 			vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
 			vkCmdBindIndexBuffer(cmd, myHouseSetup.model.myIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -2466,64 +2435,62 @@ private:
 			std::array<uint32_t, 128> seq;
 			std::iota(seq.begin(), seq.begin() + segmentCount, 0);
 			std::for_each_n(
-			#if defined(__WINDOWS__)
+#if defined(__WINDOWS__)
 				std::execution::par,
-			#endif
+#endif
 				seq.begin(),
 				segmentCount,
-				[this, &dx, &dy, &segmentDrawCount](uint32_t segmentIt)
-			{
-				VkCommandBuffer& cmd = myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+				[this, &dx, &dy, &segmentDrawCount](uint32_t segmentIt) {
+					VkCommandBuffer &cmd = myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
 
-				for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
-				{
-					uint32_t n = segmentIt * segmentDrawCount + drawIt;
-
-					if (n >= drawCount)
-						break;
-
-					uint32_t i = n % NX;
-					uint32_t j = n / NX;
-
-					auto drawModel = [this, &n](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t indexCount)
+					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
-						VkViewport viewport = {};
-						viewport.x = static_cast<float>(x);
-						viewport.y = static_cast<float>(y);
-						viewport.width = static_cast<float>(width);
-						viewport.height = static_cast<float>(height);
-						viewport.minDepth = 0.0f;
-						viewport.maxDepth = 1.0f;
+						uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
-						VkRect2D scissor = {};
-						scissor.offset = { x, y };
-						scissor.extent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+						if (n >= drawCount)
+							break;
 
-						uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
-						vkCmdBindDescriptorSets(
-							cmd,
-							VK_PIPELINE_BIND_POINT_GRAPHICS,
-							myPipelineLayout,
-							0,
-							myHouseSetup.descriptorSets.size(),
-							myHouseSetup.descriptorSets.data(),
-							1,
-							&uniformBufferOffset);
+						uint32_t i = n % NX;
+						uint32_t j = n / NX;
 
-						vkCmdSetViewport(cmd, 0, 1, &viewport);
-						vkCmdSetScissor(cmd, 0, 1, &scissor);
-						vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
-					};
+						auto drawModel = [this, &n](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t indexCount) {
+							VkViewport viewport = {};
+							viewport.x = static_cast<float>(x);
+							viewport.y = static_cast<float>(y);
+							viewport.width = static_cast<float>(width);
+							viewport.height = static_cast<float>(height);
+							viewport.minDepth = 0.0f;
+							viewport.maxDepth = 1.0f;
 
-					drawModel(cmd, i * dx, j * dy, dx, dy, myHouseSetup.model.indexCount);
-				}
-			});
+							VkRect2D scissor = {};
+							scissor.offset = {x, y};
+							scissor.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+
+							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
+							vkCmdBindDescriptorSets(
+								cmd,
+								VK_PIPELINE_BIND_POINT_GRAPHICS,
+								myPipelineLayout,
+								0,
+								myHouseSetup.descriptorSets.size(),
+								myHouseSetup.descriptorSets.data(),
+								1,
+								&uniformBufferOffset);
+
+							vkCmdSetViewport(cmd, 0, 1, &viewport);
+							vkCmdSetScissor(cmd, 0, 1, &scissor);
+							vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+						};
+
+						drawModel(cmd, i * dx, j * dy, dx, dy, myHouseSetup.model.indexCount);
+					}
+				});
 		}
 
 		// end secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
-			VkCommandBuffer& cmd =
+			VkCommandBuffer &cmd =
 				myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
 
 			CHECK_VK(vkEndCommandBuffer(cmd));
@@ -2544,15 +2511,15 @@ private:
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = myRenderPass;
 			beginInfo.framebuffer = myWindowData->Framebuffer[myWindowData->FrameIndex];
-			beginInfo.renderArea.offset = { 0, 0 };
-			beginInfo.renderArea.extent = { static_cast<uint32_t>(myWindowData->Width), static_cast<uint32_t>(myWindowData->Height) };
+			beginInfo.renderArea.offset = {0, 0};
+			beginInfo.renderArea.extent = {static_cast<uint32_t>(myWindowData->Width), static_cast<uint32_t>(myWindowData->Height)};
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
 			vkCmdBeginRenderPass(newFrame->CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			vkCmdExecuteCommands(newFrame->CommandBuffer,
-				(myCommandBufferThreadCount - 1),
-				&myCommandBuffers[(myWindowData->FrameIndex * myCommandBufferThreadCount) + 1]);
+								 (myCommandBufferThreadCount - 1),
+								 &myCommandBuffers[(myWindowData->FrameIndex * myCommandBufferThreadCount) + 1]);
 
 			vkCmdEndRenderPass(newFrame->CommandBuffer);
 		}
@@ -2595,7 +2562,7 @@ private:
 
 	void presentFrame()
 	{
-		ImGui_ImplVulkanH_FrameData* fd = &myWindowData->Frames[myWindowData->FrameIndex];
+		ImGui_ImplVulkanH_FrameData *fd = &myWindowData->Frames[myWindowData->FrameIndex];
 		VkPresentInfoKHR info = {};
 		info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		info.waitSemaphoreCount = 1;
@@ -2629,7 +2596,7 @@ private:
 		}
 
 		//ImGui_ImplVulkanH_DestroyWindowDataSwapChainAndFramebuffer(myDevice, myWindowData.get(), nullptr);
-        //ImGui_ImplVulkanH_DestroyWindowData(myInstance, myDevice, myWindowData.get(), nullptr);
+		//ImGui_ImplVulkanH_DestroyWindowData(myInstance, myDevice, myWindowData.get(), nullptr);
 
 		vmaDestroyImage(myAllocator, mySwapchain.myDepthImage, mySwapchain.myDepthImageMemory);
 		vkDestroyImageView(myDevice, mySwapchain.myDepthImageView, nullptr);
@@ -2639,9 +2606,9 @@ private:
 
 		vkDestroySwapchainKHR(myDevice, mySwapchain.swapchain, nullptr);
 
-		for (auto& pipelineIt : myGraphicsPipelines)
+		for (auto &pipelineIt : myGraphicsPipelines)
 			vkDestroyPipeline(myDevice, pipelineIt.second, nullptr);
-		
+
 		vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
 		vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
 	}
@@ -2655,7 +2622,7 @@ private:
 		ImGui::DestroyContext();
 
 		vmaDestroyBuffer(myAllocator, myUniformBuffer, myUniformBufferMemory);
-		
+
 		{
 			// vmaDestroyBuffer(myAllocator, myQuadModel.myVertexBuffer, myQuadModel.myVertexBufferMemory);
 			// vmaDestroyBuffer(myAllocator, myQuadModel.myIndexBuffer, myQuadModel.myIndexBufferMemory);
@@ -2665,7 +2632,7 @@ private:
 
 			vmaDestroyBuffer(myAllocator, myHouseSetup.model.myVertexBuffer, myHouseSetup.model.myVertexBufferMemory);
 			vmaDestroyBuffer(myAllocator, myHouseSetup.model.myIndexBuffer, myHouseSetup.model.myIndexBufferMemory);
-			
+
 			vmaDestroyImage(myAllocator, myHouseSetup.texture.myImage, myHouseSetup.texture.myImageMemory);
 			vkDestroyImageView(myDevice, myHouseSetup.texture.myImageView, nullptr);
 		}
@@ -2678,11 +2645,11 @@ private:
 		vmaDestroyAllocator(myAllocator);
 
 		vkDestroyDevice(myDevice, nullptr);
-		
+
 		vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
 
-        auto vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugReportCallbackEXT");
-        assert(vkDestroyDebugReportCallbackEXT != nullptr);
+		auto vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugReportCallbackEXT");
+		assert(vkDestroyDebugReportCallbackEXT != nullptr);
 
 		vkDestroyDebugReportCallbackEXT(myInstance, myDebugCallback, nullptr);
 
@@ -2700,7 +2667,7 @@ private:
 	VkInstance myInstance = VK_NULL_HANDLE;
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
 	VkSurfaceKHR mySurface = VK_NULL_HANDLE;
-	VkSurfaceFormatKHR mySurfaceFormat = { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+	VkSurfaceFormatKHR mySurfaceFormat = {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
 	VkFormat myDepthFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 	VkPresentModeKHR myPresentMode = VK_PRESENT_MODE_FIFO_KHR;
 	VkPhysicalDevice myPhysicalDevice = VK_NULL_HANDLE;
@@ -2715,17 +2682,17 @@ private:
 	VkSampler mySampler = VK_NULL_HANDLE;
 	VkBuffer myUniformBuffer = VK_NULL_HANDLE;
 	VmaAllocation myUniformBufferMemory = VK_NULL_HANDLE;
-	
+
 	Swapchain mySwapchain;
 
-	std::vector<VkCommandPool> myCommandPools; // count = [threadCount]
-	std::vector<VkCommandBuffer> myCommandBuffers; // count = [frameCount*threadCount] [f0cb0 f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
-	std::vector<VkFence> myFrameFences; // count = [frameCount]
-	std::vector<VkSemaphore> myImageAcquiredSemaphores; // count = [frameCount]
+	std::vector<VkCommandPool> myCommandPools;			 // count = [threadCount]
+	std::vector<VkCommandBuffer> myCommandBuffers;		 // count = [frameCount*threadCount] [f0cb0 f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
+	std::vector<VkFence> myFrameFences;					 // count = [frameCount]
+	std::vector<VkSemaphore> myImageAcquiredSemaphores;  // count = [frameCount]
 	std::vector<VkSemaphore> myRenderCompleteSemaphores; // count = [frameCount]
 
 	std::unique_ptr<ImGui_ImplVulkanH_WindowData> myWindowData;
-	std::vector<ImFont*> myFonts;
+	std::vector<ImFont *> myFonts;
 
 	//VkDescriptorSetLayout myDescriptorSetLayout = VK_NULL_HANDLE;
 	//VkDescriptorSet myDescriptorSet = VK_NULL_HANDLE;
@@ -2748,32 +2715,32 @@ private:
 	static constexpr uint32_t NY = 2;
 };
 
-static VulkanApplication* theApp = nullptr;
+static VulkanApplication *theApp = nullptr;
 
-int vkapp_create(void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char* resourcePath, bool verbose)
+int vkapp_create(void *view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char *resourcePath, bool verbose)
 {
 	assert(view != nullptr);
 	assert(theApp == nullptr);
 
-	static const char* DISABLE_VK_LAYER_VALVE_steam_overlay_1 = "DISABLE_VK_LAYER_VALVE_steam_overlay_1=1";
+	static const char *DISABLE_VK_LAYER_VALVE_steam_overlay_1 = "DISABLE_VK_LAYER_VALVE_steam_overlay_1=1";
 #if defined(__WINDOWS__)
-	_putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
+	_putenv((char *)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
 #else
-	putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
+	putenv((char *)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
 #endif
 
 	if (verbose)
 	{
-		static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
-		if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
+		static const char *VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
+		if (char *vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
 			std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << std::endl;
 
-		static const char* VK_LAYER_PATH_STR = "VK_LAYER_PATH";
-		if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
+		static const char *VK_LAYER_PATH_STR = "VK_LAYER_PATH";
+		if (char *vkLayerPath = getenv(VK_LAYER_PATH_STR))
 			std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << std::endl;
 
-		static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
-		if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
+		static const char *VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
+		if (char *vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
 			std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
 	}
 
