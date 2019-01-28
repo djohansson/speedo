@@ -792,12 +792,24 @@ class VulkanApplication
   private:
 	enum class FileState
 	{
-		Valid,
-		Stale,
 		Missing,
+		Stale,
+		Valid,
 	};
 
-	inline static bool s_fileSHA2ChecksumValidationEnable = false;
+	struct FileInfo
+	{
+		template <class Archive>
+		void serialize(Archive &archive)
+		{
+			archive(/*CEREAL_NVP(path), */CEREAL_NVP(size), CEREAL_NVP(timeStamp), CEREAL_NVP(sha2));
+		}
+
+		std::filesystem::path path;
+		int64_t size = 0;
+		std::string timeStamp;
+		std::vector<unsigned char> sha2;
+	};
 
 	inline static const std::string sc_modelLoaderType = "tinyobjloader";
 	inline static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
@@ -813,53 +825,101 @@ class VulkanApplication
 	}
 
 	template <typename LoadOp>
-	static void loadPBin(const std::filesystem::path &pbinFilePath, LoadOp loadOp)
+	static void loadBinaryFile(
+		const std::filesystem::path &filePath,
+		FileInfo& outFileInfo,
+		LoadOp loadOp,
+		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(pbinFilePath) || !std::filesystem::is_regular_file(pbinFilePath))
+		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
 			throw std::runtime_error("Failed to open file.");
 
-		std::ifstream pbinFile(pbinFilePath, std::ios::binary);
+		std::ifstream file(filePath, std::ios::binary);
 
-		loadOp(cereal::PortableBinaryInputArchive(pbinFile));
+		loadOp(file);
+	
+		if (sha2Enable)
+		{
+			file.clear();
+			file.seekg(0, std::ios_base::beg);
+
+			outFileInfo.sha2.resize(picosha2::k_digest_size);
+
+			picosha2::hash256(
+				std::istreambuf_iterator<char>(file),
+				std::istreambuf_iterator<char>(),
+				outFileInfo.sha2.begin(),
+				outFileInfo.sha2.end());
+		}
+
+		outFileInfo.path = filePath;
+		outFileInfo.size = std::filesystem::file_size(filePath);
+		outFileInfo.timeStamp = getFileTimeStamp(filePath);
 	}
 
 	template <typename SaveOp>
-	static void savePBin(
-		cereal::JSONOutputArchive &json,
-		const std::filesystem::path &pbinFilePath,
-		SaveOp saveOp)
+	static void saveBinaryFile(
+		const std::filesystem::path &filePath,
+		FileInfo& outFileInfo,
+		SaveOp saveOp,
+		bool sha2Enable)
 	{
-		std::fstream pbinFile(pbinFilePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
+		std::fstream file(filePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
 
-		saveOp(cereal::PortableBinaryOutputArchive(pbinFile));
+		saveOp(file);
 
-		pbinFile.flush();
-		pbinFile.sync();
-		pbinFile.seekg(0, std::ios_base::beg);
+		if (sha2Enable)
+		{
+			file.flush();
+			file.sync();
+			file.seekg(0, std::ios_base::beg);
 
-		std::vector<unsigned char> pbinFileSha2(picosha2::k_digest_size);
-		picosha2::hash256(
-			std::istreambuf_iterator<char>(pbinFile),
-			std::istreambuf_iterator<char>(),
-			pbinFileSha2.begin(),
-			pbinFileSha2.end());
+			outFileInfo.sha2.resize(picosha2::k_digest_size);
 
-		pbinFile.close();
+			picosha2::hash256(
+				std::istreambuf_iterator<char>(file),
+				std::istreambuf_iterator<char>(),
+				outFileInfo.sha2.begin(),
+				outFileInfo.sha2.end());
+		}
 
-		int64_t pbinFileSize = std::filesystem::file_size(pbinFilePath);
-		std::string pbinFileTimeStamp = getFileTimeStamp(pbinFilePath);
-
-		json(CEREAL_NVP(pbinFileTimeStamp));
-		json(CEREAL_NVP(pbinFileSize));
-		json(CEREAL_NVP(pbinFileSha2));
+		outFileInfo.path = filePath;
+		outFileInfo.size = std::filesystem::file_size(filePath);
+		outFileInfo.timeStamp = getFileTimeStamp(filePath);
 	}
 
-	static FileState getFileState(
-		cereal::JSONInputArchive &json,
+	static FileState getFileInfo(
+		const std::filesystem::path &filePath,
+		FileInfo &outFileInfo,
+		bool sha2Enable)
+	{
+		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+			return FileState::Missing;
+
+		if (sha2Enable)
+		{
+			std::ifstream file(filePath, std::ios::binary);
+
+			outFileInfo.sha2.resize(picosha2::k_digest_size);
+			
+			picosha2::hash256(file, outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+		}
+
+		outFileInfo.path = filePath;
+		outFileInfo.size = std::filesystem::file_size(filePath);;
+		outFileInfo.timeStamp = getFileTimeStamp(filePath);
+
+		return FileState::Valid;
+	}
+
+	static FileState getFileInfo(
 		const std::filesystem::path &filePath,
 		const std::string &id,
 		const std::string &loaderType,
-		const std::string &loaderVersion)
+		const std::string &loaderVersion,
+		cereal::JSONInputArchive &json,
+		FileInfo &outFileInfo,
+		bool sha2Enable)
 	{
 		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
 			return FileState::Missing;
@@ -870,37 +930,32 @@ class VulkanApplication
 		json(cereal::make_nvp("loaderType", _loaderType));
 		json(cereal::make_nvp("loaderVersion", _loaderVersion));
 
-		if (loaderType.compare(_loaderType) != 0 || loaderVersion.compare(_loaderVersion) != 0)
+		if (loaderType.compare(_loaderType) != 0 ||
+			loaderVersion.compare(_loaderVersion) != 0)
 			return FileState::Stale;
-
-		int64_t _fileSize;
-		std::string _fileTimeStamp;
-
-		json(cereal::make_nvp(id + "Size", _fileSize));
-		json(cereal::make_nvp(id + "TimeStamp", _fileTimeStamp));
 
 		int64_t fileSize = std::filesystem::file_size(filePath);
 		std::string fileTimeStamp = getFileTimeStamp(filePath);
+		std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
+		if (sha2Enable)
+		{
+			std::ifstream file(filePath, std::ios::binary);
+			picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
+		}
 
-		if (fileSize != _fileSize || fileTimeStamp.compare(_fileTimeStamp) != 0)
+		FileInfo _fileInfo;
+		json(cereal::make_nvp(id, _fileInfo));
+
+		// perhaps add path check as well?
+		if (fileSize != _fileInfo.size ||
+			fileTimeStamp.compare(_fileInfo.timeStamp) != 0 ||
+			sha2Enable ? fileSha2 != _fileInfo.sha2 : false)
 			return FileState::Stale;
 
-		if (s_fileSHA2ChecksumValidationEnable)
-		{
-			std::vector<unsigned char> _fileSha2;
-
-			json(cereal::make_nvp(id + "Sha2", _fileSha2));
-
-			std::ifstream file(filePath, std::ios::binary);
-			std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
-
-			picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
-			file.clear();
-			file.seekg(0, std::ios_base::beg);
-
-			if (fileSha2 != _fileSha2)
-				return FileState::Stale;
-		}
+		outFileInfo.path = filePath;
+		outFileInfo.size = fileSize;
+		outFileInfo.timeStamp = std::move(fileTimeStamp);
+		outFileInfo.sha2 = std::move(fileSha2);
 
 		return FileState::Valid;
 	}
@@ -922,65 +977,38 @@ class VulkanApplication
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 
-		auto loadPBinOp = [&vertices, &indices](cereal::PortableBinaryInputArchive &&pbin) {
+		auto loadPBinOp = [&vertices, &indices](std::ifstream& file) {
+			cereal::PortableBinaryInputArchive pbin(file);
 			pbin(vertices, indices);
 		};
 
-		auto savePBinOp = [&vertices, &indices](cereal::PortableBinaryOutputArchive &&pbin) {
+		auto savePBinOp = [&vertices, &indices](std::fstream& file) {
+			cereal::PortableBinaryOutputArchive pbin(file);
 			pbin(vertices, indices);
 		};
 
-		if (!std::filesystem::exists(jsonFilePath) || !std::filesystem::is_regular_file(jsonFilePath))
-		{
-			std::ofstream jsonFile(jsonFilePath);
-			cereal::JSONOutputArchive json(jsonFile);
-			json(cereal::make_nvp("loaderType", std::string("null")));
-			json(cereal::make_nvp("loaderVersion", std::string("0")));
-		}
-
-		std::ifstream jsonInFile(jsonFilePath);
-		cereal::JSONInputArchive jsonIn(jsonInFile);
-
-		if (getFileState(jsonIn, sourceFilePath, "sourceFile", sc_modelLoaderType, sc_modelLoaderVersion) == FileState::Stale ||
-			getFileState(jsonIn, pbinFilePath, "pbinFile", sc_modelLoaderType, sc_modelLoaderVersion) != FileState::Valid)
-		{
+		auto loadSourceOp = [&vertices, &indices](std::ifstream& file) {
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
 #else
 			using namespace tinyobj;
 #endif
-
-			std::string sourceFileTimeStamp;
-			int64_t sourceFileSize;
-			std::vector<unsigned char> sourceFileSha2(picosha2::k_digest_size);
-
 			attrib_t attrib;
 			std::vector<shape_t> shapes;
 			std::vector<material_t> materials;
-			{
-				std::ifstream sourceFile(sourceFilePath, std::ios::binary);
-
-				picosha2::hash256(sourceFile, sourceFileSha2.begin(), sourceFileSha2.end());
-				sourceFile.clear();
-				sourceFile.seekg(0, std::ios_base::beg);
-
-				sourceFileTimeStamp = getFileTimeStamp(sourceFilePath);
-				sourceFileSize = std::filesystem::file_size(sourceFilePath);
-
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-				std::streambuf *raw_buffer = file.rdbuf();
-				std::streamsize bufferSize = file.gcount();
-				std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
-				raw_buffer->sgetn(buffer.get(), bufferSize);
-				LoadOption option;
-				if (!parseObj(&attrib, &shapes, &materials, buffer.get(), bufferSize, option))
-					throw std::runtime_error("Failed to load model.");
+			std::streambuf *raw_buffer = file.rdbuf();
+			std::streamsize bufferSize = file.gcount();
+			std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
+			raw_buffer->sgetn(buffer.get(), bufferSize);
+			LoadOption option;
+			if (!parseObj(&attrib, &shapes, &materials, buffer.get(), bufferSize, option))
+				throw std::runtime_error("Failed to load model.");
 #else
-				std::string warn, err;
-				if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &sourceFile))
-					throw std::runtime_error(err);
+			std::string warn, err;
+			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &file))
+				throw std::runtime_error(err);
 #endif
-			}
 
 			uint32_t indexCount = 0;
 			for (const auto &shape : shapes)
@@ -1030,24 +1058,46 @@ class VulkanApplication
 					indices.push_back(uniqueVertices[vertex]);
 				}
 			}
+		};
 
-			jsonInFile.close();
+		bool firstImport;
+		FileInfo sourceFileInfo, pbinFileInfo;
+		FileState sourceFileState, pbinFileState;
+		if (std::filesystem::exists(jsonFilePath) && std::filesystem::is_regular_file(jsonFilePath))
+		{
+			firstImport = false;
 
-			std::ofstream jsonFile(jsonFilePath, std::ios::trunc);
-			cereal::JSONOutputArchive json(jsonFile);
-
-			json(cereal::make_nvp("loaderType", sc_modelLoaderType));
-			json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
-
-			json(CEREAL_NVP(sourceFileTimeStamp));
-			json(CEREAL_NVP(sourceFileSize));
-			json(CEREAL_NVP(sourceFileSha2));
-
-			savePBin(json, pbinFilePath, savePBinOp);
+			std::ifstream jsonInFile(jsonFilePath);
+			cereal::JSONInputArchive jsonIn(jsonInFile);
+			sourceFileState = getFileInfo(sourceFilePath, "sourceFileInfo", sc_modelLoaderType, sc_modelLoaderVersion, jsonIn, sourceFileInfo, false);
+			pbinFileState = getFileInfo(pbinFilePath, "pbinFileInfo", sc_modelLoaderType, sc_modelLoaderVersion, jsonIn, pbinFileInfo, false);
 		}
 		else
 		{
-			loadPBin(pbinFilePath, loadPBinOp);
+			firstImport = true;
+
+			sourceFileState = getFileInfo(sourceFilePath, sourceFileInfo, false);
+			pbinFileState = getFileInfo(pbinFilePath, pbinFileInfo, false);
+		}
+
+		if (firstImport ||
+			sourceFileState == FileState::Stale ||
+			pbinFileState != FileState::Valid)
+		{	
+			std::ofstream jsonFile(jsonFilePath, std::ios::trunc);
+			cereal::JSONOutputArchive json(jsonFile);
+			json(cereal::make_nvp("loaderType", sc_modelLoaderType));
+			json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
+
+			loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceOp, true);
+			json(CEREAL_NVP(sourceFileInfo));
+
+			saveBinaryFile(pbinFilePath, pbinFileInfo, savePBinOp, true);
+			json(CEREAL_NVP(pbinFileInfo));
+		}
+		else
+		{
+			loadBinaryFile(pbinFilePath, pbinFileInfo, loadPBinOp, false);
 		}
 
 		if (vertices.empty() || indices.empty())
