@@ -912,12 +912,14 @@ class VulkanApplication
 		return FileState::Valid;
 	}
 
+	template <typename LoadJSONOp>
 	static FileState getFileInfo(
 		const std::filesystem::path &filePath,
 		const std::string &id,
 		const std::string &loaderType,
 		const std::string &loaderVersion,
-		cereal::JSONInputArchive &json,
+		std::istream &jsonStream,
+		LoadJSONOp loadJSON,
 		FileInfo &outFileInfo,
 		bool sha2Enable)
 	{
@@ -926,9 +928,9 @@ class VulkanApplication
 
 		std::string _loaderType;
 		std::string _loaderVersion;
+		FileInfo _fileInfo;
 
-		json(cereal::make_nvp("loaderType", _loaderType));
-		json(cereal::make_nvp("loaderVersion", _loaderVersion));
+		loadJSON(jsonStream, id, _loaderType, _loaderVersion, _fileInfo);
 
 		if (loaderType.compare(_loaderType) != 0 ||
 			loaderVersion.compare(_loaderVersion) != 0)
@@ -942,9 +944,6 @@ class VulkanApplication
 			std::ifstream file(filePath, std::ios::binary);
 			picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
 		}
-
-		FileInfo _fileInfo;
-		json(cereal::make_nvp(id, _fileInfo));
 
 		// perhaps add path check as well?
 		if (fileSize != _fileInfo.size ||
@@ -976,6 +975,13 @@ class VulkanApplication
 
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
+
+		auto loadJSONOp = [](std::istream& stream, const std::string& id, std::string& outLoaderType, std::string& outLoaderVersion, FileInfo& outFileInfo) {
+			cereal::JSONInputArchive json(stream);
+			json(cereal::make_nvp("loaderType", outLoaderType));
+			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
+			json(cereal::make_nvp(id, outFileInfo));
+		};
 
 		auto loadPBinOp = [&vertices, &indices](std::ifstream& file) {
 			cereal::PortableBinaryInputArchive pbin(file);
@@ -1068,9 +1074,29 @@ class VulkanApplication
 			firstImport = false;
 
 			std::ifstream jsonInFile(jsonFilePath);
-			cereal::JSONInputArchive jsonIn(jsonInFile);
-			sourceFileState = getFileInfo(sourceFilePath, "sourceFileInfo", sc_modelLoaderType, sc_modelLoaderVersion, jsonIn, sourceFileInfo, false);
-			pbinFileState = getFileInfo(pbinFilePath, "pbinFileInfo", sc_modelLoaderType, sc_modelLoaderVersion, jsonIn, pbinFileInfo, false);
+			
+			sourceFileState = getFileInfo(
+				sourceFilePath,
+				"sourceFileInfo",
+				sc_modelLoaderType,
+				sc_modelLoaderVersion,
+				jsonInFile,
+				loadJSONOp,
+				sourceFileInfo,
+				false);
+
+			jsonInFile.clear();
+			jsonInFile.seekg(0, std::ios_base::beg);
+
+			pbinFileState = getFileInfo(
+				pbinFilePath,
+				"pbinFileInfo",
+				sc_modelLoaderType,
+				sc_modelLoaderVersion,
+				jsonInFile,
+				loadJSONOp,
+				pbinFileInfo,
+				false);
 		}
 		else
 		{
@@ -1086,6 +1112,7 @@ class VulkanApplication
 		{	
 			std::ofstream jsonFile(jsonFilePath, std::ios::trunc);
 			cereal::JSONOutputArchive json(jsonFile);
+			
 			json(cereal::make_nvp("loaderType", sc_modelLoaderType));
 			json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
 
