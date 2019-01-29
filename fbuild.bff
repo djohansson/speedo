@@ -16,6 +16,7 @@ ForEach(.Config in .Clang_x64_Configs)
 
 	.IntermediateFilePath + '/$ConfigName$'
 
+	// todo: investigate warnings (on osx clang)
 	// + ' -Wno-unused-variable'
 	// + ' -Wno-unused-local-typedef'
 	// + ' -Wno-undefined-var-template'
@@ -35,10 +36,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.CompilerInputPath = '$ProjectPath$/source/core'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 		
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/core'
-	#if __WINDOWS__
-		.LibrarianOutput + '.lib'
-	#endif //__WINDOWS__
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$core$LibSuffix$'
 	}
 
 	Library('$ConfigName$-slang')
@@ -53,10 +51,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.CompilerInputPath = '$ProjectPath$/source/slang'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 		
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/slang'
-	#if __WINDOWS__
-		.LibrarianOutput + '.lib'
-	#endif //__WINDOWS__
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$slang$LibSuffix$'
 	}
 
 	ObjectList('$ConfigName$-slangc')
@@ -82,11 +77,8 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-slangc',
 		}
 
-		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/slangc'
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/slangc$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
-	#if __WINDOWS__
-		.LinkerOutput + '.exe'
-	#endif //__WINDOWS__
 	}
 
 	Library('$ConfigName$-glfw')
@@ -149,10 +141,7 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif //__LINUX__
 		.CompilerOutputPath = '$IntermediateFilePath$'
 
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/glfw'
-	#if __WINDOWS__
-		.LibrarianOutput + '.lib'
-	#endif //__WINDOWS__
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$glfw$LibSuffix$'
 	}
 
 	Library('$ConfigName$-murmur3')
@@ -166,10 +155,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		}
 		.CompilerOutputPath = '$IntermediateFilePath$'
 
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/murmur3'
-	#if __WINDOWS__
-		.LibrarianOutput + '.lib'
-	#endif //__WINDOWS__
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$murmur3$LibSuffix$'
 	}
 
 	Library('$ConfigName$-xxhash')
@@ -183,10 +169,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		}
 		.CompilerOutputPath = '$IntermediateFilePath$'
 
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/xxhash'
-	#if __WINDOWS__
-		.LibrarianOutput + '.lib'
-	#endif //__WINDOWS__
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$xxhash$LibSuffix$'
 	}
 
 	ObjectList('$ConfigName$-glslang-OGLCompilersDLL')
@@ -220,6 +203,8 @@ ForEach(.Config in .Clang_x64_Configs)
 		.CompilerOutputPath = '$IntermediateFilePath$'
 	#if __WINDOWS__
 		.CompilerInputExcludePath = '$ProjectPath$/external/glslang/glslang/OSDependent/Unix'
+	#else
+		.CompilerInputExcludePath = '$ProjectPath$/external/glslang/glslang/OSDependent/Windows'
 	#endif
 	}
 
@@ -281,14 +266,12 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-glslang-OGLCompilersDLL',
 			'$ConfigName$-glslang-SPIRV',
 		}
-		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/slang-glslang'
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/$DllPrefix$slang-glslang$DllSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 			+ ' -shared'
-	#if __WINDOWS__
-		.LinkerOutput + '.dll'
-	#endif //__WINDOWS__
 	}
 
+#if !__OSX__
 	Library('$ConfigName$-gfx')
 	{
 		.IntermediateFilePath + '/gfx'
@@ -302,10 +285,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		
 		.CompilerInputPath = '$ProjectPath$/tools/gfx'
 		.CompilerOutputPath = '$IntermediateFilePath$'
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/gfx'
-	#if __WINDOWS__
-		.LibrarianOutput + '.lib'
-	#endif //__WINDOWS__
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$gfx$LibSuffix$'
 	}
 
 	ObjectList('$ConfigName$-hello-world')
@@ -331,10 +311,9 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-slang',
 			'$ConfigName$-hello-world',
 		}
-		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/hello-world'
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/hello-world$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
-		.LinkerOutput + '.exe'
 		.LinkerOptions + ' -luser32'
 	#endif //__WINDOWS__
 	}
@@ -362,13 +341,13 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-slang',
 			'$ConfigName$-model-viewer',
 		}
-		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/model-viewer'
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/model-viewer$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
-		.LinkerOutput + '.exe'
 		.LinkerOptions + ' -lgdi32'
 	#endif //__WINDOWS__
 	}
+#endif //!__OSX__
 
 	ObjectList('$ConfigName$-volcano')
 	{
@@ -401,22 +380,28 @@ ForEach(.Config in .Clang_x64_Configs)
 		.IntermediateFilePath + '/volcano'
 		.Libraries = {
 			'$ConfigName$-core',
-			'$ConfigName$-gfx',
 			'$ConfigName$-slang',
 			'$ConfigName$-volcano',
 			'$ConfigName$-glfw',
 			'$ConfigName$-xxhash',
 		}
-		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano'
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
 	#if __WINDOWS__
-		.LinkerOutput + '.exe'
 		.LinkerOptions + ' -luser32'
 			+ ' -lgdi32'
 			+ ' -lshell32'
 			+ ' -lvulkan-1'
 	#endif //__WINDOWS__
+	#if __OSX__
+		.LinkerOptions + ' -lc++fs'
+			+ ' -lvulkan'
+			+ ' -framework Cocoa'
+			+ ' -framework IOKit'
+			+ ' -framework CoreVideo'
+		//	+ ' -rpath @executable_path/bin/osx-x64/'
+	#endif
 	}
 
 	Alias('$ConfigName$')
@@ -425,15 +410,20 @@ ForEach(.Config in .Clang_x64_Configs)
 		{
 			'$ConfigName$-slang-glslang-dll',
 			'$ConfigName$-slangc-exe',
-			'$ConfigName$-hello-world-exe',
-			'$ConfigName$-model-viewer-exe',
 			'$ConfigName$-volcano-exe',
 		}
+	#if !__OSX__
+		.Targets + 
+		{
+			'$ConfigName$-hello-world-exe',
+			'$ConfigName$-model-viewer-exe',
+		}
+	#endif //!__OSX__
 	}
 }
 
 Alias('all')
 {
-//	.Targets = .AllConfigNames
-	.Targets = { 'debug' }
+	.Targets = .AllConfigNames
+//	.Targets = { 'debug' }
 }
