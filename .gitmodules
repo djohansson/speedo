@@ -25,3 +25,9 @@
 [submodule "external/xxhash"]
 	path = external/xxhash
 	url = https://github.com/Cyan4973/xxHash.git
+[submodule "external/PicoSHA2"]
+	path = external/PicoSHA2
+	url = https://github.com/djohansson/PicoSHA2.git
+[submodule "external/mio"]
+	path = external/mio
+	url = https://github.com/djohansson/mio.git

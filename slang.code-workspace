@@ -91,7 +91,9 @@
 			"xtree": "cpp",
 			"xutility": "cpp",
 			"optional": "cpp",
-			"any": "cpp"
+			"any": "cpp",
+			"clocale": "cpp",
+			"variant": "cpp"
 		}
 	}
 }
