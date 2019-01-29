@@ -362,6 +362,7 @@ namespace Slang
 			return getData() + getLength();
 		}
 
+		void append(UInt value, int radix = 10);
         void append(int32_t value, int radix = 10);
         void append(uint32_t value, int radix = 10);
         void append(int64_t value, int radix = 10);
