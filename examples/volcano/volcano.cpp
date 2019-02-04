@@ -805,6 +805,14 @@ class VulkanApplication
 			archive(/*CEREAL_NVP(path), */CEREAL_NVP(size), CEREAL_NVP(timeStamp), CEREAL_NVP(sha2));
 		}
 
+		void clear()
+		{
+			path.clear();
+			size = 0;
+			timeStamp.clear();
+			sha2.clear();
+		}
+
 		std::filesystem::path path;
 		int64_t size = 0;
 		std::string timeStamp;
@@ -831,7 +839,10 @@ class VulkanApplication
 		LoadOp loadOp,
 		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+		outFileInfo.clear();
+
+		auto fileStatus = std::filesystem::status(filePath);
+		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 			throw std::runtime_error("Failed to open file.");
 
 		std::ifstream file(filePath, std::ios::binary);
@@ -846,8 +857,8 @@ class VulkanApplication
 			outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 			picosha2::hash256(
-				std::istreambuf_iterator<char>(file),
-				std::istreambuf_iterator<char>(),
+				std::istreambuf_iterator(file),
+				std::istreambuf_iterator<typename decltype(file)::char_type>(),
 				outFileInfo.sha2.begin(),
 				outFileInfo.sha2.end());
 		}
@@ -864,6 +875,8 @@ class VulkanApplication
 		SaveOp saveOp,
 		bool sha2Enable)
 	{
+		outFileInfo.clear();
+
 		std::fstream file(filePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
 
 		saveOp(file);
@@ -877,8 +890,8 @@ class VulkanApplication
 			outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 			picosha2::hash256(
-				std::istreambuf_iterator<char>(file),
-				std::istreambuf_iterator<char>(),
+				std::istreambuf_iterator(file),
+				std::istreambuf_iterator<typename decltype(file)::char_type>(),
 				outFileInfo.sha2.begin(),
 				outFileInfo.sha2.end());
 		}
@@ -893,7 +906,10 @@ class VulkanApplication
 		FileInfo &outFileInfo,
 		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+		outFileInfo.clear();
+
+		auto fileStatus = std::filesystem::status(filePath);
+		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 			return FileState::Missing;
 
 		if (sha2Enable)
@@ -902,11 +918,14 @@ class VulkanApplication
 
 			outFileInfo.sha2.resize(picosha2::k_digest_size);
 			
-			picosha2::hash256(file, outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+			picosha2::hash256(
+				file,
+				outFileInfo.sha2.begin(),
+				outFileInfo.sha2.end());
 		}
 
 		outFileInfo.path = filePath;
-		outFileInfo.size = std::filesystem::file_size(filePath);;
+		outFileInfo.size = std::filesystem::file_size(filePath);
 		outFileInfo.timeStamp = getFileTimeStamp(filePath);
 
 		return FileState::Valid;
@@ -923,7 +942,10 @@ class VulkanApplication
 		FileInfo &outFileInfo,
 		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+		outFileInfo.clear();
+
+		auto fileStatus = std::filesystem::status(filePath);
+		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 			return FileState::Missing;
 
 		std::string _loaderType;
@@ -942,7 +964,10 @@ class VulkanApplication
 		if (sha2Enable)
 		{
 			std::ifstream file(filePath, std::ios::binary);
-			picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
+			picosha2::hash256(
+				file,
+				fileSha2.begin(),
+				fileSha2.end());
 		}
 
 		// perhaps add path check as well?
@@ -983,17 +1008,17 @@ class VulkanApplication
 			json(cereal::make_nvp(id, outFileInfo));
 		};
 
-		auto loadPBinOp = [&vertices, &indices](std::ifstream& file) {
-			cereal::PortableBinaryInputArchive pbin(file);
+		auto loadPBinOp = [&vertices, &indices](std::istream& stream) {
+			cereal::PortableBinaryInputArchive pbin(stream);
 			pbin(vertices, indices);
 		};
 
-		auto savePBinOp = [&vertices, &indices](std::fstream& file) {
-			cereal::PortableBinaryOutputArchive pbin(file);
+		auto savePBinOp = [&vertices, &indices](std::ostream& stream) {
+			cereal::PortableBinaryOutputArchive pbin(stream);
 			pbin(vertices, indices);
 		};
 
-		auto loadSourceOp = [&vertices, &indices](std::ifstream& file) {
+		auto loadSourceOp = [&vertices, &indices](std::istream& stream) {
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
 #else
@@ -1003,8 +1028,8 @@ class VulkanApplication
 			std::vector<shape_t> shapes;
 			std::vector<material_t> materials;
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-			std::streambuf *raw_buffer = file.rdbuf();
-			std::streamsize bufferSize = file.gcount();
+			std::streambuf *raw_buffer = stream.rdbuf();
+			std::streamsize bufferSize = stream.gcount();
 			std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
 			raw_buffer->sgetn(buffer.get(), bufferSize);
 			LoadOption option;
@@ -1012,7 +1037,7 @@ class VulkanApplication
 				throw std::runtime_error("Failed to load model.");
 #else
 			std::string warn, err;
-			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &file))
+			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &stream))
 				throw std::runtime_error(err);
 #endif
 
@@ -1069,7 +1094,8 @@ class VulkanApplication
 		bool firstImport;
 		FileInfo sourceFileInfo, pbinFileInfo;
 		FileState sourceFileState, pbinFileState;
-		if (std::filesystem::exists(jsonFilePath) && std::filesystem::is_regular_file(jsonFilePath))
+		auto jsonFileStatus = std::filesystem::status(jsonFilePath);
+		if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
 		{
 			firstImport = false;
 
@@ -1162,7 +1188,8 @@ class VulkanApplication
 		int x, y, n;
 		unsigned char *imageData = nullptr;
 
-		if (std::filesystem::exists(imageFile) && std::filesystem::is_regular_file(imageFile))
+		auto imageFileStatus = std::filesystem::status(imageFile);
+		if (std::filesystem::exists(imageFileStatus) && std::filesystem::is_regular_file(imageFileStatus))
 		{
 			imageData = stbi_load(imageFile.string().c_str(), &x, &y, &n, STBI_rgb_alpha);
 
@@ -1198,7 +1225,8 @@ class VulkanApplication
 		spirvFile /= "spir-v";
 		spirvFile /= filename;
 
-		if (std::filesystem::exists(spirvFile) && std::filesystem::is_regular_file(spirvFile))
+		auto spirvFileStatus = std::filesystem::status(spirvFile);
+		if (std::filesystem::exists(spirvFileStatus) && std::filesystem::is_regular_file(spirvFileStatus))
 		{
 			std::ifstream file(spirvFile.c_str(), std::ios::ate | std::ios::binary);
 
