@@ -114,7 +114,11 @@ namespace Slang
 {
     dst.Append("lib");
     dst.Append(name);
+#ifdef __OSX__
+    dst.Append(".dylib");
+#else
     dst.Append(".so");
+#endif
 }
 
 #endif // _WIN32
