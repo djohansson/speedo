@@ -365,6 +365,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$/external/imgui'
 			+ ' -I$ProjectPath$/external/cereal/include'
 			+ ' -I$ProjectPath$/external/picosha2'
+			+ ' -I$ProjectPath$/external/mio/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DSLANG_STATIC'
 			+ ' -DVOLCANO_USE_GLFW'
@@ -405,6 +406,36 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif
 	}
 
+	ObjectList('$ConfigName$-mio-test')
+	{
+		.IntermediateFilePath + '/mio'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$/external/mio/include'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/mio/test/test.cpp',
+		}
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	Executable('$ConfigName$-mio-test-exe')
+	{
+		.IntermediateFilePath + '/mio'
+		.Libraries = {
+			'$ConfigName$-mio-test',
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/mio-test$ExeSuffix$'
+		.LinkerOptions + .LinkerOptionsCpp
+	}
+
+	Test('$ConfigName$-mio-test-exe-run')
+	{
+		.TestExecutable = '$ConfigName$-mio-test-exe'
+		.TestOutput = '$IntermediateFilePath$/$ConfigName$-mio-test-exe-run'
+		.TestWorkingDir = '$IntermediateFilePath$'
+	}
+
 	Alias('$ConfigName$')
 	{
 		.Targets =
@@ -412,6 +443,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-slang-glslang-dll',
 			'$ConfigName$-slangc-exe',
 			'$ConfigName$-volcano-exe',
+			'$ConfigName$-mio-test-exe-run',
 		}
 	#if !__OSX__
 		.Targets + 

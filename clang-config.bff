@@ -71,7 +71,7 @@ Compiler('Compiler-Clang')
 	.PlatformInfo = 'Linux'
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
-	.BaseCompilerOptions = '-o "%2" "%1" -c -g'
+	.BaseCompilerOptions = '-o "%2" "%1" -c -g -fms-extensions'
 		+ .BaseIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
@@ -81,7 +81,6 @@ Compiler('Compiler-Clang')
 		+ ' -D_WIN32_LEAN_AND_MEAN'
 		+ ' -DNOMINMAX'
 		+ ' -gcodeview'
-		+ ' -fms-extensions'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'

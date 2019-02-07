@@ -1,5 +1,4 @@
 #include "volcano.h"
-#include "hash.h"
 #include "math.h"
 #include "utils.h"
 #include "vk-swapchain.h"
@@ -20,7 +19,7 @@
 #include <execution>
 #endif
 #include <filesystem>
-#include <fstream>
+//#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
@@ -91,6 +90,10 @@
 
 #include <picosha2.h>
 
+#include <xxhash.h>
+
+#include <mio/mmap_streambuf.hpp>
+
 #include <imgui.cpp>
 #include <imgui_draw.cpp>
 #include <imgui_demo.cpp>
@@ -98,6 +101,7 @@
 #include <examples/imgui_impl_vulkan.cpp>
 
 #include <slang.h>
+
 
 // reminders:
 
@@ -271,7 +275,7 @@ void loadSlangShaders(const char *path, VkDevice device, ShaderStageSetup &outSh
 	VkShaderModuleCreateInfo vsCreateInfo = {};
 	vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	vsCreateInfo.codeSize = vertexShaderBlob->getBufferSize();
-	vsCreateInfo.pCode = reinterpret_cast<const uint32_t *>(vertexShaderBlob->getBufferPointer());
+	vsCreateInfo.pCode = static_cast<const uint32_t *>(vertexShaderBlob->getBufferPointer());
 
 	uint64_t vsShaderModuleHash = XXH64(&vsCreateInfo.flags, sizeof(vsCreateInfo.flags), 0);
 	if (const uint32_t *code = vsCreateInfo.pCode)
@@ -285,7 +289,7 @@ void loadSlangShaders(const char *path, VkDevice device, ShaderStageSetup &outSh
 	VkShaderModuleCreateInfo fsCreateInfo = {};
 	fsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	fsCreateInfo.codeSize = fragmentShaderBlob->getBufferSize();
-	fsCreateInfo.pCode = reinterpret_cast<const uint32_t *>(fragmentShaderBlob->getBufferPointer());
+	fsCreateInfo.pCode = static_cast<const uint32_t *>(fragmentShaderBlob->getBufferPointer());
 
 	uint64_t fsShaderModuleHash = XXH64(&fsCreateInfo.flags, sizeof(fsCreateInfo.flags), 0);
 	if (const uint32_t *code = fsCreateInfo.pCode)
@@ -834,22 +838,29 @@ class VulkanApplication
 		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
 			throw std::runtime_error("Failed to open file.");
 
-		std::ifstream file(filePath, std::ios::binary);
-
-		loadOp(file);
-	
-		if (sha2Enable)
 		{
-			file.clear();
-			file.seekg(0, std::ios_base::beg);
+			//std::ifstream fileStream(filePath, std::ios::binary);
+			mio::shared_mmap_source file(filePath.string());
+			mio::basic_mmap_streambuf fileStreamBuf(file);
+			std::istream fileStream(&fileStreamBuf);
 
-			outFileInfo.sha2.resize(picosha2::k_digest_size);
+			loadOp(fileStream);
+		
+			if (sha2Enable)
+			{
+				// file.clear();
+				// file.seekg(0, std::ios_base::beg);
 
-			picosha2::hash256(
-				std::istreambuf_iterator<char>(file),
-				std::istreambuf_iterator<char>(),
-				outFileInfo.sha2.begin(),
-				outFileInfo.sha2.end());
+				outFileInfo.sha2.resize(picosha2::k_digest_size);
+
+				picosha2::hash256(
+					file.cbegin(),
+					file.cend(),
+					//std::istreambuf_iterator(&fileStreamBuf),
+					//std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
+					outFileInfo.sha2.begin(),
+					outFileInfo.sha2.end());
+			}
 		}
 
 		outFileInfo.path = filePath;
@@ -864,23 +875,30 @@ class VulkanApplication
 		SaveOp saveOp,
 		bool sha2Enable)
 	{
-		std::fstream file(filePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
-
-		saveOp(file);
-
-		if (sha2Enable)
 		{
-			file.flush();
-			file.sync();
-			file.seekg(0, std::ios_base::beg);
+			//std::fstream fileStream(filePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
+			mio::shared_mmap_sink file(filePath.string());
+			mio::basic_mmap_streambuf fileStreamBuf(file);
+			std::ostream fileStream(&fileStreamBuf);
 
-			outFileInfo.sha2.resize(picosha2::k_digest_size);
+			saveOp(fileStream);
 
-			picosha2::hash256(
-				std::istreambuf_iterator<char>(file),
-				std::istreambuf_iterator<char>(),
-				outFileInfo.sha2.begin(),
-				outFileInfo.sha2.end());
+			if (sha2Enable)
+			{
+				// fileStream.flush();
+				// fileStream.sync();
+				// fileStream.seekg(0, std::ios_base::beg);
+
+				outFileInfo.sha2.resize(picosha2::k_digest_size);
+
+				picosha2::hash256(
+					file.cbegin(),
+					file.cend(),
+					//std::istreambuf_iterator(&fileStreamBuf),
+					//std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
+					outFileInfo.sha2.begin(),
+					outFileInfo.sha2.end());
+			}
 		}
 
 		outFileInfo.path = filePath;
@@ -898,11 +916,11 @@ class VulkanApplication
 
 		if (sha2Enable)
 		{
-			std::ifstream file(filePath, std::ios::binary);
-
+			//std::ifstream file(filePath, std::ios::binary);
+			mio::mmap_source file(filePath.string());
 			outFileInfo.sha2.resize(picosha2::k_digest_size);
-			
-			picosha2::hash256(file, outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+			//picosha2::hash256(file, outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+			picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 		}
 
 		outFileInfo.path = filePath;
@@ -941,8 +959,10 @@ class VulkanApplication
 		std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
 		if (sha2Enable)
 		{
-			std::ifstream file(filePath, std::ios::binary);
-			picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
+			//std::ifstream file(filePath, std::ios::binary);
+			mio::mmap_source file(filePath.string());
+			//picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
+			picosha2::hash256(file.begin(), file.end(), fileSha2.begin(), fileSha2.end());
 		}
 
 		// perhaps add path check as well?
@@ -983,17 +1003,17 @@ class VulkanApplication
 			json(cereal::make_nvp(id, outFileInfo));
 		};
 
-		auto loadPBinOp = [&vertices, &indices](std::ifstream& file) {
+		auto loadPBinOp = [&vertices, &indices](std::istream& file) {
 			cereal::PortableBinaryInputArchive pbin(file);
 			pbin(vertices, indices);
 		};
 
-		auto savePBinOp = [&vertices, &indices](std::fstream& file) {
+		auto savePBinOp = [&vertices, &indices](std::ostream& file) {
 			cereal::PortableBinaryOutputArchive pbin(file);
 			pbin(vertices, indices);
 		};
 
-		auto loadSourceOp = [&vertices, &indices](std::ifstream& file) {
+		auto loadSourceOp = [&vertices, &indices](std::istream& stream) {
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
 #else
@@ -1003,8 +1023,8 @@ class VulkanApplication
 			std::vector<shape_t> shapes;
 			std::vector<material_t> materials;
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-			std::streambuf *raw_buffer = file.rdbuf();
-			std::streamsize bufferSize = file.gcount();
+			std::streambuf *raw_buffer = stream.rdbuf();
+			std::streamsize bufferSize = stream.gcount();
 			std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
 			raw_buffer->sgetn(buffer.get(), bufferSize);
 			LoadOption option;
@@ -1012,7 +1032,7 @@ class VulkanApplication
 				throw std::runtime_error("Failed to load model.");
 #else
 			std::string warn, err;
-			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &file))
+			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &stream))
 				throw std::runtime_error(err);
 #endif
 
@@ -1073,27 +1093,30 @@ class VulkanApplication
 		{
 			firstImport = false;
 
-			std::ifstream jsonInFile(jsonFilePath);
+			//std::ifstream fileStream(jsonFilePath);
+			mio::shared_mmap_source file(jsonFilePath.string());
+			mio::basic_mmap_streambuf fileStreamBuf(file);
+			std::istream fileStream(&fileStreamBuf);
 			
 			sourceFileState = getFileInfo(
 				sourceFilePath,
 				"sourceFileInfo",
 				sc_modelLoaderType,
 				sc_modelLoaderVersion,
-				jsonInFile,
+				fileStream,
 				loadJSONOp,
 				sourceFileInfo,
 				false);
 
-			jsonInFile.clear();
-			jsonInFile.seekg(0, std::ios_base::beg);
+			fileStream.clear();
+			fileStream.seekg(0, std::ios_base::beg);
 
 			pbinFileState = getFileInfo(
 				pbinFilePath,
 				"pbinFileInfo",
 				sc_modelLoaderType,
 				sc_modelLoaderVersion,
-				jsonInFile,
+				fileStream,
 				loadJSONOp,
 				pbinFileInfo,
 				false);
@@ -1110,8 +1133,11 @@ class VulkanApplication
 			sourceFileState == FileState::Stale ||
 			pbinFileState != FileState::Valid)
 		{	
-			std::ofstream jsonFile(jsonFilePath, std::ios::trunc);
-			cereal::JSONOutputArchive json(jsonFile);
+			//std::ofstream fileStream(jsonFilePath, std::ios::trunc);
+			mio::shared_mmap_sink file(jsonFilePath.string());
+			mio::basic_mmap_streambuf fileStreamBuf(file);
+			std::ostream fileStream(&fileStreamBuf);
+			cereal::JSONOutputArchive json(fileStream);
 			
 			json(cereal::make_nvp("loaderType", sc_modelLoaderType));
 			json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
@@ -1200,13 +1226,17 @@ class VulkanApplication
 
 		if (std::filesystem::exists(spirvFile) && std::filesystem::is_regular_file(spirvFile))
 		{
-			std::ifstream file(spirvFile.c_str(), std::ios::ate | std::ios::binary);
+			//std::ifstream file(spirvFile, std::ios::ate | std::ios::binary);
+			mio::mmap_source file(spirvFile.string());
 
-			auto fileSize = file.tellg();
+			//auto fileSize = file.tellg();
+			int64_t fileSize = std::filesystem::file_size(spirvFile);
+
 			outData.resize(static_cast<size_t>(fileSize));
 
-			file.seekg(0);
-			file.read(outData.data(), fileSize);
+			// file.seekg(0);
+			// file.read(outData.data(), fileSize);
+			std::copy(file.begin(), file.end(), outData.begin());
 		}
 		else
 		{
