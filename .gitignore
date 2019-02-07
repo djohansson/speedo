@@ -37,3 +37,7 @@ build.*/
 # slang temp files
 
 examples/volcano/slang-dump-*.*
+
+# mio unit test output
+
+examples/volcano/test-file
