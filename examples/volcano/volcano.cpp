@@ -809,6 +809,14 @@ class VulkanApplication
 			archive(/*CEREAL_NVP(path), */CEREAL_NVP(size), CEREAL_NVP(timeStamp), CEREAL_NVP(sha2));
 		}
 
+		void clear()
+		{
+			path.clear();
+			size = 0;
+			timeStamp.clear();
+			sha2.clear();
+		}
+
 		std::filesystem::path path;
 		int64_t size = 0;
 		std::string timeStamp;
@@ -835,7 +843,10 @@ class VulkanApplication
 		LoadOp loadOp,
 		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+		outFileInfo.clear();
+
+		auto fileStatus = std::filesystem::status(filePath);
+		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 			throw std::runtime_error("Failed to open file.");
 
 		{
@@ -911,7 +922,10 @@ class VulkanApplication
 		FileInfo &outFileInfo,
 		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+		outFileInfo.clear();
+
+		auto fileStatus = std::filesystem::status(filePath);
+		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 			return FileState::Missing;
 
 		if (sha2Enable)
@@ -924,7 +938,7 @@ class VulkanApplication
 		}
 
 		outFileInfo.path = filePath;
-		outFileInfo.size = std::filesystem::file_size(filePath);;
+		outFileInfo.size = std::filesystem::file_size(filePath);
 		outFileInfo.timeStamp = getFileTimeStamp(filePath);
 
 		return FileState::Valid;
@@ -941,7 +955,10 @@ class VulkanApplication
 		FileInfo &outFileInfo,
 		bool sha2Enable)
 	{
-		if (!std::filesystem::exists(filePath) || !std::filesystem::is_regular_file(filePath))
+		outFileInfo.clear();
+
+		auto fileStatus = std::filesystem::status(filePath);
+		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 			return FileState::Missing;
 
 		std::string _loaderType;
@@ -1089,7 +1106,8 @@ class VulkanApplication
 		bool firstImport;
 		FileInfo sourceFileInfo, pbinFileInfo;
 		FileState sourceFileState, pbinFileState;
-		if (std::filesystem::exists(jsonFilePath) && std::filesystem::is_regular_file(jsonFilePath))
+		auto jsonFileStatus = std::filesystem::status(jsonFilePath);
+		if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
 		{
 			firstImport = false;
 
@@ -1188,7 +1206,8 @@ class VulkanApplication
 		int x, y, n;
 		unsigned char *imageData = nullptr;
 
-		if (std::filesystem::exists(imageFile) && std::filesystem::is_regular_file(imageFile))
+		auto imageFileStatus = std::filesystem::status(imageFile);
+		if (std::filesystem::exists(imageFileStatus) && std::filesystem::is_regular_file(imageFileStatus))
 		{
 			imageData = stbi_load(imageFile.string().c_str(), &x, &y, &n, STBI_rgb_alpha);
 
@@ -1224,7 +1243,8 @@ class VulkanApplication
 		spirvFile /= "spir-v";
 		spirvFile /= filename;
 
-		if (std::filesystem::exists(spirvFile) && std::filesystem::is_regular_file(spirvFile))
+		auto spirvFileStatus = std::filesystem::status(spirvFile);
+		if (std::filesystem::exists(spirvFileStatus) && std::filesystem::is_regular_file(spirvFileStatus))
 		{
 			//std::ifstream file(spirvFile, std::ios::ate | std::ios::binary);
 			mio::mmap_source file(spirvFile.string());
