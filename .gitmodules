@@ -30,4 +30,4 @@
 	url = https://github.com/djohansson/PicoSHA2.git
 [submodule "external/mio"]
 	path = external/mio
-	url = https://github.com/djohansson/mio.git
+	url = https://github.com/djohansson/mio
