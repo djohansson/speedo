@@ -19,7 +19,6 @@
 #include <execution>
 #endif
 #include <filesystem>
-//#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
@@ -850,25 +849,22 @@ class VulkanApplication
 			throw std::runtime_error("Failed to open file.");
 
 		{
-			//std::ifstream fileStream(filePath, std::ios::binary);
 			mio::shared_mmap_source file(filePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::istream fileStream(&fileStreamBuf);
 
 			loadOp(fileStream);
 		
 			if (sha2Enable)
 			{
-				// file.clear();
-				// file.seekg(0, std::ios_base::beg);
+				fileStream.clear();
+				fileStream.seekg(0, std::ios_base::beg);
 
 				outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 				picosha2::hash256(
-					file.cbegin(),
-					file.cend(),
-					//std::istreambuf_iterator(&fileStreamBuf),
-					//std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
+					std::istreambuf_iterator(&fileStreamBuf),
+					std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
 					outFileInfo.sha2.begin(),
 					outFileInfo.sha2.end());
 			}
@@ -887,26 +883,23 @@ class VulkanApplication
 		bool sha2Enable)
 	{
 		{
-			//std::fstream fileStream(filePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
 			mio::shared_mmap_sink file(filePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
-			std::ostream fileStream(&fileStreamBuf);
+			mio::mmap_streambuf fileStreamBuf(file);
+			std::iostream fileStream(&fileStreamBuf);
 
 			saveOp(fileStream);
+			
+			fileStreamBuf.truncate();
 
 			if (sha2Enable)
 			{
-				// fileStream.flush();
-				// fileStream.sync();
-				// fileStream.seekg(0, std::ios_base::beg);
+				fileStream.seekg(0, std::ios_base::beg);
 
 				outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 				picosha2::hash256(
-					file.cbegin(),
-					file.cend(),
-					//std::istreambuf_iterator(&fileStreamBuf),
-					//std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
+					std::istreambuf_iterator(&fileStreamBuf),
+					std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
 					outFileInfo.sha2.begin(),
 					outFileInfo.sha2.end());
 			}
@@ -930,10 +923,8 @@ class VulkanApplication
 
 		if (sha2Enable)
 		{
-			//std::ifstream file(filePath, std::ios::binary);
 			mio::mmap_source file(filePath.string());
 			outFileInfo.sha2.resize(picosha2::k_digest_size);
-			//picosha2::hash256(file, outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 			picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 		}
 
@@ -976,9 +967,7 @@ class VulkanApplication
 		std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
 		if (sha2Enable)
 		{
-			//std::ifstream file(filePath, std::ios::binary);
 			mio::mmap_source file(filePath.string());
-			//picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
 			picosha2::hash256(file.begin(), file.end(), fileSha2.begin(), fileSha2.end());
 		}
 
@@ -1111,9 +1100,8 @@ class VulkanApplication
 		{
 			firstImport = false;
 
-			//std::ifstream fileStream(jsonFilePath);
 			mio::shared_mmap_source file(jsonFilePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::istream fileStream(&fileStreamBuf);
 			
 			sourceFileState = getFileInfo(
@@ -1151,9 +1139,8 @@ class VulkanApplication
 			sourceFileState == FileState::Stale ||
 			pbinFileState != FileState::Valid)
 		{	
-			//std::ofstream fileStream(jsonFilePath, std::ios::trunc);
 			mio::shared_mmap_sink file(jsonFilePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::ostream fileStream(&fileStreamBuf);
 			cereal::JSONOutputArchive json(fileStream);
 			
@@ -1165,6 +1152,8 @@ class VulkanApplication
 
 			saveBinaryFile(pbinFilePath, pbinFileInfo, savePBinOp, true);
 			json(CEREAL_NVP(pbinFileInfo));
+
+			fileStreamBuf.truncate();
 		}
 		else
 		{
@@ -1246,16 +1235,8 @@ class VulkanApplication
 		auto spirvFileStatus = std::filesystem::status(spirvFile);
 		if (std::filesystem::exists(spirvFileStatus) && std::filesystem::is_regular_file(spirvFileStatus))
 		{
-			//std::ifstream file(spirvFile, std::ios::ate | std::ios::binary);
 			mio::mmap_source file(spirvFile.string());
-
-			//auto fileSize = file.tellg();
-			int64_t fileSize = std::filesystem::file_size(spirvFile);
-
-			outData.resize(static_cast<size_t>(fileSize));
-
-			// file.seekg(0);
-			// file.read(outData.data(), fileSize);
+			outData.resize(static_cast<size_t>(std::filesystem::file_size(spirvFile)));
 			std::copy(file.begin(), file.end(), outData.begin());
 		}
 		else
