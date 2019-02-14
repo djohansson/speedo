@@ -19,7 +19,6 @@
 #include <execution>
 #endif
 #include <filesystem>
-//#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
@@ -864,11 +863,14 @@ class VulkanApplication
 		
 			if (sha2Enable)
 			{
+				fileStream.clear();
+				fileStream.seekg(0, std::ios_base::beg);
+
 				outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 				picosha2::hash256(
-					file.cbegin(),
-					file.cend(),
+					std::istreambuf_iterator(&fileStreamBuf),
+					std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
 					outFileInfo.sha2.begin(),
 					outFileInfo.sha2.end());
 			}
@@ -889,17 +891,21 @@ class VulkanApplication
 		{
 			mio::shared_mmap_sink file(filePath.string());
 			mio::mmap_streambuf fileStreamBuf(file);
-			std::ostream fileStream(&fileStreamBuf);
+			std::iostream fileStream(&fileStreamBuf);
 
 			saveOp(fileStream);
+			
+			fileStreamBuf.truncate();
 
 			if (sha2Enable)
 			{
+				fileStream.seekg(0, std::ios_base::beg);
+
 				outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 				picosha2::hash256(
-					file.cbegin(),
-					file.cend(),
+					std::istreambuf_iterator(&fileStreamBuf),
+					std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
 					outFileInfo.sha2.begin(),
 					outFileInfo.sha2.end());
 			}
@@ -1152,6 +1158,8 @@ class VulkanApplication
 
 			saveBinaryFile(pbinFilePath, pbinFileInfo, savePBin, true);
 			json(CEREAL_NVP(pbinFileInfo));
+
+			fileStreamBuf.truncate();
 		}
 		else
 		{
@@ -1247,8 +1255,7 @@ class VulkanApplication
 		if (std::filesystem::exists(spirvFileStatus) && std::filesystem::is_regular_file(spirvFileStatus))
 		{
 			mio::mmap_source file(spirvFile.string());
-			int64_t fileSize = std::filesystem::file_size(spirvFile);
-			outData.resize(static_cast<size_t>(fileSize));
+			outData.resize(static_cast<size_t>(std::filesystem::file_size(spirvFile)));
 			std::copy(file.begin(), file.end(), outData.begin());
 		}
 		else
