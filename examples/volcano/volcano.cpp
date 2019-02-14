@@ -155,17 +155,18 @@ struct Model
 
 struct ShaderStageSetup
 {
-	Model model;	 // temp
-	Texture texture; // temp
+	Model model;	 // temp, use handles instead
+	Texture texture; // temp, use handles instead
 
-	ShaderModuleSet shaderModules;
+	ShaderModuleSet shaderModules; // temp, use handles instead
+	// temp, use handles instead. store directly in shadermoduleset?
 	std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
 	std::vector<VkDescriptorSet> descriptorSets;
 
 	uint64_t pipelineHash = 0; // temp
 };
 
-void loadSlangShaders(const char *path, VkDevice device, ShaderStageSetup &outShaderStageSetup)
+ShaderStageSetup loadSlangShaders(const char *path, VkDevice device)
 {
 	// First, we need to create a "session" for interacting with the Slang
 	// compiler. This scopes all of our application's interactions
@@ -271,6 +272,8 @@ void loadSlangShaders(const char *path, VkDevice device, ShaderStageSetup &outSh
 
 	//loadSPIRVFile("vert.spv", vsCode);
 	//loadSPIRVFile("frag.spv", fsCode);
+
+	ShaderStageSetup outShaderStageSetup;
 
 	VkShaderModuleCreateInfo vsCreateInfo = {};
 	vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -422,6 +425,8 @@ void loadSlangShaders(const char *path, VkDevice device, ShaderStageSetup &outSh
 	//
 	spDestroyCompileRequest(slangRequest);
 	spDestroySession(slangSession);
+
+	return outShaderStageSetup;
 }
 
 static inline uint64_t hash(const VkGraphicsPipelineCreateInfo &info, const ShaderModuleSet &shaderModules)
@@ -635,7 +640,7 @@ class VulkanApplication
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-		loadModel("chalet.obj", myHouseSetup.model);
+		myHouseSetup.model = loadModel("chalet.obj");
 
 		// {
 		// 	createDeviceLocalBuffer(Quad::ourVertices, static_cast<uint32_t>(sizeof_array(Quad::ourVertices)),
@@ -646,7 +651,7 @@ class VulkanApplication
 		// 		myQuadModel.myIndexBufferMemory);
 		// }
 
-		loadTexture("chalet.jpg", myHouseSetup.texture);
+		myHouseSetup.texture = loadTexture("chalet.jpg");
 		//loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
 
 		// create uniform buffer
@@ -794,6 +799,10 @@ class VulkanApplication
 	}
 
   private:
+
+  	inline static const std::string sc_modelLoaderType = "tinyobjloader";
+	inline static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
+
 	enum class FileState
 	{
 		Missing,
@@ -823,9 +832,6 @@ class VulkanApplication
 		std::vector<unsigned char> sha2;
 	};
 
-	inline static const std::string sc_modelLoaderType = "tinyobjloader";
-	inline static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
-
 	static std::string getFileTimeStamp(const std::filesystem::path &filePath)
 	{
 		std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -850,25 +856,19 @@ class VulkanApplication
 			throw std::runtime_error("Failed to open file.");
 
 		{
-			//std::ifstream fileStream(filePath, std::ios::binary);
 			mio::shared_mmap_source file(filePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::istream fileStream(&fileStreamBuf);
 
 			loadOp(fileStream);
 		
 			if (sha2Enable)
 			{
-				// file.clear();
-				// file.seekg(0, std::ios_base::beg);
-
 				outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 				picosha2::hash256(
 					file.cbegin(),
 					file.cend(),
-					//std::istreambuf_iterator(&fileStreamBuf),
-					//std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
 					outFileInfo.sha2.begin(),
 					outFileInfo.sha2.end());
 			}
@@ -887,26 +887,19 @@ class VulkanApplication
 		bool sha2Enable)
 	{
 		{
-			//std::fstream fileStream(filePath, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
 			mio::shared_mmap_sink file(filePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::ostream fileStream(&fileStreamBuf);
 
 			saveOp(fileStream);
 
 			if (sha2Enable)
 			{
-				// fileStream.flush();
-				// fileStream.sync();
-				// fileStream.seekg(0, std::ios_base::beg);
-
 				outFileInfo.sha2.resize(picosha2::k_digest_size);
 
 				picosha2::hash256(
 					file.cbegin(),
 					file.cend(),
-					//std::istreambuf_iterator(&fileStreamBuf),
-					//std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
 					outFileInfo.sha2.begin(),
 					outFileInfo.sha2.end());
 			}
@@ -930,10 +923,8 @@ class VulkanApplication
 
 		if (sha2Enable)
 		{
-			//std::ifstream file(filePath, std::ios::binary);
 			mio::mmap_source file(filePath.string());
 			outFileInfo.sha2.resize(picosha2::k_digest_size);
-			//picosha2::hash256(file, outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 			picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 		}
 
@@ -976,9 +967,7 @@ class VulkanApplication
 		std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
 		if (sha2Enable)
 		{
-			//std::ifstream file(filePath, std::ios::binary);
 			mio::mmap_source file(filePath.string());
-			//picosha2::hash256(file, fileSha2.begin(), fileSha2.end());
 			picosha2::hash256(file.begin(), file.end(), fileSha2.begin(), fileSha2.end());
 		}
 
@@ -996,7 +985,7 @@ class VulkanApplication
 		return FileState::Valid;
 	}
 
-	void loadModel(const char *filename, Model &outModel) const
+	Model loadModel(const char *filename) const
 	{
 		std::filesystem::path sourceFilePath(myResourcePath);
 		sourceFilePath = std::filesystem::absolute(sourceFilePath);
@@ -1013,24 +1002,24 @@ class VulkanApplication
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 
-		auto loadJSONOp = [](std::istream& stream, const std::string& id, std::string& outLoaderType, std::string& outLoaderVersion, FileInfo& outFileInfo) {
+		auto loadJSON = [](std::istream& stream, const std::string& id, std::string& outLoaderType, std::string& outLoaderVersion, FileInfo& outFileInfo) {
 			cereal::JSONInputArchive json(stream);
 			json(cereal::make_nvp("loaderType", outLoaderType));
 			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
 			json(cereal::make_nvp(id, outFileInfo));
 		};
 
-		auto loadPBinOp = [&vertices, &indices](std::istream& file) {
+		auto loadPBin = [&vertices, &indices](std::istream& file) {
 			cereal::PortableBinaryInputArchive pbin(file);
 			pbin(vertices, indices);
 		};
 
-		auto savePBinOp = [&vertices, &indices](std::ostream& file) {
+		auto savePBin = [&vertices, &indices](std::ostream& file) {
 			cereal::PortableBinaryOutputArchive pbin(file);
 			pbin(vertices, indices);
 		};
 
-		auto loadSourceOp = [&vertices, &indices](std::istream& stream) {
+		auto loadOBJ = [&vertices, &indices](std::istream& stream) {
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
 #else
@@ -1111,9 +1100,8 @@ class VulkanApplication
 		{
 			firstImport = false;
 
-			//std::ifstream fileStream(jsonFilePath);
 			mio::shared_mmap_source file(jsonFilePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::istream fileStream(&fileStreamBuf);
 			
 			sourceFileState = getFileInfo(
@@ -1122,7 +1110,7 @@ class VulkanApplication
 				sc_modelLoaderType,
 				sc_modelLoaderVersion,
 				fileStream,
-				loadJSONOp,
+				loadJSON,
 				sourceFileInfo,
 				false);
 
@@ -1135,7 +1123,7 @@ class VulkanApplication
 				sc_modelLoaderType,
 				sc_modelLoaderVersion,
 				fileStream,
-				loadJSONOp,
+				loadJSON,
 				pbinFileInfo,
 				false);
 		}
@@ -1151,30 +1139,31 @@ class VulkanApplication
 			sourceFileState == FileState::Stale ||
 			pbinFileState != FileState::Valid)
 		{	
-			//std::ofstream fileStream(jsonFilePath, std::ios::trunc);
 			mio::shared_mmap_sink file(jsonFilePath.string());
-			mio::basic_mmap_streambuf fileStreamBuf(file);
+			mio::mmap_streambuf fileStreamBuf(file);
 			std::ostream fileStream(&fileStreamBuf);
 			cereal::JSONOutputArchive json(fileStream);
 			
 			json(cereal::make_nvp("loaderType", sc_modelLoaderType));
 			json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
 
-			loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceOp, true);
+			loadBinaryFile(sourceFilePath, sourceFileInfo, loadOBJ, true);
 			json(CEREAL_NVP(sourceFileInfo));
 
-			saveBinaryFile(pbinFilePath, pbinFileInfo, savePBinOp, true);
+			saveBinaryFile(pbinFilePath, pbinFileInfo, savePBin, true);
 			json(CEREAL_NVP(pbinFileInfo));
 		}
 		else
 		{
-			loadBinaryFile(pbinFilePath, pbinFileInfo, loadPBinOp, false);
+			loadBinaryFile(pbinFilePath, pbinFileInfo, loadPBin, false);
 		}
 
 		if (vertices.empty() || indices.empty())
 		{
 			throw std::runtime_error("Failed to load model.");
 		}
+
+		Model outModel;
 
 		createDeviceLocalBuffer(
 			vertices.data(),
@@ -1193,9 +1182,11 @@ class VulkanApplication
 			filename);
 
 		outModel.indexCount = indices.size();
+
+		return outModel;
 	}
 
-	void loadTexture(const char *filename, Texture &outTexture) const
+	Texture loadTexture(const char *filename) const
 	{
 		std::filesystem::path imageFile(myResourcePath);
 		imageFile = std::filesystem::absolute(imageFile);
@@ -1205,6 +1196,8 @@ class VulkanApplication
 
 		int x, y, n;
 		unsigned char *imageData = nullptr;
+
+		Texture outTexture;
 
 		auto imageFileStatus = std::filesystem::status(imageFile);
 		if (std::filesystem::exists(imageFileStatus) && std::filesystem::is_regular_file(imageFileStatus))
@@ -1226,15 +1219,20 @@ class VulkanApplication
 
 			stbi_image_free(imageData);
 
-			outTexture.myImageView = createImageView2D(myHouseSetup.texture.myImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+			outTexture.myImageView = createImageView2D(
+				outTexture.myImage,
+				VK_FORMAT_R8G8B8A8_UNORM,
+				VK_IMAGE_ASPECT_COLOR_BIT);
 		}
 		else
 		{
 			throw std::runtime_error("Failed to load image.");
 		}
+
+		return outTexture;
 	}
 
-	void loadSPIRVFile(const char *filename, std::vector<char> &outData)
+	std::vector<char> loadSPIRVFile(const char *filename)
 	{
 		std::filesystem::path spirvFile(myResourcePath);
 		spirvFile = std::filesystem::absolute(spirvFile);
@@ -1243,25 +1241,22 @@ class VulkanApplication
 		spirvFile /= "spir-v";
 		spirvFile /= filename;
 
+		std::vector<char> outData;
+
 		auto spirvFileStatus = std::filesystem::status(spirvFile);
 		if (std::filesystem::exists(spirvFileStatus) && std::filesystem::is_regular_file(spirvFileStatus))
 		{
-			//std::ifstream file(spirvFile, std::ios::ate | std::ios::binary);
 			mio::mmap_source file(spirvFile.string());
-
-			//auto fileSize = file.tellg();
 			int64_t fileSize = std::filesystem::file_size(spirvFile);
-
 			outData.resize(static_cast<size_t>(fileSize));
-
-			// file.seekg(0);
-			// file.read(outData.data(), fileSize);
 			std::copy(file.begin(), file.end(), outData.begin());
 		}
 		else
 		{
 			throw std::runtime_error("Failed to open file.");
 		}
+
+		return outData;
 	}
 
 	void createInstance()
@@ -1764,7 +1759,7 @@ class VulkanApplication
 
 	void createGraphicsPipelines()
 	{
-		loadSlangShaders("shaders.slang", myDevice, myHouseSetup);
+		myHouseSetup = loadSlangShaders("shaders.slang", myDevice);
 
 		assert(myHouseSetup.shaderModules.size() == 2); // temp
 
@@ -2468,13 +2463,13 @@ class VulkanApplication
 				lerp(proj0[1], proj1[1], s),
 				lerp(proj0[2], proj1[2], s),
 				lerp(proj0[3], proj1[3], s));
+		}
 
-			vmaFlushAllocation(
+		vmaFlushAllocation(
 				myAllocator,
 				myUniformBufferMemory,
-				n * sizeof(UniformBufferObject),
-				sizeof(UniformBufferObject));
-		}
+				sizeof(UniformBufferObject),
+				(NX * NY) * sizeof(UniformBufferObject));
 
 		vmaUnmapMemory(myAllocator, myUniformBufferMemory);
 	}
@@ -2580,7 +2575,9 @@ class VulkanApplication
 						uint32_t i = n % NX;
 						uint32_t j = n / NX;
 
-						auto drawModel = [this, &n](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t indexCount) {
+						auto setViewportAndScissor = [](VkCommandBuffer cmd,
+							int32_t x, int32_t y, int32_t width, int32_t height)
+						{
 							VkViewport viewport = {};
 							viewport.x = static_cast<float>(x);
 							viewport.y = static_cast<float>(y);
@@ -2593,23 +2590,37 @@ class VulkanApplication
 							scissor.offset = {x, y};
 							scissor.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
+							vkCmdSetViewport(cmd, 0, 1, &viewport);
+							vkCmdSetScissor(cmd, 0, 1, &scissor);
+						};
+
+						auto drawModel = [&n](VkCommandBuffer cmd,
+							uint32_t indexCount,
+							uint32_t descriptorSetCount,
+							const VkDescriptorSet* descriptorSets,
+							VkPipelineLayout pipelineLayout)
+						{
 							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
 							vkCmdBindDescriptorSets(
 								cmd,
 								VK_PIPELINE_BIND_POINT_GRAPHICS,
-								myPipelineLayout,
+								pipelineLayout,
 								0,
-								myHouseSetup.descriptorSets.size(),
-								myHouseSetup.descriptorSets.data(),
+								descriptorSetCount,
+								descriptorSets,
 								1,
 								&uniformBufferOffset);
-
-							vkCmdSetViewport(cmd, 0, 1, &viewport);
-							vkCmdSetScissor(cmd, 0, 1, &scissor);
 							vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
 						};
 
-						drawModel(cmd, i * dx, j * dy, dx, dy, myHouseSetup.model.indexCount);
+						setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+
+						drawModel(
+							cmd,
+							myHouseSetup.model.indexCount,
+							myHouseSetup.descriptorSets.size(),
+							myHouseSetup.descriptorSets.data(),
+							myPipelineLayout);
 					}
 				});
 		}
