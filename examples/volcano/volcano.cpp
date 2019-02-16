@@ -1,4 +1,5 @@
 #include "volcano.h"
+#include "file.h"
 #include "math.h"
 #include "utils.h"
 #include "vk-swapchain.h"
@@ -87,11 +88,7 @@
 #include <cereal/archives/portable_binary.hpp>
 #include <cereal/archives/json.hpp>
 
-#include <picosha2.h>
-
 #include <xxhash.h>
-
-#include <mio/mmap_streambuf.hpp>
 
 #include <imgui.cpp>
 #include <imgui_draw.cpp>
@@ -152,11 +149,14 @@ struct Model
 	uint32_t indexCount;
 };
 
+struct GraphicsPipelineResourceSet
+{
+	Model model; // temp, use handles instead
+	Texture texture; // temp, use handles instead
+};
+
 struct ShaderStageSetup
 {
-	Model model;	 // temp, use handles instead
-	Texture texture; // temp, use handles instead
-
 	ShaderModuleSet shaderModules; // temp, use handles instead
 	// temp, use handles instead. store directly in shadermoduleset?
 	std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
@@ -639,7 +639,7 @@ class VulkanApplication
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-		myHouseSetup.model = loadModel("chalet.obj");
+		myHouseResources.model = loadModel("chalet.obj");
 
 		// {
 		// 	createDeviceLocalBuffer(Quad::ourVertices, static_cast<uint32_t>(sizeof_array(Quad::ourVertices)),
@@ -650,7 +650,7 @@ class VulkanApplication
 		// 		myQuadModel.myIndexBufferMemory);
 		// }
 
-		myHouseSetup.texture = loadTexture("chalet.jpg");
+		myHouseResources.texture = loadTexture("chalet.jpg");
 		//loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
 
 		// create uniform buffer
@@ -670,7 +670,7 @@ class VulkanApplication
 
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = myHouseSetup.texture.myImageView;
+		imageInfo.imageView = myHouseResources.texture.myImageView;
 		imageInfo.sampler = mySampler;
 
 		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
@@ -802,195 +802,6 @@ class VulkanApplication
   	inline static const std::string sc_modelLoaderType = "tinyobjloader";
 	inline static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
 
-	enum class FileState
-	{
-		Missing,
-		Stale,
-		Valid,
-	};
-
-	struct FileInfo
-	{
-		template <class Archive>
-		void serialize(Archive &archive)
-		{
-			archive(/*CEREAL_NVP(path), */CEREAL_NVP(size), CEREAL_NVP(timeStamp), CEREAL_NVP(sha2));
-		}
-
-		void clear()
-		{
-			path.clear();
-			size = 0;
-			timeStamp.clear();
-			sha2.clear();
-		}
-
-		std::filesystem::path path;
-		int64_t size = 0;
-		std::string timeStamp;
-		std::vector<unsigned char> sha2;
-	};
-
-	static std::string getFileTimeStamp(const std::filesystem::path &filePath)
-	{
-		std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-			std::filesystem::last_write_time(filePath).time_since_epoch());
-		std::chrono::seconds s = std::chrono::duration_cast<std::chrono::seconds>(ms);
-		std::time_t timestamp = s.count();
-
-		return std::string(std::asctime(std::localtime(&timestamp)));
-	}
-
-	template <typename LoadOp>
-	static void loadBinaryFile(
-		const std::filesystem::path &filePath,
-		FileInfo& outFileInfo,
-		LoadOp loadOp,
-		bool sha2Enable)
-	{
-		outFileInfo.clear();
-
-		auto fileStatus = std::filesystem::status(filePath);
-		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-			throw std::runtime_error("Failed to open file.");
-
-		{
-			mio::shared_mmap_source file(filePath.string());
-			mio::mmap_streambuf fileStreamBuf(file);
-			std::istream fileStream(&fileStreamBuf);
-
-			loadOp(fileStream);
-		
-			if (sha2Enable)
-			{
-				fileStream.clear();
-				fileStream.seekg(0, std::ios_base::beg);
-
-				outFileInfo.sha2.resize(picosha2::k_digest_size);
-
-				picosha2::hash256(
-					std::istreambuf_iterator(&fileStreamBuf),
-					std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
-					outFileInfo.sha2.begin(),
-					outFileInfo.sha2.end());
-			}
-		}
-
-		outFileInfo.path = filePath;
-		outFileInfo.size = std::filesystem::file_size(filePath);
-		outFileInfo.timeStamp = getFileTimeStamp(filePath);
-	}
-
-	template <typename SaveOp>
-	static void saveBinaryFile(
-		const std::filesystem::path &filePath,
-		FileInfo& outFileInfo,
-		SaveOp saveOp,
-		bool sha2Enable)
-	{
-		{
-			mio::shared_mmap_sink file(filePath.string());
-			mio::mmap_streambuf fileStreamBuf(file);
-			std::iostream fileStream(&fileStreamBuf);
-
-			saveOp(fileStream);
-			
-			fileStreamBuf.truncate();
-
-			if (sha2Enable)
-			{
-				fileStream.seekg(0, std::ios_base::beg);
-
-				outFileInfo.sha2.resize(picosha2::k_digest_size);
-
-				picosha2::hash256(
-					std::istreambuf_iterator(&fileStreamBuf),
-					std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
-					outFileInfo.sha2.begin(),
-					outFileInfo.sha2.end());
-			}
-		}
-
-		outFileInfo.path = filePath;
-		outFileInfo.size = std::filesystem::file_size(filePath);
-		outFileInfo.timeStamp = getFileTimeStamp(filePath);
-	}
-
-	static FileState getFileInfo(
-		const std::filesystem::path &filePath,
-		FileInfo &outFileInfo,
-		bool sha2Enable)
-	{
-		outFileInfo.clear();
-
-		auto fileStatus = std::filesystem::status(filePath);
-		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-			return FileState::Missing;
-
-		if (sha2Enable)
-		{
-			mio::mmap_source file(filePath.string());
-			outFileInfo.sha2.resize(picosha2::k_digest_size);
-			picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
-		}
-
-		outFileInfo.path = filePath;
-		outFileInfo.size = std::filesystem::file_size(filePath);
-		outFileInfo.timeStamp = getFileTimeStamp(filePath);
-
-		return FileState::Valid;
-	}
-
-	template <typename LoadJSONOp>
-	static FileState getFileInfo(
-		const std::filesystem::path &filePath,
-		const std::string &id,
-		const std::string &loaderType,
-		const std::string &loaderVersion,
-		std::istream &jsonStream,
-		LoadJSONOp loadJSON,
-		FileInfo &outFileInfo,
-		bool sha2Enable)
-	{
-		outFileInfo.clear();
-
-		auto fileStatus = std::filesystem::status(filePath);
-		if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-			return FileState::Missing;
-
-		std::string _loaderType;
-		std::string _loaderVersion;
-		FileInfo _fileInfo;
-
-		loadJSON(jsonStream, id, _loaderType, _loaderVersion, _fileInfo);
-
-		if (loaderType.compare(_loaderType) != 0 ||
-			loaderVersion.compare(_loaderVersion) != 0)
-			return FileState::Stale;
-
-		int64_t fileSize = std::filesystem::file_size(filePath);
-		std::string fileTimeStamp = getFileTimeStamp(filePath);
-		std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
-		if (sha2Enable)
-		{
-			mio::mmap_source file(filePath.string());
-			picosha2::hash256(file.begin(), file.end(), fileSha2.begin(), fileSha2.end());
-		}
-
-		// perhaps add path check as well?
-		if (fileSize != _fileInfo.size ||
-			fileTimeStamp.compare(_fileInfo.timeStamp) != 0 ||
-			sha2Enable ? fileSha2 != _fileInfo.sha2 : false)
-			return FileState::Stale;
-
-		outFileInfo.path = filePath;
-		outFileInfo.size = fileSize;
-		outFileInfo.timeStamp = std::move(fileTimeStamp);
-		outFileInfo.sha2 = std::move(fileSha2);
-
-		return FileState::Valid;
-	}
-
 	Model loadModel(const char *filename) const
 	{
 		std::filesystem::path sourceFilePath(myResourcePath);
@@ -1008,20 +819,27 @@ class VulkanApplication
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 
-		auto loadJSON = [](std::istream& stream, const std::string& id, std::string& outLoaderType, std::string& outLoaderVersion, FileInfo& outFileInfo) {
+		auto loadJSON = [](std::istream& stream, const std::string& id) {
 			cereal::JSONInputArchive json(stream);
+
+			std::string outLoaderType;
+			std::string outLoaderVersion;
+			FileInfo outFileInfo;
+
 			json(cereal::make_nvp("loaderType", outLoaderType));
 			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
 			json(cereal::make_nvp(id, outFileInfo));
+
+			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
 		};
 
-		auto loadPBin = [&vertices, &indices](std::istream& file) {
-			cereal::PortableBinaryInputArchive pbin(file);
+		auto loadPBin = [&vertices, &indices](std::istream& stream) {
+			cereal::PortableBinaryInputArchive pbin(stream);
 			pbin(vertices, indices);
 		};
 
-		auto savePBin = [&vertices, &indices](std::ostream& file) {
-			cereal::PortableBinaryOutputArchive pbin(file);
+		auto savePBin = [&vertices, &indices](std::ostream& stream) {
+			cereal::PortableBinaryOutputArchive pbin(stream);
 			pbin(vertices, indices);
 		};
 
@@ -2545,11 +2363,11 @@ class VulkanApplication
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
 				myGraphicsPipelines[myHouseSetup.pipelineHash]);
 
-			VkBuffer vertexBuffers[] = {myHouseSetup.model.myVertexBuffer};
+			VkBuffer vertexBuffers[] = {myHouseResources.model.myVertexBuffer};
 			VkDeviceSize vertexOffsets[] = {0};
 
 			vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-			vkCmdBindIndexBuffer(cmd, myHouseSetup.model.myIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(cmd, myHouseResources.model.myIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
 		}
 
 		// draw geometry using secondary command buffers
@@ -2624,7 +2442,7 @@ class VulkanApplication
 
 						drawModel(
 							cmd,
-							myHouseSetup.model.indexCount,
+							myHouseResources.model.indexCount,
 							myHouseSetup.descriptorSets.size(),
 							myHouseSetup.descriptorSets.data(),
 							myPipelineLayout);
@@ -2775,11 +2593,11 @@ class VulkanApplication
 			// vmaDestroyImage(myAllocator, myVulkanImage.myImage, myVulkanImage.myImageMemory);
 			// vkDestroyImageView(myDevice, myVulkanImage.myImageView, nullptr);
 
-			vmaDestroyBuffer(myAllocator, myHouseSetup.model.myVertexBuffer, myHouseSetup.model.myVertexBufferMemory);
-			vmaDestroyBuffer(myAllocator, myHouseSetup.model.myIndexBuffer, myHouseSetup.model.myIndexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myHouseResources.model.myVertexBuffer, myHouseResources.model.myVertexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myHouseResources.model.myIndexBuffer, myHouseResources.model.myIndexBufferMemory);
 
-			vmaDestroyImage(myAllocator, myHouseSetup.texture.myImage, myHouseSetup.texture.myImageMemory);
-			vkDestroyImageView(myDevice, myHouseSetup.texture.myImageView, nullptr);
+			vmaDestroyImage(myAllocator, myHouseResources.texture.myImage, myHouseResources.texture.myImageMemory);
+			vkDestroyImageView(myDevice, myHouseResources.texture.myImageView, nullptr);
 		}
 
 		vkDestroySampler(myDevice, mySampler, nullptr);
@@ -2845,6 +2663,7 @@ class VulkanApplication
 	//Model myQuadModel;
 	//Texture myVulkanImage;
 
+	GraphicsPipelineResourceSet myHouseResources;
 	ShaderStageSetup myHouseSetup;
 
 	std::filesystem::path myResourcePath;
