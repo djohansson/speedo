@@ -1,68 +1,33 @@
 #once
+#include "platform.bff"
 
 #if __WINDOWS__
 .LLVMBasePath = 'C:\Program Files\LLVM\bin'
-.WindowsSDKBasePath = 'C:\Program Files (x86)\Windows Kits\10'
-.WindowsLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\um\x86'
-.WindowsIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\um'
-.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\ucrt\x86'
-.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\ucrt'
-.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\shared'
-Settings
-{
-	#import TMP
-	#import windir
-	.Environment =
-	{
-		'TMP=$TMP$',
-		'SystemRoot=$windir$'
-	}
-	.CachePath = '$TMP$\.fbuild.cache'
-}
-.BaseIncludePaths = ' -I"$WindowsIncludePath$"'
-    + ' -I"$WindowsUcrtIncludePath$"'
-	+ ' -I"$WindowsSharedIncludePath$"'
-.BaseLibPaths = ' -L"$WindowsLibPath$"'
-    + ' -L"$WindowsUcrtLibPath$"'
 #endif //__WINDOWS__
 #if __OSX__
 .LLVMBasePath = '/usr/local/opt/llvm/bin'
-Settings
-{
-	.CachePath = "/tmp/.fbuild.cache"
-}
-.BaseIncludePaths = ' -I/usr/local/opt/llvm/include/c++/v1'
-.BaseLibPaths = ' -L/usr/local/opt/llvm/lib'
+.BaseIncludePaths + '-I/usr/local/opt/llvm/include'
+	+ ' -I/usr/local/opt/llvm/include/c++/v1'
+.BaseLibPaths + ' -L/usr/local/opt/llvm/lib'
+	+ ' -Wl,-rpath,/usr/local/opt/llvm/lib'
 #endif //__OSX__
 #if __LINUX__
 .LLVMBasePath = '/usr/bin'
-Settings
-{
-	.CachePath = "/tmp/.fbuild.cache"
-}
-.BaseIncludePaths = ' -I/usr/include'
-.BaseLibPaths = ' -L/usr/lib'
 #endif //__LINUX__
 
 .ClangPath = '$LLVMBasePath$'
 
 Compiler('Compiler-Clang')
 {
-#if __WINDOWS__
-	.Executable = '$ClangPath$/clang.exe'
-#else
-	.Executable = '$ClangPath$/clang'
-#endif //__WINDOWS__
+	.Executable = '$ClangPath$/clang$ExeSuffix$'
 }
 
 .Clang_BaseConfig = [
 	.CompilerInfo  = 'Clang'
-    .Librarian = '$LLVMBasePath$/llvm-ar'
-	.Linker = '$ClangPath$/clang'
+    .Librarian = '$LLVMBasePath$/llvm-ar$ExeSuffix$'
+	.Linker = '$ClangPath$/clang$ExeSuffix$'
 #if __WINDOWS__
 	.PlatformInfo = 'Windows'
-	.Librarian + '.exe'
-	.Linker + '.exe'
 #endif //__WINDOWS__
 #if __OSX__
 	.PlatformInfo = 'OSX'
@@ -152,25 +117,3 @@ Compiler('Compiler-Clang')
 	.Clang_x64_DebugConfig, .Clang_x64_ProfileConfig, .Clang_x64_ReleaseConfig
 }
 
-// todo: move to some generic platform bff
-#if __WINDOWS__
-.LibPrefix = ''
-.LibSuffix = '.lib'
-.DllPrefix = ''
-.DllSuffix = '.dll'
-.ExeSuffix = '.exe'
-#endif //__WINDOWS__
-#if __OSX__
-.LibPrefix = 'lib'
-.LibSuffix = '.a'
-.DllPrefix = 'lib'
-.DllSuffix = '.dylib'
-.ExeSuffix = ''
-#endif //__OSX__
-#if __LINUX__
-.LibPrefix = 'lib'
-.LibSuffix = '.a'
-.DllPrefix = 'lib'
-.DllSuffix = '.so'
-.ExeSuffix = ''
-#endif //__LINUX__

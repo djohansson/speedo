@@ -1,0 +1,57 @@
+#once
+
+#if __WINDOWS__
+.LibPrefix = ''
+.LibSuffix = '.lib'
+.DllPrefix = ''
+.DllSuffix = '.dll'
+.ExeSuffix = '.exe'
+.WindowsSDKBasePath = 'C:\Program Files (x86)\Windows Kits\10'
+.WindowsLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\um\x86'
+.WindowsIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\um'
+.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\ucrt\x86'
+.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\ucrt'
+.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\shared'
+Settings
+{
+	#import TMP
+	#import windir
+	.Environment =
+	{
+		'TMP=$TMP$',
+		'SystemRoot=$windir$'
+	}
+	.CachePath = '$TMP$\.fbuild.cache'
+}
+.BaseIncludePaths = ' -I"$WindowsIncludePath$"'
+    + ' -I"$WindowsUcrtIncludePath$"'
+	+ ' -I"$WindowsSharedIncludePath$"'
+.BaseLibPaths = ' -L"$WindowsLibPath$"'
+    + ' -L"$WindowsUcrtLibPath$"'
+#endif //__WINDOWS__
+#if __OSX__
+.LibPrefix = 'lib'
+.LibSuffix = '.a'
+.DllPrefix = 'lib'
+.DllSuffix = '.dylib'
+.ExeSuffix = ''
+Settings
+{
+	.CachePath = "/tmp/.fbuild.cache"
+}
+.BaseIncludePaths = ' -I/usr/include'
+.BaseLibPaths = ' -L/usr/lib'
+#endif //__OSX__
+#if __LINUX__
+.LibPrefix = 'lib'
+.LibSuffix = '.a'
+.DllPrefix = 'lib'
+.DllSuffix = '.so'
+.ExeSuffix = ''
+Settings
+{
+	.CachePath = "/tmp/.fbuild.cache"
+}
+.BaseIncludePaths = ' -I/usr/include'
+.BaseLibPaths = ' -L/usr/lib'
+#endif //__LINUX__

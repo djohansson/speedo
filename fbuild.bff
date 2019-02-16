@@ -457,6 +457,6 @@ ForEach(.Config in .Clang_x64_Configs)
 
 Alias('all')
 {
-	.Targets = .AllConfigNames
-//	.Targets = { 'debug' }
+//	.Targets = .AllConfigNames
+	.Targets = { 'debug' }
 }
