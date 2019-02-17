@@ -8,6 +8,9 @@
 
 #include "volcano.h"
 
+bool mouse_inside_window = false;
+int mouse_state = 0;
+
 static void glfw_error_callback(int error, const char* description)
 {
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
@@ -18,11 +21,29 @@ static void glfw_resize_callback(GLFWwindow*, int w, int h)
 	vkapp_resize(w, h);
 }
 
+void onMouseEnter(GLFWwindow* window, int entered)
+{
+    mouse_inside_window = entered;
+}
+
+static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
+{
+	if (mouse_inside_window && button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+		mouse_state |= VKAPP_MOUSE_ARCBALL_ENABLE_FLAG;
+	else
+		mouse_state &= ~VKAPP_MOUSE_ARCBALL_ENABLE_FLAG;
+}
+
+static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
+{
+	vkapp_mouse(xpos, ypos, mouse_state);
+}
+
 int main(int, char**)
 {
 	// todo: parse commandline
-	static constexpr uint32_t windowWidth = 1280;
-	static constexpr uint32_t windowHeight = 720;
+	static constexpr uint32_t windowWidth = 1920;
+	static constexpr uint32_t windowHeight = 1080;
 
 	// Setup window
 	glfwSetErrorCallback(glfw_error_callback);
@@ -38,6 +59,10 @@ int main(int, char**)
 		printf("GLFW: Vulkan Not Supported\n");
 		return 1;
 	}
+
+	glfwSetCursorEnterCallback(window, onMouseEnter);
+	glfwSetMouseButtonCallback(window, onMouseButton);
+	glfwSetCursorPosCallback(window, onMouseCursorPos);
 
 	int framebufferWidth, framebufferHeight;
 	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);

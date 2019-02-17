@@ -135,17 +135,19 @@ using ShaderModuleSet = std::vector<std::pair<VkShaderModule, uint64_t>>;
 
 struct Texture
 {
-	VkImage myImage = VK_NULL_HANDLE;
-	VmaAllocation myImageMemory = VK_NULL_HANDLE;
-	VkImageView myImageView = VK_NULL_HANDLE;
+	VkImage image = VK_NULL_HANDLE;
+	VmaAllocation imageMemory = VK_NULL_HANDLE;
+	VkImageView imageView = VK_NULL_HANDLE;
 };
 
 struct Model
 {
-	VkBuffer myVertexBuffer = VK_NULL_HANDLE;
-	VmaAllocation myVertexBufferMemory = VK_NULL_HANDLE;
-	VkBuffer myIndexBuffer = VK_NULL_HANDLE;
-	VmaAllocation myIndexBufferMemory = VK_NULL_HANDLE;
+	glm::mat4 transform = glm::mat4(1); // todo: do not store here - use instance object with handle to graphics resources instead
+
+	VkBuffer vertexBuffer = VK_NULL_HANDLE;
+	VmaAllocation vertexBufferMemory = VK_NULL_HANDLE;
+	VkBuffer indexBuffer = VK_NULL_HANDLE;
+	VmaAllocation indexBufferMemory = VK_NULL_HANDLE;
 	uint32_t indexCount;
 };
 
@@ -639,18 +641,18 @@ class VulkanApplication
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-		myHouseResources.model = loadModel("chalet.obj");
+		myHouseResources.model = loadModel("gallery.obj");
 
 		// {
 		// 	createDeviceLocalBuffer(Quad::ourVertices, static_cast<uint32_t>(sizeof_array(Quad::ourVertices)),
-		// 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, myQuadModel.myVertexBuffer,
-		// 		myQuadModel.myVertexBufferMemory);
+		// 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, myQuadModel.vertexBuffer,
+		// 		myQuadModel.vertexBufferMemory);
 		// 	createDeviceLocalBuffer(Quad::ourIndices, static_cast<uint32_t>(sizeof_array(Quad::ourIndices)),
-		// 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT, myQuadModel.myIndexBuffer,
-		// 		myQuadModel.myIndexBufferMemory);
+		// 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT, myQuadModel.indexBuffer,
+		// 		myQuadModel.indexBufferMemory);
 		// }
 
-		myHouseResources.texture = loadTexture("chalet.jpg");
+		myHouseResources.texture = loadTexture("gallery.jpg");
 		//loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
 
 		// create uniform buffer
@@ -670,7 +672,7 @@ class VulkanApplication
 
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = myHouseResources.texture.myImageView;
+		imageInfo.imageView = myHouseResources.texture.imageView;
 		imageInfo.sampler = mySampler;
 
 		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
@@ -741,6 +743,21 @@ class VulkanApplication
 			createFrameResources(myWindowData->Width, myWindowData->Height);
 		}
 
+		// update view
+		myViewMatrix = glm::lookAt(
+			glm::vec3(1.5f, 1.5f, 1.0f),
+			glm::vec3(0.0f, 0.0f, -0.5f),
+			glm::vec3(0.0f, 0.0f, -1.0f));
+		myProjectionMatrix =
+			glm::perspective(
+				glm::radians(75.0f),
+				myWindowData->Width / static_cast<float>(myWindowData->Height),
+				0.01f,
+				10.0f);
+
+		// todo: run this at the same time as secondary command buffer recording
+		updateUniformBuffers();
+
 		// todo: run this at the same time as secondary command buffer recording
 		if (myUIEnableFlag)
 		{
@@ -781,9 +798,6 @@ class VulkanApplication
 			ImGui::Render();
 		}
 
-		// todo: run this at the same time as secondary command buffer recording
-		updateUniformBuffers();
-
 		submitFrame();
 		presentFrame();
 	}
@@ -795,6 +809,41 @@ class VulkanApplication
 		cleanupFrameResources();
 
 		createFrameResources(width, height);
+	}
+
+	void mouse(double x, double y, int state)
+	{
+		auto getArcballVector = [](double x, double y, int screen_width, int screen_height) {
+			
+			glm::vec3 p = glm::vec3(x / screen_width * 2 - 1, y / screen_height * 2 - 1, 0);
+			
+			p.y = -p.y;
+			
+			auto opSqr = p.x * p.x + p.y * p.y;
+			
+			if (opSqr <= 1)
+				p.z = sqrt(1 - opSqr); // Pythagoras
+			else
+				p = glm::normalize(p); // nearest point
+
+			return p;
+		};
+
+		if (state & VKAPP_MOUSE_ARCBALL_ENABLE_FLAG)
+		{
+			const auto& width = myWindowData->Width;
+			const auto& height = myWindowData->Height;
+			glm::vec3 va = getArcballVector(myMouseXPos, myMouseYPos, width, height);
+			glm::vec3 vb = getArcballVector(x, y, width, height);
+			float angle = acos(std::min(1.0f, glm::dot(va, vb)));
+			glm::vec3 axisInViewCoord = glm::cross(va, vb);
+			glm::mat3 viewToModel = glm::inverse(glm::mat3(myViewMatrix) * glm::mat3(myHouseResources.model.transform));
+			glm::vec3 axisInModelCoord = viewToModel * axisInViewCoord;
+			myHouseResources.model.transform = glm::rotate(myHouseResources.model.transform, glm::degrees(angle), axisInModelCoord);
+		}
+
+		myMouseXPos = x;
+		myMouseYPos = y;
 	}
 
   private:
@@ -995,16 +1044,16 @@ class VulkanApplication
 			vertices.data(),
 			static_cast<uint32_t>(vertices.size()),
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-			outModel.myVertexBuffer,
-			outModel.myVertexBufferMemory,
+			outModel.vertexBuffer,
+			outModel.vertexBufferMemory,
 			filename);
 
 		createDeviceLocalBuffer(
 			indices.data(),
 			static_cast<uint32_t>(indices.size()),
 			VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-			outModel.myIndexBuffer,
-			outModel.myIndexBufferMemory,
+			outModel.indexBuffer,
+			outModel.indexBufferMemory,
 			filename);
 
 		outModel.indexCount = indices.size();
@@ -1039,14 +1088,14 @@ class VulkanApplication
 				y,
 				VK_FORMAT_R8G8B8A8_UNORM,
 				VK_IMAGE_USAGE_SAMPLED_BIT,
-				outTexture.myImage,
-				outTexture.myImageMemory,
+				outTexture.image,
+				outTexture.imageMemory,
 				filename);
 
 			stbi_image_free(imageData);
 
-			outTexture.myImageView = createImageView2D(
-				outTexture.myImage,
+			outTexture.imageView = createImageView2D(
+				outTexture.image,
 				VK_FORMAT_R8G8B8A8_UNORM,
 				VK_IMAGE_ASPECT_COLOR_BIT);
 		}
@@ -2251,43 +2300,49 @@ class VulkanApplication
 		{
 			UniformBufferObject &ubo = data[n];
 
-			float tp = fmod((0.0025f * n) + t, period);
-			float s = smootherstep(
-				smoothstep(clamp(ramp(tp < (0.5f * period) ? tp : period - tp, 0, 0.5f * period), 0, 1)));
+			// float tp = fmod((0.0025f * n) + t, period);
+			// float s = smootherstep(
+			// 	smoothstep(clamp(ramp(tp < (0.5f * period) ? tp : period - tp, 0, 0.5f * period), 0, 1)));
 
-			glm::mat4 model = glm::rotate(
-				glm::translate(
-					glm::mat4(1),
-					glm::vec3(0, 0, -0.01f - std::numeric_limits<float>::epsilon())),
-				s * glm::radians(360.0f),
-				glm::vec3(0.0, 0.0, 1.0));
+			// const auto& model = glm::rotate(
+			// 	glm::translate(
+			// 		myHouseResources.model.transform,
+			// 		glm::vec3(0, 0, -0.01f - std::numeric_limits<float>::epsilon())),
+			// 	s * glm::radians(360.0f),
+			//  	glm::vec3(0.0, 0.0, 1.0));
+			
+			// glm::mat4 view0 = glm::mat4(1);
+			// glm::mat4 proj0 = glm::frustum(-1.0, 1.0, -1.0, 1.0, 0.01, 10.0);
+			// glm::mat4 view1 =
+			// 	glm::lookAt(
+			// 		glm::vec3(1.5f, 1.5f, 1.0f),
+			// 		glm::vec3(0.0f, 0.0f, -0.5f),
+			// 		glm::vec3(0.0f, 0.0f, -1.0f));
+			// glm::mat4 proj1 =
+			// 	glm::perspective(
+			// 		glm::radians(75.0f),
+			// 		myWindowData->Width / static_cast<float>(myWindowData->Height),
+			// 		0.01f,
+			// 		10.0f);
 
-			glm::mat4 view0 = glm::mat4(1);
-			glm::mat4 proj0 = glm::frustum(-1.0, 1.0, -1.0, 1.0, 0.01, 10.0);
+			// const auto& view = glm::mat4(
+			// 	lerp(view0[0], view1[0], s),
+			// 	lerp(view0[1], view1[1], s),
+			// 	lerp(view0[2], view1[2], s),
+			// 	lerp(view0[3], view1[3], s));
+			// const auto& proj = glm::mat4(
+			// 	lerp(proj0[0], proj1[0], s),
+			// 	lerp(proj0[1], proj1[1], s),
+			// 	lerp(proj0[2], proj1[2], s),
+			// 	lerp(proj0[3], proj1[3], s));
 
-			glm::mat4 view1 =
-				glm::lookAt(
-					glm::vec3(1.5f, 1.5f, 1.0f),
-					glm::vec3(0.0f, 0.0f, -0.5f),
-					glm::vec3(0.0f, 0.0f, -1.0f));
-			glm::mat4 proj1 =
-				glm::perspective(
-					glm::radians(75.0f),
-					myWindowData->Width / static_cast<float>(myWindowData->Height),
-					0.01f,
-					10.0f);
+			const auto& model = myHouseResources.model.transform;
+			const auto& view = myViewMatrix;
+			const auto& proj = myProjectionMatrix;
 
 			ubo.model = model;
-			ubo.view = glm::mat4(
-				lerp(view0[0], view1[0], s),
-				lerp(view0[1], view1[1], s),
-				lerp(view0[2], view1[2], s),
-				lerp(view0[3], view1[3], s));
-			ubo.proj = glm::mat4(
-				lerp(proj0[0], proj1[0], s),
-				lerp(proj0[1], proj1[1], s),
-				lerp(proj0[2], proj1[2], s),
-				lerp(proj0[3], proj1[3], s));
+			ubo.view = view;
+			ubo.proj = proj;
 		}
 
 		vmaFlushAllocation(
@@ -2363,11 +2418,11 @@ class VulkanApplication
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
 				myGraphicsPipelines[myHouseSetup.pipelineHash]);
 
-			VkBuffer vertexBuffers[] = {myHouseResources.model.myVertexBuffer};
+			VkBuffer vertexBuffers[] = {myHouseResources.model.vertexBuffer};
 			VkDeviceSize vertexOffsets[] = {0};
 
 			vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-			vkCmdBindIndexBuffer(cmd, myHouseResources.model.myIndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(cmd, myHouseResources.model.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 		}
 
 		// draw geometry using secondary command buffers
@@ -2587,17 +2642,17 @@ class VulkanApplication
 		vmaDestroyBuffer(myAllocator, myUniformBuffer, myUniformBufferMemory);
 
 		{
-			// vmaDestroyBuffer(myAllocator, myQuadModel.myVertexBuffer, myQuadModel.myVertexBufferMemory);
-			// vmaDestroyBuffer(myAllocator, myQuadModel.myIndexBuffer, myQuadModel.myIndexBufferMemory);
+			// vmaDestroyBuffer(myAllocator, myQuadModel.vertexBuffer, myQuadModel.vertexBufferMemory);
+			// vmaDestroyBuffer(myAllocator, myQuadModel.indexBuffer, myQuadModel.indexBufferMemory);
 
-			// vmaDestroyImage(myAllocator, myVulkanImage.myImage, myVulkanImage.myImageMemory);
-			// vkDestroyImageView(myDevice, myVulkanImage.myImageView, nullptr);
+			// vmaDestroyImage(myAllocator, myVulkanImage.image, myVulkanImage.imageMemory);
+			// vkDestroyImageView(myDevice, myVulkanImage.imageView, nullptr);
 
-			vmaDestroyBuffer(myAllocator, myHouseResources.model.myVertexBuffer, myHouseResources.model.myVertexBufferMemory);
-			vmaDestroyBuffer(myAllocator, myHouseResources.model.myIndexBuffer, myHouseResources.model.myIndexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myHouseResources.model.vertexBuffer, myHouseResources.model.vertexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myHouseResources.model.indexBuffer, myHouseResources.model.indexBufferMemory);
 
-			vmaDestroyImage(myAllocator, myHouseResources.texture.myImage, myHouseResources.texture.myImageMemory);
-			vkDestroyImageView(myDevice, myHouseResources.texture.myImageView, nullptr);
+			vmaDestroyImage(myAllocator, myHouseResources.texture.image, myHouseResources.texture.imageMemory);
+			vkDestroyImageView(myDevice, myHouseResources.texture.imageView, nullptr);
 		}
 
 		vkDestroySampler(myDevice, mySampler, nullptr);
@@ -2672,6 +2727,12 @@ class VulkanApplication
 	uint32_t myCommandBufferThreadCount = 0;
 	int myRequestedCommandBufferThreadCount = 0;
 
+	double myMouseXPos = 0;
+	double myMouseYPos = 0;
+
+	glm::mat4 myViewMatrix;
+	glm::mat4 myProjectionMatrix;
+
 	bool myUIEnableFlag = false;
 	bool myCreateFrameResourcesFlag = false;
 
@@ -2725,6 +2786,13 @@ void vkapp_resize(int width, int height)
 	assert(theApp != nullptr);
 
 	theApp->resize(width, height);
+}
+
+void vkapp_mouse(double x, double y, int state)
+{
+	assert(theApp != nullptr);
+
+	theApp->mouse(x, y, state);
 }
 
 void vkapp_destroy()
