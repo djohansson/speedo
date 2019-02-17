@@ -72,3 +72,9 @@ void saveBinaryFile(
     FileInfo& outFileInfo,
     std::function<void(std::iostream&)> saveOp,
     bool sha2Enable);
+
+void loadCachedSourceFile(
+    const std::filesystem::path &sourceFilePath,
+    std::function<void(std::istream&)> loadSourceFileFn,
+    std::function<void(std::istream&)> loadBinaryCacheFn,
+    std::function<void(std::iostream&)> saveBinaryCacheFn);

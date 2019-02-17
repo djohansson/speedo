@@ -1,5 +1,8 @@
 #include "file.h"
 
+#include <cereal/archives/json.hpp>
+#include <cereal/types/vector.hpp>
+
 std::string getFileTimeStamp(const std::filesystem::path &filePath)
 {
     std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -156,4 +159,105 @@ void saveBinaryFile(
     outFileInfo.path = filePath;
     outFileInfo.size = std::filesystem::file_size(filePath);
     outFileInfo.timeStamp = getFileTimeStamp(filePath);
+}
+
+void loadCachedSourceFile(
+    const std::filesystem::path &sourceFilePath,
+    std::function<void(std::istream&)> loadSourceFileFn,
+    std::function<void(std::istream&)> loadBinaryCacheFn,
+    std::function<void(std::iostream&)> saveBinaryCacheFn)
+{
+    static const std::string sc_modelLoaderType = "tinyobjloader";
+	static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
+
+    std::filesystem::path jsonFilePath(sourceFilePath);
+    jsonFilePath += ".json";
+
+    std::filesystem::path pbinFilePath(sourceFilePath);
+    pbinFilePath += ".pbin";
+
+    bool firstImport;
+    FileInfo sourceFileInfo, pbinFileInfo;
+    FileState sourceFileState, pbinFileState;
+    auto jsonFileStatus = std::filesystem::status(jsonFilePath);
+    if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
+    {
+        auto loadJSONFn = [](std::istream& stream, const std::string& id) {
+			cereal::JSONInputArchive json(stream);
+
+			std::string outLoaderType;
+			std::string outLoaderVersion;
+			FileInfo outFileInfo;
+
+			json(cereal::make_nvp("loaderType", outLoaderType));
+			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
+			json(cereal::make_nvp(id, outFileInfo));
+
+			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
+		};
+
+        firstImport = false;
+
+        mio::shared_mmap_source file(jsonFilePath.string());
+        mio::mmap_streambuf fileStreamBuf(file);
+        std::istream fileStream(&fileStreamBuf);
+        
+        sourceFileState = getFileInfo(
+            sourceFilePath,
+            "sourceFileInfo",
+            sc_modelLoaderType,
+            sc_modelLoaderVersion,
+            fileStream,
+            loadJSONFn,
+            sourceFileInfo,
+            false);
+
+        fileStream.clear();
+        fileStream.seekg(0, std::ios_base::beg);
+
+        pbinFileState = getFileInfo(
+            pbinFilePath,
+            "pbinFileInfo",
+            sc_modelLoaderType,
+            sc_modelLoaderVersion,
+            fileStream,
+            loadJSONFn,
+            pbinFileInfo,
+            false);
+    }
+    else
+    {
+        firstImport = true;
+
+        sourceFileState = getFileInfo(sourceFilePath, sourceFileInfo, false);
+        pbinFileState = getFileInfo(pbinFilePath, pbinFileInfo, false);
+    }
+
+    if (firstImport ||
+        sourceFileState == FileState::Stale ||
+        pbinFileState != FileState::Valid)
+    {	
+        mio::shared_mmap_sink file(jsonFilePath.string());
+        mio::mmap_streambuf fileStreamBuf(file);
+        std::ostream fileStream(&fileStreamBuf);
+        
+        {
+            cereal::JSONOutputArchive json(fileStream);
+            
+            json(cereal::make_nvp("loaderType", sc_modelLoaderType));
+            json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
+
+            loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
+            json(CEREAL_NVP(sourceFileInfo));
+
+            saveBinaryFile(pbinFilePath, pbinFileInfo, saveBinaryCacheFn, true);
+            json(CEREAL_NVP(pbinFileInfo));
+        }
+
+        fileStreamBuf.truncate();
+    }
+    else
+    {
+        loadBinaryFile(pbinFilePath, pbinFileInfo, loadBinaryCacheFn, false);
+    }
 }

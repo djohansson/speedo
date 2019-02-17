@@ -84,9 +84,8 @@
 #include <glm/vec4.hpp>
 
 #include <cereal/cereal.hpp>
-#include <cereal/types/vector.hpp>
 #include <cereal/archives/portable_binary.hpp>
-#include <cereal/archives/json.hpp>
+#include <cereal/types/vector.hpp>
 
 #include <xxhash.h>
 
@@ -799,9 +798,6 @@ class VulkanApplication
 
   private:
 
-  	inline static const std::string sc_modelLoaderType = "tinyobjloader";
-	inline static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
-
 	Model loadModel(const char *filename) const
 	{
 		std::filesystem::path sourceFilePath(myResourcePath);
@@ -810,28 +806,8 @@ class VulkanApplication
 		sourceFilePath /= "models";
 		sourceFilePath /= filename;
 
-		std::filesystem::path jsonFilePath(sourceFilePath);
-		jsonFilePath += ".json";
-
-		std::filesystem::path pbinFilePath(sourceFilePath);
-		pbinFilePath += ".pbin";
-
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
-
-		auto loadJSON = [](std::istream& stream, const std::string& id) {
-			cereal::JSONInputArchive json(stream);
-
-			std::string outLoaderType;
-			std::string outLoaderVersion;
-			FileInfo outFileInfo;
-
-			json(cereal::make_nvp("loaderType", outLoaderType));
-			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
-			json(cereal::make_nvp(id, outFileInfo));
-
-			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
-		};
 
 		auto loadPBin = [&vertices, &indices](std::istream& stream) {
 			cereal::PortableBinaryInputArchive pbin(stream);
@@ -916,73 +892,7 @@ class VulkanApplication
 			}
 		};
 
-		bool firstImport;
-		FileInfo sourceFileInfo, pbinFileInfo;
-		FileState sourceFileState, pbinFileState;
-		auto jsonFileStatus = std::filesystem::status(jsonFilePath);
-		if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
-		{
-			firstImport = false;
-
-			mio::shared_mmap_source file(jsonFilePath.string());
-			mio::mmap_streambuf fileStreamBuf(file);
-			std::istream fileStream(&fileStreamBuf);
-			
-			sourceFileState = getFileInfo(
-				sourceFilePath,
-				"sourceFileInfo",
-				sc_modelLoaderType,
-				sc_modelLoaderVersion,
-				fileStream,
-				loadJSON,
-				sourceFileInfo,
-				false);
-
-			fileStream.clear();
-			fileStream.seekg(0, std::ios_base::beg);
-
-			pbinFileState = getFileInfo(
-				pbinFilePath,
-				"pbinFileInfo",
-				sc_modelLoaderType,
-				sc_modelLoaderVersion,
-				fileStream,
-				loadJSON,
-				pbinFileInfo,
-				false);
-		}
-		else
-		{
-			firstImport = true;
-
-			sourceFileState = getFileInfo(sourceFilePath, sourceFileInfo, false);
-			pbinFileState = getFileInfo(pbinFilePath, pbinFileInfo, false);
-		}
-
-		if (firstImport ||
-			sourceFileState == FileState::Stale ||
-			pbinFileState != FileState::Valid)
-		{	
-			mio::shared_mmap_sink file(jsonFilePath.string());
-			mio::mmap_streambuf fileStreamBuf(file);
-			std::ostream fileStream(&fileStreamBuf);
-			cereal::JSONOutputArchive json(fileStream);
-			
-			json(cereal::make_nvp("loaderType", sc_modelLoaderType));
-			json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
-
-			loadBinaryFile(sourceFilePath, sourceFileInfo, loadOBJ, true);
-			json(CEREAL_NVP(sourceFileInfo));
-
-			saveBinaryFile(pbinFilePath, pbinFileInfo, savePBin, true);
-			json(CEREAL_NVP(pbinFileInfo));
-
-			fileStreamBuf.truncate();
-		}
-		else
-		{
-			loadBinaryFile(pbinFilePath, pbinFileInfo, loadPBin, false);
-		}
+		loadCachedSourceFile(sourceFilePath, loadOBJ, loadPBin, savePBin);
 
 		if (vertices.empty() || indices.empty())
 		{
