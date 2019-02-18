@@ -101,8 +101,7 @@ void loadBinaryFile(
         throw std::runtime_error("Failed to open file.");
 
     {
-        mio::shared_mmap_source file(filePath.string());
-        mio::mmap_streambuf fileStreamBuf(file);
+        mio::mmap_istreambuf fileStreamBuf(filePath.string());
         std::istream fileStream(&fileStreamBuf);
 
         loadOp(fileStream);
@@ -134,8 +133,7 @@ void saveBinaryFile(
     bool sha2Enable)
 {
     {
-        mio::shared_mmap_sink file(filePath.string());
-        mio::mmap_streambuf fileStreamBuf(file);
+        mio::mmap_iostreambuf fileStreamBuf(filePath.string());
         std::iostream fileStream(&fileStreamBuf);
 
         saveOp(fileStream);
@@ -198,8 +196,7 @@ void loadCachedSourceFile(
 
         firstImport = false;
 
-        mio::shared_mmap_source file(jsonFilePath.string());
-        mio::mmap_streambuf fileStreamBuf(file);
+        mio::mmap_istreambuf fileStreamBuf(jsonFilePath.string());
         std::istream fileStream(&fileStreamBuf);
         
         sourceFileState = getFileInfo(
@@ -237,8 +234,7 @@ void loadCachedSourceFile(
         sourceFileState == FileState::Stale ||
         pbinFileState != FileState::Valid)
     {	
-        mio::shared_mmap_sink file(jsonFilePath.string());
-        mio::mmap_streambuf fileStreamBuf(file);
+        mio::mmap_ostreambuf fileStreamBuf(jsonFilePath.string());
         std::ostream fileStream(&fileStreamBuf);
         
         {
