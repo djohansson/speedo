@@ -90,6 +90,9 @@ Compiler('Compiler-Clang')
 	.ConfigName = 'debug'
 	.CompilerOptions + ' -DDEBUG -D_DEBUG -DPROFILING_ENABLED'
 		+ .CompilerDebugOptimizations
+#if __WINDOWS__
+		+ ' -D_ITERATOR_DEBUG_LEVEL=1'
+#endif //__WINDOWS__
 	.LibrarianOptions + .LibrarianDebugOptimizations
 	.LinkerOptions + .LinkerDebugOptimizations
 #if __WINDOWS__
