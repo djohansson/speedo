@@ -40,3 +40,6 @@
 [submodule "external/ispc"]
 	path = external/ispc
 	url = https://github.com/ispc/ispc.git
+[submodule "external/stb"]
+	path = external/stb
+	url = https://github.com/nothings/stb.git
