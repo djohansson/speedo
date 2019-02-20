@@ -59,8 +59,13 @@
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
+#define STBI_NO_STDIO
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+#define STB_DXT_IMPLEMENTATION
+#include <stb_dxt.h>
 
 //#define TINYOBJLOADER_USE_EXPERIMENTAL
 
@@ -97,6 +102,26 @@
 
 #include <slang.h>
 
+namespace stbi_callbacks
+{
+	int read(void* user, char* data, int size)
+	{
+		std::istream* stream = static_cast<std::istream*>(user);
+		return stream->rdbuf()->sgetn(data, size);
+	}
+
+	void skip(void* user, int size)
+	{
+		std::istream* stream = static_cast<std::istream*>(user);
+		stream->seekg(size, std::ios::cur);
+	}
+
+	int eof(void* user)
+	{
+		std::istream* stream = static_cast<std::istream*>(user);
+		return stream->tellg() != std::istream::pos_type(-1);
+	}
+}
 
 // reminders:
 
@@ -619,19 +644,12 @@ class VulkanApplication
 
 		createInstance();
 		createDebugCallback();
-
 		createSurface(view);
 		createDevice();
-
 		createAllocator();
-
 		createSwapchain(framebufferWidth, framebufferHeight);
-
 		createTextureSampler();
-
 		createDescriptorPool();
-		//createDescriptorSetLayout();
-
 		createFrameResources(framebufferWidth, framebufferHeight);
 
 		transitionImageLayout(
@@ -640,21 +658,7 @@ class VulkanApplication
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-		myHouseResources.model = loadModel("gallery.obj");
-
-		// {
-		// 	createDeviceLocalBuffer(Quad::ourVertices, static_cast<uint32_t>(sizeof_array(Quad::ourVertices)),
-		// 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, myQuadModel.vertexBuffer,
-		// 		myQuadModel.vertexBufferMemory);
-		// 	createDeviceLocalBuffer(Quad::ourIndices, static_cast<uint32_t>(sizeof_array(Quad::ourIndices)),
-		// 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT, myQuadModel.indexBuffer,
-		// 		myQuadModel.indexBufferMemory);
-		// }
-
-		myHouseResources.texture = loadTexture("gallery.jpg");
-		//loadTexture("2018-Vulkan-small-badge.png", myVulkanImage);
-
-		// create uniform buffer
+		// begin temp
 		createBuffer(
 			NX * NY * sizeof(UniformBufferObject),
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -663,7 +667,9 @@ class VulkanApplication
 			myUniformBufferMemory,
 			"myUniformBuffer");
 
-		// begin temp
+		myHouseResources.model = loadModel("gallery.obj");
+		myHouseResources.texture = loadTexture("gallery.jpg");
+
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = myUniformBuffer;
 		bufferInfo.offset = 0;
@@ -941,7 +947,7 @@ class VulkanApplication
 			}
 		};
 
-		loadCachedSourceFile(sourceFilePath, loadOBJ, loadPBin, savePBin);
+		loadCachedSourceFile(sourceFilePath, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
 
 		if (vertices.empty() || indices.empty())
 		{
@@ -979,42 +985,99 @@ class VulkanApplication
 		imageFile /= "images";
 		imageFile /= filename;
 
-		int x, y, n;
-		unsigned char *imageData = nullptr;
+		int nx, ny, nChannels;
+		size_t compressedImageSize;
+		std::unique_ptr<std::byte[]> compressedImageData;
 
-		Texture outTexture;
+		auto loadPBin = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::istream& stream) {
+			cereal::PortableBinaryInputArchive pbin(stream);
+			pbin(nx, ny, nChannels, compressedImageSize);
+			compressedImageData = std::make_unique<std::byte[]>(compressedImageSize);
+			pbin(cereal::binary_data(compressedImageData.get(), compressedImageSize));
+		};
 
-		auto imageFileStatus = std::filesystem::status(imageFile);
-		if (std::filesystem::exists(imageFileStatus) && std::filesystem::is_regular_file(imageFileStatus))
-		{
-			imageData = stbi_load(imageFile.string().c_str(), &x, &y, &n, STBI_rgb_alpha);
+		auto savePBin = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::ostream& stream) {
+			cereal::PortableBinaryOutputArchive pbin(stream);
+			pbin(nx, ny, nChannels, compressedImageSize);
+			pbin(cereal::binary_data(compressedImageData.get(), compressedImageSize));
+		};
+		
+		auto loadImage = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::istream& stream) {
+			stbi_io_callbacks callbacks;
+			callbacks.read = &stbi_callbacks::read;
+			callbacks.skip = &stbi_callbacks::skip;
+			callbacks.eof  = &stbi_callbacks::eof;
+			stbi_uc* imageData = stbi_load_from_callbacks(&callbacks, &stream, &nx, &ny, &nChannels, STBI_rgb_alpha);
 
-			if (imageData == nullptr)
-				throw std::runtime_error("Failed to load image.");
+			bool hasAlpha = nChannels == 4;
+			uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
+			compressedImageSize = hasAlpha ? nx * ny : nx * ny / 2;
+			compressedImageData = std::make_unique<std::byte[]>(compressedImageSize);
 
-			createDeviceLocalImage2D(
-				imageData,
-				x,
-				y,
-				VK_FORMAT_R8G8B8A8_UNORM,
-				VK_IMAGE_USAGE_SAMPLED_BIT,
-				outTexture.image,
-				outTexture.imageMemory,
-				filename);
+			auto extractBlock = [](const stbi_uc *src, uint32_t width, uint32_t stride, stbi_uc *dst)
+			{
+				for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
+				{
+					std::copy(src, src + stride * 4, &dst[rowIt * 16]);
+					src += width * stride;
+				}
+			};
+
+			stbi_uc block[64] = { 0 };
+			const stbi_uc *src = imageData;
+			stbi_uc *dst = reinterpret_cast<stbi_uc*>(compressedImageData.get());
+			for (uint32_t rowIt = 0; rowIt < ny; rowIt += 4)
+			{
+				for (uint32_t colIt = 0; colIt < nx; colIt += 4)
+				{
+					uint32_t offset = (rowIt * nx + colIt) * 4;
+					extractBlock(src + offset, nx, 4, block);
+					stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
+					dst += compressedBlockSize;
+				}
+			}
 
 			stbi_image_free(imageData);
+		};
 
-			outTexture.imageView = createImageView2D(
-				outTexture.image,
-				VK_FORMAT_R8G8B8A8_UNORM,
-				VK_IMAGE_ASPECT_COLOR_BIT);
-		}
-		else
-		{
+		loadCachedSourceFile(imageFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
+
+		if (compressedImageData == nullptr)
 			throw std::runtime_error("Failed to load image.");
-		}
 
-		return outTexture;
+		auto createTexture = [this](
+			const std::byte* data, int x, int y, 
+			VkFormat format, VkImageUsageFlags flags, VkImageAspectFlagBits aspectFlags,
+			const char* debugName = nullptr)
+		{
+			Texture texture;
+
+			createDeviceLocalImage2D(
+				data,
+				x,
+				y,
+				format,
+				flags,
+				texture.image,
+				texture.imageMemory,
+				debugName);
+
+			texture.imageView = createImageView2D(
+				texture.image,
+				format,
+				aspectFlags);
+
+			return texture;
+		};
+
+		return createTexture(
+			compressedImageData.get(),
+			nx,
+			ny,
+			nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK, // todo: write utility function for this
+			VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_IMAGE_ASPECT_COLOR_BIT,
+			filename);
 	}
 
 	std::vector<char> loadSPIRVFile(const char *filename)
@@ -1958,14 +2021,20 @@ class VulkanApplication
 								  VkFormat format, VkImageUsageFlags usage,
 								  VkImage &outImage, VmaAllocation &outImageMemory, const char *debugName) const
 	{
-		uint32_t pixelSizeBytes = getFormatSize(format); // todo
-		VkDeviceSize imageSize = width * height * pixelSizeBytes;
+		assert((width & 1) == 0);
+		assert((height & 1) == 0);
+
+		uint32_t pixelSizeBytesDivisor;
+		uint32_t pixelSizeBytes = getFormatPixelSize(format, pixelSizeBytesDivisor);
+		VkDeviceSize imageSize = width * height * pixelSizeBytes / pixelSizeBytesDivisor;
 
 		VkBuffer stagingBuffer;
 		VmaAllocation stagingBufferMemory;
 		char buf[64];
+		const char* _stagingStr = "_staging";
+		assert(strlen(debugName) + strlen(_stagingStr) < sizeof_array(buf));
 		strcpy(buf, debugName);
-		strcat(buf, "_staging");
+		strcat(buf, _stagingStr);
 		createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 					 stagingBuffer, stagingBufferMemory, buf);

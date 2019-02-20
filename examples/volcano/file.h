@@ -75,6 +75,8 @@ void saveBinaryFile(
 
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,
+    const std::string& loaderType,
+	const std::string& loaderVersion,
     std::function<void(std::istream&)> loadSourceFileFn,
     std::function<void(std::istream&)> loadBinaryCacheFn,
     std::function<void(std::iostream&)> saveBinaryCacheFn);
