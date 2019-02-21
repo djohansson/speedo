@@ -2324,12 +2324,7 @@ class VulkanApplication
 			ubo.proj = proj;
 		}
 
-		vmaFlushAllocation(
-				myAllocator,
-				myUniformBufferMemory,
-				sizeof(UniformBufferObject),
-				(NX * NY) * sizeof(UniformBufferObject));
-
+		vmaFlushAllocation(myAllocator, myUniformBufferMemory, 0, VK_WHOLE_SIZE);
 		vmaUnmapMemory(myAllocator, myUniformBufferMemory);
 	}
 
