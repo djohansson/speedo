@@ -51,13 +51,15 @@ FileState getFileInfo(
     FileInfo &outFileInfo,
     bool sha2Enable);
 
+using LoadFileInfoFromJSONFn = std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)>;
+
 FileState getFileInfo(
     const std::filesystem::path &filePath,
     const std::string &id,
     const std::string &loaderType,
     const std::string &loaderVersion,
     std::istream &jsonStream,
-    std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)> loadJSON,
+    LoadFileInfoFromJSONFn loadJSON,
     FileInfo &outFileInfo,
     bool sha2Enable);
 
@@ -73,8 +75,12 @@ void saveBinaryFile(
     std::function<void(std::iostream&)> saveOp,
     bool sha2Enable);
 
+using LoadFileFn = std::function<void(std::istream&)>;
+using SaveFileFn = std::function<void(std::iostream&)>;
+
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,
-    std::function<void(std::istream&)> loadSourceFileFn,
-    std::function<void(std::istream&)> loadBinaryCacheFn,
-    std::function<void(std::iostream&)> saveBinaryCacheFn);
+    const std::filesystem::path &cacheFilePath,
+    LoadFileFn loadSourceFileFn,
+    LoadFileFn loadBinaryCacheFn,
+    SaveFileFn saveBinaryCacheFn);

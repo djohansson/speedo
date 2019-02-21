@@ -58,8 +58,7 @@ FileState getFileInfo(
     std::string _loaderVersion;
     FileInfo _fileInfo;
     
-    std::tie(_loaderType, _loaderVersion, _fileInfo) =
-        loadJSON(jsonStream, id);
+    std::tie(_loaderType, _loaderVersion, _fileInfo) = loadJSON(jsonStream, id);
 
     if (loaderType.compare(_loaderType) != 0 ||
         loaderVersion.compare(_loaderVersion) != 0)
@@ -161,6 +160,7 @@ void saveBinaryFile(
 
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,
+    const std::filesystem::path &cacheFilePath,
     std::function<void(std::istream&)> loadSourceFileFn,
     std::function<void(std::istream&)> loadBinaryCacheFn,
     std::function<void(std::iostream&)> saveBinaryCacheFn)
@@ -168,10 +168,10 @@ void loadCachedSourceFile(
     static const std::string sc_modelLoaderType = "tinyobjloader";
 	static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
 
-    std::filesystem::path jsonFilePath(sourceFilePath);
+    std::filesystem::path jsonFilePath(cacheFilePath);
     jsonFilePath += ".json";
 
-    std::filesystem::path pbinFilePath(sourceFilePath);
+    std::filesystem::path pbinFilePath(cacheFilePath);
     pbinFilePath += ".pbin";
 
     bool firstImport;
