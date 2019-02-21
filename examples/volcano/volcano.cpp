@@ -941,7 +941,7 @@ class VulkanApplication
 			}
 		};
 
-		loadCachedSourceFile(sourceFilePath, loadOBJ, loadPBin, savePBin);
+		loadCachedSourceFile(sourceFilePath, sourceFilePath, loadOBJ, loadPBin, savePBin);
 
 		if (vertices.empty() || indices.empty())
 		{
