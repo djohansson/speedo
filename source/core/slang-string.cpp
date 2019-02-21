@@ -344,11 +344,6 @@ namespace Slang
         append(slice.begin(), slice.end());
     }
 
-    void String::append(UInt value, int radix)
-    {
-        String::append(static_cast<uint64_t>(value), radix);
-    }
-
     void String::append(int32_t value, int radix)
     {
         enum { kCount = 33 };

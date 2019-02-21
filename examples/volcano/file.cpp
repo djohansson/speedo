@@ -161,14 +161,13 @@ void saveBinaryFile(
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,
     const std::filesystem::path &cacheFilePath,
-    std::function<void(std::istream&)> loadSourceFileFn,
-    std::function<void(std::istream&)> loadBinaryCacheFn,
-    std::function<void(std::iostream&)> saveBinaryCacheFn)
+    const std::string& loaderType,
+	const std::string& loaderVersion,
+    LoadFileFn loadSourceFileFn,
+    LoadFileFn loadBinaryCacheFn,
+    SaveFileFn saveBinaryCacheFn)
 {
-    static const std::string sc_modelLoaderType = "tinyobjloader";
-	static const std::string sc_modelLoaderVersion = "1.4.0 / 4";
-
-    std::filesystem::path jsonFilePath(cacheFilePath);
+    std::filesystem::path jsonFilePath(sourceFilePath);
     jsonFilePath += ".json";
 
     std::filesystem::path pbinFilePath(cacheFilePath);
@@ -202,8 +201,8 @@ void loadCachedSourceFile(
         sourceFileState = getFileInfo(
             sourceFilePath,
             "sourceFileInfo",
-            sc_modelLoaderType,
-            sc_modelLoaderVersion,
+            loaderType,
+            loaderVersion,
             fileStream,
             loadJSONFn,
             sourceFileInfo,
@@ -215,8 +214,8 @@ void loadCachedSourceFile(
         pbinFileState = getFileInfo(
             pbinFilePath,
             "pbinFileInfo",
-            sc_modelLoaderType,
-            sc_modelLoaderVersion,
+            loaderType,
+            loaderVersion,
             fileStream,
             loadJSONFn,
             pbinFileInfo,
@@ -240,8 +239,8 @@ void loadCachedSourceFile(
         {
             cereal::JSONOutputArchive json(fileStream);
             
-            json(cereal::make_nvp("loaderType", sc_modelLoaderType));
-            json(cereal::make_nvp("loaderVersion", sc_modelLoaderVersion));
+            json(cereal::make_nvp("loaderType", loaderType));
+            json(cereal::make_nvp("loaderVersion", loaderVersion));
 
             loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
             json(CEREAL_NVP(sourceFileInfo));

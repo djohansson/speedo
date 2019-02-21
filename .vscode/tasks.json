@@ -41,9 +41,26 @@
 			},
 			"args": [
 				"-clean",
-			//	"-showcmds",
 				"-cache",
-			//	"-cacheverbose",
+				"-summary",
+				"all"
+			],
+			"group": "build"
+		},
+		{
+			"label": "FastBuild (Clean, No Cache)",
+			"type": "shell",
+			"windows": {
+				"command": "fbuild.exe",
+			},
+			"linux": {
+				"command": "fbuild",
+			},
+			"osx": {
+				"command": "fbuild",
+			},
+			"args": [
+				"-clean",
 				"-summary",
 				"all"
 			],

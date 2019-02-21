@@ -34,3 +34,12 @@
 [submodule "external/lz4"]
 	path = external/lz4
 	url = https://github.com/lz4/lz4.git
+[submodule "external/ISPCTextureCompressor"]
+	path = external/ISPCTextureCompressor
+	url = https://github.com/GameTechDev/ISPCTextureCompressor.git
+[submodule "external/ispc"]
+	path = external/ispc
+	url = https://github.com/ispc/ispc.git
+[submodule "external/stb"]
+	path = external/stb
+	url = https://github.com/nothings/stb.git

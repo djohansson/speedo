@@ -81,6 +81,9 @@ using SaveFileFn = std::function<void(std::iostream&)>;
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,
     const std::filesystem::path &cacheFilePath,
+    const std::string& loaderType,
+	const std::string& loaderVersion,
     LoadFileFn loadSourceFileFn,
     LoadFileFn loadBinaryCacheFn,
     SaveFileFn saveBinaryCacheFn);
+  

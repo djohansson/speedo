@@ -17,10 +17,19 @@ static inline void CHECK_VK(VkResult err)
 	assert(err == VK_SUCCESS);
 }
 
-uint32_t getFormatSize(VkFormat format)
+uint32_t getFormatPixelSize(VkFormat format, uint32_t& outDivisor)
 {
+	outDivisor = 1;
 	switch (format)
 	{
+	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+	case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
+	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+	case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
+		outDivisor = 2;
+		return 1;
+	case VK_FORMAT_R8G8B8_UNORM:
+		return 3;
 	case VK_FORMAT_R8G8B8A8_UNORM:
 		return 4;
 	default:

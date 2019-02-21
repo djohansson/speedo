@@ -2885,7 +2885,7 @@ namespace Slang
 
             if(count)
             {
-                sb.append(count);
+                sb.append((int32_t)count);
             }
             return sb.ProduceString();
         }
@@ -2893,7 +2893,7 @@ namespace Slang
         {
             StringBuilder sb;
             auto id = context->uniqueIDCounter++;
-            sb.append(id);
+            sb.append((int32_t)id);
             return sb.ProduceString();
         }
     }
