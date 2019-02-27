@@ -950,7 +950,7 @@ int FrontEndCompileRequest::addTranslationUnit(SourceLanguage language)
     // even when they are being compiled together.
     //
     String generatedName = "tu";
-    generatedName.append(translationUnits.Count());
+    generatedName.append((uint32_t)translationUnits.Count());
     return addTranslationUnit(language,  getNamePool()->getName(generatedName));
 }
 
