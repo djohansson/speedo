@@ -50,7 +50,7 @@ RAW(
     virtual String ToString() override;
     virtual RefPtr<Val> SubstituteImpl(SubstitutionSet subst, int* ioDiff) override;
 
-    static DeclRefType* Create(
+    static RefPtr<DeclRefType> Create(
         Session*        session,
         DeclRef<Decl>   declRef);
 
@@ -314,11 +314,15 @@ RAW(
     IntVal*         getRowCount();
     IntVal*         getColumnCount();
 
+    RefPtr<Type> getRowType();
 
     virtual String ToString() override;
 
 protected:
     virtual BasicExpressionType* GetScalarType() override;
+
+private:
+    RefPtr<Type> mRowType;
 )
 END_SYNTAX_CLASS()
 
@@ -445,6 +449,24 @@ END_SYNTAX_CLASS()
 SYNTAX_CLASS(ExtractExistentialType, Type)
 RAW(
     DeclRef<VarDeclBase> declRef;
+
+    virtual String ToString() override;
+    virtual bool EqualsImpl(Type * type) override;
+    virtual int GetHashCode() override;
+    virtual RefPtr<Type> CreateCanonicalType() override;
+    virtual RefPtr<Val> SubstituteImpl(SubstitutionSet subst, int* ioDiff) override;
+)
+END_SYNTAX_CLASS()
+
+    /// A tagged union of zero or more other types.
+SYNTAX_CLASS(TaggedUnionType, Type)
+RAW(
+        /// The distinct "cases" the tagged union can store.
+        ///
+        /// For each type in this array, the array index is the
+        /// tag value for that case.
+        ///
+    List<RefPtr<Type>> caseTypes;
 
     virtual String ToString() override;
     virtual bool EqualsImpl(Type * type) override;

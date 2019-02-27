@@ -1,4 +1,4 @@
-// main.cpp
+// slang-reflection-test-main.cpp
 
 #include <assert.h>
 #include <stdio.h>
@@ -55,7 +55,7 @@ static void dedent(PrettyWriter& writer)
     writer.indent--;
 }
 
-static void write(PrettyWriter& writer, char const* text)
+static void write(PrettyWriter& writer, char const* text, size_t length = 0)
 {
     // TODO: can do this more efficiently...
     char const* cursor = text;
@@ -63,7 +63,7 @@ static void write(PrettyWriter& writer, char const* text)
     {
         char c = *cursor++;
         if (!c) break;
-
+        if (length && cursor - text == length) break;
         if (c == '\n')
         {
             writer.startOfLine = true;
@@ -81,6 +81,18 @@ static void write(PrettyWriter& writer, SlangUInt val)
 {
     adjust(writer);
     Slang::StdWriters::getOut().print("%llu", (unsigned long long)val);
+}
+
+static void write(PrettyWriter& writer, int val)
+{
+    adjust(writer);
+    Slang::StdWriters::getOut().print("%d", val);
+}
+
+static void write(PrettyWriter& writer, float val)
+{
+    adjust(writer);
+    Slang::StdWriters::getOut().print("%f", val);
 }
 
 static void emitReflectionVarInfoJSON(PrettyWriter& writer, slang::VariableReflection* var);
@@ -261,6 +273,76 @@ static void emitReflectionModifierInfoJSON(
     }
 }
 
+static void emitUserAttributeJSON(PrettyWriter& writer, slang::UserAttribute* userAttribute)
+{
+    write(writer, "{\n");
+    indent(writer);
+    write(writer, "\"name\": \"");
+    write(writer, userAttribute->getName());
+    write(writer, "\",\n");
+    write(writer, "\"arguments\": [\n");
+    indent(writer);
+    for (unsigned int i = 0; i < userAttribute->getArgumentCount(); i++)
+    {
+        int intVal;
+        float floatVal;
+        size_t bufSize = 0;
+        if (i > 0)
+            write(writer, ",\n");
+        if (SLANG_SUCCEEDED(userAttribute->getArgumentValueInt(i, &intVal)))
+        {
+            write(writer, intVal);
+        }
+        else if (SLANG_SUCCEEDED(userAttribute->getArgumentValueFloat(i, &floatVal)))
+        {
+            write(writer, floatVal);
+        }
+        else if (auto str = userAttribute->getArgumentValueString(i, &bufSize))
+        {
+            write(writer, str, bufSize);
+        }
+        else
+            write(writer, "\"invalid value\"");
+    }
+    dedent(writer);
+    write(writer, "\n]\n");
+    dedent(writer);
+    write(writer, "}\n");
+}
+
+static void emitUserAttributes(PrettyWriter& writer, slang::TypeReflection* type)
+{
+    auto attribCount = type->getUserAttributeCount();
+    if (attribCount)
+    {
+        write(writer, ",\n\"userAttribs\": [");
+        for (unsigned int i = 0; i < attribCount; i++)
+        {
+            if (i > 0)
+                write(writer, ",\n");
+            auto attrib = type->getUserAttributeByIndex(i);
+            emitUserAttributeJSON(writer, attrib);
+        }
+        write(writer, "]");
+    }
+}
+static void emitUserAttributes(PrettyWriter& writer, slang::VariableReflection* var)
+{
+    auto attribCount = var->getUserAttributeCount();
+    if (attribCount)
+    {
+        write(writer, ",\n\"userAttribs\": [");
+        for (unsigned int i = 0; i < attribCount; i++)
+        {
+            if (i > 0)
+                write(writer, ",\n");
+            auto attrib = var->getUserAttributeByIndex(i);
+            emitUserAttributeJSON(writer, attrib);
+        }
+        write(writer, "]");
+    }
+}
+
 static void emitReflectionVarLayoutJSON(
     PrettyWriter&                       writer,
     slang::VariableLayoutReflection*    var)
@@ -278,6 +360,7 @@ static void emitReflectionVarLayoutJSON(
 
     emitReflectionVarBindingInfoJSON(writer, var);
 
+    emitUserAttributes(writer, var->getVariable());
     dedent(writer);
     write(writer, "\n}");
 }
@@ -308,6 +391,67 @@ static void emitReflectionScalarTypeInfoJSON(
     write(writer, "\"");
 }
 
+static void emitReflectionResourceTypeBaseInfoJSON(
+    PrettyWriter&           writer,
+    slang::TypeReflection*  type)
+{
+    auto shape  = type->getResourceShape();
+    auto access = type->getResourceAccess();
+    write(writer, "\"kind\": \"resource\"");
+    write(writer, ",\n");
+    write(writer, "\"baseShape\": \"");
+    switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK)
+    {
+    default:
+        write(writer, "unknown");
+        assert(!"unhandled case");
+        break;
+
+#define CASE(SHAPE, NAME) case SLANG_##SHAPE: write(writer, #NAME); break
+        CASE(TEXTURE_1D, texture1D);
+        CASE(TEXTURE_2D, texture2D);
+        CASE(TEXTURE_3D, texture3D);
+        CASE(TEXTURE_CUBE, textureCube);
+        CASE(TEXTURE_BUFFER, textureBuffer);
+        CASE(STRUCTURED_BUFFER, structuredBuffer);
+        CASE(BYTE_ADDRESS_BUFFER, byteAddressBuffer);
+#undef CASE
+    }
+    write(writer, "\"");
+    if (shape & SLANG_TEXTURE_ARRAY_FLAG)
+    {
+        write(writer, ",\n");
+        write(writer, "\"array\": true");
+    }
+    if (shape & SLANG_TEXTURE_MULTISAMPLE_FLAG)
+    {
+        write(writer, ",\n");
+        write(writer, "\"multisample\": true");
+    }
+
+    if( access != SLANG_RESOURCE_ACCESS_READ )
+    {
+        write(writer, ",\n\"access\": \"");
+        switch(access)
+        {
+        default:
+            write(writer, "unknown");
+            assert(!"unhandled case");
+            break;
+
+        case SLANG_RESOURCE_ACCESS_READ:
+            break;
+
+        case SLANG_RESOURCE_ACCESS_READ_WRITE:      write(writer, "readWrite"); break;
+        case SLANG_RESOURCE_ACCESS_RASTER_ORDERED:  write(writer, "rasterOrdered"); break;
+        case SLANG_RESOURCE_ACCESS_APPEND:          write(writer, "append"); break;
+        case SLANG_RESOURCE_ACCESS_CONSUME:         write(writer, "consume"); break;
+        }
+        write(writer, "\"");
+    }
+}
+
+
 static void emitReflectionTypeInfoJSON(
     PrettyWriter&           writer,
     slang::TypeReflection*  type)
@@ -321,65 +465,13 @@ static void emitReflectionTypeInfoJSON(
 
     case slang::TypeReflection::Kind::Resource:
         {
-            auto shape  = type->getResourceShape();
-            auto access = type->getResourceAccess();
-            write(writer, "\"kind\": \"resource\"");
-            write(writer, ",\n");
-            write(writer, "\"baseShape\": \"");
-            switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK)
-            {
-            default:
-                write(writer, "unknown");
-                assert(!"unhandled case");
-                break;
-
-#define CASE(SHAPE, NAME) case SLANG_##SHAPE: write(writer, #NAME); break
-                CASE(TEXTURE_1D, texture1D);
-                CASE(TEXTURE_2D, texture2D);
-                CASE(TEXTURE_3D, texture3D);
-                CASE(TEXTURE_CUBE, textureCube);
-                CASE(TEXTURE_BUFFER, textureBuffer);
-                CASE(STRUCTURED_BUFFER, structuredBuffer);
-                CASE(BYTE_ADDRESS_BUFFER, byteAddressBuffer);
-#undef CASE
-            }
-            write(writer, "\"");
-            if (shape & SLANG_TEXTURE_ARRAY_FLAG)
-            {
-                write(writer, ",\n");
-                write(writer, "\"array\": true");
-            }
-            if (shape & SLANG_TEXTURE_MULTISAMPLE_FLAG)
-            {
-                write(writer, ",\n");
-                write(writer, "\"multisample\": true");
-            }
-
-            if( access != SLANG_RESOURCE_ACCESS_READ )
-            {
-                write(writer, ",\n\"access\": \"");
-                switch(access)
-                {
-                default:
-                    write(writer, "unknown");
-                    assert(!"unhandled case");
-                    break;
-
-                case SLANG_RESOURCE_ACCESS_READ:
-                    break;
-
-                case SLANG_RESOURCE_ACCESS_READ_WRITE:      write(writer, "readWrite"); break;
-                case SLANG_RESOURCE_ACCESS_RASTER_ORDERED:  write(writer, "rasterOrdered"); break;
-                case SLANG_RESOURCE_ACCESS_APPEND:          write(writer, "append"); break;
-                case SLANG_RESOURCE_ACCESS_CONSUME:         write(writer, "consume"); break;
-                }
-                write(writer, "\"");
-            }
+            emitReflectionResourceTypeBaseInfoJSON(writer, type);
 
             // TODO: We should really print the result type for all resource
             // types, but current test output depends on the old behavior, so
             // we only add result type output for structured buffers at first.
             //
+            auto shape  = type->getResourceShape();
             switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK)
             {
             default:
@@ -459,10 +551,10 @@ static void emitReflectionTypeInfoJSON(
         write(writer, "\"kind\": \"matrix\"");
         write(writer, ",\n");
         write(writer, "\"rowCount\": ");
-        write(writer, type->getRowCount());
+        write(writer, (SlangUInt)type->getRowCount());
         write(writer, ",\n");
         write(writer, "\"columnCount\": ");
-        write(writer, type->getColumnCount());
+        write(writer, (SlangUInt)type->getColumnCount());
         write(writer, ",\n");
         write(writer, "\"elementType\": ");
         emitReflectionTypeJSON(
@@ -515,7 +607,9 @@ static void emitReflectionTypeInfoJSON(
         assert(!"unhandled case");
         break;
     }
+    emitUserAttributes(writer, type);
 }
+
 
 static void emitReflectionTypeLayoutInfoJSON(
     PrettyWriter&                   writer,
@@ -572,6 +666,8 @@ static void emitReflectionTypeLayoutInfoJSON(
             }
             dedent(writer);
             write(writer, "\n]");
+            emitUserAttributes(writer, structTypeLayout->getType());
+            
         }
         break;
 
@@ -620,9 +716,37 @@ static void emitReflectionTypeLayoutInfoJSON(
         write(writer, ",\n");
         emitReflectionNameInfoJSON(writer, typeLayout->getName());
         break;
-    }
 
-    // TODO: emit size info for types
+    case slang::TypeReflection::Kind::Resource:
+        {
+            // Some resource types (notably structured buffers)
+            // encode layout information for their result/element
+            // type, but others don't. We need to check for
+            // the relevant cases here.
+            //
+            auto type = typeLayout->getType();
+            auto shape  = type->getResourceShape();
+
+            if( (shape & SLANG_RESOURCE_BASE_SHAPE_MASK) == SLANG_STRUCTURED_BUFFER )
+            {
+                emitReflectionResourceTypeBaseInfoJSON(writer, type);
+
+                if( auto resultTypeLayout = typeLayout->getElementTypeLayout() )
+                {
+                    write(writer, ",\n");
+                    write(writer, "\"resultType\": ");
+                    emitReflectionTypeLayoutJSON(
+                        writer,
+                        resultTypeLayout);
+                }
+            }
+            else
+            {
+                emitReflectionTypeInfoJSON(writer, typeLayout->getType());
+            }
+        }
+        break;
+    }
 }
 
 static void emitReflectionTypeLayoutJSON(
@@ -927,8 +1051,13 @@ int main(
     int argc,
     char** argv)
 {
+    using namespace Slang;
+
     SlangSession* session = spCreateSession(nullptr);
-    SlangResult res = innerMain(Slang::StdWriters::initDefault(), session, argc, argv);
+
+    auto stdWriters = StdWriters::initDefaultSingleton();
+    
+    SlangResult res = innerMain(stdWriters, session, argc, argv);
     spDestroySession(session);
 
     return SLANG_FAILED(res) ? 1 : 0;

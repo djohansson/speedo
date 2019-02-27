@@ -373,6 +373,9 @@ struct IRInst
     // for those values.
     void removeArguments();
 
+        /// Transfer any decorations of this instruction to the `target` instruction.
+    void transferDecorationsTo(IRInst* target);
+
     /// Does this instruction have any uses?
     bool hasUses() const { return firstUse != nullptr; }
 
@@ -404,13 +407,33 @@ struct IRInst
     void _insertAt(IRInst* inPrev, IRInst* inNext, IRInst* inParent);
 };
 
-// `dynamic_cast` equivalent
 template<typename T>
-T* as(IRInst* inst, T* /* */ = nullptr)
+T* dynamicCast(IRInst* inst)
 {
     if (inst && T::isaImpl(inst->op))
-        return (T*) inst;
+        return static_cast<T*>(inst);
     return nullptr;
+}
+
+template<typename T>
+const T* dynamicCast(const IRInst* inst)
+{
+    if (inst && T::isaImpl(inst->op))
+        return static_cast<const T*>(inst);
+    return nullptr;
+}
+
+// `dynamic_cast` equivalent (we just use dynamicCast)
+template<typename T>
+T* as(IRInst* inst)
+{
+    return dynamicCast<T>(inst);
+}
+
+template<typename T>
+const T* as(const IRInst* inst)
+{
+    return dynamicCast<T>(inst);
 }
 
 // `static_cast` equivalent, with debug validation
@@ -949,7 +972,15 @@ struct IRStructKey : IRInst
 struct IRStructField : IRInst
 {
     IRStructKey* getKey() { return cast<IRStructKey>(getOperand(0)); }
-    IRType* getFieldType() { return cast<IRType>(getOperand(1)); }
+    IRType* getFieldType()
+    {
+        // Note: We do not use `cast` here because there are
+        // cases of types (which we would like to conveniently
+        // refer to via an `IRType*`) which do not actually
+        // inherit from `IRType` in the hierarchy.
+        //
+        return (IRType*) getOperand(1);
+    }
 
     IR_LEAF_ISA(StructField)
 };
@@ -959,16 +990,21 @@ struct IRStructField : IRInst
 // *not* contain the keys, because code needs to be able to
 // reference the keys from scopes outside of the struct.
 //
-struct IRStructType : IRInst
+struct IRStructType : IRType
 {
     IRInstList<IRStructField> getFields() { return IRInstList<IRStructField>(getChildren()); }
 
     IR_LEAF_ISA(StructType)
 };
 
-struct IRInterfaceType : IRInst
+struct IRInterfaceType : IRType
 {
     IR_LEAF_ISA(InterfaceType)
+};
+
+struct IRTaggedUnionType : IRType
+{
+    IR_LEAF_ISA(TaggedUnionType)
 };
 
 /// @brief A global value that potentially holds executable code.

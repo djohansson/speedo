@@ -718,7 +718,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 if (isMultisample)
                 {
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetch($0, $1, $3)\")\n";
+                    sb << "__target_intrinsic(glsl, \"texelFetch($0, $1, $3)$z\")\n";
                 }
                 else
                 {
@@ -732,7 +732,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     {
                         sb << "$1, 0";
                     }
-                    sb << ")\")\n";
+                    sb << ")$z\")\n";
                 }
                 sb << "T Load(";
                 sb << "int" << loadCoordCount << " location";
@@ -745,7 +745,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 if (isMultisample)
                 {
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetchOffset($0, $0, $1, $2)\")\n";
+                    sb << "__target_intrinsic(glsl, \"texelFetchOffset($0, $0, $1, $2)$z\")\n";
                 }
                 else
                 {
@@ -759,7 +759,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     {
                         sb << "$1, 0";
                     }
-                    sb << ", $2)\")\n";
+                    sb << ", $2)$z\")\n";
                 }
                 sb << "T Load(";
                 sb << "int" << loadCoordCount << " location";
@@ -849,17 +849,13 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
             {
                 // `Sample()`
 
-                sb << "__target_intrinsic(glsl, \"texture($p, $2)\")\n";
-
-                // TODO: only enable if IR is being used?
-//                sb << "__intrinsic_op(sample)\n";
-
+                sb << "__target_intrinsic(glsl, \"texture($p, $2)$z\")\n";
                 sb << "T Sample(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location);\n";
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureOffset($p, $2, $3)\")\n";
+                    sb << "__target_intrinsic(glsl, \"textureOffset($p, $2, $3)$z\")\n";
                     sb << "T Sample(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                     sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset);\n";
@@ -883,26 +879,33 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
 
                 // `SampleBias()`
-                sb << "__target_intrinsic(glsl, \"texture($p, $2, $3)\")\n";
+                sb << "__target_intrinsic(glsl, \"texture($p, $2, $3)$z\")\n";
                 sb << "T SampleBias(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, float bias);\n";
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureOffset($p, $2, $3, $4)\")\n";
+                    sb << "__target_intrinsic(glsl, \"textureOffset($p, $2, $3, $4)$z\")\n";
                     sb << "T SampleBias(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, float bias, ";
                     sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset);\n";
                 }
-
-                // `SampleCmp()` and `SampleCmpLevelZero`
-                sb << "float SampleCmp(SamplerComparisonState s, ";
-                sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
-                sb << "float compareValue";
-                sb << ");\n";
-
                 int baseCoordCount = kBaseTextureTypes[tt].coordCount;
                 int arrCoordCount = baseCoordCount + isArray;
+				if (arrCoordCount <= 3)
+                {
+					// `SampleCmp()` and `SampleCmpLevelZero`
+					sb << "__target_intrinsic(glsl, \"texture($p, vec" << arrCoordCount + 1 << "($2, $3))\")";
+					sb << "float SampleCmp(SamplerComparisonState s, ";
+					sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
+					sb << "float compareValue";
+					sb << ");\n";
+					sb << "__target_intrinsic(glsl, \"texture($p, vec" << arrCoordCount + 1 << "($2, $3))\")";
+					sb << "float SampleCmpLevelZero(SamplerComparisonState s, ";
+					sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
+					sb << "float compareValue";
+					sb << ");\n";
+				}
                 if (arrCoordCount < 3)
                 {
                     int extCoordCount = arrCoordCount + 1;
@@ -919,7 +922,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     }
                     sb << "$3)";
 
-                    sb << ", 0.0)\")\n";
+                    sb << ", 0.0)$z\")\n";
                 }
                 else if(arrCoordCount <= 3)
                 {
@@ -940,12 +943,9 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     // Construct gradients
                     sb << ", vec" << baseCoordCount << "(0.0)";
                     sb << ", vec" << baseCoordCount << "(0.0)";
-                    sb << ")\")\n";
+                    sb << ")$z\")\n";
                 }
-                sb << "float SampleCmpLevelZero(SamplerComparisonState s, ";
-                sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
-                sb << "float compareValue";
-                sb << ");\n";
+                
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
@@ -968,7 +968,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 }
 
 
-                sb << "__target_intrinsic(glsl, \"textureGrad($p, $2, $3, $4)\")\n";
+                sb << "__target_intrinsic(glsl, \"textureGrad($p, $2, $3, $4)$z\")\n";
 //                sb << "__intrinsic_op(sampleGrad)\n";
                 sb << "T SampleGrad(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
@@ -978,7 +978,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureGradOffset($p, $2, $3, $4, $5)\")\n";
+                    sb << "__target_intrinsic(glsl, \"textureGradOffset($p, $2, $3, $4, $5)$z\")\n";
 //                    sb << "__intrinsic_op(sampleGrad)\n";
                     sb << "T SampleGrad(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
@@ -996,7 +996,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureLodOffset($p, $2, $3, $4)\")\n";
+                    sb << "__target_intrinsic(glsl, \"textureLodOffset($p, $2, $3, $4)$z\")\n";
                     sb << "T SampleLevel(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                     sb << "float level, ";
@@ -1213,6 +1213,12 @@ SLANG_RAW("\n")
 SLANG_RAW("__attributeTarget(DeclBase)\n")
 SLANG_RAW("attribute_syntax [gl_binding(binding: int, set: int = 0)]\t\t\t: GLSLBindingAttribute;\n")
 SLANG_RAW("\n")
+SLANG_RAW("\n")
+SLANG_RAW("__attributeTarget(VarDeclBase)\n")
+SLANG_RAW("attribute_syntax [vk_shader_record]\t\t\t                        : ShaderRecordAttribute;\n")
+SLANG_RAW("__attributeTarget(VarDeclBase)\n")
+SLANG_RAW("attribute_syntax [shader_record]\t\t\t                        : ShaderRecordAttribute;\n")
+SLANG_RAW("\n")
 SLANG_RAW("__attributeTarget(DeclBase)\n")
 SLANG_RAW("attribute_syntax [vk_push_constant]\t\t\t\t\t\t\t\t\t: PushConstantAttribute;\n")
 SLANG_RAW("__attributeTarget(DeclBase)\n")
@@ -1304,3 +1310,21 @@ SLANG_RAW("    ///\n")
 SLANG_RAW("    /// This is equivalent to the LLVM `readnone` function attribute.\n")
 SLANG_RAW("__attributeTarget(FunctionDeclBase)\n")
 SLANG_RAW("attribute_syntax [__readNone] : ReadNoneAttribute;\n")
+SLANG_RAW("\n")
+SLANG_RAW("enum _AttributeTargets\n")
+SLANG_RAW("{\n")
+SLANG_RAW("    Struct = ")
+SLANG_SPLICE( (int) UserDefinedAttributeTargets::Struct
+)
+SLANG_RAW(",\n")
+SLANG_RAW("    Var = ")
+SLANG_SPLICE( (int) UserDefinedAttributeTargets::Var
+)
+SLANG_RAW(",\n")
+SLANG_RAW("    Function = ")
+SLANG_SPLICE( (int) UserDefinedAttributeTargets::Function
+)
+SLANG_RAW(",\n")
+SLANG_RAW("};\n")
+SLANG_RAW("__attributeTarget(StructDecl)\n")
+SLANG_RAW("attribute_syntax [__AttributeUsage(target : _AttributeTargets)] : AttributeUsageAttribute;\n")

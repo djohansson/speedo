@@ -39,9 +39,6 @@ SLANG_TEST_TOOL_API SlangResult innerMain(StdWriters* stdWriters, SlangSession* 
 
     spSetCommandLineCompilerMode(compileRequest);
 
-    // Do any app specific configuration
-    stdWriters->setRequestWriters(compileRequest);
-
     char const* appName = "slangc";
     if (argc > 0) appName = argv[0];
 
@@ -84,7 +81,10 @@ int MAIN(int argc, char** argv)
     SlangResult res;
     {
         SlangSession* session = spCreateSession(nullptr);
-        res = innerMain(StdWriters::initDefault(), session, argc, argv);
+
+        auto stdWriters = StdWriters::initDefaultSingleton();
+        
+        res = innerMain(stdWriters, session, argc, argv);
         spDestroySession(session);
     }
     return TestToolUtil::getReturnCode(res);

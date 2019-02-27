@@ -8,8 +8,9 @@
 namespace Slang {
 
 class DiagnosticSink;
+class Linkage;
+class Module;
 class ModuleDecl;
-class TranslationUnitRequest;
 
 // Callback interface for the preprocessor to use when looking
 // for files in `#include` directives.
@@ -20,8 +21,7 @@ struct IncludeHandler
         const String& pathIncludedFrom,
         PathInfo& pathInfoOut) = 0;
 
-    virtual SlangResult readFile(const String& path, 
-        ISlangBlob** blobOut) = 0;        
+    virtual String simplifyPath(const String& path) = 0;
 };
 
 // Take a string of source code and preprocess it into a list of tokens.
@@ -30,7 +30,8 @@ TokenList preprocessSource(
     DiagnosticSink*             sink,
     IncludeHandler*             includeHandler,
     Dictionary<String, String>  defines,
-    TranslationUnitRequest*     translationUnit);
+    Linkage*                    linkage,
+    Module*                     parentModule);
 
 } // namespace Slang
 

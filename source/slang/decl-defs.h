@@ -33,7 +33,7 @@ ABSTRACT_SYNTAX_CLASS(ContainerDecl, Decl)
     )
 END_SYNTAX_CLASS()
 
-// Base class for all variable-like declarations
+// Base class for all variable declarations
 ABSTRACT_SYNTAX_CLASS(VarDeclBase, Decl)
 
     // type of the variable
@@ -47,9 +47,13 @@ ABSTRACT_SYNTAX_CLASS(VarDeclBase, Decl)
     SYNTAX_FIELD(RefPtr<Expr>, initExpr)
 END_SYNTAX_CLASS()
 
+// Ordinary potentially-mutable variables (locals, globals, and member variables)
+SYNTAX_CLASS(VarDecl, VarDeclBase)
+END_SYNTAX_CLASS()
 
-// A field of a `struct` type
-SIMPLE_SYNTAX_CLASS(StructField, VarDeclBase)
+// A variable declaration that is always immutable (whether local, global, or member variable)
+SYNTAX_CLASS(LetDecl, VarDecl)
+END_SYNTAX_CLASS()
 
 // An `AggTypeDeclBase` captures the shared functionality
 // between true aggregate type declarations and extension
@@ -76,9 +80,9 @@ ABSTRACT_SYNTAX_CLASS(AggTypeDecl, AggTypeDeclBase)
 RAW(
     // extensions that might apply to this declaration
     ExtensionDecl* candidateExtensions = nullptr;
-    FilteredMemberList<StructField> GetFields()
+    FilteredMemberList<VarDecl> GetFields()
     {
-        return getMembersOfType<StructField>();
+        return getMembersOfType<VarDecl>();
     }
     )
 END_SYNTAX_CLASS()
@@ -98,7 +102,28 @@ RAW(
 )
 END_SYNTAX_CLASS()
 
-SIMPLE_SYNTAX_CLASS(EnumCaseDecl, VarDeclBase)
+// A single case in an enum.
+//
+// E.g., in a declaration like:
+//
+//      enum Color { Red = 0, Green, Blue };
+//
+// The `Red = 0` is the declaration of the `Red`
+// case, with `0` as an explicit expression for its
+// _tag value_.
+//
+SYNTAX_CLASS(EnumCaseDecl, Decl)
+
+    // type of the parent `enum`
+    SYNTAX_FIELD(TypeExp, type)
+
+    RAW(
+    Type* getType() { return type.type.Ptr(); }
+    )
+
+    // Tag value
+    SYNTAX_FIELD(RefPtr<Expr>, tagExpr)
+END_SYNTAX_CLASS()
 
 // An interface which other types can conform to
 SIMPLE_SYNTAX_CLASS(InterfaceDecl, AggTypeDecl)
@@ -144,11 +169,13 @@ SYNTAX_CLASS(TypeDefDecl, SimpleTypeDecl)
     SYNTAX_FIELD(TypeExp, type)
 END_SYNTAX_CLASS()
 
+SIMPLE_SYNTAX_CLASS(TypeAliasDecl, TypeDefDecl)
+
 // An 'assoctype' declaration, it is a container of inheritance clauses
 SYNTAX_CLASS(AssocTypeDecl, AggTypeDecl)
 END_SYNTAX_CLASS()
 
-// A '__generic_param' declaration, which defines a generic
+// A 'type_param' declaration, which defines a generic
 // entry-point parameter. Is a container of GenericTypeConstraintDecl
 SYNTAX_CLASS(GlobalGenericParamDecl, AggTypeDecl)
 END_SYNTAX_CLASS()
@@ -156,7 +183,11 @@ END_SYNTAX_CLASS()
 // A scope for local declarations (e.g., as part of a statement)
 SIMPLE_SYNTAX_CLASS(ScopeDecl, ContainerDecl)
 
+// A function/initializer/subscript parameter (potentially mutable)
 SIMPLE_SYNTAX_CLASS(ParamDecl, VarDeclBase)
+
+// A parameter of a function declared in "modern" types (immutable unless explicitly `out` or `inout`)
+SIMPLE_SYNTAX_CLASS(ModernParamDecl, ParamDecl)
 
 // Base class for things that have parameter lists and can thus be applied to arguments ("called")
 ABSTRACT_SYNTAX_CLASS(CallableDecl, ContainerDecl)
@@ -205,12 +236,18 @@ SIMPLE_SYNTAX_CLASS(RefAccessorDecl, AccessorDecl)
 
 SIMPLE_SYNTAX_CLASS(FuncDecl, FunctionDeclBase)
 
-SIMPLE_SYNTAX_CLASS(Variable, VarDeclBase);
-
 // A "module" of code (essentiately, a single translation unit)
 // that provides a scope for some number of declarations.
 SYNTAX_CLASS(ModuleDecl, ContainerDecl)
     FIELD(RefPtr<Scope>, scope)
+
+    // The API-level module that this declaration belong to.
+    //
+    // This field allows lookup of the `Module` based on a
+    // declaration nested under a `ModuleDecl` by following
+    // its chain of parents.
+    //
+    RAW(Module* module = nullptr;)
 END_SYNTAX_CLASS()
 
 SYNTAX_CLASS(ImportDecl, Decl)

@@ -663,7 +663,6 @@ struct SharedIRBuilder
 
     Dictionary<IRInstKey,       IRInst*>    globalValueNumberingMap;
     Dictionary<IRConstantKey,   IRConstant*>    constantMap;
-    Dictionary<Name*, IRWitnessTable*> witnessTableMap;
 };
 
 struct IRBuilderSourceLocRAII;
@@ -753,12 +752,32 @@ struct IRBuilder
         IRType* const*  paramTypes,
         IRType*         resultType);
 
+    IRFuncType* getFuncType(
+        List<IRType*> const&    paramTypes,
+        IRType*                 resultType)
+    {
+        return getFuncType(paramTypes.Count(), paramTypes.Buffer(), resultType);
+    }
+
+    IRConstantBufferType* getConstantBufferType(
+        IRType* elementType);
+
     IRConstExprRate* getConstExprRate();
     IRGroupSharedRate* getGroupSharedRate();
 
     IRRateQualifiedType* getRateQualifiedType(
         IRRate* rate,
         IRType* dataType);
+
+    IRType* getTaggedUnionType(
+        UInt            caseCount,
+        IRType* const*  caseTypes);
+
+    IRType* getTaggedUnionType(
+        List<IRType*> const& caseTypes)
+    {
+        return getTaggedUnionType(caseTypes.Count(), caseTypes.Buffer());
+    }
 
     // Set the data type of an instruction, while preserving
     // its rate, if any.
@@ -794,6 +813,14 @@ struct IRBuilder
         UInt            argCount,
         IRInst* const*  args);
 
+    IRInst* emitCallInst(
+        IRType*                 type,
+        IRInst*                 func,
+        List<IRInst*> const&    args)
+    {
+        return emitCallInst(type, func, args.Count(), args.Buffer());
+    }
+
     IRInst* createIntrinsicInst(
         IRType*         type,
         IROp            op,
@@ -816,6 +843,18 @@ struct IRBuilder
         UInt            argCount,
         IRInst* const* args);
 
+    IRInst* emitMakeVector(
+        IRType*                 type,
+        List<IRInst*> const&    args)
+    {
+        return emitMakeVector(type, args.Count(), args.Buffer());
+    }
+
+    IRInst* emitMakeMatrix(
+        IRType*         type,
+        UInt            argCount,
+        IRInst* const* args);
+
     IRInst* emitMakeArray(
         IRType*         type,
         UInt            argCount,
@@ -825,6 +864,13 @@ struct IRBuilder
         IRType*         type,
         UInt            argCount,
         IRInst* const* args);
+
+    IRInst* emitMakeStruct(
+        IRType*                 type,
+        List<IRInst*> const&    args)
+    {
+        return emitMakeStruct(type, args.Count(), args.Buffer());
+    }
 
     IRInst* emitMakeExistential(
         IRType* type,
@@ -1035,6 +1081,22 @@ struct IRBuilder
         IRInst* param,
         IRInst* val);
 
+    IRInst* emitExtractTaggedUnionTag(
+        IRInst* val);
+
+    IRInst* emitExtractTaggedUnionPayload(
+        IRType* type,
+        IRInst* val,
+        IRInst* tag);
+
+    IRInst* emitBitCast(
+        IRType* type,
+        IRInst* val);
+
+    //
+    // Decorations
+    //
+
     IRDecoration* addDecoration(IRInst* value, IROp op, IRInst* const* operands, Int operandCount);
 
     IRDecoration* addDecoration(IRInst* value, IROp op)
@@ -1137,6 +1199,11 @@ struct IRBuilder
     void addEntryPointDecoration(IRInst* value)
     {
         addDecoration(value, kIROp_EntryPointDecoration);
+    }
+
+    void addKeepAliveDecoration(IRInst* value)
+    {
+        addDecoration(value, kIROp_KeepAliveDecoration);
     }
 
         /// Add a decoration that indicates that the given `inst` depends on the given `dependency`.

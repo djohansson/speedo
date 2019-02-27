@@ -194,28 +194,18 @@ struct Preprocessor
     // represent end-of-input situations.
     Token                                   endOfFileToken;
 
-    // The translation unit that is being parsed
-    TranslationUnitRequest*                 translationUnit;
+        /// The linkage the provides the context for preprocessing
+    Linkage*                                linkage = nullptr;
 
-    // Any paths that have issued `#pragma once` directives to
+        /// The module, if any, that the preprocessed result will belong to
+    Module*                                 parentModule = nullptr;
+
+    // The unique identities of any paths that have issued `#pragma once` directives to
     // stop them from being included again.
-    HashSet<String>                         pragmaOncePaths;
+    HashSet<String>                         pragmaOnceUniqueIdentities;
 
-
-    TranslationUnitRequest* getTranslationUnit()
-    {
-        return translationUnit;
-    }
-
-    ModuleDecl* getSyntax()
-    {
-        return getTranslationUnit()->SyntaxNode.Ptr();
-    }
-
-    CompileRequest* getCompileRequest()
-    {
-        return getTranslationUnit()->compileRequest;
-    }
+    NamePool* getNamePool() { return linkage->getNamePool(); }
+    SourceManager* getSourceManager() { return linkage->getSourceManager(); }
 };
 
 // Convenience routine to access the diagnostic sink
@@ -256,11 +246,6 @@ static void destroyInputStream(Preprocessor* /*preprocessor*/, PreprocessorInput
     delete inputStream;
 }
 
-static NamePool* getNamePool(Preprocessor* preprocessor)
-{
-    return preprocessor->translationUnit->compileRequest->getNamePool();
-}
-
 // Create an input stream to represent a pre-tokenized input file.
 // TODO(tfoley): pre-tokenizing files isn't going to work in the long run.
 static PreprocessorInputStream* CreateInputStreamForSource(
@@ -273,7 +258,7 @@ static PreprocessorInputStream* CreateInputStreamForSource(
     initializePrimaryInputStream(preprocessor, inputStream);
 
     // initialize the embedded lexer so that it can generate a token stream
-    inputStream->lexer.initialize(sourceView, GetSink(preprocessor), getNamePool(preprocessor), memoryArena);
+    inputStream->lexer.initialize(sourceView, GetSink(preprocessor), preprocessor->getNamePool(), memoryArena);
     inputStream->token = inputStream->lexer.lexToken();
 
     return inputStream;
@@ -403,7 +388,7 @@ static Token AdvanceRawToken(Preprocessor* preprocessor, LexerFlags lexerFlags =
 // current token state.
 static Token PeekRawToken(Preprocessor* preprocessor)
 {
-    // We need to find the strema that `advanceRawToken` would read from.
+    // We need to find the stream that `advanceRawToken` would read from.
     PreprocessorInputStream* inputStream = preprocessor->inputStream;
     for (;;)
     {
@@ -837,17 +822,16 @@ top:
 
         // Now re-lex the input
 
-        SourceManager* sourceManager = preprocessor->getCompileRequest()->getSourceManager();
+        SourceManager* sourceManager = preprocessor->getSourceManager();
 
         // We create a dummy file to represent the token-paste operation
         PathInfo pathInfo = PathInfo::makeTokenPaste();
        
-        SourceFile* sourceFile = sourceManager->createSourceFile(pathInfo, sb.ProduceString());
-
-        SourceView* sourceView = sourceManager->createSourceView(sourceFile);
+        SourceFile* sourceFile = sourceManager->createSourceFileWithString(pathInfo, sb.ProduceString());
+        SourceView* sourceView = sourceManager->createSourceView(sourceFile, nullptr);
 
         Lexer lexer;
-        lexer.initialize(sourceView, GetSink(preprocessor), getNamePool(preprocessor), sourceManager->getMemoryArena());
+        lexer.initialize(sourceView, GetSink(preprocessor), preprocessor->getNamePool(), sourceManager->getMemoryArena());
 
         SimpleTokenInputStream* inputStream = new SimpleTokenInputStream();
         initializeInputStream(preprocessor, inputStream);
@@ -956,7 +940,7 @@ static PreprocessorMacro* LookupMacro(PreprocessorDirectiveContext* context, Nam
     return LookupMacro(context->preprocessor, name);
 }
 
-// Determine if we have read everthing on the directive's line.
+// Determine if we have read everything on the directive's line.
 static bool IsEndOfLine(PreprocessorDirectiveContext* context)
 {
     return PeekRawToken(context->preprocessor).type == TokenType::EndOfDirective;
@@ -1241,7 +1225,7 @@ static int GetInfixOpPrecedence(Token const& opToken)
         return -1;
 
     // otherwise we look at the token type to figure
-    // out what precednece it should be parse with
+    // out what precedence it should be parse with
     switch (opToken.type)
     {
     default:
@@ -1350,7 +1334,7 @@ static PreprocessorExpressionValue ParseAndEvaluateInfixExpressionWithPrecedence
         Token opToken = PeekToken(context);
         int opPrecedence = GetInfixOpPrecedence(opToken);
 
-        // If it isn't an operator of high enough precendece, we are done.
+        // If it isn't an operator of high enough precedence, we are done.
         if(opPrecedence < precedence)
             break;
 
@@ -1402,16 +1386,28 @@ static PreprocessorExpressionValue ParseAndEvaluateExpression(PreprocessorDirect
 // Handle a `#if` directive
 static void HandleIfDirective(PreprocessorDirectiveContext* context)
 {
-    // Record current inpu stream in case preprocessor expression
+    // Record current input stream in case preprocessor expression
     // changes the input stream to a macro expansion while we
     // are parsing.
     auto inputStream = context->preprocessor->inputStream;
 
-    // Parse a preprocessor expression.
-    PreprocessorExpressionValue value = ParseAndEvaluateExpression(context);
+    // If we are skipping, we can just consume the expression, and assume true
+    if (IsSkipping(context->preprocessor))
+    {
+        // Consume everything until the end of the line 
+        SkipToEndOfLine(context);
+        // Begin a preprocessor block, assume true based on the expression
+        // (contents will all be ignored because skipping).
+        beginConditional(context, inputStream, true);
+    }
+    else
+    {
+        // Parse a preprocessor expression.
+        PreprocessorExpressionValue value = ParseAndEvaluateExpression(context);
 
-    // Begin a preprocessor block, enabled based on the expression.
-    beginConditional(context, inputStream, value != 0);
+        // Begin a preprocessor block, enabled based on the expression.
+        beginConditional(context, inputStream, value != 0);
+    }
 }
 
 // Handle a `#ifdef` directive
@@ -1554,7 +1550,7 @@ static void HandleEndIfDirective(PreprocessorDirectiveContext* context)
 // we expect it.
 //
 // Most directives do not need to call this directly, since we have
-// a catch-all case in the main `HandleDirective()` funciton.
+// a catch-all case in the main `HandleDirective()` function.
 // The `#include` case will call it directly to avoid complications
 // when it switches the input stream.
 static void expectEndOfDirective(PreprocessorDirectiveContext* context)
@@ -1579,6 +1575,31 @@ static void expectEndOfDirective(PreprocessorDirectiveContext* context)
     AdvanceRawToken(context->preprocessor);
 }
 
+    /// Read a file in the context of handling a preprocessor directive
+static SlangResult readFile(
+    PreprocessorDirectiveContext*   context,
+    String const&                   path,
+    ISlangBlob**                    outBlob)
+{
+    // The actual file loading will be handled by the file system
+    // associated with the parent linkage.
+    //
+    auto linkage = context->preprocessor->linkage;
+    auto fileSystemExt = linkage->getFileSystemExt();
+    SLANG_RETURN_ON_FAIL(fileSystemExt->loadFile(path.Buffer(), outBlob));
+
+    // If we are running the preprocessor as part of compiling a
+    // specific module, then we must keep track of the file we've
+    // read as yet another file that the module will depend on.
+    //
+    if(auto module = context->preprocessor->parentModule)
+    {
+        module->addFilePathDependency(path);
+    }
+
+    return SLANG_OK;
+}
+
 // Handle a `#include` directive
 static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
 {
@@ -1593,7 +1614,7 @@ static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
 
     auto directiveLoc = GetDirectiveLoc(context);
     
-    PathInfo includedFromPathInfo = context->preprocessor->translationUnit->compileRequest->getSourceManager()->getPathInfo(directiveLoc, SourceLocType::Actual);
+    PathInfo includedFromPathInfo = context->preprocessor->getSourceManager()->getPathInfo(directiveLoc, SourceLocType::Actual);
     
     IncludeHandler* includeHandler = context->preprocessor->includeHandler;
     if (!includeHandler)
@@ -1611,10 +1632,10 @@ static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
         return;
     }
 
-    // We must have a canonical path to be compare
-    if (!filePathInfo.hasCanonicalPath())
+    // We must have a uniqueIdentity to be compare
+    if (!filePathInfo.hasUniqueIdentity())
     {
-        GetSink(context)->diagnose(pathToken.loc, Diagnostics::noCanonicalPath, path);
+        GetSink(context)->diagnose(pathToken.loc, Diagnostics::noUniqueIdentity, path);
         return;
     }
 
@@ -1624,33 +1645,37 @@ static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
     expectEndOfDirective(context);
 
     // Check whether we've previously included this file and seen a `#pragma once` directive
-    if(context->preprocessor->pragmaOncePaths.Contains(filePathInfo.canonicalPath))
+    if(context->preprocessor->pragmaOnceUniqueIdentities.Contains(filePathInfo.uniqueIdentity))
     {
         return;
     }
 
+    // Simplify the path
+    filePathInfo.foundPath = includeHandler->simplifyPath(filePathInfo.foundPath);
+
     // Push the new file onto our stack of input streams
     // TODO(tfoley): check if we have made our include stack too deep
-    auto sourceManager = context->preprocessor->getCompileRequest()->getSourceManager();
+    auto sourceManager = context->preprocessor->getSourceManager();
 
     // See if this an already loaded source file
-    SourceFile* sourceFile = sourceManager->findSourceFileRecursively(filePathInfo.canonicalPath);
+    SourceFile* sourceFile = sourceManager->findSourceFileRecursively(filePathInfo.uniqueIdentity);
     // If not create a new one, and add to the list of known source files
     if (!sourceFile)
     {
         ComPtr<ISlangBlob> foundSourceBlob;
-        if (SLANG_FAILED(includeHandler->readFile(filePathInfo.foundPath, foundSourceBlob.writeRef())))
+        if (SLANG_FAILED(readFile(context, filePathInfo.foundPath, foundSourceBlob.writeRef())))
         {
             GetSink(context)->diagnose(pathToken.loc, Diagnostics::includeFailed, path);
             return;
         }
 
-        sourceFile = sourceManager->createSourceFile(filePathInfo, foundSourceBlob);
-        sourceManager->addSourceFile(filePathInfo.canonicalPath, sourceFile);
+        
+        sourceFile = sourceManager->createSourceFileWithBlob(filePathInfo, foundSourceBlob);
+        sourceManager->addSourceFile(filePathInfo.uniqueIdentity, sourceFile);
     }
 
     // This is a new parse (even if it's a pre-existing source file), so create a new SourceUnit
-    SourceView* sourceView = sourceManager->createSourceView(sourceFile);
+    SourceView* sourceView = sourceManager->createSourceView(sourceFile, &filePathInfo);
 
     PreprocessorInputStream* inputStream = CreateInputStreamForSource(context->preprocessor, sourceView);
     inputStream->parent = context->preprocessor->inputStream;
@@ -1829,7 +1854,7 @@ static void HandleLineDirective(PreprocessorDirectiveContext* context)
         return;
     }
 
-    auto sourceManager = context->preprocessor->translationUnit->compileRequest->getSourceManager();
+    auto sourceManager = context->preprocessor->getSourceManager();
     
     String file;
     if (PeekTokenType(context) == TokenType::EndOfDirective)
@@ -1874,29 +1899,19 @@ SLANG_PRAGMA_DIRECTIVE_CALLBACK(handlePragmaOnceDirective)
     // We need to identify the path of the file we are preprocessing,
     // so that we can avoid including it again.
     //
-    // Note: for now we are doing a very simplistic check where
-    // we use the raw file path as the key for our duplicate checking.
-    //
-    // TODO: a more refined implementation should probably apply Unicode
-    // normalization and case-folding to the path, and then use that
-    // plus a hash of the file contents to determine whether things
-    // represent the "same" file.
-    //
-    // TODO: even for our simplistic implementation, we need to add
-    // logic to deal with `../` segments in path names to detect
-    // trivial cases of the "same" path.
-    //
+    // We are using the 'uniqueIdentity' as determined by the ISlangFileSystemEx interface to determine file identities.
+    
     auto directiveLoc = GetDirectiveLoc(context);
-    auto issuedFromPathInfo = context->preprocessor->translationUnit->compileRequest->getSourceManager()->getPathInfo(directiveLoc, SourceLocType::Actual);
+    auto issuedFromPathInfo = context->preprocessor->getSourceManager()->getPathInfo(directiveLoc, SourceLocType::Actual);
 
-    // Must have a canonical path for a #pragma once to work
-    if (!issuedFromPathInfo.hasCanonicalPath())
+    // Must have uniqueIdentity for a #pragma once to work
+    if (!issuedFromPathInfo.hasUniqueIdentity())
     {
         GetSink(context)->diagnose(subDirectiveToken, Diagnostics::pragmaOnceIgnored);
         return;
     }
 
-    context->preprocessor->pragmaOncePaths.Add(issuedFromPathInfo.canonicalPath);
+    context->preprocessor->pragmaOnceUniqueIdentities.Add(issuedFromPathInfo.uniqueIdentity);
 }
 
 // Information about a specific `#pragma` directive
@@ -1958,82 +1973,6 @@ static void HandlePragmaDirective(PreprocessorDirectiveContext* context)
     (subDirective->callback)(context, subDirectiveToken);
 }
 
-// Handle a `#version` directive
-static void handleGLSLVersionDirective(PreprocessorDirectiveContext* context)
-{
-    Token versionNumberToken;
-    if(!ExpectRaw(
-        context,
-        TokenType::IntegerLiteral,
-        Diagnostics::expectedTokenInPreprocessorDirective,
-        &versionNumberToken))
-    {
-        return;
-    }
-
-    Token glslProfileToken;
-    if(PeekTokenType(context) == TokenType::Identifier)
-    {
-        glslProfileToken = AdvanceToken(context);
-    }
-
-    // Need to construct a representation taht we can hook into our compilation result
-
-    auto modifier = new GLSLVersionDirective();
-    modifier->versionNumberToken = versionNumberToken;
-    modifier->glslProfileToken = glslProfileToken;
-
-    // Attach the modifier to the program we are parsing!
-
-    addModifier(
-        context->preprocessor->getSyntax(),
-        modifier);
-}
-
-// Handle a `#extension` directive, e.g.,
-//
-//     #extension some_extension_name : enable
-//
-static void handleGLSLExtensionDirective(PreprocessorDirectiveContext* context)
-{
-    Token extensionNameToken;
-    if(!ExpectRaw(
-        context,
-        TokenType::Identifier,
-        Diagnostics::expectedTokenInPreprocessorDirective,
-        &extensionNameToken))
-    {
-        return;
-    }
-
-    if( !ExpectRaw(context, TokenType::Colon, Diagnostics::expectedTokenInPreprocessorDirective) )
-    {
-        return;
-    }
-
-    Token dispositionToken;
-    if(!ExpectRaw(
-        context,
-        TokenType::Identifier,
-        Diagnostics::expectedTokenInPreprocessorDirective,
-        &dispositionToken))
-    {
-        return;
-    }
-
-    // Need to construct a representation taht we can hook into our compilation result
-
-    auto modifier = new GLSLExtensionDirective();
-    modifier->extensionNameToken = extensionNameToken;
-    modifier->dispositionToken = dispositionToken;
-
-    // Attach the modifier to the program we are parsing!
-
-    addModifier(
-        context->preprocessor->getSyntax(),
-        modifier);
-}
-
 // Handle an invalid directive
 static void HandleInvalidDirective(PreprocessorDirectiveContext* context)
 {
@@ -2087,11 +2026,6 @@ static const PreprocessorDirective kDirectives[] =
     { "error",      &HandleErrorDirective,      DontConsumeDirectiveAutomatically },
     { "line",       &HandleLineDirective,       0 },
     { "pragma",     &HandlePragmaDirective,     0 },
-
-    // TODO(tfoley): These are specific to GLSL, and probably
-    // shouldn't be enabled for HLSL or Slang
-    { "version",    &handleGLSLVersionDirective,    0 },
-    { "extension",  &handleGLSLExtensionDirective,  0 },
 
     { nullptr, nullptr, 0 },
 };
@@ -2266,20 +2200,20 @@ static void DefineMacro(
     
     PreprocessorMacro* macro = CreateMacro(preprocessor);
 
-    auto sourceManager = preprocessor->translationUnit->compileRequest->getSourceManager();
+    auto sourceManager = preprocessor->getSourceManager();
 
-    SourceFile* keyFile = sourceManager->createSourceFile(pathInfo, key);
-    SourceFile* valueFile = sourceManager->createSourceFile(pathInfo, value);
+    SourceFile* keyFile = sourceManager->createSourceFileWithString(pathInfo, key);
+    SourceFile* valueFile = sourceManager->createSourceFileWithString(pathInfo, value);
 
-    SourceView* keyView = sourceManager->createSourceView(keyFile);
-    SourceView* valueView = sourceManager->createSourceView(valueFile);
+    SourceView* keyView = sourceManager->createSourceView(keyFile, nullptr);
+    SourceView* valueView = sourceManager->createSourceView(valueFile, nullptr);
 
     // Use existing `Lexer` to generate a token stream.
     Lexer lexer;
-    lexer.initialize(valueView, GetSink(preprocessor), getNamePool(preprocessor), sourceManager->getMemoryArena());
+    lexer.initialize(valueView, GetSink(preprocessor), preprocessor->getNamePool(), sourceManager->getMemoryArena());
     macro->tokens = lexer.lexAllTokens();
 
-    Name* keyName = preprocessor->translationUnit->compileRequest->getNamePool()->getName(key);
+    Name* keyName = preprocessor->getNamePool()->getName(key);
 
     macro->nameAndLoc.name = keyName;
     macro->nameAndLoc.loc = keyView->getRange().begin;
@@ -2317,11 +2251,13 @@ TokenList preprocessSource(
     DiagnosticSink*             sink,
     IncludeHandler*             includeHandler,
     Dictionary<String, String>  defines,
-    TranslationUnitRequest*     translationUnit)
+    Linkage*                    linkage,
+    Module*                     parentModule)
 {
     Preprocessor preprocessor;
     InitializePreprocessor(&preprocessor, sink);
-    preprocessor.translationUnit = translationUnit;
+    preprocessor.linkage = linkage;
+    preprocessor.parentModule = parentModule;
 
     preprocessor.includeHandler = includeHandler;
     for (auto p : defines)
@@ -2329,9 +2265,9 @@ TokenList preprocessSource(
         DefineMacro(&preprocessor, p.Key, p.Value);
     }
 
-    SourceManager* sourceManager = translationUnit->compileRequest->getSourceManager();
+    SourceManager* sourceManager = linkage->getSourceManager();
 
-    SourceView* sourceView = sourceManager->createSourceView(file);
+    SourceView* sourceView = sourceManager->createSourceView(file, nullptr);
 
     // create an initial input stream based on the provided buffer
     preprocessor.inputStream = CreateInputStreamForSource(&preprocessor, sourceView);

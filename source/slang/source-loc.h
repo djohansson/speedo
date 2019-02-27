@@ -44,32 +44,32 @@ struct PathInfo
     enum class Type
     {
         Unknown,                    ///< The path is not known
-        Normal,                     ///< Normal has both path and canonical path
-        FoundPath,                  ///< Just has a found path (canonical path is unknown, or even 'unknowable') 
+        Normal,                     ///< Normal has both path and uniqueIdentity
+        FoundPath,                  ///< Just has a found path (uniqueIdentity is unknown, or even 'unknowable') 
         TokenPaste,                 ///< No paths, just created to do a macro expansion
         TypeParse,                  ///< No path, just created to do a type parse
         CommandLine,                ///< A macro constructed from the command line
     };
 
         /// True if has a canonical path
-    SLANG_FORCE_INLINE bool hasCanonicalPath() const { return type == Type::Normal && canonicalPath.Length() > 0; }
+    SLANG_FORCE_INLINE bool hasUniqueIdentity() const { return type == Type::Normal && uniqueIdentity.Length() > 0; }
         /// True if has a regular found path
     SLANG_FORCE_INLINE bool hasFoundPath() const { return type == Type::Normal || type == Type::FoundPath; }
 
-        /// The canonical path is unique, so return that if we have it. If not the regular path, otherwise the empty string.
-    const String getMostUniquePath() const;
+        /// Returns the 'most unique' identity for the path. If has a 'uniqueIdentity' returns that, else the foundPath, else "".
+    const String getMostUniqueIdentity() const;
 
     // So simplify construction. In normal usage it's safer to use make methods over constructing directly.
     static PathInfo makeUnknown() { return PathInfo { Type::Unknown, "unknown", String() }; }
     static PathInfo makeTokenPaste() { return PathInfo{ Type::TokenPaste, "token paste", String()}; }
-    static PathInfo makeNormal(const String& foundPathIn, const String& canonicalPathIn) { SLANG_ASSERT(canonicalPathIn.Length() > 0 && foundPathIn.Length() > 0); return PathInfo { Type::Normal, foundPathIn, canonicalPathIn }; }
+    static PathInfo makeNormal(const String& foundPathIn, const String& uniqueIdentity) { SLANG_ASSERT(uniqueIdentity.Length() > 0 && foundPathIn.Length() > 0); return PathInfo { Type::Normal, foundPathIn, uniqueIdentity }; }
     static PathInfo makePath(const String& pathIn) { SLANG_ASSERT(pathIn.Length() > 0); return PathInfo { Type::FoundPath, pathIn, String()}; }
     static PathInfo makeTypeParse() { return PathInfo { Type::TypeParse, "type string", String() }; }
     static PathInfo makeCommandLine() { return PathInfo { Type::CommandLine, "command line", String() }; }
 
     Type type;                      ///< The type of path
     String foundPath;               ///< The path where the file was found (might contain relative elements) 
-    String canonicalPath;           ///< Canonical version of the found path
+    String uniqueIdentity;          ///< The unique identity of the file on the path found 
 };
 
 class SourceLoc
@@ -139,9 +139,12 @@ struct SourceRange
     SourceLoc end;
 };
 
+// Pre-declare
+struct SourceManager;
+
 // A logical or physical storage object for a range of input code
 // that has logically contiguous source locations.
-class SourceFile : public RefObject
+class SourceFile 
 {
 public:
 
@@ -149,17 +152,54 @@ public:
         /// Note that this is lazily evaluated - the line breaks are only calculated on the first request 
     const List<uint32_t>& getLineBreakOffsets();
 
+        /// Set the line break offsets
+    void setLineBreakOffsets(const uint32_t* offsets, UInt numOffsets);
+
         /// Calculate the line based on the offset 
     int calcLineIndexFromOffset(int offset);
 
         /// Calculate the offset for a line
     int calcColumnIndex(int line, int offset);
 
-    PathInfo pathInfo;                  ///< The path The logical file path to report for locations inside this span.
-    ComPtr<ISlangBlob> contentBlob;     ///< A blob that owns the storage for the file contents
-    UnownedStringSlice content;         ///< The actual contents of the file.
+        /// Get the content holding blob
+    ISlangBlob* getContentBlob() const { return m_contentBlob;  }
+
+        /// True if has full set content
+    bool hasContent() const { return m_contentBlob != nullptr;  }
+
+        /// Get the content size
+    size_t getContentSize() const { return m_contentSize;  }
+
+        /// Get the content
+    const UnownedStringSlice& getContent() const { return m_content;  }
+
+        /// Get path info
+    const PathInfo& getPathInfo() const { return m_pathInfo;  }
+
+        /// Set the content as a blob
+    void setContents(ISlangBlob* blob);
+        /// Set the content as a string
+    void setContents(const String& content);
+
+        /// Calculate a display path -> can canonicalize if necessary
+    String calcVerbosePath() const;
+
+        /// Get the source manager this was created on
+    SourceManager* getSourceManager() const { return m_sourceManager; }
+
+        /// Ctor
+    SourceFile(SourceManager* sourceManager, const PathInfo& pathInfo, size_t contentSize);
+        /// Dtor
+    ~SourceFile();
 
     protected:
+
+    SourceManager* m_sourceManager;       ///< The source manager this belongs to
+    PathInfo m_pathInfo;                  ///< The path The logical file path to report for locations inside this span.
+    ComPtr<ISlangBlob> m_contentBlob;     ///< A blob that owns the storage for the file contents. If nullptr, there is no contents
+    UnownedStringSlice m_content;         ///< The actual contents of the file.
+    size_t m_contentSize;                 ///< The size of the actual contents
+
     // In order to speed up lookup of line number information,
     // we will cache the starting offset of each line break in
     // the input file:
@@ -180,14 +220,12 @@ struct HumaneSourceLoc
     Int     column = 0;
 };
 
-// Pre-declare
-struct SourceManager;
 
 /* A SourceView maps to a single span of SourceLoc range and is equivalent to a single include or more precisely use of a source file. 
 It is distinct from a SourceFile - because a SourceFile may be included multiple times, with different interpretations (depending 
 on #defines for example).
 */ 
-class SourceView: public RefObject
+class SourceView
 {
     public:
 
@@ -221,13 +259,19 @@ class SourceView: public RefObject
     const SourceRange& getRange() const { return m_range; }
         /// Get the entries
     const List<Entry>& getEntries() const { return m_entries; }
+        /// Set the entries list
+    void setEntries(const Entry* entries, UInt numEntries) { m_entries.Clear(); m_entries.AddRange(entries, numEntries); }
+
         /// Get the source file holds the contents this view 
     SourceFile* getSourceFile() const { return m_sourceFile; }
         /// Get the source manager
-    SourceManager* getSourceManager() const { return m_sourceManager; }
+    SourceManager* getSourceManager() const { return m_sourceFile->getSourceManager(); }
 
         /// Get the associated 'content' (the source text)
-    const UnownedStringSlice& getContent() const { return m_sourceFile->content; }
+    const UnownedStringSlice& getContent() const { return m_sourceFile->getContent(); }
+
+        /// Get the size of the content
+    size_t getContentSize() const { return m_sourceFile->getContentSize(); }
 
         /// Get the humane location 
         /// Type determines if the location wanted is the original, or the 'normal' (which modifys behavior based on #line directives)
@@ -237,34 +281,42 @@ class SourceView: public RefObject
     PathInfo getPathInfo(SourceLoc loc, SourceLocType type = SourceLocType::Nominal);
 
         /// Ctor
-    SourceView(SourceManager* sourceManager, SourceFile* sourceFile, SourceRange range):
-        m_sourceManager(sourceManager),
+    SourceView(SourceFile* sourceFile, SourceRange range, const String* viewPath):
         m_range(range),
         m_sourceFile(sourceFile)
     {
+        if (viewPath)
+        {
+            m_viewPath = *viewPath;
+        }
     }
 
     protected:
-    PathInfo _getPathInfo(StringSlicePool::Handle pathHandle) const;
+        /// Get the pathInfo from a string handle. If it's 0, it will return the _getPathInfo
+    PathInfo _getPathInfoFromHandle(StringSlicePool::Handle pathHandle) const;
+        /// Gets the pathInfo for this view. It may be different from the m_sourceFile's if the path has been
+        /// overridden by m_viewPath
+    PathInfo _getPathInfo() const;
 
-    SourceManager* m_sourceManager;     /// Get the manager this belongs to 
+    String m_viewPath;                      ///< Path to this view. If empty the path is the path to the SourceView
+
     SourceRange m_range;                ///< The range that this SourceView applies to
-    RefPtr<SourceFile> m_sourceFile;    ///< The source file can hold the line breaks
+    SourceFile* m_sourceFile;           ///< The source file. Can hold the line breaks
     List<Entry> m_entries;              ///< An array entries describing how we should interpret a range, starting from the start location. 
 };
 
 struct SourceManager
 {
         // Initialize a source manager, with an optional parent
-    void initialize(SourceManager*  parent);
+    void initialize(SourceManager* parent, ISlangFileSystemExt* fileSystemExt);
 
         /// Allocate a range of SourceLoc locations, these can be used to identify a specific location in the source
     SourceRange allocateSourceRange(UInt size);
 
         /// Create a SourceFile defined with the specified path, and content held within a blob
-    SourceFile* createSourceFile(const PathInfo& pathInfo, ISlangBlob* content);
-        /// Create a SourceFile with specified path. Create a Blob that contains the content.
-    SourceFile* createSourceFile(const PathInfo& pathInfo, String const& content);
+    SourceFile* createSourceFileWithSize(const PathInfo& pathInfo, size_t contentSize);
+    SourceFile* createSourceFileWithString(const PathInfo& pathInfo, const String& contents);
+    SourceFile* createSourceFileWithBlob(const PathInfo& pathInfo, ISlangBlob* blob);
 
         /// Get the humane source location
     HumaneSourceLoc getHumaneLoc(SourceLoc loc, SourceLocType type = SourceLocType::Nominal);
@@ -273,7 +325,9 @@ struct SourceManager
     PathInfo getPathInfo(SourceLoc loc, SourceLocType type = SourceLocType::Nominal);
 
         /// Create a new source view from a file
-    SourceView* createSourceView(SourceFile* sourceFile);
+        /// @param sourceFile is the source file that contains the source
+        /// @param pathInfo is path used to read the file from
+    SourceView* createSourceView(SourceFile* sourceFile, const PathInfo* pathInfo);
 
         /// Find a view by a source file location. 
         /// If not found in this manager will look in the parent SourceManager
@@ -286,12 +340,17 @@ struct SourceManager
 
         /// Searches this manager, and then the parent to see if can find a match for path. 
         /// If not found returns nullptr.    
-    SourceFile* findSourceFileRecursively(const String& canonicalPath) const;
+    SourceFile* findSourceFileRecursively(const String& uniqueIdentity) const;
         /// Find if the source file is defined on this manager.
-    SourceFile* findSourceFile(const String& canonicalPath) const;
+    SourceFile* findSourceFile(const String& uniqueIdentity) const;
 
-        /// Add a source file, path must be unique for this manager AND any parents
-    void addSourceFile(const String& canonicalPath, SourceFile* sourceFile);
+        /// Get the file system associated with this source manager
+    ISlangFileSystemExt* getFileSystemExt() const { return m_fileSystemExt;  }
+        /// Get the file system associated with this source manager
+    void setFileSystemExt(ISlangFileSystemExt* fileSystemExt) { m_fileSystemExt = fileSystemExt;  }
+
+        /// Add a source file, uniqueIdentity must be unique for this manager AND any parents
+    void addSourceFile(const String& uniqueIdentity, SourceFile* sourceFile);
 
         /// Get the slice pool
     StringSlicePool& getStringSlicePool() { return m_slicePool; }
@@ -312,6 +371,7 @@ struct SourceManager
     SourceManager() :
         m_memoryArena(2048)
     {}
+    ~SourceManager();
 
     protected:
 
@@ -326,16 +386,21 @@ struct SourceManager
     // The location to be used by the next source file to be loaded
     SourceLoc m_nextLoc;
 
-    // All of the SourceViews. These are held in increasing order of range, so can find by doing a binary chop.
-    List<RefPtr<SourceView> > m_sourceViews;                
+    // All of the SourceViews constructed on this SourceManager. These are held in increasing order of range, so can find by doing a binary chop.
+    List<SourceView*> m_sourceViews;
+    // All of the SourceFiles constructed on this SourceManager. This owns the SourceFile.
+    List<SourceFile*> m_sourceFiles;
+
     StringSlicePool m_slicePool;
 
     // Memory arena that can be used for holding data to held in scope as long as the Source is
-    // Can be used for storing the decoded contents of Token.Content for exampel
+    // Can be used for storing the decoded contents of Token. Content for example.
     MemoryArena m_memoryArena;
 
-    // Maps canonical paths to source files
-    Dictionary<String, RefPtr<SourceFile> > m_sourceFiles;  
+    // Maps uniqueIdentities to source files
+    Dictionary<String, SourceFile*> m_sourceFileMap;
+
+    ComPtr<ISlangFileSystemExt> m_fileSystemExt;
 };
 
 } // namespace Slang

@@ -65,7 +65,7 @@ namespace Slang
         ManglingContext*    context,
         Val*                val)
     {
-        if( auto constVal = dynamic_cast<ConstantIntVal*>(val) )
+        if( auto constVal = as<ConstantIntVal>(val) )
         {
             auto cVal = constVal->value;
             if(cVal >= 0 && cVal <= 9 )
@@ -112,17 +112,17 @@ namespace Slang
     {
         // TODO: actually implement this bit...
 
-        if( auto basicType = dynamic_cast<BasicExpressionType*>(type) )
+        if( auto basicType = dynamicCast<BasicExpressionType>(type) )
         {
             emitBaseType(context, basicType->baseType);
         }
-        else if( auto vecType = dynamic_cast<VectorExpressionType*>(type) )
+        else if( auto vecType = dynamicCast<VectorExpressionType>(type) )
         {
             emitRaw(context, "v");
             emitSimpleIntVal(context, vecType->elementCount);
             emitType(context, vecType->elementType);
         }
-        else if( auto matType = dynamic_cast<MatrixExpressionType*>(type) )
+        else if( auto matType = dynamicCast<MatrixExpressionType>(type) )
         {
             emitRaw(context, "m");
             emitSimpleIntVal(context, matType->getRowCount());
@@ -130,19 +130,28 @@ namespace Slang
             emitSimpleIntVal(context, matType->getColumnCount());
             emitType(context, matType->getElementType());
         }
-        else if( auto namedType = dynamic_cast<NamedExpressionType*>(type) )
+        else if( auto namedType = dynamicCast<NamedExpressionType>(type) )
         {
             emitType(context, GetType(namedType->declRef));
         }
-        else if( auto declRefType = dynamic_cast<DeclRefType*>(type) )
+        else if( auto declRefType = dynamicCast<DeclRefType>(type) )
         {
             emitQualifiedName(context, declRefType->declRef);
         }
-        else if (auto arrType = dynamic_cast<ArrayExpressionType*>(type))
+        else if (auto arrType = dynamicCast<ArrayExpressionType>(type))
         {
             emitRaw(context, "a");
             emitSimpleIntVal(context, arrType->ArrayLength);
             emitType(context, arrType->baseType);
+        }
+        else if( auto taggedUnionType = dynamicCast<TaggedUnionType>(type) )
+        {
+            emitRaw(context, "u");
+            for( auto caseType : taggedUnionType->caseTypes )
+            {
+                emitType(context, caseType);
+            }
+            emitRaw(context, "U");
         }
         else
         {
@@ -154,11 +163,11 @@ namespace Slang
         ManglingContext*    context,
         Val*                val)
     {
-        if( auto type = dynamic_cast<Type*>(val) )
+        if( auto type = dynamicCast<Type>(val) )
         {
             emitType(context, type);
         }
-        else if( auto witness = dynamic_cast<Witness*>(val) )
+        else if( auto witness = dynamicCast<Witness>(val) )
         {
             // We don't emit witnesses as part of a mangled
             // name, because the way that the front-end
@@ -173,7 +182,7 @@ namespace Slang
             // to mangle in the constraints even when
             // the whole thing is specialized...
         }
-        else if( auto genericParamIntVal = dynamic_cast<GenericParamIntVal*>(val) )
+        else if( auto genericParamIntVal = dynamicCast<GenericParamIntVal>(val) )
         {
             // TODO: we shouldn't be including the names of generic parameters
             // anywhere in mangled names, since changing parameter names
@@ -186,7 +195,7 @@ namespace Slang
             emitRaw(context, "K");
             emitName(context, genericParamIntVal->declRef.GetName());
         }
-        else if( auto constantIntVal = dynamic_cast<ConstantIntVal*>(val) )
+        else if( auto constantIntVal = dynamicCast<ConstantIntVal>(val) )
         {
             // TODO: need to figure out what prefix/suffix is needed
             // to allow demangling later.
@@ -204,14 +213,14 @@ namespace Slang
         DeclRef<Decl>       declRef)
     {
         auto parentDeclRef = declRef.GetParent();
-        auto parentGenericDeclRef = parentDeclRef.As<GenericDecl>();
+        auto parentGenericDeclRef = parentDeclRef.as<GenericDecl>();
         if( parentDeclRef )
         {
             // In certain cases we want to skip emitting the parent
             if(parentGenericDeclRef && (parentGenericDeclRef.getDecl()->inner.Ptr() != declRef.getDecl()))
             {
             }
-            else if(parentDeclRef.As<FunctionDeclBase>())
+            else if(parentDeclRef.as<FunctionDeclBase>())
             {
             }
             else
@@ -223,7 +232,7 @@ namespace Slang
         // A generic declaration is kind of a pseudo-declaration
         // as far as the user is concerned; so we don't want
         // to emit its name.
-        if(auto genericDeclRef = declRef.As<GenericDecl>())
+        if(auto genericDeclRef = declRef.as<GenericDecl>())
         {
             return;
         }
@@ -231,7 +240,7 @@ namespace Slang
         // Inheritance declarations don't have meaningful names,
         // and so we should emit them based on the type
         // that is doing the inheriting.
-        if(auto inheritanceDeclRef = declRef.As<InheritanceDecl>())
+        if(auto inheritanceDeclRef = declRef.as<InheritanceDecl>())
         {
             emit(context, "I");
             emitType(context, GetSup(inheritanceDeclRef));
@@ -241,7 +250,7 @@ namespace Slang
         // Similarly, an extension doesn't have a name worth
         // emitting, and we should base things on its target
         // type instead.
-        if(auto extensionDeclRef = declRef.As<ExtensionDecl>())
+        if(auto extensionDeclRef = declRef.as<ExtensionDecl>())
         {
             // TODO: as a special case, an "unconditional" extension
             // that is in the same module as the type it extends should
@@ -255,9 +264,11 @@ namespace Slang
 
         // Special case: accessors need some way to distinguish themselves
         // so that a getter/setter/ref-er don't all compile to the same name.
-        if(declRef.As<GetterDecl>())        emitRaw(context, "Ag");
-        if(declRef.As<SetterDecl>())        emitRaw(context, "As");
-        if(declRef.As<RefAccessorDecl>())   emitRaw(context, "Ar");
+        {
+            if (declRef.is<GetterDecl>())        emitRaw(context, "Ag");
+            if (declRef.is<SetterDecl>())        emitRaw(context, "As");
+            if (declRef.is<RefAccessorDecl>())   emitRaw(context, "Ar");
+        }
 
         // Are we the "inner" declaration beneath a generic decl?
         if(parentGenericDeclRef && (parentGenericDeclRef.getDecl()->inner.Ptr() == declRef.getDecl()))
@@ -285,15 +296,15 @@ namespace Slang
                 UInt genericParameterCount = 0;
                 for( auto mm : getMembers(parentGenericDeclRef) )
                 {
-                    if(mm.As<GenericTypeParamDecl>())
+                    if(mm.is<GenericTypeParamDecl>())
                     {
                         genericParameterCount++;
                     }
-                    else if(mm.As<GenericValueParamDecl>())
+                    else if(mm.is<GenericValueParamDecl>())
                     {
                         genericParameterCount++;
                     }
-                    else if(mm.As<GenericTypeConstraintDecl>())
+                    else if(mm.is<GenericTypeConstraintDecl>())
                     {
                         genericParameterCount++;
                     }
@@ -305,16 +316,16 @@ namespace Slang
                 emit(context, genericParameterCount);
                 for( auto mm : getMembers(parentGenericDeclRef) )
                 {
-                    if(auto genericTypeParamDecl = mm.As<GenericTypeParamDecl>())
+                    if(auto genericTypeParamDecl = mm.as<GenericTypeParamDecl>())
                     {
                         emitRaw(context, "T");
                     }
-                    else if(auto genericValueParamDecl = mm.As<GenericValueParamDecl>())
+                    else if(auto genericValueParamDecl = mm.as<GenericValueParamDecl>())
                     {
                         emitRaw(context, "v");
                         emitType(context, GetType(genericValueParamDecl));
                     }
-                    else if(mm.As<GenericTypeConstraintDecl>())
+                    else if(mm.as<GenericTypeConstraintDecl>())
                     {
                         emitRaw(context, "C");
                         // TODO: actually emit info about the constraint
@@ -333,7 +344,7 @@ namespace Slang
         // We'll also go ahead and emit the result type as well,
         // just for completeness.
         //
-        if( auto callableDeclRef = declRef.As<CallableDecl>())
+        if( auto callableDeclRef = declRef.as<CallableDecl>())
         {
             auto parameters = GetParameters(callableDeclRef);
             UInt parameterCount = parameters.Count();
@@ -349,7 +360,7 @@ namespace Slang
 
             // Don't print result type for an initializer/constructor,
             // since it is implicit in the qualified name.
-            if (!callableDeclRef.As<ConstructorDecl>())
+            if (!callableDeclRef.is<ConstructorDecl>())
             {
                 emitType(context, GetResultType(callableDeclRef));
             }
@@ -375,18 +386,18 @@ namespace Slang
         //
         // Functions will get no prefix, since we assume
         // they are a common case:
-        if(dynamic_cast<FuncDecl*>(decl))
+        if(as<FuncDecl>(decl))
         {}
         // Types will get a `T` prefix:
-        else if(dynamic_cast<AggTypeDecl*>(decl))
+        else if(as<AggTypeDecl>(decl))
             emitRaw(context, "T");
-        else if(dynamic_cast<TypeDefDecl*>(decl))
+        else if(as<TypeDefDecl>(decl))
             emitRaw(context, "T");
         // Variables will get a `V` prefix:
         //
         // TODO: probably need to pull constant-buffer
         // declarations out of this...
-        else if(dynamic_cast<VarDeclBase*>(decl))
+        else if(as<VarDeclBase>(decl))
             emitRaw(context, "V");
         else
         {

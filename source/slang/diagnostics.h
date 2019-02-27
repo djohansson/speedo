@@ -2,6 +2,7 @@
 #define RASTER_RENDERER_COMPILE_ERROR_H
 
 #include "../core/basic.h"
+#include "../core/slang-writer.h"
 
 #include "source-loc.h"
 #include "token.h"
@@ -69,9 +70,10 @@ namespace Slang
 
     class Name;
     class Decl;
+    struct QualType;
     class Type;
     struct TypeExp;
-    struct QualType;
+    class Val;
 
     enum class CodeGenTarget;
     enum class Stage : SlangStage;
@@ -92,6 +94,7 @@ namespace Slang
     void printDiagnosticArg(StringBuilder& sb, CodeGenTarget val);
     void printDiagnosticArg(StringBuilder& sb, Stage val);
     void printDiagnosticArg(StringBuilder& sb, ProfileVersion val);
+    void printDiagnosticArg(StringBuilder& sb, Val* val);
 
     template<typename T>
     void printDiagnosticArg(StringBuilder& sb, RefPtr<T> ptr)
@@ -139,12 +142,23 @@ namespace Slang
         // The source manager to use when mapping source locations to file+line info
         SourceManager*  sourceManager;
 
+        struct Flag 
+        {
+            enum Enum: uint32_t
+            {
+                VerbosePath = 0x1,              ///< Will display a more verbose path (if available) - such as a canonical or absolute path
+            };
+        };
+        typedef uint32_t Flags;
+
         StringBuilder outputBuffer;
 //            List<Diagnostic> diagnostics;
         int errorCount = 0;
+        int internalErrorLocsNoted = 0;
 
         ISlangWriter* writer                        = nullptr;
-
+        Flags flags                                 = 0;
+        
 /*
         void Error(int id, const String & msg, const SourceLoc & pos)
         {
@@ -161,7 +175,7 @@ namespace Slang
 
         void diagnoseDispatch(SourceLoc const& pos, DiagnosticInfo const& info)
         {
-            diagnoseImpl(pos, info, 0, NULL);
+            diagnoseImpl(pos, info, 0, nullptr);
         }
 
         void diagnoseDispatch(SourceLoc const& pos, DiagnosticInfo const& info, DiagnosticArg const& arg0)
@@ -201,6 +215,35 @@ namespace Slang
         void diagnoseRaw(
             Severity    severity,
             char const* message);
+        void diagnoseRaw(
+            Severity    severity,
+            const UnownedStringSlice& message);
+
+            /// During propagation of an exception for an internal
+            /// error, note that this source location was involved
+        void noteInternalErrorLoc(SourceLoc const& loc);
+    };
+
+        /// An `ISlangWriter` that writes directly to a diagnostic sink.
+    class DiagnosticSinkWriter : public AppendBufferWriter
+    {
+    public:
+        typedef AppendBufferWriter Super;
+
+        DiagnosticSinkWriter(DiagnosticSink* sink)
+            : Super(WriterFlag::IsStatic)
+            , m_sink(sink)
+        {}
+
+        // ISlangWriter
+        SLANG_NO_THROW virtual SlangResult SLANG_MCALL write(const char* chars, size_t numChars) SLANG_OVERRIDE
+        {
+            m_sink->diagnoseRaw(Severity::Note, UnownedStringSlice(chars, chars+numChars));
+            return SLANG_OK;
+        }
+
+    private:
+        DiagnosticSink* m_sink = nullptr;
     };
 
     namespace Diagnostics

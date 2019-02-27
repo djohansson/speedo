@@ -1,4 +1,4 @@
-// main.cpp
+// render-test-main.cpp
 
 #include "options.h"
 #include "render.h"
@@ -332,7 +332,8 @@ SlangResult RenderTestApp::initialize(Renderer* renderer, ShaderCompiler* shader
         }
     }
 
-    return SLANG_OK;
+    // If success must have a pipeline state
+    return m_pipelineState ? SLANG_OK : SLANG_FAIL;
 }
 
 Result RenderTestApp::initializeShaders(ShaderCompiler* shaderCompiler)
@@ -386,14 +387,11 @@ Result RenderTestApp::initializeShaders(ShaderCompiler* shaderCompiler)
 		compileRequest.computeShader.source = sourceInfo;
 		compileRequest.computeShader.name = computeEntryPointName;
 	}
-	compileRequest.entryPointTypeArguments = m_shaderInputLayout.globalTypeArguments;
+	compileRequest.globalTypeArguments = m_shaderInputLayout.globalTypeArguments;
+	compileRequest.entryPointTypeArguments = m_shaderInputLayout.entryPointTypeArguments;
 	m_shaderProgram = shaderCompiler->compileProgram(compileRequest);
-	if (!m_shaderProgram)
-	{
-		return SLANG_FAIL;
-	}
 
-	return SLANG_OK;
+    return m_shaderProgram ? SLANG_OK : SLANG_FAIL;
 }
 
 void RenderTestApp::renderFrame()
@@ -670,8 +668,12 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
 
 int main(int argc, char**  argv)
 {
+    using namespace Slang;
     SlangSession* session = spCreateSession(nullptr);
-    SlangResult res = innerMain(Slang::StdWriters::initDefault(), session, argc, argv);
+
+    auto stdWriters = StdWriters::initDefaultSingleton();
+    
+    SlangResult res = innerMain(stdWriters, session, argc, argv);
     spDestroySession(session);
 
 	return SLANG_FAILED(res) ? 1 : 0;

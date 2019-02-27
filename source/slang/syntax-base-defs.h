@@ -16,17 +16,6 @@ END_SYNTAX_CLASS()
 ABSTRACT_SYNTAX_CLASS(SyntaxNodeBase, NodeBase)
     // The primary source location associated with this AST node
     FIELD(SourceLoc, loc)
-
-    RAW(
-    // Allow dynamic casting with a convenient syntax
-    template<typename T>
-    T* As()
-    {
-        SLANG_ASSERT(this);
-        return dynamic_cast<T*>(this);
-    }
-    )
-
 END_SYNTAX_CLASS()
 
 // Base class for compile-time values (most often a type).
@@ -43,7 +32,7 @@ ABSTRACT_SYNTAX_CLASS(Val, NodeBase)
     // substitutions to this one
     RefPtr<Val> Substitute(SubstitutionSet subst);
 
-    // Lower-level interface for substition. Like the basic
+    // Lower-level interface for substitution. Like the basic
     // `Substitute` above, but also takes a by-reference
     // integer parameter that should be incremented when
     // returning a modified value (this can help the caller
@@ -60,6 +49,15 @@ ABSTRACT_SYNTAX_CLASS(Val, NodeBase)
     )
 END_SYNTAX_CLASS()
 
+RAW(
+    class Type;
+
+    template <typename T>
+    SLANG_FORCE_INLINE T* as(Type* obj);
+    template <typename T>
+    SLANG_FORCE_INLINE const T* as(const Type* obj);
+    )
+
 // A type, representing a classifier for some term in the AST.
 //
 // Types can include "sugar" in that they may refer to a
@@ -68,7 +66,7 @@ END_SYNTAX_CLASS()
 //
 // In order to operation on types, though, we often want
 // to look past any sugar, and operate on an underlying
-// "canonical" type. The reprsentation caches a pointer to
+// "canonical" type. The representation caches a pointer to
 // a canonical type on every type, so we can easily
 // operate on the raw representation when needed.
 ABSTRACT_SYNTAX_CLASS(Type, Val)
@@ -82,50 +80,31 @@ public:
     Session* getSession() { return this->session; }
     void setSession(Session* s) { this->session = s; }
 
-    bool Equals(Type * type);
-    bool Equals(RefPtr<Type> type);
-
-    bool IsVectorType() { return As<VectorExpressionType>() != nullptr; }
-    bool IsArray() { return As<ArrayExpressionType>() != nullptr; }
-
-    template<typename T>
-    T* As()
-    {
-        return dynamic_cast<T*>(GetCanonicalType());
-    }
-
-    // Convenience/legacy wrappers for `As<>`
-    ArithmeticExpressionType * AsArithmeticType() { return As<ArithmeticExpressionType>(); }
-    BasicExpressionType * AsBasicType() { return As<BasicExpressionType>(); }
-    VectorExpressionType * AsVectorType() { return As<VectorExpressionType>(); }
-    MatrixExpressionType * AsMatrixType() { return As<MatrixExpressionType>(); }
-    ArrayExpressionType * AsArrayType() { return As<ArrayExpressionType>(); }
-
-    DeclRefType* AsDeclRefType() { return As<DeclRefType>(); }
-
-    NamedExpressionType* AsNamedType();
-
-    bool IsTextureOrSampler();
-    bool IsTexture() { return As<TextureType>() != nullptr; }
-    bool IsSampler() { return As<SamplerStateType>() != nullptr; }
-    bool IsStruct();
-    bool IsClass();
+    bool Equals(Type* type);
+    
     Type* GetCanonicalType();
 
     virtual RefPtr<Val> SubstituteImpl(SubstitutionSet subst, int* ioDiff) override;
 
     virtual bool EqualsVal(Val* val) override;
+
+    ~Type();
+
 protected:
-    virtual bool EqualsImpl(Type * type) = 0;
+    virtual bool EqualsImpl(Type* type) = 0;
 
     virtual RefPtr<Type> CreateCanonicalType() = 0;
     Type* canonicalType = nullptr;
-    RefPtr<Type> canonicalTypeRefPtr;
-
+    
     Session* session = nullptr;
     )
 END_SYNTAX_CLASS()
-
+RAW(
+    template <typename T>
+    SLANG_FORCE_INLINE T* as(Type* obj) { return obj ? dynamicCast<T>(obj->GetCanonicalType()) : nullptr; }
+    template <typename T>
+    SLANG_FORCE_INLINE const T* as(const Type* obj) { return obj ? dynamicCast<T>(const_cast<Type*>(obj)->GetCanonicalType()) : nullptr; }
+)
 
 // A substitution represents a binding of certain
 // type-level variables to concrete argument values
@@ -139,14 +118,13 @@ ABSTRACT_SYNTAX_CLASS(Substitutions, RefObject)
 
     // Check if these are equivalent substitutiosn to another set
     virtual bool Equals(Substitutions* subst) = 0;
-    virtual bool operator == (const Substitutions & subst) = 0;
     virtual int GetHashCode() const = 0;
     )
 END_SYNTAX_CLASS()
 
 SYNTAX_CLASS(GenericSubstitution, Substitutions)
     // The generic declaration that defines the
-    // parametesr we are binding to arguments
+    // parameters we are binding to arguments
     DECL_FIELD(GenericDecl*, genericDecl)
 
     // The actual values of the arguments
@@ -158,10 +136,7 @@ SYNTAX_CLASS(GenericSubstitution, Substitutions)
 
     // Check if these are equivalent substitutiosn to another set
     virtual bool Equals(Substitutions* subst) override;
-    virtual bool operator == (const Substitutions & subst) override
-    {
-        return Equals(const_cast<Substitutions*>(&subst));
-    }
+
     virtual int GetHashCode() const override
     {
         int rs = 0;
@@ -190,16 +165,13 @@ SYNTAX_CLASS(ThisTypeSubstitution, Substitutions)
 
     // Check if these are equivalent substitutiosn to another set
     virtual bool Equals(Substitutions* subst) override;
-    virtual bool operator == (const Substitutions & subst) override
-    {
-        return Equals(const_cast<Substitutions*>(&subst));
-    }
+
     virtual int GetHashCode() const override;
     )
 END_SYNTAX_CLASS()
 
 SYNTAX_CLASS(GlobalGenericParamSubstitution, Substitutions)
-    // the __generic_param decl to be substituted
+    // the type_param decl to be substituted
     DECL_FIELD(GlobalGenericParamDecl*, paramDecl)
 
     // the actual type to substitute in
@@ -222,10 +194,7 @@ RAW(
 
     // Check if these are equivalent substitutiosn to another set
     virtual bool Equals(Substitutions* subst) override;
-    virtual bool operator == (const Substitutions & subst) override
-    {
-        return Equals(const_cast<Substitutions*>(&subst));
-    }
+
     virtual int GetHashCode() const override
     {
         int rs = actualType->GetHashCode();
@@ -263,7 +232,7 @@ ABSTRACT_SYNTAX_CLASS(Modifier, SyntaxNode)
     )
 END_SYNTAX_CLASS()
 
-// A syntax node which can have modifiers appled
+// A syntax node which can have modifiers applied
 ABSTRACT_SYNTAX_CLASS(ModifiableSyntaxNode, SyntaxNode)
 
     SYNTAX_FIELD(Modifiers, modifiers)

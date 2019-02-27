@@ -11,7 +11,7 @@
 namespace Slang
 {
 
-class DefaultFileSystem : public ISlangFileSystemExt
+class OSFileSystem : public ISlangFileSystemExt
 {
 public:
     // ISlangUnknown 
@@ -26,11 +26,11 @@ public:
         ISlangBlob**    outBlob) SLANG_OVERRIDE;
 
     // ISlangFileSystemExt
-    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanoncialPath(
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getFileUniqueIdentity(
             const char* path,
-            ISlangBlob** canonicalPathOut) SLANG_OVERRIDE;
+            ISlangBlob** uniqueIdentityOut) SLANG_OVERRIDE;
 
-    virtual SLANG_NO_THROW SlangResult SLANG_MCALL calcRelativePath(
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL calcCombinedPath(
         SlangPathType fromPathType,
         const char* fromPath,
         const char* path,
@@ -40,17 +40,27 @@ public:
         const char* path,
         SlangPathType* pathTypeOut) SLANG_OVERRIDE;
 
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getSimplifiedPath(
+        const char* path,
+        ISlangBlob** outSimplifiedPath) SLANG_OVERRIDE;
+
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanonicalPath(
+        const char* path,
+        ISlangBlob** outCanonicalPath) SLANG_OVERRIDE;
+
+    virtual SLANG_NO_THROW void SLANG_MCALL clearCache() {}
+
         /// Get a default instance
     static ISlangFileSystemExt* getSingleton() { return &s_singleton; }
 
 private:
         /// Make so not constructible
-    DefaultFileSystem() {}
-    virtual ~DefaultFileSystem() {}
+    OSFileSystem() {}
+    virtual ~OSFileSystem() {}
 
     ISlangUnknown* getInterface(const Guid& guid);
 
-    static DefaultFileSystem s_singleton;
+    static OSFileSystem s_singleton;
 };
 
 /* Wraps an underlying ISlangFileSystem or ISlangFileSystemExt and provides caching, 
@@ -59,14 +69,28 @@ of the interface on the constructor.
 
 NOTE! That this behavior is the same as previously in that.... 
 1) calcRelativePath, just returns the path as processed by the Path:: methods 
-2) getCanonicalPath, just returns the input path as the 'canonical' path. This will be wrong with a file multiply referenced through paths with .. and or . but 
-doing it this way means it works as before and requires no new functions.
-
-You can use a more sophisticated canonical style if you pass true to  useSimplifyForCanonicalPath. This will simplify relative path to create a canonical path.
+2) getUniqueIdentity behavior depends on the UniqueIdentityMode.
 */
 class CacheFileSystem: public ISlangFileSystemExt, public RefObject
 {
     public:
+
+    enum class PathStyle
+    {
+        Default,                    ///< Pass to say use the default 
+        Unknown,                    ///< It's an unknown type of path
+        Simplifiable,               ///< It can be simplified by Path::Simplify
+    };
+
+    enum UniqueIdentityMode
+    {
+        Default,                    ///< If passed, will default to the others depending on what kind of ISlangFileSystem is passed in
+        Path,                       ///< Just use the path as is (old style slang behavior)
+        SimplifyPath,               ///< Use the input path 'simplified' (ie removing . and .. aspects)
+        Hash,                       ///< Use hashing
+        SimplifyPathAndHash,        ///< Tries simplifying path first, and if that doesn't work it hashes
+        FileSystemExt,              ///< Use the file system extended interface. 
+    };
 
     /* Cannot change order/add members without changing s_compressedResultToResult */
     enum class CompressedResult: uint8_t
@@ -88,11 +112,11 @@ class CacheFileSystem: public ISlangFileSystemExt, public RefObject
         ISlangBlob**    outBlob) SLANG_OVERRIDE;
 
     // ISlangFileSystemExt
-    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanoncialPath(
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getFileUniqueIdentity(
         const char* path,
-        ISlangBlob** canonicalPathOut) SLANG_OVERRIDE;
+        ISlangBlob** outUniqueIdentity) SLANG_OVERRIDE;
 
-    virtual SLANG_NO_THROW SlangResult SLANG_MCALL calcRelativePath(
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL calcCombinedPath(
         SlangPathType fromPathType,
         const char* fromPath,
         const char* path,
@@ -100,10 +124,20 @@ class CacheFileSystem: public ISlangFileSystemExt, public RefObject
 
     virtual SLANG_NO_THROW SlangResult SLANG_MCALL getPathType(
         const char* path,
-        SlangPathType* pathTypeOut) SLANG_OVERRIDE;
+        SlangPathType* outPathType) SLANG_OVERRIDE;
+
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getSimplifiedPath(
+        const char* path,
+        ISlangBlob** outSimplifiedPath) SLANG_OVERRIDE;
+
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanonicalPath(
+        const char* path,
+        ISlangBlob** outCanonicalPath);
+
+    virtual SLANG_NO_THROW void SLANG_MCALL clearCache();
 
         /// Ctor
-    CacheFileSystem(ISlangFileSystem* fileSystem, bool useSimplifyForCanonicalPath = false);
+    CacheFileSystem(ISlangFileSystem* fileSystem, UniqueIdentityMode uniqueIdentityMode = UniqueIdentityMode::Default, PathStyle pathStyle = PathStyle::Default);
         /// Dtor
     virtual ~CacheFileSystem();
 
@@ -116,43 +150,53 @@ protected:
 
     struct PathInfo
     {
-        PathInfo(const String& canonicalPath)
+        PathInfo(const String& uniqueIdentity)
         {
-            m_canonicalPath = new StringBlob(canonicalPath);
-            m_canonicalPath->addRef();
+            m_uniqueIdentity = new StringBlob(uniqueIdentity);
+            m_uniqueIdentity->addRef();
 
             m_loadFileResult = CompressedResult::Uninitialized;
             m_getPathTypeResult = CompressedResult::Uninitialized;
-        }
-        ~PathInfo()
-        {
-            m_canonicalPath->release();
-        }
-            /// Get the canonical path as a string
-        const String& getCanonicalPath() const { SLANG_ASSERT(m_canonicalPath); return m_canonicalPath->getString(); }
+            m_getCanonicalPathResult = CompressedResult::Uninitialized;
 
-        StringBlob*  m_canonicalPath;                         ///< The canonical path
+            m_pathType = SLANG_PATH_TYPE_FILE;
+        }
+        
+            /// Get the unique identity path as a string
+        const String& getUniqueIdentity() const { SLANG_ASSERT(m_uniqueIdentity); return m_uniqueIdentity->getString(); }
+
+        RefPtr<StringBlob> m_uniqueIdentity;
         CompressedResult m_loadFileResult;              
-        CompressedResult m_getPathTypeResult;    
+        CompressedResult m_getPathTypeResult;
+        CompressedResult m_getCanonicalPathResult;
+
         SlangPathType m_pathType;
         ComPtr<ISlangBlob> m_fileBlob;
+        RefPtr<StringBlob> m_canonicalPath;
     };
+        /// Given a path, works out a uniqueIdentity, based on the uniqueIdentityMode. outFileContents will be set if file had to be read to produce the uniqueIdentity (ie with Hash)
+    SlangResult _calcUniqueIdentity(const String& path, String& outUniqueIdentity, ComPtr<ISlangBlob>& outFileContents);
 
-        /// For a given relPath gets a PathInfo
-    PathInfo* _getPathInfo(const String& relPath);
+        /// For a given path gets a PathInfo. Can return nullptr, if it is not possible to create the PathInfo for some reason
+    PathInfo* _resolvePathCacheInfo(const String& path);
+        /// Turns the path into a uniqueIdentity, and then tries to look up in the uniqueIdentityMap.
+    PathInfo* _resolveUniqueIdentityCacheInfo(const String& path);
+        /// Will simplify the path (if possible) to lookup on the pathCache else will create on uniqueIdentityMap
+    PathInfo* _resolveSimplifiedPathCacheInfo(const String& path);
 
     /* TODO: This may be improved by mapping to a ISlangBlob. This makes output fast and easy, and if constructed 
     as a StringBlob, we can just static_cast to get as a string to use internally, instead of constantly converting. 
     It is probably the case we cannot do dynamic_cast on ISlangBlob if we don't know where constructed -> if outside of slang codebase 
     doing such a cast can cause an exception. So we *never* want to do dynamic cast from blobs which could be created by external code. */
 
-    Dictionary<String, PathInfo*> m_pathMap;        ///< Maps a path to a canonical path
-    Dictionary<String, PathInfo*> m_canonicalMap;   ///< Maps a canonical path to a files contents. This OWNs the PathInfo.
+    Dictionary<String, PathInfo*> m_pathMap;            ///< Maps a path to a PathInfo (and unique identity)
+    Dictionary<String, PathInfo*> m_uniqueIdentityMap;  ///< Maps a unique identity for a file to its contents. This OWNs the PathInfo.
 
-    bool m_useSimplifyForCanonicalPath;             ///< If set will use Path::Simplify to create 'canonical' paths
+    UniqueIdentityMode m_uniqueIdentityMode;            ///< Determines how the 'uniqueIdentity' is produced. Cannot be Default in usage.
+    PathStyle m_pathStyle;                              ///< Style of paths
 
-    ComPtr<ISlangFileSystem> m_fileSystem;          ///< Must always be set
-    ComPtr<ISlangFileSystemExt> m_fileSystemExt;    ///< Optionally set -> if not will fall back on the m_fileSystem
+    ComPtr<ISlangFileSystem> m_fileSystem;              ///< Must always be set
+    ComPtr<ISlangFileSystemExt> m_fileSystemExt;        ///< Optionally set -> if nullptr will fall back on the m_fileSystem and emulate all the other methods of ISlangFileSystemExt
 };
 
 }

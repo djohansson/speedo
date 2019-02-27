@@ -176,6 +176,16 @@ inline LayoutSize maximum(LayoutSize left, LayoutSize right)
             right.getFiniteValue()));
 }
 
+inline bool operator>(LayoutSize left, LayoutSize::RawValue right)
+{
+    return left.isInfinite() || (left.getFiniteValue() > right);
+}
+
+inline bool operator<=(LayoutSize left, LayoutSize::RawValue right)
+{
+    return left.isFinite() && (left.getFiniteValue() <= right);
+}
+
 // Layout appropriate to "just memory" scenarios,
 // such as laying out the members of a constant buffer.
 struct UniformLayoutInfo
@@ -219,7 +229,7 @@ struct UniformArrayLayoutInfo : UniformLayoutInfo
 typedef slang::ParameterCategory LayoutResourceKind;
 
 // Layout information for a value that only consumes
-// a single reosurce kind.
+// a single resource kind.
 struct SimpleLayoutInfo
 {
     // What kind of resource should we consume?
@@ -291,7 +301,7 @@ class Layout : public RefObject
 {
 };
 
-// A reified reprsentation of a particular laid-out type
+// A reified representation of a particular laid-out type
 class TypeLayout : public Layout
 {
 public:
@@ -357,7 +367,7 @@ public:
 
         /// "Unwrap" any layers of array-ness from this type layout.
         ///
-        /// If this is an `ArrayTypeLayout`, returns the result of unwrapping the elemnt type layout.
+        /// If this is an `ArrayTypeLayout`, returns the result of unwrapping the element type layout.
         /// Otherwise, returns this type layout.
         ///
     RefPtr<TypeLayout> unwrapArray();
@@ -391,7 +401,7 @@ public:
     String  systemValueSemantic;
     int     systemValueSemanticIndex;
 
-    // General cse semantic name and index
+    // General case semantic name and index
     // TODO: this and the system-value field are redundant
     // TODO: the `VarLayout` type is getting bloated; we need to not store this
     // information unless actually required.
@@ -543,16 +553,50 @@ public:
     int paramIndex = 0;
 };
 
+    /// Layout information for a tagged union type.
+class TaggedUnionTypeLayout : public TypeLayout
+{
+public:
+        /// The layouts of each of the case types.
+        ///
+        /// The order of entries in this array matches
+        /// the order of case types on the original
+        /// `TaggedUnionType`, and the index of a case
+        /// type is also the tag value for that case.
+        ///
+    List<RefPtr<TypeLayout>> caseTypeLayouts;
+
+        /// The byte offset for the tag field.
+        ///
+        /// The tag field will always be allocated as
+        /// a `uint`, so we don't store a separate layout
+        /// for it.
+        ///
+    LayoutSize tagOffset;
+};
+
+    /// Layout for a scoped entity like a program, module, or entry point
+class ScopeLayout : public Layout
+{
+public:
+    // The layout for the parameters of this entity.
+    //
+    RefPtr<VarLayout> parametersLayout;
+};
+
+StructTypeLayout* getScopeStructLayout(
+    ScopeLayout*  programLayout);
+
 // Layout information for a single shader entry point
 // within a program
 //
-// Treated as a subclass of `StructTypeLayout` becase
+// Treated as a subclass of `StructTypeLayout` because
 // it needs to include computed layout information
 // for the parameters of the entry point.
 //
 // TODO: where to store layout info for the return
 // type of the function?
-class EntryPointLayout : public StructTypeLayout
+class EntryPointLayout : public ScopeLayout
 {
 public:
     // The corresponding function declaration
@@ -569,6 +613,12 @@ public:
         usesAnySampleRateInput = 0x1,
     };
     unsigned flags = 0;
+
+        /// Layouts for all tagged union types required by this entry point.
+        ///
+        /// These are any tagged union types used by the generic
+        /// arguments that this entry point is being compiled with.
+    List<RefPtr<TypeLayout>> taggedUnionTypeLayouts;
 };
 
 class GenericParamLayout : public Layout
@@ -579,9 +629,10 @@ public:
 };
 
 // Layout information for the global scope of a program
-class ProgramLayout : public Layout
+class ProgramLayout : public ScopeLayout
 {
 public:
+    /*
     // We store a layout for the declarations at the global
     // scope. Note that this will *either* be a single
     // `StructTypeLayout` with the fields stored directly,
@@ -596,6 +647,15 @@ public:
     // to store them).
     //
     RefPtr<VarLayout> globalScopeLayout;
+    */
+
+        /// The target and program for which layout was computed
+    TargetProgram* targetProgram;
+
+    TargetProgram* getTargetProgram() { return targetProgram; }
+    TargetRequest* getTargetReq() { return targetProgram->getTargetReq(); }
+    Program* getProgram() { return targetProgram->getProgram(); }
+
 
     // We catalog the requested entry points here,
     // and any entry-point-specific parameter data
@@ -604,9 +664,10 @@ public:
 
     List<RefPtr<GenericParamLayout>> globalGenericParams;
     Dictionary<String, GenericParamLayout*> globalGenericParamsMap;
-
-    TargetRequest* targetRequest = nullptr;
 };
+
+StructTypeLayout* getGlobalStructLayout(
+    ProgramLayout*  programLayout);
 
 struct LayoutRulesFamilyImpl;
 
@@ -749,6 +810,8 @@ struct LayoutRulesFamilyImpl
     virtual LayoutRulesImpl* getShaderRecordConstantBufferRules() = 0;
 };
 
+typedef List<RefPtr<GenericParamLayout>> GenericParamLayouts;
+
 struct TypeLayoutContext
 {
     // The layout rules to use (e.g., we compute
@@ -757,7 +820,12 @@ struct TypeLayoutContext
     LayoutRulesImpl*    rules;
 
     // The target request that is triggering layout
-    TargetRequest*      targetReq;
+    TargetRequest*  targetReq;
+
+    // A parent program layout that will establish the ordering
+    // of all global generic type parameters.
+    //
+    ProgramLayout* programLayout;
 
     // Whether to lay out matrices column-major
     // or row-major.
@@ -785,10 +853,15 @@ struct TypeLayoutContext
 // Get an appropriate set of layout rules (packaged up
 // as a `TypeLayoutContext`) to perform type layout
 // for the given target.
+//
+// The provided `programLayout` is used to establish
+// the ordering of all global generic type paramters.
+//
 TypeLayoutContext getInitialLayoutContextForTarget(
-    TargetRequest* targetReq);
+    TargetRequest*  targetReq,
+    ProgramLayout*  programLayout);
 
-// Get the "simple" layout for a type accordinging to a given set of layout
+// Get the "simple" layout for a type according to a given set of layout
 // rules. Note that a "simple" layout can only consume one `LayoutResourceKind`,
 // and so this operation may not correctly capture the full resource usage
 // of a type.

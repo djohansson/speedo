@@ -30,63 +30,86 @@ namespace Slang
 {
     String GetHLSLProfileName(Profile profile);
     String emitHLSLForEntryPoint(
-        EntryPointRequest*  entryPoint,
-        TargetRequest*      targetReq);
+        BackEndCompileRequest*  compileRequest,
+        EntryPoint*             entryPoint,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq);
 
-    int emitDXILForEntryPointUsingDXC(
-        EntryPointRequest*  entryPoint,
-        TargetRequest*      targetReq,
-        List<uint8_t>&      outCode)
+    static UnownedStringSlice _getSlice(IDxcBlob* blob)
     {
-        auto compileRequest = entryPoint->compileRequest;
-        auto session = compileRequest->mSession;
+        if (blob)
+        {
+            const char* chars = (const char*)blob->GetBufferPointer();
+            size_t len = blob->GetBufferSize();
+            len -= size_t(len > 0 && chars[len - 1] == 0);
+            return UnownedStringSlice(chars, len);
+        }
+        return UnownedStringSlice();
+    }
+
+    SlangResult emitDXILForEntryPointUsingDXC(
+        BackEndCompileRequest*  compileRequest,
+        EntryPoint*             entryPoint,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq,
+        List<uint8_t>&          outCode)
+    {
+        auto session = compileRequest->getSession();
+        auto sink = compileRequest->getSink();
 
         // First deal with all the rigamarole of loading
         // the `dxcompiler` library, and creating the
         // top-level COM objects that will be used to
         // compile things.
 
-        auto dxcCreateInstance = (DxcCreateInstanceProc)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Dxc_DxcCreateInstance, &compileRequest->mSink);
+        auto dxcCreateInstance = (DxcCreateInstanceProc)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Dxc_DxcCreateInstance, sink);
         if (!dxcCreateInstance)
         {
-            return 1;
+            return SLANG_FAIL;
         }
 
-        IDxcCompiler* dxcCompiler = nullptr;
-        if (FAILED(dxcCreateInstance(
+        {
+            if (!session->getSharedLibrary(SharedLibraryType::Dxil))
+            {
+                // If can't load dxil - dxc will not be able to sign output
+                // Output a suitable warning to the user
+                sink->diagnose(SourceLoc(), Diagnostics::dxilNotFound);
+            }
+        }
+
+        ComPtr<IDxcCompiler> dxcCompiler;
+        SLANG_RETURN_ON_FAIL(dxcCreateInstance(
             CLSID_DxcCompiler,
             __uuidof(dxcCompiler),
-            (LPVOID*) &dxcCompiler)))
-        {
-            return 1;
-        }
+            (LPVOID*)dxcCompiler.writeRef()));
 
-        IDxcLibrary* dxcLibrary = nullptr;
-        if (FAILED(dxcCreateInstance(
+        ComPtr<IDxcLibrary> dxcLibrary;
+        SLANG_RETURN_ON_FAIL(dxcCreateInstance(
             CLSID_DxcLibrary,
             __uuidof(dxcLibrary),
-            (LPVOID*) &dxcLibrary)))
-        {
-            return 1;
-        }
+            (LPVOID*)dxcLibrary.writeRef()));
 
         // Now let's go ahead and generate HLSL for the entry
         // point, since we'll need that to feed into dxc.
-        auto hlslCode = emitHLSLForEntryPoint(entryPoint, targetReq);
-        maybeDumpIntermediate(entryPoint->compileRequest, hlslCode.Buffer(), CodeGenTarget::HLSL);
+        auto hlslCode = emitHLSLForEntryPoint(
+            compileRequest,
+            entryPoint,
+            entryPointIndex,
+            targetReq,
+            endToEndReq);
+        maybeDumpIntermediate(compileRequest, hlslCode.Buffer(), CodeGenTarget::HLSL);
 
         // Wrap the 
 
         // Create blob from the string
-        IDxcBlobEncoding* dxcSourceBlob = nullptr;
-        if (FAILED(dxcLibrary->CreateBlobWithEncodingFromPinned(
+        ComPtr<IDxcBlobEncoding> dxcSourceBlob;
+        SLANG_RETURN_ON_FAIL(dxcLibrary->CreateBlobWithEncodingFromPinned(
             (LPBYTE)hlslCode.Buffer(),
             (UINT32)hlslCode.Length(),
             0,
-            &dxcSourceBlob)))
-        {
-            return 1;
-        }
+            dxcSourceBlob.writeRef()));
 
         WCHAR const* args[16];
         UINT32 argCount = 0;
@@ -108,7 +131,7 @@ namespace Slang
             break;
         }
 
-        switch( targetReq->floatingPointMode )
+        switch( targetReq->getFloatingPointMode() )
         {
         default:
             break;
@@ -135,7 +158,7 @@ namespace Slang
         //
         args[argCount++] = L"-no-warnings";
 
-        String entryPointName = getText(entryPoint->name);
+        String entryPointName = getText(entryPoint->getName());
         OSString wideEntryPointName = entryPointName.ToWString();
 
         auto profile = getEffectiveProfile(entryPoint, targetReq);
@@ -158,9 +181,11 @@ namespace Slang
             args[argCount++] = L"-enable-16bit-types";
         }
 
-        IDxcOperationResult* dxcResult = nullptr;
-        if (FAILED(dxcCompiler->Compile(dxcSourceBlob,
-            L"slang",
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
+
+        ComPtr<IDxcOperationResult> dxcResult;
+        SLANG_RETURN_ON_FAIL(dxcCompiler->Compile(dxcSourceBlob,
+            sourcePath.ToWString().begin(),
             profile.GetStage() == Stage::Unknown ? L"" : wideEntryPointName.begin(),
             wideProfileName.begin(),
             args,
@@ -168,91 +193,62 @@ namespace Slang
             nullptr,        // `#define`s
             0,              // `#define` count
             nullptr,        // `#include` handler
-            &dxcResult)))
-        {
-            return 1;
-        }
+            dxcResult.writeRef()));
 
         // Retrieve result.
         HRESULT resultCode = S_OK;
-        if (FAILED(dxcResult->GetStatus(&resultCode)))
-        {
-            // This indicates that we failed to retrieve the reuslt...
-            return 1;
-        }
-
+        SLANG_RETURN_ON_FAIL(dxcResult->GetStatus(&resultCode));
+        
         // Note: it seems like the dxcompiler interface
         // doesn't support querying diagnostic output
         // *unless* the compile failed (no way to get
         // warnings out!?).
 
         // Verify compile result
-        if (FAILED(resultCode))
+        if (SLANG_FAILED(resultCode))
         {
             // Compilation failed.
-
-
             // Try to read any diagnostic output.
-            IDxcBlobEncoding* dxcErrorBlob = nullptr;
-            if (!FAILED(dxcResult->GetErrorBuffer(&dxcErrorBlob)))
-            {
-                // Note: the error blob returned by dxc doesn't always seem
-                // to be nul-terminated, so we should be careful and turn it
-                // into a string for safety.
-                //
-                // TODO: Alternatively, `diagnoseRaw()` should accept an
-                // `UnownedStringSlice` instead of a `const char*`.
-                //
-                auto errorBegin = (char const*) dxcErrorBlob->GetBufferPointer();
-                auto errorEnd = errorBegin + dxcErrorBlob->GetBufferSize();
-                String errorString = UnownedStringSlice(errorBegin, errorEnd);
+            ComPtr<IDxcBlobEncoding> dxcErrorBlob; 
+            SLANG_RETURN_ON_FAIL(dxcResult->GetErrorBuffer(dxcErrorBlob.writeRef()));
 
-                compileRequest->mSink.diagnoseRaw(
-                    FAILED(resultCode) ? Severity::Error : Severity::Warning,
-                    errorString.Buffer());
-                dxcErrorBlob->Release();
-            }
+            // Note: the error blob returned by dxc doesn't always seem
+            // to be nul-terminated, so we should be careful and turn it
+            // into a string for safety.
+            //
 
-            return 1;
+            reportExternalCompileError("dxc", resultCode, _getSlice(dxcErrorBlob), compileRequest->getSink());
+            return resultCode;
         }
 
         // Okay, the compile supposedly succeeded, so we
         // just need to grab the buffer with the output DXIL.
-        IDxcBlob* dxcResultBlob = nullptr;
-        if (FAILED(dxcResult->GetResult(&dxcResultBlob)))
-        {
-            return 1;
-        }
-
+        ComPtr<IDxcBlob> dxcResultBlob;
+        SLANG_RETURN_ON_FAIL(dxcResult->GetResult(dxcResultBlob.writeRef()));
+        
         outCode.AddRange(
             (uint8_t const*)dxcResultBlob->GetBufferPointer(),
             (int)           dxcResultBlob->GetBufferSize());
 
-        // Clean up after ourselves.
-
-        if(dxcResultBlob)   dxcResultBlob   ->Release();
-        if(dxcResult)       dxcResult       ->Release();
-        if(dxcLibrary)      dxcLibrary      ->Release();
-        if(dxcCompiler)     dxcCompiler     ->Release();
-
-        return 0;
+        return SLANG_OK;
     }
 
     SlangResult dissassembleDXILUsingDXC(
-        CompileRequest*     compileRequest,
-        void const*         data,
-        size_t              size,
-        String&             stringOut)
+        BackEndCompileRequest*  compileRequest,
+        void const*             data,
+        size_t                  size,
+        String&                 stringOut)
     {
         stringOut = String();
-        auto session = compileRequest->mSession;
+        auto session = compileRequest->getSession();
+        auto sink = compileRequest->getSink();
 
         // First deal with all the rigamarole of loading
         // the `dxcompiler` library, and creating the
         // top-level COM objects that will be used to
         // compile things.
 
-        auto dxcCreateInstance = (DxcCreateInstanceProc)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Dxc_DxcCreateInstance, &compileRequest->mSink);
+        auto dxcCreateInstance = (DxcCreateInstanceProc)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Dxc_DxcCreateInstance, sink);
         if (!dxcCreateInstance)
         {
             return SLANG_FAIL;
@@ -270,10 +266,8 @@ namespace Slang
         ComPtr<IDxcBlobEncoding> dxcResultBlob;
         SLANG_RETURN_ON_FAIL(dxcCompiler->Disassemble(dxcSourceBlob, dxcResultBlob.writeRef()));
 
-        char const* codeBegin = (char const*)dxcResultBlob->GetBufferPointer();
-        char const* codeEnd = codeBegin + dxcResultBlob->GetBufferSize() - 1;
-        stringOut = String(codeBegin, codeEnd);
-
+        stringOut = _getSlice(dxcResultBlob);
+        
         return SLANG_OK;
     }
 

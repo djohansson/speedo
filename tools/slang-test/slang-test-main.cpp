@@ -1,4 +1,4 @@
-// main.cpp
+// slang-test-main.cpp
 
 #include "../../source/core/slang-io.h"
 #include "../../source/core/token-reader.h"
@@ -47,6 +47,12 @@ struct FileTestList
     List<TestOptions> tests;
 };
 
+enum class SpawnType
+{
+    UseExe,
+    UseSharedLibrary,
+};
+
 struct TestInput
 {
     // Path to the input file for the test
@@ -63,6 +69,9 @@ struct TestInput
 
     // The list of tests that will be run on this file
     FileTestList const* testList;
+
+    // Determines how the test will be spawned
+    SpawnType spawnType;
 };
 
 typedef TestResult(*TestCallback)(TestContext* context, TestInput& input);
@@ -345,77 +354,9 @@ TestResult gatherTestsForFile(
     return TestResult::Pass;
 }
 
-OSError spawnAndWait(TestContext* context, const String& testPath, OSProcessSpawner& spawner)
+OSError spawnAndWaitExe(TestContext* context, const String& testPath, OSProcessSpawner& spawner)
 {
     const auto& options = context->options;
-    
-    if (!options.useExes)
-    {
-        String exeName = Path::GetFileNameWithoutEXT(spawner.executableName_);
-
-        if (options.shouldBeVerbose)
-        {
-            StringBuilder builder;
-
-            builder << "slang-test";
-
-            if (options.binDir)
-            {
-                builder << " -bindir " << options.binDir; 
-            }
-
-            builder << " " << exeName;
-
-            // TODO(js): Potentially this should handle escaping parameters for the command line if need be
-            const auto& argList = spawner.argumentList_;
-            for (UInt i = 0; i < argList.Count(); ++i)
-            {
-                builder << " " << argList[i];
-            }
-
-            context->reporter->messageFormat(TestMessageType::Info, "%s\n", builder.begin());
-        }
-
-        auto func = context->getInnerMainFunc(String(context->options.binDir), exeName);
-        if (func)
-        {
-            StringBuilder stdErrorString;
-            StringBuilder stdOutString;
-
-            // Say static so not released
-            StringWriter stdError(&stdErrorString, WriterFlag::IsConsole | WriterFlag::IsStatic);
-            StringWriter stdOut(&stdOutString, WriterFlag::IsConsole | WriterFlag::IsStatic);
-
-            StdWriters* prevStdWriters = StdWriters::getSingleton();
-
-            StdWriters stdWriters;
-            stdWriters.setWriter(SLANG_WRITER_CHANNEL_STD_ERROR, &stdError);
-            stdWriters.setWriter(SLANG_WRITER_CHANNEL_STD_OUTPUT, &stdOut);
-
-            if (exeName == "slangc")
-            {
-                stdWriters.setWriter(SLANG_WRITER_CHANNEL_DIAGNOSTIC, &stdError);
-            }
-            
-            List<const char*> args;
-            args.Add(exeName.Buffer());
-            for (int i = 0; i < int(spawner.argumentList_.Count()); ++i)
-            {
-                args.Add(spawner.argumentList_[i].Buffer());
-            }
-
-            SlangResult res = func(&stdWriters, context->getSession(), int(args.Count()), args.begin());
-
-            StdWriters::setSingleton(prevStdWriters);
-
-            spawner.standardError_ = stdErrorString;
-            spawner.standardOutput_ = stdOutString;
-
-            spawner.resultCode_ = TestToolUtil::getReturnCode(res);
-
-            return kOSError_None;
-        }
-    }
 
     if (options.shouldBeVerbose)
     {
@@ -423,14 +364,101 @@ OSError spawnAndWait(TestContext* context, const String& testPath, OSProcessSpaw
         context->reporter->messageFormat(TestMessageType::Info, "%s\n", commandLine.begin());
     }
 
-
     OSError err = spawner.spawnAndWaitForCompletion();
     if (err != kOSError_None)
     {
-//        fprintf(stderr, "failed to run test '%S'\n", testPath.ToWString());
+        //        fprintf(stderr, "failed to run test '%S'\n", testPath.ToWString());
         context->reporter->messageFormat(TestMessageType::RunError, "failed to run test '%S'", testPath.ToWString().begin());
     }
     return err;
+}
+
+OSError spawnAndWaitSharedLibrary(TestContext* context, const String& testPath, OSProcessSpawner& spawner)
+{
+    const auto& options = context->options;
+    String exeName = Path::GetFileNameWithoutEXT(spawner.executableName_);
+
+    if (options.shouldBeVerbose)
+    {
+        StringBuilder builder;
+
+        builder << "slang-test";
+
+        if (options.binDir)
+        {
+            builder << " -bindir " << options.binDir;
+        }
+
+        builder << " " << exeName;
+
+        // TODO(js): Potentially this should handle escaping parameters for the command line if need be
+        const auto& argList = spawner.argumentList_;
+        for (UInt i = 0; i < argList.Count(); ++i)
+        {
+            builder << " " << argList[i];
+        }
+
+        context->reporter->messageFormat(TestMessageType::Info, "%s\n", builder.begin());
+    }
+
+    auto func = context->getInnerMainFunc(String(context->options.binDir), exeName);
+    if (func)
+    {
+        StringBuilder stdErrorString;
+        StringBuilder stdOutString;
+
+        // Say static so not released
+        StringWriter stdError(&stdErrorString, WriterFlag::IsConsole | WriterFlag::IsStatic);
+        StringWriter stdOut(&stdOutString, WriterFlag::IsConsole | WriterFlag::IsStatic);
+
+        StdWriters* prevStdWriters = StdWriters::getSingleton();
+
+        StdWriters stdWriters;
+        stdWriters.setWriter(SLANG_WRITER_CHANNEL_STD_ERROR, &stdError);
+        stdWriters.setWriter(SLANG_WRITER_CHANNEL_STD_OUTPUT, &stdOut);
+
+        if (exeName == "slangc")
+        {
+            stdWriters.setWriter(SLANG_WRITER_CHANNEL_DIAGNOSTIC, &stdError);
+        }
+
+        List<const char*> args;
+        args.Add(exeName.Buffer());
+        for (int i = 0; i < int(spawner.argumentList_.Count()); ++i)
+        {
+            args.Add(spawner.argumentList_[i].Buffer());
+        }
+
+        SlangResult res = func(&stdWriters, context->getSession(), int(args.Count()), args.begin());
+
+        StdWriters::setSingleton(prevStdWriters);
+
+        spawner.standardError_ = stdErrorString;
+        spawner.standardOutput_ = stdOutString;
+
+        spawner.resultCode_ = TestToolUtil::getReturnCode(res);
+
+        return kOSError_None;
+    }
+
+    return kOSError_OperationFailed;
+}
+
+
+OSError spawnAndWait(TestContext* context, const String& testPath, SpawnType spawnType, OSProcessSpawner& spawner)
+{
+    switch (spawnType)
+    {
+        case SpawnType::UseExe:
+        {
+            return spawnAndWaitExe(context, testPath, spawner);
+        }
+        case SpawnType::UseSharedLibrary:
+        {
+            return spawnAndWaitSharedLibrary(context, testPath, spawner);
+        }
+    }
+    return kOSError_OperationFailed;
 }
 
 String getOutput(OSProcessSpawner& spawner)
@@ -491,6 +519,16 @@ String findExpectedPath(const TestInput& input, const char* postFix)
     return "";
 }
 
+static void _initSlangCompiler(TestContext* context, OSProcessSpawner& spawnerOut)
+{
+    spawnerOut.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
+
+    if (context->options.verbosePaths)
+    {
+        spawnerOut.pushArgument("-verbose-paths");
+    }
+}
+
 TestResult runSimpleTest(TestContext* context, TestInput& input)
 {
     // need to execute the stand-alone Slang compiler on the file, and compare its output to what we expect
@@ -499,8 +537,8 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     auto outputStem = input.outputStem;
 
     OSProcessSpawner spawner;
+    _initSlangCompiler(context, spawner);
 
-    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     for( auto arg : input.testOptions->args )
@@ -508,7 +546,7 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
         spawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -555,6 +593,17 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
     return result;
 }
 
+TestResult runSimpleCompareCommandLineTest(TestContext* context, TestInput& input)
+{
+    TestInput workInput(input);
+    // Use the original files input to compare with
+    workInput.outputStem = input.filePath;
+    // Force to using exes
+    workInput.spawnType = SpawnType::UseExe;
+
+    return runSimpleTest(context, workInput);
+}
+
 TestResult runReflectionTest(TestContext* context, TestInput& input)
 {
     const auto& options = context->options;
@@ -571,7 +620,7 @@ TestResult runReflectionTest(TestContext* context, TestInput& input)
         spawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -659,6 +708,8 @@ static SlangCompileTarget _getCompileTarget(const UnownedStringSlice& name)
     return SLANG_TARGET_UNKNOWN;
 }
 
+
+
 TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
 {
     // need to execute the stand-alone Slang compiler on the file
@@ -670,11 +721,11 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
     OSProcessSpawner actualSpawner;
     OSProcessSpawner expectedSpawner;
 
-    actualSpawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
-    expectedSpawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
-
+    _initSlangCompiler(context, actualSpawner);
+    _initSlangCompiler(context, expectedSpawner);
+    
     actualSpawner.pushArgument(filePath);
-
+    
     const auto& args = input.testOptions->args;
 
     const UInt targetIndex = args.IndexOf("-target");
@@ -697,6 +748,13 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
                 expectedSpawner.pushArgument("dxc");
                 break;
             }
+            case SLANG_DXBC_ASM:
+            {
+                expectedSpawner.pushArgument(filePath + ".hlsl");
+                expectedSpawner.pushArgument("-pass-through");
+                expectedSpawner.pushArgument("fxc");
+                break;
+            }
             default:
             {
                 expectedSpawner.pushArgument(filePath + ".glsl");
@@ -713,7 +771,7 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
         expectedSpawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, expectedSpawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, expectedSpawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -729,7 +787,7 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
         return TestResult::Fail;
     }
 
-    if (spawnAndWait(context, outputStem, actualSpawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, actualSpawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -774,7 +832,8 @@ TestResult generateHLSLBaseline(TestContext* context, TestInput& input)
     auto outputStem = input.outputStem;
 
     OSProcessSpawner spawner;
-    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
+    _initSlangCompiler(context, spawner);
+
     spawner.pushArgument(filePath999);
 
     for( auto arg : input.testOptions->args )
@@ -787,7 +846,7 @@ TestResult generateHLSLBaseline(TestContext* context, TestInput& input)
     spawner.pushArgument("-pass-through");
     spawner.pushArgument("fxc");
 
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -819,8 +878,8 @@ TestResult runHLSLComparisonTest(TestContext* context, TestInput& input)
     // need to execute the stand-alone Slang compiler on the file, and compare its output to what we expect
 
     OSProcessSpawner spawner;
+    _initSlangCompiler(context, spawner);
 
-    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     for( auto arg : input.testOptions->args )
@@ -835,7 +894,7 @@ TestResult runHLSLComparisonTest(TestContext* context, TestInput& input)
     spawner.pushArgument("-target");
     spawner.pushArgument("dxbc-assembly");
 
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -920,8 +979,8 @@ TestResult doGLSLComparisonTestRun(TestContext* context,
     auto outputStem = input.outputStem;
 
     OSProcessSpawner spawner;
+    _initSlangCompiler(context, spawner);
 
-    spawner.pushExecutablePath(String(context->options.binDir) + "slangc" + osGetExecutableSuffix());
     spawner.pushArgument(filePath999);
 
     if( langDefine )
@@ -944,7 +1003,7 @@ TestResult doGLSLComparisonTestRun(TestContext* context,
         spawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -1033,7 +1092,7 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
     // clear the stale actual output file first. This will allow us to detect error if render-test fails and outputs nothing.
     File::WriteAllText(actualOutputFile, "");
 
-	if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+	if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
 	{
         printf("error spawning render-test\n");
 		return TestResult::Fail;
@@ -1132,7 +1191,7 @@ TestResult doRenderComparisonTestRun(TestContext* context, TestInput& input, cha
     spawner.pushArgument("-o");
     spawner.pushArgument(outputStem + outputKind + ".png");
 
-    if (spawnAndWait(context, outputStem, spawner) != kOSError_None)
+    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
     {
         return TestResult::Fail;
     }
@@ -1492,6 +1551,7 @@ TestResult runTest(
 	{
         { "SIMPLE", &runSimpleTest},
         { "REFLECTION", &runReflectionTest},
+        { "COMMAND_LINE_SIMPLE", &runSimpleCompareCommandLineTest}, 
 #if SLANG_TEST_SUPPORT_HLSL
         { "COMPARE_HLSL", &runHLSLComparisonTest},
         { "COMPARE_HLSL_RENDER", &runHLSLRenderComparisonTest},
@@ -1517,6 +1577,8 @@ TestResult runTest(
         { nullptr, nullptr },
     };
 
+    const SpawnType defaultSpawnType = context->options.useExes ? SpawnType::UseExe : SpawnType::UseSharedLibrary;
+
     for( auto ii = kTestCommands; ii->name; ++ii )
     {
         if(testOptions.command != ii->name)
@@ -1527,6 +1589,7 @@ TestResult runTest(
         testInput.outputStem = outputStem;
         testInput.testOptions = &testOptions;
         testInput.testList = &testList;
+        testInput.spawnType = defaultSpawnType;
 
         {
             TestReporter* reporter = context->reporter;
@@ -1767,7 +1830,7 @@ void runTestsInDirectory(
 
 SlangResult innerMain(int argc, char** argv)
 {
-    StdWriters::initDefault();
+    auto stdWriters = StdWriters::initDefaultSingleton();
 
     // The context holds useful things used during testing
     TestContext context;
@@ -1784,6 +1847,36 @@ SlangResult innerMain(int argc, char** argv)
     auto vulkanTestCategory = categorySet.add("vulkan", fullTestCategory);
     auto unitTestCatagory = categorySet.add("unit-test", fullTestCategory);
     auto compatibilityIssueCatagory = categorySet.add("compatibility-issue", fullTestCategory);
+    
+#if SLANG_WINDOWS_FAMILY
+    auto windowsCatagory = categorySet.add("windows", fullTestCategory);
+#endif
+
+#if SLANG_UNIX_FAMILY
+    auto unixCatagory = categorySet.add("unix", fullTestCategory);
+#endif
+
+    TestCategory* fxcCategory = nullptr;
+    TestCategory* dxcCategory = nullptr;
+    TestCategory* glslangCategory = nullptr;
+
+    // Might be better if we had an API on slang so we could get what 'pass-through's are available
+    // This works whilst these targets imply the pass-through/backends
+    {
+        SlangSession* session = context.getSession();
+        if (SLANG_SUCCEEDED(spSessionCheckPassThroughSupport(session, SLANG_PASS_THROUGH_FXC)))
+        {
+            fxcCategory = categorySet.add("fxc", fullTestCategory);
+        }
+        if (SLANG_SUCCEEDED(spSessionCheckPassThroughSupport(session, SLANG_PASS_THROUGH_GLSLANG)))
+        {
+            glslangCategory = categorySet.add("glslang", fullTestCategory);
+        }
+        if (SLANG_SUCCEEDED(spSessionCheckPassThroughSupport(session, SLANG_PASS_THROUGH_DXC)))
+        {
+            dxcCategory = categorySet.add("dxc", fullTestCategory);
+        }
+    }
 
     // An un-categorized test will always belong to the `full` category
     categorySet.defaultCategory = fullTestCategory;

@@ -136,8 +136,6 @@ SIMPLE_SYNTAX_CLASS(GLSLLocalSizeXLayoutModifier,    GLSLLocalSizeLayoutModifier
 SIMPLE_SYNTAX_CLASS(GLSLLocalSizeYLayoutModifier,    GLSLLocalSizeLayoutModifier)
 SIMPLE_SYNTAX_CLASS(GLSLLocalSizeZLayoutModifier,    GLSLLocalSizeLayoutModifier)
 
-SIMPLE_SYNTAX_CLASS(ShaderRecordNVLayoutModifier, GLSLParsedLayoutModifier)
-
 // A catch-all for single-keyword modifiers
 SIMPLE_SYNTAX_CLASS(SimpleModifier, Modifier)
 
@@ -315,6 +313,14 @@ END_SYNTAX_CLASS()
 
 // A `[name(arg0, ...)]` style attribute that has been validated.
 SYNTAX_CLASS(Attribute, AttributeBase)
+    FIELD(AttributeArgumentValueDict, intArgVals)
+END_SYNTAX_CLASS()
+
+SYNTAX_CLASS(UserDefinedAttribute, Attribute)
+END_SYNTAX_CLASS()
+
+SYNTAX_CLASS(AttributeUsageAttribute, Attribute)
+    FIELD(SyntaxClass<RefObject>, targetSyntaxClass)
 END_SYNTAX_CLASS()
 
 // An `[unroll]` or `[unroll(count)]` attribute
@@ -333,6 +339,9 @@ SIMPLE_SYNTAX_CLASS(CallAttribute, Attribute)               // `[call]`
 
 // [[vk_push_constant]] [[push_constant]]
 SIMPLE_SYNTAX_CLASS(PushConstantAttribute, Attribute)
+
+// [[vk_shader_record]] [[shader_record]]
+SIMPLE_SYNTAX_CLASS(ShaderRecordAttribute, Attribute)
 
 // [[vk_binding]]
 SYNTAX_CLASS(GLSLBindingAttribute, Attribute)
