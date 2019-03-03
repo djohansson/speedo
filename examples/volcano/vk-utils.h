@@ -79,12 +79,13 @@ VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat
 	return VK_FORMAT_UNDEFINED;
 }
 
-VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vector<VkDescriptorSetLayoutBinding>& bindings)
+template <typename T>
+VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vector<T>& bindings)
 {
 	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-	layoutInfo.pBindings = bindings.data();
+	layoutInfo.pBindings = static_cast<const VkDescriptorSetLayoutBinding*>(bindings.data());
 
 	VkDescriptorSetLayout layout;
 	CHECK_VK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
@@ -92,13 +93,14 @@ VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vect
 	return layout;
 }
 
-void createDescriptorSets(VkDevice device, VkDescriptorPool pool, const std::vector<VkDescriptorSetLayout>& layouts, std::vector<VkDescriptorSet>& outDescriptorSets)
+template <typename T>
+void allocateDescriptorSets(VkDevice device, VkDescriptorPool pool, const std::vector<T>& layouts, std::vector<VkDescriptorSet>& outDescriptorSets)
 {
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = pool;
 	allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
-	allocInfo.pSetLayouts = layouts.data();
+	allocInfo.pSetLayouts = static_cast<const VkDescriptorSetLayout*>(layouts.data());
 
 	outDescriptorSets.resize(layouts.size());
 	CHECK_VK(vkAllocateDescriptorSets(device, &allocInfo, outDescriptorSets.data()));
