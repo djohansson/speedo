@@ -3,7 +3,7 @@
 	url = https://github.com/KhronosGroup/glslang.git
 [submodule "external/tinyobjloader"]
 	path = external/tinyobjloader
-	url = https://github.com/syoyo/tinyobjloader
+	url = https://github.com/syoyo/tinyobjloader.git
 [submodule "external/glm"]
 	path = external/glm
 	url = https://github.com/g-truc/glm.git
@@ -12,16 +12,16 @@
 	url = https://github.com/ocornut/imgui.git
 [submodule "external/glfw"]
 	path = external/glfw
-	url = https://github.com/glfw/glfw
+	url = https://github.com/glfw/glfw.git
 [submodule "external/cereal"]
 	path = external/cereal
-	url = https://github.com/USCiLab/cereal
+	url = https://github.com/USCiLab/cereal.git
 [submodule "external/VulkanMemoryAllocator"]
 	path = external/VulkanMemoryAllocator
-	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
 [submodule "external/murmur3"]
 	path = external/murmur3
-	url = https://github.com/PeterScott/murmur3
+	url = https://github.com/PeterScott/murmur3.git
 [submodule "external/xxhash"]
 	path = external/xxhash
 	url = https://github.com/Cyan4973/xxHash.git
@@ -30,7 +30,7 @@
 	url = https://github.com/djohansson/PicoSHA2.git
 [submodule "external/mio"]
 	path = external/mio
-	url = https://github.com/djohansson/mio
+	url = https://github.com/djohansson/mio.git
 [submodule "external/lz4"]
 	path = external/lz4
 	url = https://github.com/lz4/lz4.git
