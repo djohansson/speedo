@@ -173,11 +173,20 @@ void loadCachedSourceFile(
     std::filesystem::path pbinFilePath(cacheFilePath);
     pbinFilePath += ".pbin";
 
-    bool firstImport;
+    bool doImport;
     FileInfo sourceFileInfo, pbinFileInfo;
     FileState sourceFileState, pbinFileState;
     auto jsonFileStatus = std::filesystem::status(jsonFilePath);
-    if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
+    auto pbinFileStatus = std::filesystem::status(pbinFilePath);
+
+    if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus) &&
+        !std::filesystem::exists(pbinFileStatus))
+    {
+        std::filesystem::remove(jsonFilePath);
+
+        doImport = true;
+    }
+    else if (std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
     {
         auto loadJSONFn = [](std::istream& stream, const std::string& id) {
 			cereal::JSONInputArchive json(stream);
@@ -193,7 +202,7 @@ void loadCachedSourceFile(
 			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
 		};
 
-        firstImport = false;
+        doImport = false;
 
         mio::mmap_istreambuf fileStreamBuf(jsonFilePath.string());
         std::istream fileStream(&fileStreamBuf);
@@ -223,13 +232,10 @@ void loadCachedSourceFile(
     }
     else
     {
-        firstImport = true;
-
-        sourceFileState = getFileInfo(sourceFilePath, sourceFileInfo, false);
-        pbinFileState = getFileInfo(pbinFilePath, pbinFileInfo, false);
+        doImport = true;
     }
 
-    if (firstImport ||
+    if (doImport ||
         sourceFileState == FileState::Stale ||
         pbinFileState != FileState::Valid)
     {	
