@@ -90,6 +90,7 @@
 
 #include <cereal/cereal.hpp>
 #include <cereal/archives/portable_binary.hpp>
+#include <cereal/types/map.hpp>
 #include <cereal/types/vector.hpp>
 
 #include <xxhash.h>
@@ -104,24 +105,24 @@
 
 namespace stbi_callbacks
 {
-	int read(void* user, char* data, int size)
-	{
-		std::istream* stream = static_cast<std::istream*>(user);
-		return stream->rdbuf()->sgetn(data, size);
-	}
-
-	void skip(void* user, int size)
-	{
-		std::istream* stream = static_cast<std::istream*>(user);
-		stream->seekg(size, std::ios::cur);
-	}
-
-	int eof(void* user)
-	{
-		std::istream* stream = static_cast<std::istream*>(user);
-		return stream->tellg() != std::istream::pos_type(-1);
-	}
+int read(void *user, char *data, int size)
+{
+	std::istream *stream = static_cast<std::istream *>(user);
+	return stream->rdbuf()->sgetn(data, size);
 }
+
+void skip(void *user, int size)
+{
+	std::istream *stream = static_cast<std::istream *>(user);
+	stream->seekg(size, std::ios::cur);
+}
+
+int eof(void *user)
+{
+	std::istream *stream = static_cast<std::istream *>(user);
+	return stream->tellg() != std::istream::pos_type(-1);
+}
+} // namespace stbi_callbacks
 
 // reminders:
 
@@ -154,9 +155,6 @@ namespace stbi_callbacks
 //     };
 // }
 
-// using ShaderModuleSet = std::unordered_set<ShaderModule>;
-using ShaderModuleSet = std::vector<std::pair<VkShaderModule, uint64_t>>;
-
 struct Texture
 {
 	VkImage image = VK_NULL_HANDLE;
@@ -175,286 +173,76 @@ struct Model
 	uint32_t indexCount;
 };
 
-struct GraphicsPipelineResourceSet
+struct GraphicsPipelineResourceSet // temp
 {
-	Model model; // temp, use handles instead
+	Model model;	 // temp, use handles instead
 	Texture texture; // temp, use handles instead
 };
 
-struct ShaderStageSetup
+template <typename BaseT>
+struct SerializableDescriptorSetLayoutBinding : public BaseT
 {
-	ShaderModuleSet shaderModules; // temp, use handles instead
-	// temp, use handles instead. store directly in shadermoduleset?
-	std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-	std::vector<VkDescriptorSet> descriptorSets;
+	// todo: type check with enable_if
+	template <class Archive>
+	void serialize(Archive &ar)
+	{
+		static_assert(sizeof(SerializableDescriptorSetLayoutBinding) == sizeof(BaseT));
 
-	uint64_t pipelineHash = 0; // temp
+		ar(BaseT::binding);
+		ar(BaseT::descriptorType);
+		ar(BaseT::descriptorCount);
+		ar(BaseT::stageFlags);
+		//ar(pImmutableSamplers); // todo
+	}
 };
 
-ShaderStageSetup loadSlangShaders(const char *path, VkDevice device)
+enum class GraphicsBackend
 {
-	// First, we need to create a "session" for interacting with the Slang
-	// compiler. This scopes all of our application's interactions
-	// with the Slang library. At the moment, creating a session causes
-	// Slang to load and validate its standard library, so this is a
-	// somewhat heavy-weight operation. When possible, an application
-	// should try to re-use the same session across multiple compiles.
-	//
-	SlangSession *slangSession = spCreateSession(NULL);
+	Vulkan
+};
 
-	// A compile request represents a single invocation of the compiler,
-	// to process some inputs and produce outputs (or errors).
-	//
-	SlangCompileRequest *slangRequest = spCreateCompileRequest(slangSession);
+// this should be a temporary object only used during loading.
+template <GraphicsBackend Backend>
+struct SerializableSlangModule
+{
+	// todo: type check with enable_if
+	using BindingType = SerializableDescriptorSetLayoutBinding<VkDescriptorSetLayoutBinding>;
 
-	spSetDumpIntermediates(slangRequest, true);
+	using ShaderModuleVector = std::vector<std::vector<std::byte>>;
+	using BindingsMap = std::map<uint32_t, std::vector<BindingType>>;
 
-	int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
-
-	// We will specify the desired "profile" for this one target in terms of the
-	// DirectX "shader model" that should be supported.
-	//
-	//spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_4_0"));
-
-	// A compile request can include one or more "translation units," which more or
-	// less amount to individual source files (think `.c` files, not the `.h` files they
-	// might include).
-	//
-	// For this example, our code will all be in the Slang language. The user may
-	// also specify HLSL input here, but that currently doesn't affect the compiler's
-	// behavior much.
-	//
-	int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
-
-	// We will load source code for our translation unit from the file `shaders.slang`.
-	// There are also variations of this API for adding source code from application-provided buffers.
-	//
-	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, path);
-
-	// Next we will specify the entry points we'd like to compile.
-	// It is often convenient to put more than one entry point in the same file,
-	// and the Slang API makes it convenient to use a single run of the compiler
-	// to compile all entry points.
-	//
-	// For each entry point, we need to specify the name of a function, the
-	// translation unit in which that function can be found, and the stage
-	// that we need to compile for (e.g., vertex, fragment, geometry, ...).
-	//
-	char const *vertexEntryPointName = "vertexMain";
-	char const *fragmentEntryPointName = "fragmentMain";
-	int vertexIndex = spAddEntryPoint(slangRequest, translationUnitIndex, vertexEntryPointName, SLANG_STAGE_VERTEX);
-	int fragmentIndex = spAddEntryPoint(slangRequest, translationUnitIndex, fragmentEntryPointName, SLANG_STAGE_FRAGMENT);
-
-	// Once all of the input options for the compiler have been specified,
-	// we can invoke `spCompile` to run the compiler and see if any errors
-	// were detected.
-	//
-	const SlangResult compileRes = spCompile(slangRequest);
-
-	// Even if there were no errors that forced compilation to fail, the
-	// compiler may have produced "diagnostic" output such as warnings.
-	// We will go ahead and print that output here.
-	//
-	if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
+	template <class Archive>
+	void serialize(Archive &ar)
 	{
-		std::cout << diagnostics << std::endl;
+		ar(shaders);
+		ar(bindingsMap);
 	}
 
-	// If compilation failed, there is no point in continuing any further.
-	if (SLANG_FAILED(compileRes))
-	{
-		spDestroyCompileRequest(slangRequest);
-		spDestroySession(slangSession);
-
-		throw std::runtime_error("failed to compile slang shaders!");
-	}
-
-	int depCount = spGetDependencyFileCount(slangRequest);
-	for (int dep = 0; dep < depCount; dep++)
-	{
-		char const *depPath = spGetDependencyFilePath(slangRequest, dep);
-		// ... todo: add dependencies for hot reload
-		std::cout << depPath << std::endl;
-	}
-
-	// If compilation was successful, then we will extract the code for
-	// our two entry points as "blobs".
-	//
-	// If you are using a D3D API, then your application may want to
-	// take advantage of the fact taht these blobs are binary compatible
-	// with the `ID3DBlob`, `ID3D10Blob`, etc. interfaces.
-	//
-
-	ISlangBlob *vertexShaderBlob = nullptr;
-	spGetEntryPointCodeBlob(slangRequest, vertexIndex, 0, &vertexShaderBlob);
-
-	ISlangBlob *fragmentShaderBlob = nullptr;
-	spGetEntryPointCodeBlob(slangRequest, fragmentIndex, 0, &fragmentShaderBlob);
-
-	// We extract the begin/end pointers to the output code buffers
-	// using operations on the `ISlangBlob` interface.
-	//
-
-	//loadSPIRVFile("vert.spv", vsCode);
-	//loadSPIRVFile("frag.spv", fsCode);
-
-	ShaderStageSetup outShaderStageSetup;
-
-	VkShaderModuleCreateInfo vsCreateInfo = {};
-	vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	vsCreateInfo.codeSize = vertexShaderBlob->getBufferSize();
-	vsCreateInfo.pCode = static_cast<const uint32_t *>(vertexShaderBlob->getBufferPointer());
-
-	uint64_t vsShaderModuleHash = XXH64(&vsCreateInfo.flags, sizeof(vsCreateInfo.flags), 0);
-	if (const uint32_t *code = vsCreateInfo.pCode)
-		vsShaderModuleHash = XXH64(code, vsCreateInfo.codeSize, vsShaderModuleHash);
-
-	VkShaderModule vsShaderModule;
-	CHECK_VK(vkCreateShaderModule(device, &vsCreateInfo, nullptr, &vsShaderModule));
-
-	outShaderStageSetup.shaderModules.emplace_back(vsShaderModule, vsShaderModuleHash);
-
-	VkShaderModuleCreateInfo fsCreateInfo = {};
-	fsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	fsCreateInfo.codeSize = fragmentShaderBlob->getBufferSize();
-	fsCreateInfo.pCode = static_cast<const uint32_t *>(fragmentShaderBlob->getBufferPointer());
-
-	uint64_t fsShaderModuleHash = XXH64(&fsCreateInfo.flags, sizeof(fsCreateInfo.flags), 0);
-	if (const uint32_t *code = fsCreateInfo.pCode)
-		fsShaderModuleHash = XXH64(code, fsCreateInfo.codeSize, fsShaderModuleHash);
-
-	VkShaderModule fsShaderModule;
-	CHECK_VK(vkCreateShaderModule(device, &fsCreateInfo, nullptr, &fsShaderModule));
-
-	outShaderStageSetup.shaderModules.emplace_back(fsShaderModule, fsShaderModuleHash);
-
-	// Once we've used the output blobs from the Slang compiler to initialize
-	// the API-specific shader program, we can release their memory.
-	//
-	vertexShaderBlob->release();
-	fragmentShaderBlob->release();
-
-	using BindingsMap = std::map<uint32_t, std::vector<VkDescriptorSetLayoutBinding>>;
-
+	ShaderModuleVector shaders;
 	BindingsMap bindingsMap;
+};
 
-	auto createLayoutBinding = [&bindingsMap](slang::VariableLayoutReflection *parameter) {
-		slang::TypeLayoutReflection *typeLayout = parameter->getTypeLayout();
+struct PipelineLayout
+{
+	using VkShaderModuleVector = std::vector<VkShaderModule>;
+	using VkDescriptorSetLayoutVector = std::vector<VkDescriptorSetLayout>;
 
-		std::cout << "name: " << parameter->getName() << ", index: " << parameter->getBindingIndex() << ", space: " << parameter->getBindingSpace() << ", stage: " << parameter->getStage() << ", kind: " << (int)typeLayout->getKind() << ", typeName: " << typeLayout->getName();
+	VkShaderModuleVector shaders;					  // temp, use handles instead
+	VkDescriptorSetLayoutVector descriptorSetLayouts; // temp, use handles instead, or store directly in shadermoduleset?
+	VkPipelineLayout layout = VK_NULL_HANDLE;
+};
 
-		unsigned categoryCount = parameter->getCategoryCount();
-		for (unsigned cc = 0; cc < categoryCount; cc++)
-		{
-			slang::ParameterCategory category = parameter->getCategoryByIndex(cc);
+struct PipelineConfiguration
+{
+	using VkDescriptorSetVector = std::vector<VkDescriptorSet>;
 
-			size_t offsetForCategory = parameter->getOffset(category);
-			size_t spaceForCategory = parameter->getBindingSpace(category);
+	GraphicsPipelineResourceSet *resources = nullptr; // todo: replace with handle
+	PipelineLayout *layout = nullptr;				  // todo: replace with handle
+	VkDescriptorSetVector descriptorSets;
+};
 
-			std::cout << ", category: " << category << ", offsetForCategory: " << offsetForCategory << ", spaceForCategory: " << spaceForCategory;
-
-			if (category == slang::ParameterCategory::DescriptorTableSlot)
-			{
-				VkDescriptorSetLayoutBinding binding;
-				binding.binding = parameter->getBindingIndex();
-				binding.descriptorCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
-				binding.stageFlags = VK_SHADER_STAGE_ALL; // todo: have not find a good way to get a good value for this yet
-				binding.pImmutableSamplers = nullptr;	 // todo;
-
-				switch (parameter->getStage())
-				{
-				case SLANG_STAGE_VERTEX:
-					binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-					break;
-				case SLANG_STAGE_FRAGMENT:
-					binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-					break;
-				case SLANG_STAGE_HULL:
-				case SLANG_STAGE_DOMAIN:
-				case SLANG_STAGE_GEOMETRY:
-				case SLANG_STAGE_COMPUTE:
-				case SLANG_STAGE_RAY_GENERATION:
-				case SLANG_STAGE_INTERSECTION:
-				case SLANG_STAGE_ANY_HIT:
-				case SLANG_STAGE_CLOSEST_HIT:
-				case SLANG_STAGE_MISS:
-				case SLANG_STAGE_CALLABLE:
-				default:
-					//assert(false); // please implement me!
-					break;
-				}
-
-				switch (typeLayout->getKind())
-				{
-				case slang::TypeReflection::Kind::ConstantBuffer:
-					binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-					break;
-				case slang::TypeReflection::Kind::Resource:
-					binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; // "resource" might be more generic tho...
-					break;
-				case slang::TypeReflection::Kind::SamplerState:
-					binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-					break;
-				case slang::TypeReflection::Kind::None:
-				case slang::TypeReflection::Kind::Struct:
-				case slang::TypeReflection::Kind::Array:
-				case slang::TypeReflection::Kind::Matrix:
-				case slang::TypeReflection::Kind::Vector:
-				case slang::TypeReflection::Kind::Scalar:
-				case slang::TypeReflection::Kind::TextureBuffer:
-				case slang::TypeReflection::Kind::ShaderStorageBuffer:
-				case slang::TypeReflection::Kind::ParameterBlock:
-				case slang::TypeReflection::Kind::GenericTypeParameter:
-				case slang::TypeReflection::Kind::Interface:
-				default:
-					assert(false); // please implement me!
-					break;
-				}
-
-				bindingsMap[parameter->getBindingSpace()].push_back(binding);
-			}
-		}
-
-		std::cout << std::endl;
-
-		unsigned fieldCount = typeLayout->getFieldCount();
-		for (unsigned ff = 0; ff < fieldCount; ff++)
-		{
-			slang::VariableLayoutReflection *field = typeLayout->getFieldByIndex(ff);
-
-			std::cout << "  name: " << field->getName() << ", index: " << field->getBindingIndex() << ", space: " << field->getBindingSpace(field->getCategory()) << ", offset: " << field->getOffset(field->getCategory()) << ", kind: " << (int)field->getType()->getKind() << ", typeName: " << field->getType()->getName() << std::endl;
-		}
-	};
-
-	slang::ShaderReflection *shaderReflection = slang::ShaderReflection::get(slangRequest);
-
-	for (unsigned pp = 0; pp < shaderReflection->getParameterCount(); pp++)
-		createLayoutBinding(shaderReflection->getParameterByIndex(pp));
-
-	for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
-	{
-		slang::EntryPointReflection *epReflection = shaderReflection->getEntryPointByIndex(epIndex);
-
-		for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
-			createLayoutBinding(epReflection->getParameterByIndex(pp));
-	}
-
-	for (auto &[space, bindings] : bindingsMap)
-	{
-		outShaderStageSetup.descriptorSetLayouts.emplace_back(
-			createDescriptorSetLayout(device, bindings));
-	}
-
-	// Once we have extracted the output blobs, it is safe to destroy
-	// the compile request and even the session.
-	//
-	spDestroyCompileRequest(slangRequest);
-	spDestroySession(slangSession);
-
-	return outShaderStageSetup;
-}
-
-static inline uint64_t hash(const VkGraphicsPipelineCreateInfo &info, const ShaderModuleSet &shaderModules)
+/*
+static inline uint64_t hash(const VkGraphicsPipelineCreateInfo &info)
 {
 	XXH64_hash_t result = 0;
 
@@ -496,8 +284,8 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo &info, const Shad
 
 		result = XXH64(&stage.flags, sizeof(stage.flags), result);
 		result = XXH64(&stage.stage, sizeof(stage.stage), result);
-		// auto shaderModule = shaderModules.find(stage.module);
-		// if (shaderModule != shaderModules.end())
+		// auto shaderModule = shaders.find(stage.module);
+		// if (shaderModule != shaders.end())
 		// 	result = XXH64(&shaderModule->shaderModuleHash, sizeof(shaderModule->shaderModuleHash), result);
 		result = XXH64(stage.pName, strlen(stage.pName), result);
 
@@ -548,6 +336,7 @@ static inline uint64_t hash(const VkGraphicsPipelineCreateInfo &info, const Shad
 
 	return result;
 }
+*/
 
 struct Vertex
 {
@@ -638,7 +427,7 @@ class VulkanApplication
 {
   public:
 	VulkanApplication(void *view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char *resourcePath, bool /*verbose*/)
-		: myResourcePath(resourcePath), myCommandBufferThreadCount(4), myRequestedCommandBufferThreadCount(myCommandBufferThreadCount)
+		: myResourcePath(resourcePath), myFrameCommandBufferThreadCount(4), myRequestedCommandBufferThreadCount(myFrameCommandBufferThreadCount)
 	{
 		assert(std::filesystem::is_directory(myResourcePath));
 
@@ -647,16 +436,23 @@ class VulkanApplication
 		createSurface(view);
 		createDevice();
 		createAllocator();
+
+		VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+		cmdPoolInfo.queueFamilyIndex = myQueueFamilyIndex;
+		cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		CHECK_VK(vkCreateCommandPool(myDevice, &cmdPoolInfo, nullptr, &myTransferCommandPool));
+		assert(myTransferCommandPool != VK_NULL_HANDLE);
+
 		createSwapchain(framebufferWidth, framebufferHeight);
 		createTextureSampler();
 		createDescriptorPool();
+
+		myPipelineLayout = loadSlangShaderModule("shaders.slang");
+
 		createFrameResources(framebufferWidth, framebufferHeight);
 
-		transitionImageLayout(
-			mySwapchain.myDepthImage,
-			myDepthFormat,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+		myResources.model = loadModel("gallery.obj");
+		myResources.texture = loadTexture("gallery.jpg");
 
 		// begin temp
 		createBuffer(
@@ -667,9 +463,6 @@ class VulkanApplication
 			myUniformBufferMemory,
 			"myUniformBuffer");
 
-		myHouseResources.model = loadModel("gallery.obj");
-		myHouseResources.texture = loadTexture("gallery.jpg");
-
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = myUniformBuffer;
 		bufferInfo.offset = 0;
@@ -677,26 +470,26 @@ class VulkanApplication
 
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = myHouseResources.texture.imageView;
+		imageInfo.imageView = myResources.texture.imageView;
 		imageInfo.sampler = mySampler;
 
 		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[0].dstSet = myHouseSetup.descriptorSets[0];
+		descriptorWrites[0].dstSet = myPipeline.descriptorSets[0];
 		descriptorWrites[0].dstBinding = 0;
 		descriptorWrites[0].dstArrayElement = 0;
 		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 		descriptorWrites[0].descriptorCount = 1;
 		descriptorWrites[0].pBufferInfo = &bufferInfo;
 		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[1].dstSet = myHouseSetup.descriptorSets[0];
+		descriptorWrites[1].dstSet = myPipeline.descriptorSets[0];
 		descriptorWrites[1].dstBinding = 1;
 		descriptorWrites[1].dstArrayElement = 0;
 		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 		descriptorWrites[1].descriptorCount = 1;
 		descriptorWrites[1].pImageInfo = &imageInfo;
 		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[2].dstSet = myHouseSetup.descriptorSets[0];
+		descriptorWrites[2].dstSet = myPipeline.descriptorSets[0];
 		descriptorWrites[2].dstBinding = 2;
 		descriptorWrites[2].dstArrayElement = 0;
 		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -732,33 +525,25 @@ class VulkanApplication
 				myUIEnableFlag = !myUIEnableFlag;
 			escBufferState = escState;
 
-			if (myCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
+			if (myFrameCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
 				myCreateFrameResourcesFlag = true;
 		}
 
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
 		{
-			CHECK_VK(vkDeviceWaitIdle(myDevice));
+			CHECK_VK(vkQueueWaitIdle(myQueue));
 
 			cleanupFrameResources();
 
-			myCommandBufferThreadCount = myRequestedCommandBufferThreadCount;
+			myFrameCommandBufferThreadCount = myRequestedCommandBufferThreadCount;
 
 			createFrameResources(myWindowData->Width, myWindowData->Height);
 		}
 
-		// update view
-		myViewMatrix = glm::lookAt(
-			glm::vec3(1.5f, 1.5f, 1.0f),
-			glm::vec3(0.0f, 0.0f, -0.5f),
-			glm::vec3(0.0f, 0.0f, -1.0f));
-		myProjectionMatrix =
-			glm::perspective(
-				glm::radians(75.0f),
-				myWindowData->Width / static_cast<float>(myWindowData->Height),
-				0.01f,
-				10.0f);
+		// update matrices
+		//updateViewMatrix();
+		//updateProjectionMatrix();
 
 		// todo: run this at the same time as secondary command buffer recording
 		updateUniformBuffers();
@@ -809,7 +594,7 @@ class VulkanApplication
 
 	void resize(int width, int height)
 	{
-		CHECK_VK(vkDeviceWaitIdle(myDevice));
+		CHECK_VK(vkQueueWaitIdle(myQueue));
 
 		cleanupFrameResources();
 
@@ -819,13 +604,10 @@ class VulkanApplication
 	void mouse(double x, double y, int state)
 	{
 		auto getArcballVector = [](double x, double y, int screen_width, int screen_height) {
-			
 			glm::vec3 p = glm::vec3(x / screen_width * 2 - 1, y / screen_height * 2 - 1, 0);
-			
 			p.y = -p.y;
-			
+
 			auto opSqr = p.x * p.x + p.y * p.y;
-			
 			if (opSqr <= 1)
 				p.z = sqrt(1 - opSqr); // Pythagoras
 			else
@@ -836,23 +618,56 @@ class VulkanApplication
 
 		if (state & VKAPP_MOUSE_ARCBALL_ENABLE_FLAG)
 		{
-			const auto& width = myWindowData->Width;
-			const auto& height = myWindowData->Height;
+			const auto &width = myWindowData->Width;
+			const auto &height = myWindowData->Height;
 			glm::vec3 va = getArcballVector(myMouseXPos, myMouseYPos, width, height);
 			glm::vec3 vb = getArcballVector(x, y, width, height);
 			float angle = acos(std::min(1.0f, glm::dot(va, vb)));
 			glm::vec3 axisInViewCoord = glm::cross(va, vb);
-			glm::mat3 viewToModel = glm::inverse(glm::mat3(myViewMatrix) * glm::mat3(myHouseResources.model.transform));
+			glm::mat3 viewToModel = glm::inverse(glm::mat3(myViewMatrix) * glm::mat3(myResources.model.transform));
 			glm::vec3 axisInModelCoord = viewToModel * axisInViewCoord;
-			myHouseResources.model.transform = glm::rotate(myHouseResources.model.transform, glm::degrees(angle), axisInModelCoord);
+			myResources.model.transform = glm::rotate(myResources.model.transform, glm::degrees(angle), axisInModelCoord);
 		}
 
 		myMouseXPos = x;
 		myMouseYPos = y;
 	}
 
-  private:
+	void keyPressed()
+	{
+		float dx = 0; //how much we strafe on x
+		float dz = 0; //how much we walk on z
+		char key = '\n';
+		switch (key)
+		{
+		case 'w':
+			dz = 2;
+			break;
+		case 's':
+			dz = -2;
+			break;
+		case 'a':
+			dx = -2;
+			break;
+		case 'd':
+			dx = 2;
+			break;
+		default:
+			break;
+		}
 
+		const glm::mat4 &mat = myViewMatrix;
+		glm::vec3 forward(mat[0][2], mat[1][2], mat[2][2]);
+		glm::vec3 strafe(mat[0][0], mat[1][0], mat[2][0]);
+
+		const float speed = 0.12f;
+
+		myEyeVector += (-dz * forward + dx * strafe) * speed;
+
+		updateViewMatrix();
+	}
+
+  private:
 	Model loadModel(const char *filename) const
 	{
 		std::filesystem::path sourceFilePath(myResourcePath);
@@ -864,17 +679,17 @@ class VulkanApplication
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 
-		auto loadPBin = [&vertices, &indices](std::istream& stream) {
+		auto loadPBin = [&vertices, &indices](std::istream &stream) {
 			cereal::PortableBinaryInputArchive pbin(stream);
 			pbin(vertices, indices);
 		};
 
-		auto savePBin = [&vertices, &indices](std::ostream& stream) {
+		auto savePBin = [&vertices, &indices](std::ostream &stream) {
 			cereal::PortableBinaryOutputArchive pbin(stream);
 			pbin(vertices, indices);
 		};
 
-		auto loadOBJ = [&vertices, &indices](std::istream& stream) {
+		auto loadOBJ = [&vertices, &indices](std::istream &stream) {
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
 #else
@@ -948,12 +763,10 @@ class VulkanApplication
 		};
 
 		loadCachedSourceFile(sourceFilePath, sourceFilePath,
-			"tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
+							 "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
 
 		if (vertices.empty() || indices.empty())
-		{
 			throw std::runtime_error("Failed to load model.");
-		}
 
 		Model outModel;
 
@@ -990,33 +803,32 @@ class VulkanApplication
 		size_t compressedImageSize;
 		std::unique_ptr<std::byte[]> compressedImageData;
 
-		auto loadPBin = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::istream& stream) {
+		auto loadPBin = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::istream &stream) {
 			cereal::PortableBinaryInputArchive pbin(stream);
 			pbin(nx, ny, nChannels, compressedImageSize);
 			compressedImageData = std::make_unique<std::byte[]>(compressedImageSize);
 			pbin(cereal::binary_data(compressedImageData.get(), compressedImageSize));
 		};
 
-		auto savePBin = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::ostream& stream) {
+		auto savePBin = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::ostream &stream) {
 			cereal::PortableBinaryOutputArchive pbin(stream);
 			pbin(nx, ny, nChannels, compressedImageSize);
 			pbin(cereal::binary_data(compressedImageData.get(), compressedImageSize));
 		};
-		
-		auto loadImage = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::istream& stream) {
+
+		auto loadImage = [&nx, &ny, &nChannels, &compressedImageData, &compressedImageSize](std::istream &stream) {
 			stbi_io_callbacks callbacks;
 			callbacks.read = &stbi_callbacks::read;
 			callbacks.skip = &stbi_callbacks::skip;
-			callbacks.eof  = &stbi_callbacks::eof;
-			stbi_uc* imageData = stbi_load_from_callbacks(&callbacks, &stream, &nx, &ny, &nChannels, STBI_rgb_alpha);
+			callbacks.eof = &stbi_callbacks::eof;
+			stbi_uc *imageData = stbi_load_from_callbacks(&callbacks, &stream, &nx, &ny, &nChannels, STBI_rgb_alpha);
 
 			bool hasAlpha = nChannels == 4;
 			uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 			compressedImageSize = hasAlpha ? nx * ny : nx * ny / 2;
 			compressedImageData = std::make_unique<std::byte[]>(compressedImageSize);
 
-			auto extractBlock = [](const stbi_uc *src, uint32_t width, uint32_t stride, stbi_uc *dst)
-			{
+			auto extractBlock = [](const stbi_uc *src, uint32_t width, uint32_t stride, stbi_uc *dst) {
 				for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
 				{
 					std::copy(src, src + stride * 4, &dst[rowIt * 16]);
@@ -1024,9 +836,9 @@ class VulkanApplication
 				}
 			};
 
-			stbi_uc block[64] = { 0 };
+			stbi_uc block[64] = {0};
 			const stbi_uc *src = imageData;
-			stbi_uc *dst = reinterpret_cast<stbi_uc*>(compressedImageData.get());
+			stbi_uc *dst = reinterpret_cast<stbi_uc *>(compressedImageData.get());
 			for (uint32_t rowIt = 0; rowIt < ny; rowIt += 4)
 			{
 				for (uint32_t colIt = 0; colIt < nx; colIt += 4)
@@ -1042,16 +854,15 @@ class VulkanApplication
 		};
 
 		loadCachedSourceFile(imageFile, imageFile,
-			"stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
+							 "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
 		if (compressedImageData == nullptr)
 			throw std::runtime_error("Failed to load image.");
 
 		auto createTexture = [this](
-			const std::byte* data, int x, int y, 
-			VkFormat format, VkImageUsageFlags flags, VkImageAspectFlagBits aspectFlags,
-			const char* debugName = nullptr)
-		{
+								 const std::byte *data, int x, int y,
+								 VkFormat format, VkImageUsageFlags flags, VkImageAspectFlagBits aspectFlags,
+								 const char *debugName = nullptr) {
 			Texture texture;
 
 			createDeviceLocalImage2D(
@@ -1080,6 +891,319 @@ class VulkanApplication
 			VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			filename);
+	}
+
+	PipelineLayout loadSlangShaderModule(const char *filename)
+	{
+		std::filesystem::path slangFile(myResourcePath);
+		slangFile = std::filesystem::absolute(slangFile);
+
+		slangFile /= "shaders";
+		slangFile /= filename;
+
+		SerializableSlangModule<GraphicsBackend::Vulkan> slangModule;
+
+		auto loadPBin = [&slangModule](std::istream &stream) {
+			cereal::PortableBinaryInputArchive pbin(stream);
+			pbin(slangModule);
+		};
+
+		auto savePBin = [&slangModule](std::ostream &stream) {
+			cereal::PortableBinaryOutputArchive pbin(stream);
+			pbin(slangModule);
+		};
+
+		auto loadSlang = [&slangModule, &slangFile](std::istream &stream) {
+			SlangSession *slangSession = spCreateSession(NULL);
+			SlangCompileRequest *slangRequest = spCreateCompileRequest(slangSession);
+
+			spSetDumpIntermediates(slangRequest, true);
+
+			int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
+			int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+
+			std::string shaderString((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+
+			spAddTranslationUnitSourceStringSpan(
+				slangRequest,
+				translationUnitIndex,
+				slangFile.c_str(),
+				shaderString.c_str(),
+				shaderString.c_str() + shaderString.size());
+
+			char const *vertexEntryPointName = "vertexMain";
+			char const *fragmentEntryPointName = "fragmentMain";
+
+			int vertexIndex = spAddEntryPoint(
+				slangRequest,
+				translationUnitIndex,
+				vertexEntryPointName,
+				SLANG_STAGE_VERTEX);
+
+			int fragmentIndex = spAddEntryPoint(
+				slangRequest,
+				translationUnitIndex,
+				fragmentEntryPointName,
+				SLANG_STAGE_FRAGMENT);
+
+			const SlangResult compileRes = spCompile(slangRequest);
+
+			if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
+				std::cout << diagnostics << std::endl;
+
+			if (SLANG_FAILED(compileRes))
+			{
+				spDestroyCompileRequest(slangRequest);
+				spDestroySession(slangSession);
+
+				throw std::runtime_error("Failed to compile slang shader module.");
+			}
+
+			int depCount = spGetDependencyFileCount(slangRequest);
+			for (int dep = 0; dep < depCount; dep++)
+			{
+				char const *depPath = spGetDependencyFilePath(slangRequest, dep);
+				// ... todo: add dependencies for hot reload
+				std::cout << depPath << std::endl;
+			}
+
+			ISlangBlob *vertexShaderBlob = nullptr;
+			spGetEntryPointCodeBlob(slangRequest, vertexIndex, 0, &vertexShaderBlob);
+
+			ISlangBlob *fragmentShaderBlob = nullptr;
+			spGetEntryPointCodeBlob(slangRequest, fragmentIndex, 0, &fragmentShaderBlob);
+
+			slangModule.shaders.emplace_back(vertexShaderBlob->getBufferSize());
+			std::copy(
+				static_cast<const std::byte*>(vertexShaderBlob->getBufferPointer()),
+				static_cast<const std::byte*>(vertexShaderBlob->getBufferPointer()) + vertexShaderBlob->getBufferSize(),
+				slangModule.shaders.back().data());
+			vertexShaderBlob->release();
+
+			slangModule.shaders.emplace_back(fragmentShaderBlob->getBufferSize());
+			std::copy(
+				static_cast<const std::byte*>(fragmentShaderBlob->getBufferPointer()),
+				static_cast<const std::byte*>(fragmentShaderBlob->getBufferPointer()) + fragmentShaderBlob->getBufferSize(),
+				slangModule.shaders.back().data());
+			fragmentShaderBlob->release();
+			
+			auto &bindingsMap = slangModule.bindingsMap;
+
+			auto createLayoutBinding = [&bindingsMap](slang::VariableLayoutReflection *parameter) {
+				slang::TypeLayoutReflection *typeLayout = parameter->getTypeLayout();
+
+				std::cout << 
+					"name: " << parameter->getName() << 
+					", index: " << parameter->getBindingIndex() << 
+					", space: " << parameter->getBindingSpace() << 
+					", stage: " << parameter->getStage() << 
+					", kind: " << (int)typeLayout->getKind() << 
+					", typeName: " << typeLayout->getName();
+
+				unsigned categoryCount = parameter->getCategoryCount();
+				for (unsigned cc = 0; cc < categoryCount; cc++)
+				{
+					slang::ParameterCategory category = parameter->getCategoryByIndex(cc);
+
+					size_t offsetForCategory = parameter->getOffset(category);
+					size_t spaceForCategory = parameter->getBindingSpace(category);
+
+					std::cout << 
+						", category: " << category << 
+						", offsetForCategory: " << offsetForCategory << 
+						", spaceForCategory: " << spaceForCategory;
+
+					if (category == slang::ParameterCategory::DescriptorTableSlot)
+					{
+						using MapType = std::remove_reference_t<decltype(bindingsMap)>;
+						using VectorType = typename MapType::mapped_type;
+						using BindingType = typename VectorType::value_type;
+						
+						BindingType binding;
+						binding.binding = parameter->getBindingIndex();
+						binding.descriptorCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
+						binding.stageFlags = VK_SHADER_STAGE_ALL; // todo: have not find a good way to get a good value for this yet
+						binding.pImmutableSamplers = nullptr;	 // todo;
+
+						switch (parameter->getStage())
+						{
+						case SLANG_STAGE_VERTEX:
+							binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+							break;
+						case SLANG_STAGE_FRAGMENT:
+							binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+							break;
+						case SLANG_STAGE_HULL:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_DOMAIN:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_GEOMETRY:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_COMPUTE:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_RAY_GENERATION:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_INTERSECTION:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_ANY_HIT:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_CLOSEST_HIT:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_MISS:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_CALLABLE:
+							assert(false); // please implement me!
+							break;
+						case SLANG_STAGE_NONE:
+							//assert(false); // this seems to be returned for my constant buffer. investigate why. perhaps that it is reused by multiple shaders? skip assert for now.
+							break;
+						default:
+							assert(false); // please implement me!
+							break;
+						}
+
+						switch (typeLayout->getKind())
+						{
+						case slang::TypeReflection::Kind::ConstantBuffer:
+							binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+							break;
+						case slang::TypeReflection::Kind::Resource:
+							binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; // "resource" might be more generic tho...
+							break;
+						case slang::TypeReflection::Kind::SamplerState:
+							binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+							break;
+						case slang::TypeReflection::Kind::None:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::Struct:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::Array:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::Matrix:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::Vector:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::Scalar:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::TextureBuffer:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::ShaderStorageBuffer:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::ParameterBlock:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::GenericTypeParameter:
+							assert(false); // please implement me!
+							break;
+						case slang::TypeReflection::Kind::Interface:
+							assert(false); // please implement me!
+							break;
+						default:
+							assert(false); // please implement me!
+							break;
+						}
+
+						bindingsMap[parameter->getBindingSpace()].push_back(binding);
+					}
+				}
+
+				std::cout << std::endl;
+
+				unsigned fieldCount = typeLayout->getFieldCount();
+				for (unsigned ff = 0; ff < fieldCount; ff++)
+				{
+					slang::VariableLayoutReflection *field = typeLayout->getFieldByIndex(ff);
+
+					std::cout << "  name: " << field->getName() << 
+						", index: " << field->getBindingIndex() << 
+						", space: " << field->getBindingSpace(field->getCategory()) << 
+						", offset: " << field->getOffset(field->getCategory()) << 
+						", kind: " << (int)field->getType()->getKind() << 
+						", typeName: " << field->getType()->getName() << 
+						std::endl;
+				}
+			};
+
+			slang::ShaderReflection *shaderReflection = slang::ShaderReflection::get(slangRequest);
+
+			for (unsigned pp = 0; pp < shaderReflection->getParameterCount(); pp++)
+				createLayoutBinding(shaderReflection->getParameterByIndex(pp));
+
+			for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
+			{
+				slang::EntryPointReflection *epReflection = shaderReflection->getEntryPointByIndex(epIndex);
+
+				for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
+					createLayoutBinding(epReflection->getParameterByIndex(pp));
+			}
+
+			spDestroyCompileRequest(slangRequest);
+			spDestroySession(slangSession);
+		};
+
+		loadCachedSourceFile(slangFile, slangFile,
+							 "slang", "1.0.0-dev", loadSlang, loadPBin, savePBin);
+
+		if (slangModule.shaders.empty())
+			throw std::runtime_error("Failed to load shaders.");
+
+		PipelineLayout outLayout;
+
+		VkShaderModuleCreateInfo vsCreateInfo = {};
+		vsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+		vsCreateInfo.codeSize = slangModule.shaders[0].size();
+		vsCreateInfo.pCode = reinterpret_cast<const uint32_t *>(slangModule.shaders[0].data());
+
+		VkShaderModule vsShaderModule;
+		CHECK_VK(vkCreateShaderModule(myDevice, &vsCreateInfo, nullptr, &vsShaderModule));
+
+		outLayout.shaders.emplace_back(vsShaderModule);
+
+		VkShaderModuleCreateInfo fsCreateInfo = {};
+		fsCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+		fsCreateInfo.codeSize = slangModule.shaders[1].size();
+		fsCreateInfo.pCode = reinterpret_cast<const uint32_t *>(slangModule.shaders[1].data());
+
+		VkShaderModule fsShaderModule;
+		CHECK_VK(vkCreateShaderModule(myDevice, &fsCreateInfo, nullptr, &fsShaderModule));
+
+		outLayout.shaders.emplace_back(fsShaderModule);
+
+		for (auto &[space, bindings] : slangModule.bindingsMap)
+		{
+			outLayout.descriptorSetLayouts.emplace_back(
+				createDescriptorSetLayout(myDevice, bindings));
+		}
+
+		assert(outLayout.descriptorSetLayouts.size() == 1); // temp
+
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = outLayout.descriptorSetLayouts.size();
+		pipelineLayoutInfo.pSetLayouts = outLayout.descriptorSetLayouts.data();
+		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+		CHECK_VK(vkCreatePipelineLayout(myDevice, &pipelineLayoutInfo, nullptr, &outLayout.layout));
+
+		return outLayout;
 	}
 
 	std::vector<char> loadSPIRVFile(const char *filename)
@@ -1464,6 +1588,12 @@ class VulkanApplication
 			mySwapchain.myDepthImageMemory,
 			"myDepthImage");
 
+		transitionImageLayout(
+			mySwapchain.myDepthImage,
+			myDepthFormat,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
 		mySwapchain.myDepthImageView = createImageView2D(mySwapchain.myDepthImage, myDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 
 		createRenderPass();
@@ -1608,14 +1738,15 @@ class VulkanApplication
 
 	void createGraphicsPipelines()
 	{
-		myHouseSetup = loadSlangShaders("shaders.slang", myDevice);
+		myPipeline.resources = &myResources;
+		myPipeline.layout = &myPipelineLayout;
 
-		assert(myHouseSetup.shaderModules.size() == 2); // temp
+		assert(myPipelineLayout.shaders.size() == 2); // temp
 
 		VkPipelineShaderStageCreateInfo vsStageInfo = {};
 		vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-		vsStageInfo.module = myHouseSetup.shaderModules[0].first;
+		vsStageInfo.module = myPipelineLayout.shaders[0];
 		vsStageInfo.pName = "main";
 
 		// struct AlphaTestSpecializationData
@@ -1641,7 +1772,7 @@ class VulkanApplication
 		VkPipelineShaderStageCreateInfo fsStageInfo = {};
 		fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-		fsStageInfo.module = myHouseSetup.shaderModules[1].first;
+		fsStageInfo.module = myPipelineLayout.shaders[1];
 		fsStageInfo.pName = "main";
 		fsStageInfo.pSpecializationInfo = nullptr; //&specializationInfo;
 
@@ -1745,17 +1876,6 @@ class VulkanApplication
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 		dynamicState.pDynamicStates = dynamicStates.data();
 
-		assert(myHouseSetup.descriptorSetLayouts.size() == 1); // temp
-
-		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
-		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = myHouseSetup.descriptorSetLayouts.size();
-		pipelineLayoutInfo.pSetLayouts = myHouseSetup.descriptorSetLayouts.data();
-		pipelineLayoutInfo.pushConstantRangeCount = 0;
-		pipelineLayoutInfo.pPushConstantRanges = nullptr;
-
-		CHECK_VK(vkCreatePipelineLayout(myDevice, &pipelineLayoutInfo, nullptr, &myPipelineLayout));
-
 		VkGraphicsPipelineCreateInfo pipelineInfo = {};
 		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 		pipelineInfo.stageCount = sizeof_array(shaderStages);
@@ -1768,18 +1888,11 @@ class VulkanApplication
 		pipelineInfo.pDepthStencilState = &depthStencil;
 		pipelineInfo.pColorBlendState = &colorBlending;
 		pipelineInfo.pDynamicState = &dynamicState;
-		pipelineInfo.layout = myPipelineLayout;
+		pipelineInfo.layout = myPipelineLayout.layout;
 		pipelineInfo.renderPass = myRenderPass;
 		pipelineInfo.subpass = 0;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 		pipelineInfo.basePipelineIndex = -1;
-
-		auto hashAndCache = [](
-								const VkGraphicsPipelineCreateInfo &info,
-								const ShaderModuleSet &shaderModules, // TEMP - rewrite
-								uint64_t &outHash) {
-			return outHash = hash(info, shaderModules);
-		};
 
 		CHECK_VK(vkCreateGraphicsPipelines(
 			myDevice,
@@ -1787,22 +1900,24 @@ class VulkanApplication
 			1,
 			&pipelineInfo,
 			nullptr,
-			&myGraphicsPipelines[hashAndCache(pipelineInfo, myHouseSetup.shaderModules, myHouseSetup.pipelineHash)])); // TEMP - rewrite
+			&myGraphicsPipelines[0])); // TEMP - rewrite
 
-		createDescriptorSets(
+		allocateDescriptorSets(
 			myDevice,
 			myDescriptorPool,
-			myHouseSetup.descriptorSetLayouts,
-			myHouseSetup.descriptorSets);
+			myPipelineLayout.descriptorSetLayouts,
+			myPipeline.descriptorSets);
 	}
 
-	VkCommandBuffer beginSingleTimeCommands() const
+	VkCommandBuffer beginSingleTimeCommands(VkCommandPool commandPool) const
 	{
-		VkCommandPool commandPool = myWindowData->Frames[myWindowData->FrameIndex].CommandPool;
-		VkCommandBuffer commandBuffer =
-			myWindowData->Frames[myWindowData->FrameIndex].CommandBuffer;
+		VkCommandBuffer commandBuffer;
 
-		CHECK_VK(vkResetCommandPool(myDevice, commandPool, 0));
+		VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+		cmdInfo.commandPool = commandPool;
+		cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdInfo.commandBufferCount = 1;
+		CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, &commandBuffer));
 
 		VkCommandBufferBeginInfo beginInfo = {};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1812,7 +1927,7 @@ class VulkanApplication
 		return commandBuffer;
 	}
 
-	void endSingleTimeCommands(VkCommandBuffer commandBuffer) const
+	void endSingleTimeCommands(VkCommandBuffer commandBuffer, VkCommandPool commandPool) const
 	{
 		VkSubmitInfo endInfo = {};
 		endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1820,12 +1935,14 @@ class VulkanApplication
 		endInfo.pCommandBuffers = &commandBuffer;
 		CHECK_VK(vkEndCommandBuffer(commandBuffer));
 		CHECK_VK(vkQueueSubmit(myQueue, 1, &endInfo, VK_NULL_HANDLE));
-		CHECK_VK(vkDeviceWaitIdle(myDevice));
+		CHECK_VK(vkQueueWaitIdle(myQueue));
+
+		vkFreeCommandBuffers(myDevice, commandPool, 1, &commandBuffer);
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
 	{
-		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myTransferCommandPool);
 
 		VkBufferCopy copyRegion = {};
 		copyRegion.srcOffset = 0;
@@ -1833,7 +1950,7 @@ class VulkanApplication
 		copyRegion.size = size;
 		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 
-		endSingleTimeCommands(commandBuffer);
+		endSingleTimeCommands(commandBuffer, myTransferCommandPool);
 	}
 
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
@@ -1892,7 +2009,7 @@ class VulkanApplication
 	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout,
 							   VkImageLayout newLayout) const
 	{
-		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myTransferCommandPool);
 
 		VkImageMemoryBarrier barrier = {};
 		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1960,12 +2077,12 @@ class VulkanApplication
 		vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0,
 							 nullptr, 1, &barrier);
 
-		endSingleTimeCommands(commandBuffer);
+		endSingleTimeCommands(commandBuffer, myTransferCommandPool);
 	}
 
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const
 	{
-		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myTransferCommandPool);
 
 		VkBufferImageCopy region = {};
 		region.bufferOffset = 0;
@@ -1981,7 +2098,7 @@ class VulkanApplication
 		vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 							   1, &region);
 
-		endSingleTimeCommands(commandBuffer);
+		endSingleTimeCommands(commandBuffer, myTransferCommandPool);
 	}
 
 	void createImage2D(uint32_t width, uint32_t height, VkFormat format,
@@ -2033,7 +2150,7 @@ class VulkanApplication
 		VkBuffer stagingBuffer;
 		VmaAllocation stagingBufferMemory;
 		char buf[64];
-		const char* _stagingStr = "_staging";
+		const char *_stagingStr = "_staging";
 		assert(strlen(debugName) + strlen(_stagingStr) < sizeof_array(buf));
 		strcpy(buf, debugName);
 		strcat(buf, _stagingStr);
@@ -2164,9 +2281,9 @@ class VulkanApplication
 
 		// Upload Fonts
 		{
-			VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+			VkCommandBuffer commandBuffer = beginSingleTimeCommands(myTransferCommandPool);
 			ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
-			endSingleTimeCommands(commandBuffer);
+			endSingleTimeCommands(commandBuffer, myTransferCommandPool);
 			ImGui_ImplVulkan_InvalidateFontUploadObjects();
 		}
 	}
@@ -2207,26 +2324,26 @@ class VulkanApplication
 		// ImGui_ImplVulkanH_CreateWindowDataSwapChainAndFramebuffer(
 		// 	myPhysicalDevice, myDevice, myWindowData.get(), nullptr, width, height, true, myDepthImageView, myDepthFormat);
 
-		myCommandPools.resize(myCommandBufferThreadCount);
-		myCommandBuffers.resize(myCommandBufferThreadCount * myFrameCount);
+		myFrameCommandPools.resize(myFrameCommandBufferThreadCount);
+		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * myFrameCount);
 
 		std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
-		for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
+		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
 		{
 			VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 			cmdPoolInfo.queueFamilyIndex = myQueueFamilyIndex;
 			cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-			CHECK_VK(vkCreateCommandPool(myDevice, &cmdPoolInfo, nullptr, &myCommandPools[cmdIt]));
-			assert(myCommandPools[cmdIt] != VK_NULL_HANDLE);
+			CHECK_VK(vkCreateCommandPool(myDevice, &cmdPoolInfo, nullptr, &myFrameCommandPools[cmdIt]));
+			assert(myFrameCommandPools[cmdIt] != VK_NULL_HANDLE);
 
 			VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-			cmdInfo.commandPool = myCommandPools[cmdIt];
+			cmdInfo.commandPool = myFrameCommandPools[cmdIt];
 			cmdInfo.level = cmdIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 			cmdInfo.commandBufferCount = myFrameCount;
 			CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, threadCommandBuffers.data()));
 
 			for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
-				myCommandBuffers[myCommandBufferThreadCount * frameIt + cmdIt] = threadCommandBuffers[frameIt];
+				myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt] = threadCommandBuffers[frameIt];
 		}
 
 		myFrameFences.resize(myFrameCount);
@@ -2245,8 +2362,8 @@ class VulkanApplication
 
 			// IMGUI uses primary command buffer only
 			ImGui_ImplVulkanH_FrameData *fd = &myWindowData->Frames[frameIt];
-			fd->CommandPool = myCommandPools[0];
-			fd->CommandBuffer = myCommandBuffers[myCommandBufferThreadCount * frameIt];
+			fd->CommandPool = myFrameCommandPools[0];
+			fd->CommandBuffer = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
 			fd->Fence = myFrameFences[frameIt];
 			fd->ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
 			fd->RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
@@ -2267,15 +2384,44 @@ class VulkanApplication
 			throw std::runtime_error("failed to flip swap chain image!");
 	}
 
+	void updateViewMatrix()
+	{
+		float pitch = 0.0f;
+		float yaw = 0.0f;
+		float roll = 0.0f;
+		glm::mat4 matPitch = glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+		glm::mat4 matYaw = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 matRoll = glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
+
+		glm::mat4 rotate = matRoll * matPitch * matYaw;
+		glm::mat4 translate = glm::translate(glm::mat4(1.0f), -myEyeVector);
+
+		myViewMatrix = rotate * translate;
+		// myViewMatrix = glm::lookAt(
+		// 	glm::vec3(1.5f, 1.5f, 1.0f),
+		// 	glm::vec3(0.0f, 0.0f, -0.5f),
+		// 	glm::vec3(0.0f, -1.0f, 0.0f));
+	}
+
+	void updateProjectionMatrix()
+	{
+		myProjectionMatrix =
+			glm::perspective(
+				glm::radians(75.0f),
+				myWindowData->Width / static_cast<float>(myWindowData->Height),
+				0.01f,
+				10.0f);
+	}
+
 	void updateUniformBuffers()
 	{
 		UniformBufferObject *data;
 		CHECK_VK(vmaMapMemory(myAllocator, myUniformBufferMemory, (void **)&data));
 
-		static auto start = std::chrono::high_resolution_clock::now();
-		auto now = std::chrono::high_resolution_clock::now();
-		constexpr float period = 10.0;
-		float t = std::chrono::duration<float>(now - start).count();
+		// static auto start = std::chrono::high_resolution_clock::now();
+		// auto now = std::chrono::high_resolution_clock::now();
+		// constexpr float period = 10.0;
+		// float t = std::chrono::duration<float>(now - start).count();
 
 		for (uint32_t n = 0; n < (NX * NY); n++)
 		{
@@ -2287,11 +2433,11 @@ class VulkanApplication
 
 			// const auto& model = glm::rotate(
 			// 	glm::translate(
-			// 		myHouseResources.model.transform,
+			// 		myResources.model.transform,
 			// 		glm::vec3(0, 0, -0.01f - std::numeric_limits<float>::epsilon())),
 			// 	s * glm::radians(360.0f),
 			//  	glm::vec3(0.0, 0.0, 1.0));
-			
+
 			// glm::mat4 view0 = glm::mat4(1);
 			// glm::mat4 proj0 = glm::frustum(-1.0, 1.0, -1.0, 1.0, 0.01, 10.0);
 			// glm::mat4 view1 =
@@ -2317,9 +2463,9 @@ class VulkanApplication
 			// 	lerp(proj0[2], proj1[2], s),
 			// 	lerp(proj0[3], proj1[3], s));
 
-			const auto& model = myHouseResources.model.transform;
-			const auto& view = myViewMatrix;
-			const auto& proj = myProjectionMatrix;
+			const auto &model = myResources.model.transform;
+			const auto &view = myViewMatrix;
+			const auto &proj = myProjectionMatrix;
 
 			ubo.model = model;
 			ubo.view = view;
@@ -2367,13 +2513,16 @@ class VulkanApplication
 
 		// setup draw parameters
 		constexpr uint32_t drawCount = NX * NY;
-		uint32_t segmentCount = std::max(myCommandBufferThreadCount - 1u, 1u);
+		uint32_t segmentCount = std::max(myFrameCommandBufferThreadCount - 1u, 1u);
+
+		assert(myPipeline.resources != nullptr);
+		auto &resources = *myPipeline.resources;
 
 		// begin secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
 			VkCommandBuffer &cmd =
-				myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+				myFrameCommandBuffers[myWindowData->FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 			VkCommandBufferInheritanceInfo inherit = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 			inherit.renderPass = myRenderPass;
@@ -2392,13 +2541,13 @@ class VulkanApplication
 			vkCmdBindPipeline(
 				cmd,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				myGraphicsPipelines[myHouseSetup.pipelineHash]);
+				myGraphicsPipelines[0]); // TEMP - rewrite indexing
 
-			VkBuffer vertexBuffers[] = {myHouseResources.model.vertexBuffer};
+			VkBuffer vertexBuffers[] = {resources.model.vertexBuffer};
 			VkDeviceSize vertexOffsets[] = {0};
 
 			vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-			vkCmdBindIndexBuffer(cmd, myHouseResources.model.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			vkCmdBindIndexBuffer(cmd, resources.model.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 		}
 
 		// draw geometry using secondary command buffers
@@ -2419,7 +2568,7 @@ class VulkanApplication
 				seq.begin(),
 				segmentCount,
 				[this, &dx, &dy, &segmentDrawCount](uint32_t segmentIt) {
-					VkCommandBuffer &cmd = myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+					VkCommandBuffer &cmd = myFrameCommandBuffers[myWindowData->FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
@@ -2432,8 +2581,7 @@ class VulkanApplication
 						uint32_t j = n / NX;
 
 						auto setViewportAndScissor = [](VkCommandBuffer cmd,
-							int32_t x, int32_t y, int32_t width, int32_t height)
-						{
+														int32_t x, int32_t y, int32_t width, int32_t height) {
 							VkViewport viewport = {};
 							viewport.x = static_cast<float>(x);
 							viewport.y = static_cast<float>(y);
@@ -2451,11 +2599,10 @@ class VulkanApplication
 						};
 
 						auto drawModel = [&n](VkCommandBuffer cmd,
-							uint32_t indexCount,
-							uint32_t descriptorSetCount,
-							const VkDescriptorSet* descriptorSets,
-							VkPipelineLayout pipelineLayout)
-						{
+											  uint32_t indexCount,
+											  uint32_t descriptorSetCount,
+											  const VkDescriptorSet *descriptorSets,
+											  VkPipelineLayout pipelineLayout) {
 							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
 							vkCmdBindDescriptorSets(
 								cmd,
@@ -2473,10 +2620,10 @@ class VulkanApplication
 
 						drawModel(
 							cmd,
-							myHouseResources.model.indexCount,
-							myHouseSetup.descriptorSets.size(),
-							myHouseSetup.descriptorSets.data(),
-							myPipelineLayout);
+							myResources.model.indexCount,
+							myPipeline.descriptorSets.size(),
+							myPipeline.descriptorSets.data(),
+							myPipelineLayout.layout);
 					}
 				});
 		}
@@ -2485,7 +2632,7 @@ class VulkanApplication
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
 			VkCommandBuffer &cmd =
-				myCommandBuffers[myWindowData->FrameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+				myFrameCommandBuffers[myWindowData->FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 			CHECK_VK(vkEndCommandBuffer(cmd));
 		}
@@ -2512,8 +2659,8 @@ class VulkanApplication
 			vkCmdBeginRenderPass(newFrame->CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			vkCmdExecuteCommands(newFrame->CommandBuffer,
-								 (myCommandBufferThreadCount - 1),
-								 &myCommandBuffers[(myWindowData->FrameIndex * myCommandBufferThreadCount) + 1]);
+								 (myFrameCommandBufferThreadCount - 1),
+								 &myFrameCommandBuffers[(myWindowData->FrameIndex * myFrameCommandBufferThreadCount) + 1]);
 
 			vkCmdEndRenderPass(newFrame->CommandBuffer);
 		}
@@ -2579,14 +2726,16 @@ class VulkanApplication
 			}
 
 			std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
-			for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
+			for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
 			{
 				for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
-					threadCommandBuffers[frameIt] = myCommandBuffers[myCommandBufferThreadCount * frameIt + cmdIt];
+					threadCommandBuffers[frameIt] = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
 
-				vkFreeCommandBuffers(myDevice, myCommandPools[cmdIt], myFrameCount, threadCommandBuffers.data());
-				vkDestroyCommandPool(myDevice, myCommandPools[cmdIt], nullptr);
+				vkFreeCommandBuffers(myDevice, myFrameCommandPools[cmdIt], myFrameCount, threadCommandBuffers.data());
+				vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
 			}
+
+			vkDestroyCommandPool(myDevice, myTransferCommandPool, nullptr);
 		}
 
 		//ImGui_ImplVulkanH_DestroyWindowDataSwapChainAndFramebuffer(myDevice, myWindowData.get(), nullptr);
@@ -2603,7 +2752,7 @@ class VulkanApplication
 		for (auto &pipelineIt : myGraphicsPipelines)
 			vkDestroyPipeline(myDevice, pipelineIt.second, nullptr);
 
-		vkDestroyPipelineLayout(myDevice, myPipelineLayout, nullptr);
+		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
 		vkDestroyRenderPass(myDevice, myRenderPass, nullptr);
 	}
 
@@ -2624,11 +2773,11 @@ class VulkanApplication
 			// vmaDestroyImage(myAllocator, myVulkanImage.image, myVulkanImage.imageMemory);
 			// vkDestroyImageView(myDevice, myVulkanImage.imageView, nullptr);
 
-			vmaDestroyBuffer(myAllocator, myHouseResources.model.vertexBuffer, myHouseResources.model.vertexBufferMemory);
-			vmaDestroyBuffer(myAllocator, myHouseResources.model.indexBuffer, myHouseResources.model.indexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myResources.model.vertexBuffer, myResources.model.vertexBufferMemory);
+			vmaDestroyBuffer(myAllocator, myResources.model.indexBuffer, myResources.model.indexBufferMemory);
 
-			vmaDestroyImage(myAllocator, myHouseResources.texture.image, myHouseResources.texture.imageMemory);
-			vkDestroyImageView(myDevice, myHouseResources.texture.imageView, nullptr);
+			vmaDestroyImage(myAllocator, myResources.texture.image, myResources.texture.imageMemory);
+			vkDestroyImageView(myDevice, myResources.texture.imageView, nullptr);
 		}
 
 		vkDestroySampler(myDevice, mySampler, nullptr);
@@ -2671,7 +2820,6 @@ class VulkanApplication
 	VkQueue myQueue = VK_NULL_HANDLE;
 	VkDescriptorPool myDescriptorPool = VK_NULL_HANDLE;
 	VkRenderPass myRenderPass = VK_NULL_HANDLE;
-	VkPipelineLayout myPipelineLayout = VK_NULL_HANDLE;
 	std::unordered_map<uint64_t, VkPipeline> myGraphicsPipelines;
 	VkSampler mySampler = VK_NULL_HANDLE;
 	VkBuffer myUniformBuffer = VK_NULL_HANDLE;
@@ -2679,12 +2827,14 @@ class VulkanApplication
 
 	Swapchain mySwapchain;
 
-	std::vector<VkCommandPool> myCommandPools;			 // count = [threadCount]
-	std::vector<VkCommandBuffer> myCommandBuffers;		 // count = [frameCount*threadCount] [f0cb0 f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
+	std::vector<VkCommandPool> myFrameCommandPools;			 // count = [threadCount]
+	std::vector<VkCommandBuffer> myFrameCommandBuffers;		 // count = [frameCount*threadCount] [f0cb0 f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
 	std::vector<VkFence> myFrameFences;					 // count = [frameCount]
 	std::vector<VkSemaphore> myImageAcquiredSemaphores;  // count = [frameCount]
 	std::vector<VkSemaphore> myRenderCompleteSemaphores; // count = [frameCount]
 
+	VkCommandPool myTransferCommandPool;
+	
 	std::unique_ptr<ImGui_ImplVulkanH_WindowData> myWindowData;
 	std::vector<ImFont *> myFonts;
 
@@ -2694,20 +2844,22 @@ class VulkanApplication
 	//Model myQuadModel;
 	//Texture myVulkanImage;
 
-	GraphicsPipelineResourceSet myHouseResources;
-	ShaderStageSetup myHouseSetup;
+	GraphicsPipelineResourceSet myResources;
+	PipelineLayout myPipelineLayout;
+	PipelineConfiguration myPipeline; // = "PSO"
 
 	std::filesystem::path myResourcePath;
 
 	uint32_t myFrameCount = 0;
-	uint32_t myCommandBufferThreadCount = 0;
+	uint32_t myFrameCommandBufferThreadCount = 0;
 	int myRequestedCommandBufferThreadCount = 0;
 
 	double myMouseXPos = 0;
 	double myMouseYPos = 0;
 
-	glm::mat4 myViewMatrix;
-	glm::mat4 myProjectionMatrix;
+	glm::mat4 myViewMatrix = glm::mat4(1.0f);
+	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
+	glm::vec3 myEyeVector = glm::vec3(1.5f, 1.5f, 1.0f);
 
 	bool myUIEnableFlag = false;
 	bool myCreateFrameResourcesFlag = false;
