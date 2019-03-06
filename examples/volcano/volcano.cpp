@@ -924,10 +924,18 @@ class VulkanApplication
 
 			std::string shaderString((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
+		#ifdef UNICODE
+			char slangFilePath[4096];
+			wcstombs(slangFilePath, slangFile.c_str(), sizeof_array(slangFilePath));
+		#else
+			char slangFilePath[4096];
+			strncpy_s(slangFilePath, slangFile.c_str(), sizeof_array(slangFilePath));
+		#endif
+
 			spAddTranslationUnitSourceStringSpan(
 				slangRequest,
 				translationUnitIndex,
-				slangFile.c_str(),
+				slangFilePath,
 				shaderString.c_str(),
 				shaderString.c_str() + shaderString.size());
 
