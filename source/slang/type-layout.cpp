@@ -78,13 +78,36 @@ struct DefaultLayoutRulesImpl : SimpleLayoutRulesImpl
     SimpleArrayLayoutInfo GetArrayLayout( SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
     {
         SLANG_RELEASE_ASSERT(elementInfo.size.isFinite());
-        auto stride = elementInfo.size.getFiniteValue();
+        auto elementSize = elementInfo.size.getFiniteValue();
+        auto elementAlignment = elementInfo.alignment;
+        auto elementStride = RoundToAlignment(elementSize, elementAlignment);
+
+        // An array with no elements will have zero size.
+        //
+        LayoutSize arraySize = 0;
+        //
+        // Any array with a non-zero number of elements will need
+        // to have space for N elements of size `elementSize`, with
+        // the constraints that there must be `elementStride` bytes
+        // between consecutive elements.
+        //
+        if( elementCount > 0 )
+        {
+            // We can think of this as either allocating (N-1)
+            // chunks of size `elementStride` (for most of the elements)
+            // and then one final chunk of size `elementSize`  for
+            // the last element, or equivalently as allocating
+            // N chunks of size `elementStride` and then "giving back"
+            // the final `elementStride - elementSize` bytes.
+            //
+            arraySize = (elementStride * (elementCount-1)) + elementSize;
+        }
 
         SimpleArrayLayoutInfo arrayInfo;
         arrayInfo.kind = elementInfo.kind;
-        arrayInfo.size = stride * elementCount;
-        arrayInfo.alignment = elementInfo.alignment;
-        arrayInfo.elementStride = stride;
+        arrayInfo.size = arraySize;
+        arrayInfo.alignment = elementAlignment;
+        arrayInfo.elementStride = elementStride;
         return arrayInfo;
     }
 
@@ -125,86 +148,179 @@ struct DefaultLayoutRulesImpl : SimpleLayoutRulesImpl
         if(fieldInfo.size == 0)
             return ioStructInfo->size;
 
+        // A struct type must be at least as aligned as its most-aligned field.
         ioStructInfo->alignment = std::max(ioStructInfo->alignment, fieldInfo.alignment);
-        ioStructInfo->size = RoundToAlignment(ioStructInfo->size, fieldInfo.alignment);
-        LayoutSize fieldOffset = ioStructInfo->size;
-        ioStructInfo->size += fieldInfo.size;
+
+        // The new field will be added to the end of the struct.
+        auto fieldBaseOffset = ioStructInfo->size;
+
+        // We need to ensure that the offset for the field will respect its alignment
+        auto fieldOffset = RoundToAlignment(fieldBaseOffset, fieldInfo.alignment);
+
+        // The size of the struct must be adjusted to cover the bytes consumed
+        // by this field.
+        ioStructInfo->size = fieldOffset + fieldInfo.size;
+
         return fieldOffset;
     }
 
 
     void EndStructLayout(UniformLayoutInfo* ioStructInfo) override
     {
+        SLANG_UNUSED(ioStructInfo);
+
+        // Note: A traditional C layout algorithm would adjust the size
+        // of a struct type so that it is a multiple of the alignment.
+        // This is a parsimonious design choice because it means that
+        // `sizeof(T)` can both be used when copying/allocating a single
+        // value of type `T` or an array of N values, without having to
+        // consider more details.
+        //
+        // Of course the choice also has down-sides in that wrapping things
+        // into a `struct` can affect layout in ways that waste space. E.g.,
+        // the following two cases don't lay out the same:
+        //
+        //      struct S0 { double d; float f; float g; };
+        //
+        //      struct X  { double d; float f; }
+        //      struct S1 { X x;               float g; }
+        //
+        // Even though `S0::g` and `S1::g` have the same amount of useful
+        // data in front of them, they will not land at the same offset,
+        // and the resulting struct sizes will differ (`sizeof(S0)` will be
+        // 16 while `sizeof(S1)` will be 24).
+        //
+        // Slang doesn't get to be opinionated about this stuff because
+        // there is already precedent in both HLSL and GLSL for types
+        // that have a size that is not rounded up to their alignment.
+        //
+        // Our default layout rules won't implement the C-like policy,
+        // and instead it will be injected in the concrete implementations
+        // that require it.
+    }
+};
+
+    /// Common behavior for GLSL-family layout.
+struct GLSLBaseLayoutRulesImpl : DefaultLayoutRulesImpl
+{
+    typedef DefaultLayoutRulesImpl Super;
+
+    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount) override
+    {
+        // The `std140` and `std430` rules require vectors to be aligned to the next power of
+        // two up from their size (so a `float2` is 8-byte aligned, and a `float3` is
+        // 16-byte aligned).
+        //
+        // Note that in this case we have a type layout where the size is *not* a multiple
+        // of the alignment, so it should be possible to pack a scalar after a `float3`.
+        //
+        SLANG_RELEASE_ASSERT(elementInfo.kind == LayoutResourceKind::Uniform);
+        SLANG_RELEASE_ASSERT(elementInfo.size.isFinite());
+
+        auto size = elementInfo.size.getFiniteValue() * elementCount;
+        SimpleLayoutInfo vectorInfo(
+            LayoutResourceKind::Uniform,
+            size,
+            RoundUpToPowerOfTwo(size));
+        return vectorInfo;
+    }
+
+    SimpleArrayLayoutInfo GetArrayLayout( SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
+    {
+        // The size of an array must be rounded up to be a multiple of its alignment.
+        //
+        auto info = Super::GetArrayLayout(elementInfo, elementCount);
+        info.size = RoundToAlignment(info.size, info.alignment);
+        return info;
+    }
+
+    void EndStructLayout(UniformLayoutInfo* ioStructInfo) override
+    {
+        // The size of a `struct` must be rounded up to be a multiple of its alignment.
+        //
         ioStructInfo->size = RoundToAlignment(ioStructInfo->size, ioStructInfo->alignment);
     }
 };
 
-// Capture common behavior betwen HLSL and GLSL (`std140`) constnat buffer rules
-struct DefaultConstantBufferLayoutRulesImpl : DefaultLayoutRulesImpl
+    /// The GLSL `std430` layout rules.
+struct Std430LayoutRulesImpl : GLSLBaseLayoutRulesImpl
 {
-    // The `std140` rules require that all array elements
-    // be a multiple of 16 bytes.
+    // These rules don't actually need any differences from our
+    // base/common GLSL layout rules.
+};
+
+    /// The GLSL `std430` layout rules.
+struct Std140LayoutRulesImpl : GLSLBaseLayoutRulesImpl
+{
+    typedef GLSLBaseLayoutRulesImpl Super;
+
+    SimpleArrayLayoutInfo GetArrayLayout(SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
+    {
+        // The `std140` rules require that array elements
+        // be aligned on 16-byte boundaries.
+        //
+        if(elementInfo.kind == LayoutResourceKind::Uniform)
+        {
+            if (elementInfo.alignment < 16)
+                elementInfo.alignment = 16;
+        }
+        return Super::GetArrayLayout(elementInfo, elementCount);
+    }
+
+    UniformLayoutInfo BeginStructLayout() override
+    {
+        // The `std140` rules require that a `struct` type
+        // be at least 16-byte aligned.
+        //
+        return UniformLayoutInfo(0, 16);
+    }
+};
+
+struct HLSLConstantBufferLayoutRulesImpl : DefaultLayoutRulesImpl
+{
+    typedef DefaultLayoutRulesImpl Super;
+
+    // Similar to GLSL `std140` rules, an HLSL constant buffer requires that
+    // `struct` and array types have 16-byte alignement.
     //
-    // HLSL agrees.
+    // Unlike GLSL `std140`, the overall size of an array or `struct` type
+    // is *not* rounded up to the alignment, so it is possible for later
+    // fields to sneak into the "tail space" left behind by a preceding
+    // structure or array. E.g., in this example:
+    //
+    //     struct S { float3 a[2]; float b; };
+    //
+    // The stride of the array `a` is 16 bytes per element, but the size
+    // of `a` will only be 28 bytes (not 32), so that `b` can fit into
+    // the space after the last array element and the overall structure
+    // will have a size of 32 bytes.
+
     SimpleArrayLayoutInfo GetArrayLayout(SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
     {
         if(elementInfo.kind == LayoutResourceKind::Uniform)
         {
             if (elementInfo.alignment < 16)
                 elementInfo.alignment = 16;
-            elementInfo.size = RoundToAlignment(elementInfo.size, elementInfo.alignment);
         }
-        return DefaultLayoutRulesImpl::GetArrayLayout(elementInfo, elementCount);
+        return Super::GetArrayLayout(elementInfo, elementCount);
     }
 
-    // The `std140` rules require that a `struct` type be
-    // aligned to at least 16.
-    //
-    // HLSL agrees.
     UniformLayoutInfo BeginStructLayout() override
     {
         return UniformLayoutInfo(0, 16);
     }
-};
 
-struct GLSLConstantBufferLayoutRulesImpl : DefaultConstantBufferLayoutRulesImpl
-{
-};
-
-// The `std140` and `std430` rules require vectors to be aligned to the next power of
-// two up from their size (so a `float2` is 8-byte aligned, and a `float3` is
-// 16-byte aligned).
-//
-// Note that in this case we have a type layout where the size is *not* a multiple
-// of the alignment, so it should be possible to pack a scalar after a `float3`.
-static SimpleLayoutInfo getGLSLVectorLayout(
-    SimpleLayoutInfo elementInfo, size_t elementCount)
-{
-    SLANG_RELEASE_ASSERT(elementInfo.kind == LayoutResourceKind::Uniform);
-    SLANG_RELEASE_ASSERT(elementInfo.size.isFinite());
-
-    auto size = elementInfo.size.getFiniteValue() * elementCount;
-    SimpleLayoutInfo vectorInfo(
-        LayoutResourceKind::Uniform,
-        size,
-        RoundUpToPowerOfTwo(size));
-    return vectorInfo;
-}
-
-// The `std140` rules combine the GLSL-specific layout for 3-vectors with the
-// alignment padding for structures and arrays that is common to both HLSL
-// and GLSL constant buffers.
-struct Std140LayoutRulesImpl : GLSLConstantBufferLayoutRulesImpl
-{
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount) override
-    {
-        return getGLSLVectorLayout(elementInfo, elementCount);
-    }
-};
-
-struct HLSLConstantBufferLayoutRulesImpl : DefaultConstantBufferLayoutRulesImpl
-{
-    // Can't let a `struct` field straddle a register (16-byte) boundary
+    // HLSL layout rules do *not* impose additional alignment
+    // constraints on vectors (e.g., all of `float`, `float2`,
+    // `float3`, and `float4` have 4-byte alignment), but instead
+    // they impose a rule that any `struct` field must not
+    // "straddle" a 16-byte boundary.
+    //
+    // This has the effect of making it *look* like `float4`
+    // values have 16-byte alignment in practice, but the
+    // effects on `float2` and `float3` are more nuanched and
+    // lead to different result than the GLSL rules.
+    //
     LayoutSize AddStructField(UniformLayoutInfo* ioStructInfo, UniformLayoutInfo fieldInfo) override
     {
         // Skip zero-size fields
@@ -234,18 +350,10 @@ struct HLSLConstantBufferLayoutRulesImpl : DefaultConstantBufferLayoutRulesImpl
 
 struct HLSLStructuredBufferLayoutRulesImpl : DefaultLayoutRulesImpl
 {
-    // TODO: customize these to be correct...
-};
-
-// The `std430` rules don't include the array/structure alignment padding that
-// gets applied to constant buffers, but they do include the padding of 3-vectors
-// to be aligned as 4-vectors.
-struct Std430LayoutRulesImpl : DefaultLayoutRulesImpl
-{
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount) override
-    {
-        return getGLSLVectorLayout(elementInfo, elementCount);
-    }
+    // HLSL structured buffers drop the restrictions added for constant buffers,
+    // but retain the rules around not adjusting the size of an array or
+    // structure to its alignment. In this way they should match our
+    // default layout rules.
 };
 
 struct DefaultVaryingLayoutRulesImpl : DefaultLayoutRulesImpl
@@ -694,7 +802,7 @@ LayoutRulesImpl* GetLayoutRulesImpl(LayoutRule rule)
 
 LayoutRulesFamilyImpl* getDefaultLayoutRulesFamilyForTarget(TargetRequest* targetReq)
 {
-    switch (targetReq->target)
+    switch (targetReq->getTarget())
     {
     case CodeGenTarget::HLSL:
     case CodeGenTarget::DXBytecode:
@@ -713,12 +821,13 @@ LayoutRulesFamilyImpl* getDefaultLayoutRulesFamilyForTarget(TargetRequest* targe
     }
 }
 
-TypeLayoutContext getInitialLayoutContextForTarget(TargetRequest* targetReq)
+TypeLayoutContext getInitialLayoutContextForTarget(TargetRequest* targetReq, ProgramLayout* programLayout)
 {
     LayoutRulesFamilyImpl* rulesFamily = getDefaultLayoutRulesFamilyForTarget(targetReq);
 
     TypeLayoutContext context;
     context.targetReq = targetReq;
+    context.programLayout = programLayout;
     context.rules = nullptr;
     context.matrixLayoutMode = targetReq->getDefaultMatrixLayoutMode();
 
@@ -737,11 +846,11 @@ static LayoutSize GetElementCount(RefPtr<IntVal> val)
     if(!val)
         return LayoutSize::infinite();
 
-    if (auto constantVal = val.As<ConstantIntVal>())
+    if (auto constantVal = as<ConstantIntVal>(val))
     {
         return LayoutSize(LayoutSize::RawValue(constantVal->value));
     }
-    else if( auto varRefVal = val.As<GenericParamIntVal>() )
+    else if( auto varRefVal = as<GenericParamIntVal>(val) )
     {
         // TODO: We want to treat the case where the number of
         // elements in an array depends on a generic parameter
@@ -797,19 +906,19 @@ static SimpleLayoutInfo getParameterGroupLayoutInfo(
     RefPtr<ParameterGroupType>  type,
     LayoutRulesImpl*            rules)
 {
-    if( type->As<ConstantBufferType>() )
+    if( as<ConstantBufferType>(type) )
     {
         return rules->GetObjectLayout(ShaderParameterKind::ConstantBuffer);
     }
-    else if( type->As<TextureBufferType>() )
+    else if( as<TextureBufferType>(type) )
     {
         return rules->GetObjectLayout(ShaderParameterKind::TextureUniformBuffer);
     }
-    else if( type->As<GLSLShaderStorageBufferType>() )
+    else if( as<GLSLShaderStorageBufferType>(type) )
     {
         return rules->GetObjectLayout(ShaderParameterKind::ShaderStorageBuffer);
     }
-    else if (type->As<ParameterBlockType>())
+    else if (as<ParameterBlockType>(type))
     {
         // Note: we default to consuming zero register spces here, because
         // a parameter block might not contain anything (or all it contains
@@ -827,11 +936,11 @@ static SimpleLayoutInfo getParameterGroupLayoutInfo(
     // TODO: the vertex-input and fragment-output cases should
     // only actually apply when we are at the appropriate stage in
     // the pipeline...
-    else if( type->As<GLSLInputParameterGroupType>() )
+    else if( as<GLSLInputParameterGroupType>(type) )
     {
         return SimpleLayoutInfo(LayoutResourceKind::VertexInput, 0);
     }
-    else if( type->As<GLSLOutputParameterGroupType>() )
+    else if( as<GLSLOutputParameterGroupType>(type) )
     {
         return SimpleLayoutInfo(LayoutResourceKind::FragmentOutput, 0);
     }
@@ -854,7 +963,7 @@ static bool isOpenGLTarget(TargetRequest*)
 
 bool isD3DTarget(TargetRequest* targetReq)
 {
-    switch( targetReq->target )
+    switch( targetReq->getTarget() )
     {
     case CodeGenTarget::HLSL:
     case CodeGenTarget::DXBytecode:
@@ -870,7 +979,7 @@ bool isD3DTarget(TargetRequest* targetReq)
 
 bool isKhronosTarget(TargetRequest* targetReq)
 {
-    switch( targetReq->target )
+    switch( targetReq->getTarget() )
     {
     default:
         return false;
@@ -900,7 +1009,7 @@ static bool isSM5OrEarlier(TargetRequest* targetReq)
     if(!isD3DTarget(targetReq))
         return false;
 
-    auto profile = targetReq->targetProfile;
+    auto profile = targetReq->getTargetProfile();
 
     if(profile.getFamily() == ProfileFamily::DX)
     {
@@ -916,7 +1025,7 @@ static bool isSM5_1OrLater(TargetRequest* targetReq)
     if(!isD3DTarget(targetReq))
         return false;
 
-    auto profile = targetReq->targetProfile;
+    auto profile = targetReq->getTargetProfile();
 
     if(profile.getFamily() == ProfileFamily::DX)
     {
@@ -985,7 +1094,7 @@ RefPtr<TypeLayout> applyOffsetToTypeLayout(
         return oldTypeLayout;
 
     RefPtr<TypeLayout> newTypeLayout;
-    if (auto oldStructTypeLayout = oldTypeLayout.As<StructTypeLayout>())
+    if (auto oldStructTypeLayout = oldTypeLayout.as<StructTypeLayout>())
     {
         RefPtr<StructTypeLayout> newStructTypeLayout = new StructTypeLayout();
         newStructTypeLayout->type = oldStructTypeLayout->type;
@@ -1104,15 +1213,14 @@ createParameterGroupTypeLayout(
     // in HLSL or not.
 
     // Check if we are working with a parameter block...
-    auto parameterBlockType = parameterGroupType ? parameterGroupType->As<ParameterBlockType>() : nullptr;
-
-
+    auto parameterBlockType = as<ParameterBlockType>(parameterGroupType);
+    
     // Check if we have a parameter block *and* it should be
     // allocated into its own register space(s)
     bool ownRegisterSpace = false;
     if (parameterBlockType)
     {
-        // Should we allocate this block its own regsiter space?
+        // Should we allocate this block its own register space?
         if( shouldAllocateRegisterSpaceForParameterBlock(context) )
         {
             ownRegisterSpace = true;
@@ -1311,27 +1419,27 @@ LayoutRulesImpl* getParameterBufferElementTypeLayoutRules(
     RefPtr<ParameterGroupType>  parameterGroupType,
     LayoutRulesImpl*            rules)
 {
-    if( parameterGroupType->As<ConstantBufferType>() )
+    if( as<ConstantBufferType>(parameterGroupType) )
     {
         return rules->getLayoutRulesFamily()->getConstantBufferRules();
     }
-    else if( parameterGroupType->As<TextureBufferType>() )
+    else if( as<TextureBufferType>(parameterGroupType) )
     {
         return rules->getLayoutRulesFamily()->getTextureBufferRules();
     }
-    else if( parameterGroupType->As<GLSLInputParameterGroupType>() )
+    else if( as<GLSLInputParameterGroupType>(parameterGroupType) )
     {
         return rules->getLayoutRulesFamily()->getVaryingInputRules();
     }
-    else if( parameterGroupType->As<GLSLOutputParameterGroupType>() )
+    else if( as<GLSLOutputParameterGroupType>(parameterGroupType) )
     {
         return rules->getLayoutRulesFamily()->getVaryingOutputRules();
     }
-    else if( parameterGroupType->As<GLSLShaderStorageBufferType>() )
+    else if( as<GLSLShaderStorageBufferType>(parameterGroupType) )
     {
         return rules->getLayoutRulesFamily()->getShaderStorageBufferRules();
     }
-    else if (parameterGroupType->As<ParameterBlockType>())
+    else if (as<ParameterBlockType>(parameterGroupType))
     {
         return rules->getLayoutRulesFamily()->getParameterBlockRules();
     }
@@ -1560,7 +1668,7 @@ static RefPtr<TypeLayout> maybeAdjustLayoutForArrayElementType(
     // Let's look at the type layout we have, and see if there is anything
     // that we need to do with it.
     //
-    if( auto originalArrayTypeLayout = originalTypeLayout.As<ArrayTypeLayout>() )
+    if( auto originalArrayTypeLayout = originalTypeLayout.as<ArrayTypeLayout>() )
     {
         // The element type is itself an array, so we'll need to adjust
         // *its* element type accordingly.
@@ -1588,7 +1696,7 @@ static RefPtr<TypeLayout> maybeAdjustLayoutForArrayElementType(
 
         return adjustedArrayTypeLayout;
     }
-    else if(auto originalParameterGroupTypeLayout = originalTypeLayout.As<ParameterGroupTypeLayout>() )
+    else if(auto originalParameterGroupTypeLayout = originalTypeLayout.as<ParameterGroupTypeLayout>() )
     {
         auto originalInnerElementTypeLayout = originalParameterGroupTypeLayout->elementVarLayout->typeLayout;
         auto adjustedInnerElementTypeLayout = maybeAdjustLayoutForArrayElementType(
@@ -1607,7 +1715,7 @@ static RefPtr<TypeLayout> maybeAdjustLayoutForArrayElementType(
         SLANG_UNIMPLEMENTED_X("array of parameter group");
         UNREACHABLE_RETURN(originalTypeLayout);
     }
-    else if(auto originalStructTypeLayout = originalTypeLayout.As<StructTypeLayout>() )
+    else if(auto originalStructTypeLayout = originalTypeLayout.as<StructTypeLayout>() )
     {
         UInt fieldCount = originalStructTypeLayout->fields.Count();
 
@@ -1674,7 +1782,7 @@ static RefPtr<TypeLayout> maybeAdjustLayoutForArrayElementType(
                     {
                         // If we are making an unbounded array, then a `struct`
                         // field with resource type will turn into its own space,
-                        // and it will start at regsiter zero in that space.
+                        // and it will start at register zero in that space.
                         //
                         resInfo.index = 0;
                         resInfo.space = spaceOffsetForField.getFiniteValue();
@@ -1723,7 +1831,7 @@ SimpleLayoutInfo GetLayoutImpl(
 {
     auto rules = context.rules;
 
-    if (auto parameterGroupType = type->As<ParameterGroupType>())
+    if (auto parameterGroupType = as<ParameterGroupType>(type))
     {
         // If the user is just interested in uniform layout info,
         // then this is easy: a `ConstantBuffer<T>` is really no
@@ -1752,7 +1860,7 @@ SimpleLayoutInfo GetLayoutImpl(
 
         return info;
     }
-    else if (auto samplerStateType = type->As<SamplerStateType>())
+    else if (auto samplerStateType = as<SamplerStateType>(type))
     {
         return GetSimpleLayoutImpl(
             rules->GetObjectLayout(ShaderParameterKind::SamplerState),
@@ -1760,7 +1868,7 @@ SimpleLayoutInfo GetLayoutImpl(
             rules,
             outTypeLayout);
     }
-    else if (auto textureType = type->As<TextureType>())
+    else if (auto textureType = as<TextureType>(type))
     {
         // TODO: the logic here should really be defined by the rules,
         // and not at this top level...
@@ -1782,7 +1890,7 @@ SimpleLayoutInfo GetLayoutImpl(
             rules,
             outTypeLayout);
     }
-    else if (auto imageType = type->As<GLSLImageType>())
+    else if (auto imageType = as<GLSLImageType>(type))
     {
         // TODO: the logic here should really be defined by the rules,
         // and not at this top level...
@@ -1804,7 +1912,7 @@ SimpleLayoutInfo GetLayoutImpl(
             rules,
             outTypeLayout);
     }
-    else if (auto textureSamplerType = type->As<TextureSamplerType>())
+    else if (auto textureSamplerType = as<TextureSamplerType>(type))
     {
         // TODO: the logic here should really be defined by the rules,
         // and not at this top level...
@@ -1829,7 +1937,7 @@ SimpleLayoutInfo GetLayoutImpl(
 
     // TODO: need a better way to handle this stuff...
 #define CASE(TYPE, KIND)                                                \
-    else if(auto type_##TYPE = type->As<TYPE>()) do {                   \
+    else if(auto type_##TYPE = as<TYPE>(type)) do {                   \
         auto info = rules->GetObjectLayout(ShaderParameterKind::KIND);  \
         if (outTypeLayout)                                              \
         {                                                               \
@@ -1853,7 +1961,7 @@ SimpleLayoutInfo GetLayoutImpl(
 
     // TODO: need a better way to handle this stuff...
 #define CASE(TYPE, KIND)                                        \
-    else if(type->As<TYPE>()) do {                              \
+    else if(as<TYPE>(type)) do {                              \
         return GetSimpleLayoutImpl(                             \
             rules->GetObjectLayout(ShaderParameterKind::KIND),  \
             type, rules, outTypeLayout);                        \
@@ -1873,7 +1981,7 @@ SimpleLayoutInfo GetLayoutImpl(
     //
     // TODO(tfoley): Need to recognize any UAV types here
     //
-    else if(auto basicType = type->As<BasicExpressionType>())
+    else if(auto basicType = as<BasicExpressionType>(type))
     {
         return GetSimpleLayoutImpl(
             rules->GetScalarLayout(basicType->baseType),
@@ -1881,7 +1989,7 @@ SimpleLayoutInfo GetLayoutImpl(
             rules,
             outTypeLayout);
     }
-    else if(auto vecType = type->As<VectorExpressionType>())
+    else if(auto vecType = as<VectorExpressionType>(type))
     {
         return GetSimpleLayoutImpl(
             rules->GetVectorLayout(
@@ -1891,7 +1999,7 @@ SimpleLayoutInfo GetLayoutImpl(
             rules,
             outTypeLayout);
     }
-    else if(auto matType = type->As<MatrixExpressionType>())
+    else if(auto matType = as<MatrixExpressionType>(type))
     {
         // The `GetMatrixLayout` implementation in the layout rules
         // currently defaults to assuming column-major layout,
@@ -1932,7 +2040,7 @@ SimpleLayoutInfo GetLayoutImpl(
 
         return info;
     }
-    else if (auto arrayType = type->As<ArrayExpressionType>())
+    else if (auto arrayType = as<ArrayExpressionType>(type))
     {
         RefPtr<TypeLayout> elementTypeLayout;
         auto elementInfo = GetLayoutImpl(
@@ -1995,7 +2103,7 @@ SimpleLayoutInfo GetLayoutImpl(
             //
             // The `maybeAdjustLayoutForArrayElementType` computes an "adjusted"
             // type layout for the element type which takes the array stride into
-            // acount. If it returns the same type layout that was passed in,
+            // account. If it returns the same type layout that was passed in,
             // then that means no adjustement took place.
             //
             // The `additionalSpacesNeededForAdjustedElementType` variable counts
@@ -2084,11 +2192,11 @@ SimpleLayoutInfo GetLayoutImpl(
         }
         return arrayUniformInfo;
     }
-    else if (auto declRefType = type->As<DeclRefType>())
+    else if (auto declRefType = as<DeclRefType>(type))
     {
         auto declRef = declRefType->declRef;
 
-        if (auto structDeclRef = declRef.As<StructDecl>())
+        if (auto structDeclRef = declRef.as<StructDecl>())
         {
             RefPtr<StructTypeLayout> typeLayout;
             if (outTypeLayout)
@@ -2208,7 +2316,7 @@ SimpleLayoutInfo GetLayoutImpl(
 
             return info;
         }
-        else if (auto globalGenParam = declRef.As<GlobalGenericParamDecl>())
+        else if (auto globalGenParam = declRef.as<GlobalGenericParamDecl>())
         {
             SimpleLayoutInfo info;
             info.alignment = 0;
@@ -2220,15 +2328,37 @@ SimpleLayoutInfo GetLayoutImpl(
                 // we should have already populated ProgramLayout::genericEntryPointParams list at this point,
                 // so we can find the index of this generic param decl in the list
                 genParamTypeLayout->type = type;
-                genParamTypeLayout->paramIndex = findGenericParam(context.targetReq->layout->globalGenericParams, genParamTypeLayout->getGlobalGenericParamDecl());
+                genParamTypeLayout->paramIndex = findGenericParam(context.programLayout->globalGenericParams, genParamTypeLayout->getGlobalGenericParamDecl());
                 genParamTypeLayout->rules = rules;
                 genParamTypeLayout->findOrAddResourceInfo(LayoutResourceKind::GenericResource)->count += 1;
                 *outTypeLayout = genParamTypeLayout;
             }
             return info;
         }
+        else if( auto simpleGenericParam = declRef.as<GenericTypeParamDecl>() )
+        {
+            // A bare generic type parameter can come up during layout
+            // of a generic entry point (or an entry point nested in
+            // a generic type). For now we will just pretend like
+            // the fields of generic parameter type take no space,
+            // since there is no reasonable way to account for them
+            // in the resulting layout.
+            //
+            // TODO: It might be better to completely ignore generic
+            // entry points during initial layout, but doing so would
+            // mean that users couldn't get layout information on
+            // any parameters, even those that don't depend on
+            // generics.
+            //
+            SimpleLayoutInfo info;
+            return GetSimpleLayoutImpl(
+                info,
+                type,
+                rules,
+                outTypeLayout);
+        }
     }
-    else if (auto errorType = type->As<ErrorType>())
+    else if (auto errorType = as<ErrorType>(type))
     {
         // An error type means that we encountered something we don't understand.
         //
@@ -2240,6 +2370,101 @@ SimpleLayoutInfo GetLayoutImpl(
             type,
             rules,
             outTypeLayout);
+    }
+    else if( auto taggedUnionType = as<TaggedUnionType>(type) )
+    {
+        // A tagged union type needs to be laid out as the maximum
+        // size of any constituent type.
+        //
+        // In practice, only a tagged union of uniform data will
+        // work, but for now we will compute the maximum usage
+        // for each resource kind for generality.
+        //
+        // For the uniform data we will start with a size
+        // of zero and an alignment of one for our base case
+        // (this is what a tagged union of no cases would consume).
+        //
+        UniformLayoutInfo info(0, 1);
+
+        // If we are being asked to construct a full `TypeLayout`
+        // object, then we'll allocate it up front.
+        //
+        RefPtr<TaggedUnionTypeLayout> taggedUnionLayout;
+        if( outTypeLayout )
+        {
+            taggedUnionLayout = new TaggedUnionTypeLayout();
+            taggedUnionLayout->type = type;
+            taggedUnionLayout->rules = rules;
+            *outTypeLayout = taggedUnionLayout;
+        }
+
+        // Now we iterate over the case types and see if they
+        // change our computed maximum size/alignement.
+        //
+        for( auto caseType : taggedUnionType->caseTypes )
+        {
+            RefPtr<TypeLayout> caseTypeLayout;
+            UniformLayoutInfo caseTypeInfo = GetLayoutImpl(context, caseType, outTypeLayout ? &caseTypeLayout : nullptr).getUniformLayout();
+
+            info.size      = maximum(info.size, caseTypeInfo.size);
+            info.alignment = std::max(info.alignment, caseTypeInfo.alignment);
+
+            // If we are building a full `TypeLayout` we need to
+            // do a few more steps for each case type.
+            //
+            if( outTypeLayout )
+            {
+                // We need to remember the layout of the case type
+                // on the final `TaggedUnionTypeLayout`.
+                //
+                taggedUnionLayout->caseTypeLayouts.Add(caseTypeLayout);
+
+                // We also need to consider contributions for other
+                // resource kinds beyond uniform data.
+                //
+                for( auto caseResInfo : caseTypeLayout->resourceInfos )
+                {
+                    auto unionResInfo = taggedUnionLayout->findOrAddResourceInfo(caseResInfo.kind);
+                    unionResInfo->count = maximum(unionResInfo->count, caseResInfo.count);
+                }
+            }
+        }
+
+        // After we've computed the size required to hold all the
+        // case types, we will allocate space for the tag field.
+        //
+        // TODO: This assumes the tag will always be allocated out
+        // of uniform storage, which means we can't support a tagged
+        // union as part of a varying input/output signature. That is
+        // probably a valid limitation, but it should get enforced
+        // somewhere along the way.
+        //
+        {
+            // The tag is always a `uint` for now.
+            //
+            auto tagInfo = context.rules->GetScalarLayout(BaseType::UInt);
+            info.size = RoundToAlignment(info.size, tagInfo.alignment);
+
+            if( outTypeLayout )
+            {
+                taggedUnionLayout->tagOffset = info.size;
+            }
+
+            info.size += tagInfo.size;
+            info.alignment = std::max(info.alignment, tagInfo.alignment);
+        }
+
+        // As a final step, if we are computing a full `TypeLayout`
+        // we will make sure that its information on uniform layout
+        // matches what we've computed in the `UniformLayoutInfo` we return.
+        //
+        if( outTypeLayout )
+        {
+            taggedUnionLayout->findOrAddResourceInfo(LayoutResourceKind::Uniform)->count = info.size;
+            taggedUnionLayout->uniformAlignment = info.alignment;
+        }
+
+        return info;
     }
 
     // catch-all case in case nothing matched
@@ -2281,7 +2506,7 @@ RefPtr<TypeLayout> TypeLayout::unwrapArray()
 {
     TypeLayout* typeLayout = this;
 
-    while(auto arrayTypeLayout = dynamic_cast<ArrayTypeLayout*>(typeLayout))
+    while(auto arrayTypeLayout = as<ArrayTypeLayout>(typeLayout))
         typeLayout = arrayTypeLayout->elementTypeLayout;
 
     return typeLayout;
@@ -2290,9 +2515,9 @@ RefPtr<TypeLayout> TypeLayout::unwrapArray()
 
 RefPtr<GlobalGenericParamDecl> GenericParamTypeLayout::getGlobalGenericParamDecl()
 {
-    auto declRefType = type->AsDeclRefType();
+    auto declRefType = as<DeclRefType>(type);
     SLANG_ASSERT(declRefType);
-    auto rsDeclRef = declRefType->declRef.As<GlobalGenericParamDecl>();
+    auto rsDeclRef = declRefType->declRef.as<GlobalGenericParamDecl>();
     return rsDeclRef.getDecl();
 }
 

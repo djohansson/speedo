@@ -26,12 +26,10 @@ struct Impl : IBase
     }
 };
 
-__generic_param TImpl : IBase;
-
-TImpl impl;
-
 [numthreads(1, 1, 1)]
-void computeMain(uint3 dispatchThreadID : SV_DispatchThreadID)
+void computeMain<TImpl:IBase>(
+    uniform TImpl impl,
+    uint3 dispatchThreadID : SV_DispatchThreadID)
 {
 	uint tid = dispatchThreadID.x;
 	float outVal = impl.compute();

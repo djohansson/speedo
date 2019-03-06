@@ -1458,58 +1458,76 @@ namespace Slang
             operandCount += listOperandCounts[ii];
         }
 
-        // We are going to create a dummy instruction on the stack,
-        // which will be used as a key for lookup, so see if we
+        auto& memoryArena = builder->getModule()->memoryArena;
+        void* cursor = memoryArena.getCursor();
+
+        // We are going to create a 'dummy' instruction on the memoryArena
+        // which can be used as a key for lookup, so see if we
         // already have an equivalent instruction available to use.
-
         size_t keySize = sizeof(IRInst) + operandCount * sizeof(IRUse);
-        IRInst* keyInst = (IRInst*) malloc(keySize);
-        memset(keyInst, 0, keySize);
+        IRInst* inst = (IRInst*) memoryArena.allocateAndZero(keySize);
+        
+        void* endCursor = memoryArena.getCursor();
+        // Mark as 'unused' cos it is unused on release builds. 
+        SLANG_UNUSED(endCursor);
 
-        new(keyInst) IRInst();
-        keyInst->op = op;
-        keyInst->typeUse.usedValue = type;
-        keyInst->operandCount = (uint32_t) operandCount;
+        new(inst) IRInst();
+        inst->op = op;
+        inst->typeUse.usedValue = type;
+        inst->operandCount = (uint32_t) operandCount;
 
-        IRUse* operand = keyInst->getOperands();
-        for (UInt ii = 0; ii < operandListCount; ++ii)
+        // Don't link up as we may free (if we already have this key)
         {
-            UInt listOperandCount = listOperandCounts[ii];
-            for (UInt jj = 0; jj < listOperandCount; ++jj)
+            IRUse* operand = inst->getOperands();
+            for (UInt ii = 0; ii < operandListCount; ++ii)
             {
-                operand->usedValue = listOperands[ii][jj];
-                operand++;
+                UInt listOperandCount = listOperandCounts[ii];
+                for (UInt jj = 0; jj < listOperandCount; ++jj)
+                {
+                    operand->usedValue = listOperands[ii][jj];
+                    operand++;
+                }
             }
         }
 
-        IRInstKey key;
-        key.inst = keyInst;
-
-        IRInst* foundInst = nullptr;
-        bool found = builder->sharedBuilder->globalValueNumberingMap.TryGetValue(key, foundInst);
-
-        free((void*)keyInst);
-
-        if (found)
+        // Find or add the key/inst
         {
-            return foundInst;
+            IRInstKey key = { inst };
+
+            // Ideally we would add if not found, else return if was found instead of testing & then adding.
+            IRInst** found = builder->sharedBuilder->globalValueNumberingMap.TryGetValueOrAdd(key, inst);
+            SLANG_ASSERT(endCursor == memoryArena.getCursor());
+            // If it's found, just return, and throw away the instruction
+            if (found)
+            {
+                memoryArena.rewindToCursor(cursor);
+                return *found;
+            }
         }
 
-        // If no instruction was found, then we need to emit it.
+        // Make the lookup 'inst' instruction into 'proper' instruction. Equivalent to
+        // IRInst* inst = createInstImpl<IRInst>(builder, op, type, 0, nullptr, operandListCount, listOperandCounts, listOperands);
+        {
+            if (type)
+            {
+                inst->typeUse.usedValue = nullptr;
+                inst->typeUse.init(inst, type);
+            }
 
-        IRInst* inst = createInstImpl<IRInst>(
-            builder,
-            op,
-            type,
-            0,
-            nullptr,
-            operandListCount,
-            listOperandCounts,
-            listOperands);
+            maybeSetSourceLoc(builder, inst);
+
+            IRUse*const operands = inst->getOperands();
+            for (UInt i = 0; i < operandCount; ++i)
+            {
+                IRUse& operand = operands[i];
+                auto value = operand.usedValue;
+
+                operand.usedValue = nullptr;
+                operand.init(inst, value);
+            }
+        }
+
         addHoistableInst(builder, inst);
-
-        key.inst = inst;
-        builder->sharedBuilder->globalValueNumberingMap.Add(key, inst);
 
         return inst;
     }
@@ -1710,6 +1728,15 @@ namespace Slang
             (IRInst* const*) paramTypes);
     }
 
+    IRConstantBufferType* IRBuilder::getConstantBufferType(IRType* elementType)
+    {
+        IRInst* operands[] = { elementType };
+        return (IRConstantBufferType*) getType(
+            kIROp_ConstantBufferType,
+            1,
+            operands);
+    }
+
     IRConstExprRate* IRBuilder::getConstExprRate()
     {
         return (IRConstExprRate*)getType(kIROp_ConstExprRate);
@@ -1729,6 +1756,18 @@ namespace Slang
             kIROp_RateQualifiedType,
             sizeof(operands) / sizeof(operands[0]),
             operands);
+    }
+
+    IRType* IRBuilder::getTaggedUnionType(
+        UInt            caseCount,
+        IRType* const*  caseTypes)
+    {
+        return (IRType*) findOrEmitHoistableInst(
+            this,
+            getTypeKind(),
+            kIROp_TaggedUnionType,
+            caseCount,
+            (IRInst* const*) caseTypes);
     }
 
     void IRBuilder::setDataType(IRInst* inst, IRType* dataType)
@@ -1909,6 +1948,14 @@ namespace Slang
         IRInst* const* args)
     {
         return emitIntrinsicInst(type, kIROp_makeVector, argCount, args);
+    }
+
+    IRInst* IRBuilder::emitMakeMatrix(
+        IRType*         type,
+        UInt            argCount,
+        IRInst* const* args)
+    {
+        return emitIntrinsicInst(type, kIROp_MakeMatrix, argCount, args);
     }
 
     IRInst* IRBuilder::emitMakeArray(
@@ -2676,6 +2723,50 @@ namespace Slang
         return inst;
     }
 
+    IRInst* IRBuilder::emitExtractTaggedUnionTag(
+        IRInst* val)
+    {
+        auto inst = createInst<IRInst>(
+            this,
+            kIROp_ExtractTaggedUnionTag,
+            getBasicType(BaseType::UInt),
+            val);
+        addInst(inst);
+        return inst;
+    }
+
+    IRInst* IRBuilder::emitExtractTaggedUnionPayload(
+        IRType* type,
+        IRInst* val,
+        IRInst* tag)
+    {
+        auto inst = createInst<IRInst>(
+            this,
+            kIROp_ExtractTaggedUnionPayload,
+            type,
+            val,
+            tag);
+        addInst(inst);
+        return inst;
+    }
+
+    IRInst* IRBuilder::emitBitCast(
+        IRType* type,
+        IRInst* val)
+    {
+        auto inst = createInst<IRInst>(
+            this,
+            kIROp_BitCast,
+            type,
+            val);
+        addInst(inst);
+        return inst;
+    }
+
+    //
+    // Decorations
+    //
+
     IRDecoration* IRBuilder::addDecoration(IRInst* value, IROp op, IRInst* const* operands, Int operandCount)
     {
         auto decoration = createInstWithTrailingArgs<IRDecoration>(
@@ -3053,6 +3144,22 @@ namespace Slang
 
         if(as<IRConstant>(inst))
             return true;
+
+        // We are going to have a general rule that
+        // a type should be folded into its use site,
+        // which improves output in most cases, but
+        // we would like to not apply that rule to
+        // "nominal" types like `struct`s.
+        //
+        switch( inst->op )
+        {
+        case kIROp_StructType:
+        case kIROp_InterfaceType:
+            return false;
+
+        default:
+            break;
+        }
 
         if(as<IRType>(inst))
             return true;
@@ -3788,6 +3895,14 @@ namespace Slang
         }
     }
 
+    void IRInst::transferDecorationsTo(IRInst* target)
+    {
+        while( auto decoration = getFirstDecoration() )
+        {
+            decoration->removeFromParent();
+            decoration->insertAtStart(target);
+        }
+    }
 
     bool IRInst::mightHaveSideEffects()
     {
@@ -3855,7 +3970,7 @@ namespace Slang
         case kIROp_lookup_interface_method:
         case kIROp_Construct:
         case kIROp_makeVector:
-        case kIROp_makeMatrix:
+        case kIROp_MakeMatrix:
         case kIROp_makeArray:
         case kIROp_makeStruct:
         case kIROp_Load:    // We are ignoring the possibility of loads from bad addresses, or `volatile` loads
@@ -3892,6 +4007,10 @@ namespace Slang
         case kIROp_Mul_Vector_Matrix:
         case kIROp_Mul_Matrix_Vector:
         case kIROp_Mul_Matrix_Matrix:
+        case kIROp_MakeExistential:
+        case kIROp_ExtractExistentialType:
+        case kIROp_ExtractExistentialValue:
+        case kIROp_ExtractExistentialWitnessTable:
             return false;
         }
     }

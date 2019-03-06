@@ -3,7 +3,7 @@
 
 #include "../core/slang-writer.h"
 #include "ir-dce.h"
-#include "ir-existential.h"
+#include "ir-entry-point-uniforms.h"
 #include "ir-glsl-legalize.h"
 #include "ir-insts.h"
 #include "ir-link.h"
@@ -12,6 +12,7 @@
 #include "ir-specialize.h"
 #include "ir-specialize-resources.h"
 #include "ir-ssa.h"
+#include "ir-union.h"
 #include "ir-validate.h"
 #include "legalize-types.h"
 #include "lower-to-ir.h"
@@ -78,8 +79,10 @@ void requireGLSLVersionImpl(
 // Shared state for an entire emit session
 struct SharedEmitContext
 {
+    BackEndCompileRequest* compileRequest = nullptr;
+
     // The entry point we are being asked to compile
-    EntryPointRequest* entryPoint;
+    EntryPoint* entryPoint;
 
     // The layout for the entry point
     EntryPointLayout*   entryPointLayout;
@@ -100,7 +103,7 @@ struct SharedEmitContext
     HumaneSourceLoc nextSourceLocation;
     bool needToUpdateSourceLocation;
 
-    // For GLSL output, we can't emit traidtional `#line` directives
+    // For GLSL output, we can't emit traditional `#line` directives
     // with a file path in them, so we maintain a map that associates
     // each path with a unique integer, and then we output those
     // instead.
@@ -152,7 +155,7 @@ struct SharedEmitContext
     // to use for it when emitting code.
     Dictionary<IRInst*, String> mapInstToName;
 
-    DiagnosticSink* getSink() { return &entryPoint->compileRequest->mSink; }
+    DiagnosticSink* getSink() { return compileRequest->getSink(); }
 
     Dictionary<IRInst*, UInt> mapIRValueToRayPayloadLocation;
     Dictionary<IRInst*, UInt> mapIRValueToCallablePayloadLocation;
@@ -164,6 +167,10 @@ struct EmitContext
     SharedEmitContext* shared;
 
     DiagnosticSink* getSink() { return shared->getSink(); }
+
+    LineDirectiveMode getLineDirectiveMode() { return shared->compileRequest->getLineDirectiveMode(); }
+    SourceManager* getSourceManager() { return shared->compileRequest->getSourceManager(); }
+    void noteInternalErrorLoc(SourceLoc loc) { return getSink()->noteInternalErrorLoc(loc); }
 };
 
 //
@@ -332,11 +339,6 @@ struct EmitVisitor
     EmitVisitor(EmitContext* context)
         : context(context)
     {}
-
-    Session* getSession()
-    {
-        return context->shared->entryPoint->compileRequest->mSession;
-    }
 
     // Low-level emit logic
 
@@ -507,7 +509,7 @@ struct EmitVisitor
     {
         // There are a few different requirements here that we need to deal with:
         //
-        // 1) We need to print somethign that is valid syntax in the target language
+        // 1) We need to print something that is valid syntax in the target language
         //    (this means that hex floats are off the table for now)
         //
         // 2) We need our printing to be independent of the current global locale in C,
@@ -555,7 +557,7 @@ struct EmitVisitor
 
             bool shouldUseGLSLStyleLineDirective = false;
 
-            auto mode = context->shared->entryPoint->compileRequest->lineDirectiveMode;
+            auto mode = context->getLineDirectiveMode();
             switch (mode)
             {
             case LineDirectiveMode::None:
@@ -663,7 +665,7 @@ struct EmitVisitor
     {
         // Don't do any of this work if the user has requested that we
         // not emit line directives.
-        auto mode = context->shared->entryPoint->compileRequest->lineDirectiveMode;
+        auto mode = context->getLineDirectiveMode();
         switch(mode)
         {
         case LineDirectiveMode::None:
@@ -722,7 +724,7 @@ struct EmitVisitor
 
     SourceManager* getSourceManager()
     {
-        return context->shared->entryPoint->compileRequest->getSourceManager();
+        return context->getSourceManager();
     }
 
     void advanceToSourceLocation(
@@ -746,7 +748,7 @@ struct EmitVisitor
 
     DiagnosticSink* getSink()
     {
-        return &context->shared->entryPoint->compileRequest->mSink;
+        return context->getSink();
     }
 
     //
@@ -1607,7 +1609,7 @@ struct EmitVisitor
         return space;
     }
 
-    // Emit a single `regsiter` semantic, as appropriate for a given resource-type-specific layout info
+    // Emit a single `register` semantic, as appropriate for a given resource-type-specific layout info
     void emitHLSLRegisterSemantic(
         LayoutResourceKind  kind,
         EmitVarChain*       chain,
@@ -1778,7 +1780,7 @@ struct EmitVisitor
                 // Explicit offsets require a GLSL extension (which
                 // is not universally supported, it seems) or a new
                 // enough GLSL version (which we don't want to
-                // universall require), so for right now we
+                // universally require), so for right now we
                 // won't actually output explicit offsets for uniform
                 // shader parameters.
                 //
@@ -1874,8 +1876,7 @@ struct EmitVisitor
         }
     }
 
-    void emitGLSLVersionDirective(
-        ModuleDecl*  /*program*/)
+    void emitGLSLVersionDirective()
     {
         auto effectiveProfile = context->shared->effectiveProfile;
         if(effectiveProfile.getFamily() == ProfileFamily::GLSL)
@@ -1930,8 +1931,7 @@ struct EmitVisitor
         Emit("#version 420\n");
     }
 
-    void emitGLSLPreprocessorDirectives(
-        RefPtr<ModuleDecl>   program)
+    void emitGLSLPreprocessorDirectives()
     {
         switch(context->shared->target)
         {
@@ -1943,24 +1943,7 @@ struct EmitVisitor
             break;
         }
 
-        emitGLSLVersionDirective(program);
-
-
-        // TODO: when cross-compiling we may need to output additional `#extension` directives
-        // based on the features that we have used.
-
-        for( auto extensionDirective :  program->GetModifiersOfType<GLSLExtensionDirective>() )
-        {
-            // TODO(tfoley): Emit an appropriate `#line` directive...
-
-            Emit("#extension ");
-            emit(extensionDirective->extensionNameToken.Content);
-            Emit(" : ");
-            emit(extensionDirective->dispositionToken.Content);
-            Emit("\n");
-        }
-
-        // TODO: handle other cases...
+        emitGLSLVersionDirective();
     }
 
     /// Emit directives to control overall layout computation for the emitted code.
@@ -3001,9 +2984,19 @@ struct EmitVisitor
         }
         else
         {
+            // If it returns void -> then we don't need parenthesis
+
+            const auto returnType = inst->getDataType();
+            const bool isVoid = as<IRVoidType>(returnType) != nullptr;
+            
+            // We could determine here is the return type is void... if so no braces?
+
             // General case: we are going to emit some more complex text.
 
-            Emit("(");
+            if (!isVoid)
+            {
+                Emit("(");
+            }
 
             char const* cursor = name.begin();
             char const* end = name.end();
@@ -3363,7 +3356,10 @@ struct EmitVisitor
                 }
             }
 
-            Emit(")");
+            if (!isVoid)
+            {
+                Emit(")");
+            }
         }
     }
 
@@ -3487,7 +3483,23 @@ struct EmitVisitor
             emit(".");
             operandIndex++;
         }
-
+        // fixing issue #602 for GLSL sign function: https://github.com/shader-slang/slang/issues/602
+        bool glslSignFix = ctx->shared->target == CodeGenTarget::GLSL && name == "sign";
+        if (glslSignFix)
+        {
+            if (auto vectorType = as<IRVectorType>(inst->getDataType()))
+            {
+                emit("ivec");
+                emit(as<IRConstant>(vectorType->getElementCount())->value.intVal);
+                emit("(");
+            }
+            else if (auto scalarType = as<IRBasicType>(inst->getDataType()))
+            {
+                emit("int(");
+            }
+            else
+                glslSignFix = false;
+        }
         emit(name);
         emit("(");
         bool first = true;
@@ -3498,7 +3510,8 @@ struct EmitVisitor
             first = false;
         }
         emit(")");
-
+        if (glslSignFix)
+            emit(")");
         maybeCloseParens(needClose);
     }
 
@@ -3554,12 +3567,60 @@ struct EmitVisitor
             UInt argCount = inst->getOperandCount();
             for( UInt aa = 1; aa < argCount; ++aa )
             {
+                auto operand = inst->getOperand(aa);
+                if (as<IRVoidType>(operand->getDataType()))
+                    continue;
                 if(aa != 1) emit(", ");
                 emitIROperand(ctx, inst->getOperand(aa), mode, kEOp_General);
             }
             emit(")");
 
             maybeCloseParens(needClose);
+        }
+    }
+
+    static const char* getGLSLVectorCompareFunctionName(IROp op)
+    {
+        // Glsl vector comparisons use functions...
+        // https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/equal.xhtml
+
+        switch (op)
+        {
+        case kIROp_Eql:     return "equal";
+        case kIROp_Neq:     return "notEqual";
+        case kIROp_Greater: return "greaterThan";
+        case kIROp_Less:    return "lessThan";
+        case kIROp_Geq:     return "greaterThanEqual";
+        case kIROp_Leq:     return "lessThanEqual";
+        default:    return nullptr;
+        }
+    }
+
+    void emitComparison(EmitContext* ctx, IRInst* inst, IREmitMode mode, EOpInfo& inOutOuterPrec, const EOpInfo& opPrec, bool* needCloseOut)
+    {
+        *needCloseOut = maybeEmitParens(inOutOuterPrec, opPrec);
+
+        if (getTarget(ctx) == CodeGenTarget::GLSL
+            && as<IRVectorType>(inst->getOperand(0)->getDataType())
+            && as<IRVectorType>(inst->getOperand(1)->getDataType()))
+        {
+            const char* funcName = getGLSLVectorCompareFunctionName(inst->op);
+            SLANG_ASSERT(funcName);
+
+            emit(funcName);
+            emit("(");
+            emitIROperand(ctx, inst->getOperand(0), mode, leftSide(inOutOuterPrec, opPrec));
+            emit(",");
+            emitIROperand(ctx, inst->getOperand(1), mode, rightSide(inOutOuterPrec, opPrec));
+            emit(")");
+        }
+        else
+        {
+            emitIROperand(ctx, inst->getOperand(0), mode, leftSide(inOutOuterPrec, opPrec));
+            emit(" ");
+            emit(opPrec.op);
+            emit(" ");
+            emitIROperand(ctx, inst->getOperand(1), mode, rightSide(inOutOuterPrec, opPrec));
         }
     }
 
@@ -3581,7 +3642,7 @@ struct EmitVisitor
 
         case kIROp_Construct:
         case kIROp_makeVector:
-        case kIROp_makeMatrix:
+        case kIROp_MakeMatrix:
             // Simple constructor call
             if( inst->getOperandCount() == 1 && getTarget(ctx) == CodeGenTarget::HLSL)
             {
@@ -3669,6 +3730,12 @@ struct EmitVisitor
             }
             break;
 
+
+#define CASE_COMPARE(OPCODE, PREC, OP)                                                          \
+        case OPCODE:                                                                            \
+            emitComparison(ctx, inst,  mode, outerPrec, kEOp_##PREC, &needClose);               \
+            break
+
 #define CASE(OPCODE, PREC, OP)                                                                  \
         case OPCODE:                                                                            \
             needClose = maybeEmitParens(outerPrec, kEOp_##PREC);                                \
@@ -3687,12 +3754,12 @@ struct EmitVisitor
 
         // TODO: Need to pull out component-wise
         // comparison cases for matrices/vectors
-        CASE(kIROp_Eql, Eql, ==);
-        CASE(kIROp_Neq, Neq, !=);
-        CASE(kIROp_Greater, Greater, >);
-        CASE(kIROp_Less, Less, <);
-        CASE(kIROp_Geq, Geq, >=);
-        CASE(kIROp_Leq, Leq, <=);
+        CASE_COMPARE(kIROp_Eql, Eql, ==);
+        CASE_COMPARE(kIROp_Neq, Neq, !=);
+        CASE_COMPARE(kIROp_Greater, Greater, >);
+        CASE_COMPARE(kIROp_Less, Less, <);
+        CASE_COMPARE(kIROp_Geq, Geq, >=);
+        CASE_COMPARE(kIROp_Leq, Leq, <=);
 
         CASE(kIROp_BitAnd, BitAnd, &);
         CASE(kIROp_BitXor, BitXor, ^);
@@ -3922,11 +3989,98 @@ struct EmitVisitor
             }
             break;
 
+        case kIROp_BitCast:
+            {
+                // TODO: we can simplify the logic for arbitrary bitcasts
+                // by always bitcasting the source to a `uint*` type (if it
+                // isn't already) and then bitcasting that to the destination
+                // type (if it isn't already `uint*`.
+                //
+                // For now we are assuming the source type is *already*
+                // a `uint*` type of the appropriate size.
+                //
+//                auto fromType = extractBaseType(inst->getOperand(0)->getDataType());
+                auto toType = extractBaseType(inst->getDataType());
+                switch(getTarget(ctx))
+                {
+                case CodeGenTarget::GLSL:
+                    switch(toType)
+                    {
+                    default:
+                        emit("/* unhandled */");
+                        break;
+
+                    case BaseType::UInt:
+                        break;
+
+                    case BaseType::Int:
+                        emitIRType(ctx, inst->getDataType());
+                        break;
+
+                    case BaseType::Float:
+                        emit("uintBitsToFloat(");
+                        break;
+                    }
+                    break;
+
+                case CodeGenTarget::HLSL:
+                    switch(toType)
+                    {
+                    default:
+                        emit("/* unhandled */");
+                        break;
+
+                    case BaseType::UInt:
+                        break;
+                    case BaseType::Int:
+                        emit("(");
+                        emitIRType(ctx, inst->getDataType());
+                        emit(")");
+                        break;
+                    case BaseType::Float:
+                        emit("asfloat");
+                        break;
+                    }
+                    break;
+
+
+                default:
+                    SLANG_UNEXPECTED("unhandled codegen target");
+                    break;
+                }
+
+                emit("(");
+                emitIROperand(ctx, inst->getOperand(0), mode, kEOp_General);
+                emit(")");
+            }
+            break;
+
         default:
             emit("/* unhandled */");
             break;
         }
         maybeCloseParens(needClose);
+    }
+
+    BaseType extractBaseType(IRType* inType)
+    {
+        auto type = inType;
+        for(;;)
+        {
+            if(auto irBaseType = as<IRBasicType>(type))
+            {
+                return irBaseType->getBaseType();
+            }
+            else if(auto vecType = as<IRVectorType>(type))
+            {
+                type = vecType->getElementType();
+                continue;
+            }
+            else
+            {
+                return BaseType::Void;
+            }
+        }
     }
 
     void emitIRInst(
@@ -3943,7 +4097,7 @@ struct EmitVisitor
         catch(AbortCompilationException&) { throw; }
         catch(...)
         {
-            ctx->shared->entryPoint->compileRequest->noteInternalErrorLoc(inst->sourceLoc);
+            ctx->noteInternalErrorLoc(inst->sourceLoc);
             throw;
         }
     }
@@ -4117,11 +4271,11 @@ struct EmitVisitor
         if(auto layoutDecoration = inst->findDecoration<IRLayoutDecoration>())
         {
             auto layout = layoutDecoration->getLayout();
-            if(auto varLayout = layout->dynamicCast<VarLayout>())
+            if(auto varLayout = as<VarLayout>(layout))
             {
                 emitIRSemantics(ctx, varLayout);
             }
-            else if (auto entryPointLayout = layout->dynamicCast<EntryPointLayout>())
+            else if (auto entryPointLayout = as<EntryPointLayout>(layout))
             {
                 if(auto resultLayout = entryPointLayout->resultLayout)
                 {
@@ -4426,7 +4580,7 @@ struct EmitVisitor
         }
     }
 
-    /// Emit high-level language statements from a structrured region tree.
+    /// Emit high-level language statements from a structured region tree.
     void emitRegionTree(
         EmitContext*    ctx,
         RegionTree*     regionTree)
@@ -4483,7 +4637,7 @@ struct EmitVisitor
 
         Expr* expr = attrib->args[0];
 
-        auto stringLitExpr = expr->As<StringLiteralExpr>();
+        auto stringLitExpr = as<StringLiteralExpr>(expr);
         if (!stringLitExpr)
         {
             SLANG_DIAGNOSE_UNEXPECTED(getSink(), entryPoint->loc, "Attribute parameter expecting to be a string ");
@@ -4510,7 +4664,7 @@ struct EmitVisitor
 
         Expr* expr = attrib->args[0];
 
-        auto intLitExpr = expr->As<IntegerLiteralExpr>();
+        auto intLitExpr = as<IntegerLiteralExpr>(expr);
         if (!intLitExpr)
         {
             SLANG_DIAGNOSE_UNEXPECTED(getSink(), entryPoint->loc, "Attribute expects an int");
@@ -4720,39 +4874,39 @@ struct EmitVisitor
             {
                 if(auto inputPrimitiveTypeModifier = pp->FindModifier<HLSLGeometryShaderInputPrimitiveTypeModifier>())
                 {
-                    if(inputPrimitiveTypeModifier->As<HLSLTriangleModifier>())
+                    if(as<HLSLTriangleModifier>(inputPrimitiveTypeModifier))
                     {
                         emit("layout(triangles) in;\n");
                     }
-                    else if(inputPrimitiveTypeModifier->As<HLSLLineModifier>())
+                    else if(as<HLSLLineModifier>(inputPrimitiveTypeModifier))
                     {
                         emit("layout(lines) in;\n");
                     }
-                    else if(inputPrimitiveTypeModifier->As<HLSLLineAdjModifier>())
+                    else if(as<HLSLLineAdjModifier>(inputPrimitiveTypeModifier))
                     {
                         emit("layout(lines_adjacency) in;\n");
                     }
-                    else if(inputPrimitiveTypeModifier->As<HLSLPointModifier>())
+                    else if(as<HLSLPointModifier>(inputPrimitiveTypeModifier))
                     {
                         emit("layout(points) in;\n");
                     }
-                    else if(inputPrimitiveTypeModifier->As<HLSLTriangleAdjModifier>())
+                    else if(as<HLSLTriangleAdjModifier>(inputPrimitiveTypeModifier))
                     {
                         emit("layout(triangles_adjacency) in;\n");
                     }
                 }
 
-                if(auto outputStreamType = pp->type->As<HLSLStreamOutputType>())
+                if(auto outputStreamType = as<HLSLStreamOutputType>(pp->type))
                 {
-                    if(outputStreamType->As<HLSLTriangleStreamType>())
+                    if(as<HLSLTriangleStreamType>(outputStreamType))
                     {
                         emit("layout(triangle_strip) out;\n");
                     }
-                    else if(outputStreamType->As<HLSLLineStreamType>())
+                    else if(as<HLSLLineStreamType>(outputStreamType))
                     {
                         emit("layout(line_strip) out;\n");
                     }
-                    else if(outputStreamType->As<HLSLPointStreamType>())
+                    else if(as<HLSLPointStreamType>(outputStreamType))
                     {
                         emit("layout(points) out;\n");
                     }
@@ -4833,12 +4987,12 @@ struct EmitVisitor
         //
         // TODO: it would be better to do these transformations earlier,
         // so that we can, e.g., dump the final IR code *before* emission
-        // starts, but that gets a bit compilcated because we also want
-        // to have the region tree avalable without having to recompute it.
+        // starts, but that gets a bit complicated because we also want
+        // to have the region tree available without having to recompute it.
         //
         // For now we are just going to do things the expedient way, but
         // eventually we should allow an IR module to have side-band
-        // storage for dervied structured like the region tree (and logic
+        // storage for derived structures like the region tree (and logic
         // for invalidating them when a transformation would break them).
         //
         fixValueScoping(regionTree);
@@ -4883,7 +5037,7 @@ struct EmitVisitor
                 if (auto layoutDecor = pp->findDecoration<IRLayoutDecoration>())
                 {
                     Layout* layout = layoutDecor->getLayout();
-                    VarLayout* varLayout = dynamic_cast<VarLayout*>(layout);
+                    VarLayout* varLayout = as<VarLayout>(layout);
 
                     if (varLayout)
                     {
@@ -4891,15 +5045,15 @@ struct EmitVisitor
 
                         if (auto primTypeModifier = var->FindModifier<HLSLGeometryShaderInputPrimitiveTypeModifier>())
                         {
-                            if (dynamic_cast<HLSLTriangleModifier*>(primTypeModifier))
+                            if (as<HLSLTriangleModifier>(primTypeModifier))
                                 emit("triangle ");
-                            else if (dynamic_cast<HLSLPointModifier*>(primTypeModifier))
+                            else if (as<HLSLPointModifier>(primTypeModifier))
                                 emit("point ");
-                            else if (dynamic_cast<HLSLLineModifier*>(primTypeModifier))
+                            else if (as<HLSLLineModifier>(primTypeModifier))
                                 emit("line ");
-                            else if (dynamic_cast<HLSLLineAdjModifier*>(primTypeModifier))
+                            else if (as<HLSLLineAdjModifier>(primTypeModifier))
                                 emit("lineadj ");
-                            else if (dynamic_cast<HLSLTriangleAdjModifier*>(primTypeModifier))
+                            else if (as<HLSLTriangleAdjModifier>(primTypeModifier))
                                 emit("triangleadj ");
                         }
                     }
@@ -4922,7 +5076,7 @@ struct EmitVisitor
             indent();
 
             // HACK: forward-declare all the local variables needed for the
-            // prameters of non-entry blocks.
+            // parameters of non-entry blocks.
             emitPhiVarDecls(ctx, func);
 
             // Need to emit the operations in the blocks of the function
@@ -5038,7 +5192,7 @@ struct EmitVisitor
     {
         if( auto layoutDecoration = func->findDecoration<IRLayoutDecoration>() )
         {
-            return layoutDecoration->getLayout()->dynamicCast<EntryPointLayout>();
+            return as<EntryPointLayout>(layoutDecoration->getLayout());
         }
         return nullptr;
     }
@@ -5047,7 +5201,7 @@ struct EmitVisitor
     {
         if (auto layoutDecoration = func->findDecoration<IRLayoutDecoration>())
         {
-            if (auto entryPointLayout = layoutDecoration->getLayout()->dynamicCast<EntryPointLayout>())
+            if (auto entryPointLayout = as<EntryPointLayout>(layoutDecoration->getLayout()))
             {
                 return entryPointLayout;
             }
@@ -5070,7 +5224,7 @@ struct EmitVisitor
     }
 
     // Check whether a given value names a target intrinsic,
-    // and return the IR function representing the instrinsic
+    // and return the IR function representing the intrinsic
     // if it does.
     IRFunc* asTargetIntrinsic(
         EmitContext*    ctxt,
@@ -5106,7 +5260,7 @@ struct EmitVisitor
 
             // We do not emit the declaration for
             // functions that appear to be intrinsics/builtins
-            // in the target langugae.
+            // in the target language.
             if (isTargetIntrinsic(ctx, func))
                 return;
 
@@ -5171,10 +5325,10 @@ struct EmitVisitor
         //
 
         auto typeLayout = layout->typeLayout;
-        while(auto arrayTypeLayout = typeLayout.As<ArrayTypeLayout>())
+        while(auto arrayTypeLayout = as<ArrayTypeLayout>(typeLayout))
             typeLayout = arrayTypeLayout->elementTypeLayout;
 
-        if (auto matrixTypeLayout = typeLayout.As<MatrixTypeLayout>())
+        if (auto matrixTypeLayout = typeLayout.as<MatrixTypeLayout>())
         {
             auto target = ctx->shared->target;
 
@@ -5298,12 +5452,12 @@ struct EmitVisitor
         // add the `flat` modifier for GLSL.
         if(!anyModifiers && isGLSL)
         {
-            // Only emit a deault `flat` for fragment
+            // Only emit a default `flat` for fragment
             // stage varying inputs.
             //
             // TODO: double-check that this works for
             // signature matching even if the producing
-            // stage didnt' use `flat`.
+            // stage didn't use `flat`.
             //
             // If this ends up being a problem we can instead
             // output everything with `flat` except for
@@ -5587,7 +5741,7 @@ struct EmitVisitor
         EmitVarChain elementChain = blockChain;
 
         auto typeLayout = varLayout->typeLayout;
-        if( auto parameterGroupTypeLayout = typeLayout.As<ParameterGroupTypeLayout>() )
+        if( auto parameterGroupTypeLayout = as<ParameterGroupTypeLayout>(typeLayout) )
         {
             containerChain = EmitVarChain(parameterGroupTypeLayout->containerVarLayout, &blockChain);
             elementChain = EmitVarChain(parameterGroupTypeLayout->elementVarLayout, &blockChain);
@@ -5677,7 +5831,7 @@ struct EmitVisitor
         EmitVarChain elementChain = blockChain;
 
         auto typeLayout = varLayout->typeLayout->unwrapArray();
-        if( auto parameterGroupTypeLayout = typeLayout.As<ParameterGroupTypeLayout>() )
+        if( auto parameterGroupTypeLayout = as<ParameterGroupTypeLayout>(typeLayout) )
         {
             containerChain = EmitVarChain(parameterGroupTypeLayout->containerVarLayout, &blockChain);
             elementChain = EmitVarChain(parameterGroupTypeLayout->elementVarLayout, &blockChain);
@@ -5685,21 +5839,33 @@ struct EmitVisitor
             typeLayout = parameterGroupTypeLayout->elementVarLayout->typeLayout;
         }
 
+        /*
+        With resources backed by 'buffer' on glsl, we want to output 'readonly' if that is a good match
+        for the underlying type. If uniform it's implicit it's readonly
+
+        Here this only happens with isShaderRecord which is a 'constant buffer' (ie implicitly readonly)
+        or IRGLSLShaderStorageBufferType which is read write.
+        */
+
         emitGLSLLayoutQualifier(LayoutResourceKind::DescriptorTableSlot, &containerChain);
         emitGLSLLayoutQualifier(LayoutResourceKind::PushConstantBuffer, &containerChain);
         bool isShaderRecord = emitGLSLLayoutQualifier(LayoutResourceKind::ShaderRecord, &containerChain);
 
         if( isShaderRecord )
         {
-            emit("buffer ");
+            // TODO: A shader record in vk can be potentially read write. Currently slang does't support write access
+            // so for now we will assume readonly
+            emit("readonly buffer ");
         }
         else if(as<IRGLSLShaderStorageBufferType>(type))
         {
+            // Is writable 
             emit("layout(std430) buffer ");
         }
         // TODO: what to do with HLSL `tbuffer` style buffers?
         else
         {
+            // uniform is implicitly read only
             emit("layout(std140) uniform ");
         }
 
@@ -5823,7 +5989,27 @@ struct EmitVisitor
             }
         }
         
-        emit(") buffer ");
+        emit(") ");
+
+        /*
+        If the output type is a buffer, and we can determine it is only readonly we can prefix before
+        buffer with 'readonly'
+
+        The actual structuredBufferType could be
+
+        HLSLStructuredBufferType                        - This is unambiguously read only
+        HLSLRWStructuredBufferType                      - Read write
+        HLSLRasterizerOrderedStructuredBufferType       - Allows read/write access
+        HLSLAppendStructuredBufferType                  - Write
+        HLSLConsumeStructuredBufferType                 - TODO (JS): Its possible that this can be readonly, but we currently don't support on GLSL
+        */
+
+        if (as<IRHLSLStructuredBufferType>(structuredBufferType))
+        {
+            emit("readonly ");
+        }
+
+        emit("buffer ");
     
         // Generate a dummy name for the block
         emit("_S");
@@ -5849,7 +6035,7 @@ struct EmitVisitor
     void emitIRByteAddressBuffer_GLSL(
         EmitContext*                    ctx,
         IRGlobalParam*                  varDecl,
-        IRByteAddressBufferTypeBase*    /* byteAddressBufferType */)
+        IRByteAddressBufferTypeBase*    byteAddressBufferType)
     {
         // TODO: A lot of this logic is copy-pasted from `emitIRStructuredBuffer_GLSL`.
         // It might be worthwhile to share the common code to avoid regressions sneaking
@@ -5880,7 +6066,23 @@ struct EmitVisitor
             }
         }
 
-        emit(") buffer ");
+        emit(") ");
+
+        /*
+        If the output type is a buffer, and we can determine it is only readonly we can prefix before
+        buffer with 'readonly'
+
+        HLSLByteAddressBufferType                   - This is unambiguously read only
+        HLSLRWByteAddressBufferType                 - Read write
+        HLSLRasterizerOrderedByteAddressBufferType  - Allows read/write access
+        */
+
+        if (as<IRHLSLByteAddressBufferType>(byteAddressBufferType))
+        {
+            emit("readonly ");
+        }
+
+        emit("buffer ");
 
         // Generate a dummy name for the block
         emit("_S");
@@ -5982,6 +6184,8 @@ struct EmitVisitor
         {
             varType = outType->getValueType();
         }
+        if (as<IRVoidType>(varType))
+            return;
 
         // When a global shader parameter represents a "parameter group"
         // (either a constant buffer or a parameter block with non-resource
@@ -6361,26 +6565,26 @@ struct EmitVisitor
 //
 
 EntryPointLayout* findEntryPointLayout(
-    ProgramLayout*      programLayout,
-    EntryPointRequest*  entryPointRequest)
+    ProgramLayout*  programLayout,
+    EntryPoint*     entryPoint)
 {
     for( auto entryPointLayout : programLayout->entryPoints )
     {
-        if(entryPointLayout->entryPoint->getName() != entryPointRequest->name)
+        if(entryPointLayout->entryPoint->getName() != entryPoint->getName())
             continue;
 
         // TODO: We need to be careful about this check, since it relies on
         // the profile information in the layout matching that in the request.
         //
         // What we really seem to want here is some dictionary mapping the
-        // `EntryPointRequest` directly to the `EntryPointLayout`, and maybe
+        // `EntryPoint` directly to the `EntryPointLayout`, and maybe
         // that is precisely what we should build...
         //
-        if(entryPointLayout->profile != entryPointRequest->profile)
+        if(entryPointLayout->profile != entryPoint->getProfile())
             continue;
 
         // TODO: can't easily filter on translation unit here...
-        // Ideally the `EntryPointRequest` should get filled in with a pointer
+        // Ideally the `EntryPoint` should get filled in with a pointer
         // the specific function declaration that represents the entry point.
 
         return entryPointLayout.Ptr();
@@ -6389,47 +6593,34 @@ EntryPointLayout* findEntryPointLayout(
     return nullptr;
 }
 
-// Given a layout computed for a whole program, find
-// the corresponding layout to use when looking up
-// variables at the global scope.
-//
-// It might be that the global scope was logically
-// mapped to a constant buffer, so that we need
-// to "unwrap" that declaration to get at the
-// actual struct type inside.
-StructTypeLayout* getGlobalStructLayout(
-    ProgramLayout*  programLayout)
+    /// Given a layout computed for a scope, get the layout to use when lookup up variables.
+    ///
+    /// A scope (such as the global scope of a program) groups its
+    /// parameters into a pseudo-`struct` type for layout purposes,
+    /// and in some cases that type will in turn be wrapped in a
+    /// `ConstantBuffer` type to indicate that the parameters needed
+    /// an implicit constant buffer to be allocated.
+    ///
+    /// This function "unwraps" the type layout to find the structure
+    /// type layout that must be stored inside.
+    ///
+StructTypeLayout* getScopeStructLayout(
+    ScopeLayout*  scopeLayout)
 {
-    auto globalScopeLayout = programLayout->globalScopeLayout->typeLayout;
-    if( auto gs = globalScopeLayout.As<StructTypeLayout>() )
+    auto scopeTypeLayout = scopeLayout->parametersLayout->typeLayout;
+    if( auto structTypeLayout = as<StructTypeLayout>(scopeTypeLayout) )
     {
-        return gs.Ptr();
+        return structTypeLayout;
     }
-    else if( auto globalConstantBufferLayout = globalScopeLayout.As<ParameterGroupTypeLayout>() )
+    else if( auto constantBufferTypeLayout = as<ParameterGroupTypeLayout>(scopeTypeLayout) )
     {
-        // TODO: the `cbuffer` case really needs to be emitted very
-        // carefully, but that is beyond the scope of what a simple rewriter
-        // can easily do (without semantic analysis, etc.).
-        //
-        // The crux of the problem is that we need to collect all the
-        // global-scope uniforms (but not declarations that don't involve
-        // uniform storage...) and put them in a single `cbuffer` declaration,
-        // so that we can give it an explicit location. The fields in that
-        // declaration might use various type declarations, so we'd really
-        // need to emit all the type declarations first, and that involves
-        // some large scale reorderings.
-        //
-        // For now we will punt and just emit the declarations normally,
-        // and hope that the global-scope block (`$Globals`) gets auto-assigned
-        // the same location that we manually asigned it.
-
-        auto elementTypeLayout = globalConstantBufferLayout->offsetElementTypeLayout;
-        auto elementTypeStructLayout = elementTypeLayout.As<StructTypeLayout>();
+        auto elementTypeLayout = constantBufferTypeLayout->offsetElementTypeLayout;
+        auto elementTypeStructLayout = as<StructTypeLayout>(elementTypeLayout);
 
         // We expect all constant buffers to contain `struct` types for now
         SLANG_RELEASE_ASSERT(elementTypeStructLayout);
 
-        return elementTypeStructLayout.Ptr();
+        return elementTypeStructLayout;
     }
     else
     {
@@ -6438,18 +6629,29 @@ StructTypeLayout* getGlobalStructLayout(
     }
 }
 
+    /// Given a layout computed for a program, get the layout to use when lookup up variables.
+    ///
+    /// This is just an alias of `getScopeStructLayout`.
+    ///
+StructTypeLayout* getGlobalStructLayout(
+    ProgramLayout*  programLayout)
+{
+    return getScopeStructLayout(programLayout);
+}
+
 void legalizeTypes(
     TypeLegalizationContext*    context,
     IRModule*                   module);
 
 static void dumpIRIfEnabled(
-    CompileRequest* compileRequest,
+    BackEndCompileRequest* compileRequest,
     IRModule*       irModule,
     char const*     label = nullptr)
 {
     if(compileRequest->shouldDumpIR)
     {
-        WriterHelper writer(compileRequest->getWriter(WriterChannel::StdError));
+        DiagnosticSinkWriter writerImpl(compileRequest->getSink());
+        WriterHelper writer(&writerImpl);
 
         if(label)
         {
@@ -6468,16 +6670,22 @@ static void dumpIRIfEnabled(
 }
 
 String emitEntryPoint(
-    EntryPointRequest*  entryPoint,
-    ProgramLayout*      programLayout,
-    CodeGenTarget       target,
-    TargetRequest*      targetRequest)
+    BackEndCompileRequest*  compileRequest,
+    EntryPoint*             entryPoint,
+    CodeGenTarget           target,
+    TargetRequest*          targetRequest)
 {
-    auto translationUnit = entryPoint->getTranslationUnit();
+    auto sink = compileRequest->getSink();
+    auto program = compileRequest->getProgram();
+    auto targetProgram = program->getTargetProgram(targetRequest);
+    auto programLayout = targetProgram->getOrCreateLayout(sink);
+
+//    auto translationUnit = entryPoint->getTranslationUnit();
 
     SharedEmitContext sharedContext;
+    sharedContext.compileRequest = compileRequest;
     sharedContext.target = target;
-    sharedContext.finalTarget = targetRequest->target;
+    sharedContext.finalTarget = targetRequest->getTarget();
     sharedContext.entryPoint = entryPoint;
     sharedContext.effectiveProfile = getEffectiveProfile(entryPoint, targetRequest);
 
@@ -6496,33 +6704,30 @@ String emitEntryPoint(
     StructTypeLayout* globalStructLayout = getGlobalStructLayout(programLayout);
     sharedContext.globalStructLayout = globalStructLayout;
 
-    auto translationUnitSyntax = translationUnit->SyntaxNode.Ptr();
-
     EmitContext context;
     context.shared = &sharedContext;
 
     EmitVisitor visitor(&context);
 
-    // We are going to create a fresh IR module that we will use to
-    // clone any code needed by the user's entry point.
-    IRSpecializationState* irSpecializationState = createIRSpecializationState(
-        entryPoint,
-        programLayout,
-        target,
-        targetRequest);
     {
-        IRModule* irModule = getIRModule(irSpecializationState);
-        auto compileRequest = translationUnit->compileRequest;
-        auto session = compileRequest->mSession;
+        auto session = targetRequest->getSession();
 
-        TypeLegalizationContext typeLegalizationContext;
-        initialize(&typeLegalizationContext,
-            session,
-            irModule);
-
-        auto irEntryPoint = specializeIRForEntryPoint(
-            irSpecializationState,
-            entryPoint);
+        // We start out by performing "linking" at the level of the IR.
+        // This step will create a fresh IR module to be used for
+        // code generation, and will copy in any IR definitions that
+        // the desired entry point requires. Along the way it will
+        // resolve references to imported/exported symbols across
+        // modules, and also select between the definitions of
+        // any "profile-overloaded" symbols.
+        //
+        auto linkedIR = linkIR(
+            compileRequest,
+            entryPoint,
+            programLayout,
+            target,
+            targetRequest);
+        auto irModule = linkedIR.module;
+        auto irEntryPoint = linkedIR.entryPoint;
 
 #if 0
         dumpIRIfEnabled(compileRequest, irModule, "CLONED");
@@ -6535,57 +6740,26 @@ String emitEntryPoint(
         // un-specialized IR.
         dumpIRIfEnabled(compileRequest, irModule);
 
-
-
-        // For GLSL only, we will need to perform "legalization" of
-        // the entry point and any entry-point parameters.
+        // Now that we've linked the IR code, any layout/binding
+        // information has been attached to shader parameters
+        // and entry points. Now we are safe to make transformations
+        // that might move code without worrying about losing
+        // the connection between a parameter and its layout.
         //
-        // TODO: We should consider moving this legalization work
-        // as late as possible, so that it doesn't affect how other
-        // optimization passes need to work.
+        // An easy transformation of this kind is to take uniform
+        // parameters of a shader entry point and move them into
+        // the global scope instead.
         //
-        switch (target)
-        {
-        case CodeGenTarget::GLSL:
-            {
-                legalizeEntryPointForGLSL(
-                    session,
-                    irModule,
-                    irEntryPoint,
-                    &compileRequest->mSink,
-                    &sharedContext.extensionUsageTracker);
-            }
-            break;
+        moveEntryPointUniformParamsToGlobalScope(irModule);
 
-        default:
-            break;
-        }
+        // Desguar any union types, since these will be illegal on
+        // various targets.
+        //
+        desugarUnionTypes(irModule);
 #if 0
-        dumpIRIfEnabled(compileRequest, irModule, "GLSL LEGALIZED");
+        dumpIRIfEnabled(compileRequest, irModule, "UNIONS DESUGARED");
 #endif
         validateIRModuleIfEnabled(compileRequest, irModule);
-
-
-
-        // Any code that makes use of existential (interface) types
-        // needs to be simplified to use concrete types instead,
-        // wherever this is possible.
-        //
-        // Note: we are applying this *before* doing specialization
-        // of generics because this pass could expose concrete
-        // types and/or witness tables that allow for further
-        // specialization.
-        //
-        // TODO: Simplification of existential-based and generics-based
-        // code may each open up opportunities for the other, so
-        // in the long run these will need to be merged into a
-        // single pass that looks for all simplification opportunities.
-        //
-        // TODO: We also need a legalization pass that will "expose"
-        // existential values that are nested inside of other types,
-        // so that the simplifications can be applied.
-        //
-        simplifyExistentialTypes(irModule);
 
         // Next, we need to ensure that the code we emit for
         // the target doesn't contain any operations that would
@@ -6593,9 +6767,20 @@ String emitEntryPoint(
         // none of our target supports generics, or interfaces,
         // so we need to specialize those away.
         //
-        specializeGenerics(irModule);
-
-
+        // Simplification of existential-based and generics-based
+        // code may each open up opportunities for the other, so
+        // the relevant specialization transformations are handled in a
+        // single pass that looks for all simplification opportunities.
+        //
+        // TODO: We also need to extend this pass so that it will "expose"
+        // existential values that are nested inside of other types,
+        // so that the simplifications can be applied.
+        //
+        // TODO: This pass is *also* likely to be the place where we
+        // perform specialization of functions based on parameter
+        // values that need to be compile-time constants.
+        //
+        specializeModule(irModule);
 
         // Debugging code for IR transformations...
 #if 0
@@ -6608,9 +6793,22 @@ String emitEntryPoint(
         // we need to ensure that the code only uses types
         // that are legal on the chosen target.
         //
-        legalizeTypes(
-            &typeLegalizationContext,
-            irModule);
+        {
+            // TODO: The presence of `TypeLegalizationContext`
+            // in the public API of the `legalizeTypes` function
+            // is a throwback to when there was AST-level
+            // type legalization and all the complications it
+            // created. The pass should be refactored to not
+            // expose these details.
+            //
+            TypeLegalizationContext typeLegalizationContext;
+            initialize(&typeLegalizationContext,
+                session,
+                irModule);
+            legalizeTypes(
+                &typeLegalizationContext,
+                irModule);
+        }
 
         //  Debugging output of legalization
 #if 0
@@ -6654,6 +6852,34 @@ String emitEntryPoint(
 #endif
         validateIRModuleIfEnabled(compileRequest, irModule);
 
+        // For GLSL only, we will need to perform "legalization" of
+        // the entry point and any entry-point parameters.
+        //
+        // TODO: We should consider moving this legalization work
+        // as late as possible, so that it doesn't affect how other
+        // optimization passes need to work.
+        //
+        switch (target)
+        {
+        case CodeGenTarget::GLSL:
+        {
+            legalizeEntryPointForGLSL(
+                session,
+                irModule,
+                irEntryPoint,
+                compileRequest->getSink(),
+                &sharedContext.extensionUsageTracker);
+        }
+        break;
+
+        default:
+            break;
+        }
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "GLSL LEGALIZED");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
         // The resource-based specialization pass above
         // may create specialized versions of functions, but
         // it does not try to completely eliminate the original
@@ -6677,12 +6903,7 @@ String emitEntryPoint(
         // TODO: do we want to emit directly from IR, or translate the
         // IR back into AST for emission?
         visitor.emitIRModule(&context, irModule);
-
-        // retain the specialized ir module, because the current
-        // GlobalGenericParamSubstitution implementation may reference ir objects
-        targetRequest->compileRequest->compiledModules.Add(irModule);
     }
-    destroyIRSpecializationState(irSpecializationState);
 
     // Deal with cases where a particular stage requires certain GLSL versions
     // and/or extensions.
@@ -6712,7 +6933,7 @@ String emitEntryPoint(
     // it is time to stich together the final output.
 
     // There may be global-scope modifiers that we should emit now
-    visitor.emitGLSLPreprocessorDirectives(translationUnitSyntax);
+    visitor.emitGLSLPreprocessorDirectives();
 
     visitor.emitLayoutDirectives(targetRequest);
 

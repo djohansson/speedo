@@ -615,17 +615,16 @@ extern "C"
     //! SLANG_OK indicates success, and is equivalent to SLANG_MAKE_SUCCESS(SLANG_FACILITY_WIN_GENERAL, 0)
 #define SLANG_OK                          0
     //! SLANG_FAIL is the generic failure code - meaning a serious error occurred and the call couldn't complete
-#define SLANG_FAIL                          SLANG_MAKE_ERROR(SLANG_FACILITY_WIN_INTERFACE, 5)
+#define SLANG_FAIL                          SLANG_MAKE_ERROR(SLANG_FACILITY_WIN_GENERAL, 0x4005)
 
-#define SLANG_MAKE_WIN_INTERFACE_ERROR(code)    SLANG_MAKE_ERROR(SLANG_FACILITY_WIN_INTERFACE, code)
-#define SLANG_MAKE_WIN_API_ERROR(code)          SLANG_MAKE_ERROR(SLANG_FACILITY_WIN_API, code)
+#define SLANG_MAKE_WIN_GENERAL_ERROR(code)  SLANG_MAKE_ERROR(SLANG_FACILITY_WIN_GENERAL, code)
 
     //! Functionality is not implemented
-#define SLANG_E_NOT_IMPLEMENTED             SLANG_MAKE_WIN_INTERFACE_ERROR(1)
+#define SLANG_E_NOT_IMPLEMENTED             SLANG_MAKE_WIN_GENERAL_ERROR(0x4001)
     //! Interface not be found
-#define SLANG_E_NO_INTERFACE                SLANG_MAKE_WIN_INTERFACE_ERROR(2)
+#define SLANG_E_NO_INTERFACE                SLANG_MAKE_WIN_GENERAL_ERROR(0x4002)
     //! Operation was aborted (did not correctly complete)
-#define SLANG_E_ABORT                       SLANG_MAKE_WIN_INTERFACE_ERROR(4)
+#define SLANG_E_ABORT                       SLANG_MAKE_WIN_GENERAL_ERROR(0x4004) 
 
     //! Indicates that a handle passed in as parameter to a method is invalid.
 #define SLANG_E_INVALID_HANDLE              SLANG_MAKE_ERROR(SLANG_FACILITY_WIN_API, 6)
@@ -779,27 +778,34 @@ extern "C"
     struct ISlangFileSystemExt : public ISlangFileSystem
     {
     public:
-        /** Get a canonical path which uniquely identifies an object of the file system.
+        /** Get a uniqueIdentity which uniquely identifies an object of the file system.
            
-        Given a path, returns a 'canonical' path which will return the same path for the same file/directory. 
-        The canonical path is used to compare if two includes are the same file. 
-        The string for the canonical path is held zero terminated in the ISlangBlob of canonicalPathOut. 
+        Given a path, returns a 'uniqueIdentity' which ideally is the same value for the same file on the file system.
+
+        The uniqueIdentity is used to compare if files are the same - which allows slang to cache source contents internally. It is also used
+        for #pragma once functionality.
+
+        A *requirement* is for any implementation is that two paths can only return the same uniqueIdentity if the
+        contents of the two files are *identical*. If an implementation breaks this constraint it can produce incorrect compilation.
+        If an implementation cannot *strictly* identify *the same* files, this will only have an effect on #pragma once behavior.
+
+        The string for the uniqueIdentity is held zero terminated in the ISlangBlob of outUniqueIdentity.
    
-        Note that a canonical path doesn't *have* to be a 'canonical' path, or a path at all
-        - it can just be a string that uniquely identifies a file. For example another possible mechanism
+        Note that there are many ways a uniqueIdentity may be generated for a file. For example it could be the
+        'canonical path' - assuming it is available and unambitious for a file system. Another possible mechanism
         could be to store the filename combined with the file date time to uniquely identify it.
      
         The client must ensure the blob be released when no longer used, otherwise memory will leak.
 
         @param path
-        @param canonicalPathOut
-        @returns A `SlangResult` to indicate success or failure getting the canonical path.
+        @param outUniqueIdentity
+        @returns A `SlangResult` to indicate success or failure getting the uniqueIdentity.
         */
-        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanoncialPath(
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getFileUniqueIdentity(
             const char* path,
-            ISlangBlob** canonicalPathOut) = 0;
+            ISlangBlob** outUniqueIdentity) = 0;
 
-        /** Get a path relative to a 'from' path.
+        /** Calculate a path combining the 'fromPath' with 'path'
 
         The client must ensure the blob be released when no longer used, otherwise memory will leak.
 
@@ -809,7 +815,7 @@ extern "C"
         @param pathOut Holds the string which is the relative path. The string is held in the blob zero terminated.  
         @returns A `SlangResult` to indicate success or failure in loading the file.
         */
-        virtual SLANG_NO_THROW SlangResult SLANG_MCALL calcRelativePath(
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL calcCombinedPath(
             SlangPathType fromPathType,
             const char* fromPath,
             const char* path,
@@ -822,7 +828,41 @@ extern "C"
         */
         virtual SLANG_NO_THROW SlangResult SLANG_MCALL getPathType(
             const char* path, 
-            SlangPathType* pathTypeOut) = 0;  
+            SlangPathType* pathTypeOut) = 0;
+
+        /** Get a simplified path. 
+        Given a path, returns a simplified version of that path - typically removing '..' and/or '.'. A simplified
+        path must point to the same object as the original. 
+       
+        This method is optional, if not implemented return SLANG_E_NOT_IMPLEMENTED.
+
+        @param path
+        @param outSimplifiedPath
+        @returns SLANG_OK if successfully simplified the path (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
+        */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getSimplifiedPath(
+            const char* path,
+            ISlangBlob** outSimplifiedPath) = 0;
+
+        /** Get a canonical path identifies an object of the file system.
+
+        Given a path, returns a 'canonicalPath' to the file. This may be a file system 'canonical path' to
+        show where a file was read from. If the file system is say a zip file - it might include the path to the zip
+        container as well as the absolute path to the specific file. The main purpose of the method is to be able
+        to display to uses unambiguously where a file was read from.
+
+        This method is optional, if not implemented return SLANG_E_NOT_IMPLEMENTED.
+
+        @param path
+        @param outCanonicalPath
+        @returns SLANG_OK if successfully canonicalized the path (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
+        */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanonicalPath(
+            const char* path,
+            ISlangBlob** outCanonicalPath) = 0;
+
+        /** Clears any cached information */
+        virtual SLANG_NO_THROW void SLANG_MCALL clearCache() = 0;
     };
 
     #define SLANG_UUID_ISlangFileSystemExt { 0x5fb632d2, 0x979d, 0x4481, { 0x9f, 0xee, 0x66, 0x3c, 0x3f, 0x14, 0x49, 0xe1 } }
@@ -883,6 +923,9 @@ extern "C"
     */
     typedef struct SlangSession SlangSession;
 
+    typedef struct SlangLinkage SlangLinkage;
+    typedef struct SlangModule SlangModule;
+
     /*!
     @brief A request for one or more compilation actions to be performed.
     */
@@ -929,12 +972,39 @@ extern "C"
         SlangCompileTarget  target);
 
     /*!
+    @brief Returns SLANG_OK if a the pass through support is supported for this session
+    @param session Session
+    @param target The compilation target to test
+    @return SLANG_OK if the target is available
+    SLANG_E_NOT_IMPLEMENTED if not implemented in this build
+    SLANG_E_NOT_FOUND if other resources (such as shared libraries) required to make target work could not be found
+    SLANG_FAIL other kinds of failures */
+    SLANG_API SlangResult spSessionCheckPassThroughSupport(
+        SlangSession*       session,
+        SlangPassThrough    passThrough
+    );
+
+    /*!
     @brief Add new builtin declarations to be used in subsequent compiles.
     */
     SLANG_API void spAddBuiltins(
         SlangSession*   session,
         char const*     sourcePath,
         char const*     sourceString);
+
+
+
+    SLANG_API SlangLinkage* spCreateLinkage(
+        SlangSession* session);
+
+    SLANG_API void spDestroyLinkage(
+        SlangLinkage* linkage);
+
+    SLANG_API SlangModule* spLoadModule(
+        SlangLinkage* linkage,
+        char const* moduleName);
+
+
 
     /*!
     @brief Create a compile request.
@@ -1210,15 +1280,22 @@ extern "C"
 
     /** Add an entry point in a particular translation unit,
         with additional arguments that specify the concrete
-        type names for global generic type parameters.
+        type names for entry-point generic type parameters.
     */
     SLANG_API int spAddEntryPointEx(
         SlangCompileRequest*    request,
         int                     translationUnitIndex,
         char const*             name,
         SlangStage              stage,
-        int                     genericTypeNameCount,
-        char const**            genericTypeNames);
+        int                     genericArgCount,
+        char const**            genericArgs);
+
+    /** Specify the arguments to use for global generic parameters.
+    */
+    SLANG_API SlangResult spSetGlobalGenericArgs(
+        SlangCompileRequest*    request,
+        int                     genericArgCount,
+        char const**            genericArgs);
 
     /** Execute the compilation request.
 
@@ -1325,6 +1402,7 @@ extern "C"
     typedef struct SlangReflectionVariable          SlangReflectionVariable;
     typedef struct SlangReflectionVariableLayout    SlangReflectionVariableLayout;
     typedef struct SlangReflectionTypeParameter     SlangReflectionTypeParameter;
+    typedef struct SlangReflectionUserAttribute     SlangReflectionUserAttribute;
 
     // get reflection data from a compilation request
     SLANG_API SlangReflection* spGetReflection(
@@ -1460,9 +1538,26 @@ extern "C"
         SLANG_MODIFIER_SHARED,
     };
 
+    // User Attribute
+    SLANG_API char const* spReflectionUserAttribute_GetName(SlangReflectionUserAttribute* attrib);
+    SLANG_API unsigned int spReflectionUserAttribute_GetArgumentCount(SlangReflectionUserAttribute* attrib);
+    SLANG_API SlangReflectionType* spReflectionUserAttribute_GetArgumentType(SlangReflectionUserAttribute* attrib, unsigned int index);
+    SLANG_API SlangResult spReflectionUserAttribute_GetArgumentValueInt(SlangReflectionUserAttribute* attrib, unsigned int index, int * rs);
+    SLANG_API SlangResult spReflectionUserAttribute_GetArgumentValueFloat(SlangReflectionUserAttribute* attrib, unsigned int index, float * rs);
+
+    /** Returns the string-typed value of a user attribute argument
+        The string returned is not null-terminated. The length of the string is returned via `outSize`.
+        If index of out of range, or if the specified argument is not a string, the function will return nullptr.
+    */
+    SLANG_API const char* spReflectionUserAttribute_GetArgumentValueString(SlangReflectionUserAttribute* attrib, unsigned int index, size_t * outSize);
+
     // Type Reflection
 
     SLANG_API SlangTypeKind spReflectionType_GetKind(SlangReflectionType* type);
+    SLANG_API unsigned int spReflectionType_GetUserAttributeCount(SlangReflectionType* type);
+    SLANG_API SlangReflectionUserAttribute* spReflectionType_GetUserAttribute(SlangReflectionType* type, unsigned int index);
+    SLANG_API SlangReflectionUserAttribute* spReflectionType_FindUserAttributeByName(SlangReflectionType* type, char const* name);
+
     SLANG_API unsigned int spReflectionType_GetFieldCount(SlangReflectionType* type);
     SLANG_API SlangReflectionVariable* spReflectionType_GetFieldByIndex(SlangReflectionType* type, unsigned index);
 
@@ -1516,8 +1611,10 @@ extern "C"
 
     SLANG_API char const* spReflectionVariable_GetName(SlangReflectionVariable* var);
     SLANG_API SlangReflectionType* spReflectionVariable_GetType(SlangReflectionVariable* var);
-
     SLANG_API SlangReflectionModifier* spReflectionVariable_FindModifier(SlangReflectionVariable* var, SlangModifierID modifierID);
+    SLANG_API unsigned int spReflectionVariable_GetUserAttributeCount(SlangReflectionVariable* var);
+    SLANG_API SlangReflectionUserAttribute* spReflectionVariable_GetUserAttribute(SlangReflectionVariable* var, unsigned int index);
+    SLANG_API SlangReflectionUserAttribute* spReflectionVariable_FindUserAttributeByName(SlangReflectionVariable* var, SlangSession * session, char const* name);
 
     // Variable Layout Reflection
 
@@ -1609,6 +1706,34 @@ namespace slang
     struct TypeReflection;
     struct VariableLayoutReflection;
     struct VariableReflection;
+    
+    struct UserAttribute
+    {
+        char const* getName()
+        {
+            return spReflectionUserAttribute_GetName((SlangReflectionUserAttribute*)this);
+        }
+        uint32_t getArgumentCount()
+        {
+            return (uint32_t)spReflectionUserAttribute_GetArgumentCount((SlangReflectionUserAttribute*)this);
+        }
+        TypeReflection* getArgumentType(uint32_t index)
+        {
+            return (TypeReflection*)spReflectionUserAttribute_GetArgumentType((SlangReflectionUserAttribute*)this, index);
+        }
+        SlangResult getArgumentValueInt(uint32_t index, int * value)
+        {
+            return spReflectionUserAttribute_GetArgumentValueInt((SlangReflectionUserAttribute*)this, index, value);
+        }
+        SlangResult getArgumentValueFloat(uint32_t index, float * value)
+        {
+            return spReflectionUserAttribute_GetArgumentValueFloat((SlangReflectionUserAttribute*)this, index, value);
+        }
+        const char* getArgumentValueString(uint32_t index, size_t * outSize)
+        {
+            return spReflectionUserAttribute_GetArgumentValueString((SlangReflectionUserAttribute*)this, index, outSize);
+        }
+    };
 
     struct TypeReflection
     {
@@ -1731,6 +1856,19 @@ namespace slang
         char const* getName()
         {
             return spReflectionType_GetName((SlangReflectionType*) this);
+        }
+
+        unsigned int getUserAttributeCount()
+        {
+            return spReflectionType_GetUserAttributeCount((SlangReflectionType*)this);
+        }
+        UserAttribute* getUserAttributeByIndex(unsigned int index)
+        {
+            return (UserAttribute*)spReflectionType_GetUserAttribute((SlangReflectionType*)this, index);
+        }
+        UserAttribute* findUserAttributeByName(char const* name)
+        {
+            return (UserAttribute*)spReflectionType_FindUserAttributeByName((SlangReflectionType*)this, name);
         }
     };
 
@@ -1911,6 +2049,19 @@ namespace slang
         Modifier* findModifier(Modifier::ID id)
         {
             return (Modifier*) spReflectionVariable_FindModifier((SlangReflectionVariable*) this, (SlangModifierID) id);
+        }
+
+        unsigned int getUserAttributeCount()
+        {
+            return spReflectionVariable_GetUserAttributeCount((SlangReflectionVariable*)this);
+        }
+        UserAttribute* getUserAttributeByIndex(unsigned int index)
+        {
+            return (UserAttribute*)spReflectionVariable_GetUserAttribute((SlangReflectionVariable*)this, index);
+        }
+        UserAttribute* findUserAttributeByName(SlangSession* session, char const* name)
+        {
+            return (UserAttribute*)spReflectionVariable_FindUserAttributeByName((SlangReflectionVariable*)this, session, name);
         }
     };
 

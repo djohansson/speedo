@@ -39,6 +39,12 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 	vkapp_mouse(xpos, ypos, mouse_state);
 }
 
+static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    //if (action == GLFW_PRESS)
+		//key == GLFW_KEY_E && 
+}
+
 int main(int, char**)
 {
 	// todo: parse commandline
@@ -63,6 +69,7 @@ int main(int, char**)
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);
 	glfwSetCursorPosCallback(window, onMouseCursorPos);
+	glfwSetKeyCallback(window, onKey);
 
 	int framebufferWidth, framebufferHeight;
 	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);

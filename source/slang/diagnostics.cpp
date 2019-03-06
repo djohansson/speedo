@@ -61,6 +61,11 @@ void printDiagnosticArg(StringBuilder& sb, Type* type)
     sb << type->ToString();
 }
 
+void printDiagnosticArg(StringBuilder& sb, Val* val)
+{
+    sb << val->ToString();
+}
+
 void printDiagnosticArg(StringBuilder& sb, TypeExp const& type)
 {
     sb << type.type->ToString();
@@ -194,30 +199,60 @@ static void formatDiagnosticMessage(StringBuilder& sb, char const* format, int a
     }
 }
 
+static void formatDiagnostic(const HumaneSourceLoc& humaneLoc, Diagnostic const& diagnostic, StringBuilder& outBuilder)
+{
+    outBuilder << humaneLoc.pathInfo.foundPath;
+    outBuilder << "(";
+    outBuilder << Int32(humaneLoc.line);
+    outBuilder << "): ";
+
+    outBuilder << getSeverityName(diagnostic.severity);
+
+    if (diagnostic.ErrorID >= 0)
+    {
+        outBuilder << " ";
+        outBuilder << diagnostic.ErrorID;
+    }
+
+    outBuilder << ": ";
+    outBuilder << diagnostic.Message;
+    outBuilder << "\n";
+}
+
 static void formatDiagnostic(
     DiagnosticSink*     sink,
-    StringBuilder&      sb,
-    Diagnostic const&   diagnostic)
+    Diagnostic const&   diagnostic,
+    StringBuilder&      sb)
 {
     auto sourceManager = sink->sourceManager;
 
-    auto humaneLoc = sourceManager->getHumaneLoc(diagnostic.loc);
-
-    sb << humaneLoc.pathInfo.foundPath;
-    sb << "(";
-    sb << Int32(humaneLoc.line);
-    sb << "): ";
-    sb << getSeverityName(diagnostic.severity);
-
-    if( diagnostic.ErrorID >= 0 )
+    SourceView* sourceView = nullptr;
+    HumaneSourceLoc humaneLoc;
+    const auto sourceLoc = diagnostic.loc;
     {
-        sb << " ";
-        sb << diagnostic.ErrorID;
+        sourceView = sourceManager->findSourceViewRecursively(sourceLoc);
+        if (sourceView)
+        {
+            humaneLoc = sourceView->getHumaneLoc(sourceLoc);
+        }
+        formatDiagnostic(humaneLoc, diagnostic, sb);
     }
+     
+    if (sourceView && (sink->flags & DiagnosticSink::Flag::VerbosePath))
+    {
+        auto actualHumaneLoc = sourceView->getHumaneLoc(diagnostic.loc, SourceLocType::Actual);
 
-    sb << ": ";
-    sb << diagnostic.Message;
-    sb << "\n";
+        // Look up the path verbosely (will get the canonical path if necessary)
+        actualHumaneLoc.pathInfo.foundPath = sourceView->getSourceFile()->calcVerbosePath();
+
+        // Only output if it's actually different
+        if (actualHumaneLoc.pathInfo.foundPath != humaneLoc.pathInfo.foundPath ||
+            actualHumaneLoc.line != humaneLoc.line ||
+            actualHumaneLoc.column != humaneLoc.column)
+        { 
+            formatDiagnostic(actualHumaneLoc, diagnostic, sb);
+        }
+    }
 }
 
 void DiagnosticSink::diagnoseImpl(SourceLoc const& pos, DiagnosticInfo const& info, int argCount, DiagnosticArg const* const* args)
@@ -241,7 +276,7 @@ void DiagnosticSink::diagnoseImpl(SourceLoc const& pos, DiagnosticInfo const& in
     {
         // If so, pass the error string along to them
         StringBuilder messageBuilder;
-        formatDiagnostic(this, messageBuilder, diagnostic);
+        formatDiagnostic(this, diagnostic, messageBuilder);
 
         writer->write(messageBuilder.Buffer(), messageBuilder.Length());
     }
@@ -249,7 +284,7 @@ void DiagnosticSink::diagnoseImpl(SourceLoc const& pos, DiagnosticInfo const& in
     {
         // If the user doesn't have a callback, then just
         // collect our diagnostic messages into a buffer
-        formatDiagnostic(this, outputBuffer, diagnostic);
+        formatDiagnostic(this, diagnostic, outputBuffer);
     }
 
     if (diagnostic.severity >= Severity::Fatal)
@@ -263,6 +298,13 @@ void DiagnosticSink::diagnoseRaw(
     Severity    severity,
     char const* message)
 {
+    return diagnoseRaw(severity, UnownedStringSlice(message));
+}
+
+void DiagnosticSink::diagnoseRaw(
+    Severity    severity,
+    const UnownedStringSlice& message)
+{
     if (severity >= Severity::Error)
     {
         errorCount++;
@@ -272,7 +314,7 @@ void DiagnosticSink::diagnoseRaw(
     if(writer)
     {
         // If so, pass the error string along to them
-        writer->write(message, ::strlen(message));
+        writer->write(message.begin(), message.size());
     }
     else
     {

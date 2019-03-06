@@ -141,7 +141,7 @@ DIAGNOSTIC(15201, Error, syntaxErrorInPreprocessorExpression, "syntax error in p
 DIAGNOSTIC(15202, Error, divideByZeroInPreprocessorExpression, "division by zero in preprocessor expression");
 DIAGNOSTIC(15203, Error, expectedTokenInDefinedExpression, "expected '$0' in 'defined' expression");
 DIAGNOSTIC(15204, Warning, directiveExpectsExpression, "'$0' directive requires an expression");
-DIAGNOSTIC(15205, Warning, undefinedIdentifierInPreprocessorExpression, "undefined idenfier '$0' in preprocessor expression will evaluate to zero")
+DIAGNOSTIC(15205, Warning, undefinedIdentifierInPreprocessorExpression, "undefined identifier '$0' in preprocessor expression will evaluate to zero")
 
 DIAGNOSTIC(-1, Note, seeOpeningToken, "see opening '$0'")
 
@@ -149,7 +149,7 @@ DIAGNOSTIC(-1, Note, seeOpeningToken, "see opening '$0'")
 DIAGNOSTIC(15300, Error, includeFailed, "failed to find include file '$0'")
 DIAGNOSTIC(15301, Error, importFailed, "failed to find imported file '$0'")
 DIAGNOSTIC(-1, Error, noIncludeHandlerSpecified, "no `#include` handler was specified")
-DIAGNOSTIC(15302, Error, noCanonicalPath, "`#include` handler didn't generate a canonical path for '$0'")
+DIAGNOSTIC(15302, Error, noUniqueIdentity, "`#include` handler didn't generate a unique identity for file '$0'")
 
 
 // 154xx - macro definition
@@ -260,9 +260,8 @@ DIAGNOSTIC(31005, Error, expectedSingleStringArg, "attribute '$0' expects a sing
 DIAGNOSTIC(31006, Error, attributeFunctionNotFound, "Could not find function '$0' for attribute'$1'")
 
 
-DIAGNOSTIC(31100, Error, unknownStageName,  "unknown stage name '$0'")
-
-
+DIAGNOSTIC(31100, Error, unknownStageName, "unknown stage name '$0'")
+DIAGNOSTIC(31120, Error, invalidAttributeTarget, "invalid syntax target for user defined attribute")
 
 // Enums
 
@@ -275,13 +274,22 @@ DIAGNOSTIC(32003, Error, unexpectedEnumTagExpr,     "unexpected form for 'enum' 
 
 // 303xx: interfaces and associated types
 DIAGNOSTIC(30300, Error, assocTypeInInterfaceOnly, "'associatedtype' can only be defined in an 'interface'.")
-DIAGNOSTIC(30301, Error, globalGenParamInGlobalScopeOnly, "'__generic_param' can only be defined global scope.")
+DIAGNOSTIC(30301, Error, globalGenParamInGlobalScopeOnly, "'type_param' can only be defined global scope.")
 // TODO: need to assign numbers to all these extra diagnostics...
 DIAGNOSTIC(39999, Fatal, cyclicReference, "cyclic reference '$0'.")
 DIAGNOSTIC(39999, Fatal, localVariableUsedBeforeDeclared, "local variable '$0' is being used before its declaration.")
 
 // 304xx: generics
 DIAGNOSTIC(30400, Error, genericTypeNeedsArgs, "generic type '$0' used without argument")
+
+// 305xx: initializer lists
+DIAGNOSTIC(30500, Error, tooManyInitializers, "too many initializers (expected $0, got $1)");
+DIAGNOSTIC(30501, Error, cannotUseInitializerListForArrayOfUnknownSize, "cannot use initializer list for array of statically unknown size '$0'");
+DIAGNOSTIC(30502, Error, cannotUseInitializerListForVectorOfUnknownSize, "cannot use initializer list for vector of statically unknown size '$0'");
+DIAGNOSTIC(30503, Error, cannotUseInitializerListForMatrixOfUnknownSize, "cannot use initializer list for matrix of statically unknown size '$0' rows");
+
+// 306xx: variables
+DIAGNOSTIC(30600, Error, varWithoutTypeMustHaveInitializer, "a variable declaration without an initial-value expression must be given an explicit type");
 
 DIAGNOSTIC(39999, Error, expectedIntegerConstantWrongType, "expected integer constant (found: '$0')")
 DIAGNOSTIC(39999, Error, expectedIntegerConstantNotConstant, "expression does not evaluate to a compile-time constant")
@@ -328,7 +336,7 @@ DIAGNOSTIC(38002, Note, entryPointCandidate, "see candidate declaration for entr
 DIAGNOSTIC(38003, Error, entryPointSymbolNotAFunction, "entry point '$0' must be declared as a function")
 
 DIAGNOSTIC(38004, Error, entryPointTypeParameterNotFound, "no type found matching entry-point type parameter name '$0'")
-DIAGNOSTIC(38005, Error, entryPointTypeSymbolNotAType, "entry-point type parameter '$0' must be declared as a type")
+DIAGNOSTIC(38005, Error, globalGenericArgumentNotAType, "argument for global generic parameter '$0' must be a type")
 
 DIAGNOSTIC(38006, Warning, specifiedStageDoesntMatchAttribute, "entry point '$0' being compiled for the '$1' stage has a '[shader(...)]' attribute that specifies the '$2' stage")
 DIAGNOSTIC(38007, Error, entryPointHasNoStage, "no stage specified for entry point '$0'; use either a '[shader(\"name\")]' function attribute or the '-stage <name>' command-line option to specify a stage")
@@ -339,15 +347,21 @@ DIAGNOSTIC(38102, Error, initializerNotInsideType, "an 'init' declaration is onl
 DIAGNOSTIC(38102, Error, accessorMustBeInsideSubscriptOrProperty, "an accessor declaration is only allowed inside a subscript or property declaration")
 
 DIAGNOSTIC(38020, Error, mismatchEntryPointTypeArgument, "expecting $0 entry-point type arguments, provided $1.")
-DIAGNOSTIC(38021, Error, typeArgumentDoesNotConformToInterface, "type argument `$1` for generic parameter `$0` does not conform to interface `$1`.")
+DIAGNOSTIC(38021, Error, typeArgumentDoesNotConformToInterface, "type argument `$1` for generic parameter `$0` does not conform to interface `$2`.")
 
 DIAGNOSTIC(38022, Error, cannotSpecializeGlobalGenericToItself, "the global type parameter '$0' cannot be specialized to itself")
 DIAGNOSTIC(38023, Error, cannotSpecializeGlobalGenericToAnotherGenericParam, "the global type parameter '$0' cannot be specialized using another global type parameter ('$1')")
+
+DIAGNOSTIC(38024, Error, invalidDispatchThreadIDType, "parameter with SV_DispatchThreadID must be either scalar or vector (1 to 3) of uint/int but is $0");
+
 DIAGNOSTIC(-1, Note, noteWhenCompilingEntryPoint, "when compiling entry point '$0'")
+
+DIAGNOSTIC(38020, Error, mismatchGlobalGenericArguments, "expected $0 global generic arguments ($1 provided)")
+DIAGNOSTIC(38021, Error, globalTypeArgumentDoesNotConformToInterface, "type argument `$1` for global generic parameter `$0` does not conform to interface `$2`.")
+
 
 DIAGNOSTIC(38200, Error, recursiveModuleImport, "module `$0` recursively imports itself")
 DIAGNOSTIC(39999, Fatal, errorInImportedModule, "error in imported module, compilation ceased.")
-
 
 // 39xxx - Type layout and parameter binding.
 
@@ -374,6 +388,10 @@ DIAGNOSTIC(39015, Error, wholeSpaceParameterRequiresZeroBinding, "shader paramet
 
 DIAGNOSTIC(39013, Error, dontExpectOutParametersForStage, "the '$0' stage does not support `out` or `inout` entry point parameters")
 DIAGNOSTIC(39014, Error, dontExpectInParametersForStage, "the '$0' stage does not support `in` entry point parameters")
+
+DIAGNOSTIC(39016, Error, globalUniformsNotSupported, "'$0' is implicitly a global uniform shader parameter, which is currently unsupported by Slang. If a uniform parameter is intended, use a constant buffer or parameter block. If a global is intended, use the 'static' modifier.")
+
+DIAGNOSTIC(39017, Error, tooManyShaderRecordConstantBuffers, "can have at most one 'shader record' attributed constant buffer; found $0.")
 
 //
 // 4xxxx - IL code generation.
@@ -437,6 +455,7 @@ DIAGNOSTIC(51092, Error, stageDoesntHaveInputWorld, "'$0' doesn't appear to have
 
 DIAGNOSTIC(52000, Error, multiLevelBreakUnsupported, "control flow appears to require multi-level `break`, which Slang does not yet support");
 
+DIAGNOSTIC(52001, Warning, dxilNotFound, "dxil shared library not found, so 'dxc' output cannot be signed! Shader code will not be runnable in non-development environments.");
 
 // 99999 - Internal compiler errors, and not-yet-classified diagnostics.
 
@@ -446,5 +465,6 @@ DIAGNOSTIC(99999, Internal, internalCompilerError, "Slang internal compiler erro
 DIAGNOSTIC(99999, Error, compilationAborted, "Slang compilation aborted due to internal error");
 DIAGNOSTIC(99999, Error, compilationAbortedDueToException, "Slang compilation aborted due to an exception of $0: $1");
 DIAGNOSTIC(99999, Note, noteLocationOfInternalError, "the Slang compiler threw an exception while working on code near this location");
+DIAGNOSTIC(99999, Internal, serialDebugVerificationFailed, "Verification of serial debug information failed.");
 
 #undef DIAGNOSTIC

@@ -304,6 +304,9 @@ GLSLSystemValueInfo* getGLSLSystemValueInfo(
     else if(semanticName == "sv_dispatchthreadid")
     {
         name = "gl_GlobalInvocationID";
+
+        auto builder = context->getBuilder();
+        requiredType = builder->getVectorType(builder->getBasicType(BaseType::UInt), builder->getIntValue(builder->getIntType(), 3));
     }
     else if(semanticName == "sv_domainlocation")
     {
@@ -514,7 +517,7 @@ ScalarizedVal createSimpleGLSLGlobalVarying(
     //
     // Our IR global shader parameters are read-only, just
     // like our IR function parameters, and need a wrapper
-    // `Out<...>` type to represent otuputs.
+    // `Out<...>` type to represent outputs.
     //
     bool isOutput = kind == LayoutResourceKind::VaryingOutput;
     IRType* paramType = isOutput ? builder->getOutType(type) : type;
@@ -567,7 +570,11 @@ ScalarizedVal createGLSLGlobalVaryingsImpl(
     UInt                        bindingIndex,
     GlobalVaryingDeclarator*    declarator)
 {
-    if( as<IRBasicType>(type) )
+    if (as<IRVoidType>(type))
+    {
+        return ScalarizedVal();
+    }
+    else if( as<IRBasicType>(type) )
     {
         return createSimpleGLSLGlobalVarying(
             context,
@@ -592,7 +599,7 @@ ScalarizedVal createGLSLGlobalVaryingsImpl(
 
         auto elementType = arrayType->getElementType();
         auto elementCount = arrayType->getElementCount();
-        auto arrayLayout = dynamic_cast<ArrayTypeLayout*>(typeLayout);
+        auto arrayLayout = as<ArrayTypeLayout>(typeLayout);
         SLANG_ASSERT(arrayLayout);
         auto elementTypeLayout = arrayLayout->elementTypeLayout;
 
@@ -615,7 +622,7 @@ ScalarizedVal createGLSLGlobalVaryingsImpl(
     else if( auto streamType = as<IRHLSLStreamOutputType>(type))
     {
         auto elementType = streamType->getElementType();
-        auto streamLayout = dynamic_cast<StreamOutputTypeLayout*>(typeLayout);
+        auto streamLayout = as<StreamOutputTypeLayout>(typeLayout);
         SLANG_ASSERT(streamLayout);
         auto elementTypeLayout = streamLayout->elementTypeLayout;
 
@@ -635,7 +642,7 @@ ScalarizedVal createGLSLGlobalVaryingsImpl(
         // We need to recurse down into the individual fields,
         // and generate a variable for each of them.
 
-        auto structTypeLayout = dynamic_cast<StructTypeLayout*>(typeLayout);
+        auto structTypeLayout = as<StructTypeLayout>(typeLayout);
         SLANG_ASSERT(structTypeLayout);
         RefPtr<ScalarizedTupleValImpl> tupleValImpl = new ScalarizedTupleValImpl();
 
@@ -675,12 +682,14 @@ ScalarizedVal createGLSLGlobalVaryingsImpl(
                 stage,
                 fieldBindingIndex,
                 declarator);
+            if (fieldVal.flavor != ScalarizedVal::Flavor::none)
+            {
+                ScalarizedTupleValImpl::Element element;
+                element.val = fieldVal;
+                element.key = field->getKey();
 
-            ScalarizedTupleValImpl::Element element;
-            element.val = fieldVal;
-            element.key = field->getKey();
-
-            tupleValImpl->elements.Add(element);
+                tupleValImpl->elements.Add(element);
+            }
         }
 
         return ScalarizedVal::tuple(tupleValImpl);
@@ -738,7 +747,7 @@ ScalarizedVal extractField(
 
     case ScalarizedVal::Flavor::tuple:
         {
-            auto tupleVal = val.impl.As<ScalarizedTupleValImpl>();
+            auto tupleVal = as<ScalarizedTupleValImpl>(val.impl);
             return tupleVal->elements[fieldIndex].val;
         }
 
@@ -815,7 +824,7 @@ void assign(
                 // We are assigning from a tuple to a destination
                 // that is not a tuple. We will perform assignment
                 // element-by-element.
-                auto rightTupleVal = right.impl.As<ScalarizedTupleValImpl>();
+                auto rightTupleVal = as<ScalarizedTupleValImpl>(right.impl);
                 UInt elementCount = rightTupleVal->elements.Count();
 
                 for( UInt ee = 0; ee < elementCount; ++ee )
@@ -841,7 +850,7 @@ void assign(
         {
             // We have a tuple, so we are going to need to try and assign
             // to each of its constituent fields.
-            auto leftTupleVal = left.impl.As<ScalarizedTupleValImpl>();
+            auto leftTupleVal = as<ScalarizedTupleValImpl>(left.impl);
             UInt elementCount = leftTupleVal->elements.Count();
 
             for( UInt ee = 0; ee < elementCount; ++ee )
@@ -863,7 +872,7 @@ void assign(
             //
             // In this case we are converting to the actual type of the GLSL variable,
             // from the "pretend" type that it had in the IR before.
-            auto typeAdapter = left.impl.As<ScalarizedTypeAdapterValImpl>();
+            auto typeAdapter = as<ScalarizedTypeAdapterValImpl>(left.impl);
             auto adaptedRight = adaptType(builder, right, typeAdapter->actualType, typeAdapter->pretendType);
             assign(builder, typeAdapter->val, adaptedRight);
         }
@@ -899,7 +908,7 @@ ScalarizedVal getSubscriptVal(
 
     case ScalarizedVal::Flavor::tuple:
         {
-            auto inputTuple = val.impl.As<ScalarizedTupleValImpl>();
+            auto inputTuple = val.impl.as<ScalarizedTupleValImpl>();
 
             RefPtr<ScalarizedTupleValImpl> resultTuple = new ScalarizedTupleValImpl();
             resultTuple->type = elementType;
@@ -961,7 +970,7 @@ IRInst* materializeTupleValue(
     IRBuilder*      builder,
     ScalarizedVal   val)
 {
-    auto tupleVal = val.impl.As<ScalarizedTupleValImpl>();
+    auto tupleVal = val.impl.as<ScalarizedTupleValImpl>();
     SLANG_ASSERT(tupleVal);
 
     UInt elementCount = tupleVal->elements.Count();
@@ -1038,7 +1047,7 @@ IRInst* materializeValue(
 
     case ScalarizedVal::Flavor::tuple:
         {
-            auto tupleVal = val.impl.As<ScalarizedTupleValImpl>();
+            //auto tupleVal = as<ScalarizedTupleValImpl>(val.impl);
             return materializeTupleValue(builder, val);
         }
         break;
@@ -1049,7 +1058,7 @@ IRInst* materializeValue(
             // doesn't match the type it pretends to have. To make this
             // work we need to adapt the type from its actual type over
             // to its pretend type.
-            auto typeAdapter = val.impl.As<ScalarizedTypeAdapterValImpl>();
+            auto typeAdapter = as<ScalarizedTypeAdapterValImpl>(val.impl);
             auto adapted = adaptType(builder, typeAdapter->val, typeAdapter->pretendType, typeAdapter->actualType);
             return materializeValue(builder, adapted);
         }
@@ -1238,6 +1247,23 @@ void legalizeEntryPointParameterForGLSL(
                 }
             }
 
+            // We will still have references to the parameter coming
+            // from the `EmitVertex` calls, so we need to replace it
+            // with something. There isn't anything reasonable to
+            // replace it with that would have the right type, so
+            // we will replace it with an undefined value, knowing
+            // that the emitted code will not actually reference it.
+            //
+            // TODO: This approach to generating geometry shader code
+            // is not ideal, and we should strive to find a better
+            // approach that involes coding the `EmitVertex` operation
+            // directly in the stdlib, similar to how ray-tracing
+            // operations like `TraceRay` are handled.
+            //
+            builder->setInsertBefore(func->getFirstBlock()->getFirstOrdinaryInst());
+            auto undefinedVal = builder->emitUndefined(pp->getFullType());
+            pp->replaceUsesWith(undefinedVal);
+
             return;
         }
     }
@@ -1375,7 +1401,7 @@ void legalizeEntryPointForGLSL(
     auto layoutDecoration = func->findDecoration<IRLayoutDecoration>();
     SLANG_ASSERT(layoutDecoration);
 
-    auto entryPointLayout = dynamic_cast<EntryPointLayout*>(layoutDecoration->getLayout());
+    auto entryPointLayout = as<EntryPointLayout>(layoutDecoration->getLayout());
     SLANG_ASSERT(entryPointLayout);
 
     GLSLLegalizationContext context;
@@ -1493,18 +1519,16 @@ void legalizeEntryPointForGLSL(
         // to be at the start of the "ordinary" instructions in the block:
         builder.setInsertBefore(firstBlock->getFirstOrdinaryInst());
 
-        UInt paramCounter = 0;
         for( auto pp = firstBlock->getFirstParam(); pp; pp = pp->getNextParam() )
         {
-            UInt paramIndex = paramCounter++;
-
-            // We assume that the entry-point layout includes information
-            // on each parameter, and that these arrays are kept aligned.
-            // Note that this means that any transformations that mess
-            // with function signatures will need to also update layout info...
+            // We assume that the entry-point parameters will all have
+            // layout information attached to them, which is kept up-to-date
+            // by any transformations affecting the parameter list.
             //
-            SLANG_ASSERT(entryPointLayout->fields.Count() > paramIndex);
-            auto paramLayout = entryPointLayout->fields[paramIndex];
+            auto paramLayoutDecoration = pp->findDecoration<IRLayoutDecoration>();
+            SLANG_ASSERT(paramLayoutDecoration);
+            auto paramLayout = as<VarLayout>(paramLayoutDecoration->getLayout());
+            SLANG_ASSERT(paramLayout);
 
             legalizeEntryPointParameterForGLSL(
                 &context,
