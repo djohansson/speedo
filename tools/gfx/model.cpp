@@ -280,7 +280,6 @@ Result ModelLoader::load(
         for(auto& objShape : objShapes)
         {
             size_t objIndexCounter = 0;
-            size_t objFaceCounter = 0;
             for(auto objFaceVertexCount : objShape.mesh.num_face_vertices)
             {
                 size_t beginIndex = objIndexCounter;

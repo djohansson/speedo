@@ -535,8 +535,6 @@ Result VKRenderer::Buffer::init(const VulkanApi& api, size_t bufferSize, VkBuffe
     int memoryTypeIndex = api.findMemoryTypeIndex(memoryReqs.memoryTypeBits, reqMemoryProperties);
     assert(memoryTypeIndex >= 0);
 
-    VkMemoryPropertyFlags actualMemoryProperites = api.m_deviceMemoryProperties.memoryTypes[memoryTypeIndex].propertyFlags;
-
     VkMemoryAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
     allocateInfo.allocationSize = memoryReqs.size;
     allocateInfo.memoryTypeIndex = memoryTypeIndex;
@@ -1383,8 +1381,6 @@ Result VKRenderer::createTextureResource(Resource::Usage initialUsage, const Tex
 
         int memoryTypeIndex = m_api.findMemoryTypeIndex(memRequirements.memoryTypeBits, reqMemoryProperties);
         assert(memoryTypeIndex >= 0);
-
-        VkMemoryPropertyFlags actualMemoryProperites = m_api.m_deviceMemoryProperties.memoryTypes[memoryTypeIndex].propertyFlags;
 
         allocInfo.allocationSize = memRequirements.size;
         allocInfo.memoryTypeIndex = memoryTypeIndex;

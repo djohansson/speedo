@@ -3603,7 +3603,7 @@ namespace Slang
     {
         StringBuilder sb;
         printSlangIRAssembly(sb, module, mode);
-        return sb;
+        return std::move(sb);
     }
 
     void dumpIR(IRModule* module, ISlangWriter* writer, IRDumpMode mode)

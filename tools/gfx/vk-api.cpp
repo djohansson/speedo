@@ -123,7 +123,6 @@ int VulkanApi::findQueue(VkQueueFlags reqFlags) const
     // Find a queue that can service our needs
     //VkQueueFlags reqQueueFlags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
 
-    int queueFamilyIndex = -1;
     for (int i = 0; i < int(numQueueFamilies); ++i)
     {
         if ((queueFamilies[i].queueFlags & reqFlags) == reqFlags)

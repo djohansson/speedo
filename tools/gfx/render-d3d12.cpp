@@ -1608,6 +1608,7 @@ Result D3D12Renderer::createFrameResources()
 
     {
         D3D12_RESOURCE_DESC desc = m_backBuffers[0]->getResource()->GetDesc();
+        (void)desc;
         assert(desc.Width == UINT64(m_desc.width) && desc.Height == UINT64(m_desc.height));
     }
 
@@ -1926,6 +1927,7 @@ Result D3D12Renderer::createTextureResource(Resource::Usage initialUsage, const 
         {
             const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout = layouts[j];
             const D3D12_SUBRESOURCE_FOOTPRINT& footprint = layout.Footprint;
+            (void)footprint;
 
             const TextureResource::Size mipSize = srcDesc.size.calcMipSize(j);
 
@@ -2354,6 +2356,8 @@ void* D3D12Renderer::map(BufferResource* bufferIn, MapFlavor flavor)
             // We need this in a state so we can upload
             switch (flavor)
             {
+                default:
+                    break;
                 case MapFlavor::HostWrite:
                 case MapFlavor::WriteDiscard:
                 {
@@ -2443,6 +2447,8 @@ void D3D12Renderer::unmap(BufferResource* bufferIn)
 
     switch (buffer->m_backingStyle)
     {
+        default:
+            break;
         case Style::MemoryBacked:
         {
             // Don't need to do anything, as will be uploaded automatically when used
@@ -2453,6 +2459,8 @@ void D3D12Renderer::unmap(BufferResource* bufferIn)
             // We need this in a state so we can upload
             switch (buffer->m_mapFlavor)
             {
+                default:
+                    break;
                 case MapFlavor::HostWrite:
                 case MapFlavor::WriteDiscard:
                 {

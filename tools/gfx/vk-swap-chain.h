@@ -103,7 +103,6 @@ struct VulkanSwapChain
     template <typename T>
     void _setPlatformDesc(const T& desc)
     {
-        const PlatformDesc* check = &desc;
         int size = (sizeof(T) + sizeof(void*) - 1) / sizeof(void*);
         m_platformDescBuffer.SetSize(size);
         *(T*)m_platformDescBuffer.Buffer() = desc;
