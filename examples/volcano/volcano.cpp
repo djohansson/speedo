@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -49,9 +50,6 @@
 #endif
 
 #if defined(__WINDOWS__)
-#ifndef NOMINMAX
-#define NOMINMAX 1
-#endif
 #include <wtypes.h>
 #include <vulkan/vulkan_win32.h>
 #elif defined(__APPLE__)
@@ -140,9 +138,9 @@ struct WindowData
 	uint32_t height;
 
 	Surface<Backend> surface;
-	SurfaceFormat<Backend> surfaceFormat;// = {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
-	Format<Backend> depthFormat;// = VK_FORMAT_D24_UNORM_S8_UINT;
-	PresentMode<Backend> presentMode;// = VK_PRESENT_MODE_FIFO_KHR;
+	SurfaceFormat<Backend> surfaceFormat;
+	Format<Backend> depthFormat;
+	PresentMode<Backend> presentMode;
 
 	SwapchainContext<Backend> swapchain;
 
@@ -503,33 +501,32 @@ class VulkanApplication
 
 	void mouse(double x, double y, int state)
 	{
-		auto getArcballVector = [](double x, double y, int screen_width, int screen_height) {
-			glm::vec3 p = glm::vec3(x / screen_width * 2 - 1, y / screen_height * 2 - 1, 0);
-			p.y = -p.y;
+		// auto getArcballVector = [](double x, double y, int screen_width, int screen_height) {
+		// 	glm::vec3 p = glm::vec3(x / screen_width * 2 - 1, y / screen_height * 2 - 1, 0);
+		// 	p.y = -p.y;
 
-			auto opSqr = p.x * p.x + p.y * p.y;
-			if (opSqr <= 1)
-				p.z = sqrt(1 - opSqr); // Pythagoras
-			else
-				p = glm::normalize(p); // nearest point
+		// 	auto opSqr = p.x * p.x + p.y * p.y;
+		// 	if (opSqr <= 1)
+		// 		p.z = sqrt(1 - opSqr); // Pythagoras
+		// 	else
+		// 		p = glm::normalize(p); // nearest point
 
-			return p;
-		};
+		// 	return p;
+		// };
 
-		if (false && myWindow.activeViewport && state & VKAPP_MOUSE_ARCBALL_ENABLE_FLAG)
-		{
-			const auto &width = myWindow.imgui.window->Width;
-			const auto &height = myWindow.imgui.window->Height;
-			glm::vec3 va = getArcballVector(myMouseXPos, myMouseYPos, width, height);
-			glm::vec3 vb = getArcballVector(x, y, width, height);
-			float angle = acos(std::min(1.0f, glm::dot(va, vb)));
-			glm::vec3 axisInViewCoord = glm::cross(va, vb);
-			glm::mat3 viewToModel = glm::inverse(
-				glm::mat3(myWindow.viewports[*myWindow.activeViewport].view) /* * glm::mat3(myResources.model.transform)*/);
-			glm::vec3 axisInModelCoord = viewToModel * axisInViewCoord;
-			/*myResources.model.transform = glm::rotate(
-				myResources.model.transform, glm::degrees(angle), axisInModelCoord);*/
-		}
+		// if (false && myWindow.activeViewport && state & VKAPP_MOUSE_ARCBALL_ENABLE_FLAG)
+		// {
+		// 	const auto &width = myWindow.imgui.window->Width;
+		// 	const auto &height = myWindow.imgui.window->Height;
+		// 	glm::vec3 va = getArcballVector(myMouseXPos, myMouseYPos, width, height);
+		// 	glm::vec3 vb = getArcballVector(x, y, width, height);
+		// 	float angle = acos(std::min(1.0f, glm::dot(va, vb)));
+		// 	glm::vec3 axisInViewCoord = glm::cross(va, vb);
+		// 	glm::mat3 viewToModel = glm::inverse(
+		// 		glm::mat3(myWindow.viewports[*myWindow.activeViewport].view) * glm::mat3(myResources.model.transform));
+		// 	glm::vec3 axisInModelCoord = viewToModel * axisInViewCoord;
+		// 	myResources.model.transform = glm::rotate(myResources.model.transform, glm::degrees(angle), axisInModelCoord);
+		// }
 
 		myMouseXPos = x;
 		myMouseYPos = y;
@@ -836,6 +833,7 @@ class VulkanApplication
 			spSetDumpIntermediates(slangRequest, true);
 
 			int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
+			(void)targetIndex;
 			int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
 
 			std::string shaderString((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
@@ -867,7 +865,7 @@ class VulkanApplication
 
 			EntryPointVector entryPoints;
 
-			for (uint i = 0; i < sizeof_array(epStrings); i++)
+			for (int i = 0; i < sizeof_array(epStrings); i++)
 			{
 				int index = spAddEntryPoint(
 					slangRequest,
@@ -1130,7 +1128,7 @@ class VulkanApplication
 			// must be sorted lexicographically for std::includes to work!
 			"VK_EXT_debug_report",
 			"VK_KHR_surface",
-#if defined(_WIN32)
+#if defined(__WINDOWS__)
 			"VK_KHR_win32_surface",
 #elif defined(__APPLE__)
 			"VK_MVK_macos_surface",
@@ -1211,7 +1209,7 @@ class VulkanApplication
 #if defined(VOLCANO_USE_GLFW)
 		CHECK_VK(glfwCreateWindowSurface(myInstance, reinterpret_cast<GLFWwindow *>(view), nullptr,
 										 &myWindow.surface));
-#elif defined(_WIN32)
+#elif defined(__WINDOWS__)
 		VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
 		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 		surfaceCreateInfo.flags = 0;

@@ -32,6 +32,10 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
 			+ ' -DSLANG_STATIC'
+			+ ' -Wno-reorder'
+			+ ' -Wno-inconsistent-missing-override'
+			+ ' -Wno-missing-braces'
+			+ ' -Wno-macro-redefined'
 
 		.CompilerInputPath = '$ProjectPath$/source/core'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -47,6 +51,19 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
 			+ ' -DSLANG_STATIC'
+			+ ' -Wno-undefined-var-template'
+			+ ' -Wno-inconsistent-missing-override'
+			+ ' -Wno-unused-local-typedef'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-int-to-pointer-cast'
+			+ ' -Wno-reorder'
+			+ ' -Wno-inconsistent-missing-override'
+			+ ' -Wno-switch'
+			+ ' -Wno-sometimes-uninitialized'
+			+ ' -Wno-missing-braces'
+			+ ' -Wno-macro-redefined'
+			+ ' -Wno-unused-function'
+			+ ' -Wno-invalid-offsetof'
 		
 		.CompilerInputPath = '$ProjectPath$/source/slang'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -62,6 +79,19 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
 			+ ' -DSLANG_STATIC'
+			+ ' -Wno-undefined-var-template'
+			+ ' -Wno-inconsistent-missing-override'
+			+ ' -Wno-unused-local-typedef'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-int-to-pointer-cast'
+			+ ' -Wno-reorder'
+			+ ' -Wno-inconsistent-missing-override'
+			+ ' -Wno-switch'
+			+ ' -Wno-sometimes-uninitialized'
+			+ ' -Wno-missing-braces'
+			+ ' -Wno-macro-redefined'
+			+ ' -Wno-unused-function'
+			+ ' -Wno-invalid-offsetof'
 			
 		.CompilerInputPath = '$ProjectPath$/source/slangc'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -171,6 +201,21 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$xxhash$LibSuffix$'
 	}
+
+	// Library('$ConfigName$-ISPCTextureCompressor')
+	// {
+	// 	.IntermediateFilePath + '/ISPCTextureCompressor'
+
+	// 	.CompilerOptions + .CompilerOptionsCpp
+		
+	// 	.CompilerInputFiles = {
+	// 		'$ProjectPath$/external/ISPCTextureCompressor/ispc_texcomp/ispc_texcomp.cpp',
+	// 		'$ProjectPath$/external/ISPCTextureCompressor/ispc_texcomp/ispc_texcomp_astc.cpp',
+	// 	}
+	// 	.CompilerOutputPath = '$IntermediateFilePath$'
+
+	// 	.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$ISPCTextureCompressor$LibSuffix$'
+	// }
 
 	ObjectList('$ConfigName$-glslang-OGLCompilersDLL')
 	{
@@ -282,6 +327,13 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$/tools'
 			+ ' -I$ProjectPath$/external/imgui'
 			+ ' -I$VulkanSDKPath$/include'
+			+ ' -Wno-unused-local-typedef'
+			+ ' -Wno-int-to-pointer-cast'
+			+ ' -Wno-macro-redefined'
+			+ ' -Wno-reorder'
+			+ ' -Wno-unused-function'
+			+ ' -Wno-missing-braces'
+			+ ' -Wno-inconsistent-missing-override'
 		
 		.CompilerInputPath = '$ProjectPath$/tools/gfx'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -369,9 +421,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DSLANG_STATIC'
 			+ ' -DVOLCANO_USE_GLFW'
-			+ ' -Wno-unused-variable'
-			+ ' -Wno-reorder'
-			+ ' -Wno-unused-private-field'
+			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 
 		.CompilerInputPath = '$ProjectPath$/examples/volcano'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -457,6 +507,6 @@ ForEach(.Config in .Clang_x64_Configs)
 
 Alias('all')
 {
-//	.Targets = .AllConfigNames
-	.Targets = { 'debug' }
+	.Targets = .AllConfigNames
+//	.Targets = { 'debug' }
 }
