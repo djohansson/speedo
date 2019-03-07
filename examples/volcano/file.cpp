@@ -136,8 +136,8 @@ void saveBinaryFile(
         std::iostream fileStream(&fileStreamBuf);
 
         saveOp(fileStream);
-        
-        fileStreamBuf.truncate();
+
+        fileStream.sync();
 
         if (sha2Enable)
         {
@@ -239,23 +239,18 @@ void loadCachedSourceFile(
         sourceFileState == FileState::Stale ||
         pbinFileState != FileState::Valid)
     {	
-        mio::mmap_ostreambuf fileStreamBuf(jsonFilePath.string());
-        std::ostream fileStream(&fileStreamBuf);
-        
-        {
-            cereal::JSONOutputArchive json(fileStream);
-            
-            json(cereal::make_nvp("loaderType", loaderType));
-            json(cereal::make_nvp("loaderVersion", loaderVersion));
+        mio::mmap_ostreambuf streamBuf(jsonFilePath.string());
+        std::ostream stream(&streamBuf);
+        cereal::JSONOutputArchive json(stream);
+    
+        json(cereal::make_nvp("loaderType", loaderType));
+        json(cereal::make_nvp("loaderVersion", loaderVersion));
 
-            loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
-            json(CEREAL_NVP(sourceFileInfo));
+        loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
+        json(CEREAL_NVP(sourceFileInfo));
 
-            saveBinaryFile(pbinFilePath, pbinFileInfo, saveBinaryCacheFn, true);
-            json(CEREAL_NVP(pbinFileInfo));
-        }
-
-        fileStreamBuf.truncate();
+        saveBinaryFile(pbinFilePath, pbinFileInfo, saveBinaryCacheFn, true);
+        json(CEREAL_NVP(pbinFileInfo));
     }
     else
     {
