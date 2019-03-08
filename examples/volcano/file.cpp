@@ -54,11 +54,7 @@ FileState getFileInfo(
     if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
         return FileState::Missing;
 
-    std::string _loaderType;
-    std::string _loaderVersion;
-    FileInfo _fileInfo;
-    
-    std::tie(_loaderType, _loaderVersion, _fileInfo) = loadJSON(jsonStream, id);
+    auto [_loaderType, _loaderVersion, _fileInfo] = loadJSON(jsonStream, id);
 
     if (loaderType.compare(_loaderType) != 0 ||
         loaderVersion.compare(_loaderVersion) != 0)
@@ -99,6 +95,7 @@ void loadBinaryFile(
     if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
         throw std::runtime_error("Failed to open file.");
 
+    // intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
     {
         mio::mmap_istreambuf fileStreamBuf(filePath.string());
         std::istream fileStream(&fileStreamBuf);
@@ -131,13 +128,12 @@ void saveBinaryFile(
     std::function<void(std::iostream&)> saveOp,
     bool sha2Enable)
 {
+    // intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
     {
         mio::mmap_iostreambuf fileStreamBuf(filePath.string());
         std::iostream fileStream(&fileStreamBuf);
 
         saveOp(fileStream);
-        
-        fileStreamBuf.truncate();
 
         if (sha2Enable)
         {
@@ -242,20 +238,16 @@ void loadCachedSourceFile(
         mio::mmap_ostreambuf fileStreamBuf(jsonFilePath.string());
         std::ostream fileStream(&fileStreamBuf);
         
-        {
-            cereal::JSONOutputArchive json(fileStream);
-            
-            json(cereal::make_nvp("loaderType", loaderType));
-            json(cereal::make_nvp("loaderVersion", loaderVersion));
+        cereal::JSONOutputArchive json(fileStream);
+        
+        json(cereal::make_nvp("loaderType", loaderType));
+        json(cereal::make_nvp("loaderVersion", loaderVersion));
 
-            loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
-            json(CEREAL_NVP(sourceFileInfo));
+        loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
+        json(CEREAL_NVP(sourceFileInfo));
 
-            saveBinaryFile(pbinFilePath, pbinFileInfo, saveBinaryCacheFn, true);
-            json(CEREAL_NVP(pbinFileInfo));
-        }
-
-        fileStreamBuf.truncate();
+        saveBinaryFile(pbinFilePath, pbinFileInfo, saveBinaryCacheFn, true);
+        json(CEREAL_NVP(pbinFileInfo));
     }
     else
     {
