@@ -41,3 +41,8 @@ examples/volcano/slang-dump-*.*
 # mio unit test output
 
 examples/volcano/test-file
+
+# pbin cache files
+
+examples/volcano/resources/*.json
+examples/volcano/resources/*.pbin
