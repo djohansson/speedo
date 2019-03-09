@@ -9,8 +9,6 @@ inline constexpr auto sizeof_array(const T &array)
 	return (sizeof(array) / sizeof(array[0]));
 }
 
-inline constexpr double pi() { return 3.14159265358979323846; }
-
 namespace stbi_istream_callbacks
 {
 int read(void *user, char *data, int size)

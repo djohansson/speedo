@@ -95,6 +95,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/hash.hpp>
+#include <glm/gtc/constants.hpp>
 //#include <glm/gtx/matrix_interpolation.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
@@ -114,11 +115,19 @@
 
 #include <slang.h>
 
-struct ViewportData
+struct ViewData
 {
-	glm::mat4 view = glm::mat4(1.0f);
+	struct ViewportData
+	{
+		uint32_t width;
+		uint32_t height;
+	} viewport;
+
+	glm::vec3 camPos = glm::vec3(0.0f, -1.0f, 0.0f);
+	glm::vec3 camRot = glm::vec3(0.0f, 0.0f, 0.0);
+
+	glm::mat4x3 view = glm::mat4x3(1.0f);
 	glm::mat4 projection = glm::mat4(1.0f);
-	glm::vec3 eye = glm::vec3(1.5f, 1.5f, 1.0f);
 };
 
 template <GraphicsBackend Backend>
@@ -144,8 +153,8 @@ struct WindowData
 
 	SwapchainContext<Backend> swapchain;
 
-	std::unique_ptr<ViewportData[]> viewports;
-	std::optional<size_t> activeViewport;
+	std::vector<ViewData> views;
+	std::optional<size_t> activeView;
 
 	ImGuiData<Backend> imgui;
 };
@@ -439,10 +448,6 @@ class VulkanApplication
 			createFrameResources(myWindow.width, myWindow.height);
 		}
 
-		// update matrices
-		updateViewMatrices();
-		updateProjectionMatrices();
-
 		// todo: run this at the same time as secondary command buffer recording
 		updateUniformBuffers();
 
@@ -499,76 +504,86 @@ class VulkanApplication
 		createFrameResources(width, height);
 	}
 
-	void mouse(double x, double y, int state)
+	void onMouse(const mouse_state& state)
 	{
-		// auto getArcballVector = [](double x, double y, int screen_width, int screen_height) {
-		// 	glm::vec3 p = glm::vec3(x / screen_width * 2 - 1, y / screen_height * 2 - 1, 0);
-		// 	p.y = -p.y;
+		if (state.inside_window)
+		{
+			// todo: generic view index calculation
+			size_t viewIdx = state.xpos / (myWindow.width / NX);
+			size_t viewIdy = state.ypos / (myWindow.height / NY);
+			myWindow.activeView = (viewIdy * NX) + viewIdx;
+		}
+		else
+		{
+			myWindow.activeView.reset();
+		}
+		
+		if (myWindow.activeView)
+		{
+#if defined(VOLCANO_USE_GLFW)
+			if (state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS)
+#endif
+			{
+				auto &view = myWindow.views[*myWindow.activeView];
 
-		// 	auto opSqr = p.x * p.x + p.y * p.y;
-		// 	if (opSqr <= 1)
-		// 		p.z = sqrt(1 - opSqr); // Pythagoras
-		// 	else
-		// 		p = glm::normalize(p); // nearest point
+				constexpr auto speed = 1.2f;
 
-		// 	return p;
-		// };
+				view.camRot += glm::vec3(
+					static_cast<float>(state.ypos - state.ypos_last) / view.viewport.height,
+					static_cast<float>(state.xpos - state.xpos_last) / view.viewport.width,
+					0.0f) * speed;
 
-		// if (false && myWindow.activeViewport && state & VKAPP_MOUSE_ARCBALL_ENABLE_FLAG)
-		// {
-		// 	const auto &width = myWindow.imgui.window->Width;
-		// 	const auto &height = myWindow.imgui.window->Height;
-		// 	glm::vec3 va = getArcballVector(myMouseXPos, myMouseYPos, width, height);
-		// 	glm::vec3 vb = getArcballVector(x, y, width, height);
-		// 	float angle = acos(std::min(1.0f, glm::dot(va, vb)));
-		// 	glm::vec3 axisInViewCoord = glm::cross(va, vb);
-		// 	glm::mat3 viewToModel = glm::inverse(
-		// 		glm::mat3(myWindow.viewports[*myWindow.activeViewport].view) * glm::mat3(myResources.model.transform));
-		// 	glm::vec3 axisInModelCoord = viewToModel * axisInViewCoord;
-		// 	myResources.model.transform = glm::rotate(myResources.model.transform, glm::degrees(angle), axisInModelCoord);
-		// }
+				std::cout << *myWindow.activeView << ":rot:[" << view.camRot.x << ", " << view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
 
-		myMouseXPos = x;
-		myMouseYPos = y;
+				updateViewMatrices();
+				updateProjectionMatrices();
+			}
+		}
 	}
 
-	void keyPressed()
+	void onKeyboard(const keyboard_state& state)
 	{
-		if (myWindow.activeViewport)
+		if (myWindow.activeView)
 		{
-			float dx = 0; //how much we strafe on x
-			float dz = 0; //how much we walk on z
+			float dx = 0;
+			float dz = 0;
 
-			char key = '\n';
-			switch (key)
+#if defined(VOLCANO_USE_GLFW)
+			if (state.action == GLFW_PRESS || state.action == GLFW_REPEAT)
 			{
-			case 'w':
-				dz = 2;
-				break;
-			case 's':
-				dz = -2;
-				break;
-			case 'a':
-				dx = -2;
-				break;
-			case 'd':
-				dx = 2;
-				break;
-			default:
-				break;
+				switch (state.key)
+				{
+				case GLFW_KEY_W:
+					dz = 1;
+					break;
+				case GLFW_KEY_S:
+					dz = -1;
+					break;
+				case GLFW_KEY_A:
+					dx = 1;
+					break;
+				case GLFW_KEY_D:
+					dx = -1;
+					break;
+				default:
+					break;
+				}
 			}
+#endif
 
-			const glm::mat4 &mat = myWindow.viewports[*myWindow.activeViewport].view;
-			glm::vec3 &eye = myWindow.viewports[*myWindow.activeViewport].eye;
+			auto &view = myWindow.views[*myWindow.activeView];
 
-			glm::vec3 forward(mat[0][2], mat[1][2], mat[2][2]);
-			glm::vec3 strafe(mat[0][0], mat[1][0], mat[2][0]);
+			auto forward = glm::vec3(view.view[0][2], view.view[1][2], view.view[2][2]);
+			auto strafe = glm::vec3(view.view[0][0], view.view[1][0], view.view[2][0]);
+			
+			constexpr auto speed = 0.2f;
 
-			const float speed = 0.12f;
+			view.camPos += (dz * forward + dx * strafe) * speed;
 
-			eye += (-dz * forward + dx * strafe) * speed;
+			std::cout << *myWindow.activeView << ":pos:[" << view.camPos.x << ", " << view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
 
 			updateViewMatrices();
+			updateProjectionMatrices();
 		}
 	}
 
@@ -1669,7 +1684,7 @@ class VulkanApplication
 			rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 			rasterizer.lineWidth = 1.0f;
 			rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-			rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+			rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 			rasterizer.depthBiasEnable = VK_FALSE;
 			rasterizer.depthBiasConstantFactor = 0.0f;
 			rasterizer.depthBiasClamp = 0.0f;
@@ -2123,9 +2138,13 @@ class VulkanApplication
 
 		myWindow.width = width;
 		myWindow.height = height;
-		
-		myWindow.viewports = std::make_unique<ViewportData[]>(NX * NY);
-		myWindow.activeViewport = 0;
+
+		myWindow.views.resize(NX * NY);
+		for (auto& view : myWindow.views)
+		{
+			view.viewport.width = width / NX;
+			view.viewport.height = height / NY;
+		}
 
 		myWindow.imgui.window = std::make_unique<ImGui_ImplVulkanH_WindowData>(/*myFrameCount*/);
 
@@ -2222,33 +2241,39 @@ class VulkanApplication
 
 	void updateViewMatrices()
 	{
-		if (myWindow.activeViewport)
+		if (myWindow.activeView)
 		{
-			float pitch = 0.0f;
-			float yaw = 0.0f;
-			float roll = pi();
+			auto& view = myWindow.views[*myWindow.activeView];
 
-			glm::mat4 matPitch = glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::mat4 matYaw = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-			glm::mat4 matRoll = glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
-
-			glm::mat4 rotate = matRoll * matPitch * matYaw;
-			glm::mat4 translate = glm::translate(glm::mat4(1.0f), -myWindow.viewports[*myWindow.activeViewport].eye);
-
-			myWindow.viewports[*myWindow.activeViewport].view = rotate * translate;
+			auto Rx = glm::rotate(glm::mat4(1.0), view.camRot.x, glm::vec3(-1, 0, 0));
+			auto Ry = glm::rotate(glm::mat4(1.0), view.camRot.y, glm::vec3(0, -1, 0));
+			auto T = glm::translate(glm::mat4(1.0), -view.camPos);
+		
+			myWindow.views[*myWindow.activeView].view = glm::inverse(T * Ry * Rx);
+			
 		}
 	}
 
 	void updateProjectionMatrices()
 	{
-		if (myWindow.activeViewport)
+		if (myWindow.activeView)
 		{
-			myWindow.viewports[*myWindow.activeViewport].projection =
-				glm::perspective(
-					glm::radians(75.0f),
-					myWindow.width / static_cast<float>(myWindow.height),
-					0.01f,
-					100.0f);
+			auto& view = myWindow.views[*myWindow.activeView];
+
+			constexpr glm::mat4 clip =
+			{
+				1.0f,  0.0f, 0.0f, 0.0f,
+				0.0f, -1.0f, 0.0f, 0.0f,
+				0.0f,  0.0f, 0.5f, 0.0f,
+				0.0f,  0.0f, 0.5f, 1.0f
+			};
+			
+			auto fov = 75.0f;
+			auto aspect = static_cast<float>(view.viewport.width) / static_cast<float>(view.viewport.height);
+			auto nearplane = 0.01f;
+			auto farplane = 100.0f;
+			
+			view.projection = clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
 		}
 	}
 
@@ -2303,8 +2328,8 @@ class VulkanApplication
 			// 	lerp(proj0[3], proj1[3], s));
 
 			ubo.model = glm::mat4(1.0f);//myResources.model.transform;
-			ubo.view = myWindow.viewports[n].view;
-			ubo.proj = myWindow.viewports[n].projection;
+			ubo.view = glm::mat4(myWindow.views[n].view);
+			ubo.proj = myWindow.views[n].projection;
 		}
 
 		vmaFlushAllocation(myAllocator, myResources.uniformBufferMemory, 0, VK_WHOLE_SIZE);
@@ -2665,9 +2690,6 @@ class VulkanApplication
 	uint32_t myFrameCommandBufferThreadCount = 0;
 	int myRequestedCommandBufferThreadCount = 0;
 
-	double myMouseXPos = 0;
-	double myMouseYPos = 0;
-
 	bool myUIEnableFlag = false;
 	bool myCreateFrameResourcesFlag = false;
 };
@@ -2720,11 +2742,20 @@ void vkapp_resize(int width, int height)
 	theApp->resize(width, height);
 }
 
-void vkapp_mouse(double x, double y, int state)
+void vkapp_mouse(const mouse_state* state)
 {
 	assert(theApp != nullptr);
+	assert(state != nullptr);
 
-	theApp->mouse(x, y, state);
+	theApp->onMouse(*state);
+}
+
+void vkapp_keyboard(const keyboard_state* state)
+{
+	assert(theApp != nullptr);
+	assert(state != nullptr);
+
+	theApp->onKeyboard(*state);
 }
 
 void vkapp_destroy()

@@ -8,8 +8,8 @@
 
 #include "volcano.h"
 
-bool mouse_inside_window = false;
-int mouse_state = 0;
+mouse_state g_mouse = { -1.0, -1.0, -1.0, -1.0, 0, 0, 0, false };
+keyboard_state g_keyboard = { 0, 0, 0, 0 };
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -23,26 +23,52 @@ static void glfw_resize_callback(GLFWwindow*, int w, int h)
 
 void onMouseEnter(GLFWwindow* window, int entered)
 {
-    mouse_inside_window = entered;
+    g_mouse.inside_window = entered;
+
+	if (!entered)
+	{
+		g_mouse.xpos_last = -1;
+		g_mouse.ypos_last = -1;
+	}
+
+	vkapp_mouse(&g_mouse);
 }
 
 static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
-	if (mouse_inside_window && button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-		mouse_state |= VKAPP_MOUSE_ARCBALL_ENABLE_FLAG;
-	else
-		mouse_state &= ~VKAPP_MOUSE_ARCBALL_ENABLE_FLAG;
+	g_mouse.button = button;
+	g_mouse.action = action;
+	g_mouse.mods = mods;
+
+	vkapp_mouse(&g_mouse);
 }
 
 static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
-	vkapp_mouse(xpos, ypos, mouse_state);
+	if (g_mouse.xpos_last < 0)
+		g_mouse.xpos_last = xpos;
+	else
+		g_mouse.xpos_last = g_mouse.xpos;
+
+	if (g_mouse.ypos_last < 0)
+		g_mouse.ypos_last = ypos;
+	else
+		g_mouse.ypos_last = g_mouse.ypos;
+
+	g_mouse.xpos = xpos;
+	g_mouse.ypos = ypos;
+
+	vkapp_mouse(&g_mouse);
 }
 
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    //if (action == GLFW_PRESS)
-		//key == GLFW_KEY_E && 
+	g_keyboard.key = key;
+	g_keyboard.scancode = scancode;
+	g_keyboard.action = action;
+	g_keyboard.mods = mods;
+
+	vkapp_keyboard(&g_keyboard);
 }
 
 int main(int, char**)
