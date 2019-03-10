@@ -26,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <codecvt>
 #include <cstdint>
 #include <cstdlib>
 #if defined(__WINDOWS__)
@@ -33,6 +34,7 @@
 #endif
 #include <filesystem>
 #include <iostream>
+#include <locale> 
 #include <numeric>
 #include <optional>
 #include <stdexcept>
@@ -119,11 +121,11 @@ struct ViewData
 {
 	struct ViewportData
 	{
-		uint32_t width;
-		uint32_t height;
+		uint32_t width = 0;
+		uint32_t height = 0;
 	} viewport;
 
-	glm::vec3 camPos = glm::vec3(0.0f, -1.0f, 0.0f);
+	glm::vec3 camPos = glm::vec3(0.0f, -2.0f, 0.0f);
 	glm::vec3 camRot = glm::vec3(0.0f, 0.0f, 0.0);
 
 	glm::mat4x3 view = glm::mat4x3(1.0f);
@@ -143,8 +145,10 @@ struct ImGuiData
 template <GraphicsBackend Backend>
 struct WindowData
 {
-	uint32_t width;
-	uint32_t height;
+	uint32_t windowWidth = 0;
+	uint32_t windowHeight = 0;
+	uint32_t framebufferWidth = 0;
+	uint32_t framebufferHeight = 0;
 
 	Surface<Backend> surface;
 	SurfaceFormat<Backend> surfaceFormat;
@@ -356,7 +360,7 @@ class VulkanApplication
 
 		myPipelineLayout = createPipelineLayoutContext(myDevice, slangModule);
 
-		createFrameResources(framebufferWidth, framebufferHeight);
+		createFrameResources(windowWidth, windowHeight, framebufferWidth, framebufferHeight);
 
 		myResources.model = loadModel("gallery.obj");
 		myResources.texture = loadTexture("gallery.jpg");
@@ -445,7 +449,11 @@ class VulkanApplication
 
 			myFrameCommandBufferThreadCount = myRequestedCommandBufferThreadCount;
 
-			createFrameResources(myWindow.width, myWindow.height);
+			createFrameResources(
+				myWindow.windowWidth,
+				myWindow.windowHeight,
+				myWindow.framebufferWidth,
+				myWindow.framebufferHeight);
 		}
 
 		// todo: run this at the same time as secondary command buffer recording
@@ -497,11 +505,11 @@ class VulkanApplication
 
 	void resize(int width, int height)
 	{
-		CHECK_VK(vkQueueWaitIdle(myQueue));
+		// CHECK_VK(vkQueueWaitIdle(myQueue));
 
-		cleanupFrameResources();
+		// cleanupFrameResources();
 
-		createFrameResources(width, height);
+		// createFrameResources(width, height);
 	}
 
 	void onMouse(const mouse_state& state)
@@ -509,8 +517,8 @@ class VulkanApplication
 		if (state.inside_window)
 		{
 			// todo: generic view index calculation
-			size_t viewIdx = state.xpos / (myWindow.width / NX);
-			size_t viewIdy = state.ypos / (myWindow.height / NY);
+			size_t viewIdx = state.xpos / (myWindow.windowWidth / NX);
+			size_t viewIdy = state.ypos / (myWindow.windowHeight / NY);
 			myWindow.activeView = (viewIdy * NX) + viewIdx;
 		}
 		else
@@ -533,10 +541,9 @@ class VulkanApplication
 					static_cast<float>(state.xpos - state.xpos_last) / view.viewport.width,
 					0.0f) * speed;
 
-				std::cout << *myWindow.activeView << ":rot:[" << view.camRot.x << ", " << view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
+				//std::cout << *myWindow.activeView << ":rot:[" << view.camRot.x << ", " << view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
 
-				updateViewMatrices();
-				updateProjectionMatrices();
+				updateViewMatrix(*myWindow.activeView);
 			}
 		}
 	}
@@ -580,10 +587,9 @@ class VulkanApplication
 
 			view.camPos += (dz * forward + dx * strafe) * speed;
 
-			std::cout << *myWindow.activeView << ":pos:[" << view.camPos.x << ", " << view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
+			//std::cout << *myWindow.activeView << ":pos:[" << view.camPos.x << ", " << view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
 
-			updateViewMatrices();
-			updateProjectionMatrices();
+			updateViewMatrix(*myWindow.activeView);
 		}
 	}
 
@@ -854,17 +860,17 @@ class VulkanApplication
 			std::string shaderString((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
 		#ifdef UNICODE
-			char slangFilePath[4096];
-			wcstombs(slangFilePath, slangFile.c_str(), sizeof_array(slangFilePath));
+			using convert_type = std::codecvt_utf8<wchar_t>;
+			std::wstring_convert<convert_type, wchar_t> converter;
+			std::string slangFilePath = converter.to_bytes(slangFile.str());
 		#else
-			char slangFilePath[4096];
-			strncpy_s(slangFilePath, slangFile.c_str(), sizeof_array(slangFilePath));
+			std::string slangFilePath(slangFile.c_str());
 		#endif
 
 			spAddTranslationUnitSourceStringSpan(
 				slangRequest,
 				translationUnitIndex,
-				slangFilePath,
+				slangFilePath.c_str(),
 				shaderString.c_str(),
 				shaderString.c_str() + shaderString.size());
 
@@ -1660,15 +1666,15 @@ class VulkanApplication
 			VkViewport viewport = {};
 			viewport.x = 0.0f;
 			viewport.y = 0.0f;
-			viewport.width = static_cast<float>(pipeline.resources->window->width);
-			viewport.height = static_cast<float>(pipeline.resources->window->height);
+			viewport.width = static_cast<float>(pipeline.resources->window->framebufferWidth);
+			viewport.height = static_cast<float>(pipeline.resources->window->framebufferHeight);
 			viewport.minDepth = 0.0f;
 			viewport.maxDepth = 1.0f;
 
 			VkRect2D scissor = {};
 			scissor.offset = {0, 0};
-			scissor.extent = {static_cast<uint32_t>(pipeline.resources->window->width),
-							  static_cast<uint32_t>(pipeline.resources->window->height)};
+			scissor.extent = {static_cast<uint32_t>(pipeline.resources->window->framebufferWidth),
+							  static_cast<uint32_t>(pipeline.resources->window->framebufferHeight)};
 
 			VkPipelineViewportStateCreateInfo viewportState = {};
 			viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1830,12 +1836,12 @@ class VulkanApplication
 		// todo: use staging buffer pool, or use scratchpad memory
 		VkBuffer stagingBuffer;
 		VmaAllocation stagingBufferMemory;
-		char buf[64];
-		strcpy(buf, debugName);
-		strcat(buf, "_staging");
+		std::string debugString;
+		debugString.append(debugName);
+		debugString.append("_staging");
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-					 stagingBuffer, stagingBufferMemory, buf);
+					 stagingBuffer, stagingBufferMemory, debugString.c_str());
 
 		void *data;
 		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
@@ -1993,14 +1999,12 @@ class VulkanApplication
 
 		VkBuffer stagingBuffer;
 		VmaAllocation stagingBufferMemory;
-		char buf[64];
-		const char *_stagingStr = "_staging";
-		assert(strlen(debugName) + strlen(_stagingStr) < sizeof_array(buf));
-		strcpy(buf, debugName);
-		strcat(buf, _stagingStr);
+		std::string debugString;
+		debugString.append(debugName);
+		debugString.append("_staging");
 		createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-					 stagingBuffer, stagingBufferMemory, buf);
+					 stagingBuffer, stagingBufferMemory, debugString.c_str());
 
 		void *data;
 		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
@@ -2107,7 +2111,7 @@ class VulkanApplication
 
 		// Setup style
 		ImGui::StyleColorsClassic();
-		io.FontDefault = myWindow.imgui.fonts.back(); /*.get();*/
+		io.FontDefault = myWindow.imgui.fonts.back();
 
 		// Setup Vulkan binding
 		ImGui_ImplVulkan_InitInfo initInfo = {};
@@ -2132,18 +2136,28 @@ class VulkanApplication
 		}
 	}
 
-	void createFrameResources(int width, int height)
+	void createFrameResources(int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight)
 	{
 		myResources.window = &myWindow;
 
-		myWindow.width = width;
-		myWindow.height = height;
+		myWindow.windowWidth = windowWidth;
+		myWindow.windowHeight = windowHeight;
+		myWindow.framebufferWidth = framebufferWidth;
+		myWindow.framebufferHeight = framebufferHeight;
 
 		myWindow.views.resize(NX * NY);
 		for (auto& view : myWindow.views)
 		{
-			view.viewport.width = width / NX;
-			view.viewport.height = height / NY;
+			if (!view.viewport.width)
+				view.viewport.width = framebufferWidth / NX;
+
+			if (!view.viewport.height)
+				view.viewport.height = framebufferHeight / NY;
+
+			size_t viewIndex = &view - &myWindow.views[0];
+			
+			updateViewMatrix(viewIndex);
+			updateProjectionMatrix(viewIndex);
 		}
 
 		myWindow.imgui.window = std::make_unique<ImGui_ImplVulkanH_WindowData>(/*myFrameCount*/);
@@ -2151,8 +2165,8 @@ class VulkanApplication
 		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
 		myWindow.imgui.window->FrameIndex = IMGUI_VK_QUEUED_FRAMES - 1; //myWindow.imgui.window->FrameCount - 1;
 
-		myWindow.imgui.window->Width = width;
-		myWindow.imgui.window->Height = height;
+		myWindow.imgui.window->Width = framebufferWidth;
+		myWindow.imgui.window->Height = framebufferHeight;
 
 		myWindow.imgui.window->Swapchain = myWindow.swapchain.swapchain;
 		myWindow.imgui.window->SurfaceFormat = myWindow.surfaceFormat;
@@ -2231,50 +2245,50 @@ class VulkanApplication
 
 	void checkFlipOrPresentResult(VkResult result)
 	{
-		if (result == VK_SUBOPTIMAL_KHR)
-			return; // not much we can do
-		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+		switch (result)
+		{
+		case VK_SUCCESS:
+			break;
+		case VK_SUBOPTIMAL_KHR: 
+			std::cout << "warning: flip/present returned VK_SUBOPTIMAL_KHR";
+			break;
+		case VK_ERROR_OUT_OF_DATE_KHR:
 			myCreateFrameResourcesFlag = true;
-		else if (result != VK_SUCCESS)
+			break;
+		default: 
 			throw std::runtime_error("failed to flip swap chain image!");
+		}	
 	}
 
-	void updateViewMatrices()
+	void updateViewMatrix(size_t index)
 	{
-		if (myWindow.activeView)
-		{
-			auto& view = myWindow.views[*myWindow.activeView];
+		auto& view = myWindow.views[index];
 
-			auto Rx = glm::rotate(glm::mat4(1.0), view.camRot.x, glm::vec3(-1, 0, 0));
-			auto Ry = glm::rotate(glm::mat4(1.0), view.camRot.y, glm::vec3(0, -1, 0));
-			auto T = glm::translate(glm::mat4(1.0), -view.camPos);
+		auto Rx = glm::rotate(glm::mat4(1.0), view.camRot.x, glm::vec3(-1, 0, 0));
+		auto Ry = glm::rotate(glm::mat4(1.0), view.camRot.y, glm::vec3(0, -1, 0));
+		auto T = glm::translate(glm::mat4(1.0), -view.camPos);
+	
+		view.view = glm::inverse(T * Ry * Rx);
+	}
+
+	void updateProjectionMatrix(size_t index)
+	{
+		auto& view = myWindow.views[index];
+
+		constexpr glm::mat4 clip =
+		{
+			1.0f,  0.0f, 0.0f, 0.0f,
+			0.0f, -1.0f, 0.0f, 0.0f,
+			0.0f,  0.0f, 0.5f, 0.0f,
+			0.0f,  0.0f, 0.5f, 1.0f
+		};
 		
-			myWindow.views[*myWindow.activeView].view = glm::inverse(T * Ry * Rx);
-			
-		}
-	}
-
-	void updateProjectionMatrices()
-	{
-		if (myWindow.activeView)
-		{
-			auto& view = myWindow.views[*myWindow.activeView];
-
-			constexpr glm::mat4 clip =
-			{
-				1.0f,  0.0f, 0.0f, 0.0f,
-				0.0f, -1.0f, 0.0f, 0.0f,
-				0.0f,  0.0f, 0.5f, 0.0f,
-				0.0f,  0.0f, 0.5f, 1.0f
-			};
-			
-			auto fov = 75.0f;
-			auto aspect = static_cast<float>(view.viewport.width) / static_cast<float>(view.viewport.height);
-			auto nearplane = 0.01f;
-			auto farplane = 100.0f;
-			
-			view.projection = clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
-		}
+		constexpr auto fov = 75.0f;
+		auto aspect = static_cast<float>(view.viewport.width) / static_cast<float>(view.viewport.height);
+		constexpr auto nearplane = 0.01f;
+		constexpr auto farplane = 100.0f;
+		
+		view.projection = clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
 	}
 
 	void updateUniformBuffers()
@@ -2416,8 +2430,8 @@ class VulkanApplication
 			if (drawCount % segmentCount)
 				segmentDrawCount += 1;
 
-			uint32_t dx = myWindow.width / NX;
-			uint32_t dy = myWindow.height / NY;
+			uint32_t dx = myWindow.framebufferWidth / NX;
+			uint32_t dy = myWindow.framebufferHeight / NY;
 
 			std::array<uint32_t, 128> seq;
 			std::iota(seq.begin(), seq.begin() + segmentCount, 0);
@@ -2514,7 +2528,7 @@ class VulkanApplication
 			beginInfo.framebuffer = myWindow.imgui.window->Framebuffer[myWindow.imgui.window->FrameIndex];
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent =
-				{static_cast<uint32_t>(myWindow.width), static_cast<uint32_t>(myWindow.height)};
+				{static_cast<uint32_t>(myWindow.framebufferWidth), static_cast<uint32_t>(myWindow.framebufferHeight)};
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
 			vkCmdBeginRenderPass(newFrame->CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
