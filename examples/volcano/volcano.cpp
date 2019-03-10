@@ -422,19 +422,7 @@ class VulkanApplication
 
 	void draw()
 	{
-		// update input dependent state
-		{
-			ImGuiIO &io = ImGui::GetIO();
-
-			static bool escBufferState = false;
-			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
-			if (escState && !escBufferState)
-				myUIEnableFlag = !myUIEnableFlag;
-			escBufferState = escState;
-
-			if (myFrameCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
-				myCreateFrameResourcesFlag = true;
-		}
+		updateInput(1.0f/60);
 
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
@@ -506,84 +494,125 @@ class VulkanApplication
 
 	void onMouse(const mouse_state& state)
 	{
-		if (state.inside_window)
+		bool leftPressed = false;
+		bool rightPressed = false;
+#if defined(VOLCANO_USE_GLFW)
+		leftPressed = state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS;
+		rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
+#endif
+
+		if (state.inside_window && !myMouseButtonsPressed[0])
 		{
 			// todo: generic view index calculation
 			size_t viewIdx = state.xpos / (myWindow.width / NX);
 			size_t viewIdy = state.ypos / (myWindow.height / NY);
-			myWindow.activeView = (viewIdy * NX) + viewIdx;
+			myWindow.activeView = std::min((viewIdy * NX) + viewIdx, myWindow.views.size() - 1);
 		}
-		else
+		else if (!leftPressed)
 		{
 			myWindow.activeView.reset();
 		}
-		
-		if (myWindow.activeView)
-		{
-#if defined(VOLCANO_USE_GLFW)
-			if (state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS)
-#endif
-			{
-				auto &view = myWindow.views[*myWindow.activeView];
 
-				constexpr auto speed = 1.2f;
+		myMousePosition[0] = glm::vec2{ static_cast<float>(state.xpos), static_cast<float>(state.ypos) };
+		myMousePosition[1] = leftPressed && !myMouseButtonsPressed[0] ? myMousePosition[0] : myMousePosition[1];
 
-				view.camRot += glm::vec3(
-					static_cast<float>(state.ypos - state.ypos_last) / view.viewport.height,
-					static_cast<float>(state.xpos - state.xpos_last) / view.viewport.width,
-					0.0f) * speed;
-
-				std::cout << *myWindow.activeView << ":rot:[" << view.camRot.x << ", " << view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
-
-				updateViewMatrices();
-				updateProjectionMatrices();
-			}
-		}
+		myMouseButtonsPressed[0] = leftPressed;
+		myMouseButtonsPressed[1] = rightPressed;
 	}
 
 	void onKeyboard(const keyboard_state& state)
 	{
+#if defined(VOLCANO_USE_GLFW)
+		if (state.action == GLFW_PRESS)
+			myKeysPressed[state.key] = true;
+		else if (state.action == GLFW_RELEASE)
+			myKeysPressed[state.key] = false;
+#endif
+	}
+
+	void updateInput(float dt)
+	{
+		// update input dependent state
+		{
+			ImGuiIO &io = ImGui::GetIO();
+
+			static bool escBufferState = false;
+			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
+			if (escState && !escBufferState)
+				myUIEnableFlag = !myUIEnableFlag;
+			escBufferState = escState;
+		}
+
+		if (myFrameCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
+			myCreateFrameResourcesFlag = true;
+
 		if (myWindow.activeView)
 		{
 			float dx = 0;
 			float dz = 0;
 
-#if defined(VOLCANO_USE_GLFW)
-			if (state.action == GLFW_PRESS || state.action == GLFW_REPEAT)
+	#if defined(VOLCANO_USE_GLFW)
+			for (const auto& [key, pressed] : myKeysPressed)
 			{
-				switch (state.key)
+				if (pressed)
 				{
-				case GLFW_KEY_W:
-					dz = 1;
-					break;
-				case GLFW_KEY_S:
-					dz = -1;
-					break;
-				case GLFW_KEY_A:
-					dx = 1;
-					break;
-				case GLFW_KEY_D:
-					dx = -1;
-					break;
-				default:
-					break;
+					switch (key)
+					{
+					case GLFW_KEY_W:
+						dz = 1;
+						break;
+					case GLFW_KEY_S:
+						dz = -1;
+						break;
+					case GLFW_KEY_A:
+						dx = 1;
+						break;
+					case GLFW_KEY_D:
+						dx = -1;
+						break;
+					default:
+						break;
+					}
 				}
 			}
-#endif
+	#endif
 
 			auto &view = myWindow.views[*myWindow.activeView];
 
-			auto forward = glm::vec3(view.view[0][2], view.view[1][2], view.view[2][2]);
-			auto strafe = glm::vec3(view.view[0][0], view.view[1][0], view.view[2][0]);
-			
-			constexpr auto speed = 0.2f;
+			bool updateMatrices = false;
 
-			view.camPos += (dz * forward + dx * strafe) * speed;
+			if (dx != 0 || dz != 0)
+			{
+				auto forward = glm::vec3(view.view[0][2], view.view[1][2], view.view[2][2]);
+				auto strafe = glm::vec3(view.view[0][0], view.view[1][0], view.view[2][0]);
+				
+				constexpr auto moveSpeed = 2.0f;
 
-			std::cout << *myWindow.activeView << ":pos:[" << view.camPos.x << ", " << view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
+				view.camPos += dt * (dz * forward + dx * strafe) * moveSpeed;
 
-			updateViewMatrices();
-			updateProjectionMatrices();
+				std::cout << *myWindow.activeView << ":pos:[" << view.camPos.x << ", " << view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
+
+				updateMatrices = true;
+			}
+
+			if (myMouseButtonsPressed[0])
+			{
+				constexpr auto rotSpeed = 1.0f;
+
+				auto dM = myMousePosition[0] - myMousePosition[1];
+
+				view.camRot += dt * glm::vec3(dM.y / view.viewport.height, dM.x / view.viewport.width, 0.0f) * rotSpeed;
+
+				std::cout << *myWindow.activeView << ":rot:[" << view.camRot.x << ", " << view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
+
+				updateMatrices = true;
+			}
+
+			if (updateMatrices)
+			{
+				updateViewMatrices();
+				updateProjectionMatrices();
+			}
 		}
 	}
 
@@ -2692,6 +2721,10 @@ class VulkanApplication
 
 	bool myUIEnableFlag = false;
 	bool myCreateFrameResourcesFlag = false;
+
+	std::map<int, bool> myKeysPressed;
+	std::array<bool, 2> myMouseButtonsPressed;
+	std::array<glm::vec2, 2> myMousePosition;
 };
 
 static VulkanApplication *theApp = nullptr;

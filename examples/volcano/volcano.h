@@ -8,8 +8,8 @@ extern "C"
 typedef struct mouse_state_ mouse_state;
 struct mouse_state_
 {
-    double xpos, xpos_last;
-    double ypos, ypos_last;
+    double xpos;
+    double ypos;
     int button;
     int action;
     int mods;
