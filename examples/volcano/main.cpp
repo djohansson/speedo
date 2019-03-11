@@ -8,7 +8,7 @@
 
 #include "volcano.h"
 
-mouse_state g_mouse = { -1.0, -1.0, -1.0, -1.0, 0, 0, 0, false };
+mouse_state g_mouse = { -1.0, -1.0, 0, 0, 0, false };
 keyboard_state g_keyboard = { 0, 0, 0, 0 };
 
 static void glfw_error_callback(int error, const char* description)
@@ -25,12 +25,6 @@ void onMouseEnter(GLFWwindow* window, int entered)
 {
     g_mouse.inside_window = entered;
 
-	if (!entered)
-	{
-		g_mouse.xpos_last = -1;
-		g_mouse.ypos_last = -1;
-	}
-
 	vkapp_mouse(&g_mouse);
 }
 
@@ -45,16 +39,6 @@ static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 
 static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
-	if (g_mouse.xpos_last < 0)
-		g_mouse.xpos_last = xpos;
-	else
-		g_mouse.xpos_last = g_mouse.xpos;
-
-	if (g_mouse.ypos_last < 0)
-		g_mouse.ypos_last = ypos;
-	else
-		g_mouse.ypos_last = g_mouse.ypos;
-
 	g_mouse.xpos = xpos;
 	g_mouse.ypos = ypos;
 
