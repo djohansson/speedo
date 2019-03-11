@@ -509,7 +509,8 @@ class VulkanApplication
 		rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
 #endif
 
-		auto screenPos = ImGui::GetCursorScreenPos();
+		auto screenPos = glm::vec2(state.xpos, state.ypos);
+		//auto screenPos = ImGui::GetCursorScreenPos();
 
 		if (state.inside_window && !myMouseButtonsPressed[0])
 		{
