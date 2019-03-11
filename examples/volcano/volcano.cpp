@@ -132,17 +132,17 @@ struct ViewData
 	glm::mat4 projection = glm::mat4(1.0f);
 };
 
-template <GraphicsBackend Backend>
-using ImGui_WindowData = std::conditional_t<Backend == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_WindowData, std::nullptr_t>;
+template <GraphicsBackend B>
+using ImGui_WindowData = std::conditional_t<B == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_WindowData, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct ImGuiData
 {
-	std::unique_ptr<ImGui_WindowData<Backend>> window;
+	std::unique_ptr<ImGui_WindowData<B>> window;
 	std::vector<ImFont *> fonts;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct WindowData
 {
 	uint32_t windowWidth = 0;
@@ -150,80 +150,94 @@ struct WindowData
 	uint32_t framebufferWidth = 0;
 	uint32_t framebufferHeight = 0;
 
-	Surface<Backend> surface;
-	SurfaceFormat<Backend> surfaceFormat;
-	Format<Backend> depthFormat;
-	PresentMode<Backend> presentMode;
+	Surface<B> surface;
+	SurfaceFormat<B> surfaceFormat;
+	Format<B> depthFormat;
+	PresentMode<B> presentMode;
 
-	SwapchainContext<Backend> swapchain;
+	SwapchainContext<B> swapchain;
 
 	std::vector<ViewData> views;
 	std::optional<size_t> activeView;
 
-	ImGuiData<Backend> imgui;
+	ImGuiData<B> imgui;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct GraphicsPipelineResourceContext // temp
 {	
-	Buffer<Backend> uniformBuffer;
-	Allocation<Backend> uniformBufferMemory;
+	Buffer<B> uniformBuffer;
+	Allocation<B> uniformBufferMemory;
 
-	Model<Backend> model;				  // temp, use handles instead
+	Model<B> model;				  // temp, use shared_ptrs instead
 	
-	Texture<Backend> texture;			  // temp, use handles instead
-	Sampler<Backend> sampler;
+	Texture<B> texture;			  // temp, use shared_ptrs instead
+	Sampler<B> sampler;
 	
-	WindowData<Backend> *window = nullptr; // temp - replace with generic render target structure
+	WindowData<B> *window = nullptr; // temp - replace with generic render target structure
 };
 
-template <GraphicsBackend Backend>
+template <typename T>
+struct ArrayDeleter
+{
+	using DeleteFcn = std::function<void(T*, size_t)>;
+
+	ArrayDeleter() = default;
+	ArrayDeleter(DeleteFcn&& deleter_, size_t size_) : deleter(deleter_), size(size_) {}
+	
+	inline void operator()(T* array) const { deleter(array, size); }
+
+	DeleteFcn deleter;
+	size_t size;
+};
+
+template <GraphicsBackend B>
 struct PipelineLayoutContext
 {
-	using ShaderModuleVector = std::vector<ShaderModule<Backend>>;
-	using DescriptorSetLayoutVector = std::vector<DescriptorSetLayout<Backend>>;
-
-	ShaderModuleVector shaders;					 		// temp, use handles instead
-	DescriptorSetLayoutVector descriptorSetLayouts;		// temp, use handles instead
-	PipelineLayout<Backend> layout;
+	std::unique_ptr<ShaderModule<B>[], ArrayDeleter<ShaderModule<B>>> shaders;
+	std::unique_ptr<DescriptorSetLayout<B>[], ArrayDeleter<DescriptorSetLayout<B>>> descriptorSetLayouts;
+	
+	PipelineLayout<B> layout;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct PipelineConfiguration
 {
-	GraphicsPipelineResourceContext<Backend> *resources = nullptr; // todo: replace with handle
-	PipelineLayoutContext<Backend> *layout = nullptr;		  // todo: replace with handle
-	RenderPass<Backend> renderPass;
+	GraphicsPipelineResourceContext<B> *resources = nullptr; // todo: replace with shared_ptr
+	PipelineLayoutContext<B> *layout = nullptr;		  // todo: replace with shared_ptr
+	RenderPass<B> renderPass;
+};
+
+
+using EntryPoint = std::pair<std::string, uint32_t>;
+using ShaderBinary = std::vector<std::byte>;
+using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;
+
+template <GraphicsBackend B>
+struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<B>
+{
+	using BaseType = DescriptorSetLayoutBinding<B>;
+
+	template <class Archive, GraphicsBackend B = B>
+	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void>
+	serialize(Archive &ar)
+	{
+		static_assert(sizeof(*this) == sizeof(BaseType));
+
+		ar(BaseType::binding);
+		ar(BaseType::descriptorType);
+		ar(BaseType::descriptorCount);
+		ar(BaseType::stageFlags);
+		//ar(pImmutableSamplers); // todo
+	}
 };
 
 // this should be a temporary object only used during loading.
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct SerializableShaderReflectionModule
 {
-	using EntryPoint = std::pair<std::string, SlangStage>;
-	using ShaderBinary = std::vector<std::byte>;
-	using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;
 	using ShaderEntryVector = std::vector<ShaderEntry>;
-
-	struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<Backend>
-	{
-		using BaseType = DescriptorSetLayoutBinding<Backend>;
-
-		template <class Archive, GraphicsBackend B = Backend>
-		typename std::enable_if_t<B == GraphicsBackend::Vulkan, void>
-		serialize(Archive &ar)
-		{
-			static_assert(sizeof(*this) == sizeof(BaseType));
-
-			ar(BaseType::binding);
-			ar(BaseType::descriptorType);
-			ar(BaseType::descriptorCount);
-			ar(BaseType::stageFlags);
-			//ar(pImmutableSamplers); // todo
-		}
-	};
-	
-	using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding>>; // set, bindings
+	using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
 
 	template <class Archive>
 	void serialize(Archive &ar)
@@ -323,33 +337,58 @@ class VulkanApplication
 
 		auto createPipelineLayoutContext = [](VkDevice device, const auto& slangModule)
 		{
-			PipelineLayoutContext<GraphicsBackend::Vulkan> pipelineLayout;
+			using VkPipelineLayoutContext = PipelineLayoutContext<GraphicsBackend::Vulkan>;
+			VkPipelineLayoutContext pipelineLayout;
+
+			using VkShaderModuleType = ShaderModule<GraphicsBackend::Vulkan>;
+			auto vkShaderDeleter = [device](VkShaderModuleType* module, size_t size)
+			{
+				for (size_t i = 0; i < size; i++)
+					vkDestroyShaderModule(device, *(module + i), nullptr);
+			};
+			pipelineLayout.shaders =
+				std::unique_ptr<VkShaderModuleType[], ArrayDeleter<VkShaderModuleType>>(
+					new VkShaderModuleType[slangModule.shaders.size()], { vkShaderDeleter, slangModule.shaders.size() });
+
+			using VkDescriptorSetLayoutType = DescriptorSetLayout<GraphicsBackend::Vulkan>;
+			auto vkDescriptorSetLayoutDeleter = [device](VkDescriptorSetLayoutType* layout, size_t size)
+			{
+				for (size_t i = 0; i < size; i++)
+					vkDestroyDescriptorSetLayout(device, *(layout + i), nullptr);
+			};
+			pipelineLayout.descriptorSetLayouts =
+				std::unique_ptr<VkDescriptorSetLayoutType[], ArrayDeleter<VkDescriptorSetLayoutType>>(
+					new VkDescriptorSetLayoutType[slangModule.bindings.size()], { vkDescriptorSetLayoutDeleter, slangModule.bindings.size() });
 
 			for (const auto &shader : slangModule.shaders)
 			{
-				VkShaderModuleCreateInfo info = {};
-				info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-				info.codeSize = shader.first.size();
-				info.pCode = reinterpret_cast<const uint32_t *>(shader.first.data());
+				auto createShaderModule = [](VkDevice device, const ShaderEntry& shader)
+				{
+					VkShaderModuleCreateInfo info = {};
+					info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+					info.codeSize = shader.first.size();
+					info.pCode = reinterpret_cast<const uint32_t *>(shader.first.data());
 
-				VkShaderModule vkShaderModule;
-				CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
+					VkShaderModule vkShaderModule;
+					CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
 
-				pipelineLayout.shaders.emplace_back(vkShaderModule);
+					return vkShaderModule;
+				};
+
+				pipelineLayout.shaders.get()[&shader - &slangModule.shaders[0]] = createShaderModule(device, shader);
 			}
 
-			for (auto &[space, bindings] : slangModule.bindings)
+			size_t layoutIt = 0;
+			for (auto &binding : slangModule.bindings)
 			{
-				pipelineLayout.descriptorSetLayouts.emplace_back(
-					createDescriptorSetLayout(device, bindings));
+				auto& [space, layoutBindings] = binding;
+				pipelineLayout.descriptorSetLayouts.get()[layoutIt++] = createDescriptorSetLayout(device, layoutBindings);
 			}
-
-			assert(pipelineLayout.descriptorSetLayouts.size() == 1); // temp
 
 			VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 			pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			pipelineLayoutInfo.setLayoutCount = pipelineLayout.descriptorSetLayouts.size();
-			pipelineLayoutInfo.pSetLayouts = pipelineLayout.descriptorSetLayouts.data();
+			pipelineLayoutInfo.setLayoutCount = slangModule.bindings.size();
+			pipelineLayoutInfo.pSetLayouts = pipelineLayout.descriptorSetLayouts.get();
 			pipelineLayoutInfo.pushConstantRangeCount = 0;
 			pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -861,8 +900,8 @@ class VulkanApplication
 			filename);
 	}
 
-	template <GraphicsBackend Backend>
-	SerializableShaderReflectionModule<Backend> loadSlangShaders(const char *filename) const
+	template <GraphicsBackend B>
+	SerializableShaderReflectionModule<B> loadSlangShaders(const char *filename) const
 	{
 		std::filesystem::path slangFile(myResourcePath);
 		slangFile = std::filesystem::absolute(slangFile);
@@ -870,7 +909,7 @@ class VulkanApplication
 		slangFile /= "shaders";
 		slangFile /= filename;
 
-		SerializableShaderReflectionModule<Backend> slangModule;
+		SerializableShaderReflectionModule<B> slangModule;
 
 		auto loadPBin = [&slangModule](std::istream &stream) {
 			cereal::PortableBinaryInputArchive pbin(stream);
@@ -916,11 +955,7 @@ class VulkanApplication
 
 			static_assert(sizeof_array(epStrings) == sizeof_array(epStages));
 
-			using ModuleType = decltype(slangModule);
-			using EntryPointVector = std::vector<typename ModuleType::EntryPoint>;
-
-			EntryPointVector entryPoints;
-
+			std::vector<EntryPoint> entryPoints;
 			for (int i = 0; i < sizeof_array(epStrings); i++)
 			{
 				int index = spAddEntryPoint(
@@ -1503,26 +1538,6 @@ class VulkanApplication
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
 		myWindow.swapchain.depthImageView = createImageView2D(myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-		createGraphicsRenderPass();
-
-		{
-			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
-			VkFramebufferCreateInfo info = {};
-			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			info.renderPass = myPipeline.renderPass;
-			info.attachmentCount = attachments.size();
-			info.pAttachments = attachments.data();
-			info.width = width;
-			info.height = height;
-			info.layers = 1;
-			for (uint32_t i = 0; i < imageCount; i++)
-			{
-				myWindow.swapchain.colorImageViews[i] = createImageView2D(myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
-				attachments[0] = myWindow.swapchain.colorImageViews[i];
-				CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr, &myWindow.swapchain.frameBuffers[i]));
-			}
-		}
 	}
 
 	void createAllocator()
@@ -1811,18 +1826,15 @@ class VulkanApplication
 			return outPipeline;
 		};
 
-		assert(myPipelineLayout.shaders.size() == 2); // temp
-
 		myPipeline.resources = &myResources;
 		myPipeline.layout = &myPipelineLayout;
 
 		myGraphicsPipeline = createVkGraphicsPipeline(myDevice, myPipeline);
-
-		allocateDescriptorSets(
+		myDescriptorSets = allocateDescriptorSets(
 			myDevice,
 			myDescriptorPool,
-			myPipelineLayout.descriptorSetLayouts,
-			myDescriptorSets);
+			myPipelineLayout.descriptorSetLayouts.get(),
+			myPipelineLayout.descriptorSetLayouts.get_deleter().size);
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
@@ -2195,6 +2207,32 @@ class VulkanApplication
 			updateProjectionMatrix(viewIndex);
 		}
 
+		createGraphicsRenderPass();
+
+		auto createFramebuffers = [this](uint32_t width, uint32_t height)
+		{
+			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
+			VkFramebufferCreateInfo info = {};
+			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			info.renderPass = myPipeline.renderPass;
+			info.attachmentCount = attachments.size();
+			info.pAttachments = attachments.data();
+			info.width = width;
+			info.height = height;
+			info.layers = 1;
+			for (uint32_t i = 0; i < myWindow.swapchain.frameBuffers.size(); i++)
+			{
+				myWindow.swapchain.colorImageViews[i] = createImageView2D(myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
+				attachments[0] = myWindow.swapchain.colorImageViews[i];
+				CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr, &myWindow.swapchain.frameBuffers[i]));
+			}
+		};
+
+		createFramebuffers(width, height);
+
+		createGraphicsPipeline();
+
+
 		myWindow.imgui.window = std::make_unique<ImGui_ImplVulkanH_WindowData>(/*myFrameCount*/);
 
 		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
@@ -2273,9 +2311,6 @@ class VulkanApplication
 			fd->RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 		//ImGui_ImplVulkanH_CreateWindowDataCommandBuffers(myDevice, myQueueFamilyIndex, myWindow.get(), nullptr);
-
-		createGraphicsRenderPass();
-		createGraphicsPipeline();
 	}
 
 	void checkFlipOrPresentResult(VkResult result)
@@ -2657,12 +2692,20 @@ class VulkanApplication
 		for (VkImageView imageView : myWindow.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
 
+		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
+			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+
 		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
+
+		vkDestroyRenderPass(myDevice, myPipeline.renderPass, nullptr);
 
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 
+		// todo: wrap these in a deleter.
+		myPipelineLayout.shaders.reset();
+		myPipelineLayout.descriptorSetLayouts.reset();
+		
 		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
-		vkDestroyRenderPass(myDevice, myPipeline.renderPass, nullptr);
 	}
 
 	void cleanup()

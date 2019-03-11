@@ -11,107 +11,110 @@ enum class GraphicsBackend
 	Vulkan
 };
 
-template <GraphicsBackend Backend>
-using Image = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkImage, std::nullptr_t>;
+template <GraphicsBackend B>
+using Image = std::conditional_t<B == GraphicsBackend::Vulkan, VkImage, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Allocation = std::conditional_t<Backend == GraphicsBackend::Vulkan, VmaAllocation, std::nullptr_t>;
+template <GraphicsBackend B>
+using Allocation = std::conditional_t<B == GraphicsBackend::Vulkan, VmaAllocation, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using ImageView = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkImageView, std::nullptr_t>;
+template <GraphicsBackend B>
+using ImageView = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageView, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Surface = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkSurfaceKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using Surface = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using SurfaceFormat = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using SurfaceFormat = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Format = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkFormat, std::nullptr_t>;
+template <GraphicsBackend B>
+using Format = std::conditional_t<B == GraphicsBackend::Vulkan, VkFormat, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using PresentMode = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using PresentMode = std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Buffer = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkBuffer, std::nullptr_t>;
+template <GraphicsBackend B>
+using Buffer = std::conditional_t<B == GraphicsBackend::Vulkan, VkBuffer, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using SurfaceCapabilities = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkSurfaceCapabilitiesKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using SurfaceCapabilities = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceCapabilitiesKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using SurfaceFormat = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using SurfaceFormat = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using PresentMode = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using PresentMode = std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Swapchain = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkSwapchainKHR, std::nullptr_t>;
+template <GraphicsBackend B>
+using Swapchain = std::conditional_t<B == GraphicsBackend::Vulkan, VkSwapchainKHR, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Framebuffer = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkFramebuffer, std::nullptr_t>;
+template <GraphicsBackend B>
+using Framebuffer = std::conditional_t<B == GraphicsBackend::Vulkan, VkFramebuffer, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using DescriptorSetLayoutBinding = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkDescriptorSetLayoutBinding, std::nullptr_t>;
+template <GraphicsBackend B>
+using DescriptorSetLayoutBinding = std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorSetLayoutBinding, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using ShaderModule = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkShaderModule, std::nullptr_t>;
+template <GraphicsBackend B>
+using Device = std::conditional_t<B == GraphicsBackend::Vulkan, VkDevice, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using DescriptorSetLayout = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkDescriptorSetLayout, std::nullptr_t>;
+template <GraphicsBackend B>
+using ShaderModule = std::conditional_t<B == GraphicsBackend::Vulkan, VkShaderModule, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using PipelineLayout = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkPipelineLayout, std::nullptr_t>;
+template <GraphicsBackend B>
+using DescriptorSetLayout = std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorSetLayout, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using DescriptorSet = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkDescriptorSet, std::nullptr_t>;
+template <GraphicsBackend B>
+using PipelineLayout = std::conditional_t<B == GraphicsBackend::Vulkan, VkPipelineLayout, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using RenderPass = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkRenderPass, std::nullptr_t>;
+template <GraphicsBackend B>
+using DescriptorSet = std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorSet, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Pipeline = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkPipeline, std::nullptr_t>;
+template <GraphicsBackend B>
+using RenderPass = std::conditional_t<B == GraphicsBackend::Vulkan, VkRenderPass, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
-using Sampler = std::conditional_t<Backend == GraphicsBackend::Vulkan, VkSampler, std::nullptr_t>;
+template <GraphicsBackend B>
+using Pipeline = std::conditional_t<B == GraphicsBackend::Vulkan, VkPipeline, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
+using Sampler = std::conditional_t<B == GraphicsBackend::Vulkan, VkSampler, std::nullptr_t>;
+
+template <GraphicsBackend B>
 struct Texture
 {
-	Image<Backend> image;
-	Allocation<Backend> imageMemory;
-	ImageView<Backend> imageView;
+	Image<B> image;
+	Allocation<B> imageMemory;
+	ImageView<B> imageView;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct Model
 {
-	Buffer<Backend> vertexBuffer;
-	Allocation<Backend> vertexBufferMemory;
-	Buffer<Backend> indexBuffer;
-	Allocation<Backend> indexBufferMemory;
+	Buffer<B> vertexBuffer;
+	Allocation<B> vertexBufferMemory;
+	Buffer<B> indexBuffer;
+	Allocation<B> indexBufferMemory;
 	uint32_t indexCount;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct SwapchainInfo
 {
-	SurfaceCapabilities<Backend> capabilities;
-	std::vector<SurfaceFormat<Backend>> formats;
-	std::vector<PresentMode<Backend>> presentModes;
+	SurfaceCapabilities<B> capabilities;
+	std::vector<SurfaceFormat<B>> formats;
+	std::vector<PresentMode<B>> presentModes;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct SwapchainContext
 {
-    SwapchainInfo<Backend> info;
-	Swapchain<Backend> swapchain;
+    SwapchainInfo<B> info;
+	Swapchain<B> swapchain;
 
-	std::vector<Framebuffer<Backend>> frameBuffers;
+	std::vector<Framebuffer<B>> frameBuffers;
 
-	std::vector<Image<Backend>> colorImages;
-	std::vector<ImageView<Backend>> colorImageViews;
+	std::vector<Image<B>> colorImages;
+	std::vector<ImageView<B>> colorImageViews;
 
-	Image<Backend> depthImage;
-	Allocation<Backend> depthImageMemory;
-	ImageView<Backend> depthImageView;
+	Image<B> depthImage;
+	Allocation<B> depthImageMemory;
+	ImageView<B> depthImageView;
 };

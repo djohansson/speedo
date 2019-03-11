@@ -129,20 +129,22 @@ VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vect
 }
 
 template <typename T>
-void allocateDescriptorSets(
+std::vector<VkDescriptorSet> allocateDescriptorSets(
 	VkDevice device,
 	VkDescriptorPool pool,
-	const std::vector<T> &layouts,
-	std::vector<VkDescriptorSet> &outDescriptorSets)
+	const T* layouts,
+	size_t layoutCount)
 {
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = pool;
-	allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
-	allocInfo.pSetLayouts = static_cast<const VkDescriptorSetLayout *>(layouts.data());
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(layoutCount);
+	allocInfo.pSetLayouts = static_cast<const VkDescriptorSetLayout *>(layouts);
 
-	outDescriptorSets.resize(layouts.size());
+	std::vector<VkDescriptorSet> outDescriptorSets(layoutCount);
 	CHECK_VK(vkAllocateDescriptorSets(device, &allocInfo, outDescriptorSets.data()));
+
+	return outDescriptorSets;
 }
 
 VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool)
