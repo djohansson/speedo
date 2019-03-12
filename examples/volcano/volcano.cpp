@@ -933,18 +933,10 @@ class VulkanApplication
 
 			std::string shaderString((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
-		#ifdef UNICODE
-			using convert_type = std::codecvt_utf8<wchar_t>;
-			std::wstring_convert<convert_type, wchar_t> converter;
-			std::string slangFilePath = converter.to_bytes(slangFile.str());
-		#else
-			std::string slangFilePath(slangFile.c_str());
-		#endif
-
 			spAddTranslationUnitSourceStringSpan(
 				slangRequest,
 				translationUnitIndex,
-				slangFilePath.c_str(),
+				slangFile.u8string().c_str(),
 				shaderString.c_str(),
 				shaderString.c_str() + shaderString.size());
 
@@ -2228,7 +2220,7 @@ class VulkanApplication
 			}
 		};
 
-		createFramebuffers(width, height);
+		createFramebuffers(framebufferWidth, framebufferHeight);
 
 		createGraphicsPipeline();
 
