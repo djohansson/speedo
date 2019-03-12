@@ -5,12 +5,31 @@ extern "C"
 {
 #endif
 
-#define VKAPP_MOUSE_ARCBALL_ENABLE_FLAG (1 << 0)
+typedef struct mouse_state_ mouse_state;
+struct mouse_state_
+{
+    double xpos;
+    double ypos;
+    int button;
+    int action;
+    int mods;
+    bool inside_window;
+};
+
+typedef struct keyboard_state_ keyboard_state;
+struct keyboard_state_
+{
+    int key;
+    int scancode;
+    int action;
+    int mods;
+};
 
 int vkapp_create(void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char* resourcePath, bool verbose);
 void vkapp_draw();
 void vkapp_resize(int framebufferWidth, int framebufferHeight);
-void vkapp_mouse(double x, double y, int state);
+void vkapp_mouse(const mouse_state* state);
+void vkapp_keyboard(const keyboard_state* state);
 void vkapp_destroy(void);
 
 #ifdef __cplusplus

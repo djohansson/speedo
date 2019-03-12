@@ -26,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <codecvt>
 #include <cstdint>
 #include <cstdlib>
 #if defined(__WINDOWS__)
@@ -33,6 +34,7 @@
 #endif
 #include <filesystem>
 #include <iostream>
+#include <locale> 
 #include <numeric>
 #include <optional>
 #include <stdexcept>
@@ -95,6 +97,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/hash.hpp>
+#include <glm/gtc/constants.hpp>
 //#include <glm/gtx/matrix_interpolation.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
@@ -114,103 +117,127 @@
 
 #include <slang.h>
 
-struct ViewportData
+struct ViewData
 {
-	glm::mat4 view = glm::mat4(1.0f);
+	struct ViewportData
+	{
+		uint32_t width = 0;
+		uint32_t height = 0;
+	} viewport;
+
+	glm::vec3 camPos = glm::vec3(0.0f, -2.0f, 0.0f);
+	glm::vec3 camRot = glm::vec3(0.0f, 0.0f, 0.0);
+
+	glm::mat4x3 view = glm::mat4x3(1.0f);
 	glm::mat4 projection = glm::mat4(1.0f);
-	glm::vec3 eye = glm::vec3(1.5f, 1.5f, 1.0f);
 };
 
-template <GraphicsBackend Backend>
-using ImGui_WindowData = std::conditional_t<Backend == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_WindowData, std::nullptr_t>;
+template <GraphicsBackend B>
+using ImGui_WindowData = std::conditional_t<B == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_WindowData, std::nullptr_t>;
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct ImGuiData
 {
-	std::unique_ptr<ImGui_WindowData<Backend>> window;
+	std::unique_ptr<ImGui_WindowData<B>> window;
 	std::vector<ImFont *> fonts;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct WindowData
 {
-	uint32_t width;
-	uint32_t height;
+	uint32_t windowWidth = 0;
+	uint32_t windowHeight = 0;
+	uint32_t framebufferWidth = 0;
+	uint32_t framebufferHeight = 0;
 
-	Surface<Backend> surface;
-	SurfaceFormat<Backend> surfaceFormat;
-	Format<Backend> depthFormat;
-	PresentMode<Backend> presentMode;
+	Surface<B> surface;
+	SurfaceFormat<B> surfaceFormat;
+	Format<B> depthFormat;
+	PresentMode<B> presentMode;
 
-	SwapchainContext<Backend> swapchain;
+	SwapchainContext<B> swapchain;
 
-	std::unique_ptr<ViewportData[]> viewports;
-	std::optional<size_t> activeViewport;
+	std::vector<ViewData> views;
+	std::optional<size_t> activeView;
 
-	ImGuiData<Backend> imgui;
+	ImGuiData<B> imgui;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct GraphicsPipelineResourceContext // temp
 {	
-	Buffer<Backend> uniformBuffer;
-	Allocation<Backend> uniformBufferMemory;
+	Buffer<B> uniformBuffer;
+	Allocation<B> uniformBufferMemory;
 
-	Model<Backend> model;				  // temp, use handles instead
+	Model<B> model;				  // temp, use shared_ptrs instead
 	
-	Texture<Backend> texture;			  // temp, use handles instead
-	Sampler<Backend> sampler;
+	Texture<B> texture;			  // temp, use shared_ptrs instead
+	Sampler<B> sampler;
 	
-	WindowData<Backend> *window = nullptr; // temp - replace with generic render target structure
+	WindowData<B> *window = nullptr; // temp - replace with generic render target structure
 };
 
-template <GraphicsBackend Backend>
+template <typename T>
+struct ArrayDeleter
+{
+	using DeleteFcn = std::function<void(T*, size_t)>;
+
+	ArrayDeleter() = default;
+	ArrayDeleter(DeleteFcn&& deleter_, size_t size_) : deleter(deleter_), size(size_) {}
+	
+	inline void operator()(T* array) const { deleter(array, size); }
+
+	DeleteFcn deleter;
+	size_t size;
+};
+
+template <GraphicsBackend B>
 struct PipelineLayoutContext
 {
-	using ShaderModuleVector = std::vector<ShaderModule<Backend>>;
-	using DescriptorSetLayoutVector = std::vector<DescriptorSetLayout<Backend>>;
-
-	ShaderModuleVector shaders;					 		// temp, use handles instead
-	DescriptorSetLayoutVector descriptorSetLayouts;		// temp, use handles instead
-	PipelineLayout<Backend> layout;
+	std::unique_ptr<ShaderModule<B>[], ArrayDeleter<ShaderModule<B>>> shaders;
+	std::unique_ptr<DescriptorSetLayout<B>[], ArrayDeleter<DescriptorSetLayout<B>>> descriptorSetLayouts;
+	
+	PipelineLayout<B> layout;
 };
 
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct PipelineConfiguration
 {
-	GraphicsPipelineResourceContext<Backend> *resources = nullptr; // todo: replace with handle
-	PipelineLayoutContext<Backend> *layout = nullptr;		  // todo: replace with handle
-	RenderPass<Backend> renderPass;
+	GraphicsPipelineResourceContext<B> *resources = nullptr; // todo: replace with shared_ptr
+	PipelineLayoutContext<B> *layout = nullptr;		  // todo: replace with shared_ptr
+	RenderPass<B> renderPass;
+};
+
+
+using EntryPoint = std::pair<std::string, uint32_t>;
+using ShaderBinary = std::vector<std::byte>;
+using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;
+
+template <GraphicsBackend B>
+struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<B>
+{
+	using BaseType = DescriptorSetLayoutBinding<B>;
+
+	template <class Archive, GraphicsBackend B = B>
+	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void>
+	serialize(Archive &ar)
+	{
+		static_assert(sizeof(*this) == sizeof(BaseType));
+
+		ar(BaseType::binding);
+		ar(BaseType::descriptorType);
+		ar(BaseType::descriptorCount);
+		ar(BaseType::stageFlags);
+		//ar(pImmutableSamplers); // todo
+	}
 };
 
 // this should be a temporary object only used during loading.
-template <GraphicsBackend Backend>
+template <GraphicsBackend B>
 struct SerializableShaderReflectionModule
 {
-	using EntryPoint = std::pair<std::string, SlangStage>;
-	using ShaderBinary = std::vector<std::byte>;
-	using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;
 	using ShaderEntryVector = std::vector<ShaderEntry>;
-
-	struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<Backend>
-	{
-		using BaseType = DescriptorSetLayoutBinding<Backend>;
-
-		template <class Archive, GraphicsBackend B = Backend>
-		typename std::enable_if_t<B == GraphicsBackend::Vulkan, void>
-		serialize(Archive &ar)
-		{
-			static_assert(sizeof(*this) == sizeof(BaseType));
-
-			ar(BaseType::binding);
-			ar(BaseType::descriptorType);
-			ar(BaseType::descriptorCount);
-			ar(BaseType::stageFlags);
-			//ar(pImmutableSamplers); // todo
-		}
-	};
-	
-	using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding>>; // set, bindings
+	using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
 
 	template <class Archive>
 	void serialize(Archive &ar)
@@ -310,33 +337,58 @@ class VulkanApplication
 
 		auto createPipelineLayoutContext = [](VkDevice device, const auto& slangModule)
 		{
-			PipelineLayoutContext<GraphicsBackend::Vulkan> pipelineLayout;
+			using VkPipelineLayoutContext = PipelineLayoutContext<GraphicsBackend::Vulkan>;
+			VkPipelineLayoutContext pipelineLayout;
+
+			using VkShaderModuleType = ShaderModule<GraphicsBackend::Vulkan>;
+			auto vkShaderDeleter = [device](VkShaderModuleType* module, size_t size)
+			{
+				for (size_t i = 0; i < size; i++)
+					vkDestroyShaderModule(device, *(module + i), nullptr);
+			};
+			pipelineLayout.shaders =
+				std::unique_ptr<VkShaderModuleType[], ArrayDeleter<VkShaderModuleType>>(
+					new VkShaderModuleType[slangModule.shaders.size()], { vkShaderDeleter, slangModule.shaders.size() });
+
+			using VkDescriptorSetLayoutType = DescriptorSetLayout<GraphicsBackend::Vulkan>;
+			auto vkDescriptorSetLayoutDeleter = [device](VkDescriptorSetLayoutType* layout, size_t size)
+			{
+				for (size_t i = 0; i < size; i++)
+					vkDestroyDescriptorSetLayout(device, *(layout + i), nullptr);
+			};
+			pipelineLayout.descriptorSetLayouts =
+				std::unique_ptr<VkDescriptorSetLayoutType[], ArrayDeleter<VkDescriptorSetLayoutType>>(
+					new VkDescriptorSetLayoutType[slangModule.bindings.size()], { vkDescriptorSetLayoutDeleter, slangModule.bindings.size() });
 
 			for (const auto &shader : slangModule.shaders)
 			{
-				VkShaderModuleCreateInfo info = {};
-				info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-				info.codeSize = shader.first.size();
-				info.pCode = reinterpret_cast<const uint32_t *>(shader.first.data());
+				auto createShaderModule = [](VkDevice device, const ShaderEntry& shader)
+				{
+					VkShaderModuleCreateInfo info = {};
+					info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+					info.codeSize = shader.first.size();
+					info.pCode = reinterpret_cast<const uint32_t *>(shader.first.data());
 
-				VkShaderModule vkShaderModule;
-				CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
+					VkShaderModule vkShaderModule;
+					CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
 
-				pipelineLayout.shaders.emplace_back(vkShaderModule);
+					return vkShaderModule;
+				};
+
+				pipelineLayout.shaders.get()[&shader - &slangModule.shaders[0]] = createShaderModule(device, shader);
 			}
 
-			for (auto &[space, bindings] : slangModule.bindings)
+			size_t layoutIt = 0;
+			for (auto &binding : slangModule.bindings)
 			{
-				pipelineLayout.descriptorSetLayouts.emplace_back(
-					createDescriptorSetLayout(device, bindings));
+				auto& [space, layoutBindings] = binding;
+				pipelineLayout.descriptorSetLayouts.get()[layoutIt++] = createDescriptorSetLayout(device, layoutBindings);
 			}
-
-			assert(pipelineLayout.descriptorSetLayouts.size() == 1); // temp
 
 			VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 			pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			pipelineLayoutInfo.setLayoutCount = pipelineLayout.descriptorSetLayouts.size();
-			pipelineLayoutInfo.pSetLayouts = pipelineLayout.descriptorSetLayouts.data();
+			pipelineLayoutInfo.setLayoutCount = slangModule.bindings.size();
+			pipelineLayoutInfo.pSetLayouts = pipelineLayout.descriptorSetLayouts.get();
 			pipelineLayoutInfo.pushConstantRangeCount = 0;
 			pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -347,7 +399,7 @@ class VulkanApplication
 
 		myPipelineLayout = createPipelineLayoutContext(myDevice, slangModule);
 
-		createFrameResources(framebufferWidth, framebufferHeight);
+		createFrameResources(windowWidth, windowHeight, framebufferWidth, framebufferHeight);
 
 		myResources.model = loadModel("gallery.obj");
 		myResources.texture = loadTexture("gallery.jpg");
@@ -413,19 +465,7 @@ class VulkanApplication
 
 	void draw()
 	{
-		// update input dependent state
-		{
-			ImGuiIO &io = ImGui::GetIO();
-
-			static bool escBufferState = false;
-			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
-			if (escState && !escBufferState)
-				myUIEnableFlag = !myUIEnableFlag;
-			escBufferState = escState;
-
-			if (myFrameCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
-				myCreateFrameResourcesFlag = true;
-		}
+		updateInput(1.0f/60);
 
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
@@ -436,12 +476,12 @@ class VulkanApplication
 
 			myFrameCommandBufferThreadCount = myRequestedCommandBufferThreadCount;
 
-			createFrameResources(myWindow.width, myWindow.height);
+			createFrameResources(
+				myWindow.windowWidth,
+				myWindow.windowHeight,
+				myWindow.framebufferWidth,
+				myWindow.framebufferHeight);
 		}
-
-		// update matrices
-		updateViewMatrices();
-		updateProjectionMatrices();
 
 		// todo: run this at the same time as secondary command buffer recording
 		updateUniformBuffers();
@@ -492,83 +532,138 @@ class VulkanApplication
 
 	void resize(int width, int height)
 	{
-		CHECK_VK(vkQueueWaitIdle(myQueue));
+		// CHECK_VK(vkQueueWaitIdle(myQueue));
 
-		cleanupFrameResources();
+		// cleanupFrameResources();
 
-		createFrameResources(width, height);
+		// createFrameResources(width, height);
 	}
 
-	void mouse(double x, double y, int state)
+	void onMouse(const mouse_state& state)
 	{
-		// auto getArcballVector = [](double x, double y, int screen_width, int screen_height) {
-		// 	glm::vec3 p = glm::vec3(x / screen_width * 2 - 1, y / screen_height * 2 - 1, 0);
-		// 	p.y = -p.y;
+		bool leftPressed = false;
+		bool rightPressed = false;
+#if defined(VOLCANO_USE_GLFW)
+		leftPressed = state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS;
+		rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
+#endif
 
-		// 	auto opSqr = p.x * p.x + p.y * p.y;
-		// 	if (opSqr <= 1)
-		// 		p.z = sqrt(1 - opSqr); // Pythagoras
-		// 	else
-		// 		p = glm::normalize(p); // nearest point
+		auto screenPos = glm::vec2(state.xpos, state.ypos);
+		//auto screenPos = ImGui::GetCursorScreenPos();
 
-		// 	return p;
-		// };
-
-		// if (false && myWindow.activeViewport && state & VKAPP_MOUSE_ARCBALL_ENABLE_FLAG)
-		// {
-		// 	const auto &width = myWindow.imgui.window->Width;
-		// 	const auto &height = myWindow.imgui.window->Height;
-		// 	glm::vec3 va = getArcballVector(myMouseXPos, myMouseYPos, width, height);
-		// 	glm::vec3 vb = getArcballVector(x, y, width, height);
-		// 	float angle = acos(std::min(1.0f, glm::dot(va, vb)));
-		// 	glm::vec3 axisInViewCoord = glm::cross(va, vb);
-		// 	glm::mat3 viewToModel = glm::inverse(
-		// 		glm::mat3(myWindow.viewports[*myWindow.activeViewport].view) * glm::mat3(myResources.model.transform));
-		// 	glm::vec3 axisInModelCoord = viewToModel * axisInViewCoord;
-		// 	myResources.model.transform = glm::rotate(myResources.model.transform, glm::degrees(angle), axisInModelCoord);
-		// }
-
-		myMouseXPos = x;
-		myMouseYPos = y;
-	}
-
-	void keyPressed()
-	{
-		if (myWindow.activeViewport)
+		if (state.inside_window && !myMouseButtonsPressed[0])
 		{
-			float dx = 0; //how much we strafe on x
-			float dz = 0; //how much we walk on z
+			// todo: generic view index calculation
+			size_t viewIdx = screenPos.x / (myWindow.windowWidth / NX);
+			size_t viewIdy = screenPos.y / (myWindow.windowHeight / NY);
+			myWindow.activeView = std::min((viewIdy * NX) + viewIdx, myWindow.views.size() - 1);
 
-			char key = '\n';
-			switch (key)
+			std::cout << *myWindow.activeView << ":[" << screenPos.x << ", " << screenPos.y << "]" << std::endl;
+		}
+		else if (!leftPressed)
+		{
+			myWindow.activeView.reset();
+		}
+
+		myMousePosition[0] = glm::vec2{ static_cast<float>(screenPos.x), static_cast<float>(screenPos.y) };
+		myMousePosition[1] = leftPressed && !myMouseButtonsPressed[0] ? myMousePosition[0] : myMousePosition[1];
+
+		myMouseButtonsPressed[0] = leftPressed;
+		myMouseButtonsPressed[1] = rightPressed;
+	}
+
+	void onKeyboard(const keyboard_state& state)
+	{
+#if defined(VOLCANO_USE_GLFW)
+		if (state.action == GLFW_PRESS)
+			myKeysPressed[state.key] = true;
+		else if (state.action == GLFW_RELEASE)
+			myKeysPressed[state.key] = false;
+#endif
+	}
+
+	void updateInput(float dt)
+	{
+		// update input dependent state
+		{
+			ImGuiIO &io = ImGui::GetIO();
+
+			static bool escBufferState = false;
+			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
+			if (escState && !escBufferState)
+				myUIEnableFlag = !myUIEnableFlag;
+			escBufferState = escState;
+		}
+
+		if (myFrameCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
+			myCreateFrameResourcesFlag = true;
+
+		if (myWindow.activeView)
+		{
+			float dx = 0;
+			float dz = 0;
+
+	#if defined(VOLCANO_USE_GLFW)
+			for (const auto& [key, pressed] : myKeysPressed)
 			{
-			case 'w':
-				dz = 2;
-				break;
-			case 's':
-				dz = -2;
-				break;
-			case 'a':
-				dx = -2;
-				break;
-			case 'd':
-				dx = 2;
-				break;
-			default:
-				break;
+				if (pressed)
+				{
+					switch (key)
+					{
+					case GLFW_KEY_W:
+						dz = 1;
+						break;
+					case GLFW_KEY_S:
+						dz = -1;
+						break;
+					case GLFW_KEY_A:
+						dx = 1;
+						break;
+					case GLFW_KEY_D:
+						dx = -1;
+						break;
+					default:
+						break;
+					}
+				}
+			}
+	#endif
+
+			auto &view = myWindow.views[*myWindow.activeView];
+
+			bool doUpdateViewMatrix = false;
+
+			if (dx != 0 || dz != 0)
+			{
+				auto forward = glm::vec3(view.view[0][2], view.view[1][2], view.view[2][2]);
+				auto strafe = glm::vec3(view.view[0][0], view.view[1][0], view.view[2][0]);
+				
+				constexpr auto moveSpeed = 2.0f;
+
+				view.camPos += dt * (dz * forward + dx * strafe) * moveSpeed;
+
+				//std::cout << *myWindow.activeView << ":pos:[" << view.camPos.x << ", " << view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
+
+				doUpdateViewMatrix = true;
 			}
 
-			const glm::mat4 &mat = myWindow.viewports[*myWindow.activeViewport].view;
-			glm::vec3 &eye = myWindow.viewports[*myWindow.activeViewport].eye;
+			if (myMouseButtonsPressed[0])
+			{
+				constexpr auto rotSpeed = 10.0f;
 
-			glm::vec3 forward(mat[0][2], mat[1][2], mat[2][2]);
-			glm::vec3 strafe(mat[0][0], mat[1][0], mat[2][0]);
+				auto dM = myMousePosition[0] - myMousePosition[1];
 
-			const float speed = 0.12f;
+				view.camRot += dt * glm::vec3(dM.y / view.viewport.height, dM.x / view.viewport.width, 0.0f) * rotSpeed;
 
-			eye += (-dz * forward + dx * strafe) * speed;
+				//std::cout << *myWindow.activeView << ":rot:[" << view.camRot.x << ", " << view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
 
-			updateViewMatrices();
+				doUpdateViewMatrix = true;
+			}
+
+			if (doUpdateViewMatrix)
+			{
+				updateViewMatrix(*myWindow.activeView);
+			}
 		}
 	}
 
@@ -805,8 +900,8 @@ class VulkanApplication
 			filename);
 	}
 
-	template <GraphicsBackend Backend>
-	SerializableShaderReflectionModule<Backend> loadSlangShaders(const char *filename) const
+	template <GraphicsBackend B>
+	SerializableShaderReflectionModule<B> loadSlangShaders(const char *filename) const
 	{
 		std::filesystem::path slangFile(myResourcePath);
 		slangFile = std::filesystem::absolute(slangFile);
@@ -814,7 +909,7 @@ class VulkanApplication
 		slangFile /= "shaders";
 		slangFile /= filename;
 
-		SerializableShaderReflectionModule<Backend> slangModule;
+		SerializableShaderReflectionModule<B> slangModule;
 
 		auto loadPBin = [&slangModule](std::istream &stream) {
 			cereal::PortableBinaryInputArchive pbin(stream);
@@ -839,17 +934,17 @@ class VulkanApplication
 			std::string shaderString((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
 		#ifdef UNICODE
-			char slangFilePath[4096];
-			wcstombs(slangFilePath, slangFile.c_str(), sizeof_array(slangFilePath));
+			using convert_type = std::codecvt_utf8<wchar_t>;
+			std::wstring_convert<convert_type, wchar_t> converter;
+			std::string slangFilePath = converter.to_bytes(slangFile.str());
 		#else
-			char slangFilePath[4096];
-			strncpy_s(slangFilePath, slangFile.c_str(), sizeof_array(slangFilePath));
+			std::string slangFilePath(slangFile.c_str());
 		#endif
 
 			spAddTranslationUnitSourceStringSpan(
 				slangRequest,
 				translationUnitIndex,
-				slangFilePath,
+				slangFilePath.c_str(),
 				shaderString.c_str(),
 				shaderString.c_str() + shaderString.size());
 
@@ -860,11 +955,7 @@ class VulkanApplication
 
 			static_assert(sizeof_array(epStrings) == sizeof_array(epStages));
 
-			using ModuleType = decltype(slangModule);
-			using EntryPointVector = std::vector<typename ModuleType::EntryPoint>;
-
-			EntryPointVector entryPoints;
-
+			std::vector<EntryPoint> entryPoints;
 			for (int i = 0; i < sizeof_array(epStrings); i++)
 			{
 				int index = spAddEntryPoint(
@@ -1447,26 +1538,6 @@ class VulkanApplication
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
 		myWindow.swapchain.depthImageView = createImageView2D(myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-		createGraphicsRenderPass();
-
-		{
-			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
-			VkFramebufferCreateInfo info = {};
-			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			info.renderPass = myPipeline.renderPass;
-			info.attachmentCount = attachments.size();
-			info.pAttachments = attachments.data();
-			info.width = width;
-			info.height = height;
-			info.layers = 1;
-			for (uint32_t i = 0; i < imageCount; i++)
-			{
-				myWindow.swapchain.colorImageViews[i] = createImageView2D(myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
-				attachments[0] = myWindow.swapchain.colorImageViews[i];
-				CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr, &myWindow.swapchain.frameBuffers[i]));
-			}
-		}
 	}
 
 	void createAllocator()
@@ -1645,15 +1716,15 @@ class VulkanApplication
 			VkViewport viewport = {};
 			viewport.x = 0.0f;
 			viewport.y = 0.0f;
-			viewport.width = static_cast<float>(pipeline.resources->window->width);
-			viewport.height = static_cast<float>(pipeline.resources->window->height);
+			viewport.width = static_cast<float>(pipeline.resources->window->framebufferWidth);
+			viewport.height = static_cast<float>(pipeline.resources->window->framebufferHeight);
 			viewport.minDepth = 0.0f;
 			viewport.maxDepth = 1.0f;
 
 			VkRect2D scissor = {};
 			scissor.offset = {0, 0};
-			scissor.extent = {static_cast<uint32_t>(pipeline.resources->window->width),
-							  static_cast<uint32_t>(pipeline.resources->window->height)};
+			scissor.extent = {static_cast<uint32_t>(pipeline.resources->window->framebufferWidth),
+							  static_cast<uint32_t>(pipeline.resources->window->framebufferHeight)};
 
 			VkPipelineViewportStateCreateInfo viewportState = {};
 			viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1669,7 +1740,7 @@ class VulkanApplication
 			rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 			rasterizer.lineWidth = 1.0f;
 			rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-			rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+			rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 			rasterizer.depthBiasEnable = VK_FALSE;
 			rasterizer.depthBiasConstantFactor = 0.0f;
 			rasterizer.depthBiasClamp = 0.0f;
@@ -1755,18 +1826,15 @@ class VulkanApplication
 			return outPipeline;
 		};
 
-		assert(myPipelineLayout.shaders.size() == 2); // temp
-
 		myPipeline.resources = &myResources;
 		myPipeline.layout = &myPipelineLayout;
 
 		myGraphicsPipeline = createVkGraphicsPipeline(myDevice, myPipeline);
-
-		allocateDescriptorSets(
+		myDescriptorSets = allocateDescriptorSets(
 			myDevice,
 			myDescriptorPool,
-			myPipelineLayout.descriptorSetLayouts,
-			myDescriptorSets);
+			myPipelineLayout.descriptorSetLayouts.get(),
+			myPipelineLayout.descriptorSetLayouts.get_deleter().size);
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
@@ -1815,12 +1883,12 @@ class VulkanApplication
 		// todo: use staging buffer pool, or use scratchpad memory
 		VkBuffer stagingBuffer;
 		VmaAllocation stagingBufferMemory;
-		char buf[64];
-		strcpy(buf, debugName);
-		strcat(buf, "_staging");
+		std::string debugString;
+		debugString.append(debugName);
+		debugString.append("_staging");
 		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-					 stagingBuffer, stagingBufferMemory, buf);
+					 stagingBuffer, stagingBufferMemory, debugString.c_str());
 
 		void *data;
 		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
@@ -1978,14 +2046,12 @@ class VulkanApplication
 
 		VkBuffer stagingBuffer;
 		VmaAllocation stagingBufferMemory;
-		char buf[64];
-		const char *_stagingStr = "_staging";
-		assert(strlen(debugName) + strlen(_stagingStr) < sizeof_array(buf));
-		strcpy(buf, debugName);
-		strcat(buf, _stagingStr);
+		std::string debugString;
+		debugString.append(debugName);
+		debugString.append("_staging");
 		createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-					 stagingBuffer, stagingBufferMemory, buf);
+					 stagingBuffer, stagingBufferMemory, debugString.c_str());
 
 		void *data;
 		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
@@ -2092,7 +2158,7 @@ class VulkanApplication
 
 		// Setup style
 		ImGui::StyleColorsClassic();
-		io.FontDefault = myWindow.imgui.fonts.back(); /*.get();*/
+		io.FontDefault = myWindow.imgui.fonts.back();
 
 		// Setup Vulkan binding
 		ImGui_ImplVulkan_InitInfo initInfo = {};
@@ -2117,23 +2183,63 @@ class VulkanApplication
 		}
 	}
 
-	void createFrameResources(int width, int height)
+	void createFrameResources(int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight)
 	{
 		myResources.window = &myWindow;
 
-		myWindow.width = width;
-		myWindow.height = height;
-		
-		myWindow.viewports = std::make_unique<ViewportData[]>(NX * NY);
-		myWindow.activeViewport = 0;
+		myWindow.windowWidth = windowWidth;
+		myWindow.windowHeight = windowHeight;
+		myWindow.framebufferWidth = framebufferWidth;
+		myWindow.framebufferHeight = framebufferHeight;
+
+		myWindow.views.resize(NX * NY);
+		for (auto& view : myWindow.views)
+		{
+			if (!view.viewport.width)
+				view.viewport.width = framebufferWidth / NX;
+
+			if (!view.viewport.height)
+				view.viewport.height = framebufferHeight / NY;
+
+			size_t viewIndex = &view - &myWindow.views[0];
+			
+			updateViewMatrix(viewIndex);
+			updateProjectionMatrix(viewIndex);
+		}
+
+		createGraphicsRenderPass();
+
+		auto createFramebuffers = [this](uint32_t width, uint32_t height)
+		{
+			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
+			VkFramebufferCreateInfo info = {};
+			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			info.renderPass = myPipeline.renderPass;
+			info.attachmentCount = attachments.size();
+			info.pAttachments = attachments.data();
+			info.width = width;
+			info.height = height;
+			info.layers = 1;
+			for (uint32_t i = 0; i < myWindow.swapchain.frameBuffers.size(); i++)
+			{
+				myWindow.swapchain.colorImageViews[i] = createImageView2D(myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
+				attachments[0] = myWindow.swapchain.colorImageViews[i];
+				CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr, &myWindow.swapchain.frameBuffers[i]));
+			}
+		};
+
+		createFramebuffers(width, height);
+
+		createGraphicsPipeline();
+
 
 		myWindow.imgui.window = std::make_unique<ImGui_ImplVulkanH_WindowData>(/*myFrameCount*/);
 
 		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
 		myWindow.imgui.window->FrameIndex = IMGUI_VK_QUEUED_FRAMES - 1; //myWindow.imgui.window->FrameCount - 1;
 
-		myWindow.imgui.window->Width = width;
-		myWindow.imgui.window->Height = height;
+		myWindow.imgui.window->Width = framebufferWidth;
+		myWindow.imgui.window->Height = framebufferHeight;
 
 		myWindow.imgui.window->Swapchain = myWindow.swapchain.swapchain;
 		myWindow.imgui.window->SurfaceFormat = myWindow.surfaceFormat;
@@ -2205,51 +2311,54 @@ class VulkanApplication
 			fd->RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 		//ImGui_ImplVulkanH_CreateWindowDataCommandBuffers(myDevice, myQueueFamilyIndex, myWindow.get(), nullptr);
-
-		createGraphicsRenderPass();
-		createGraphicsPipeline();
 	}
 
 	void checkFlipOrPresentResult(VkResult result)
 	{
-		if (result == VK_SUBOPTIMAL_KHR)
-			return; // not much we can do
-		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+		switch (result)
+		{
+		case VK_SUCCESS:
+			break;
+		case VK_SUBOPTIMAL_KHR: 
+			std::cout << "warning: flip/present returned VK_SUBOPTIMAL_KHR";
+			break;
+		case VK_ERROR_OUT_OF_DATE_KHR:
 			myCreateFrameResourcesFlag = true;
-		else if (result != VK_SUCCESS)
+			break;
+		default: 
 			throw std::runtime_error("failed to flip swap chain image!");
+		}	
 	}
 
-	void updateViewMatrices()
+	void updateViewMatrix(size_t index)
 	{
-		if (myWindow.activeViewport)
-		{
-			float pitch = 0.0f;
-			float yaw = 0.0f;
-			float roll = pi();
+		auto& view = myWindow.views[index];
 
-			glm::mat4 matPitch = glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::mat4 matYaw = glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-			glm::mat4 matRoll = glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
-
-			glm::mat4 rotate = matRoll * matPitch * matYaw;
-			glm::mat4 translate = glm::translate(glm::mat4(1.0f), -myWindow.viewports[*myWindow.activeViewport].eye);
-
-			myWindow.viewports[*myWindow.activeViewport].view = rotate * translate;
-		}
+		auto Rx = glm::rotate(glm::mat4(1.0), view.camRot.x, glm::vec3(-1, 0, 0));
+		auto Ry = glm::rotate(glm::mat4(1.0), view.camRot.y, glm::vec3(0, -1, 0));
+		auto T = glm::translate(glm::mat4(1.0), -view.camPos);
+	
+		view.view = glm::inverse(T * Ry * Rx);
 	}
 
-	void updateProjectionMatrices()
+	void updateProjectionMatrix(size_t index)
 	{
-		if (myWindow.activeViewport)
+		auto& view = myWindow.views[index];
+
+		constexpr glm::mat4 clip =
 		{
-			myWindow.viewports[*myWindow.activeViewport].projection =
-				glm::perspective(
-					glm::radians(75.0f),
-					myWindow.width / static_cast<float>(myWindow.height),
-					0.01f,
-					100.0f);
-		}
+			1.0f,  0.0f, 0.0f, 0.0f,
+			0.0f, -1.0f, 0.0f, 0.0f,
+			0.0f,  0.0f, 0.5f, 0.0f,
+			0.0f,  0.0f, 0.5f, 1.0f
+		};
+		
+		constexpr auto fov = 75.0f;
+		auto aspect = static_cast<float>(view.viewport.width) / static_cast<float>(view.viewport.height);
+		constexpr auto nearplane = 0.01f;
+		constexpr auto farplane = 100.0f;
+		
+		view.projection = clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
 	}
 
 	void updateUniformBuffers()
@@ -2303,8 +2412,8 @@ class VulkanApplication
 			// 	lerp(proj0[3], proj1[3], s));
 
 			ubo.model = glm::mat4(1.0f);//myResources.model.transform;
-			ubo.view = myWindow.viewports[n].view;
-			ubo.proj = myWindow.viewports[n].projection;
+			ubo.view = glm::mat4(myWindow.views[n].view);
+			ubo.proj = myWindow.views[n].projection;
 		}
 
 		vmaFlushAllocation(myAllocator, myResources.uniformBufferMemory, 0, VK_WHOLE_SIZE);
@@ -2391,8 +2500,8 @@ class VulkanApplication
 			if (drawCount % segmentCount)
 				segmentDrawCount += 1;
 
-			uint32_t dx = myWindow.width / NX;
-			uint32_t dy = myWindow.height / NY;
+			uint32_t dx = myWindow.framebufferWidth / NX;
+			uint32_t dy = myWindow.framebufferHeight / NY;
 
 			std::array<uint32_t, 128> seq;
 			std::iota(seq.begin(), seq.begin() + segmentCount, 0);
@@ -2489,7 +2598,7 @@ class VulkanApplication
 			beginInfo.framebuffer = myWindow.imgui.window->Framebuffer[myWindow.imgui.window->FrameIndex];
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent =
-				{static_cast<uint32_t>(myWindow.width), static_cast<uint32_t>(myWindow.height)};
+				{static_cast<uint32_t>(myWindow.framebufferWidth), static_cast<uint32_t>(myWindow.framebufferHeight)};
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
 			vkCmdBeginRenderPass(newFrame->CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
@@ -2583,12 +2692,20 @@ class VulkanApplication
 		for (VkImageView imageView : myWindow.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
 
+		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
+			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+
 		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
+
+		vkDestroyRenderPass(myDevice, myPipeline.renderPass, nullptr);
 
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 
+		// todo: wrap these in a deleter.
+		myPipelineLayout.shaders.reset();
+		myPipelineLayout.descriptorSetLayouts.reset();
+		
 		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
-		vkDestroyRenderPass(myDevice, myPipeline.renderPass, nullptr);
 	}
 
 	void cleanup()
@@ -2665,11 +2782,12 @@ class VulkanApplication
 	uint32_t myFrameCommandBufferThreadCount = 0;
 	int myRequestedCommandBufferThreadCount = 0;
 
-	double myMouseXPos = 0;
-	double myMouseYPos = 0;
-
 	bool myUIEnableFlag = false;
 	bool myCreateFrameResourcesFlag = false;
+
+	std::map<int, bool> myKeysPressed;
+	std::array<bool, 2> myMouseButtonsPressed;
+	std::array<glm::vec2, 2> myMousePosition;
 };
 
 static VulkanApplication *theApp = nullptr;
@@ -2720,11 +2838,20 @@ void vkapp_resize(int width, int height)
 	theApp->resize(width, height);
 }
 
-void vkapp_mouse(double x, double y, int state)
+void vkapp_mouse(const mouse_state* state)
 {
 	assert(theApp != nullptr);
+	assert(state != nullptr);
 
-	theApp->mouse(x, y, state);
+	theApp->onMouse(*state);
+}
+
+void vkapp_keyboard(const keyboard_state* state)
+{
+	assert(theApp != nullptr);
+	assert(state != nullptr);
+
+	theApp->onKeyboard(*state);
 }
 
 void vkapp_destroy()
