@@ -1,6 +1,5 @@
 // todo: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible
 // todo: separate VK objects from generic ones.
-// todo: fix memory leaks
 // todo: dynamic mesh layout, depending on input data structure
 // todo: extract descriptor sets 
 // todo: resource loading / manager
@@ -1514,6 +1513,10 @@ class VulkanApplication
 		myWindow.swapchain.colorImageViews.resize(imageCount);
 		CHECK_VK(vkGetSwapchainImagesKHR(myDevice, myWindow.swapchain.swapchain, &imageCount, myWindow.swapchain.colorImages.data()));
 
+		for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
+			myWindow.swapchain.colorImageViews[i] = createImageView2D(
+				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
+
 		myWindow.depthFormat = findSupportedFormat(
 			myPhysicalDevice,
 			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -2222,13 +2225,12 @@ class VulkanApplication
 			info.layers = 1;
 			for (uint32_t i = 0; i < myWindow.swapchain.frameBuffers.size(); i++)
 			{
-				myWindow.swapchain.colorImageViews[i] = createImageView2D(myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
 				attachments[0] = myWindow.swapchain.colorImageViews[i];
 				CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr, &myWindow.swapchain.frameBuffers[i]));
 			}
 		};
 
-		createFramebuffers(width, height);
+		createFramebuffers(framebufferWidth, framebufferHeight);
 
 		createGraphicsPipeline();
 
@@ -2686,26 +2688,20 @@ class VulkanApplication
 		//ImGui_ImplVulkanH_DestroyWindowDataSwapChainAndFramebuffer(myDevice, myWindow.get(), nullptr);
 		//ImGui_ImplVulkanH_DestroyWindowData(myInstance, myDevice, myWindow.get(), nullptr);
 
+		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
+			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+
 		vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
 		vkDestroyImageView(myDevice, myWindow.swapchain.depthImageView, nullptr);
 
 		for (VkImageView imageView : myWindow.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
 
-		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
-			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
-
 		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
 
 		vkDestroyRenderPass(myDevice, myPipeline.renderPass, nullptr);
 
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
-
-		// todo: wrap these in a deleter.
-		myPipelineLayout.shaders.reset();
-		myPipelineLayout.descriptorSetLayouts.reset();
-		
-		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
 	}
 
 	void cleanup()
@@ -2724,6 +2720,12 @@ class VulkanApplication
 			vmaDestroyImage(myAllocator, myResources.texture.image, myResources.texture.imageMemory);
 			vkDestroyImageView(myDevice, myResources.texture.imageView, nullptr);
 		}
+
+		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
+
+		// todo: wrap these in a deleter.
+		myPipelineLayout.shaders.reset();
+		myPipelineLayout.descriptorSetLayouts.reset();
 
 		vkDestroySampler(myDevice, myResources.sampler, nullptr);
 
