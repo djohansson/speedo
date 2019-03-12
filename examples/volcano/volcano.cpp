@@ -176,20 +176,6 @@ struct GraphicsPipelineResourceContext // temp
 	WindowData<B> *window = nullptr; // temp - replace with generic render target structure
 };
 
-template <typename T>
-struct ArrayDeleter
-{
-	using DeleteFcn = std::function<void(T*, size_t)>;
-
-	ArrayDeleter() = default;
-	ArrayDeleter(DeleteFcn&& deleter_, size_t size_) : deleter(deleter_), size(size_) {}
-	
-	inline void operator()(T* array) const { deleter(array, size); }
-
-	DeleteFcn deleter;
-	size_t size;
-};
-
 template <GraphicsBackend B>
 struct PipelineLayoutContext
 {
