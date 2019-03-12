@@ -274,6 +274,7 @@ void* MemoryArena::_allocateAlignedFromNewBlock(size_t size, size_t alignment)
     alignment = (alignment < m_blockAlignment) ? m_blockAlignment : alignment;
 
     const size_t alignMask = alignment - 1;
+    (void)alignMask;
 
     // The size of the block must be at least large enough to take into account alignment
     size_t allocSize = (alignment <= kMinAlignment) ? size : (size + alignment);

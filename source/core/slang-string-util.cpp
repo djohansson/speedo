@@ -92,7 +92,7 @@ static const Guid IID_ISlangBlob = SLANG_UUID_ISlangBlob;
     append(format, args, builder);
     va_end(args);
 
-    return builder;
+    return std::move(builder);
 }
 
 /* static */String StringUtil::getString(ISlangBlob* blob)
@@ -139,7 +139,7 @@ ComPtr<ISlangBlob> StringUtil::createStringBlob(const String& string)
     }
 
     builder.appendInPlace(dstChars, numChars);
-    return builder;
+    return std::move(builder);
 }
 
 /* static */String StringUtil::calcCharReplaced(const String& string, char fromChar, char toChar)

@@ -485,7 +485,6 @@ void GLRenderer::flushStateForDraw()
 
             auto slotTypeIndex = int(GLDescriptorSlotType::ConstantBuffer);
             auto count = descriptorSetLayout->m_counts[slotTypeIndex];
-            auto baseIndex = descriptorSetInfo.baseArrayIndex[slotTypeIndex];
 
             for(Int ii = 0; ii < count; ++ii)
             {
@@ -673,9 +672,6 @@ SlangResult GLRenderer::initialize(const Desc& desc, void* inWindowHandle)
     m_glContext = wglCreateContext(m_hdc);
     wglMakeCurrent(m_hdc, m_glContext);
 
-    auto renderer = glGetString(GL_RENDERER);
-    auto extensions = glGetString(GL_EXTENSIONS);
-
     // Load each of our extension functions by name
 
 #define LOAD_GL_EXTENSION_FUNC(NAME, TYPE) NAME = (TYPE) wglGetProcAddress(#NAME);
@@ -809,7 +805,8 @@ Result GLRenderer::createTextureResource(Resource::Usage initialUsage, const Tex
                 {
                     for (int j = 0; j < srcDesc.numMipLevels; j++)
                     {
-                        glTexImage3D(target, j, internalFormat, srcDesc.size.width, srcDesc.size.height, slice, 0, format, formatType, data[slice++]);
+                        glTexImage3D(target, j, internalFormat, srcDesc.size.width, srcDesc.size.height, slice, 0, format, formatType, data[slice]);
+                        slice++;
                     }
                 }
             }
@@ -981,6 +978,8 @@ void* GLRenderer::map(BufferResource* bufferIn, MapFlavor flavor)
             break;
         case MapFlavor::HostRead:
             access = GL_READ_ONLY;
+            break;
+        default:
             break;
     }
 
@@ -1237,11 +1236,11 @@ void GLRenderer::DescriptorSetImpl::setConstantBuffer(UInt range, UInt index, Bu
 
 void GLRenderer::DescriptorSetImpl::setResource(UInt range, UInt index, ResourceView* view)
 {
-    auto viewImpl = (ResourceViewImpl*) view;
+    // auto viewImpl = (ResourceViewImpl*) view;
 
-    auto layout = m_layout;
-    auto rangeInfo = layout->m_ranges[range];
-    auto arrayIndex = rangeInfo.arrayIndex + index;
+    // auto layout = m_layout;
+    // auto rangeInfo = layout->m_ranges[range];
+    // auto arrayIndex = rangeInfo.arrayIndex + index;
 
     assert(!"unimplemented");
 }
@@ -1289,7 +1288,7 @@ Result GLRenderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc& de
         auto rangeDesc = desc.slotRanges[rr];
         DescriptorSetLayoutImpl::RangeInfo rangeInfo;
 
-        GLDescriptorSlotType glSlotType;
+        GLDescriptorSlotType glSlotType = GLDescriptorSlotType::ConstantBuffer;
         switch( rangeDesc.type )
         {
         default:

@@ -135,6 +135,8 @@ void saveBinaryFile(
 
         saveOp(fileStream);
 
+        fileStream.sync();
+
         if (sha2Enable)
         {
             fileStream.seekg(0, std::ios_base::beg);
@@ -235,11 +237,10 @@ void loadCachedSourceFile(
         sourceFileState == FileState::Stale ||
         pbinFileState != FileState::Valid)
     {	
-        mio::mmap_ostreambuf fileStreamBuf(jsonFilePath.string());
-        std::ostream fileStream(&fileStreamBuf);
-        
-        cereal::JSONOutputArchive json(fileStream);
-        
+        mio::mmap_ostreambuf streamBuf(jsonFilePath.string());
+        std::ostream stream(&streamBuf);
+        cereal::JSONOutputArchive json(stream);
+    
         json(cereal::make_nvp("loaderType", loaderType));
         json(cereal::make_nvp("loaderVersion", loaderVersion));
 

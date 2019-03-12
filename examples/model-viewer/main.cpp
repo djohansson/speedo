@@ -277,8 +277,6 @@ RefPtr<Program> loadProgram(
     auto genericParamCount = slangReflection->getTypeParameterCount();
     for(unsigned int pp = 0; pp < genericParamCount; ++pp)
     {
-        auto slangGenericParam = slangReflection->getTypeParameterByIndex(pp);
-
         Program::GenericParam genericParam  = {};
         program->genericParams.push_back(genericParam);
     }

@@ -6,12 +6,14 @@ xxh64_filebuf::xxh64_filebuf(uint64_t seed)
     : myState(XXH64_createState())
 {
     auto xxh64ResetResult = XXH64_reset(myState, seed);
+	(void)xxh64ResetResult;
     assert(xxh64ResetResult == XXH_OK);
 }
 
 xxh64_filebuf::~xxh64_filebuf()
 {
     XXH_errorcode result = XXH64_freeState(myState);
+	(void)result;
     assert(result == XXH_OK);
 
     std::cout << "(xxh64_filebuf::~xxh64_filebuf) myTotalSizeWritten: " << myTotalSizeWritten << ", myTotalSizeRead: " << myTotalSizeRead << std::endl;
@@ -21,6 +23,8 @@ xxh64_filebuf::~xxh64_filebuf()
 int xxh64_filebuf::sync()
 {
     mySyncCount++;
+
+	return 0;
 }
 
 std::filebuf::int_type xxh64_filebuf::overflow(int_type c)
@@ -33,6 +37,7 @@ std::filebuf::int_type xxh64_filebuf::overflow(int_type c)
     myTotalSizeWritten += size;
 
     auto xxh64AddResult = XXH64_update(myState, pbase(), size);
+	(void)xxh64AddResult;
     assert(xxh64AddResult == XXH_OK);
 
     //std::cout << "(xxh64_filebuf::overflow) size: " << size << ", c: " << c << ", total size: " << myTotalSizeWritten << std::endl;
@@ -51,6 +56,7 @@ std::filebuf::int_type xxh64_filebuf::underflow()
     myTotalSizeRead += size;
 
     auto xxh64AddResult = XXH64_update(myState, eback(), size);
+	(void)xxh64AddResult;
     assert(xxh64AddResult == XXH_OK);
 
     //std::cout << "(xxh64_filebuf::underflow) size: " << size << ", total size: " << myTotalSizeRead << std::endl;

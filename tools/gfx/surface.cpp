@@ -143,6 +143,7 @@ void Surface::setUnowned(int width, int height, Format format, int strideInBytes
     m_numRows = Surface::calcNumRows(format, height);
 
     const int rowSizeInBytes = Surface::calcRowSize(format, width);
+    (void)rowSizeInBytes;
     assert((strideInBytes > 0 && rowSizeInBytes <= strideInBytes) || (strideInBytes < 0 && rowSizeInBytes <= -strideInBytes));
 }
 

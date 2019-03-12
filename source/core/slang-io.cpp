@@ -235,7 +235,7 @@ namespace Slang
             builder.Append(split[i]);
         }
 
-        return builder;
+        return std::move(builder);
     }
 
 	bool Path::CreateDir(const String & path)
