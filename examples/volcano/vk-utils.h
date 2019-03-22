@@ -4,11 +4,13 @@
 
 #include <cassert>
 #include <cstdint>
+#include <optional>
+#include <map>
 #include <vector>
 
 #include <vulkan/vulkan.h>
 
-static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR &rhs)
+static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
 {
 	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;
 }
@@ -19,7 +21,7 @@ static inline void CHECK_VK(VkResult err)
 	assert(err == VK_SUCCESS);
 }
 
-uint32_t getFormatPixelSize(VkFormat format, uint32_t &outDivisor)
+uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 {
 	outDivisor = 1;
 	switch (format)
@@ -34,10 +36,20 @@ uint32_t getFormatPixelSize(VkFormat format, uint32_t &outDivisor)
 		return 3;
 	case VK_FORMAT_R8G8B8A8_UNORM:
 		return 4;
+	case VK_FORMAT_R32G32_SFLOAT:
+		return 8;
+	case VK_FORMAT_R32G32B32_SFLOAT:
+		return 12;
 	default:
 		assert(false);
 		return 0;
 	};
+}
+
+uint32_t getFormatSize(VkFormat format)
+{
+	uint32_t unused;
+	return getFormatSize(format, unused);
 }
 
 bool hasStencilComponent(VkFormat format)
@@ -52,24 +64,21 @@ bool hasStencilComponent(VkFormat format)
 	};
 }
 
-uint32_t findMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFlags properties)
+uint32_t findMemoryType(VkPhysicalDevice device, uint32_t typeFilter,
+						VkMemoryPropertyFlags properties)
 {
 	VkPhysicalDeviceMemoryProperties memProperties;
 	vkGetPhysicalDeviceMemoryProperties(device, &memProperties);
 
 	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
-		if ((typeFilter & (1 << i)) &&
-			(memProperties.memoryTypes[i].propertyFlags & properties))
+		if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties))
 			return i;
 
 	return 0;
 }
 
-VkFormat findSupportedFormat(
-	VkPhysicalDevice device,
-	const std::vector<VkFormat> &candidates,
-	VkImageTiling tiling,
-	VkFormatFeatureFlags features)
+VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat>& candidates,
+							 VkImageTiling tiling, VkFormatFeatureFlags features)
 {
 	for (VkFormat format : candidates)
 	{
@@ -78,30 +87,29 @@ VkFormat findSupportedFormat(
 
 		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
 			return format;
-		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
+		else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+				 (props.optimalTilingFeatures & features) == features)
 			return format;
 	}
 
 	return VK_FORMAT_UNDEFINED;
 }
 
-VkCommandPool createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags, int queueFamilyIndex)
+VkCommandPool createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags,
+								int queueFamilyIndex)
 {
 	VkCommandPool pool;
-	
+
 	VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 	cmdPoolInfo.flags = flags;
 	cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
 	CHECK_VK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &pool));
-	
+
 	return pool;
 }
 
-std::vector<VkCommandBuffer> allocateCommandBuffers(
-	VkDevice device,
-	VkCommandPool pool,
-	VkCommandBufferLevel level,
-	uint32_t count)
+std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPool pool,
+													VkCommandBufferLevel level, uint32_t count)
 {
 	std::vector<VkCommandBuffer> commandBuffers(count);
 
@@ -115,12 +123,12 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(
 };
 
 template <typename T>
-VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vector<T> &bindings)
+VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vector<T>& bindings)
 {
 	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-	layoutInfo.pBindings = static_cast<const VkDescriptorSetLayoutBinding *>(bindings.data());
+	layoutInfo.pBindings = static_cast<const VkDescriptorSetLayoutBinding*>(bindings.data());
 
 	VkDescriptorSetLayout layout;
 	CHECK_VK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
@@ -129,17 +137,14 @@ VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const std::vect
 }
 
 template <typename T>
-std::vector<VkDescriptorSet> allocateDescriptorSets(
-	VkDevice device,
-	VkDescriptorPool pool,
-	const T* layouts,
-	size_t layoutCount)
+std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,
+													const T* layouts, size_t layoutCount)
 {
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = pool;
 	allocInfo.descriptorSetCount = static_cast<uint32_t>(layoutCount);
-	allocInfo.pSetLayouts = static_cast<const VkDescriptorSetLayout *>(layouts);
+	allocInfo.pSetLayouts = static_cast<const VkDescriptorSetLayout*>(layouts);
 
 	std::vector<VkDescriptorSet> outDescriptorSets(layoutCount);
 	CHECK_VK(vkAllocateDescriptorSets(device, &allocInfo, outDescriptorSets.data()));
@@ -165,7 +170,8 @@ VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPo
 	return commandBuffer;
 }
 
-void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer, VkCommandPool commandPool)
+void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer,
+						   VkCommandPool commandPool)
 {
 	VkSubmitInfo endInfo = {};
 	endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -179,8 +185,7 @@ void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer comma
 }
 
 int getSuitableSwapchainAndQueueFamilyIndex(
-	VkSurfaceKHR surface,
-	VkPhysicalDevice device,
+	VkSurfaceKHR surface, VkPhysicalDevice device,
 	SwapchainInfo<GraphicsBackend::Vulkan>& outSwapchainInfo)
 {
 	VkPhysicalDeviceProperties deviceProperties;
@@ -197,7 +202,7 @@ int getSuitableSwapchainAndQueueFamilyIndex(
 	{
 		outSwapchainInfo.formats.resize(formatCount);
 		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-			outSwapchainInfo.formats.data());
+											 outSwapchainInfo.formats.data());
 	}
 
 	assert(!outSwapchainInfo.formats.empty());
@@ -208,20 +213,19 @@ int getSuitableSwapchainAndQueueFamilyIndex(
 	{
 		outSwapchainInfo.presentModes.resize(presentModeCount);
 		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-			outSwapchainInfo.presentModes.data());
+												  outSwapchainInfo.presentModes.data());
 	}
 
 	assert(!outSwapchainInfo.presentModes.empty());
 
-	//if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
 	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
 	{
 		uint32_t queueFamilyCount = 0;
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
 		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
-			queueFamilies.data());
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
 		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
 		{
@@ -239,4 +243,49 @@ int getSuitableSwapchainAndQueueFamilyIndex(
 	}
 
 	return -1;
+}
+
+std::vector<VertexInputBindingDescription<GraphicsBackend::Vulkan>>
+calculateInputBindingDescriptions(
+	const std::vector<SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>>&
+		attributeDescriptions)
+{
+	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
+
+	AttributeMap attributes;
+
+	for (const auto& attribute : attributeDescriptions)
+	{
+		assert(attribute.binding == 0); // todo: please implement me
+
+		attributes[attribute.location] = std::make_pair(attribute.format, attribute.offset);
+	}
+
+	int32_t lastBinding = -1;
+	int32_t lastLocation = -1;
+	uint32_t lastOffset = 0;
+	uint32_t lastSize = 0;
+
+	uint32_t stride = 0;
+
+	for (const auto& [location, formatAndOffset] : attributes)
+	{
+		if (location != (lastLocation + 1))
+			return {};
+
+		lastLocation = location;
+
+		if (formatAndOffset.second < (lastOffset + lastSize))
+			return {};
+
+		lastSize = getFormatSize(formatAndOffset.first);
+		lastOffset = formatAndOffset.second;
+
+		stride = lastOffset + lastSize;
+	}
+
+	// assert(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
+
+	return {VertexInputBindingDescription<GraphicsBackend::Vulkan>{0u, stride,
+																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }

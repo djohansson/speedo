@@ -44,5 +44,5 @@ examples/volcano/test-file
 
 # cache files
 
-examples/volcano/resources/*/*.pbin
 examples/volcano/resources/*/*.json
+examples/volcano/resources/*/*.pbin

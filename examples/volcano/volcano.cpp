@@ -1660,6 +1660,11 @@ private:
 		CHECK_VK(vkGetSwapchainImagesKHR(myDevice, myWindow.swapchain.swapchain, &imageCount,
 										 myWindow.swapchain.colorImages.data()));
 
+		for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
+			myWindow.swapchain.colorImageViews[i] =
+				createImageView2D(myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
+								  VK_IMAGE_ASPECT_COLOR_BIT);
+
 		myWindow.depthFormat = findSupportedFormat(
 			myPhysicalDevice,
 			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -2364,9 +2369,6 @@ private:
 			info.layers = 1;
 			for (uint32_t i = 0; i < myWindow.swapchain.frameBuffers.size(); i++)
 			{
-				myWindow.swapchain.colorImageViews[i] =
-					createImageView2D(myWindow.swapchain.colorImages[i],
-									  myWindow.surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
 				attachments[0] = myWindow.swapchain.colorImageViews[i];
 				CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr,
 											 &myWindow.swapchain.frameBuffers[i]));
@@ -2837,6 +2839,9 @@ private:
 		// nullptr); ImGui_ImplVulkanH_DestroyWindowData(myInstance, myDevice, myWindow.get(),
 		// nullptr);
 
+		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
+			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+
 		vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage,
 						myWindow.swapchain.depthImageMemory);
 		vkDestroyImageView(myDevice, myWindow.swapchain.depthImageView, nullptr);
@@ -2844,20 +2849,11 @@ private:
 		for (VkImageView imageView : myWindow.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
 
-		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
-			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
-
 		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
 
 		vkDestroyRenderPass(myDevice, myPipelineConfig.renderPass, nullptr);
 
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
-
-		// todo: wrap these in a deleter.
-		myPipelineLayout.shaders.reset();
-		myPipelineLayout.descriptorSetLayouts.reset();
-
-		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
 	}
 
 	void cleanup()
@@ -2879,6 +2875,12 @@ private:
 							myResources.texture.imageMemory);
 			vkDestroyImageView(myDevice, myResources.texture.imageView, nullptr);
 		}
+
+		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
+
+		// todo: wrap these in a deleter.
+		myPipelineLayout.shaders.reset();
+		myPipelineLayout.descriptorSetLayouts.reset();
 
 		vkDestroySampler(myDevice, myResources.sampler, nullptr);
 
