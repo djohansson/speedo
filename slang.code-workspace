@@ -109,7 +109,8 @@
 			"__mutex_base": "cpp",
 			"__threading_support": "cpp",
 			"__tuple": "cpp",
-			"cwctype": "cpp"
+			"cwctype": "cpp",
+			"memory_resource": "cpp"
 		}
 	}
 }
