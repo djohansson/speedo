@@ -50,3 +50,7 @@ examples/volcano/resources/*/*.pbin
 # intellisense
 
 .vscode/ipch/*
+
+# renderdoc
+
+*.cap
