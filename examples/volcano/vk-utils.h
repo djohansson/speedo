@@ -184,39 +184,40 @@ void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer comma
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-int getSuitableSwapchainAndQueueFamilyIndex(
-	VkSurfaceKHR surface, VkPhysicalDevice device,
-	SwapchainInfo<GraphicsBackend::Vulkan>& outSwapchainInfo)
+std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int> getSuitableSwapchainAndQueueFamilyIndex(
+	VkSurfaceKHR surface, VkPhysicalDevice device)
 {
+	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
+
 	VkPhysicalDeviceProperties deviceProperties;
 	vkGetPhysicalDeviceProperties(device, &deviceProperties);
 
 	VkPhysicalDeviceFeatures deviceFeatures;
 	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &outSwapchainInfo.capabilities);
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
 
 	uint32_t formatCount;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
 	if (formatCount != 0)
 	{
-		outSwapchainInfo.formats.resize(formatCount);
+		swapchainInfo.formats.resize(formatCount);
 		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-											 outSwapchainInfo.formats.data());
+											 swapchainInfo.formats.data());
 	}
 
-	assert(!outSwapchainInfo.formats.empty());
+	assert(!swapchainInfo.formats.empty());
 
 	uint32_t presentModeCount;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
 	if (presentModeCount != 0)
 	{
-		outSwapchainInfo.presentModes.resize(presentModeCount);
+		swapchainInfo.presentModes.resize(presentModeCount);
 		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-												  outSwapchainInfo.presentModes.data());
+												  swapchainInfo.presentModes.data());
 	}
 
-	assert(!outSwapchainInfo.presentModes.empty());
+	assert(!swapchainInfo.presentModes.empty());
 
 	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
 	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
@@ -237,12 +238,12 @@ int getSuitableSwapchainAndQueueFamilyIndex(
 			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
 				presentSupport)
 			{
-				return i;
+				return std::make_tuple(swapchainInfo, i);
 			}
 		}
 	}
 
-	return -1;
+	return std::make_tuple(swapchainInfo, -1);
 }
 
 std::vector<VertexInputBindingDescription<GraphicsBackend::Vulkan>>
@@ -288,4 +289,47 @@ calculateInputBindingDescriptions(
 
 	return {VertexInputBindingDescription<GraphicsBackend::Vulkan>{0u, stride,
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
+}
+
+VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
+{
+	VkDebugReportCallbackCreateInfoEXT debugCallbackInfo = {};
+	debugCallbackInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+	debugCallbackInfo.flags =
+		/* VK_DEBUG_REPORT_INFORMATION_BIT_EXT |*/ VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
+		VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |
+		VK_DEBUG_REPORT_WARNING_BIT_EXT;
+
+	debugCallbackInfo.pfnCallback = static_cast<PFN_vkDebugReportCallbackEXT>(
+		[](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
+		   size_t location, int32_t messageCode, const char* layerPrefix, const char* message,
+		   void* userData) -> VkBool32 {
+			(void)objectType;
+			(void)object;
+			(void)location;
+			(void)messageCode;
+			(void)userData;
+
+			std::cout << layerPrefix << ": " << message << std::endl;
+
+			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
+			// VK_DEBUG_REPORT_WARNING_BIT_EXT = 0x00000002,
+			// VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT = 0x00000004,
+			// VK_DEBUG_REPORT_ERROR_BIT_EXT = 0x00000008,
+			// VK_DEBUG_REPORT_DEBUG_BIT_EXT = 0x00000010,
+
+			if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+				return VK_TRUE;
+
+			return VK_FALSE;
+		});
+
+	auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
+		instance, "vkCreateDebugReportCallbackEXT");
+	assert(vkCreateDebugReportCallbackEXT != nullptr);
+
+	VkDebugReportCallbackEXT debugCallback = VK_NULL_HANDLE;
+	CHECK_VK(vkCreateDebugReportCallbackEXT(instance, &debugCallbackInfo, nullptr, &debugCallback));
+
+	return debugCallback;
 }

@@ -1,15 +1,21 @@
 #pragma once
 
+#include "utils.h"
+
 #include <cstdint>
 #include <type_traits>
 
-#include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include <vulkan/vulkan.h>
+
 
 enum class GraphicsBackend
 {
 	Vulkan
 };
+
+template <GraphicsBackend B>
+using Instance = std::conditional_t<B == GraphicsBackend::Vulkan, VkInstance, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using Image = std::conditional_t<B == GraphicsBackend::Vulkan, VkImage, std::nullptr_t>;
@@ -63,6 +69,13 @@ template <GraphicsBackend B>
 using Device = std::conditional_t<B == GraphicsBackend::Vulkan, VkDevice, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using PhysicalDevice =
+	std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDevice, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using Queue = std::conditional_t<B == GraphicsBackend::Vulkan, VkQueue, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using ShaderModule =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkShaderModule, std::nullptr_t>;
 
@@ -73,6 +86,16 @@ using DescriptorSetLayout =
 template <GraphicsBackend B>
 using PipelineLayout =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkPipelineLayout, std::nullptr_t>;
+
+template <GraphicsBackend B>
+struct PipelineLayoutContext
+{
+	std::unique_ptr<ShaderModule<B>[], ArrayDeleter<ShaderModule<B>>> shaders;
+	std::unique_ptr<DescriptorSetLayout<B>[], ArrayDeleter<DescriptorSetLayout<B>>>
+		descriptorSetLayouts;
+
+	PipelineLayout<B> layout;
+};
 
 template <GraphicsBackend B>
 using DescriptorSet =
@@ -96,18 +119,16 @@ struct Texture
 };
 
 template <GraphicsBackend B>
-using VertexInputBindingDescription =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkVertexInputBindingDescription,
-					   std::nullptr_t>;
+using VertexInputBindingDescription = std::conditional_t<
+	B == GraphicsBackend::Vulkan, VkVertexInputBindingDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using VertexInputRate =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkVertexInputRate, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputAttributeDescription =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkVertexInputAttributeDescription,
-					   std::nullptr_t>;
+using VertexInputAttributeDescription = std::conditional_t<
+	B == GraphicsBackend::Vulkan, VkVertexInputAttributeDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
 struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>

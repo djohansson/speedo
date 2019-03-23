@@ -1,6 +1,6 @@
 Language: Cpp
 AccessModifierOffset: -4
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: AlwaysBreak
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
 AlignEscapedNewlinesLeft: true
@@ -25,7 +25,6 @@ BraceWrapping:
   AfterExternBlock: false
   AfterFunction: true
   AfterNamespace: true
-  AfterObjCDeclaration: false
   AfterStruct: true
   AfterUnion: true
   BeforeCatch: true
@@ -39,17 +38,17 @@ BreakBeforeBraces: Custom
 BreakBeforeInheritanceComma: true
 BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: BeforeComma
-BreakAfterJavaFieldAnnotations: false
 BreakStringLiterals: true
 ColumnLimit: 100
 CommentPragmas:  '^ IWYU pragma:'
+CompactNamespaces: false
 ConstructorInitializerAllOnOneLineOrOnePerLine: false
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true
 DerivePointerAlignment: false
 DisableFormat: false
-ExperimentalAutoDetectBinPacking: false
+ExperimentalAutoDetectBinPacking: true
 FixNamespaceComments: true
 ForEachMacros: [ foreach, for_each, Q_FOREACH, BOOST_FOREACH ]
 IncludeCategories:
@@ -72,16 +71,11 @@ IndentCaseLabels: false
 IndentPPDirectives: AfterHash
 IndentWidth: 4
 IndentWrappedFunctionNames: false
-JavaScriptQuotes: Leave
 KeepEmptyLinesAtTheStartOfBlocks: false
 MacroBlockBegin: ''
 MacroBlockEnd: ''
 MaxEmptyLinesToKeep: 1
 NamespaceIndentation: Inner
-#ObjCBinPackProtocolList: Auto
-ObjCBlockIndentWidth: 2
-ObjCSpaceAfterProperty: false
-ObjCSpaceBeforeProtocolList: true
 PenaltyBreakAssignment: 2
 PenaltyBreakBeforeFirstCallParameter: 19
 PenaltyBreakComment: 300
@@ -90,16 +84,17 @@ PenaltyBreakString: 1000
 PenaltyExcessCharacter: 1000000
 PenaltyReturnTypeOnItsOwnLine: 60
 PointerAlignment: Left
-ReflowComments: true
-SortIncludes: false
+ReflowComments: false
+SortIncludes: true
+SortUsingDeclarations: true
 SpaceAfterCStyleCast: false
 SpaceAfterTemplateKeyword: true
 SpaceBeforeAssignmentOperators: true
-#SpaceBeforeCpp11BracedList: true
-#SpaceBeforeCtorInitializerColon: true
-#SpaceBeforeInheritanceColon: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
 SpaceBeforeParens: ControlStatements
-#SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeRangeBasedForLoopColon: true
 SpaceInEmptyParentheses: false
 SpacesBeforeTrailingComments: 1
 SpacesInAngles: false
