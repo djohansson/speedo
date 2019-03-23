@@ -46,3 +46,7 @@ examples/volcano/test-file
 
 examples/volcano/resources/*/*.json
 examples/volcano/resources/*/*.pbin
+
+# intellisense
+
+.vscode/ipch/*
