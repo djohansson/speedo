@@ -37,7 +37,6 @@
 #include <filesystem>
 #include <iostream>
 #include <locale>
-#include <memory_resource>
 #include <numeric>
 #include <optional>
 #include <stdexcept>
