@@ -1,9 +1,12 @@
 #pragma once
 
+#include <stack>
 #include <vector>
 
 #include <xxhash.h>
 
+// todo: make sure that it will work between multiple ScopedVertexAllocation scopes
+// 		 create some sort of nested data structure holding both stride and byte vector, and make sure that the scope refers to the correct one.
 class VertexAllocator
 {
 public:
@@ -70,19 +73,39 @@ public:
 	// todo: handle alignment properly
 	// todo: rewrite without vector
 	// todo: handle pointer invalidation. std::deque? needs to be flattened before upload to gpu in that case.
-	void* push_back(size_t count = 1)
+	std::byte* allocate(size_t count = 1)
 	{
 		auto bytes = count * stride();
 		myData.resize(myData.size() + bytes);
 		return (myData.data() + myData.size()) - bytes;
 	}
 
-	// todo: handle alignment properly
-	// todo: handle out of bounds
-	void pop_back(size_t count = 1)
+	// unless freeing the last item this is _very_ inefficient
+	void free(std::byte* ptr, size_t count = 1)
 	{
+		assert(ptr != nullptr);
+
+		std::byte* first = myData.data();
+		std::byte* last = first + myData.size();
+
 		auto bytes = count * stride();
-		myData.resize(myData.size() - bytes);
+		assert(bytes > 0);
+
+		std::byte* next = ptr + bytes;
+
+		if (next == last) // is we are freeing the last item we can just resize
+		{
+			myData.resize(myData.size() - bytes);
+		}
+		else if ((next - first) % stride() != 0) // else check alignment
+		{
+			if ((next < last && next > first)) // and that we are inside the right range
+			{
+				// copy over this item with rest of range, resize down to right size.
+				std::copy(next, last, ptr);
+				myData.resize(myData.size() - bytes);
+			}
+		}
 	}
 
 	void clear()
@@ -105,23 +128,7 @@ private:
 	bool myIsLocked = false;
 };
 
-class ScopedVertexAllocation : Noncopyable
-{
-public:
-	ScopedVertexAllocation(VertexAllocator& allocator_)
-		: allocator(allocator_)
-	{
-		allocator.lock();
-	}
-
-	~ScopedVertexAllocation()
-	{
-		allocator.unlock();
-	}
-
-private:
-	VertexAllocator& allocator;
-};
+class ScopedVertexAllocation;
 
 // todo: alignment for sse types, etc
 class Vertex
@@ -141,16 +148,6 @@ public:
 		return XXH64(reinterpret_cast<const std::byte*>(this), allocator().stride(), seed);
 	}
 
-	inline static VertexAllocator& allocator()
-	{
-		return st_allocator;
-	}
-
-	inline static Vertex& create()
-	{
-		return *reinterpret_cast<Vertex*>(allocator().push_back());
-	}
-
 	template <typename T>
 	inline T* dataAs(size_t offset = 0)
 	{
@@ -163,18 +160,73 @@ public:
 		return reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
+	inline static ScopedVertexAllocation* getScope()
+	{
+		return st_allocationScope;
+	}
+
+	inline static void setScope(ScopedVertexAllocation* scope)
+	{
+		st_allocationScope = scope;
+	}
+
 private:
+	static VertexAllocator& allocator();
+
 	Vertex() = delete;
 	~Vertex() = delete;
 	Vertex(const Vertex& other) = delete;
 	Vertex& operator=(const Vertex& other) = delete;
 
-	static thread_local VertexAllocator st_allocator;
+	static thread_local ScopedVertexAllocation* st_allocationScope;
 };
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
 
-thread_local VertexAllocator Vertex::st_allocator{};
+thread_local ScopedVertexAllocation* Vertex::st_allocationScope = nullptr;
+
+class ScopedVertexAllocation : Noncopyable
+{
+public:
+	inline ScopedVertexAllocation(VertexAllocator& allocator)
+		: myAllocatorRef(allocator)
+	{
+		myAllocatorRef.lock();
+		myPrevScope = Vertex::getScope();
+		Vertex::setScope(this);
+	}
+
+	inline ~ScopedVertexAllocation()
+	{
+		Vertex::setScope(myPrevScope);
+		myAllocatorRef.unlock();
+	}
+
+	inline Vertex* createVertices(size_t count = 1)
+	{
+		return reinterpret_cast<Vertex*>(myAllocatorRef.allocate(count));
+	}
+
+	inline void freeVertices(Vertex* ptr, size_t count = 1)
+	{
+		return myAllocatorRef.free(reinterpret_cast<std::byte*>(ptr), count);
+	}
+
+	inline VertexAllocator& allocator()
+	{
+		return myAllocatorRef;
+	}
+
+private:
+	VertexAllocator& myAllocatorRef;
+	ScopedVertexAllocation* myPrevScope = nullptr;
+};
+
+VertexAllocator& Vertex::allocator()
+{
+	assert(st_allocationScope != nullptr);
+	return st_allocationScope->allocator();
+}
 
 namespace std
 {

@@ -3,6 +3,7 @@
 // wip: separate VK objects from generic ones.
 // wip: dynamic mesh layout, depending on input data structure
 // todo: resizing, fullscreen
+// todo: move stuff from headers into compilation units
 // todo: extract descriptor sets
 // todo: resource loading / manager
 // todo: graph based GUI
@@ -617,7 +618,7 @@ private:
 		using VkInputAttributeDescription =
 			SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>;
 
-		auto& vertices = Vertex::allocator();
+		VertexAllocator vertices;
 		std::vector<uint32_t> indices;
 		std::vector<VkInputAttributeDescription> attributeDescriptions;
 
@@ -696,7 +697,7 @@ private:
 				for (const auto& index : shape.mesh.indices)
 				{
 #endif
-					auto& vertex = Vertex::create();
+					auto& vertex = *vertexScope.createVertices();
 
 					glm::vec3* pos = vertex.dataAs<glm::vec3>(posOffset);
 					*pos = {attrib.vertices[3 * index.vertex_index + 0],
@@ -715,7 +716,7 @@ private:
 					if (uniqueVertices.count(vertexHash) == 0)
 						uniqueVertices[vertexHash] = static_cast<uint32_t>(vertices.size() - 1);
 					else
-						vertex.allocator().pop_back(); // todo: rewrite to release() instead
+						vertexScope.freeVertices(&vertex);
 
 					indices.push_back(uniqueVertices[vertexHash]);
 				}
