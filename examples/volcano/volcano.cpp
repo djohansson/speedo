@@ -137,12 +137,12 @@ struct ViewData
 
 template <GraphicsBackend B>
 using ImGui_WindowData =
-	std::conditional_t<B == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_WindowData, std::nullptr_t>;
+	std::conditional_t<B == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_Window, std::nullptr_t>;
 
 template <GraphicsBackend B>
 struct ImGuiData
 {
-	std::unique_ptr<ImGui_WindowData<B>> window;
+	ImGui_WindowData<B> window;
 	std::vector<ImFont*> fonts;
 };
 
@@ -426,7 +426,7 @@ public:
 				ImGui::DragInt(
 					"Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
 				ImGui::ColorEdit3(
-					"Clear Color", &myWindow.imgui.window->ClearValue.color.float32[0]);
+					"Clear Color", &myWindow.imgui.window.ClearValue.color.float32[0]);
 				ImGui::End();
 			}
 
@@ -1352,9 +1352,8 @@ private:
 					{
 						selectedPresentMode = *modeIt;
 
-						// not yet supported with IMGUI
-						// if (myWindow.presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
-						//	selectedFrameCount = 3;
+						if (myWindow.presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+							selectedFrameCount = 3;
 
 						break;
 					}
@@ -2135,7 +2134,7 @@ private:
 		initInfo.Allocator = nullptr; // myAllocator;
 		// initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
-		ImGui_ImplVulkan_Init(&initInfo, myWindow.imgui.window->RenderPass);
+		ImGui_ImplVulkan_Init(&initInfo, myWindow.imgui.window.RenderPass);
 
 		// Upload Fonts
 		{
@@ -2143,7 +2142,7 @@ private:
 				beginSingleTimeCommands(myDevice, myTransferCommandPool);
 			ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
 			endSingleTimeCommands(myDevice, myQueue, commandBuffer, myTransferCommandPool);
-			ImGui_ImplVulkan_InvalidateFontUploadObjects();
+			ImGui_ImplVulkan_DestroyFontUploadObjects();
 		}
 	}
 
@@ -2197,36 +2196,38 @@ private:
 
 		createPipelineConfig(model);
 
-		myWindow.imgui.window = std::make_unique<ImGui_ImplVulkanH_WindowData>(/*myFrameCount*/);
+		auto& window = myWindow.imgui.window;
+		window.ImageCount = myFrameCount;
 
 		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
-		myWindow.imgui.window->FrameIndex =
-			IMGUI_VK_QUEUED_FRAMES - 1; // myWindow.imgui.window->FrameCount - 1;
+		window.FrameIndex = window.ImageCount - 1;
 
-		myWindow.imgui.window->Width = framebufferWidth;
-		myWindow.imgui.window->Height = framebufferHeight;
+		window.Width = framebufferWidth;
+		window.Height = framebufferHeight;
 
-		myWindow.imgui.window->Swapchain = myWindow.swapchain.swapchain;
-		myWindow.imgui.window->SurfaceFormat = myWindow.surfaceFormat;
-		myWindow.imgui.window->Surface = myWindow.surface;
-		myWindow.imgui.window->PresentMode = myWindow.presentMode;
+		window.Swapchain = myWindow.swapchain.swapchain;
+		window.SurfaceFormat = myWindow.surfaceFormat;
+		window.Surface = myWindow.surface;
+		window.PresentMode = myWindow.presentMode;
 
-		myWindow.imgui.window->RenderPass = myPipelineConfig.renderPass;
+		window.RenderPass = myPipelineConfig.renderPass;
 
-		myWindow.imgui.window->ClearEnable =
-			false; // we will clear before IMGUI, using myWindow.imgui.window->ClearValue
-		myWindow.imgui.window->ClearValue.color.float32[0] = 0.4f;
-		myWindow.imgui.window->ClearValue.color.float32[1] = 0.4f;
-		myWindow.imgui.window->ClearValue.color.float32[2] = 0.5f;
-		myWindow.imgui.window->ClearValue.color.float32[3] = 1.0f;
+		// we will clear before IMGUI, using window.ClearValue
+		window.ClearEnable = false;
+		window.ClearValue.color.float32[0] = 0.4f;
+		window.ClearValue.color.float32[1] = 0.4f;
+		window.ClearValue.color.float32[2] = 0.5f;
+		window.ClearValue.color.float32[3] = 1.0f;
 
-		myWindow.imgui.window->BackBufferCount = myWindow.swapchain.colorImages.size();
+		window.Frames = (ImGui_ImplVulkanH_Frame*)malloc(sizeof(ImGui_ImplVulkanH_Frame) * window.ImageCount);
+        window.FrameSemaphores = (ImGui_ImplVulkanH_FrameSemaphores*)malloc(sizeof(ImGui_ImplVulkanH_FrameSemaphores) * window.ImageCount);
+
 		for (uint32_t imageIt = 0; imageIt < myWindow.swapchain.colorImages.size(); imageIt++)
 		{
-			myWindow.imgui.window->BackBuffer[imageIt] = myWindow.swapchain.colorImages[imageIt];
-			myWindow.imgui.window->BackBufferView[imageIt] =
+			window.Frames[imageIt].Backbuffer = myWindow.swapchain.colorImages[imageIt];
+			window.Frames[imageIt].BackbufferView =
 				myWindow.swapchain.colorImageViews[imageIt];
-			myWindow.imgui.window->Framebuffer[imageIt] = myWindow.swapchain.frameBuffers[imageIt];
+			window.Frames[imageIt].Framebuffer = myWindow.swapchain.frameBuffers[imageIt];
 		}
 
 		// Create SwapChain, RenderPass, Framebuffer, etc.
@@ -2275,12 +2276,14 @@ private:
 				myDevice, &semaphoreInfo, nullptr, &myRenderCompleteSemaphores[frameIt]));
 
 			// IMGUI uses primary command buffer only
-			ImGui_ImplVulkanH_FrameData* fd = &myWindow.imgui.window->Frames[frameIt];
-			fd->CommandPool = myFrameCommandPools[0];
-			fd->CommandBuffer = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
-			fd->Fence = myFrameFences[frameIt];
-			fd->ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
-			fd->RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
+			auto& fd = window.Frames[frameIt];
+			fd.CommandPool = myFrameCommandPools[0];
+			fd.CommandBuffer = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
+			fd.Fence = myFrameFences[frameIt];
+
+			auto& fs = window.FrameSemaphores[frameIt];
+			fs.ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
+			fs.RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 		// ImGui_ImplVulkanH_CreateWindowDataCommandBuffers(myDevice, myQueueFamilyIndex,
 		// myWindow.get(), nullptr);
@@ -2392,39 +2395,40 @@ private:
 
 	void submitFrame()
 	{
-		ImGui_ImplVulkanH_FrameData* oldFrame =
-			&myWindow.imgui.window->Frames[myWindow.imgui.window->FrameIndex];
-		VkSemaphore& imageAquiredSemaphore = oldFrame->ImageAcquiredSemaphore;
+		auto& window = myWindow.imgui.window;
+		VkSemaphore& imageAquiredSemaphore = 
+			window.FrameSemaphores[window.FrameIndex].ImageAcquiredSemaphore;
 
 		checkFlipOrPresentResult(vkAcquireNextImageKHR(
-			myDevice, myWindow.imgui.window->Swapchain, UINT64_MAX, imageAquiredSemaphore,
-			VK_NULL_HANDLE, &myWindow.imgui.window->FrameIndex));
-		/* MGPU method from vk 1.1 spec
+			myDevice, window.Swapchain, UINT64_MAX, imageAquiredSemaphore,
+			VK_NULL_HANDLE, &window.FrameIndex));
+
+		/* TODO: MGPU method from vk 1.1 spec
 		{
 			VkAcquireNextImageInfoKHR nextImageInfo = {};
 			nextImageInfo.sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR;
-			nextImageInfo.swapchain = myWindow.imgui.window->Swapchain;
+			nextImageInfo.swapchain = window.Swapchain;
 			nextImageInfo.timeout = UINT64_MAX;
 			nextImageInfo.semaphore = imageAquiredSemaphore;
 			nextImageInfo.fence = VK_NULL_HANDLE;
 			nextImageInfo.deviceMask = ?;
 
 			checkFlipOrPresentResult(vkAcquireNextImage2KHR(myDevice, &nextImageInfo,
-		&myWindow.imgui.window->FrameIndex));
+		&window.FrameIndex));
 		}
 		 */
 
-		ImGui_ImplVulkanH_FrameData* newFrame =
-			&myWindow.imgui.window->Frames[myWindow.imgui.window->FrameIndex];
+		auto& frame = window.Frames[window.FrameIndex];
+		auto& frameSemaphores = window.FrameSemaphores[window.FrameIndex];
 
 		std::array<VkClearValue, 2> clearValues = {};
-		clearValues[0] = myWindow.imgui.window->ClearValue;
+		clearValues[0] = window.ClearValue;
 		clearValues[1].depthStencil = {1.0f, 0};
 
-		// wait for previous command buffer to be submitted
+		// wait for frame to be completed before starting to use it
 		{
-			CHECK_VK(vkWaitForFences(myDevice, 1, &newFrame->Fence, VK_TRUE, UINT64_MAX));
-			CHECK_VK(vkResetFences(myDevice, 1, &newFrame->Fence));
+			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.Fence, VK_TRUE, UINT64_MAX));
+			CHECK_VK(vkResetFences(myDevice, 1, &frame.Fence));
 		}
 
 		// setup draw parameters
@@ -2438,14 +2442,14 @@ private:
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
 			VkCommandBuffer& cmd = myFrameCommandBuffers
-				[myWindow.imgui.window->FrameIndex * myFrameCommandBufferThreadCount +
+				[window.FrameIndex * myFrameCommandBufferThreadCount +
 				 (segmentIt + 1)];
 
 			VkCommandBufferInheritanceInfo inherit = {
 				VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 			inherit.renderPass = myPipelineConfig.renderPass;
 			inherit.framebuffer =
-				myWindow.imgui.window->Framebuffer[myWindow.imgui.window->FrameIndex];
+				window.Frames[window.FrameIndex].Framebuffer;
 
 			CHECK_VK(vkResetCommandBuffer(cmd, 0));
 			VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -2474,15 +2478,17 @@ private:
 			uint32_t dx = myWindow.framebufferWidth / NX;
 			uint32_t dy = myWindow.framebufferHeight / NY;
 
+			uint32_t frameIndex = window.FrameIndex;
+
 			std::array<uint32_t, 128> seq;
 			std::iota(seq.begin(), seq.begin() + segmentCount, 0);
 			std::for_each_n(
 #if defined(__WINDOWS__)
 				std::execution::par,
 #endif
-				seq.begin(), segmentCount, [this, &dx, &dy, &segmentDrawCount](uint32_t segmentIt) {
+				seq.begin(), segmentCount, [this, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt) {
 					VkCommandBuffer& cmd = myFrameCommandBuffers
-						[myWindow.imgui.window->FrameIndex * myFrameCommandBufferThreadCount +
+						[frameIndex * myFrameCommandBufferThreadCount +
 						 (segmentIt + 1)];
 
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -2539,7 +2545,7 @@ private:
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
 			VkCommandBuffer& cmd = myFrameCommandBuffers
-				[myWindow.imgui.window->FrameIndex * myFrameCommandBufferThreadCount +
+				[window.FrameIndex * myFrameCommandBufferThreadCount +
 				 (segmentIt + 1)];
 
 			CHECK_VK(vkEndCommandBuffer(cmd));
@@ -2547,11 +2553,11 @@ private:
 
 		// begin primary command buffer
 		{
-			CHECK_VK(vkResetCommandBuffer(newFrame->CommandBuffer, 0));
+			CHECK_VK(vkResetCommandBuffer(frame.CommandBuffer, 0));
 			VkCommandBufferBeginInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 			info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-			CHECK_VK(vkBeginCommandBuffer(newFrame->CommandBuffer, &info));
+			CHECK_VK(vkBeginCommandBuffer(frame.CommandBuffer, &info));
 		}
 
 		// call secondary command buffers
@@ -2559,22 +2565,21 @@ private:
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = myPipelineConfig.renderPass;
-			beginInfo.framebuffer =
-				myWindow.imgui.window->Framebuffer[myWindow.imgui.window->FrameIndex];
+			beginInfo.framebuffer = frame.Framebuffer;
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent = {static_cast<uint32_t>(myWindow.framebufferWidth),
 										   static_cast<uint32_t>(myWindow.framebufferHeight)};
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
 			vkCmdBeginRenderPass(
-				newFrame->CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+				frame.CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			vkCmdExecuteCommands(
-				newFrame->CommandBuffer, (myFrameCommandBufferThreadCount - 1),
+				frame.CommandBuffer, (myFrameCommandBufferThreadCount - 1),
 				&myFrameCommandBuffers
-					[(myWindow.imgui.window->FrameIndex * myFrameCommandBufferThreadCount) + 1]);
+					[(window.FrameIndex * myFrameCommandBufferThreadCount) + 1]);
 
-			vkCmdEndRenderPass(newFrame->CommandBuffer);
+			vkCmdEndRenderPass(frame.CommandBuffer);
 		}
 
 		// Record Imgui Draw Data and draw funcs into primary command buffer
@@ -2582,18 +2587,17 @@ private:
 		{
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			beginInfo.renderPass = myWindow.imgui.window->RenderPass;
-			beginInfo.framebuffer =
-				myWindow.imgui.window->Framebuffer[myWindow.imgui.window->FrameIndex];
-			beginInfo.renderArea.extent.width = myWindow.imgui.window->Width;
-			beginInfo.renderArea.extent.height = myWindow.imgui.window->Height;
+			beginInfo.renderPass = window.RenderPass;
+			beginInfo.framebuffer = frame.Framebuffer;
+			beginInfo.renderArea.extent.width = window.Width;
+			beginInfo.renderArea.extent.height = window.Height;
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
-			vkCmdBeginRenderPass(newFrame->CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBeginRenderPass(frame.CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), newFrame->CommandBuffer);
+			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer);
 
-			vkCmdEndRenderPass(newFrame->CommandBuffer);
+			vkCmdEndRenderPass(frame.CommandBuffer);
 		}
 
 		// Submit primary command buffer
@@ -2605,26 +2609,26 @@ private:
 			submitInfo.pWaitSemaphores = &imageAquiredSemaphore;
 			submitInfo.pWaitDstStageMask = &waitStage;
 			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &newFrame->CommandBuffer;
+			submitInfo.pCommandBuffers = &frame.CommandBuffer;
 			submitInfo.signalSemaphoreCount = 1;
-			submitInfo.pSignalSemaphores = &newFrame->RenderCompleteSemaphore;
+			submitInfo.pSignalSemaphores = &frameSemaphores.RenderCompleteSemaphore;
 
-			CHECK_VK(vkEndCommandBuffer(newFrame->CommandBuffer));
-			CHECK_VK(vkQueueSubmit(myQueue, 1, &submitInfo, newFrame->Fence));
+			CHECK_VK(vkEndCommandBuffer(frame.CommandBuffer));
+			CHECK_VK(vkQueueSubmit(myQueue, 1, &submitInfo, frame.Fence));
 		}
 	}
 
 	void presentFrame()
 	{
-		ImGui_ImplVulkanH_FrameData* fd =
-			&myWindow.imgui.window->Frames[myWindow.imgui.window->FrameIndex];
+		auto& window = myWindow.imgui.window;
+		auto& fs = window.FrameSemaphores[window.FrameIndex];
 		VkPresentInfoKHR info = {};
 		info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		info.waitSemaphoreCount = 1;
-		info.pWaitSemaphores = &fd->RenderCompleteSemaphore;
+		info.pWaitSemaphores = &fs.RenderCompleteSemaphore;
 		info.swapchainCount = 1;
 		info.pSwapchains = &myWindow.swapchain.swapchain;
-		info.pImageIndices = &myWindow.imgui.window->FrameIndex;
+		info.pImageIndices = &window.FrameIndex;
 		checkFlipOrPresentResult(vkQueuePresentKHR(myQueue, &info));
 	}
 
