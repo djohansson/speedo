@@ -239,6 +239,7 @@ public:
 		: myResourcePath(resourcePath)
 		, myFrameCommandBufferThreadCount(4)
 		, myRequestedCommandBufferThreadCount(myFrameCommandBufferThreadCount)
+		, myGraphicsFrameTimestamp(std::chrono::high_resolution_clock::now())
 	{
 		assert(std::filesystem::is_directory(myResourcePath));
 
@@ -394,7 +395,7 @@ public:
 
 	void draw()
 	{
-		updateInput(1.0f / 60);
+		updateInput(myGraphicsDeltaTime.count());
 
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
@@ -2131,6 +2132,8 @@ private:
 		initInfo.Queue = myQueue;
 		initInfo.PipelineCache = VK_NULL_HANDLE;
 		initInfo.DescriptorPool = myDescriptorPool;
+		initInfo.MinImageCount = myFrameCount;
+    	initInfo.ImageCount = myFrameCount;
 		initInfo.Allocator = nullptr; // myAllocator;
 		// initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
@@ -2429,6 +2432,10 @@ private:
 		{
 			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.Fence, VK_TRUE, UINT64_MAX));
 			CHECK_VK(vkResetFences(myDevice, 1, &frame.Fence));
+
+			auto lastGraphicsFrameTimestamp = myGraphicsFrameTimestamp;
+			myGraphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
+			myGraphicsDeltaTime = myGraphicsFrameTimestamp - lastGraphicsFrameTimestamp;
 		}
 
 		// setup draw parameters
@@ -2772,6 +2779,9 @@ private:
 	std::map<int, bool> myKeysPressed;
 	std::array<bool, 2> myMouseButtonsPressed;
 	std::array<glm::vec2, 2> myMousePosition;
+
+	std::chrono::high_resolution_clock::time_point myGraphicsFrameTimestamp;
+	std::chrono::duration<double> myGraphicsDeltaTime;
 };
 
 static VulkanApplication* theApp = nullptr;
