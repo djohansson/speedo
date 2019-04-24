@@ -160,18 +160,20 @@ public:
 		return reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
-	inline static ScopedVertexAllocation* getScope()
+	inline static ScopedVertexAllocation* const getScope()
 	{
 		return st_allocationScope;
 	}
+
+private:
+	friend ScopedVertexAllocation;
+
+	static VertexAllocator& allocator();
 
 	inline static void setScope(ScopedVertexAllocation* scope)
 	{
 		st_allocationScope = scope;
 	}
-
-private:
-	static VertexAllocator& allocator();
 
 	Vertex() = delete;
 	~Vertex() = delete;
@@ -190,9 +192,9 @@ class ScopedVertexAllocation : Noncopyable
 public:
 	inline ScopedVertexAllocation(VertexAllocator& allocator)
 		: myAllocatorRef(allocator)
+		, myPrevScope(Vertex::getScope())
 	{
 		myAllocatorRef.lock();
-		myPrevScope = Vertex::getScope();
 		Vertex::setScope(this);
 	}
 
@@ -219,7 +221,7 @@ public:
 
 private:
 	VertexAllocator& myAllocatorRef;
-	ScopedVertexAllocation* myPrevScope = nullptr;
+	ScopedVertexAllocation* const myPrevScope = nullptr;
 };
 
 VertexAllocator& Vertex::allocator()
