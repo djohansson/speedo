@@ -13,6 +13,8 @@
 // todo: frame graph / shader graph
 
 #include "volcano.h"
+#include "aabb.h"
+#include "glm.h"
 #include "file.h"
 #include "gfx-types.h"
 #include "math.h"
@@ -92,18 +94,6 @@
 #	define TINYOBJLOADER_IMPLEMENTATION
 #	include <tiny_obj_loader.h>
 #endif
-
-//#define GLM_FORCE_MESSAGES
-#define GLM_LANG_STL11_FORCED
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/hash.hpp>
-//#include <glm/gtx/matrix_interpolation.hpp>
-#include <glm/mat4x4.hpp>
-#include <glm/vec4.hpp>
 
 #include <cereal/archives/portable_binary.hpp>
 #include <cereal/cereal.hpp>
@@ -489,8 +479,8 @@ public:
 			size_t viewIdy = screenPos.y / (myWindow.windowHeight / NY);
 			myWindow.activeView = std::min((viewIdy * NX) + viewIdx, myWindow.views.size() - 1);
 
-			std::cout << *myWindow.activeView << ":[" << screenPos.x << ", " << screenPos.y << "]"
-					  << std::endl;
+			// std::cout << *myWindow.activeView << ":[" << screenPos.x << ", " << screenPos.y << "]"
+			// 		  << std::endl;
 		}
 		else if (!leftPressed)
 		{
@@ -621,18 +611,19 @@ private:
 		VertexAllocator vertices;
 		std::vector<uint32_t> indices;
 		std::vector<VkInputAttributeDescription> attributeDescriptions;
+		AABB3f aabb;
 
-		auto loadPBin = [&vertices, &indices, &attributeDescriptions](std::istream& stream) {
+		auto loadPBin = [&vertices, &indices, &attributeDescriptions, &aabb](std::istream& stream) {
 			cereal::PortableBinaryInputArchive pbin(stream);
-			pbin(vertices, indices, attributeDescriptions);
+			pbin(vertices, indices, attributeDescriptions, aabb);
 		};
 
-		auto savePBin = [&vertices, &indices, &attributeDescriptions](std::ostream& stream) {
+		auto savePBin = [&vertices, &indices, &attributeDescriptions, &aabb](std::ostream& stream) {
 			cereal::PortableBinaryOutputArchive pbin(stream);
-			pbin(vertices, indices, attributeDescriptions);
+			pbin(vertices, indices, attributeDescriptions, aabb);
 		};
 
-		auto loadOBJ = [&vertices, &indices, &attributeDescriptions](std::istream& stream) {
+		auto loadOBJ = [&vertices, &indices, &attributeDescriptions, &aabb](std::istream& stream) {
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			using namespace tinyobj_opt;
 #else
@@ -714,9 +705,14 @@ private:
 					uint64_t vertexHash = vertex.hash();
 
 					if (uniqueVertices.count(vertexHash) == 0)
+					{
 						uniqueVertices[vertexHash] = static_cast<uint32_t>(vertices.size() - 1);
+						aabb.merge(*pos);
+					}
 					else
+					{
 						vertexScope.freeVertices(&vertex);
+					}
 
 					indices.push_back(uniqueVertices[vertexHash]);
 				}
@@ -1317,7 +1313,7 @@ private:
 					VK_FORMAT_R8G8B8_UNORM};
 				const VkColorSpaceKHR requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 				const VkPresentModeKHR requestPresentMode[] = {
-					// VK_PRESENT_MODE_MAILBOX_KHR // not yet supported with IMGUI
+					VK_PRESENT_MODE_MAILBOX_KHR,
 					VK_PRESENT_MODE_FIFO_RELAXED_KHR, VK_PRESENT_MODE_FIFO_KHR,
 					VK_PRESENT_MODE_IMMEDIATE_KHR};
 
