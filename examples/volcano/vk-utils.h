@@ -301,15 +301,9 @@ VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
 		VK_DEBUG_REPORT_WARNING_BIT_EXT;
 
 	debugCallbackInfo.pfnCallback = static_cast<PFN_vkDebugReportCallbackEXT>(
-		[](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
-		   size_t location, int32_t messageCode, const char* layerPrefix, const char* message,
-		   void* userData) -> VkBool32 {
-			(void)objectType;
-			(void)object;
-			(void)location;
-			(void)messageCode;
-			(void)userData;
-
+		[](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT /*objectType*/, uint64_t /*object*/,
+		   size_t /*location*/, int32_t /*messageCode*/, const char* layerPrefix, const char* message,
+		   void* /*userData*/) -> VkBool32 {
 			std::cout << layerPrefix << ": " << message << std::endl;
 
 			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
