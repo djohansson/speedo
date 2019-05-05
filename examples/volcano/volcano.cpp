@@ -75,6 +75,11 @@
 #endif
 
 #define VMA_IMPLEMENTATION
+#ifdef _DEBUG
+#define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
+#define VMA_DEBUG_MARGIN 16
+#define VMA_DEBUG_DETECT_CORRUPTION 1
+#endif
 #include <vk_mem_alloc.h>
 
 #define STBI_NO_STDIO
@@ -249,7 +254,6 @@ public:
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 			myQueueFamilyIndex);
 
-		createSwapchain(framebufferWidth, framebufferHeight);
 		createTextureSampler();
 		createDescriptorPool();
 
@@ -324,54 +328,21 @@ public:
 		myResources.texture = loadTexture("gallery.jpg");
 		myResources.window = &myWindow;
 
-		float dpiScaleX = static_cast<float>(framebufferWidth) / windowWidth;
-		float dpiScaleY = static_cast<float>(framebufferHeight) / windowHeight;
-
-		createFrameResources(
-			windowWidth, windowHeight, framebufferWidth, framebufferHeight, myResources.model);
-
 		createBuffer(
 			NX * NY * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myResources.uniformBuffer,
 			myResources.uniformBufferMemory, "uniformBuffer");
 
-		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = myResources.uniformBuffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = VK_WHOLE_SIZE;
+		createSwapchain(framebufferWidth, framebufferHeight);
+		createFrameResources(
+			windowWidth,
+			windowHeight,
+			framebufferWidth,
+			framebufferHeight,
+			myResources.model);
 
-		VkDescriptorImageInfo imageInfo = {};
-		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = myResources.texture.imageView;
-		imageInfo.sampler = myResources.sampler;
-
-		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
-		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[0].dstSet = myDescriptorSets[0];
-		descriptorWrites[0].dstBinding = 0;
-		descriptorWrites[0].dstArrayElement = 0;
-		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-		descriptorWrites[0].descriptorCount = 1;
-		descriptorWrites[0].pBufferInfo = &bufferInfo;
-		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[1].dstSet = myDescriptorSets[0];
-		descriptorWrites[1].dstBinding = 1;
-		descriptorWrites[1].dstArrayElement = 0;
-		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		descriptorWrites[1].descriptorCount = 1;
-		descriptorWrites[1].pImageInfo = &imageInfo;
-		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[2].dstSet = myDescriptorSets[0];
-		descriptorWrites[2].dstBinding = 2;
-		descriptorWrites[2].dstArrayElement = 0;
-		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-		descriptorWrites[2].descriptorCount = 1;
-		descriptorWrites[2].pImageInfo = &imageInfo;
-
-		vkUpdateDescriptorSets(
-			myDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0,
-			nullptr);
-		// end temp
+		float dpiScaleX = static_cast<float>(framebufferWidth) / windowWidth;
+		float dpiScaleY = static_cast<float>(framebufferHeight) / windowHeight;
 
 		initIMGUI(dpiScaleX, dpiScaleY);
 	}
@@ -451,13 +422,29 @@ public:
 		presentFrame();
 	}
 
-	void resize(int width, int height)
+	void resizeWindow(const window_state& state)
 	{
-		// CHECK_VK(vkQueueWaitIdle(myQueue));
+		myWindow.windowWidth = state.width;
+		myWindow.windowHeight = state.height;
+	}
 
-		// cleanupFrameResources();
+	void resizeFramebuffer(int width, int height)
+	{
+		CHECK_VK(vkQueueWaitIdle(myQueue));
 
-		// createFrameResources(width, height);
+		cleanupFrameResources();
+
+		// hack to shut up validation layer error.
+		// see https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/624
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(myPhysicalDevice, myWindow.surface, &myWindow.swapchain.info.capabilities);
+
+		createSwapchain(width, height, myWindow.swapchain.swapchain);
+		createFrameResources(
+			myWindow.windowWidth,
+			myWindow.windowHeight,
+			width,
+			height,
+			myResources.model);
 	}
 
 	void onMouse(const mouse_state& state)
@@ -1451,7 +1438,10 @@ private:
 		}
 
 		if (oldSwapchain)
+		{
 			vkDestroySwapchainKHR(myDevice, oldSwapchain, nullptr);
+			vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
+		}
 
 		uint32_t imageCount;
 		CHECK_VK(
@@ -2229,13 +2219,6 @@ private:
 			window.Frames[imageIt].Framebuffer = myWindow.swapchain.frameBuffers[imageIt];
 		}
 
-		// Create SwapChain, RenderPass, Framebuffer, etc.
-		// ImGui_ImplVulkanH_CreateWindowDataSwapChainAndFramebuffer(myPhysicalDevice, myDevice,
-		// myWindow.get(), nullptr, width, height);
-		// ImGui_ImplVulkanH_CreateWindowDataSwapChainAndFramebuffer(
-		// 	myPhysicalDevice, myDevice, myWindow.get(), nullptr, width, height, true,
-		// depthImageView, myWindow.depthFormat);
-
 		myFrameCommandPools.resize(myFrameCommandBufferThreadCount);
 		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * myFrameCount);
 
@@ -2286,6 +2269,48 @@ private:
 		}
 		// ImGui_ImplVulkanH_CreateWindowDataCommandBuffers(myDevice, myQueueFamilyIndex,
 		// myWindow.get(), nullptr);
+
+		auto updateDescriptorSets = [this]()
+		{
+			VkDescriptorBufferInfo bufferInfo = {};
+			bufferInfo.buffer = myResources.uniformBuffer;
+			bufferInfo.offset = 0;
+			bufferInfo.range = VK_WHOLE_SIZE;
+
+			VkDescriptorImageInfo imageInfo = {};
+			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			imageInfo.imageView = myResources.texture.imageView;
+			imageInfo.sampler = myResources.sampler;
+
+			std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
+			descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[0].dstSet = myDescriptorSets[0];
+			descriptorWrites[0].dstBinding = 0;
+			descriptorWrites[0].dstArrayElement = 0;
+			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+			descriptorWrites[0].descriptorCount = 1;
+			descriptorWrites[0].pBufferInfo = &bufferInfo;
+			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[1].dstSet = myDescriptorSets[0];
+			descriptorWrites[1].dstBinding = 1;
+			descriptorWrites[1].dstArrayElement = 0;
+			descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+			descriptorWrites[1].descriptorCount = 1;
+			descriptorWrites[1].pImageInfo = &imageInfo;
+			descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[2].dstSet = myDescriptorSets[0];
+			descriptorWrites[2].dstBinding = 2;
+			descriptorWrites[2].dstArrayElement = 0;
+			descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+			descriptorWrites[2].descriptorCount = 1;
+			descriptorWrites[2].pImageInfo = &imageInfo;
+
+			vkUpdateDescriptorSets(
+				myDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0,
+				nullptr);
+		};
+
+		updateDescriptorSets();
 	}
 
 	void checkFlipOrPresentResult(VkResult result)
@@ -2637,55 +2662,49 @@ private:
 
 	void cleanupFrameResources()
 	{
-		// ImGui_ImplVulkanH_DestroyWindowDataCommandBuffers(myDevice, myWindow.get(), nullptr);
+		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
 		{
-			for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
-			{
-				vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
-				vkDestroySemaphore(myDevice, myImageAcquiredSemaphores[frameIt], nullptr);
-				vkDestroySemaphore(myDevice, myRenderCompleteSemaphores[frameIt], nullptr);
-			}
-
-			std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
-			for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
-			{
-				for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
-					threadCommandBuffers[frameIt] =
-						myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
-
-				vkFreeCommandBuffers(
-					myDevice, myFrameCommandPools[cmdIt], myFrameCount,
-					threadCommandBuffers.data());
-				vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
-			}
-
-			vkDestroyCommandPool(myDevice, myTransferCommandPool, nullptr);
+			vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
+			vkDestroySemaphore(myDevice, myImageAcquiredSemaphores[frameIt], nullptr);
+			vkDestroySemaphore(myDevice, myRenderCompleteSemaphores[frameIt], nullptr);
 		}
 
-		// ImGui_ImplVulkanH_DestroyWindowDataSwapChainAndFramebuffer(myDevice, myWindow.get(),
-		// nullptr); ImGui_ImplVulkanH_DestroyWindowData(myInstance, myDevice, myWindow.get(),
-		// nullptr);
+		std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
+		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
+		{
+			for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
+				threadCommandBuffers[frameIt] =
+					myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
+
+			vkFreeCommandBuffers(
+				myDevice, myFrameCommandPools[cmdIt], myFrameCount,
+				threadCommandBuffers.data());
+			vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
+		}
 
 		for (VkFramebuffer framebuffer : myWindow.swapchain.frameBuffers)
 			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
 
-		vmaDestroyImage(
-			myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
 		vkDestroyImageView(myDevice, myWindow.swapchain.depthImageView, nullptr);
 
 		for (VkImageView imageView : myWindow.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
-
-		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
 
 		vkDestroyRenderPass(myDevice, myPipelineConfig.renderPass, nullptr);
 
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 	}
 
+	void cleanupSwapchain()
+	{
+		vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
+		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
+	}
+
 	void cleanup()
 	{
 		cleanupFrameResources();
+		cleanupSwapchain();
 
 		ImGui_ImplVulkan_Shutdown();
 		ImGui::DestroyContext();
@@ -2712,7 +2731,14 @@ private:
 		vkDestroySampler(myDevice, myResources.sampler, nullptr);
 
 		vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
+		vkDestroyCommandPool(myDevice, myTransferCommandPool, nullptr);
+
+		char* allocatorStatsJSON = nullptr;
+		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, true);
+		std::cout << allocatorStatsJSON << std::endl;
+		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 		vmaDestroyAllocator(myAllocator);
+
 		vkDestroyDevice(myDevice, nullptr);
 		vkDestroySurfaceKHR(myInstance, myWindow.surface, nullptr);
 
@@ -2826,11 +2852,19 @@ void vkapp_draw()
 	theApp->draw();
 }
 
-void vkapp_resize(int width, int height)
+void vkapp_resizeWindow(const window_state* state)
+{
+	assert(theApp != nullptr);
+	assert(state != nullptr);
+
+	theApp->resizeWindow(*state);
+}
+
+void vkapp_resizeFramebuffer(int width, int height)
 {
 	assert(theApp != nullptr);
 
-	theApp->resize(width, height);
+	theApp->resizeFramebuffer(width, height);
 }
 
 void vkapp_mouse(const mouse_state* state)

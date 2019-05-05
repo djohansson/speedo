@@ -8,20 +8,16 @@
 
 #include "volcano.h"
 
-mouse_state g_mouse = { -1.0, -1.0, 0, 0, 0, false };
-keyboard_state g_keyboard = { 0, 0, 0, 0 };
+static mouse_state g_mouse = { -1.0, -1.0, 0, 0, 0, false };
+static keyboard_state g_keyboard = { 0, 0, 0, 0 };
+static window_state g_window = { 0, 0, 1920, 1080 };
 
-static void glfw_error_callback(int error, const char* description)
+static void onError(int error, const char* description)
 {
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-static void glfw_resize_callback(GLFWwindow*, int w, int h)
-{
-	vkapp_resize(w, h);
-}
-
-void onMouseEnter(GLFWwindow* window, int entered)
+static void onMouseEnter(GLFWwindow* window, int entered)
 {
     g_mouse.inside_window = entered;
 
@@ -47,6 +43,24 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
+    {
+        if (glfwGetWindowMonitor(window))
+        {
+            glfwSetWindowMonitor(window, NULL, g_window.x, g_window.y, g_window.width, g_window.height, 0);
+        }
+        else
+        {
+            if (GLFWmonitor* monitor = glfwGetPrimaryMonitor())
+            {
+                const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+                glfwGetWindowPos(window, &g_window.x, &g_window.y);
+                glfwGetWindowSize(window, &g_window.width, &g_window.height);
+                glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+            }
+        }
+    }
+
 	g_keyboard.key = key;
 	g_keyboard.scancode = scancode;
 	g_keyboard.action = action;
@@ -55,19 +69,63 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 	vkapp_keyboard(&g_keyboard);
 }
 
+static void onFramebufferResize(GLFWwindow*, int w, int h)
+{
+	vkapp_resizeFramebuffer(w, h);
+}
+
+static void onWindowResize(GLFWwindow*, int w, int h)
+{
+	g_window.width = w;
+	g_window.height = h;
+
+	vkapp_resizeWindow(&g_window);
+}
+
+static void onWindowFocusChanged(GLFWwindow* window, int focused)
+{
+}
+
+static void onWindowRefresh(GLFWwindow* window)
+{
+}
+
+static void onMonitorChanged(GLFWmonitor* monitor, int event)
+{
+    if (event == GLFW_CONNECTED)
+    {
+        // The monitor was connected
+    }
+    else if (event == GLFW_DISCONNECTED)
+    {
+        // The monitor was disconnected
+    }
+}
+
 int main(int, char**)
 {
-	// todo: parse commandline
-	static constexpr uint32_t windowWidth = 1920;
-	static constexpr uint32_t windowHeight = 1080;
-
 	// Setup window
-	glfwSetErrorCallback(glfw_error_callback);
+	glfwSetErrorCallback(onError);
 	if (!glfwInit())
 		return 1;
 
+	int monitorCount;
+	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
+
+	if (monitorCount <= 0)
+	{
+		printf("GLFW: No monitor connected?\n");
+		return 1;
+	}
+
+	GLFWmonitor* selectedMonitor = monitors[0];
+
+	//int videoModeCount;
+	//const GLFWvidmode* modes = glfwGetVideoModes(selectedMonitor, &videoModeCount);
+	//const GLFWvidmode* selectedVideoMode = glfwGetVideoMode(selectedMonitor);
+
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "volcano", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "volcano", NULL, NULL);
 
 	// Setup Vulkan
 	if (!glfwVulkanSupported())
@@ -80,16 +138,16 @@ int main(int, char**)
 	glfwSetMouseButtonCallback(window, onMouseButton);
 	glfwSetCursorPosCallback(window, onMouseCursorPos);
 	glfwSetKeyCallback(window, onKey);
+	glfwSetWindowSizeCallback(window, onWindowResize);
+	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
+	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
+	glfwSetMonitorCallback(onMonitorChanged);
 
 	int framebufferWidth, framebufferHeight;
 	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
 
-	vkapp_create(window, windowWidth, windowHeight, framebufferWidth, framebufferHeight, "./resources/", true);
+	vkapp_create(window, g_window.width, g_window.height, framebufferWidth, framebufferHeight, "./resources/", true);
 
-	// Create Framebuffer resize callback
-	glfwSetFramebufferSizeCallback(window, glfw_resize_callback);
-
-	// Setup GLFW binding
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 
 	while (!glfwWindowShouldClose(window))

@@ -25,9 +25,19 @@ struct keyboard_state_
     int mods;
 };
 
+typedef struct window_state_ window_state;
+struct window_state_
+{
+    int x;
+    int y;
+    int width;
+    int height;
+};
+
 int vkapp_create(void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char* resourcePath, bool verbose);
 void vkapp_draw();
-void vkapp_resize(int framebufferWidth, int framebufferHeight);
+void vkapp_resizeWindow(const window_state* state);
+void vkapp_resizeFramebuffer(int width, int height);
 void vkapp_mouse(const mouse_state* state);
 void vkapp_keyboard(const keyboard_state* state);
 void vkapp_destroy(void);
