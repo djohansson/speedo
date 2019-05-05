@@ -7,11 +7,11 @@
 .DllSuffix = '.dll'
 .ExeSuffix = '.exe'
 .WindowsSDKBasePath = 'C:\Program Files (x86)\Windows Kits\10'
-.WindowsLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\um\x86'
-.WindowsIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\um'
-.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\10.0.17134.0\ucrt\x86'
-.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\ucrt'
-.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\10.0.17134.0\shared'
+.WindowsLibPath = '$WindowsSDKBasePath$\Lib\10.0.18362.0\um\x86'
+.WindowsIncludePath = '$WindowsSDKBasePath$\Include\10.0.18362.0\um'
+.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\10.0.18362.0\ucrt\x86'
+.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\10.0.18362.0\ucrt'
+.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\10.0.18362.0\shared'
 Settings
 {
 	#import TMP
