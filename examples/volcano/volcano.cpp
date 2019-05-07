@@ -144,8 +144,8 @@ struct ImGuiData
 template <GraphicsBackend B>
 struct WindowData
 {
-	uint32_t windowWidth = 0;
-	uint32_t windowHeight = 0;
+	uint32_t width = 0;
+	uint32_t height = 0;
 	uint32_t framebufferWidth = 0;
 	uint32_t framebufferHeight = 0;
 
@@ -229,7 +229,7 @@ class VulkanApplication
 {
 public:
 	VulkanApplication(
-		void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight,
+		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 		const char* resourcePath, bool /*verbose*/)
 		: myResourcePath(resourcePath)
 		, myFrameCommandBufferThreadCount(4)
@@ -335,14 +335,14 @@ public:
 
 		createSwapchain(framebufferWidth, framebufferHeight);
 		createFrameResources(
-			windowWidth,
-			windowHeight,
+			width,
+			height,
 			framebufferWidth,
 			framebufferHeight,
 			myResources.model);
 
-		float dpiScaleX = static_cast<float>(framebufferWidth) / windowWidth;
-		float dpiScaleY = static_cast<float>(framebufferHeight) / windowHeight;
+		float dpiScaleX = static_cast<float>(framebufferWidth) / width;
+		float dpiScaleY = static_cast<float>(framebufferHeight) / height;
 
 		initIMGUI(dpiScaleX, dpiScaleY);
 	}
@@ -368,7 +368,7 @@ public:
 			myFrameCommandBufferThreadCount = myRequestedCommandBufferThreadCount;
 
 			createFrameResources(
-				myWindow.windowWidth, myWindow.windowHeight, myWindow.framebufferWidth,
+				myWindow.width, myWindow.height, myWindow.framebufferWidth,
 				myWindow.framebufferHeight, myResources.model);
 		}
 
@@ -424,8 +424,16 @@ public:
 
 	void resizeWindow(const window_state& state)
 	{
-		myWindow.windowWidth = state.width;
-		myWindow.windowHeight = state.height;
+		if (state.fullscreen_enabled)
+		{
+			myWindow.width = state.fullscreen_width;
+			myWindow.height = state.fullscreen_height;
+		}
+		else
+		{
+			myWindow.width = state.width;
+			myWindow.height = state.height;
+		}
 	}
 
 	void resizeFramebuffer(int width, int height)
@@ -440,8 +448,8 @@ public:
 
 		createSwapchain(width, height, myWindow.swapchain.swapchain);
 		createFrameResources(
-			myWindow.windowWidth,
-			myWindow.windowHeight,
+			myWindow.width,
+			myWindow.height,
 			width,
 			height,
 			myResources.model);
@@ -462,8 +470,8 @@ public:
 		if (state.inside_window && !myMouseButtonsPressed[0])
 		{
 			// todo: generic view index calculation
-			size_t viewIdx = screenPos.x / (myWindow.windowWidth / NX);
-			size_t viewIdy = screenPos.y / (myWindow.windowHeight / NY);
+			size_t viewIdx = screenPos.x / (myWindow.width / NX);
+			size_t viewIdy = screenPos.y / (myWindow.height / NY);
 			myWindow.activeView = std::min((viewIdy * NX) + viewIdx, myWindow.views.size() - 1);
 
 			// std::cout << *myWindow.activeView << ":[" << screenPos.x << ", " << screenPos.y << "]"
@@ -1453,11 +1461,6 @@ private:
 			myDevice, myWindow.swapchain.swapchain, &imageCount,
 			myWindow.swapchain.colorImages.data()));
 
-		for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
-			myWindow.swapchain.colorImageViews[i] = createImageView2D(
-				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
-				VK_IMAGE_ASPECT_COLOR_BIT);
-
 		myWindow.depthFormat = findSupportedFormat(
 			myPhysicalDevice,
 			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1471,9 +1474,6 @@ private:
 		transitionImageLayout(
 			myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-
-		myWindow.swapchain.depthImageView = createImageView2D(
-			myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 	}
 
 	VmaAllocator createAllocator(VkDevice device, VkPhysicalDevice physicalDevice) const
@@ -2136,13 +2136,13 @@ private:
 	}
 
 	void createFrameResources(
-		int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight,
+		int width, int height, int framebufferWidth, int framebufferHeight,
 		const Model<GraphicsBackend::Vulkan>& model)
 	{
 		myResources.window = &myWindow;
 
-		myWindow.windowWidth = windowWidth;
-		myWindow.windowHeight = windowHeight;
+		myWindow.width = width;
+		myWindow.height = height;
 		myWindow.framebufferWidth = framebufferWidth;
 		myWindow.framebufferHeight = framebufferHeight;
 
@@ -2162,6 +2162,14 @@ private:
 		}
 
 		createGraphicsRenderPass();
+
+		for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
+			myWindow.swapchain.colorImageViews[i] = createImageView2D(
+				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
+				VK_IMAGE_ASPECT_COLOR_BIT);
+
+		myWindow.swapchain.depthImageView = createImageView2D(
+			myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 
 		auto createFramebuffers = [this](uint32_t width, uint32_t height) {
 			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
@@ -2809,7 +2817,7 @@ private:
 static VulkanApplication* theApp = nullptr;
 
 int vkapp_create(
-	void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight,
+	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 	const char* resourcePath, bool verbose)
 {
 	assert(view != nullptr);
@@ -2839,7 +2847,7 @@ int vkapp_create(
 	}
 
 	theApp = new VulkanApplication(
-		view, windowWidth, windowHeight, framebufferWidth, framebufferHeight,
+		view, width, height, framebufferWidth, framebufferHeight,
 		resourcePath ? resourcePath : "./", verbose);
 
 	return EXIT_SUCCESS;
