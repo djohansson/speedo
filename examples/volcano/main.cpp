@@ -10,7 +10,7 @@
 
 static mouse_state g_mouse = { -1.0, -1.0, 0, 0, 0, false };
 static keyboard_state g_keyboard = { 0, 0, 0, 0 };
-static window_state g_window = { 0, 0, 1920, 1080 };
+static window_state g_window = { 0, 0, 1920, 1080, -1, -1, -1, false };
 
 static void onError(int error, const char* description)
 {
@@ -43,23 +43,43 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+	static bool fullscreenChangeTriggered = false;
 	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
     {
-        if (glfwGetWindowMonitor(window))
-        {
-            glfwSetWindowMonitor(window, NULL, g_window.x, g_window.y, g_window.width, g_window.height, 0);
-        }
-        else
-        {
-            if (GLFWmonitor* monitor = glfwGetPrimaryMonitor())
-            {
-                const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-                glfwGetWindowPos(window, &g_window.x, &g_window.y);
-                glfwGetWindowSize(window, &g_window.width, &g_window.height);
-                glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-            }
-        }
+		if (!fullscreenChangeTriggered)
+		{
+			fullscreenChangeTriggered = true;
+
+			if (GLFWmonitor* monitor = glfwGetWindowMonitor(window))
+			{
+				g_window.fullscreen_enabled = false;
+
+				glfwSetWindowMonitor(window, nullptr,
+					g_window.x, g_window.y, g_window.width, g_window.height, 0);
+			}
+			else
+			{
+				if (GLFWmonitor* monitor = glfwGetPrimaryMonitor())
+				{
+					const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+					g_window.fullscreen_width = mode->width;
+					g_window.fullscreen_height = mode->height;
+					g_window.fullscreen_refresh = mode->refreshRate;
+					g_window.fullscreen_enabled = true;
+
+					glfwGetWindowPos(window, &g_window.x, &g_window.y);
+					glfwGetWindowSize(window, &g_window.width, &g_window.height);
+					glfwSetWindowMonitor(window, monitor, 0, 0,
+						g_window.fullscreen_width, g_window.fullscreen_height, g_window.fullscreen_refresh);
+				}
+			}
+		}
     }
+	else
+	{
+		fullscreenChangeTriggered = false;
+	}
 
 	g_keyboard.key = key;
 	g_keyboard.scancode = scancode;
@@ -76,8 +96,11 @@ static void onFramebufferResize(GLFWwindow*, int w, int h)
 
 static void onWindowResize(GLFWwindow*, int w, int h)
 {
-	g_window.width = w;
-	g_window.height = h;
+	if (!g_window.fullscreen_enabled)
+	{
+		g_window.width = w;
+		g_window.height = h;
+	}
 
 	vkapp_resizeWindow(&g_window);
 }
@@ -111,15 +134,14 @@ int main(int, char**)
 
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-
+	(void)monitors;
 	if (monitorCount <= 0)
 	{
 		printf("GLFW: No monitor connected?\n");
 		return 1;
 	}
 
-	GLFWmonitor* selectedMonitor = monitors[0];
-
+	//GLFWmonitor* selectedMonitor = monitors[0];
 	//int videoModeCount;
 	//const GLFWvidmode* modes = glfwGetVideoModes(selectedMonitor, &videoModeCount);
 	//const GLFWvidmode* selectedVideoMode = glfwGetVideoMode(selectedMonitor);
@@ -141,6 +163,7 @@ int main(int, char**)
 	glfwSetWindowSizeCallback(window, onWindowResize);
 	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
 	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
+	glfwSetWindowRefreshCallback(window, onWindowRefresh);
 	glfwSetMonitorCallback(onMonitorChanged);
 
 	int framebufferWidth, framebufferHeight;

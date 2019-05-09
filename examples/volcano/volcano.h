@@ -32,6 +32,10 @@ struct window_state_
     int y;
     int width;
     int height;
+    int fullscreen_width;
+    int fullscreen_height;
+    int fullscreen_refresh;
+    bool fullscreen_enabled;
 };
 
 int vkapp_create(void* view, int windowWidth, int windowHeight, int framebufferWidth, int framebufferHeight, const char* resourcePath, bool verbose);
