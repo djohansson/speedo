@@ -2,7 +2,6 @@
 // 		 members where possible
 // wip: separate VK objects from generic ones.
 // wip: dynamic mesh layout, depending on input data structure
-// wip: resizing, fullscreen. fix: sticky alt-enter
 // todo: instrumentation and timing information
 // todo: move stuff from headers into compilation units
 // todo: extract descriptor sets
