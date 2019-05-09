@@ -2,13 +2,13 @@
 // 		 members where possible
 // wip: separate VK objects from generic ones.
 // wip: dynamic mesh layout, depending on input data structure
-// todo: resizing, fullscreen
+// wip: resizing, fullscreen. fix: sticky alt-enter
+// todo: instrumentation and timing information
 // todo: move stuff from headers into compilation units
 // todo: extract descriptor sets
 // todo: resource loading / manager
 // todo: graph based GUI
 // todo: compute pipeline
-// todo: instrumentation and timing information
 // todo: clustered forward shading
 // todo: frame graph / shader graph
 
@@ -1453,11 +1453,6 @@ private:
 			myDevice, myWindow.swapchain.swapchain, &imageCount,
 			myWindow.swapchain.colorImages.data()));
 
-		for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
-			myWindow.swapchain.colorImageViews[i] = createImageView2D(
-				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
-				VK_IMAGE_ASPECT_COLOR_BIT);
-
 		myWindow.depthFormat = findSupportedFormat(
 			myPhysicalDevice,
 			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1471,9 +1466,6 @@ private:
 		transitionImageLayout(
 			myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-
-		myWindow.swapchain.depthImageView = createImageView2D(
-			myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 	}
 
 	VmaAllocator createAllocator(VkDevice device, VkPhysicalDevice physicalDevice) const
@@ -2123,7 +2115,7 @@ private:
 		initInfo.Allocator = nullptr; // myAllocator;
 		// initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
-		ImGui_ImplVulkan_Init(&initInfo, myWindow.imgui.window.RenderPass);
+		ImGui_ImplVulkan_Init(&initInfo, myPipelineConfig.renderPass);
 
 		// Upload Fonts
 		{
@@ -2163,6 +2155,19 @@ private:
 
 		createGraphicsRenderPass();
 
+		auto createSwapchainImageViews = [this]()
+		{
+			for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
+			myWindow.swapchain.colorImageViews[i] = createImageView2D(
+				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
+				VK_IMAGE_ASPECT_COLOR_BIT);
+
+			myWindow.swapchain.depthImageView = createImageView2D(
+				myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+		};
+
+		createSwapchainImageViews();
+
 		auto createFramebuffers = [this](uint32_t width, uint32_t height) {
 			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
 			VkFramebufferCreateInfo info = {};
@@ -2182,7 +2187,7 @@ private:
 		};
 
 		createFramebuffers(framebufferWidth, framebufferHeight);
-
+		
 		createPipelineConfig(model);
 
 		auto& window = myWindow.imgui.window;
@@ -2267,8 +2272,6 @@ private:
 			fs.ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
 			fs.RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
-		// ImGui_ImplVulkanH_CreateWindowDataCommandBuffers(myDevice, myQueueFamilyIndex,
-		// myWindow.get(), nullptr);
 
 		auto updateDescriptorSets = [this]()
 		{
