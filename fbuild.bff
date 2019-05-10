@@ -202,24 +202,23 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$xxhash$LibSuffix$'
 	}
 
-	ObjectList('$ConfigName$-tracy-client')
-	{
-		.IntermediateFilePath + '/tracy-client'
+	// ObjectList('$ConfigName$-tracy-client')
+	// {
+	// 	.IntermediateFilePath + '/tracy-client'
 
-		.CompilerOptions + .CompilerOptionsCpp
-			+ ' -I$ProjectPath$/external/tracy'
-			+ ' -DTRACY_ENABLE'
+	// 	.CompilerOptions + .CompilerOptionsCpp
+	// 		+ ' -I$ProjectPath$/external/tracy'
 
-		.ReleaseString = 'release'
-		If(.ConfigName != .ReleaseString) {
-			.CompilerOptions + ' -DTRACY_ENABLE'
-		}
+	// 	.ReleaseString = 'release'
+	// 	If(.ConfigName != .ReleaseString) {
+	// 		.CompilerOptions + ' -DTRACY_ENABLE'
+	// 	}
 
-		.CompilerInputFiles = {
-			'$ProjectPath$/external/tracy/TracyClient.cpp',
-		}
-		.CompilerOutputPath = '$IntermediateFilePath$'
-	}
+	// 	.CompilerInputFiles = {
+	// 		'$ProjectPath$/external/tracy/TracyClient.cpp',
+	// 	}
+	// 	.CompilerOutputPath = '$IntermediateFilePath$'
+	// }
 
 	// Library('$ConfigName$-ISPCTextureCompressor')
 	// {
@@ -443,6 +442,11 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -DVOLCANO_USE_GLFW'
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 
+		.ReleaseString = 'release'
+		If(.ConfigName != .ReleaseString) {
+			.CompilerOptions + ' -DTRACY_ENABLE'
+		}
+
 		.CompilerInputPath = '$ProjectPath$/examples/volcano'
 		.CompilerOutputPath = '$IntermediateFilePath$'
 	}
@@ -455,7 +459,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-slang',
 			'$ConfigName$-glfw',
 			'$ConfigName$-xxhash',
-			'$ConfigName$-tracy-client',
+			//'$ConfigName$-tracy-client',
 			'$ConfigName$-volcano',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano$ExeSuffix$'
