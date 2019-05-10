@@ -206,7 +206,7 @@ struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBindin
 	}
 };
 
-// this should be a temporary object only used during loading.
+// this is a temporary object only used during loading.
 template <GraphicsBackend B>
 struct SerializableShaderReflectionModule
 {
