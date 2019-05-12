@@ -114,6 +114,10 @@
 
 #include <slang.h>
 
+#define TRACY_ENABLE
+#include <Tracy.hpp>
+#include <TracyClient.cpp>
+
 struct ViewData
 {
 	struct ViewportData
@@ -205,7 +209,7 @@ struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBindin
 	}
 };
 
-// this should be a temporary object only used during loading.
+// this is a temporary object only used during loading.
 template <GraphicsBackend B>
 struct SerializableShaderReflectionModule
 {
@@ -235,6 +239,8 @@ public:
 		, myRequestedCommandBufferThreadCount(myFrameCommandBufferThreadCount)
 		, myGraphicsFrameTimestamp(std::chrono::high_resolution_clock::now())
 	{
+		ZoneScoped;
+
 		assert(std::filesystem::is_directory(myResourcePath));
 
 		myInstance = createInstance<GraphicsBackend::Vulkan>();
@@ -348,6 +354,8 @@ public:
 
 	~VulkanApplication()
 	{
+		ZoneScoped;
+
 		CHECK_VK(vkDeviceWaitIdle(myDevice));
 
 		cleanup();
@@ -355,6 +363,8 @@ public:
 
 	void draw()
 	{
+		ZoneScoped;
+
 		updateInput(myGraphicsDeltaTime.count());
 
 		// re-create frame resources if needed
@@ -377,6 +387,8 @@ public:
 		// todo: run this at the same time as secondary command buffer recording
 		if (myUIEnableFlag)
 		{
+			ZoneScoped;
+
 			ImGui_ImplVulkan_NewFrame();
 			ImGui::NewFrame();
 
@@ -437,6 +449,8 @@ public:
 
 	void resizeFramebuffer(int width, int height)
 	{
+		ZoneScoped;
+
 		CHECK_VK(vkQueueWaitIdle(myQueue));
 
 		cleanupFrameResources();
@@ -456,6 +470,8 @@ public:
 
 	void onMouse(const mouse_state& state)
 	{
+		ZoneScoped;
+
 		bool leftPressed = false;
 		bool rightPressed = false;
 #if defined(VOLCANO_USE_GLFW)
@@ -492,6 +508,8 @@ public:
 
 	void onKeyboard(const keyboard_state& state)
 	{
+		ZoneScoped;
+
 #if defined(VOLCANO_USE_GLFW)
 		if (state.action == GLFW_PRESS)
 			myKeysPressed[state.key] = true;
@@ -502,6 +520,8 @@ public:
 
 	void updateInput(float dt)
 	{
+		ZoneScoped;
+
 		// update input dependent state
 		{
 			ImGuiIO& io = ImGui::GetIO();
@@ -592,6 +612,8 @@ public:
 private:
 	Model<GraphicsBackend::Vulkan> loadModel(const char* filename) const
 	{
+		ZoneScoped;
+
 		std::filesystem::path sourceFilePath(myResourcePath);
 		sourceFilePath = std::filesystem::absolute(sourceFilePath);
 
@@ -749,6 +771,8 @@ private:
 
 	Texture<GraphicsBackend::Vulkan> loadTexture(const char* filename) const
 	{
+		ZoneScoped;
+
 		std::filesystem::path imageFile(myResourcePath);
 		imageFile = std::filesystem::absolute(imageFile);
 
@@ -842,6 +866,8 @@ private:
 	template <GraphicsBackend B>
 	SerializableShaderReflectionModule<B> loadSlangShaders(const char* filename) const
 	{
+		ZoneScoped;
+
 		std::filesystem::path slangFile(myResourcePath);
 		slangFile = std::filesystem::absolute(slangFile);
 
@@ -1126,6 +1152,8 @@ private:
 	template <GraphicsBackend B>
 	Instance<B> createInstance() const
 	{
+		ZoneScoped;
+
 		VkApplicationInfo appInfo = {};
 		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -1211,6 +1239,8 @@ private:
 	template <GraphicsBackend B>
 	Surface<B> createSurface(Instance<B> instance, void* view) const
 	{
+		ZoneScoped;
+
 		Surface<B> surface;
 #if defined(VOLCANO_USE_GLFW)
 		CHECK_VK(glfwCreateWindowSurface(
@@ -1276,6 +1306,8 @@ private:
 		Queue<B>, int>
 	createDevice(Instance<B> instance, Surface<B> surface) const
 	{
+		ZoneScoped;
+
 		Device<B> logicalDevice;
 		PhysicalDevice<B> physicalDevice;
 		SwapchainInfo<B> swapChainInfo;
@@ -1423,6 +1455,8 @@ private:
 
 	void createSwapchain(int width, int height, VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE)
 	{
+		ZoneScoped;
+
 		{
 			VkSwapchainCreateInfoKHR info = {};
 			info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1477,6 +1511,8 @@ private:
 
 	VmaAllocator createAllocator(VkDevice device, VkPhysicalDevice physicalDevice) const
 	{
+		ZoneScoped;
+
 		auto vkGetBufferMemoryRequirements2KHR =
 			(PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
 				myInstance, "vkGetBufferMemoryRequirements2KHR");
@@ -1519,6 +1555,8 @@ private:
 
 	void createDescriptorPool()
 	{
+		ZoneScoped;
+
 		constexpr uint32_t maxDescriptorCount = 1000;
 		VkDescriptorPoolSize poolSizes[] = {
 			{VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
@@ -1545,6 +1583,8 @@ private:
 
 	void createGraphicsRenderPass()
 	{
+		ZoneScoped;
+
 		VkAttachmentDescription colorAttachment = {};
 		colorAttachment.format = myWindow.surfaceFormat.format;
 		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1603,6 +1643,8 @@ private:
 
 	void createPipelineConfig(const Model<GraphicsBackend::Vulkan>& model)
 	{
+		ZoneScoped;
+
 		auto createVkGraphicsPipeline =
 			[](VkDevice device, const PipelineConfiguration<GraphicsBackend::Vulkan>& pipeline,
 			   const Model<GraphicsBackend::Vulkan>& model) {
@@ -1780,6 +1822,8 @@ private:
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
 	{
+		ZoneScoped;
+
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
 		VkBufferCopy copyRegion = {};
@@ -1795,6 +1839,8 @@ private:
 		VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
 		VkBuffer& outBuffer, VmaAllocation& outBufferMemory, const char* debugName) const
 	{
+		ZoneScoped;
+
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		bufferInfo.size = size;
@@ -1818,6 +1864,8 @@ private:
 		const T* bufferData, size_t bufferSize, VkBufferUsageFlags usage, VkBuffer& outBuffer,
 		VmaAllocation& outBufferMemory, const char* debugName) const
 	{
+		ZoneScoped;
+
 		assert(bufferData != nullptr);
 		assert(bufferSize > 0);
 
@@ -1849,6 +1897,8 @@ private:
 	void transitionImageLayout(
 		VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) const
 	{
+		ZoneScoped;
+
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
 		VkImageMemoryBarrier barrier = {};
@@ -1925,6 +1975,8 @@ private:
 
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const
 	{
+		ZoneScoped;
+
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
 		VkBufferImageCopy region = {};
@@ -1949,6 +2001,8 @@ private:
 		VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, VkImage& outImage,
 		VmaAllocation& outImageMemory, const char* debugName) const
 	{
+		ZoneScoped;
+
 		VkImageCreateInfo imageInfo = {};
 		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 		imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -1985,6 +2039,8 @@ private:
 		VkImageUsageFlags usage, VkImage& outImage, VmaAllocation& outImageMemory,
 		const char* debugName) const
 	{
+		ZoneScoped;
+
 		assert((width & 1) == 0);
 		assert((height & 1) == 0);
 
@@ -2025,6 +2081,8 @@ private:
 	VkImageView
 	createImageView2D(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) const
 	{
+		ZoneScoped;
+
 		VkImageView imageView;
 		VkImageViewCreateInfo viewInfo = {};
 		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -2048,6 +2106,8 @@ private:
 
 	void createTextureSampler()
 	{
+		ZoneScoped;
+
 		VkSamplerCreateInfo samplerInfo = {};
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 		samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -2071,6 +2131,8 @@ private:
 
 	void initIMGUI(float dpiScaleX, float dpiScaleY)
 	{
+		ZoneScoped;
+
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
@@ -2138,6 +2200,8 @@ private:
 		int width, int height, int framebufferWidth, int framebufferHeight,
 		const Model<GraphicsBackend::Vulkan>& model)
 	{
+		ZoneScoped;
+		
 		myResources.window = &myWindow;
 
 		myWindow.width = width;
@@ -2164,6 +2228,8 @@ private:
 
 		auto createSwapchainImageViews = [this]()
 		{
+			ZoneScoped;
+
 			for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
 			myWindow.swapchain.colorImageViews[i] = createImageView2D(
 				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
@@ -2175,7 +2241,10 @@ private:
 
 		createSwapchainImageViews();
 
-		auto createFramebuffers = [this](uint32_t width, uint32_t height) {
+		auto createFramebuffers = [this](uint32_t width, uint32_t height)
+		{
+			ZoneScoped;
+
 			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
 			VkFramebufferCreateInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -2282,6 +2351,8 @@ private:
 
 		auto updateDescriptorSets = [this]()
 		{
+			ZoneScoped;
+
 			VkDescriptorBufferInfo bufferInfo = {};
 			bufferInfo.buffer = myResources.uniformBuffer;
 			bufferInfo.offset = 0;
@@ -2369,6 +2440,8 @@ private:
 
 	void updateUniformBuffers()
 	{
+		ZoneScoped;
+
 		UniformBufferObject* data;
 		CHECK_VK(vmaMapMemory(myAllocator, myResources.uniformBufferMemory, (void**)&data));
 
@@ -2429,6 +2502,8 @@ private:
 
 	void submitFrame()
 	{
+		ZoneScoped;
+
 		auto& window = myWindow.imgui.window;
 		VkSemaphore& imageAquiredSemaphore = 
 			window.FrameSemaphores[window.FrameIndex].ImageAcquiredSemaphore;
@@ -2461,6 +2536,8 @@ private:
 
 		// wait for frame to be completed before starting to use it
 		{
+			ZoneScoped;
+
 			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.Fence, VK_TRUE, UINT64_MAX));
 			CHECK_VK(vkResetFences(myDevice, 1, &frame.Fence));
 
@@ -2479,6 +2556,8 @@ private:
 		// begin secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
+			ZoneScoped;
+
 			VkCommandBuffer& cmd = myFrameCommandBuffers
 				[window.FrameIndex * myFrameCommandBufferThreadCount +
 				 (segmentIt + 1)];
@@ -2509,6 +2588,8 @@ private:
 
 		// draw geometry using secondary command buffers
 		{
+			ZoneScoped;
+
 			uint32_t segmentDrawCount = drawCount / segmentCount;
 			if (drawCount % segmentCount)
 				segmentDrawCount += 1;
@@ -2524,7 +2605,10 @@ private:
 #if defined(__WINDOWS__)
 				std::execution::par,
 #endif
-				seq.begin(), segmentCount, [this, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt) {
+				seq.begin(), segmentCount, [this, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt)
+				{
+					ZoneScoped;
+
 					VkCommandBuffer& cmd = myFrameCommandBuffers
 						[frameIndex * myFrameCommandBufferThreadCount +
 						 (segmentIt + 1)];
@@ -2540,7 +2624,10 @@ private:
 						uint32_t j = n / NX;
 
 						auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
-														int32_t width, int32_t height) {
+														int32_t width, int32_t height)
+						{
+							ZoneScoped;
+
 							VkViewport viewport = {};
 							viewport.x = static_cast<float>(x);
 							viewport.y = static_cast<float>(y);
@@ -2562,7 +2649,10 @@ private:
 											 VkCommandBuffer cmd, uint32_t indexCount,
 											 uint32_t descriptorSetCount,
 											 const VkDescriptorSet* descriptorSets,
-											 VkPipelineLayout pipelineLayout) {
+											 VkPipelineLayout pipelineLayout)
+						{
+							ZoneScoped;
+
 							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
 							vkCmdBindDescriptorSets(
 								cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
@@ -2582,6 +2672,8 @@ private:
 		// end secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
+			ZoneScoped;
+
 			VkCommandBuffer& cmd = myFrameCommandBuffers
 				[window.FrameIndex * myFrameCommandBufferThreadCount +
 				 (segmentIt + 1)];
@@ -2591,6 +2683,8 @@ private:
 
 		// begin primary command buffer
 		{
+			ZoneScoped;
+
 			CHECK_VK(vkResetCommandBuffer(frame.CommandBuffer, 0));
 			VkCommandBufferBeginInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2600,6 +2694,8 @@ private:
 
 		// call secondary command buffers
 		{
+			ZoneScoped;
+
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = myPipelineConfig.renderPass;
@@ -2623,6 +2719,8 @@ private:
 		// Record Imgui Draw Data and draw funcs into primary command buffer
 		if (myUIEnableFlag)
 		{
+			ZoneScoped;
+
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = window.RenderPass;
@@ -2640,6 +2738,8 @@ private:
 
 		// Submit primary command buffer
 		{
+			ZoneScoped;
+
 			VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			VkSubmitInfo submitInfo = {};
 			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2658,6 +2758,8 @@ private:
 
 	void presentFrame()
 	{
+		ZoneScoped;
+
 		auto& window = myWindow.imgui.window;
 		auto& fs = window.FrameSemaphores[window.FrameIndex];
 		VkPresentInfoKHR info = {};
@@ -2672,6 +2774,8 @@ private:
 
 	void cleanupFrameResources()
 	{
+		ZoneScoped;
+
 		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
 		{
 			vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
@@ -2707,12 +2811,16 @@ private:
 
 	void cleanupSwapchain()
 	{
+		ZoneScoped;
+
 		vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
 		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
 	}
 
 	void cleanup()
 	{
+		ZoneScoped;
+
 		cleanupFrameResources();
 		cleanupSwapchain();
 
