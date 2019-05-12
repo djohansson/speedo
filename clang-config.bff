@@ -90,7 +90,7 @@ Compiler('Compiler-Clang')
 .Clang_x64_DebugConfig = [
 	Using(.Clang_x64_BaseConfig)
 	.ConfigName = 'debug'
-	.CompilerOptions + ' -DDEBUG -D_DEBUG -DPROFILING_ENABLED'
+	.CompilerOptions + ' -D_DEBUG -DPROFILING_ENABLED'
 		+ .CompilerDebugOptimizations
 #if __WINDOWS__
 		+ ' -D_ITERATOR_DEBUG_LEVEL=1'
