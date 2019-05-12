@@ -15,14 +15,6 @@ ForEach(.Config in .Clang_x64_Configs)
 	^AllConfigNames + '$ConfigName$'
 
 	.IntermediateFilePath + '/$ConfigName$'
-
-	// todo: investigate warnings (on osx clang)
-	// + ' -Wno-unused-variable'
-	// + ' -Wno-unused-local-typedef'
-	// + ' -Wno-undefined-var-template'
-	// + ' -Wno-inconsistent-missing-override'
-	// + ' -Wno-reorder'
-	// + ' -Wno-int-to-pointer-cast'
 	
 	Library('$ConfigName$-core')
 	{
@@ -202,23 +194,226 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$xxhash$LibSuffix$'
 	}
 
-	// ObjectList('$ConfigName$-tracy-client')
-	// {
-	// 	.IntermediateFilePath + '/tracy-client'
+	ObjectList('$ConfigName$-freetype2')
+	{
+		.IntermediateFilePath + '/freetype2'
 
-	// 	.CompilerOptions + .CompilerOptionsCpp
-	// 		+ ' -I$ProjectPath$/external/tracy'
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/freetype2/include'
+			+ ' -DFT2_BUILD_LIBRARY'
 
-	// 	.ReleaseString = 'release'
-	// 	If(.ConfigName != .ReleaseString) {
-	// 		.CompilerOptions + ' -DTRACY_ENABLE'
-	// 	}
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/freetype2/src\autofit\autofit.c',
+			'$ProjectPath$/external/freetype2/src\base\ftbase.c',
+			'$ProjectPath$/external/freetype2/src\base\ftbbox.c',
+			'$ProjectPath$/external/freetype2/src\base\ftbdf.c',
+			'$ProjectPath$/external/freetype2/src\base\ftbitmap.c',
+			'$ProjectPath$/external/freetype2/src\base\ftcid.c',
+			'$ProjectPath$/external/freetype2/src\base\ftfstype.c',
+			'$ProjectPath$/external/freetype2/src\base\ftgasp.c',
+			'$ProjectPath$/external/freetype2/src\base\ftglyph.c',
+			'$ProjectPath$/external/freetype2/src\base\ftgxval.c',
+			'$ProjectPath$/external/freetype2/src\base\ftinit.c',
+			'$ProjectPath$/external/freetype2/src\base\ftmm.c',
+			'$ProjectPath$/external/freetype2/src\base\ftotval.c',
+			'$ProjectPath$/external/freetype2/src\base\ftpatent.c',
+			'$ProjectPath$/external/freetype2/src\base\ftpfr.c',
+			'$ProjectPath$/external/freetype2/src\base\ftstroke.c',
+			'$ProjectPath$/external/freetype2/src\base\ftsynth.c',
+			'$ProjectPath$/external/freetype2/src\base\ftsystem.c',
+			'$ProjectPath$/external/freetype2/src\base\fttype1.c',
+			'$ProjectPath$/external/freetype2/src\base\ftwinfnt.c',
+			'$ProjectPath$/external/freetype2/src\bdf\bdf.c',
+			'$ProjectPath$/external/freetype2/src\cache\ftcache.c',
+			'$ProjectPath$/external/freetype2/src\cff\cff.c',
+			'$ProjectPath$/external/freetype2/src\cid\type1cid.c',
+			'$ProjectPath$/external/freetype2/src\gzip\ftgzip.c',
+			'$ProjectPath$/external/freetype2/src\lzw\ftlzw.c',
+			'$ProjectPath$/external/freetype2/src\pcf\pcf.c',
+			'$ProjectPath$/external/freetype2/src\pfr\pfr.c',
+			'$ProjectPath$/external/freetype2/src\psaux\psaux.c',
+			'$ProjectPath$/external/freetype2/src\pshinter\pshinter.c',
+			'$ProjectPath$/external/freetype2/src\psnames\psmodule.c',
+			'$ProjectPath$/external/freetype2/src\raster\raster.c',
+			'$ProjectPath$/external/freetype2/src\sfnt\sfnt.c',
+			'$ProjectPath$/external/freetype2/src\smooth\smooth.c',
+			'$ProjectPath$/external/freetype2/src\truetype\truetype.c',
+			'$ProjectPath$/external/freetype2/src\type1\type1.c',
+			'$ProjectPath$/external/freetype2/src\type42\type42.c',
+			'$ProjectPath$/external/freetype2/src\winfonts\winfnt.c',
+		}
 
-	// 	.CompilerInputFiles = {
-	// 		'$ProjectPath$/external/tracy/TracyClient.cpp',
-	// 	}
-	// 	.CompilerOutputPath = '$IntermediateFilePath$'
-	// }
+	#if __WINDOWS__
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/freetype2/builds/windows/ftdebug.c',
+		}
+	#endif
+
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-imgui')
+	{
+		.IntermediateFilePath + '/imgui'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$/external/imgui'
+			+ ' -I$ProjectPath$/external/gl3w/include'
+			+ ' -I$ProjectPath$/external/glfw/include'
+			+ ' -I$ProjectPath$/external/freetype2/include'
+			+ ' -I$VulkanSDKPath$/include'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/imgui/imgui.cpp'
+			'$ProjectPath$/external/imgui/imgui_demo.cpp'
+			'$ProjectPath$/external/imgui/imgui_draw.cpp'
+			'$ProjectPath$/external/imgui/imgui_widgets.cpp'
+			'$ProjectPath$/external/imgui/misc/freetype/imgui_freetype.cpp'
+			'$ProjectPath$/external/imgui/examples/imgui_impl_glfw.cpp'
+			'$ProjectPath$/external/imgui/examples/imgui_impl_opengl3.cpp'
+			'$ProjectPath$/external/imgui/examples/imgui_impl_vulkan.cpp'
+		}
+
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-gl3w')
+	{
+		.IntermediateFilePath + '/gl3w'
+
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/gl3w/include'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/gl3w/src/gl3w.c',
+		}
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-tracy-client')
+	{
+		.IntermediateFilePath + '/tracy-client'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$/external/tracy'
+
+		.ReleaseString = 'release'
+		If(.ConfigName != .ReleaseString) {
+			.CompilerOptions + ' -DTRACY_ENABLE'
+		}
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/tracy/TracyClient.cpp',
+		}
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	ObjectList('$ConfigName$-tracy-nfd-c')
+	{
+		.IntermediateFilePath + '/tracy-nfd'
+
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/tracy'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/tracy/nfd/nfd_common.c'
+		}
+
+	#if __OSX__
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/tracy/nfd/nfd_cocoa.c'
+		}
+	#endif //__OSX__
+	#if __LINUX__
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/tracy/nfd/nfd_gtk.c'
+		}
+	#endif //__LINUX__
+
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+#if __WINDOWS__
+	ObjectList('$ConfigName$-tracy-nfd-cpp')
+	{
+		.IntermediateFilePath + '/tracy-nfd'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$/external/tracy'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/tracy/nfd/nfd_win.cpp'
+		}
+
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+#endif
+
+	ObjectList('$ConfigName$-tracy')
+	{
+		.IntermediateFilePath + '/tracy'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$/external/tracy/profiler'
+			+ ' -I$ProjectPath$/external/gl3w/include'
+			+ ' -I$ProjectPath$/external/glfw/include'
+			+ ' -I$ProjectPath$/external/freetype2/include'
+			+ ' -I$ProjectPath$/external/imgui'
+			+ ' -DTRACY_FILESELECTOR'
+			+ ' -DTRACY_EXTENDED_FONT'
+			+ ' -DTRACY_ROOT_WINDOW'
+
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/tracy/common/TracySocket.cpp'
+			'$ProjectPath$/external/tracy/common/TracySystem.cpp'
+			'$ProjectPath$/external/tracy/common/tracy_lz4.cpp'
+			'$ProjectPath$/external/tracy/common/tracy_lz4hc.cpp'
+			'$ProjectPath$/external/tracy/server/TracyBadVersion.cpp'
+			'$ProjectPath$/external/tracy/server/TracyMemory.cpp'
+			'$ProjectPath$/external/tracy/server/TracyStorage.cpp'
+			'$ProjectPath$/external/tracy/server/TracyView.cpp'
+			'$ProjectPath$/external/tracy/server/TracyWorker.cpp'
+			'$ProjectPath$/external/tracy/profiler/src/main.cpp'
+			'$ProjectPath$/external/tracy/profiler/src/winmain.cpp'
+			'$ProjectPath$/external/tracy/profiler/src/winmainarchdiscovery.cpp'
+			'$ProjectPath$/external/tracy/imguicolortextedit/TextEditor.cpp'
+		}
+
+		.CompilerOutputPath = '$IntermediateFilePath$'
+	}
+
+	Executable('$ConfigName$-tracy-exe')
+	{
+		.IntermediateFilePath + '/tracy'
+		.Libraries = {
+			'$ConfigName$-gl3w',
+			'$ConfigName$-glfw',
+			'$ConfigName$-imgui',
+			'$ConfigName$-freetype2',
+			'$ConfigName$-tracy-nfd-c',
+			'$ConfigName$-tracy',
+		}
+	#if __WINDOWS__
+		.Libraries + '$ConfigName$-tracy-nfd-cpp'
+	#endif //__WINDOWS__
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/tracy$ExeSuffix$'
+		.LinkerOptions + .LinkerOptionsCpp
+			+ ' -L$VulkanSDKPath$/lib'
+	#if __WINDOWS__
+		.LinkerOptions + ' -ladvapi32'
+			// + ' -luser32'
+			+ ' -lgdi32'
+			+ ' -lshell32'
+			+ ' -lole32.lib'
+			+ ' -lws2_32'
+			+ ' -lvulkan-1'
+	#endif //__WINDOWS__
+	#if __OSX__
+		.LinkerOptions + '-framework CoreFoundation'
+		' -framework AppKit'
+		//	+ ' -rpath @executable_path/bin/osx-x64/'
+	#endif
+	}
 
 	// Library('$ConfigName$-ISPCTextureCompressor')
 	// {
@@ -457,9 +652,12 @@ ForEach(.Config in .Clang_x64_Configs)
 		.Libraries = {
 			'$ConfigName$-core',
 			'$ConfigName$-slang',
+			'$ConfigName$-gl3w',
 			'$ConfigName$-glfw',
 			'$ConfigName$-xxhash',
-			//'$ConfigName$-tracy-client',
+			'$ConfigName$-imgui',
+			'$ConfigName$-freetype2',
+			'$ConfigName$-tracy-client',
 			'$ConfigName$-volcano',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano$ExeSuffix$'
@@ -516,10 +714,11 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.Targets =
 		{
+			'$ConfigName$-mio-test-exe-run',
 			'$ConfigName$-slang-glslang-dll',
 			'$ConfigName$-slangc-exe',
+			'$ConfigName$-tracy-exe'
 			'$ConfigName$-volcano-exe',
-			'$ConfigName$-mio-test-exe-run',
 		}
 	#if !__OSX__
 		.Targets + 

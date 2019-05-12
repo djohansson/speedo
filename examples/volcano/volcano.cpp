@@ -13,9 +13,9 @@
 
 #include "volcano.h"
 #include "aabb.h"
-#include "glm.h"
 #include "file.h"
 #include "gfx-types.h"
+#include "glm.h"
 #include "math.h"
 #include "utils.h"
 #include "vertex.h"
@@ -75,9 +75,9 @@
 
 #define VMA_IMPLEMENTATION
 #ifdef _DEBUG
-#define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
-#define VMA_DEBUG_MARGIN 16
-#define VMA_DEBUG_DETECT_CORRUPTION 1
+#	define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
+#	define VMA_DEBUG_MARGIN 16
+#	define VMA_DEBUG_DETECT_CORRUPTION 1
 #endif
 #include <vk_mem_alloc.h>
 
@@ -106,17 +106,13 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
-#include <examples/imgui_impl_vulkan.cpp>
-#include <imgui.cpp>
-#include <imgui_demo.cpp>
-#include <imgui_draw.cpp>
-#include <imgui_widgets.cpp>
-
 #include <slang.h>
 
-#define TRACY_ENABLE
 #include <Tracy.hpp>
-#include <TracyClient.cpp>
+
+#include <imgui.h>
+
+#include <examples/imgui_impl_vulkan.h>
 
 struct ViewData
 {
@@ -339,12 +335,7 @@ public:
 			myResources.uniformBufferMemory, "uniformBuffer");
 
 		createSwapchain(framebufferWidth, framebufferHeight);
-		createFrameResources(
-			width,
-			height,
-			framebufferWidth,
-			framebufferHeight,
-			myResources.model);
+		createFrameResources(width, height, framebufferWidth, framebufferHeight, myResources.model);
 
 		float dpiScaleX = static_cast<float>(framebufferWidth) / width;
 		float dpiScaleY = static_cast<float>(framebufferHeight) / height;
@@ -457,15 +448,11 @@ public:
 
 		// hack to shut up validation layer error.
 		// see https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/624
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(myPhysicalDevice, myWindow.surface, &myWindow.swapchain.info.capabilities);
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+			myPhysicalDevice, myWindow.surface, &myWindow.swapchain.info.capabilities);
 
 		createSwapchain(width, height, myWindow.swapchain.swapchain);
-		createFrameResources(
-			myWindow.width,
-			myWindow.height,
-			width,
-			height,
-			myResources.model);
+		createFrameResources(myWindow.width, myWindow.height, width, height, myResources.model);
 	}
 
 	void onMouse(const mouse_state& state)
@@ -1339,9 +1326,8 @@ private:
 					VK_FORMAT_R8G8B8_UNORM};
 				const VkColorSpaceKHR requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 				const VkPresentModeKHR requestPresentMode[] = {
-					VK_PRESENT_MODE_MAILBOX_KHR,
-					VK_PRESENT_MODE_FIFO_RELAXED_KHR, VK_PRESENT_MODE_FIFO_KHR,
-					VK_PRESENT_MODE_IMMEDIATE_KHR};
+					VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+					VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
 
 				// Request several formats, the first found will be used
 				// If none of the requested image formats could be found, use the first available
@@ -1481,7 +1467,8 @@ private:
 		if (oldSwapchain)
 		{
 			vkDestroySwapchainKHR(myDevice, oldSwapchain, nullptr);
-			vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
+			vmaDestroyImage(
+				myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
 		}
 
 		uint32_t imageCount;
@@ -2180,7 +2167,7 @@ private:
 		initInfo.PipelineCache = VK_NULL_HANDLE;
 		initInfo.DescriptorPool = myDescriptorPool;
 		initInfo.MinImageCount = myFrameCount;
-    	initInfo.ImageCount = myFrameCount;
+		initInfo.ImageCount = myFrameCount;
 		initInfo.Allocator = nullptr; // myAllocator;
 		// initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
@@ -2201,7 +2188,7 @@ private:
 		const Model<GraphicsBackend::Vulkan>& model)
 	{
 		ZoneScoped;
-		
+
 		myResources.window = &myWindow;
 
 		myWindow.width = width;
@@ -2226,14 +2213,13 @@ private:
 
 		createGraphicsRenderPass();
 
-		auto createSwapchainImageViews = [this]()
-		{
+		auto createSwapchainImageViews = [this]() {
 			ZoneScoped;
 
 			for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
-			myWindow.swapchain.colorImageViews[i] = createImageView2D(
-				myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
-				VK_IMAGE_ASPECT_COLOR_BIT);
+				myWindow.swapchain.colorImageViews[i] = createImageView2D(
+					myWindow.swapchain.colorImages[i], myWindow.surfaceFormat.format,
+					VK_IMAGE_ASPECT_COLOR_BIT);
 
 			myWindow.swapchain.depthImageView = createImageView2D(
 				myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -2241,8 +2227,7 @@ private:
 
 		createSwapchainImageViews();
 
-		auto createFramebuffers = [this](uint32_t width, uint32_t height)
-		{
+		auto createFramebuffers = [this](uint32_t width, uint32_t height) {
 			ZoneScoped;
 
 			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
@@ -2263,7 +2248,7 @@ private:
 		};
 
 		createFramebuffers(framebufferWidth, framebufferHeight);
-		
+
 		createPipelineConfig(model);
 
 		auto& window = myWindow.imgui.window;
@@ -2289,14 +2274,15 @@ private:
 		window.ClearValue.color.float32[2] = 0.5f;
 		window.ClearValue.color.float32[3] = 1.0f;
 
-		window.Frames = (ImGui_ImplVulkanH_Frame*)malloc(sizeof(ImGui_ImplVulkanH_Frame) * window.ImageCount);
-        window.FrameSemaphores = (ImGui_ImplVulkanH_FrameSemaphores*)malloc(sizeof(ImGui_ImplVulkanH_FrameSemaphores) * window.ImageCount);
+		window.Frames =
+			(ImGui_ImplVulkanH_Frame*)malloc(sizeof(ImGui_ImplVulkanH_Frame) * window.ImageCount);
+		window.FrameSemaphores = (ImGui_ImplVulkanH_FrameSemaphores*)malloc(
+			sizeof(ImGui_ImplVulkanH_FrameSemaphores) * window.ImageCount);
 
 		for (uint32_t imageIt = 0; imageIt < myWindow.swapchain.colorImages.size(); imageIt++)
 		{
 			window.Frames[imageIt].Backbuffer = myWindow.swapchain.colorImages[imageIt];
-			window.Frames[imageIt].BackbufferView =
-				myWindow.swapchain.colorImageViews[imageIt];
+			window.Frames[imageIt].BackbufferView = myWindow.swapchain.colorImageViews[imageIt];
 			window.Frames[imageIt].Framebuffer = myWindow.swapchain.frameBuffers[imageIt];
 		}
 
@@ -2349,8 +2335,7 @@ private:
 			fs.RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 
-		auto updateDescriptorSets = [this]()
-		{
+		auto updateDescriptorSets = [this]() {
 			ZoneScoped;
 
 			VkDescriptorBufferInfo bufferInfo = {};
@@ -2387,8 +2372,8 @@ private:
 			descriptorWrites[2].pImageInfo = &imageInfo;
 
 			vkUpdateDescriptorSets(
-				myDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0,
-				nullptr);
+				myDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(),
+				0, nullptr);
 		};
 
 		updateDescriptorSets();
@@ -2505,12 +2490,12 @@ private:
 		ZoneScoped;
 
 		auto& window = myWindow.imgui.window;
-		VkSemaphore& imageAquiredSemaphore = 
+		VkSemaphore& imageAquiredSemaphore =
 			window.FrameSemaphores[window.FrameIndex].ImageAcquiredSemaphore;
 
 		checkFlipOrPresentResult(vkAcquireNextImageKHR(
-			myDevice, window.Swapchain, UINT64_MAX, imageAquiredSemaphore,
-			VK_NULL_HANDLE, &window.FrameIndex));
+			myDevice, window.Swapchain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE,
+			&window.FrameIndex));
 
 		/* TODO: MGPU method from vk 1.1 spec
 		{
@@ -2559,14 +2544,12 @@ private:
 			ZoneScoped;
 
 			VkCommandBuffer& cmd = myFrameCommandBuffers
-				[window.FrameIndex * myFrameCommandBufferThreadCount +
-				 (segmentIt + 1)];
+				[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 			VkCommandBufferInheritanceInfo inherit = {
 				VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 			inherit.renderPass = myPipelineConfig.renderPass;
-			inherit.framebuffer =
-				window.Frames[window.FrameIndex].Framebuffer;
+			inherit.framebuffer = window.Frames[window.FrameIndex].Framebuffer;
 
 			CHECK_VK(vkResetCommandBuffer(cmd, 0));
 			VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -2605,13 +2588,12 @@ private:
 #if defined(__WINDOWS__)
 				std::execution::par,
 #endif
-				seq.begin(), segmentCount, [this, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt)
-				{
+				seq.begin(), segmentCount,
+				[this, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt) {
 					ZoneScoped;
 
 					VkCommandBuffer& cmd = myFrameCommandBuffers
-						[frameIndex * myFrameCommandBufferThreadCount +
-						 (segmentIt + 1)];
+						[frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
@@ -2624,8 +2606,7 @@ private:
 						uint32_t j = n / NX;
 
 						auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
-														int32_t width, int32_t height)
-						{
+														int32_t width, int32_t height) {
 							ZoneScoped;
 
 							VkViewport viewport = {};
@@ -2649,8 +2630,7 @@ private:
 											 VkCommandBuffer cmd, uint32_t indexCount,
 											 uint32_t descriptorSetCount,
 											 const VkDescriptorSet* descriptorSets,
-											 VkPipelineLayout pipelineLayout)
-						{
+											 VkPipelineLayout pipelineLayout) {
 							ZoneScoped;
 
 							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
@@ -2675,8 +2655,7 @@ private:
 			ZoneScoped;
 
 			VkCommandBuffer& cmd = myFrameCommandBuffers
-				[window.FrameIndex * myFrameCommandBufferThreadCount +
-				 (segmentIt + 1)];
+				[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 			CHECK_VK(vkEndCommandBuffer(cmd));
 		}
@@ -2710,8 +2689,7 @@ private:
 
 			vkCmdExecuteCommands(
 				frame.CommandBuffer, (myFrameCommandBufferThreadCount - 1),
-				&myFrameCommandBuffers
-					[(window.FrameIndex * myFrameCommandBufferThreadCount) + 1]);
+				&myFrameCommandBuffers[(window.FrameIndex * myFrameCommandBufferThreadCount) + 1]);
 
 			vkCmdEndRenderPass(frame.CommandBuffer);
 		}
@@ -2791,8 +2769,7 @@ private:
 					myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
 
 			vkFreeCommandBuffers(
-				myDevice, myFrameCommandPools[cmdIt], myFrameCount,
-				threadCommandBuffers.data());
+				myDevice, myFrameCommandPools[cmdIt], myFrameCount, threadCommandBuffers.data());
 			vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
 		}
 
@@ -2813,7 +2790,8 @@ private:
 	{
 		ZoneScoped;
 
-		vmaDestroyImage(myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
+		vmaDestroyImage(
+			myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
 		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
 	}
 

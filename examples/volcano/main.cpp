@@ -4,7 +4,9 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
-#include <examples/imgui_impl_glfw.cpp>
+#include <imgui.h>
+
+#include <examples/imgui_impl_glfw.h>
 
 #include "volcano.h"
 
