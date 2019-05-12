@@ -6,12 +6,23 @@
 .DllPrefix = ''
 .DllSuffix = '.dll'
 .ExeSuffix = '.exe'
+#if exists(WINDOWS_SDK)
+#import WINDOWS_SDK
+.WindowsSDKBasePath = '$WINDOWS_SDK$'
+#else
 .WindowsSDKBasePath = 'C:\Program Files (x86)\Windows Kits\10'
-.WindowsLibPath = '$WindowsSDKBasePath$\Lib\10.0.18362.0\um\x86'
-.WindowsIncludePath = '$WindowsSDKBasePath$\Include\10.0.18362.0\um'
-.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\10.0.18362.0\ucrt\x86'
-.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\10.0.18362.0\ucrt'
-.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\10.0.18362.0\shared'
+#endif
+#if exists(WINDOWS_SDK_VERSION)
+#import WINDOWS_SDK_VERSION
+.WindowsSDKVersion = '$WINDOWS_SDK_VERSION$'
+#else
+.WindowsSDKVersion = '10.0.18362.0'
+#endif
+.WindowsLibPath = '$WindowsSDKBasePath$\Lib\$WindowsSDKVersion$\um\x86'
+.WindowsIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\um'
+.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\$WindowsSDKVersion$\ucrt\x86'
+.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\ucrt'
+.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\shared'
 Settings
 {
 	#import TMP
