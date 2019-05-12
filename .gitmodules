@@ -46,3 +46,9 @@
 [submodule "external/tracy"]
 	path = external/tracy
 	url = https://bitbucket.org/wolfpld/tracy.git
+[submodule "external/gl3w"]
+	path = external/gl3w
+	url = https://github.com/skaslev/gl3w.git
+[submodule "external/freetype2"]
+	path = external/freetype2
+	url = https://git.sv.nongnu.org/r/freetype/freetype2.git
