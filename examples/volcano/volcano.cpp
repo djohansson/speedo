@@ -109,6 +109,7 @@
 #include <slang.h>
 
 #include <Tracy.hpp>
+#include <TracyVulkan.hpp>
 
 #include <imgui.h>
 
@@ -354,6 +355,7 @@ public:
 
 	void draw()
 	{
+		FrameMark;
 		ZoneScoped;
 
 		updateInput(myGraphicsDeltaTime.count());
@@ -361,6 +363,8 @@ public:
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
 		{
+			ZoneScopedN("recreateFrameResources");
+
 			CHECK_VK(vkQueueWaitIdle(myQueue));
 
 			cleanupFrameResources();
@@ -378,7 +382,7 @@ public:
 		// todo: run this at the same time as secondary command buffer recording
 		if (myUIEnableFlag)
 		{
-			ZoneScoped;
+			ZoneScopedN("dearIMGUI");
 
 			ImGui_ImplVulkan_NewFrame();
 			ImGui::NewFrame();
@@ -1813,6 +1817,8 @@ private:
 
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
+		//TracyVkZone(myTracyVkCtx, commandBuffer, "copyBuffer");
+
 		VkBufferCopy copyRegion = {};
 		copyRegion.srcOffset = 0;
 		copyRegion.dstOffset = 0;
@@ -1887,6 +1893,8 @@ private:
 		ZoneScoped;
 
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
+		
+		//TracyVkZone(myTracyVkCtx, commandBuffer, "transitionImageLayout");
 
 		VkImageMemoryBarrier barrier = {};
 		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1965,6 +1973,8 @@ private:
 		ZoneScoped;
 
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
+
+		//TracyVkZone(myTracyVkCtx, commandBuffer, "copyBufferToImage");
 
 		VkBufferImageCopy region = {};
 		region.bufferOffset = 0;
@@ -2175,8 +2185,10 @@ private:
 
 		// Upload Fonts
 		{
-			VkCommandBuffer commandBuffer =
-				beginSingleTimeCommands(myDevice, myTransferCommandPool);
+			VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
+
+			//TracyVkZone(myTracyVkCtx, commandBuffer, "uploadFontTexture");
+
 			ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
 			endSingleTimeCommands(myDevice, myQueue, commandBuffer, myTransferCommandPool);
 			ImGui_ImplVulkan_DestroyFontUploadObjects();
@@ -2214,7 +2226,7 @@ private:
 		createGraphicsRenderPass();
 
 		auto createSwapchainImageViews = [this]() {
-			ZoneScoped;
+			ZoneScopedN("createSwapchainImageViews");
 
 			for (uint32_t i = 0; i < myWindow.swapchain.colorImages.size(); i++)
 				myWindow.swapchain.colorImageViews[i] = createImageView2D(
@@ -2228,7 +2240,7 @@ private:
 		createSwapchainImageViews();
 
 		auto createFramebuffers = [this](uint32_t width, uint32_t height) {
-			ZoneScoped;
+			ZoneScopedN("createFramebuffers");
 
 			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
 			VkFramebufferCreateInfo info = {};
@@ -2324,19 +2336,25 @@ private:
 			CHECK_VK(vkCreateSemaphore(
 				myDevice, &semaphoreInfo, nullptr, &myRenderCompleteSemaphores[frameIt]));
 
+			auto primaryCmd = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
+
 			// IMGUI uses primary command buffer only
 			auto& fd = window.Frames[frameIt];
 			fd.CommandPool = myFrameCommandPools[0];
-			fd.CommandBuffer = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
+			fd.CommandBuffer = primaryCmd;
 			fd.Fence = myFrameFences[frameIt];
 
 			auto& fs = window.FrameSemaphores[frameIt];
 			fs.ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
 			fs.RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
+
+			assert(myTracyVkCtx == nullptr);
+
+			myTracyVkCtx = TracyVkContext(myPhysicalDevice, myDevice, myQueue, primaryCmd);
 		}
 
 		auto updateDescriptorSets = [this]() {
-			ZoneScoped;
+			ZoneScopedN("updateDescriptorSets");
 
 			VkDescriptorBufferInfo bufferInfo = {};
 			bufferInfo.buffer = myResources.uniformBuffer;
@@ -2521,7 +2539,7 @@ private:
 
 		// wait for frame to be completed before starting to use it
 		{
-			ZoneScoped;
+			ZoneScopedN("waitForFrameFence");
 
 			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.Fence, VK_TRUE, UINT64_MAX));
 			CHECK_VK(vkResetFences(myDevice, 1, &frame.Fence));
@@ -2541,7 +2559,7 @@ private:
 		// begin secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
-			ZoneScoped;
+			ZoneScopedN("beginSecondaryCommands");
 
 			VkCommandBuffer& cmd = myFrameCommandBuffers
 				[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
@@ -2559,6 +2577,8 @@ private:
 			secBeginInfo.pInheritanceInfo = &inherit;
 			CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
 
+			//TracyVkZone(myTracyVkCtx, cmd, "bindPipeline");
+
 			// bind pipeline and vertex/index buffers
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline);
 
@@ -2571,7 +2591,7 @@ private:
 
 		// draw geometry using secondary command buffers
 		{
-			ZoneScoped;
+			ZoneScopedN("draw");
 
 			uint32_t segmentDrawCount = drawCount / segmentCount;
 			if (drawCount % segmentCount)
@@ -2590,13 +2610,17 @@ private:
 #endif
 				seq.begin(), segmentCount,
 				[this, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt) {
-					ZoneScoped;
+					ZoneScopedN("drawSegment");
 
 					VkCommandBuffer& cmd = myFrameCommandBuffers
 						[frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
+					//TracyVkZone(myTracyVkCtx, cmd, "draw");
+
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
+						//TracyVkZone(myTracyVkCtx, cmd, "drawModel");
+						
 						uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
 						if (n >= drawCount)
@@ -2607,8 +2631,6 @@ private:
 
 						auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
 														int32_t width, int32_t height) {
-							ZoneScoped;
-
 							VkViewport viewport = {};
 							viewport.x = static_cast<float>(x);
 							viewport.y = static_cast<float>(y);
@@ -2631,8 +2653,6 @@ private:
 											 uint32_t descriptorSetCount,
 											 const VkDescriptorSet* descriptorSets,
 											 VkPipelineLayout pipelineLayout) {
-							ZoneScoped;
-
 							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
 							vkCmdBindDescriptorSets(
 								cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
@@ -2652,7 +2672,7 @@ private:
 		// end secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
-			ZoneScoped;
+			ZoneScopedN("endSecondaryCommands");
 
 			VkCommandBuffer& cmd = myFrameCommandBuffers
 				[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
@@ -2662,7 +2682,7 @@ private:
 
 		// begin primary command buffer
 		{
-			ZoneScoped;
+			ZoneScopedN("beginCommands");
 
 			CHECK_VK(vkResetCommandBuffer(frame.CommandBuffer, 0));
 			VkCommandBufferBeginInfo info = {};
@@ -2673,7 +2693,9 @@ private:
 
 		// call secondary command buffers
 		{
-			ZoneScoped;
+			ZoneScopedN("executeCommands");
+
+			TracyVkZone(myTracyVkCtx, frame.CommandBuffer, "executeCommands");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -2697,7 +2719,9 @@ private:
 		// Record Imgui Draw Data and draw funcs into primary command buffer
 		if (myUIEnableFlag)
 		{
-			ZoneScoped;
+			ZoneScopedN("drawIMGUI");
+
+			TracyVkZone(myTracyVkCtx, frame.CommandBuffer, "drawIMGUI");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -2714,9 +2738,16 @@ private:
 			vkCmdEndRenderPass(frame.CommandBuffer);
 		}
 
+		
+		{
+			ZoneScopedN("tracyVkCollect");
+
+			TracyVkCollect(myTracyVkCtx, frame.CommandBuffer);
+		}
+
 		// Submit primary command buffer
 		{
-			ZoneScoped;
+			ZoneScopedN("submitCommands");
 
 			VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			VkSubmitInfo submitInfo = {};
@@ -2753,6 +2784,8 @@ private:
 	void cleanupFrameResources()
 	{
 		ZoneScoped;
+
+		TracyVkDestroy(myTracyVkCtx); myTracyVkCtx = nullptr;
 
 		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
 		{
@@ -2900,6 +2933,8 @@ private:
 
 	std::chrono::high_resolution_clock::time_point myGraphicsFrameTimestamp;
 	std::chrono::duration<double> myGraphicsDeltaTime;
+
+	TracyVkCtx myTracyVkCtx = nullptr;
 };
 
 static VulkanApplication* theApp = nullptr;

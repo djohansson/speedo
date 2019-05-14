@@ -297,10 +297,10 @@ ForEach(.Config in .Clang_x64_Configs)
 		.CompilerOptions + .CompilerOptionsCpp
 			+ ' -I$ProjectPath$/external/tracy'
 
-		.ReleaseString = 'release'
-		If(.ConfigName != .ReleaseString) {
+		// .ReleaseString = 'release'
+		// If(.ConfigName != .ReleaseString) {
 			.CompilerOptions + ' -DTRACY_ENABLE'
-		}
+		//}
 
 		.CompilerInputFiles = {
 			'$ProjectPath$/external/tracy/TracyClient.cpp',
@@ -637,10 +637,10 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -DVOLCANO_USE_GLFW'
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 
-		.ReleaseString = 'release'
-		If(.ConfigName != .ReleaseString) {
+		// .ReleaseString = 'release'
+		// If(.ConfigName != .ReleaseString) {
 			.CompilerOptions + ' -DTRACY_ENABLE'
-		}
+		//}
 
 		.CompilerInputPath = '$ProjectPath$/examples/volcano'
 		.CompilerOutputPath = '$IntermediateFilePath$'
