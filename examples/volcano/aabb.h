@@ -47,12 +47,6 @@ public:
 		: myMin(static_cast<VectorType>(aMin))
 		, myMax(static_cast<VectorType>(aMax)) {}
 
-	template <typename U = ScalarType>
-	AABB(const OtherVectorType<U>* somePoints, size_t aNumPoints)
-	{
-		FromPoints(somePoints, aNumPoints);
-	}
-
 	operator bool() const
 	{
 		return (myMax < myMin) == 0;
@@ -126,18 +120,6 @@ public:
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(aCenter - OtherVectorType<U>(aRadius)));
         myMax = glm::max(myMax, static_cast<VectorType>(aCenter + OtherVectorType<U>(aRadius)));
-	}
-
-	template <typename U = ScalarType>
-	void fromPoints(const OtherVectorType<U>* somePoints, size_t aNumPoints)
-	{
-		assert(aNumPoints > 0);
-		myMin = myMax = static_cast<VectorType>(somePoints[0]);
-		for (size_t i = 1; i < aNumPoints; ++i)
-		{
-			myMin = glm::min(myMin, static_cast<VectorType>(somePoints[i]));
-			myMax = glm::max(myMax, static_cast<VectorType>(somePoints[i]));
-		}
 	}
 
 	VectorType center() const
