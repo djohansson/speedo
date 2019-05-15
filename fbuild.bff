@@ -203,44 +203,45 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -DFT2_BUILD_LIBRARY'
 
 		.CompilerInputFiles = {
-			'$ProjectPath$/external/freetype2/src\autofit\autofit.c',
-			'$ProjectPath$/external/freetype2/src\base\ftbase.c',
-			'$ProjectPath$/external/freetype2/src\base\ftbbox.c',
-			'$ProjectPath$/external/freetype2/src\base\ftbdf.c',
-			'$ProjectPath$/external/freetype2/src\base\ftbitmap.c',
-			'$ProjectPath$/external/freetype2/src\base\ftcid.c',
-			'$ProjectPath$/external/freetype2/src\base\ftfstype.c',
-			'$ProjectPath$/external/freetype2/src\base\ftgasp.c',
-			'$ProjectPath$/external/freetype2/src\base\ftglyph.c',
-			'$ProjectPath$/external/freetype2/src\base\ftgxval.c',
-			'$ProjectPath$/external/freetype2/src\base\ftinit.c',
-			'$ProjectPath$/external/freetype2/src\base\ftmm.c',
-			'$ProjectPath$/external/freetype2/src\base\ftotval.c',
-			'$ProjectPath$/external/freetype2/src\base\ftpatent.c',
-			'$ProjectPath$/external/freetype2/src\base\ftpfr.c',
-			'$ProjectPath$/external/freetype2/src\base\ftstroke.c',
-			'$ProjectPath$/external/freetype2/src\base\ftsynth.c',
-			'$ProjectPath$/external/freetype2/src\base\ftsystem.c',
-			'$ProjectPath$/external/freetype2/src\base\fttype1.c',
-			'$ProjectPath$/external/freetype2/src\base\ftwinfnt.c',
-			'$ProjectPath$/external/freetype2/src\bdf\bdf.c',
-			'$ProjectPath$/external/freetype2/src\cache\ftcache.c',
-			'$ProjectPath$/external/freetype2/src\cff\cff.c',
-			'$ProjectPath$/external/freetype2/src\cid\type1cid.c',
-			'$ProjectPath$/external/freetype2/src\gzip\ftgzip.c',
-			'$ProjectPath$/external/freetype2/src\lzw\ftlzw.c',
-			'$ProjectPath$/external/freetype2/src\pcf\pcf.c',
-			'$ProjectPath$/external/freetype2/src\pfr\pfr.c',
-			'$ProjectPath$/external/freetype2/src\psaux\psaux.c',
-			'$ProjectPath$/external/freetype2/src\pshinter\pshinter.c',
-			'$ProjectPath$/external/freetype2/src\psnames\psmodule.c',
-			'$ProjectPath$/external/freetype2/src\raster\raster.c',
-			'$ProjectPath$/external/freetype2/src\sfnt\sfnt.c',
-			'$ProjectPath$/external/freetype2/src\smooth\smooth.c',
-			'$ProjectPath$/external/freetype2/src\truetype\truetype.c',
-			'$ProjectPath$/external/freetype2/src\type1\type1.c',
-			'$ProjectPath$/external/freetype2/src\type42\type42.c',
-			'$ProjectPath$/external/freetype2/src\winfonts\winfnt.c',
+			'$ProjectPath$/external/freetype2/src/autofit/autofit.c',
+			'$ProjectPath$/external/freetype2/src/base/ftbase.c',
+			'$ProjectPath$/external/freetype2/src/base/ftbbox.c',
+			'$ProjectPath$/external/freetype2/src/base/ftbdf.c',
+			'$ProjectPath$/external/freetype2/src/base/ftbitmap.c',
+			'$ProjectPath$/external/freetype2/src/base/ftcid.c',
+			'$ProjectPath$/external/freetype2/src/base/ftdebug.c',
+			'$ProjectPath$/external/freetype2/src/base/ftfstype.c',
+			'$ProjectPath$/external/freetype2/src/base/ftgasp.c',
+			'$ProjectPath$/external/freetype2/src/base/ftglyph.c',
+			'$ProjectPath$/external/freetype2/src/base/ftgxval.c',
+			'$ProjectPath$/external/freetype2/src/base/ftinit.c',
+			'$ProjectPath$/external/freetype2/src/base/ftmm.c',
+			'$ProjectPath$/external/freetype2/src/base/ftotval.c',
+			'$ProjectPath$/external/freetype2/src/base/ftpatent.c',
+			'$ProjectPath$/external/freetype2/src/base/ftpfr.c',
+			'$ProjectPath$/external/freetype2/src/base/ftstroke.c',
+			'$ProjectPath$/external/freetype2/src/base/ftsynth.c',
+			'$ProjectPath$/external/freetype2/src/base/ftsystem.c',
+			'$ProjectPath$/external/freetype2/src/base/fttype1.c',
+			'$ProjectPath$/external/freetype2/src/base/ftwinfnt.c',
+			'$ProjectPath$/external/freetype2/src/bdf/bdf.c',
+			'$ProjectPath$/external/freetype2/src/cache/ftcache.c',
+			'$ProjectPath$/external/freetype2/src/cff/cff.c',
+			'$ProjectPath$/external/freetype2/src/cid/type1cid.c',
+			'$ProjectPath$/external/freetype2/src/gzip/ftgzip.c',
+			'$ProjectPath$/external/freetype2/src/lzw/ftlzw.c',
+			'$ProjectPath$/external/freetype2/src/pcf/pcf.c',
+			'$ProjectPath$/external/freetype2/src/pfr/pfr.c',
+			'$ProjectPath$/external/freetype2/src/psaux/psaux.c',
+			'$ProjectPath$/external/freetype2/src/pshinter/pshinter.c',
+			'$ProjectPath$/external/freetype2/src/psnames/psmodule.c',
+			'$ProjectPath$/external/freetype2/src/raster/raster.c',
+			'$ProjectPath$/external/freetype2/src/sfnt/sfnt.c',
+			'$ProjectPath$/external/freetype2/src/smooth/smooth.c',
+			'$ProjectPath$/external/freetype2/src/truetype/truetype.c',
+			'$ProjectPath$/external/freetype2/src/type1/type1.c',
+			'$ProjectPath$/external/freetype2/src/type42/type42.c',
+			'$ProjectPath$/external/freetype2/src/winfonts/winfnt.c',
 		}
 
 	#if __WINDOWS__
@@ -321,7 +322,7 @@ ForEach(.Config in .Clang_x64_Configs)
 
 	#if __OSX__
 		.CompilerInputFiles + {
-			'$ProjectPath$/external/tracy/nfd/nfd_cocoa.c'
+			'$ProjectPath$/external/tracy/nfd/nfd_cocoa.m'
 		}
 	#endif //__OSX__
 	#if __LINUX__
@@ -401,7 +402,6 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -L$VulkanSDKPath$/lib'
 	#if __WINDOWS__
 		.LinkerOptions + ' -ladvapi32'
-			// + ' -luser32'
 			+ ' -lgdi32'
 			+ ' -lshell32'
 			+ ' -lole32.lib'
@@ -409,8 +409,10 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -lvulkan-1'
 	#endif //__WINDOWS__
 	#if __OSX__
-		.LinkerOptions + '-framework CoreFoundation'
-		' -framework AppKit'
+		 .LinkerOptions + ' -lvulkan'
+			+ ' -framework Cocoa'
+			+ ' -framework IOKit'
+			+ ' -framework CoreVideo'
 		//	+ ' -rpath @executable_path/bin/osx-x64/'
 	#endif
 	}
