@@ -3,8 +3,12 @@
 #include <cereal/archives/json.hpp>
 #include <cereal/types/vector.hpp>
 
+#include <Tracy.hpp>
+
 std::string getFileTimeStamp(const std::filesystem::path& filePath)
 {
+	ZoneScoped;
+
 	std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::filesystem::last_write_time(filePath).time_since_epoch());
 	std::chrono::seconds s = std::chrono::duration_cast<std::chrono::seconds>(ms);
@@ -15,6 +19,8 @@ std::string getFileTimeStamp(const std::filesystem::path& filePath)
 
 FileState getFileInfo(const std::filesystem::path& filePath, FileInfo& outFileInfo, bool sha2Enable)
 {
+	ZoneScoped;
+
 	outFileInfo.clear();
 
 	auto fileStatus = std::filesystem::status(filePath);
@@ -23,6 +29,8 @@ FileState getFileInfo(const std::filesystem::path& filePath, FileInfo& outFileIn
 
 	if (sha2Enable)
 	{
+		ZoneScopedN("sha2");
+
 		mio::mmap_source file(filePath.string());
 		outFileInfo.sha2.resize(picosha2::k_digest_size);
 		picosha2::hash256(
@@ -47,6 +55,8 @@ FileState getFileInfo(
 	FileInfo& outFileInfo,
 	bool sha2Enable)
 {
+	ZoneScoped;
+
 	outFileInfo.clear();
 
 	auto fileStatus = std::filesystem::status(filePath);
@@ -63,6 +73,8 @@ FileState getFileInfo(
 	std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
 	if (sha2Enable)
 	{
+		ZoneScopedN("sha2");
+
 		mio::mmap_source file(filePath.string());
 		picosha2::hash256(file.begin(), file.end(), fileSha2.begin(), fileSha2.end());
 	}
@@ -88,6 +100,8 @@ void loadBinaryFile(
 		loadOp,
 	bool sha2Enable)
 {
+	ZoneScoped;
+
 	outFileInfo.clear();
 
 	auto fileStatus = std::filesystem::status(filePath);
@@ -96,6 +110,8 @@ void loadBinaryFile(
 
 	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
 	{
+		ZoneScopedN("loadOp");
+
 		mio::mmap_istreambuf fileStreamBuf(filePath.string());
 		std::istream fileStream(&fileStreamBuf);
 
@@ -103,6 +119,8 @@ void loadBinaryFile(
 
 		if (sha2Enable)
 		{
+			ZoneScopedN("sha2");
+
 			fileStream.clear();
 			fileStream.seekg(0, std::ios_base::beg);
 
@@ -128,8 +146,12 @@ void saveBinaryFile(
 		saveOp,
 	bool sha2Enable)
 {
+	ZoneScoped;
+
 	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
 	{
+		ZoneScopedN("saveOp");
+
 		mio::mmap_iostreambuf fileStreamBuf(filePath.string());
 		std::iostream fileStream(&fileStreamBuf);
 
@@ -165,6 +187,8 @@ void loadCachedSourceFile(
 	LoadFileFn loadBinaryCacheFn,
 	SaveFileFn saveBinaryCacheFn)
 {
+	ZoneScoped;
+
 	std::filesystem::path jsonFilePath(sourceFilePath);
 	jsonFilePath += ".json";
 
@@ -181,6 +205,8 @@ void loadCachedSourceFile(
 		std::filesystem::is_regular_file(jsonFileStatus) &&
 		!std::filesystem::exists(pbinFileStatus))
 	{
+		ZoneScopedN("deleteJson");
+
 		std::filesystem::remove(jsonFilePath);
 
 		doImport = true;
@@ -188,6 +214,8 @@ void loadCachedSourceFile(
 	else if (
 		std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
 	{
+		ZoneScopedN("readJsonAndFileState");
+
 		auto loadJSONFn = [](std::istream& stream, const std::string& id) {
 			cereal::JSONInputArchive json(stream);
 
@@ -237,6 +265,8 @@ void loadCachedSourceFile(
 
 	if (doImport || sourceFileState == FileState::Stale || pbinFileState != FileState::Valid)
 	{
+		ZoneScopedN("importSourceFile");
+
 		mio::mmap_ostreambuf streamBuf(jsonFilePath.string());
 		std::ostream stream(&streamBuf);
 		cereal::JSONOutputArchive json(stream);
@@ -252,6 +282,8 @@ void loadCachedSourceFile(
 	}
 	else
 	{
+		ZoneScopedN("loadPbin");
+
 		loadBinaryFile(pbinFilePath, pbinFileInfo, loadBinaryCacheFn, false);
 	}
 }

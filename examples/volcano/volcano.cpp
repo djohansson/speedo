@@ -37,6 +37,7 @@
 #	include <execution>
 #endif
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <locale>
 #include <numeric>
@@ -348,7 +349,11 @@ public:
 	{
 		ZoneScoped;
 
-		CHECK_VK(vkDeviceWaitIdle(myDevice));
+		{
+			ZoneScopedN("deviceWaitIdle");
+
+			CHECK_VK(vkDeviceWaitIdle(myDevice));
+		}
 
 		cleanup();
 	}
@@ -357,8 +362,6 @@ public:
 	{
 		FrameMark;
 		ZoneScoped;
-
-		updateInput(myGraphicsDeltaTime.count());
 
 		// re-create frame resources if needed
 		if (myCreateFrameResourcesFlag)
@@ -376,53 +379,7 @@ public:
 				myWindow.framebufferHeight, myResources.model);
 		}
 
-		// todo: run this at the same time as secondary command buffer recording
-		updateUniformBuffers();
-
-		// todo: run this at the same time as secondary command buffer recording
-		if (myUIEnableFlag)
-		{
-			ZoneScopedN("dearIMGUI");
-
-			ImGui_ImplVulkan_NewFrame();
-			ImGui::NewFrame();
-
-			ImGui::ShowDemoWindow();
-
-			{
-				ImGui::Begin("Render Options");
-				ImGui::DragInt(
-					"Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
-				ImGui::ColorEdit3(
-					"Clear Color", &myWindow.imgui.window.ClearValue.color.float32[0]);
-				ImGui::End();
-			}
-
-			{
-				ImGui::Begin("GUI Options");
-				// static int styleIndex = 0;
-				ImGui::ShowStyleSelector("Styles" /*, &styleIndex*/);
-				ImGui::ShowFontSelector("Fonts");
-				if (ImGui::Button("Show User Guide"))
-				{
-					ImGui::SetNextWindowPosCenter(0);
-					ImGui::OpenPopup("UserGuide");
-				}
-				if (ImGui::BeginPopup(
-						"UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-				{
-					ImGui::ShowUserGuide();
-					ImGui::EndPopup();
-				}
-				ImGui::End();
-			}
-
-			{
-				ImGui::ShowMetricsWindow();
-			}
-
-			ImGui::Render();
-		}
+		updateInput(myGraphicsDeltaTime.count());
 
 		submitFrame();
 		presentFrame();
@@ -508,6 +465,8 @@ public:
 			myKeysPressed[state.key] = false;
 #endif
 	}
+
+private:
 
 	void updateInput(float dt)
 	{
@@ -600,7 +559,50 @@ public:
 		}
 	}
 
-private:
+	void drawIMGUI()
+	{
+		ZoneScoped;
+
+		ImGui_ImplVulkan_NewFrame();
+		ImGui::NewFrame();
+
+		ImGui::ShowDemoWindow();
+
+		{
+			ImGui::Begin("Render Options");
+			ImGui::DragInt(
+				"Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
+			ImGui::ColorEdit3(
+				"Clear Color", &myWindow.imgui.window.ClearValue.color.float32[0]);
+			ImGui::End();
+		}
+
+		{
+			ImGui::Begin("GUI Options");
+			// static int styleIndex = 0;
+			ImGui::ShowStyleSelector("Styles" /*, &styleIndex*/);
+			ImGui::ShowFontSelector("Fonts");
+			if (ImGui::Button("Show User Guide"))
+			{
+				ImGui::SetNextWindowPosCenter(0);
+				ImGui::OpenPopup("UserGuide");
+			}
+			if (ImGui::BeginPopup(
+					"UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+			{
+				ImGui::ShowUserGuide();
+				ImGui::EndPopup();
+			}
+			ImGui::End();
+		}
+
+		{
+			ImGui::ShowMetricsWindow();
+		}
+
+		ImGui::Render();
+	}
+
 	Model<GraphicsBackend::Vulkan> loadModel(const char* filename) const
 	{
 		ZoneScoped;
@@ -2507,13 +2509,27 @@ private:
 	{
 		ZoneScoped;
 
+		std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this]
+		{
+			updateUniformBuffers();
+		}));
+		std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this]
+		{
+			if (myUIEnableFlag)
+				drawIMGUI();
+		}));
+
 		auto& window = myWindow.imgui.window;
 		VkSemaphore& imageAquiredSemaphore =
 			window.FrameSemaphores[window.FrameIndex].ImageAcquiredSemaphore;
 
-		checkFlipOrPresentResult(vkAcquireNextImageKHR(
-			myDevice, window.Swapchain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE,
-			&window.FrameIndex));
+		{
+			ZoneScopedN("acquireNextImage");
+
+			checkFlipOrPresentResult(vkAcquireNextImageKHR(
+				myDevice, window.Swapchain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE,
+				&window.FrameIndex));
+		}
 
 		/* TODO: MGPU method from vk 1.1 spec
 		{
@@ -2721,6 +2737,12 @@ private:
 		{
 			ZoneScopedN("drawIMGUI");
 
+			{
+				ZoneScopedN("wait");
+
+				drawIMGUIFuture.get();
+			}
+
 			TracyVkZone(myTracyVkCtx, frame.CommandBuffer, "drawIMGUI");
 
 			VkRenderPassBeginInfo beginInfo = {};
@@ -2738,7 +2760,6 @@ private:
 			vkCmdEndRenderPass(frame.CommandBuffer);
 		}
 
-		
 		{
 			ZoneScopedN("tracyVkCollect");
 
@@ -2747,6 +2768,12 @@ private:
 
 		// Submit primary command buffer
 		{
+			{
+				ZoneScopedN("wait");
+
+				updateUniformBuffersFuture.get();
+			}
+
 			ZoneScopedN("submitCommands");
 
 			VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
