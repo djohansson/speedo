@@ -108,6 +108,9 @@ template <GraphicsBackend B>
 using Pipeline = std::conditional_t<B == GraphicsBackend::Vulkan, VkPipeline, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using PipelineCache = std::conditional_t<B == GraphicsBackend::Vulkan, VkPipelineCache, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using Sampler = std::conditional_t<B == GraphicsBackend::Vulkan, VkSampler, std::nullptr_t>;
 
 template <GraphicsBackend B>

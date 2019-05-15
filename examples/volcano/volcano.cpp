@@ -100,6 +100,7 @@
 #	include <tiny_obj_loader.h>
 #endif
 
+#include <cereal/archives/binary.hpp>
 #include <cereal/archives/portable_binary.hpp>
 #include <cereal/cereal.hpp>
 #include <cereal/types/map.hpp>
@@ -325,7 +326,45 @@ public:
 			return pipelineLayout;
 		};
 
-		myPipelineLayout = createPipelineLayoutContext(myDevice, slangModule);
+		myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice, slangModule);
+
+		auto loadPipelineCache = [this](VkDevice device, const char* filename)
+		{
+			ZoneScopedN("loadPipelineCache");
+
+			std::filesystem::path cacheFilePath(myResourcePath);
+			cacheFilePath = std::filesystem::absolute(cacheFilePath);
+
+			cacheFilePath /= filename;
+
+			std::vector<std::byte> cacheData;
+
+			auto loadBin = [&cacheData](std::istream& stream) {
+				cereal::BinaryInputArchive bin(stream);
+				bin(cacheData);
+			};
+
+			FileInfo sourceFileInfo;
+			if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
+				loadBinaryFile(cacheFilePath, sourceFileInfo, loadBin, false);
+
+			auto createPipelineCache = [](VkDevice device, const std::vector<std::byte>& cacheData) {
+				VkPipelineCacheCreateInfo createInfo = {};
+				createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+				createInfo.flags = 0;
+				createInfo.initialDataSize = cacheData.size();
+    			createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
+			
+				VkPipelineCache cache = VK_NULL_HANDLE;
+				CHECK_VK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
+			
+				return cache;
+			};
+
+			return createPipelineCache(myDevice, cacheData);
+		};
+
+		myGraphicsPipelineCache = loadPipelineCache(myDevice, "pipeline.cache");
 
 		myResources.model = loadModel("gallery.obj");
 		myResources.texture = loadTexture("gallery.jpg");
@@ -353,6 +392,30 @@ public:
 			ZoneScopedN("deviceWaitIdle");
 
 			CHECK_VK(vkDeviceWaitIdle(myDevice));
+		}
+
+		{
+			ZoneScopedN("savePipelineCache");
+
+			auto savePipelineCacheData = [this](std::ostream& stream) {
+				size_t cacheDataSize = 0;
+				CHECK_VK(vkGetPipelineCacheData(myDevice, myGraphicsPipelineCache, &cacheDataSize, nullptr));
+				if (cacheDataSize)
+				{
+					std::vector<std::byte> cacheData(cacheDataSize);
+					CHECK_VK(vkGetPipelineCacheData(myDevice, myGraphicsPipelineCache, &cacheDataSize, cacheData.data()));
+					cereal::BinaryOutputArchive bin(stream);
+					bin(cacheData);
+				}
+			};
+
+			std::filesystem::path cacheFilePath(myResourcePath);
+			cacheFilePath = std::filesystem::absolute(cacheFilePath);
+
+			cacheFilePath /= "pipeline.cache";
+
+			FileInfo cacheFileInfo;
+			saveBinaryFile(cacheFilePath, cacheFileInfo, savePipelineCacheData, false);
 		}
 
 		cleanup();
@@ -1631,15 +1694,16 @@ private:
 		renderPassInfo.pDependencies = &dependency;
 
 		CHECK_VK(
-			vkCreateRenderPass(myDevice, &renderPassInfo, nullptr, &myPipelineConfig.renderPass));
+			vkCreateRenderPass(myDevice, &renderPassInfo, nullptr, &myGraphicsPipelineConfig.renderPass));
 	}
 
 	void createPipelineConfig(const Model<GraphicsBackend::Vulkan>& model)
 	{
 		ZoneScoped;
 
-		auto createVkGraphicsPipeline =
+		auto createGraphicsPipeline =
 			[](VkDevice device, const PipelineConfiguration<GraphicsBackend::Vulkan>& pipeline,
+				PipelineCache<GraphicsBackend::Vulkan>& pipelineCache,
 			   const Model<GraphicsBackend::Vulkan>& model) {
 				VkPipelineShaderStageCreateInfo vsStageInfo = {};
 				vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1799,18 +1863,19 @@ private:
 				VkPipeline outPipeline;
 
 				CHECK_VK(vkCreateGraphicsPipelines(
-					device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outPipeline));
+					device, pipelineCache, 1, &pipelineInfo, nullptr, &outPipeline));
 
 				return outPipeline;
 			};
 
-		myPipelineConfig.resources = &myResources;
-		myPipelineConfig.layout = &myPipelineLayout;
+		myGraphicsPipelineConfig.resources = &myResources;
+		myGraphicsPipelineConfig.layout = &myGraphicsPipelineLayout;
 
-		myGraphicsPipeline = createVkGraphicsPipeline(myDevice, myPipelineConfig, model);
+		myGraphicsPipeline = createGraphicsPipeline(myDevice, myGraphicsPipelineConfig, myGraphicsPipelineCache, model);
+
 		myDescriptorSets = allocateDescriptorSets(
-			myDevice, myDescriptorPool, myPipelineLayout.descriptorSetLayouts.get(),
-			myPipelineLayout.descriptorSetLayouts.get_deleter().size);
+			myDevice, myDescriptorPool, myGraphicsPipelineLayout.descriptorSetLayouts.get(),
+			myGraphicsPipelineLayout.descriptorSetLayouts.get_deleter().size);
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
@@ -1819,7 +1884,7 @@ private:
 
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
-		//TracyVkZone(myTracyVkCtx, commandBuffer, "copyBuffer");
+		//TracyVkZone(myTracyContexts[window.FrameIndex], commandBuffer, "copyBuffer");
 
 		VkBufferCopy copyRegion = {};
 		copyRegion.srcOffset = 0;
@@ -1896,7 +1961,7 @@ private:
 
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 		
-		//TracyVkZone(myTracyVkCtx, commandBuffer, "transitionImageLayout");
+		//TracyVkZone(myTracyContexts[window.FrameIndex], commandBuffer, "transitionImageLayout");
 
 		VkImageMemoryBarrier barrier = {};
 		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1976,7 +2041,7 @@ private:
 
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
-		//TracyVkZone(myTracyVkCtx, commandBuffer, "copyBufferToImage");
+		//TracyVkZone(myTracyContexts[window.FrameIndex], commandBuffer, "copyBufferToImage");
 
 		VkBufferImageCopy region = {};
 		region.bufferOffset = 0;
@@ -2183,13 +2248,13 @@ private:
 		initInfo.Allocator = nullptr; // myAllocator;
 		// initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
-		ImGui_ImplVulkan_Init(&initInfo, myPipelineConfig.renderPass);
+		ImGui_ImplVulkan_Init(&initInfo, myGraphicsPipelineConfig.renderPass);
 
 		// Upload Fonts
 		{
 			VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
-			//TracyVkZone(myTracyVkCtx, commandBuffer, "uploadFontTexture");
+			//TracyVkZone(myTracyContexts[window.FrameIndex], commandBuffer, "uploadFontTexture");
 
 			ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
 			endSingleTimeCommands(myDevice, myQueue, commandBuffer, myTransferCommandPool);
@@ -2247,7 +2312,7 @@ private:
 			std::array<VkImageView, 2> attachments = {nullptr, myWindow.swapchain.depthImageView};
 			VkFramebufferCreateInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			info.renderPass = myPipelineConfig.renderPass;
+			info.renderPass = myGraphicsPipelineConfig.renderPass;
 			info.attachmentCount = attachments.size();
 			info.pAttachments = attachments.data();
 			info.width = width;
@@ -2279,7 +2344,7 @@ private:
 		window.Surface = myWindow.surface;
 		window.PresentMode = myWindow.presentMode;
 
-		window.RenderPass = myPipelineConfig.renderPass;
+		window.RenderPass = myGraphicsPipelineConfig.renderPass;
 
 		// we will clear before IMGUI, using window.ClearValue
 		window.ClearEnable = false;
@@ -2325,6 +2390,7 @@ private:
 		myFrameFences.resize(myFrameCount);
 		myImageAcquiredSemaphores.resize(myFrameCount);
 		myRenderCompleteSemaphores.resize(myFrameCount);
+		myTracyContexts.resize(myFrameCount);
 
 		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
 		{
@@ -2350,9 +2416,7 @@ private:
 			fs.ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
 			fs.RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 
-			assert(myTracyVkCtx == nullptr);
-
-			myTracyVkCtx = TracyVkContext(myPhysicalDevice, myDevice, myQueue, primaryCmd);
+			myTracyContexts[frameIt] = TracyVkContext(myPhysicalDevice, myDevice, myQueue, primaryCmd);
 		}
 
 		auto updateDescriptorSets = [this]() {
@@ -2569,8 +2633,8 @@ private:
 		constexpr uint32_t drawCount = NX * NY;
 		uint32_t segmentCount = std::max(myFrameCommandBufferThreadCount - 1u, 1u);
 
-		assert(myPipelineConfig.resources != nullptr);
-		auto& resources = *myPipelineConfig.resources;
+		assert(myGraphicsPipelineConfig.resources != nullptr);
+		auto& resources = *myGraphicsPipelineConfig.resources;
 
 		// begin secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
@@ -2582,7 +2646,7 @@ private:
 
 			VkCommandBufferInheritanceInfo inherit = {
 				VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
-			inherit.renderPass = myPipelineConfig.renderPass;
+			inherit.renderPass = myGraphicsPipelineConfig.renderPass;
 			inherit.framebuffer = window.Frames[window.FrameIndex].Framebuffer;
 
 			CHECK_VK(vkResetCommandBuffer(cmd, 0));
@@ -2593,7 +2657,7 @@ private:
 			secBeginInfo.pInheritanceInfo = &inherit;
 			CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
 
-			//TracyVkZone(myTracyVkCtx, cmd, "bindPipeline");
+			//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "bindPipeline");
 
 			// bind pipeline and vertex/index buffers
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline);
@@ -2631,11 +2695,11 @@ private:
 					VkCommandBuffer& cmd = myFrameCommandBuffers
 						[frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
-					//TracyVkZone(myTracyVkCtx, cmd, "draw");
+					//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "draw");
 
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
-						//TracyVkZone(myTracyVkCtx, cmd, "drawModel");
+						//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "drawModel");
 						
 						uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
@@ -2680,7 +2744,7 @@ private:
 
 						drawModel(
 							cmd, myResources.model.indexCount, myDescriptorSets.size(),
-							myDescriptorSets.data(), myPipelineLayout.layout);
+							myDescriptorSets.data(), myGraphicsPipelineLayout.layout);
 					}
 				});
 		}
@@ -2711,11 +2775,11 @@ private:
 		{
 			ZoneScopedN("executeCommands");
 
-			TracyVkZone(myTracyVkCtx, frame.CommandBuffer, "executeCommands");
+			TracyVkZone(myTracyContexts[window.FrameIndex], frame.CommandBuffer, "executeCommands");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			beginInfo.renderPass = myPipelineConfig.renderPass;
+			beginInfo.renderPass = myGraphicsPipelineConfig.renderPass;
 			beginInfo.framebuffer = frame.Framebuffer;
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent = {static_cast<uint32_t>(myWindow.framebufferWidth),
@@ -2743,7 +2807,7 @@ private:
 				drawIMGUIFuture.get();
 			}
 
-			TracyVkZone(myTracyVkCtx, frame.CommandBuffer, "drawIMGUI");
+			TracyVkZone(myTracyContexts[window.FrameIndex], frame.CommandBuffer, "drawIMGUI");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -2763,7 +2827,7 @@ private:
 		{
 			ZoneScopedN("tracyVkCollect");
 
-			TracyVkCollect(myTracyVkCtx, frame.CommandBuffer);
+			TracyVkCollect(myTracyContexts[window.FrameIndex], frame.CommandBuffer);
 		}
 
 		// Submit primary command buffer
@@ -2812,13 +2876,12 @@ private:
 	{
 		ZoneScoped;
 
-		TracyVkDestroy(myTracyVkCtx); myTracyVkCtx = nullptr;
-
 		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
 		{
 			vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
 			vkDestroySemaphore(myDevice, myImageAcquiredSemaphores[frameIt], nullptr);
 			vkDestroySemaphore(myDevice, myRenderCompleteSemaphores[frameIt], nullptr);
+			TracyVkDestroy(myTracyContexts[frameIt]);
 		}
 
 		std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
@@ -2841,7 +2904,7 @@ private:
 		for (VkImageView imageView : myWindow.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
 
-		vkDestroyRenderPass(myDevice, myPipelineConfig.renderPass, nullptr);
+		vkDestroyRenderPass(myDevice, myGraphicsPipelineConfig.renderPass, nullptr);
 
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 	}
@@ -2878,11 +2941,11 @@ private:
 			vkDestroyImageView(myDevice, myResources.texture.imageView, nullptr);
 		}
 
-		vkDestroyPipelineLayout(myDevice, myPipelineLayout.layout, nullptr);
+		vkDestroyPipelineLayout(myDevice, myGraphicsPipelineLayout.layout, nullptr);
 
 		// todo: wrap these in a deleter.
-		myPipelineLayout.shaders.reset();
-		myPipelineLayout.descriptorSetLayouts.reset();
+		myGraphicsPipelineLayout.shaders.reset();
+		myGraphicsPipelineLayout.descriptorSetLayouts.reset();
 
 		vkDestroySampler(myDevice, myResources.sampler, nullptr);
 
@@ -2938,9 +3001,10 @@ private:
 
 	WindowData<GraphicsBackend::Vulkan> myWindow;
 	GraphicsPipelineResourceContext<GraphicsBackend::Vulkan> myResources;
-	PipelineLayoutContext<GraphicsBackend::Vulkan> myPipelineLayout;
-	PipelineConfiguration<GraphicsBackend::Vulkan> myPipelineConfig;
+	PipelineLayoutContext<GraphicsBackend::Vulkan> myGraphicsPipelineLayout;
+	PipelineConfiguration<GraphicsBackend::Vulkan> myGraphicsPipelineConfig;
 	Pipeline<GraphicsBackend::Vulkan> myGraphicsPipeline; // ~ "PSO"
+	PipelineCache<GraphicsBackend::Vulkan> myGraphicsPipelineCache;
 
 	using DescriptorSetVector = std::vector<DescriptorSet<GraphicsBackend::Vulkan>>;
 	DescriptorSetVector myDescriptorSets;
@@ -2961,7 +3025,7 @@ private:
 	std::chrono::high_resolution_clock::time_point myGraphicsFrameTimestamp;
 	std::chrono::duration<double> myGraphicsDeltaTime;
 
-	TracyVkCtx myTracyVkCtx = nullptr;
+	std::vector<TracyVkCtx> myTracyContexts;
 };
 
 static VulkanApplication* theApp = nullptr;
