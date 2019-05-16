@@ -408,7 +408,7 @@ public:
 		myResources.window = &myWindow;
 
 		createBuffer(
-			NX * NY * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			myFrameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myResources.uniformBuffer,
 			myResources.uniformBufferMemory, "uniformBuffer");
 
@@ -1297,7 +1297,12 @@ private:
 				std::cout << instanceLayers[i].layerName << "\n";
 		}
 
-		const char* enabledLayerNames[] = {"VK_LAYER_LUNARG_standard_validation"};
+		const char* enabledLayerNames[] =
+		{
+		#ifdef PROFILING_ENABLED
+			"VK_LAYER_LUNARG_standard_validation",
+		#endif
+		};
 
 		uint32_t instanceExtensionCount;
 		vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
@@ -1349,8 +1354,8 @@ private:
 		VkInstanceCreateInfo info = {};
 		info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		info.pApplicationInfo = &appInfo;
-		info.enabledLayerCount = 1;
-		info.ppEnabledLayerNames = enabledLayerNames;
+		info.enabledLayerCount = sizeof_array(enabledLayerNames);
+		info.ppEnabledLayerNames = info.enabledLayerCount ? enabledLayerNames : nullptr;
 		info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
 		info.ppEnabledExtensionNames = requiredExtensions.data();
 
@@ -2488,47 +2493,6 @@ private:
 			myTracyContexts[frameIt] = TracyVkContext(myPhysicalDevice, myDevice, myQueue, primaryCmd);
 		}
 
-		auto updateDescriptorSets = [this]() {
-			ZoneScopedN("updateDescriptorSets");
-
-			VkDescriptorBufferInfo bufferInfo = {};
-			bufferInfo.buffer = myResources.uniformBuffer;
-			bufferInfo.offset = 0;
-			bufferInfo.range = VK_WHOLE_SIZE;
-
-			VkDescriptorImageInfo imageInfo = {};
-			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			imageInfo.imageView = myResources.texture.imageView;
-			imageInfo.sampler = myResources.sampler;
-
-			std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
-			descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[0].dstSet = myDescriptorSets[0];
-			descriptorWrites[0].dstBinding = 0;
-			descriptorWrites[0].dstArrayElement = 0;
-			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-			descriptorWrites[0].descriptorCount = 1;
-			descriptorWrites[0].pBufferInfo = &bufferInfo;
-			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[1].dstSet = myDescriptorSets[0];
-			descriptorWrites[1].dstBinding = 1;
-			descriptorWrites[1].dstArrayElement = 0;
-			descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-			descriptorWrites[1].descriptorCount = 1;
-			descriptorWrites[1].pImageInfo = &imageInfo;
-			descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[2].dstSet = myDescriptorSets[0];
-			descriptorWrites[2].dstBinding = 2;
-			descriptorWrites[2].dstArrayElement = 0;
-			descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-			descriptorWrites[2].descriptorCount = 1;
-			descriptorWrites[2].pImageInfo = &imageInfo;
-
-			vkUpdateDescriptorSets(
-				myDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(),
-				0, nullptr);
-		};
-
 		updateDescriptorSets();
 	}
 
@@ -2576,12 +2540,12 @@ private:
 		view.projection = clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
 	}
 
-	void updateUniformBuffers()
+	void updateUniformBuffers(uint32_t frameIndex)
 	{
 		ZoneScoped;
 
-		UniformBufferObject* data;
-		CHECK_VK(vmaMapMemory(myAllocator, myResources.uniformBufferMemory, (void**)&data));
+		void* data;
+		CHECK_VK(vmaMapMemory(myAllocator, myResources.uniformBufferMemory, &data));
 
 		// static auto start = std::chrono::high_resolution_clock::now();
 		// auto now = std::chrono::high_resolution_clock::now();
@@ -2590,7 +2554,7 @@ private:
 
 		for (uint32_t n = 0; n < (NX * NY); n++)
 		{
-			UniformBufferObject& ubo = data[n];
+			UniformBufferObject& ubo = reinterpret_cast<UniformBufferObject*>(data)[frameIndex * (NX * NY) + n];
 
 			// float tp = fmod((0.0025f * n) + t, period);
 			// float s = smootherstep(
@@ -2634,17 +2598,68 @@ private:
 			ubo.proj = myWindow.views[n].projection;
 		}
 
-		vmaFlushAllocation(myAllocator, myResources.uniformBufferMemory, 0, VK_WHOLE_SIZE);
+		vmaFlushAllocation(
+			myAllocator,
+			myResources.uniformBufferMemory,
+			sizeof(UniformBufferObject) * frameIndex * (NX * NY),
+			sizeof(UniformBufferObject) * (NX * NY));
+
 		vmaUnmapMemory(myAllocator, myResources.uniformBufferMemory);
+	}
+
+	void updateDescriptorSets()
+	{
+		ZoneScoped;
+
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = myResources.uniformBuffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = VK_WHOLE_SIZE;
+
+		VkDescriptorImageInfo imageInfo = {};
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageView = myResources.texture.imageView;
+		imageInfo.sampler = myResources.sampler;
+
+		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
+		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[0].dstSet = myDescriptorSets[0];
+		descriptorWrites[0].dstBinding = 0;
+		descriptorWrites[0].dstArrayElement = 0;
+		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+		descriptorWrites[0].descriptorCount = 1;
+		descriptorWrites[0].pBufferInfo = &bufferInfo;
+		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[1].dstSet = myDescriptorSets[0];
+		descriptorWrites[1].dstBinding = 1;
+		descriptorWrites[1].dstArrayElement = 0;
+		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		descriptorWrites[1].descriptorCount = 1;
+		descriptorWrites[1].pImageInfo = &imageInfo;
+		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[2].dstSet = myDescriptorSets[0];
+		descriptorWrites[2].dstBinding = 2;
+		descriptorWrites[2].dstArrayElement = 0;
+		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+		descriptorWrites[2].descriptorCount = 1;
+		descriptorWrites[2].pImageInfo = &imageInfo;
+
+		vkUpdateDescriptorSets(
+			myDevice, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(),
+			0, nullptr);
 	}
 
 	void submitFrame()
 	{
 		ZoneScoped;
 
-		std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this]
+		auto& window = myWindow.imgui.window;
+
+		uint32_t lastFrameIndex = window.FrameIndex;
+
+		std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this, &lastFrameIndex]
 		{
-			updateUniformBuffers();
+			updateUniformBuffers(lastFrameIndex);
 		}));
 		std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this]
 		{
@@ -2652,7 +2667,6 @@ private:
 				drawIMGUI();
 		}));
 
-		auto& window = myWindow.imgui.window;
 		VkSemaphore& imageAquiredSemaphore =
 			window.FrameSemaphores[window.FrameIndex].ImageAcquiredSemaphore;
 
@@ -2726,7 +2740,7 @@ private:
 			secBeginInfo.pInheritanceInfo = &inherit;
 			CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
 			{
-				TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "bindPipeline");
+				//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "bindPipeline");
 
 				// bind pipeline and vertex/index buffers
 				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline);
@@ -2765,11 +2779,11 @@ private:
 					VkCommandBuffer& cmd = myFrameCommandBuffers
 						[frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
-					TracyVkZone(myTracyContexts[frameIndex], cmd, "draw");
+					//TracyVkZone(myTracyContexts[frameIndex], cmd, "draw");
 
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
-						TracyVkZone(myTracyContexts[frameIndex], cmd, "drawModel");
+						//TracyVkZone(myTracyContexts[frameIndex], cmd, "drawModel");
 						
 						uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
@@ -2798,12 +2812,12 @@ private:
 							vkCmdSetScissor(cmd, 0, 1, &scissor);
 						};
 
-						auto drawModel = [&n](
+						auto drawModel = [&n, &frameIndex](
 											 VkCommandBuffer cmd, uint32_t indexCount,
 											 uint32_t descriptorSetCount,
 											 const VkDescriptorSet* descriptorSets,
 											 VkPipelineLayout pipelineLayout) {
-							uint32_t uniformBufferOffset = n * sizeof(UniformBufferObject);
+							uint32_t uniformBufferOffset = (frameIndex * drawCount + n) * sizeof(UniformBufferObject);
 							vkCmdBindDescriptorSets(
 								cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
 								descriptorSetCount, descriptorSets, 1, &uniformBufferOffset);
@@ -2824,11 +2838,6 @@ private:
 		{
 			VkCommandBuffer& cmd = myFrameCommandBuffers
 					[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
-			{
-				ZoneScopedN("tracyVkCollect");
-
-				TracyVkCollect(myTracyContexts[window.FrameIndex], cmd);
-			}
 			{
 				ZoneScopedN("endSecondaryCommands");
 
@@ -2878,7 +2887,7 @@ private:
 			ZoneScopedN("drawIMGUI");
 
 			{
-				ZoneScopedN("wait");
+				ZoneScopedN("waitIMGUIPrepare");
 
 				drawIMGUIFuture.get();
 			}
@@ -2900,16 +2909,18 @@ private:
 			vkCmdEndRenderPass(frame.CommandBuffer);
 		}
 
+		//for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
+		auto frameIt = window.FrameIndex;
 		{
 			ZoneScopedN("tracyVkCollect");
 
-			TracyVkCollect(myTracyContexts[window.FrameIndex], frame.CommandBuffer);
+			TracyVkCollect(myTracyContexts[frameIt], frame.CommandBuffer);
 		}
 
 		// Submit primary command buffer
 		{
 			{
-				ZoneScopedN("wait");
+				ZoneScopedN("waitFramePrepare");
 
 				updateUniformBuffersFuture.get();
 			}
