@@ -43,10 +43,8 @@ examples/volcano/slang-dump-*.*
 examples/volcano/test-file
 
 # cache files
-
-examples/volcano/resources/*/*.json
-examples/volcano/resources/*/*.pbin
-examples/volcano/resources/*/*.cache
+*.pbin*
+*.cache
 
 # intellisense
 
