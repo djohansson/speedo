@@ -2,14 +2,15 @@
 // 		 members where possible
 // wip: separate VK objects from generic ones.
 // wip: dynamic mesh layout, depending on input data structure
-// todo: instrumentation and timing information
+// wip: instrumentation and timing information
 // todo: move stuff from headers into compilation units
 // todo: extract descriptor sets
 // todo: resource loading / manager
 // todo: graph based GUI
+// todo: frame graph
 // todo: compute pipeline
 // todo: clustered forward shading
-// todo: frame graph / shader graph
+// todo: shader graph
 
 #include "volcano.h"
 #include "aabb.h"
