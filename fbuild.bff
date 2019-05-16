@@ -209,7 +209,6 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/freetype2/src/base/ftbdf.c',
 			'$ProjectPath$/external/freetype2/src/base/ftbitmap.c',
 			'$ProjectPath$/external/freetype2/src/base/ftcid.c',
-			'$ProjectPath$/external/freetype2/src/base/ftdebug.c',
 			'$ProjectPath$/external/freetype2/src/base/ftfstype.c',
 			'$ProjectPath$/external/freetype2/src/base/ftgasp.c',
 			'$ProjectPath$/external/freetype2/src/base/ftglyph.c',
@@ -248,6 +247,11 @@ ForEach(.Config in .Clang_x64_Configs)
 		.CompilerInputFiles + {
 			'$ProjectPath$/external/freetype2/builds/windows/ftdebug.c',
 		}
+	#else
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/freetype2/src/base/ftdebug.c',
+		}
+	
 	#endif
 
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -297,6 +301,7 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.CompilerOptions + .CompilerOptionsCpp
 			+ ' -I$ProjectPath$/external/tracy'
+			+ ' -DTRACY_ENABLE'
 
 		// .ReleaseString = 'release'
 		// If(.ConfigName != .ReleaseString) {
@@ -638,11 +643,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -DSLANG_STATIC'
 			+ ' -DVOLCANO_USE_GLFW'
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
-
-		// .ReleaseString = 'release'
-		// If(.ConfigName != .ReleaseString) {
-			.CompilerOptions + ' -DTRACY_ENABLE'
-		//}
+			+ ' -DTRACY_ENABLE'
 
 		.CompilerInputPath = '$ProjectPath$/examples/volcano'
 		.CompilerOutputPath = '$IntermediateFilePath$'
