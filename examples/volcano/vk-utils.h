@@ -184,7 +184,7 @@ void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer comma
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int> getSuitableSwapchainAndQueueFamilyIndex(
+std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, VkPhysicalDeviceProperties> getSuitableSwapchainAndQueueFamilyIndex(
 	VkSurfaceKHR surface, VkPhysicalDevice device)
 {
 	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
@@ -238,12 +238,12 @@ std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int> getSuitableSwapchainAndQ
 			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
 				presentSupport)
 			{
-				return std::make_tuple(swapchainInfo, i);
+				return std::make_tuple(swapchainInfo, i, deviceProperties);
 			}
 		}
 	}
 
-	return std::make_tuple(swapchainInfo, -1);
+	return std::make_tuple(swapchainInfo, -1, deviceProperties);
 }
 
 std::vector<VertexInputBindingDescription<GraphicsBackend::Vulkan>>

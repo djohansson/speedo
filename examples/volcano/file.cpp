@@ -190,7 +190,7 @@ void loadCachedSourceFile(
 	ZoneScoped;
 
 	std::filesystem::path jsonFilePath(sourceFilePath);
-	jsonFilePath += ".json";
+	jsonFilePath += ".pbin.json";
 
 	std::filesystem::path pbinFilePath(cacheFilePath);
 	pbinFilePath += ".pbin";

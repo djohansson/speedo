@@ -73,6 +73,10 @@ using PhysicalDevice =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDevice, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using PhysicalDeviceProperties =
+	std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDeviceProperties, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using Queue = std::conditional_t<B == GraphicsBackend::Vulkan, VkQueue, std::nullptr_t>;
 
 template <GraphicsBackend B>

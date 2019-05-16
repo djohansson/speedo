@@ -227,6 +227,17 @@ struct SerializableShaderReflectionModule
 	BindingsMap bindings;
 };
 
+#pragma pack(push, 1)
+struct PipelineCacheHeader
+{
+	uint32_t headerLength = 0;
+	uint32_t cacheHeaderVersion = 0;
+	uint32_t vendorID = 0;
+	uint32_t deviceID = 0;
+	uint8_t pipelineCacheUUID[VK_UUID_SIZE] = {};
+};
+#pragma pack(pop)
+
 class VulkanApplication
 {
 public:
@@ -247,7 +258,7 @@ public:
 		myWindow.surface = createSurface<GraphicsBackend::Vulkan>(myInstance, view);
 
 		std::tie(
-			myDevice, myPhysicalDevice, myWindow.swapchain.info, myWindow.surfaceFormat,
+			myDevice, myPhysicalDevice, myPhysicalDeviceProperties, myWindow.swapchain.info, myWindow.surfaceFormat,
 			myWindow.presentMode, myFrameCount, myQueue, myQueueFamilyIndex) =
 			createDevice<GraphicsBackend::Vulkan>(myInstance, myWindow.surface);
 
@@ -335,20 +346,45 @@ public:
 			std::filesystem::path cacheFilePath(myResourcePath);
 			cacheFilePath = std::filesystem::absolute(cacheFilePath);
 
+			cacheFilePath /= ".cache";
 			cacheFilePath /= filename;
 
 			std::vector<std::byte> cacheData;
 
-			auto loadBin = [&cacheData](std::istream& stream) {
+			auto loadCache = [this, &cacheData](std::istream& stream) {
 				cereal::BinaryInputArchive bin(stream);
 				bin(cacheData);
+
+				const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+
+				std::cout << "headerLength: " << header->headerLength << "\n";
+				std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
+				std::cout << "vendorID: " << header->vendorID << "\n";
+				std::cout << "deviceID: " << header->deviceID << "\n";
+				std::cout << "pipelineCacheUUID: ";
+				for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
+					std::cout << header->pipelineCacheUUID[i];
+				std::cout << std::endl;
+
+				if (header->headerLength <= 0 ||
+					header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+					header->vendorID != myPhysicalDeviceProperties.vendorID ||
+					header->deviceID != myPhysicalDeviceProperties.deviceID ||
+					memcmp(header->pipelineCacheUUID, myPhysicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
+				{
+					std::cout << "Invalid pipeline cache, creating new." << std::endl;
+					cacheData.clear();
+					return;
+				}
 			};
 
 			FileInfo sourceFileInfo;
 			if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
-				loadBinaryFile(cacheFilePath, sourceFileInfo, loadBin, false);
+				loadBinaryFile(cacheFilePath, sourceFileInfo, loadCache, false);
 
 			auto createPipelineCache = [](VkDevice device, const std::vector<std::byte>& cacheData) {
+				ZoneScopedN("createPipelineCache");
+
 				VkPipelineCacheCreateInfo createInfo = {};
 				createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 				createInfo.flags = 0;
@@ -364,7 +400,7 @@ public:
 			return createPipelineCache(myDevice, cacheData);
 		};
 
-		myGraphicsPipelineCache = loadPipelineCache(myDevice, "pipeline.cache");
+		myPipelineCache = loadPipelineCache(myDevice, "pipeline.cache");
 
 		myResources.model = loadModel("gallery.obj");
 		myResources.texture = loadTexture("gallery.jpg");
@@ -398,20 +434,51 @@ public:
 			ZoneScopedN("savePipelineCache");
 
 			auto savePipelineCacheData = [this](std::ostream& stream) {
+				ZoneScopedN("savePipelineCacheData");
+				
 				size_t cacheDataSize = 0;
-				CHECK_VK(vkGetPipelineCacheData(myDevice, myGraphicsPipelineCache, &cacheDataSize, nullptr));
+				CHECK_VK(vkGetPipelineCacheData(myDevice, myPipelineCache, &cacheDataSize, nullptr));
 				if (cacheDataSize)
 				{
 					std::vector<std::byte> cacheData(cacheDataSize);
-					CHECK_VK(vkGetPipelineCacheData(myDevice, myGraphicsPipelineCache, &cacheDataSize, cacheData.data()));
+					CHECK_VK(vkGetPipelineCacheData(myDevice, myPipelineCache, &cacheDataSize, cacheData.data()));
+
+					const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+
+					std::cout << "headerLength: " << header->headerLength << "\n";
+					std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
+					std::cout << "vendorID: " << header->vendorID << "\n";
+					std::cout << "deviceID: " << header->deviceID << "\n";
+					std::cout << "pipelineCacheUUID: ";
+					for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
+						std::cout << header->pipelineCacheUUID[i];
+					std::cout << std::endl;
+
+					if (header->headerLength <= 0 ||
+						header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+						header->vendorID != myPhysicalDeviceProperties.vendorID ||
+						header->deviceID != myPhysicalDeviceProperties.deviceID ||
+						memcmp(header->pipelineCacheUUID, myPhysicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
+					{
+						std::cout << "Invalid pipeline cache, something is seriously wrong. Exiting." << std::endl;
+						return;
+					}
+					
 					cereal::BinaryOutputArchive bin(stream);
 					bin(cacheData);
 				}
+				else
+					assert(false && "Failed to get pipeline cache.");
 			};
 
 			std::filesystem::path cacheFilePath(myResourcePath);
 			cacheFilePath = std::filesystem::absolute(cacheFilePath);
 
+			cacheFilePath /= ".cache";
+
+			if (!std::filesystem::exists(cacheFilePath))
+				std::filesystem::create_directory(cacheFilePath);
+			
 			cacheFilePath /= "pipeline.cache";
 
 			FileInfo cacheFileInfo;
@@ -1358,7 +1425,7 @@ private:
 
 	template <GraphicsBackend B>
 	std::tuple<
-		Device<B>, PhysicalDevice<B>, SwapchainInfo<B>, SurfaceFormat<B>, PresentMode<B>, uint32_t,
+		Device<B>, PhysicalDevice<B>, PhysicalDeviceProperties<B>, SwapchainInfo<B>, SurfaceFormat<B>, PresentMode<B>, uint32_t,
 		Queue<B>, int>
 	createDevice(Instance<B> instance, Surface<B> surface) const
 	{
@@ -1372,6 +1439,7 @@ private:
 		uint32_t selectedFrameCount;
 		Queue<B> selectedQueue;
 		int selectedQueueFamilyIndex = -1;
+		PhysicalDeviceProperties<B> physicalDeviceProperties;
 
 		uint32_t deviceCount = 0;
 		CHECK_VK(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
@@ -1383,7 +1451,7 @@ private:
 
 		for (const auto& device : devices)
 		{
-			std::tie(swapChainInfo, selectedQueueFamilyIndex) =
+			std::tie(swapChainInfo, selectedQueueFamilyIndex, physicalDeviceProperties) =
 				getSuitableSwapchainAndQueueFamilyIndex(surface, device);
 
 			if (selectedQueueFamilyIndex >= 0)
@@ -1504,7 +1572,7 @@ private:
 		vkGetDeviceQueue(logicalDevice, selectedQueueFamilyIndex, 0, &selectedQueue);
 
 		return std::make_tuple(
-			logicalDevice, physicalDevice, swapChainInfo, selectedSurfaceFormat,
+			logicalDevice, physicalDevice, physicalDeviceProperties, swapChainInfo, selectedSurfaceFormat,
 			selectedPresentMode, selectedFrameCount, selectedQueue, selectedQueueFamilyIndex);
 	}
 
@@ -1871,7 +1939,7 @@ private:
 		myGraphicsPipelineConfig.resources = &myResources;
 		myGraphicsPipelineConfig.layout = &myGraphicsPipelineLayout;
 
-		myGraphicsPipeline = createGraphicsPipeline(myDevice, myGraphicsPipelineConfig, myGraphicsPipelineCache, model);
+		myGraphicsPipeline = createGraphicsPipeline(myDevice, myGraphicsPipelineConfig, myPipelineCache, model);
 
 		myDescriptorSets = allocateDescriptorSets(
 			myDevice, myDescriptorPool, myGraphicsPipelineLayout.descriptorSetLayouts.get(),
@@ -2656,17 +2724,18 @@ private:
 								 VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 			secBeginInfo.pInheritanceInfo = &inherit;
 			CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
+			{
+				TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "bindPipeline");
 
-			//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "bindPipeline");
+				// bind pipeline and vertex/index buffers
+				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline);
 
-			// bind pipeline and vertex/index buffers
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline);
+				VkBuffer vertexBuffers[] = {resources.model.vertexBuffer};
+				VkDeviceSize vertexOffsets[] = {0};
 
-			VkBuffer vertexBuffers[] = {resources.model.vertexBuffer};
-			VkDeviceSize vertexOffsets[] = {0};
-
-			vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-			vkCmdBindIndexBuffer(cmd, resources.model.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+				vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
+				vkCmdBindIndexBuffer(cmd, resources.model.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+			}
 		}
 
 		// draw geometry using secondary command buffers
@@ -2695,11 +2764,11 @@ private:
 					VkCommandBuffer& cmd = myFrameCommandBuffers
 						[frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
-					//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "draw");
+					TracyVkZone(myTracyContexts[frameIndex], cmd, "draw");
 
 					for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
 					{
-						//TracyVkZone(myTracyContexts[window.FrameIndex], cmd, "drawModel");
+						TracyVkZone(myTracyContexts[frameIndex], cmd, "drawModel");
 						
 						uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
@@ -2752,12 +2821,18 @@ private:
 		// end secondary command buffers
 		for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 		{
-			ZoneScopedN("endSecondaryCommands");
-
 			VkCommandBuffer& cmd = myFrameCommandBuffers
-				[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+					[window.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+			{
+				ZoneScopedN("tracyVkCollect");
 
-			CHECK_VK(vkEndCommandBuffer(cmd));
+				TracyVkCollect(myTracyContexts[window.FrameIndex], cmd);
+			}
+			{
+				ZoneScopedN("endSecondaryCommands");
+
+				CHECK_VK(vkEndCommandBuffer(cmd));
+			}
 		}
 
 		// begin primary command buffer
@@ -2941,6 +3016,7 @@ private:
 			vkDestroyImageView(myDevice, myResources.texture.imageView, nullptr);
 		}
 
+		vkDestroyPipelineCache(myDevice, myPipelineCache, nullptr);
 		vkDestroyPipelineLayout(myDevice, myGraphicsPipelineLayout.layout, nullptr);
 
 		// todo: wrap these in a deleter.
@@ -2981,6 +3057,7 @@ private:
 	Instance<GraphicsBackend::Vulkan> myInstance;
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
 	PhysicalDevice<GraphicsBackend::Vulkan> myPhysicalDevice;
+	PhysicalDeviceProperties<GraphicsBackend::Vulkan> myPhysicalDeviceProperties;
 	Device<GraphicsBackend::Vulkan> myDevice;
 	VmaAllocator myAllocator = VK_NULL_HANDLE;
 	int myQueueFamilyIndex = -1;
@@ -3004,7 +3081,7 @@ private:
 	PipelineLayoutContext<GraphicsBackend::Vulkan> myGraphicsPipelineLayout;
 	PipelineConfiguration<GraphicsBackend::Vulkan> myGraphicsPipelineConfig;
 	Pipeline<GraphicsBackend::Vulkan> myGraphicsPipeline; // ~ "PSO"
-	PipelineCache<GraphicsBackend::Vulkan> myGraphicsPipelineCache;
+	PipelineCache<GraphicsBackend::Vulkan> myPipelineCache;
 
 	using DescriptorSetVector = std::vector<DescriptorSet<GraphicsBackend::Vulkan>>;
 	DescriptorSetVector myDescriptorSets;
