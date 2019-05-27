@@ -102,6 +102,9 @@ struct PipelineLayoutContext
 };
 
 template <GraphicsBackend B>
+using DescriptorPool = std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorPool, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using DescriptorSet =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorSet, std::nullptr_t>;
 

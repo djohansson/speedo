@@ -93,7 +93,6 @@
 #include <stb_dxt.h>
 
 //#define TINYOBJLOADER_USE_EXPERIMENTAL
-
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 #	define TINYOBJ_LOADER_OPT_IMPLEMENTATION
 #	include <experimental/tinyobj_loader_opt.h>
@@ -271,141 +270,15 @@ public:
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 			myQueueFamilyIndex);
 
-		createTextureSampler();
-		createDescriptorPool();
+		myResources.sampler = createTextureSampler<GraphicsBackend::Vulkan>(myDevice);
+		myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>();
 
-		auto slangModule = loadSlangShaders<GraphicsBackend::Vulkan>("shaders.slang");
-
-		auto createPipelineLayoutContext = [](VkDevice device, const auto& slangModule) {
-			using VkPipelineLayoutContext = PipelineLayoutContext<GraphicsBackend::Vulkan>;
-			VkPipelineLayoutContext pipelineLayout;
-
-			using VkShaderModuleType = ShaderModule<GraphicsBackend::Vulkan>;
-			auto vkShaderDeleter = [device](VkShaderModuleType* module, size_t size) {
-				for (size_t i = 0; i < size; i++)
-					vkDestroyShaderModule(device, *(module + i), nullptr);
-			};
-			pipelineLayout.shaders =
-				std::unique_ptr<VkShaderModuleType[], ArrayDeleter<VkShaderModuleType>>(
-					new VkShaderModuleType[slangModule.shaders.size()],
-					{vkShaderDeleter, slangModule.shaders.size()});
-
-			using VkDescriptorSetLayoutType = DescriptorSetLayout<GraphicsBackend::Vulkan>;
-			auto vkDescriptorSetLayoutDeleter =
-				[device](VkDescriptorSetLayoutType* layout, size_t size) {
-					for (size_t i = 0; i < size; i++)
-						vkDestroyDescriptorSetLayout(device, *(layout + i), nullptr);
-				};
-			pipelineLayout.descriptorSetLayouts = std::unique_ptr<
-				VkDescriptorSetLayoutType[], ArrayDeleter<VkDescriptorSetLayoutType>>(
-				new VkDescriptorSetLayoutType[slangModule.bindings.size()],
-				{vkDescriptorSetLayoutDeleter, slangModule.bindings.size()});
-
-			for (const auto& shader : slangModule.shaders)
-			{
-				auto createShaderModule = [](VkDevice device, const ShaderEntry& shader) {
-					VkShaderModuleCreateInfo info = {};
-					info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-					info.codeSize = shader.first.size();
-					info.pCode = reinterpret_cast<const uint32_t*>(shader.first.data());
-
-					VkShaderModule vkShaderModule;
-					CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
-
-					return vkShaderModule;
-				};
-
-				pipelineLayout.shaders.get()[&shader - &slangModule.shaders[0]] =
-					createShaderModule(device, shader);
-			}
-
-			size_t layoutIt = 0;
-			for (auto& [space, layoutBindings] : slangModule.bindings)
-			{
-				pipelineLayout.descriptorSetLayouts.get()[layoutIt++] =
-					createDescriptorSetLayout(device, layoutBindings);
-			}
-
-			VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
-			pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-			pipelineLayoutInfo.setLayoutCount = slangModule.bindings.size();
-			pipelineLayoutInfo.pSetLayouts = pipelineLayout.descriptorSetLayouts.get();
-			pipelineLayoutInfo.pushConstantRangeCount = 0;
-			pipelineLayoutInfo.pPushConstantRanges = nullptr;
-
-			CHECK_VK(vkCreatePipelineLayout(
-				device, &pipelineLayoutInfo, nullptr, &pipelineLayout.layout));
-
-			return pipelineLayout;
-		};
-
-		myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice, slangModule);
-
-		auto loadPipelineCache = [this](VkDevice device, const char* filename)
-		{
-			ZoneScopedN("loadPipelineCache");
-
-			std::filesystem::path cacheFilePath(myResourcePath);
-			cacheFilePath = std::filesystem::absolute(cacheFilePath);
-
-			cacheFilePath /= ".cache";
-			cacheFilePath /= filename;
-
-			std::vector<std::byte> cacheData;
-
-			auto loadCache = [this, &cacheData](std::istream& stream) {
-				cereal::BinaryInputArchive bin(stream);
-				bin(cacheData);
-
-				const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
-
-				std::cout << "headerLength: " << header->headerLength << "\n";
-				std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
-				std::cout << "vendorID: " << header->vendorID << "\n";
-				std::cout << "deviceID: " << header->deviceID << "\n";
-				std::cout << "pipelineCacheUUID: ";
-				for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
-					std::cout << header->pipelineCacheUUID[i];
-				std::cout << std::endl;
-
-				if (header->headerLength <= 0 ||
-					header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
-					header->vendorID != myPhysicalDeviceProperties.vendorID ||
-					header->deviceID != myPhysicalDeviceProperties.deviceID ||
-					memcmp(header->pipelineCacheUUID, myPhysicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
-				{
-					std::cout << "Invalid pipeline cache, creating new." << std::endl;
-					cacheData.clear();
-					return;
-				}
-			};
-
-			FileInfo sourceFileInfo;
-			if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
-				loadBinaryFile(cacheFilePath, sourceFileInfo, loadCache, false);
-
-			auto createPipelineCache = [](VkDevice device, const std::vector<std::byte>& cacheData) {
-				ZoneScopedN("createPipelineCache");
-
-				VkPipelineCacheCreateInfo createInfo = {};
-				createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-				createInfo.flags = 0;
-				createInfo.initialDataSize = cacheData.size();
-    			createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
-			
-				VkPipelineCache cache = VK_NULL_HANDLE;
-				CHECK_VK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
-			
-				return cache;
-			};
-
-			return createPipelineCache(myDevice, cacheData);
-		};
-
-		myPipelineCache = loadPipelineCache(myDevice, "pipeline.cache");
-
-		myResources.model = loadModel("gallery.obj");
-		myResources.texture = loadTexture("gallery.jpg");
+		myGraphicsPipelineLayout = createPipelineLayoutContext<GraphicsBackend::Vulkan>(
+			myDevice,
+			loadSlangShaders<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang")));
+		
+		myResources.model = loadModel<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
+		myResources.texture = loadTexture<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 		myResources.window = &myWindow;
 
 		createBuffer(
@@ -413,8 +286,16 @@ public:
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myResources.uniformBuffer,
 			myResources.uniformBufferMemory, "uniformBuffer");
 
+		myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
+			myDevice,
+			myPhysicalDeviceProperties,
+			std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"));
+
 		createSwapchain(framebufferWidth, framebufferHeight);
-		createFrameResources(width, height, framebufferWidth, framebufferHeight, myResources.model);
+
+		std::vector<Model<GraphicsBackend::Vulkan>*> models;
+		models.push_back(&myResources.model);
+		createFrameResources(width, height, framebufferWidth, framebufferHeight, models);
 
 		float dpiScaleX = static_cast<float>(framebufferWidth) / width;
 		float dpiScaleY = static_cast<float>(framebufferHeight) / height;
@@ -500,15 +381,21 @@ public:
 		{
 			ZoneScopedN("recreateFrameResources");
 
-			CHECK_VK(vkQueueWaitIdle(myQueue));
+			{
+				ZoneScopedN("queueWaitIdle");
+
+				CHECK_VK(vkQueueWaitIdle(myQueue));
+			}
 
 			cleanupFrameResources();
 
 			myFrameCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY);
 
+			std::vector<Model<GraphicsBackend::Vulkan>*> models;
+			models.push_back(&myResources.model);
 			createFrameResources(
 				myWindow.width, myWindow.height, myWindow.framebufferWidth,
-				myWindow.framebufferHeight, myResources.model);
+				myWindow.framebufferHeight, models);
 		}
 
 		updateInput(myGraphicsDeltaTime.count());
@@ -535,17 +422,24 @@ public:
 	{
 		ZoneScoped;
 
-		CHECK_VK(vkQueueWaitIdle(myQueue));
+		{
+			ZoneScopedN("queueWaitIdle");
+
+			CHECK_VK(vkQueueWaitIdle(myQueue));
+		}
 
 		cleanupFrameResources();
 
-		// hack to shut up validation layer error.
+		// hack to shut up validation layer createPipelineLayoutContext.
 		// see https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/624
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
 			myPhysicalDevice, myWindow.surface, &myWindow.swapchain.info.capabilities);
 
 		createSwapchain(width, height, myWindow.swapchain.swapchain);
-		createFrameResources(myWindow.width, myWindow.height, width, height, myResources.model);
+
+		std::vector<Model<GraphicsBackend::Vulkan>*> models;
+		models.push_back(&myResources.model);
+		createFrameResources(myWindow.width, myWindow.height, width, height, models);
 	}
 
 	void onMouse(const mouse_state& state)
@@ -696,8 +590,8 @@ private:
 		ZoneScoped;
 
 		ImGui_ImplVulkan_NewFrame();
-		ImGui::NewFrame();
 
+		ImGui::NewFrame();
 		ImGui::ShowDemoWindow();
 
 		{
@@ -735,19 +629,16 @@ private:
 		ImGui::Render();
 	}
 
-	Model<GraphicsBackend::Vulkan> loadModel(const char* filename) const
+	template <GraphicsBackend B>
+	Model<B> loadModel(const std::filesystem::path& modelFile) const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
-
-		std::filesystem::path sourceFilePath(myResourcePath);
-		sourceFilePath = std::filesystem::absolute(sourceFilePath);
-
-		sourceFilePath /= "models";
-		sourceFilePath /= filename;
 
 		// todo: replace with generic structures / code?
 		using VkInputAttributeDescription =
-			SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>;
+			SerializableVertexInputAttributeDescription<B>;
 
 		VertexAllocator vertices;
 		std::vector<uint32_t> indices;
@@ -861,7 +752,7 @@ private:
 		};
 
 		loadCachedSourceFile(
-			sourceFilePath, sourceFilePath, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
+			modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
 
 		if (vertices.empty() || indices.empty())
 			throw std::runtime_error("Failed to load model.");
@@ -869,9 +760,7 @@ private:
 		auto createModel = [this](
 							   const auto& vertices, const std::vector<uint32_t>& indices,
 							   const auto& attributeDescriptions, const char* filename) {
-			using VkModel = Model<GraphicsBackend::Vulkan>;
-
-			VkModel outModel;
+			Model<B> outModel;
 
 			createDeviceLocalBuffer(
 				vertices.data(), vertices.sizeBytes(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -891,18 +780,15 @@ private:
 			return outModel;
 		};
 
-		return createModel(vertices, indices, attributeDescriptions, filename);
+		return createModel(vertices, indices, attributeDescriptions, modelFile.c_str());
 	}
 
-	Texture<GraphicsBackend::Vulkan> loadTexture(const char* filename) const
+	template <GraphicsBackend B>
+	Texture<B> loadTexture(const std::filesystem::path& imageFile) const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
-
-		std::filesystem::path imageFile(myResourcePath);
-		imageFile = std::filesystem::absolute(imageFile);
-
-		imageFile /= "images";
-		imageFile /= filename;
 
 		int nx, ny, nChannels;
 		size_t dxtImageSize;
@@ -971,7 +857,7 @@ private:
 								 const std::byte* data, int x, int y, VkFormat format,
 								 VkImageUsageFlags flags, VkImageAspectFlagBits aspectFlags,
 								 const char* debugName = nullptr) {
-			Texture<GraphicsBackend::Vulkan> texture;
+			Texture<B> texture;
 
 			createDeviceLocalImage2D(
 				data, x, y, format, flags, texture.image, texture.imageMemory, debugName);
@@ -985,19 +871,15 @@ private:
 			dxtImageData.get(), nx, ny,
 			nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK
 						   : VK_FORMAT_BC5_UNORM_BLOCK, // todo: write utility function for this
-			VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, filename);
+			VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, imageFile.c_str());
 	}
 
 	template <GraphicsBackend B>
-	SerializableShaderReflectionModule<B> loadSlangShaders(const char* filename) const
+	SerializableShaderReflectionModule<B> loadSlangShaders(const std::filesystem::path& slangFile) const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+		
 		ZoneScoped;
-
-		std::filesystem::path slangFile(myResourcePath);
-		slangFile = std::filesystem::absolute(slangFile);
-
-		slangFile /= "shaders";
-		slangFile /= filename;
 
 		SerializableShaderReflectionModule<B> slangModule;
 
@@ -1275,8 +1157,144 @@ private:
 	}
 
 	template <GraphicsBackend B>
+	PipelineCache<B> loadPipelineCache(Device<B> device, PhysicalDeviceProperties<B> physicalDeviceProperties, const std::filesystem::path& cacheFilePath) const
+	{
+		ZoneScopedN("loadPipelineCache");
+
+		std::vector<std::byte> cacheData;
+
+		auto loadCache = [&physicalDeviceProperties, &cacheData](std::istream& stream) {
+			cereal::BinaryInputArchive bin(stream);
+			bin(cacheData);
+
+			const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+
+			std::cout << "headerLength: " << header->headerLength << "\n";
+			std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
+			std::cout << "vendorID: " << header->vendorID << "\n";
+			std::cout << "deviceID: " << header->deviceID << "\n";
+			std::cout << "pipelineCacheUUID: ";
+			for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
+				std::cout << header->pipelineCacheUUID[i];
+			std::cout << std::endl;
+
+			if (header->headerLength <= 0 ||
+				header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+				header->vendorID != physicalDeviceProperties.vendorID ||
+				header->deviceID != physicalDeviceProperties.deviceID ||
+				memcmp(header->pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
+			{
+				std::cout << "Invalid pipeline cache, creating new." << std::endl;
+				cacheData.clear();
+				return;
+			}
+		};
+
+		FileInfo sourceFileInfo;
+		if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
+			loadBinaryFile(cacheFilePath, sourceFileInfo, loadCache, false);
+
+		auto createPipelineCache = [](Device<GraphicsBackend::Vulkan> device, const std::vector<std::byte>& cacheData)
+		{
+			ZoneScopedN("createPipelineCache");
+
+			PipelineCache<B> cache;
+
+			VkPipelineCacheCreateInfo createInfo = {};
+			createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+			createInfo.flags = 0;
+			createInfo.initialDataSize = cacheData.size();
+			createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
+		
+			CHECK_VK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
+		
+			return cache;
+		};
+
+		return createPipelineCache(device, cacheData);
+	};
+
+	template <GraphicsBackend B>
+	PipelineLayoutContext<B> createPipelineLayoutContext(
+		Device<B> device,
+		const SerializableShaderReflectionModule<B>& slangModule) const
+	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
+		ZoneScoped;
+
+		using VkPipelineLayoutContext = PipelineLayoutContext<B>;
+		VkPipelineLayoutContext pipelineLayout;
+
+		using VkShaderModuleType = ShaderModule<B>;
+		auto vkShaderDeleter = [device](VkShaderModuleType* module, size_t size) {
+			for (size_t i = 0; i < size; i++)
+				vkDestroyShaderModule(device, *(module + i), nullptr);
+		};
+		pipelineLayout.shaders =
+			std::unique_ptr<VkShaderModuleType[], ArrayDeleter<VkShaderModuleType>>(
+				new VkShaderModuleType[slangModule.shaders.size()],
+				{vkShaderDeleter, slangModule.shaders.size()});
+
+		using VkDescriptorSetLayoutType = DescriptorSetLayout<B>;
+		auto vkDescriptorSetLayoutDeleter =
+			[device](VkDescriptorSetLayoutType* layout, size_t size) {
+				for (size_t i = 0; i < size; i++)
+					vkDestroyDescriptorSetLayout(device, *(layout + i), nullptr);
+			};
+		pipelineLayout.descriptorSetLayouts = std::unique_ptr<
+			VkDescriptorSetLayoutType[], ArrayDeleter<VkDescriptorSetLayoutType>>(
+			new VkDescriptorSetLayoutType[slangModule.bindings.size()],
+			{vkDescriptorSetLayoutDeleter, slangModule.bindings.size()});
+
+		for (const auto& shader : slangModule.shaders)
+		{
+			auto createShaderModule = [](Device<B> device, const ShaderEntry& shader)
+			{
+				static_assert(B == GraphicsBackend::Vulkan);
+
+				ZoneScopedN("createShaderModule");
+
+				VkShaderModuleCreateInfo info = {};
+				info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+				info.codeSize = shader.first.size();
+				info.pCode = reinterpret_cast<const uint32_t*>(shader.first.data());
+
+				VkShaderModule vkShaderModule;
+				CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
+
+				return vkShaderModule;
+			};
+
+			pipelineLayout.shaders.get()[&shader - &slangModule.shaders[0]] =
+				createShaderModule(device, shader);
+		}
+
+		size_t layoutIt = 0;
+		for (auto& [space, layoutBindings] : slangModule.bindings)
+		{
+			pipelineLayout.descriptorSetLayouts.get()[layoutIt++] =
+				createDescriptorSetLayout(device, layoutBindings);
+		}
+
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = slangModule.bindings.size();
+		pipelineLayoutInfo.pSetLayouts = pipelineLayout.descriptorSetLayouts.get();
+		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+		CHECK_VK(vkCreatePipelineLayout(
+			device, &pipelineLayoutInfo, nullptr, &pipelineLayout.layout));
+
+		return pipelineLayout;
+	};
+
+	template <GraphicsBackend B>
 	Instance<B> createInstance() const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
 
 		VkApplicationInfo appInfo = {};
@@ -1369,6 +1387,8 @@ private:
 	template <GraphicsBackend B>
 	Surface<B> createSurface(Instance<B> instance, void* view) const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
 
 		Surface<B> surface;
@@ -1436,6 +1456,8 @@ private:
 		Queue<B>, int>
 	createDevice(Instance<B> instance, Surface<B> surface) const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
 
 		Device<B> logicalDevice;
@@ -1684,8 +1706,11 @@ private:
 		return allocator;
 	}
 
-	void createDescriptorPool()
+	template <GraphicsBackend B>
+	DescriptorPool<B> createDescriptorPool()
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
 
 		constexpr uint32_t maxDescriptorCount = 1000;
@@ -1709,7 +1734,10 @@ private:
 		poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(sizeof_array(poolSizes));
 		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
-		CHECK_VK(vkCreateDescriptorPool(myDevice, &poolInfo, nullptr, &myDescriptorPool));
+		DescriptorPool<B> outDescriptorPool;
+		CHECK_VK(vkCreateDescriptorPool(myDevice, &poolInfo, nullptr, &outDescriptorPool));
+
+		return outDescriptorPool;
 	}
 
 	void createGraphicsRenderPass()
@@ -1772,185 +1800,189 @@ private:
 			vkCreateRenderPass(myDevice, &renderPassInfo, nullptr, &myGraphicsPipelineConfig.renderPass));
 	}
 
-	void createPipelineConfig(const Model<GraphicsBackend::Vulkan>& model)
+	template <GraphicsBackend B>
+	Pipeline<B> createGraphicsPipeline(
+		Device<B> device,
+		const PipelineConfiguration<B>& pipeline,
+		PipelineCache<B>& pipelineCache,
+		const Model<B>& model) const
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
 
-		auto createGraphicsPipeline =
-			[](VkDevice device, const PipelineConfiguration<GraphicsBackend::Vulkan>& pipeline,
-				PipelineCache<GraphicsBackend::Vulkan>& pipelineCache,
-			   const Model<GraphicsBackend::Vulkan>& model) {
-				VkPipelineShaderStageCreateInfo vsStageInfo = {};
-				vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-				vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-				vsStageInfo.module = pipeline.layout->shaders[0];
-				vsStageInfo.pName = "main"; // todo: get from named VkShaderModule object
+		VkPipelineShaderStageCreateInfo vsStageInfo = {};
+		vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+		vsStageInfo.module = pipeline.layout->shaders[0];
+		vsStageInfo.pName = "main"; // todo: get from named VkShaderModule object
 
-				// struct AlphaTestSpecializationData
-				// {
-				// 	uint32_t alphaTestMethod = 0;
-				// 	float alphaTestRef = 0.5f;
-				// } alphaTestSpecializationData;
+		// struct AlphaTestSpecializationData
+		// {
+		// 	uint32_t alphaTestMethod = 0;
+		// 	float alphaTestRef = 0.5f;
+		// } alphaTestSpecializationData;
 
-				// std::array<VkSpecializationMapEntry, 2> alphaTestSpecializationMapEntries;
-				// alphaTestSpecializationMapEntries[0].constantID = 0;
-				// alphaTestSpecializationMapEntries[0].size =
-				// sizeof(alphaTestSpecializationData.alphaTestMethod);
-				// alphaTestSpecializationMapEntries[0].offset = 0;
-				// alphaTestSpecializationMapEntries[1].constantID = 1;
-				// alphaTestSpecializationMapEntries[1].size =
-				// sizeof(alphaTestSpecializationData.alphaTestRef);
-				// alphaTestSpecializationMapEntries[1].offset =
-				// offsetof(AlphaTestSpecializationData, alphaTestRef);
+		// std::array<VkSpecializationMapEntry, 2> alphaTestSpecializationMapEntries;
+		// alphaTestSpecializationMapEntries[0].constantID = 0;
+		// alphaTestSpecializationMapEntries[0].size =
+		// sizeof(alphaTestSpecializationData.alphaTestMethod);
+		// alphaTestSpecializationMapEntries[0].offset = 0;
+		// alphaTestSpecializationMapEntries[1].constantID = 1;
+		// alphaTestSpecializationMapEntries[1].size =
+		// sizeof(alphaTestSpecializationData.alphaTestRef);
+		// alphaTestSpecializationMapEntries[1].offset =
+		// offsetof(AlphaTestSpecializationData, alphaTestRef);
 
-				// VkSpecializationInfo specializationInfo = {};
-				// specializationInfo.dataSize = sizeof(alphaTestSpecializationData);
-				// specializationInfo.mapEntryCount =
-				// static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
-				// specializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
-				// specializationInfo.pData = &alphaTestSpecializationData;
+		// VkSpecializationInfo specializationInfo = {};
+		// specializationInfo.dataSize = sizeof(alphaTestSpecializationData);
+		// specializationInfo.mapEntryCount =
+		// static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
+		// specializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
+		// specializationInfo.pData = &alphaTestSpecializationData;
 
-				VkPipelineShaderStageCreateInfo fsStageInfo = {};
-				fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-				fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-				fsStageInfo.module = pipeline.layout->shaders[1];
-				fsStageInfo.pName = "main";
-				fsStageInfo.pSpecializationInfo = nullptr; //&specializationInfo;
+		VkPipelineShaderStageCreateInfo fsStageInfo = {};
+		fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+		fsStageInfo.module = pipeline.layout->shaders[1];
+		fsStageInfo.pName = "main";
+		fsStageInfo.pSpecializationInfo = nullptr; //&specializationInfo;
 
-				VkPipelineShaderStageCreateInfo shaderStages[] = {vsStageInfo, fsStageInfo};
+		VkPipelineShaderStageCreateInfo shaderStages[] = {vsStageInfo, fsStageInfo};
 
-				VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
-				vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-				vertexInputInfo.vertexBindingDescriptionCount = model.bindingDescriptions.size();
-				vertexInputInfo.pVertexBindingDescriptions = model.bindingDescriptions.data();
-				vertexInputInfo.vertexAttributeDescriptionCount =
-					static_cast<uint32_t>(model.attributeDescriptions.size());
-				vertexInputInfo.pVertexAttributeDescriptions = model.attributeDescriptions.data();
+		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		vertexInputInfo.vertexBindingDescriptionCount = model.bindingDescriptions.size();
+		vertexInputInfo.pVertexBindingDescriptions = model.bindingDescriptions.data();
+		vertexInputInfo.vertexAttributeDescriptionCount =
+			static_cast<uint32_t>(model.attributeDescriptions.size());
+		vertexInputInfo.pVertexAttributeDescriptions = model.attributeDescriptions.data();
 
-				VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
-				inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-				inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-				inputAssembly.primitiveRestartEnable = VK_FALSE;
+		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-				VkViewport viewport = {};
-				viewport.x = 0.0f;
-				viewport.y = 0.0f;
-				viewport.width = static_cast<float>(pipeline.resources->window->framebufferWidth);
-				viewport.height = static_cast<float>(pipeline.resources->window->framebufferHeight);
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
+		VkViewport viewport = {};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = static_cast<float>(pipeline.resources->window->framebufferWidth);
+		viewport.height = static_cast<float>(pipeline.resources->window->framebufferHeight);
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
 
-				VkRect2D scissor = {};
-				scissor.offset = {0, 0};
-				scissor.extent = {
-					static_cast<uint32_t>(pipeline.resources->window->framebufferWidth),
-					static_cast<uint32_t>(pipeline.resources->window->framebufferHeight)};
+		VkRect2D scissor = {};
+		scissor.offset = {0, 0};
+		scissor.extent = {
+			static_cast<uint32_t>(pipeline.resources->window->framebufferWidth),
+			static_cast<uint32_t>(pipeline.resources->window->framebufferHeight)};
 
-				VkPipelineViewportStateCreateInfo viewportState = {};
-				viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-				viewportState.viewportCount = 1;
-				viewportState.pViewports = &viewport;
-				viewportState.scissorCount = 1;
-				viewportState.pScissors = &scissor;
+		VkPipelineViewportStateCreateInfo viewportState = {};
+		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		viewportState.viewportCount = 1;
+		viewportState.pViewports = &viewport;
+		viewportState.scissorCount = 1;
+		viewportState.pScissors = &scissor;
 
-				VkPipelineRasterizationStateCreateInfo rasterizer = {};
-				rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-				rasterizer.depthClampEnable = VK_FALSE;
-				rasterizer.rasterizerDiscardEnable = VK_FALSE;
-				rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-				rasterizer.lineWidth = 1.0f;
-				rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-				rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-				rasterizer.depthBiasEnable = VK_FALSE;
-				rasterizer.depthBiasConstantFactor = 0.0f;
-				rasterizer.depthBiasClamp = 0.0f;
-				rasterizer.depthBiasSlopeFactor = 0.0f;
+		VkPipelineRasterizationStateCreateInfo rasterizer = {};
+		rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		rasterizer.depthClampEnable = VK_FALSE;
+		rasterizer.rasterizerDiscardEnable = VK_FALSE;
+		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+		rasterizer.lineWidth = 1.0f;
+		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		rasterizer.depthBiasEnable = VK_FALSE;
+		rasterizer.depthBiasConstantFactor = 0.0f;
+		rasterizer.depthBiasClamp = 0.0f;
+		rasterizer.depthBiasSlopeFactor = 0.0f;
 
-				VkPipelineMultisampleStateCreateInfo multisampling = {};
-				multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-				multisampling.sampleShadingEnable = VK_FALSE;
-				multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-				multisampling.minSampleShading = 1.0f;
-				multisampling.pSampleMask = nullptr;
-				multisampling.alphaToCoverageEnable = VK_FALSE;
-				multisampling.alphaToOneEnable = VK_FALSE;
+		VkPipelineMultisampleStateCreateInfo multisampling = {};
+		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		multisampling.sampleShadingEnable = VK_FALSE;
+		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampling.minSampleShading = 1.0f;
+		multisampling.pSampleMask = nullptr;
+		multisampling.alphaToCoverageEnable = VK_FALSE;
+		multisampling.alphaToOneEnable = VK_FALSE;
 
-				VkPipelineDepthStencilStateCreateInfo depthStencil = {};
-				depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-				depthStencil.depthTestEnable = VK_TRUE;
-				depthStencil.depthWriteEnable = VK_TRUE;
-				depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-				depthStencil.depthBoundsTestEnable = VK_FALSE;
-				depthStencil.minDepthBounds = 0.0f;
-				depthStencil.maxDepthBounds = 1.0f;
-				depthStencil.stencilTestEnable = VK_FALSE;
-				depthStencil.front = {};
-				depthStencil.back = {};
+		VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+		depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		depthStencil.depthTestEnable = VK_TRUE;
+		depthStencil.depthWriteEnable = VK_TRUE;
+		depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+		depthStencil.depthBoundsTestEnable = VK_FALSE;
+		depthStencil.minDepthBounds = 0.0f;
+		depthStencil.maxDepthBounds = 1.0f;
+		depthStencil.stencilTestEnable = VK_FALSE;
+		depthStencil.front = {};
+		depthStencil.back = {};
 
-				VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
-				colorBlendAttachment.colorWriteMask =
-					VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-					VK_COLOR_COMPONENT_A_BIT;
-				colorBlendAttachment.blendEnable = VK_FALSE;
-				colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-				colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-				colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-				colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-				colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-				colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+		colorBlendAttachment.colorWriteMask =
+			VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+			VK_COLOR_COMPONENT_A_BIT;
+		colorBlendAttachment.blendEnable = VK_FALSE;
+		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+		colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
-				VkPipelineColorBlendStateCreateInfo colorBlending = {};
-				colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-				colorBlending.logicOpEnable = VK_FALSE;
-				colorBlending.logicOp = VK_LOGIC_OP_COPY;
-				colorBlending.attachmentCount = 1;
-				colorBlending.pAttachments = &colorBlendAttachment;
-				colorBlending.blendConstants[0] = 0.0f;
-				colorBlending.blendConstants[1] = 0.0f;
-				colorBlending.blendConstants[2] = 0.0f;
-				colorBlending.blendConstants[3] = 0.0f;
+		VkPipelineColorBlendStateCreateInfo colorBlending = {};
+		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlending.logicOpEnable = VK_FALSE;
+		colorBlending.logicOp = VK_LOGIC_OP_COPY;
+		colorBlending.attachmentCount = 1;
+		colorBlending.pAttachments = &colorBlendAttachment;
+		colorBlending.blendConstants[0] = 0.0f;
+		colorBlending.blendConstants[1] = 0.0f;
+		colorBlending.blendConstants[2] = 0.0f;
+		colorBlending.blendConstants[3] = 0.0f;
 
-				std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,
-															   VK_DYNAMIC_STATE_SCISSOR};
-				VkPipelineDynamicStateCreateInfo dynamicState = {};
-				dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-				dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-				dynamicState.pDynamicStates = dynamicStates.data();
+		std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,
+														VK_DYNAMIC_STATE_SCISSOR};
+		VkPipelineDynamicStateCreateInfo dynamicState = {};
+		dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+		dynamicState.pDynamicStates = dynamicStates.data();
 
-				VkGraphicsPipelineCreateInfo pipelineInfo = {};
-				pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-				pipelineInfo.stageCount = sizeof_array(shaderStages);
-				pipelineInfo.pStages = shaderStages;
-				pipelineInfo.pVertexInputState = &vertexInputInfo;
-				pipelineInfo.pInputAssemblyState = &inputAssembly;
-				pipelineInfo.pViewportState = &viewportState;
-				pipelineInfo.pRasterizationState = &rasterizer;
-				pipelineInfo.pMultisampleState = &multisampling;
-				pipelineInfo.pDepthStencilState = &depthStencil;
-				pipelineInfo.pColorBlendState = &colorBlending;
-				pipelineInfo.pDynamicState = &dynamicState;
-				pipelineInfo.layout = pipeline.layout->layout;
-				pipelineInfo.renderPass = pipeline.renderPass;
-				pipelineInfo.subpass = 0;
-				pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-				pipelineInfo.basePipelineIndex = -1;
+		VkGraphicsPipelineCreateInfo pipelineInfo = {};
+		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		pipelineInfo.stageCount = sizeof_array(shaderStages);
+		pipelineInfo.pStages = shaderStages;
+		pipelineInfo.pVertexInputState = &vertexInputInfo;
+		pipelineInfo.pInputAssemblyState = &inputAssembly;
+		pipelineInfo.pViewportState = &viewportState;
+		pipelineInfo.pRasterizationState = &rasterizer;
+		pipelineInfo.pMultisampleState = &multisampling;
+		pipelineInfo.pDepthStencilState = &depthStencil;
+		pipelineInfo.pColorBlendState = &colorBlending;
+		pipelineInfo.pDynamicState = &dynamicState;
+		pipelineInfo.layout = pipeline.layout->layout;
+		pipelineInfo.renderPass = pipeline.renderPass;
+		pipelineInfo.subpass = 0;
+		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+		pipelineInfo.basePipelineIndex = -1;
 
-				VkPipeline outPipeline;
+		Pipeline<B> outPipeline;
 
-				CHECK_VK(vkCreateGraphicsPipelines(
-					device, pipelineCache, 1, &pipelineInfo, nullptr, &outPipeline));
+		CHECK_VK(vkCreateGraphicsPipelines(
+			device, pipelineCache, 1, &pipelineInfo, nullptr, &outPipeline));
 
-				return outPipeline;
-			};
+		return outPipeline;
+	};
+
+	template <GraphicsBackend B>
+	void createPipelineConfig(Device<B> device, const Model<B>& model)
+	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
+		ZoneScoped;
 
 		myGraphicsPipelineConfig.resources = &myResources;
 		myGraphicsPipelineConfig.layout = &myGraphicsPipelineLayout;
-
-		myGraphicsPipeline = createGraphicsPipeline(myDevice, myGraphicsPipelineConfig, myPipelineCache, model);
-
-		myDescriptorSets = allocateDescriptorSets(
-			myDevice, myDescriptorPool, myGraphicsPipelineLayout.descriptorSetLayouts.get(),
-			myGraphicsPipelineLayout.descriptorSetLayouts.get_deleter().size);
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
@@ -2243,8 +2275,11 @@ private:
 		return imageView;
 	}
 
-	void createTextureSampler()
+	template <GraphicsBackend B>
+	Sampler<B> createTextureSampler(Device<B> device)
 	{
+		static_assert(B == GraphicsBackend::Vulkan);
+
 		ZoneScoped;
 
 		VkSamplerCreateInfo samplerInfo = {};
@@ -2265,7 +2300,10 @@ private:
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = 0.0f;
 
-		CHECK_VK(vkCreateSampler(myDevice, &samplerInfo, nullptr, &myResources.sampler));
+		Sampler<B> outSampler;
+		CHECK_VK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));
+
+		return outSampler;
 	}
 
 	void initIMGUI(float dpiScaleX, float dpiScaleY)
@@ -2337,9 +2375,10 @@ private:
 		}
 	}
 
+	template<GraphicsBackend B>
 	void createFrameResources(
 		int width, int height, int framebufferWidth, int framebufferHeight,
-		const Model<GraphicsBackend::Vulkan>& model)
+		const std::vector<Model<B>*>& models)
 	{
 		ZoneScoped;
 
@@ -2403,7 +2442,14 @@ private:
 
 		createFramebuffers(framebufferWidth, framebufferHeight);
 
-		createPipelineConfig(model);
+		for (auto& model : models)
+		{
+			createPipelineConfig(myDevice, *model);
+			myGraphicsPipeline = createGraphicsPipeline(myDevice, myGraphicsPipelineConfig, myPipelineCache, *model);
+			myDescriptorSets = allocateDescriptorSets(
+				myDevice, myDescriptorPool, myGraphicsPipelineLayout.descriptorSetLayouts.get(),
+				myGraphicsPipelineLayout.descriptorSetLayouts.get_deleter().size);
+		}
 
 		auto& window = myWindow.imgui.window;
 		window.ImageCount = myFrameCount;
@@ -3086,7 +3132,7 @@ private:
 	VmaAllocator myAllocator = VK_NULL_HANDLE;
 	int myQueueFamilyIndex = -1;
 	Queue<GraphicsBackend::Vulkan> myQueue;
-	VkDescriptorPool myDescriptorPool = VK_NULL_HANDLE;
+	DescriptorPool<GraphicsBackend::Vulkan> myDescriptorPool;
 
 	std::vector<VkCommandPool> myFrameCommandPools;		 // count = [threadCount]
 	std::vector<VkCommandBuffer> myFrameCommandBuffers;  // count = [frameCount*threadCount] [f0cb0
