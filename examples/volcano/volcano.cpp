@@ -780,7 +780,7 @@ private:
 			return outModel;
 		};
 
-		return createModel(vertices, indices, attributeDescriptions, modelFile.c_str());
+		return createModel(vertices, indices, attributeDescriptions, modelFile.u8string().c_str());
 	}
 
 	template <GraphicsBackend B>
@@ -871,7 +871,7 @@ private:
 			dxtImageData.get(), nx, ny,
 			nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK
 						   : VK_FORMAT_BC5_UNORM_BLOCK, // todo: write utility function for this
-			VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, imageFile.c_str());
+			VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, imageFile.u8string().c_str());
 	}
 
 	template <GraphicsBackend B>
