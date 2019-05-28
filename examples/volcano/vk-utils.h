@@ -195,6 +195,8 @@ std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, VkPhysicalDeviceProperti
 	VkPhysicalDeviceFeatures deviceFeatures;
 	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
+	assert(deviceFeatures.inheritedQueries);
+
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
 
 	uint32_t formatCount;
@@ -262,7 +264,7 @@ calculateInputBindingDescriptions(
 		attributes[attribute.location] = std::make_pair(attribute.format, attribute.offset);
 	}
 
-	int32_t lastBinding = -1;
+	//int32_t lastBinding = -1;
 	int32_t lastLocation = -1;
 	uint32_t lastOffset = 0;
 	uint32_t lastSize = 0;
