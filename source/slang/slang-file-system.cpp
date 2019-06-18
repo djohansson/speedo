@@ -9,10 +9,12 @@
 namespace Slang
 {
 
+namespace SlangFileSystem {
 // Allocate static const storage for the various interface IDs that the Slang API needs to expose
 static const Guid IID_ISlangUnknown = SLANG_UUID_ISlangUnknown;
 static const Guid IID_ISlangFileSystem = SLANG_UUID_ISlangFileSystem;
 static const Guid IID_ISlangFileSystemExt = SLANG_UUID_ISlangFileSystemExt;
+}
 
 // Cacluate a combined path, just using Path:: string processing
 static SlangResult _calcCombinedPath(SlangPathType fromPathType, const char* fromPath, const char* path, ISlangBlob** pathOut)
@@ -43,7 +45,7 @@ static SlangResult _calcCombinedPath(SlangPathType fromPathType, const char* fro
 template <typename T>
 static ISlangFileSystemExt* _getInterface(T* ptr, const Guid& guid)
 {
-    return (guid == IID_ISlangUnknown || guid == IID_ISlangFileSystem || guid == IID_ISlangFileSystemExt) ? static_cast<ISlangFileSystemExt*>(ptr) : nullptr;
+    return (guid == SlangFileSystem::IID_ISlangUnknown || guid == SlangFileSystem::IID_ISlangFileSystem || guid == SlangFileSystem::IID_ISlangFileSystemExt) ? static_cast<ISlangFileSystemExt*>(ptr) : nullptr;
 }
 
 ISlangUnknown* OSFileSystem::getInterface(const Guid& guid)
@@ -156,7 +158,7 @@ CacheFileSystem::CacheFileSystem(ISlangFileSystem* fileSystem, UniqueIdentityMod
     m_pathStyle(pathStyle)
 {
     // Try to get the more sophisticated interface
-    fileSystem->queryInterface(IID_ISlangFileSystemExt, (void**)m_fileSystemExt.writeRef());
+    fileSystem->queryInterface(SlangFileSystem::IID_ISlangFileSystemExt, (void**)m_fileSystemExt.writeRef());
 
     switch (uniqueIdentityMode)
     {

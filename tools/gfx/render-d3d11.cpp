@@ -41,6 +41,7 @@
 using namespace Slang;
 
 namespace gfx {
+namespace dx11 {
 
 class D3D11Renderer : public Renderer
 {
@@ -2313,4 +2314,5 @@ void D3D11Renderer::setDescriptorSet(PipelineType pipelineType, PipelineLayout* 
 
 }
 
-} // renderer_test
+} // namespace dx11
+} // namespace gfx

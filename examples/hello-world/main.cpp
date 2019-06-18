@@ -36,6 +36,7 @@
 #include "gfx/render-d3d11.h"
 #include "gfx/window.h"
 using namespace gfx;
+using namespace dx11;
 
 // For the purposes of a small example, we will define the vertex data for a
 // single triangle directly in the source file. It should be easy to extend

@@ -23,6 +23,7 @@
 #include "gfx/window.h"
 #include "gfx/gui.h"
 using namespace gfx;
+using namespace dx11;
 
 // We will use a few utilities from the C++ standard library,
 // just to keep the code short. Note that the Slang API does

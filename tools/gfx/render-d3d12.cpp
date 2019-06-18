@@ -47,6 +47,7 @@
 #define ENABLE_DEBUG_LAYER 1
 
 namespace gfx {
+namespace dx12 {
 using namespace Slang;
 
 class D3D12Renderer : public Renderer
@@ -3605,4 +3606,5 @@ Result D3D12Renderer::createComputePipelineState(const ComputePipelineStateDesc&
     return SLANG_OK;
 }
 
-} // renderer_test
+} // namespace dx12
+} // namespace gfx

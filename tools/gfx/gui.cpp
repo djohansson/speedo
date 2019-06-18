@@ -408,9 +408,9 @@ GUI::~GUI()
 
 } // gfx
 
-#include "external/imgui/imgui.cpp"
-#include "external/imgui/imgui_draw.cpp"
-#include "external/imgui/imgui_widgets.cpp"
+#include <imgui.cpp>
+#include <imgui_draw.cpp>
+#include <imgui_widgets.cpp>
 #ifdef _WIN32
-#include "external/imgui/examples/imgui_impl_win32.cpp"
+#include <examples/imgui_impl_win32.cpp>
 #endif

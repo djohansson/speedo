@@ -10,6 +10,14 @@
 
 #include <vulkan/vulkan.h>
 
+#define VMA_IMPLEMENTATION
+#ifdef _DEBUG
+#	define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
+#	define VMA_DEBUG_MARGIN 16
+#	define VMA_DEBUG_DETECT_CORRUPTION 1
+#endif
+#include <vk_mem_alloc.h>
+
 static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
 {
 	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;

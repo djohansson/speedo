@@ -5,12 +5,14 @@ namespace Slang {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! StringBlob !!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 // Allocate static const storage for the various interface IDs that the Slang API needs to expose
+namespace SlangStringUtil {
 static const Guid IID_ISlangUnknown = SLANG_UUID_ISlangUnknown;
 static const Guid IID_ISlangBlob = SLANG_UUID_ISlangBlob;
+}
 
 /* static */ISlangUnknown* StringBlob::getInterface(const Guid& guid)
 {
-    return (guid == IID_ISlangUnknown || guid == IID_ISlangBlob) ? static_cast<ISlangBlob*>(this) : nullptr;
+    return (guid == SlangStringUtil::IID_ISlangUnknown || guid == SlangStringUtil::IID_ISlangBlob) ? static_cast<ISlangBlob*>(this) : nullptr;
 }
 
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! StringUtil !!!!!!!!!!!!!!!!!!!!!!!!!!!

@@ -511,7 +511,7 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
 	switch (gOptions.rendererType)
 	{
 		case RendererType::DirectX11:
-			renderer = createD3D11Renderer();
+			renderer = dx11::createD3D11Renderer();
 			slangTarget = SLANG_DXBC;
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
             slangPassThrough = SLANG_PASS_THROUGH_FXC;
@@ -519,7 +519,7 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
 			break;
 
 		case RendererType::DirectX12:
-			renderer = createD3D12Renderer();
+			renderer = dx12::createD3D12Renderer();
 			slangTarget = SLANG_DXBC;
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
             slangPassThrough = SLANG_PASS_THROUGH_FXC;

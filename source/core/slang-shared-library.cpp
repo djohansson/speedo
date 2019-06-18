@@ -7,10 +7,12 @@
 namespace Slang
 {
 
+namespace SlangSharedLibrary {
 // Allocate static const storage for the various interface IDs that the Slang API needs to expose
 static const Guid IID_ISlangUnknown = SLANG_UUID_ISlangUnknown;
 static const Guid IID_ISlangSharedLibrary = SLANG_UUID_ISlangSharedLibrary;
 static const Guid IID_ISlangSharedLibraryLoader = SLANG_UUID_ISlangSharedLibraryLoader;
+}
 
 /* !!!!!!!!!!!!!!!!!!!!!!!!!! DefaultSharedLibraryLoader !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
 
@@ -40,7 +42,7 @@ static const Guid IID_ISlangSharedLibraryLoader = SLANG_UUID_ISlangSharedLibrary
 
 ISlangUnknown* DefaultSharedLibraryLoader::getInterface(const Guid& guid)
 {
-    return (guid == IID_ISlangUnknown || guid == IID_ISlangSharedLibraryLoader) ? static_cast<ISlangSharedLibraryLoader*>(this) : nullptr;
+    return (guid == SlangSharedLibrary::IID_ISlangUnknown || guid == SlangSharedLibrary::IID_ISlangSharedLibraryLoader) ? static_cast<ISlangSharedLibraryLoader*>(this) : nullptr;
 }
 
 SlangResult DefaultSharedLibraryLoader::loadSharedLibrary(const char* path, ISlangSharedLibrary** sharedLibraryOut)
@@ -57,7 +59,7 @@ SlangResult DefaultSharedLibraryLoader::loadSharedLibrary(const char* path, ISla
 
 ISlangUnknown* DefaultSharedLibrary::getInterface(const Guid& guid)
 {
-    return (guid == IID_ISlangUnknown || guid == IID_ISlangSharedLibrary) ? static_cast<ISlangSharedLibrary*>(this) : nullptr;
+    return (guid == SlangSharedLibrary::IID_ISlangUnknown || guid == SlangSharedLibrary::IID_ISlangSharedLibrary) ? static_cast<ISlangSharedLibrary*>(this) : nullptr;
 }
 
 DefaultSharedLibrary::~DefaultSharedLibrary()
@@ -74,7 +76,7 @@ SlangFuncPtr DefaultSharedLibrary::findFuncByName(char const* name)
 
 ISlangUnknown* ConfigurableSharedLibraryLoader::getInterface(const Guid& guid)
 {
-    return (guid == IID_ISlangUnknown || guid == IID_ISlangSharedLibraryLoader) ? static_cast<ISlangSharedLibraryLoader*>(this) : nullptr;
+    return (guid == SlangSharedLibrary::IID_ISlangUnknown || guid == SlangSharedLibrary::IID_ISlangSharedLibraryLoader) ? static_cast<ISlangSharedLibraryLoader*>(this) : nullptr;
 }
 
 SlangResult ConfigurableSharedLibraryLoader::loadSharedLibrary(const char* path, ISlangSharedLibrary** sharedLibraryOut)

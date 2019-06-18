@@ -329,9 +329,11 @@ Linkage::Linkage(Session* session)
     setFileSystem(nullptr);
 }
 
+namespace {
 // Allocate static const storage for the various interface IDs that the Slang API needs to expose
 static const Guid IID_ISlangUnknown = SLANG_UUID_ISlangUnknown;
 static const Guid IID_ISlangBlob    = SLANG_UUID_ISlangBlob;
+}
 
 /** Base class for simple blobs.
 */

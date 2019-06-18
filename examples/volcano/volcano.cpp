@@ -51,41 +51,11 @@
 #include <utility>
 #include <vector>
 
-#include <vulkan/vulkan.h>
-
-#if defined(VOLCANO_USE_GLFW)
-#	define GLFW_INCLUDE_NONE
-#	include <GLFW/glfw3.h>
-#endif
-
-#if defined(__WINDOWS__)
-#	include <wtypes.h>
-#	include <vulkan/vulkan_win32.h>
-#elif defined(__APPLE__)
-#	include <vulkan/vulkan_macos.h>
-#elif defined(__linux__)
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-#		include <X11/Xutil.h>
-#		include <vulkan/vulkan_xcb.h>
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-#		include <X11/Xutil.h>
-#		include <vulkan/vulkan_xlib.h>
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-#		include <linux/input.h>
-#		include <vulkan/vulkan_wayland.h>
-#	endif
-#endif
-
-#define VMA_IMPLEMENTATION
-#ifdef _DEBUG
-#	define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
-#	define VMA_DEBUG_MARGIN 16
-#	define VMA_DEBUG_DETECT_CORRUPTION 1
-#endif
-#include <vk_mem_alloc.h>
+#define GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
 #define STBI_NO_STDIO
-
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -109,14 +79,13 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
-#include <slang.h>
-
 #include <Tracy.hpp>
 #include <TracyVulkan.hpp>
 
 #include <imgui.h>
-
 #include <examples/imgui_impl_vulkan.h>
+
+#include <slang.h>
 
 struct ViewData
 {
@@ -446,13 +415,9 @@ public:
 	{
 		ZoneScoped;
 
-		bool leftPressed = false;
-		bool rightPressed = false;
-#if defined(VOLCANO_USE_GLFW)
-		leftPressed = state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS;
-		rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
-#endif
-
+		bool leftPressed = state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS;
+		bool rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
+		
 		auto screenPos = glm::vec2(state.xpos, state.ypos);
 		// auto screenPos = ImGui::GetCursorScreenPos();
 
@@ -469,6 +434,8 @@ public:
 		else if (!leftPressed)
 		{
 			myWindow.activeView.reset();
+
+			// std::cout << "myWindow.activeView.reset()" << std::endl;
 		}
 
 		myMousePosition[0] =
@@ -484,12 +451,10 @@ public:
 	{
 		ZoneScoped;
 
-#if defined(VOLCANO_USE_GLFW)
 		if (state.action == GLFW_PRESS)
 			myKeysPressed[state.key] = true;
 		else if (state.action == GLFW_RELEASE)
 			myKeysPressed[state.key] = false;
-#endif
 	}
 
 private:
@@ -514,10 +479,11 @@ private:
 
 		if (myWindow.activeView)
 		{
+			// std::cout << "myWindow.activeView read/consume" << std::endl;
+
 			float dx = 0;
 			float dz = 0;
 
-#if defined(VOLCANO_USE_GLFW)
 			for (const auto& [key, pressed] : myKeysPressed)
 			{
 				if (pressed)
@@ -541,7 +507,6 @@ private:
 					}
 				}
 			}
-#endif
 
 			auto& view = myWindow.views[*myWindow.activeView];
 
@@ -1351,13 +1316,13 @@ private:
 			"VK_MVK_macos_surface",
 #elif defined(__linux__)
 #	if defined(VK_USE_PLATFORM_XCB_KHR)
-		"VK_KHR_xcb_surface",
+			"VK_KHR_xcb_surface",
 #	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-		"VK_KHR_xlib_surface",
+			"VK_KHR_xlib_surface",
 #	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-		"VK_KHR_wayland_surface",
+			"VK_KHR_wayland_surface",
 #	else // default to xcb
-		"VK_KHR_xcb_surface",
+			"VK_KHR_xcb_surface",
 #	endif
 #endif
 		};
@@ -1392,61 +1357,9 @@ private:
 		ZoneScoped;
 
 		Surface<B> surface;
-#if defined(VOLCANO_USE_GLFW)
 		CHECK_VK(glfwCreateWindowSurface(
 			instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
-#elif defined(__WINDOWS__)
-		VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
-		surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-		surfaceCreateInfo.flags = 0;
-		surfaceCreateInfo.hwnd = (HWND)view;
-		surfaceCreateInfo.hinstance = GetModuleHandle(nullptr);
-		auto vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)vkGetInstanceProcAddr(
-			myInstance, "vkCreateWin32SurfaceKHR");
-		assert(vkCreateWin32SurfaceKHR != nullptr);
-		CHECK_VK(vkCreateWin32SurfaceKHR(instance, &surfaceCreateInfo, nullptr, &surface));
-#elif defined(__APPLE__)
-	VkMacOSSurfaceCreateInfoMVK surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK;
-	surfaceCreateInfo.flags = 0;
-	surfaceCreateInfo.pView = view;
-	auto vkCreateMacOSSurfaceMVK =
-		(PFN_vkCreateMacOSSurfaceMVK)vkGetInstanceProcAddr(instance, "vkCreateMacOSSurfaceMVK");
-	assert(vkCreateMacOSSurfaceMVK != nullptr);
-	CHECK_VK(vkCreateMacOSSurfaceMVK(instance, &surfaceCreateInfo, nullptr, &surface));
-#elif defined(__linux__)
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.flags = 0;
-	surfaceCreateInfo.connection = nullptr; //?;
-	surfaceCreateInfo.window = nullptr;		//?;
-	auto vkCreateXcbSurfaceKHR =
-		(PFN_vkCreateXcbSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateXcbSurfaceKHR");
-	assert(vkCreateXcbSurfaceKHR != nullptr);
-	CHECK_VK(vkCreateXcbSurfaceKHR(instance, &surfaceCreateInfo, nullptr, &surface));
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-	VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.flags = 0;
-	surfaceCreateInfo.dpy = nullptr;	//?;
-	surfaceCreateInfo.window = nullptr; //?;
-	auto vkCreateXlibSurfaceKHR =
-		(PFN_vkCreateXlibSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateXlibSurfaceKHR");
-	assert(vkCreateXlibSurfaceKHR != nullptr);
-	CHECK_VK(vkCreateXlibSurfaceKHR(instance, &surfaceCreateInfo, nullptr, &surface));
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-	VkWaylandSurfaceCreateInfoKHR surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.flags = 0;
-	surfaceCreateInfo.wl_display = nullptr; //?;
-	surfaceCreateInfo.wl_surface = nullptr; //?;
-	auto vkCreateWaylandSurfaceKHR =
-		(PFN_vkCreateWaylandSurfaceKHR)vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR");
-	assert(vkCreateWaylandSurfaceKHR != nullptr);
-	CHECK_VK(vkCreateWaylandSurfaceKHR(instance, &surfaceCreateInfo, nullptr, &surface));
-#	endif
-#endif
+
 		return surface;
 	}
 
