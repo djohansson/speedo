@@ -208,10 +208,11 @@ struct PipelineCacheHeader
 };
 #pragma pack(pop)
 
-class VulkanApplication
+template <GraphicsBackend B>
+class Application
 {
 public:
-	VulkanApplication(
+	Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 		const char* resourcePath, bool /*verbose*/)
 		: myResourcePath(resourcePath)
@@ -223,31 +224,31 @@ public:
 
 		assert(std::filesystem::is_directory(myResourcePath));
 
-		myInstance = createInstance<GraphicsBackend::Vulkan>();
+		myInstance = createInstance<B>();
 		myDebugCallback = createDebugCallback(myInstance);
-		myWindow.surface = createSurface<GraphicsBackend::Vulkan>(myInstance, view);
+		myWindow.surface = createSurface<B>(myInstance, view);
 
 		std::tie(
 			myDevice, myPhysicalDevice, myPhysicalDeviceProperties, myWindow.swapchain.info, myWindow.surfaceFormat,
 			myWindow.presentMode, myFrameCount, myQueue, myQueueFamilyIndex) =
-			createDevice<GraphicsBackend::Vulkan>(myInstance, myWindow.surface);
+			createDevice<B>(myInstance, myWindow.surface);
 
-		myAllocator = createAllocator(myDevice, myPhysicalDevice);
+		myAllocator = createAllocator<B>(myDevice, myPhysicalDevice);
 
 		myTransferCommandPool = createCommandPool(
 			myDevice,
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 			myQueueFamilyIndex);
 
-		myResources.sampler = createTextureSampler<GraphicsBackend::Vulkan>(myDevice);
-		myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>();
+		myResources.sampler = createTextureSampler<B>(myDevice);
+		myDescriptorPool = createDescriptorPool<B>();
 
-		myGraphicsPipelineLayout = createPipelineLayoutContext<GraphicsBackend::Vulkan>(
+		myGraphicsPipelineLayout = createPipelineLayoutContext<B>(
 			myDevice,
-			loadSlangShaders<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang")));
+			loadSlangShaders<B>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang")));
 		
-		myResources.model = loadModel<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
-		myResources.texture = loadTexture<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
+		myResources.model = loadModel<B>(std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
+		myResources.texture = loadTexture<B>(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 		myResources.window = &myWindow;
 
 		createBuffer(
@@ -255,14 +256,14 @@ public:
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, myResources.uniformBuffer,
 			myResources.uniformBufferMemory, "uniformBuffer");
 
-		myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
+		myPipelineCache = loadPipelineCache<B>(
 			myDevice,
 			myPhysicalDeviceProperties,
 			std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"));
 
-		createSwapchain(framebufferWidth, framebufferHeight);
+		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, framebufferWidth, framebufferHeight, myWindow);
 
-		std::vector<Model<GraphicsBackend::Vulkan>*> models;
+		std::vector<Model<B>*> models;
 		models.push_back(&myResources.model);
 		createFrameResources(width, height, framebufferWidth, framebufferHeight, models);
 
@@ -272,7 +273,7 @@ public:
 		initIMGUI(dpiScaleX, dpiScaleY);
 	}
 
-	~VulkanApplication()
+	~Application()
 	{
 		ZoneScoped;
 
@@ -282,62 +283,14 @@ public:
 			CHECK_VK(vkDeviceWaitIdle(myDevice));
 		}
 
-		{
-			ZoneScopedN("savePipelineCache");
+		std::filesystem::path cacheFilePath = std::filesystem::absolute(myResourcePath / ".cache");
 
-			auto savePipelineCacheData = [this](std::ostream& stream) {
-				ZoneScopedN("savePipelineCacheData");
-				
-				size_t cacheDataSize = 0;
-				CHECK_VK(vkGetPipelineCacheData(myDevice, myPipelineCache, &cacheDataSize, nullptr));
-				if (cacheDataSize)
-				{
-					std::vector<std::byte> cacheData(cacheDataSize);
-					CHECK_VK(vkGetPipelineCacheData(myDevice, myPipelineCache, &cacheDataSize, cacheData.data()));
+		if (!std::filesystem::exists(cacheFilePath))
+			std::filesystem::create_directory(cacheFilePath);
 
-					const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+		savePipelineCache<B>(myDevice, myPipelineCache, myPhysicalDeviceProperties, cacheFilePath / "pipeline.cache");
 
-					std::cout << "headerLength: " << header->headerLength << "\n";
-					std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
-					std::cout << "vendorID: " << header->vendorID << "\n";
-					std::cout << "deviceID: " << header->deviceID << "\n";
-					std::cout << "pipelineCacheUUID: ";
-					for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
-						std::cout << header->pipelineCacheUUID[i];
-					std::cout << std::endl;
-
-					if (header->headerLength <= 0 ||
-						header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
-						header->vendorID != myPhysicalDeviceProperties.vendorID ||
-						header->deviceID != myPhysicalDeviceProperties.deviceID ||
-						memcmp(header->pipelineCacheUUID, myPhysicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
-					{
-						std::cout << "Invalid pipeline cache, something is seriously wrong. Exiting." << std::endl;
-						return;
-					}
-					
-					cereal::BinaryOutputArchive bin(stream);
-					bin(cacheData);
-				}
-				else
-					assert(false && "Failed to get pipeline cache.");
-			};
-
-			std::filesystem::path cacheFilePath(myResourcePath);
-			cacheFilePath = std::filesystem::absolute(cacheFilePath);
-
-			cacheFilePath /= ".cache";
-
-			if (!std::filesystem::exists(cacheFilePath))
-				std::filesystem::create_directory(cacheFilePath);
-			
-			cacheFilePath /= "pipeline.cache";
-
-			FileInfo cacheFileInfo;
-			saveBinaryFile(cacheFilePath, cacheFileInfo, savePipelineCacheData, false);
-		}
-
-		cleanup();
+		cleanup<B>();
 	}
 
 	void draw()
@@ -360,7 +313,7 @@ public:
 
 			myFrameCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY);
 
-			std::vector<Model<GraphicsBackend::Vulkan>*> models;
+			std::vector<Model<B>*> models;
 			models.push_back(&myResources.model);
 			createFrameResources(
 				myWindow.width, myWindow.height, myWindow.framebufferWidth,
@@ -404,9 +357,9 @@ public:
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
 			myPhysicalDevice, myWindow.surface, &myWindow.swapchain.info.capabilities);
 
-		createSwapchain(width, height, myWindow.swapchain.swapchain);
+		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, width, height, myWindow);
 
-		std::vector<Model<GraphicsBackend::Vulkan>*> models;
+		std::vector<Model<B>*> models;
 		models.push_back(&myResources.model);
 		createFrameResources(myWindow.width, myWindow.height, width, height, models);
 	}
@@ -597,8 +550,6 @@ private:
 	template <GraphicsBackend B>
 	Model<B> loadModel(const std::filesystem::path& modelFile) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		// todo: replace with generic structures / code?
@@ -751,8 +702,6 @@ private:
 	template <GraphicsBackend B>
 	Texture<B> loadTexture(const std::filesystem::path& imageFile) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		int nx, ny, nChannels;
@@ -842,8 +791,6 @@ private:
 	template <GraphicsBackend B>
 	SerializableShaderReflectionModule<B> loadSlangShaders(const std::filesystem::path& slangFile) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-		
 		ZoneScoped;
 
 		SerializableShaderReflectionModule<B> slangModule;
@@ -1122,7 +1069,10 @@ private:
 	}
 
 	template <GraphicsBackend B>
-	PipelineCache<B> loadPipelineCache(Device<B> device, PhysicalDeviceProperties<B> physicalDeviceProperties, const std::filesystem::path& cacheFilePath) const
+	PipelineCache<B> loadPipelineCache(
+		Device<B> device,
+		PhysicalDeviceProperties<B> physicalDeviceProperties,
+		const std::filesystem::path& cacheFilePath) const
 	{
 		ZoneScopedN("loadPipelineCache");
 
@@ -1159,7 +1109,7 @@ private:
 		if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
 			loadBinaryFile(cacheFilePath, sourceFileInfo, loadCache, false);
 
-		auto createPipelineCache = [](Device<GraphicsBackend::Vulkan> device, const std::vector<std::byte>& cacheData)
+		auto createPipelineCache = [](Device<B> device, const std::vector<std::byte>& cacheData)
 		{
 			ZoneScopedN("createPipelineCache");
 
@@ -1180,12 +1130,61 @@ private:
 	};
 
 	template <GraphicsBackend B>
+	void savePipelineCache(
+		Device<B> device,
+		PipelineCache<B> pipelineCache,
+		PhysicalDeviceProperties<B> physicalDeviceProperties,
+		const std::filesystem::path& cacheFilePath) const
+	{
+		ZoneScoped;
+
+		auto savePipelineCacheData = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream& stream) {
+			ZoneScopedN("savePipelineCacheData");
+			
+			size_t cacheDataSize = 0;
+			CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
+			if (cacheDataSize)
+			{
+				std::vector<std::byte> cacheData(cacheDataSize);
+				CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
+
+				const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+
+				std::cout << "headerLength: " << header->headerLength << "\n";
+				std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
+				std::cout << "vendorID: " << header->vendorID << "\n";
+				std::cout << "deviceID: " << header->deviceID << "\n";
+				std::cout << "pipelineCacheUUID: ";
+				for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
+					std::cout << header->pipelineCacheUUID[i];
+				std::cout << std::endl;
+
+				if (header->headerLength <= 0 ||
+					header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+					header->vendorID != physicalDeviceProperties.vendorID ||
+					header->deviceID != physicalDeviceProperties.deviceID ||
+					memcmp(header->pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
+				{
+					std::cout << "Invalid pipeline cache, something is seriously wrong. Exiting." << std::endl;
+					return;
+				}
+				
+				cereal::BinaryOutputArchive bin(stream);
+				bin(cacheData);
+			}
+			else
+				assert(false && "Failed to get pipeline cache.");
+		};
+
+		FileInfo cacheFileInfo;
+		saveBinaryFile(cacheFilePath, cacheFileInfo, savePipelineCacheData, false);
+	}
+
+	template <GraphicsBackend B>
 	PipelineLayoutContext<B> createPipelineLayoutContext(
 		Device<B> device,
 		const SerializableShaderReflectionModule<B>& slangModule) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		using VkPipelineLayoutContext = PipelineLayoutContext<B>;
@@ -1216,8 +1215,6 @@ private:
 		{
 			auto createShaderModule = [](Device<B> device, const ShaderEntry& shader)
 			{
-				static_assert(B == GraphicsBackend::Vulkan);
-
 				ZoneScopedN("createShaderModule");
 
 				VkShaderModuleCreateInfo info = {};
@@ -1258,8 +1255,6 @@ private:
 	template <GraphicsBackend B>
 	Instance<B> createInstance() const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		VkApplicationInfo appInfo = {};
@@ -1352,8 +1347,6 @@ private:
 	template <GraphicsBackend B>
 	Surface<B> createSurface(Instance<B> instance, void* view) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		Surface<B> surface;
@@ -1369,8 +1362,6 @@ private:
 		Queue<B>, int>
 	createDevice(Instance<B> instance, Surface<B> surface) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		Device<B> logicalDevice;
@@ -1518,17 +1509,25 @@ private:
 			selectedPresentMode, selectedFrameCount, selectedQueue, selectedQueueFamilyIndex);
 	}
 
-	void createSwapchain(int width, int height, VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE)
+	template <GraphicsBackend B>
+	void createSwapchain(
+		Device<B> device,
+		PhysicalDevice<B> physicalDevice,
+		VmaAllocator allocator,
+		int width,
+		int height,
+		WindowData<B>& window) const
 	{
 		ZoneScoped;
 
+		Swapchain<B> newSwapchain;
 		{
 			VkSwapchainCreateInfoKHR info = {};
 			info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-			info.surface = myWindow.surface;
+			info.surface = window.surface;
 			info.minImageCount = myFrameCount;
-			info.imageFormat = myWindow.surfaceFormat.format;
-			info.imageColorSpace = myWindow.surfaceFormat.colorSpace;
+			info.imageFormat = window.surfaceFormat.format;
+			info.imageColorSpace = window.surfaceFormat.colorSpace;
 			info.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 			info.imageArrayLayers = 1;
 			info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -1536,46 +1535,49 @@ private:
 				VK_SHARING_MODE_EXCLUSIVE; // Assume that graphics family == present family
 			info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 			info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-			info.presentMode = myWindow.presentMode;
+			info.presentMode = window.presentMode;
 			info.clipped = VK_TRUE;
-			info.oldSwapchain = oldSwapchain;
+			info.oldSwapchain = window.swapchain.swapchain;
 
-			CHECK_VK(vkCreateSwapchainKHR(myDevice, &info, nullptr, &myWindow.swapchain.swapchain));
+			CHECK_VK(vkCreateSwapchainKHR(device, &info, nullptr, &newSwapchain));
 		}
 
-		if (oldSwapchain)
+		if (window.swapchain.swapchain)
 		{
-			vkDestroySwapchainKHR(myDevice, oldSwapchain, nullptr);
+			vkDestroySwapchainKHR(device, window.swapchain.swapchain, nullptr);
 			vmaDestroyImage(
-				myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
+				allocator, window.swapchain.depthImage, window.swapchain.depthImageMemory);
 		}
+
+		window.swapchain.swapchain = newSwapchain;
 
 		uint32_t imageCount;
 		CHECK_VK(
-			vkGetSwapchainImagesKHR(myDevice, myWindow.swapchain.swapchain, &imageCount, nullptr));
-		myWindow.swapchain.frameBuffers.resize(imageCount);
-		myWindow.swapchain.colorImages.resize(imageCount);
-		myWindow.swapchain.colorImageViews.resize(imageCount);
+			vkGetSwapchainImagesKHR(device, window.swapchain.swapchain, &imageCount, nullptr));
+		window.swapchain.frameBuffers.resize(imageCount);
+		window.swapchain.colorImages.resize(imageCount);
+		window.swapchain.colorImageViews.resize(imageCount);
 		CHECK_VK(vkGetSwapchainImagesKHR(
-			myDevice, myWindow.swapchain.swapchain, &imageCount,
-			myWindow.swapchain.colorImages.data()));
+			device, window.swapchain.swapchain, &imageCount,
+			window.swapchain.colorImages.data()));
 
-		myWindow.depthFormat = findSupportedFormat(
-			myPhysicalDevice,
+		window.depthFormat = findSupportedFormat(
+			physicalDevice,
 			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
 		createImage2D(
-			width, height, myWindow.depthFormat, VK_IMAGE_TILING_OPTIMAL,
+			width, height, window.depthFormat, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory, "depthImage");
+			window.swapchain.depthImage, window.swapchain.depthImageMemory, "depthImage");
 
 		transitionImageLayout(
-			myWindow.swapchain.depthImage, myWindow.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
+			window.swapchain.depthImage, window.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 	}
 
-	VmaAllocator createAllocator(VkDevice device, VkPhysicalDevice physicalDevice) const
+	template <GraphicsBackend B>
+	VmaAllocator createAllocator(Device<B> device, PhysicalDevice<B> physicalDevice) const
 	{
 		ZoneScoped;
 
@@ -1620,10 +1622,8 @@ private:
 	}
 
 	template <GraphicsBackend B>
-	DescriptorPool<B> createDescriptorPool()
+	DescriptorPool<B> createDescriptorPool() const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		constexpr uint32_t maxDescriptorCount = 1000;
@@ -1653,12 +1653,13 @@ private:
 		return outDescriptorPool;
 	}
 
-	void createGraphicsRenderPass()
+	template <GraphicsBackend B>
+	RenderPass<B> createRenderPass(Device<B> device, const WindowData<B>& window)
 	{
 		ZoneScoped;
 
 		VkAttachmentDescription colorAttachment = {};
-		colorAttachment.format = myWindow.surfaceFormat.format;
+		colorAttachment.format = window.surfaceFormat.format;
 		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1668,7 +1669,7 @@ private:
 		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 		VkAttachmentDescription depthAttachment = {};
-		depthAttachment.format = myWindow.depthFormat;
+		depthAttachment.format = window.depthFormat;
 		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1709,8 +1710,10 @@ private:
 		renderPassInfo.dependencyCount = 1;
 		renderPassInfo.pDependencies = &dependency;
 
-		CHECK_VK(
-			vkCreateRenderPass(myDevice, &renderPassInfo, nullptr, &myGraphicsPipelineConfig.renderPass));
+		RenderPass<B> outRenderPass;
+		CHECK_VK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
+
+		return outRenderPass;
 	}
 
 	template <GraphicsBackend B>
@@ -1720,8 +1723,6 @@ private:
 		PipelineCache<B>& pipelineCache,
 		const Model<B>& model) const
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		VkPipelineShaderStageCreateInfo vsStageInfo = {};
@@ -1890,8 +1891,6 @@ private:
 	template <GraphicsBackend B>
 	void createPipelineConfig(Device<B> device, const Model<B>& model)
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		myGraphicsPipelineConfig.resources = &myResources;
@@ -2191,8 +2190,6 @@ private:
 	template <GraphicsBackend B>
 	Sampler<B> createTextureSampler(Device<B> device)
 	{
-		static_assert(B == GraphicsBackend::Vulkan);
-
 		ZoneScoped;
 
 		VkSamplerCreateInfo samplerInfo = {};
@@ -2317,7 +2314,7 @@ private:
 			updateProjectionMatrix(viewIndex);
 		}
 
-		createGraphicsRenderPass();
+		myGraphicsPipelineConfig.renderPass = createRenderPass<B>(myDevice, myWindow);
 
 		auto createSwapchainImageViews = [this]() {
 			ZoneScopedN("createSwapchainImageViews");
@@ -2967,21 +2964,22 @@ private:
 		TracyVkDestroy(myTracyContext);
 	}
 
-	void cleanupSwapchain()
+	template <GraphicsBackend B>
+	void cleanupSwapchain(Device<B> device, VmaAllocator vmaAllocator, SwapchainContext<B>& swapchain) const
 	{
 		ZoneScoped;
 
-		vmaDestroyImage(
-			myAllocator, myWindow.swapchain.depthImage, myWindow.swapchain.depthImageMemory);
-		vkDestroySwapchainKHR(myDevice, myWindow.swapchain.swapchain, nullptr);
+		vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
+		vmaDestroyImage(vmaAllocator, swapchain.depthImage, swapchain.depthImageMemory);
 	}
 
+	template <GraphicsBackend B>
 	void cleanup()
 	{
 		ZoneScoped;
 
 		cleanupFrameResources();
-		cleanupSwapchain();
+		cleanupSwapchain<B>(myDevice, myAllocator, myWindow.swapchain);
 
 		ImGui_ImplVulkan_Shutdown();
 		ImGui::DestroyContext();
@@ -3037,15 +3035,15 @@ private:
 		glm::mat4 pad;
 	};
 
-	Instance<GraphicsBackend::Vulkan> myInstance;
+	Instance<B> myInstance;
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
-	PhysicalDevice<GraphicsBackend::Vulkan> myPhysicalDevice;
-	PhysicalDeviceProperties<GraphicsBackend::Vulkan> myPhysicalDeviceProperties;
-	Device<GraphicsBackend::Vulkan> myDevice;
+	PhysicalDevice<B> myPhysicalDevice;
+	PhysicalDeviceProperties<B> myPhysicalDeviceProperties;
+	Device<B> myDevice;
 	VmaAllocator myAllocator = VK_NULL_HANDLE;
 	int myQueueFamilyIndex = -1;
-	Queue<GraphicsBackend::Vulkan> myQueue;
-	DescriptorPool<GraphicsBackend::Vulkan> myDescriptorPool;
+	Queue<B> myQueue;
+	DescriptorPool<B> myDescriptorPool;
 
 	std::vector<VkCommandPool> myFrameCommandPools;		 // count = [threadCount]
 	std::vector<VkCommandBuffer> myFrameCommandBuffers;  // count = [frameCount*threadCount] [f0cb0
@@ -3059,14 +3057,14 @@ private:
 	static constexpr uint32_t NX = 2;
 	static constexpr uint32_t NY = 1;
 
-	WindowData<GraphicsBackend::Vulkan> myWindow;
-	GraphicsPipelineResourceContext<GraphicsBackend::Vulkan> myResources;
-	PipelineLayoutContext<GraphicsBackend::Vulkan> myGraphicsPipelineLayout;
-	PipelineConfiguration<GraphicsBackend::Vulkan> myGraphicsPipelineConfig;
-	Pipeline<GraphicsBackend::Vulkan> myGraphicsPipeline; // ~ "PSO"
-	PipelineCache<GraphicsBackend::Vulkan> myPipelineCache;
+	WindowData<B> myWindow;
+	GraphicsPipelineResourceContext<B> myResources;
+	PipelineLayoutContext<B> myGraphicsPipelineLayout;
+	PipelineConfiguration<B> myGraphicsPipelineConfig;
+	Pipeline<B> myGraphicsPipeline; // ~ "PSO"
+	PipelineCache<B> myPipelineCache;
 
-	using DescriptorSetVector = std::vector<DescriptorSet<GraphicsBackend::Vulkan>>;
+	using DescriptorSetVector = std::vector<DescriptorSet<B>>;
 	DescriptorSetVector myDescriptorSets;
 
 	std::filesystem::path myResourcePath;
@@ -3088,7 +3086,7 @@ private:
 	TracyVkCtx myTracyContext;
 };
 
-static VulkanApplication* theApp = nullptr;
+static Application<GraphicsBackend::Vulkan>* theApp = nullptr;
 
 int vkapp_create(
 	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
@@ -3120,7 +3118,7 @@ int vkapp_create(
 			std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
 	}
 
-	theApp = new VulkanApplication(
+	theApp = new Application<GraphicsBackend::Vulkan>(
 		view, width, height, framebufferWidth, framebufferHeight,
 		resourcePath ? resourcePath : "./", verbose);
 
