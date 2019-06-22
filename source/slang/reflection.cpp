@@ -1004,7 +1004,7 @@ SLANG_API SlangReflectionUserAttribute* spReflectionVariable_FindUserAttributeBy
 
     auto varDecl = convert(inVar);
     if (!varDecl) return 0;
-    return findUserAttributeByName(convert(session), varDecl, name);
+    return findUserAttributeByName(Slang::Reflection::convert(session), varDecl, name);
 }
 
 // Variable Layout Reflection
