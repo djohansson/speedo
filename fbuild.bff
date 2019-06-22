@@ -145,13 +145,8 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif
 	#if __OSX__
 		.UnityInputFiles + {
-			'$ProjectPath$/external/glfw/src/cocoa_init.m',
-			'$ProjectPath$/external/glfw/src/cocoa_joystick.m',
-            '$ProjectPath$/external/glfw/src/cocoa_monitor.m',
-			'$ProjectPath$/external/glfw/src/cocoa_window.m',
 			'$ProjectPath$/external/glfw/src/cocoa_time.c',
 			'$ProjectPath$/external/glfw/src/posix_thread.c',
-            '$ProjectPath$/external/glfw/src/nsgl_context.m',
 		}
 	#endif //__OSX__
 	#if __LINUX__
@@ -185,6 +180,13 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif //__LINUX__
 
 		.CompilerInputUnity = '$ConfigName$-glfw-unity'
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/glfw/src/cocoa_init.m',
+			'$ProjectPath$/external/glfw/src/cocoa_joystick.m',
+            '$ProjectPath$/external/glfw/src/cocoa_monitor.m',
+			'$ProjectPath$/external/glfw/src/cocoa_window.m',
+			'$ProjectPath$/external/glfw/src/nsgl_context.m',
+		}
 		.CompilerOutputPath = '$IntermediateFilePath$'
 
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$glfw$LibSuffix$'
