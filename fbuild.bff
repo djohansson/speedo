@@ -180,6 +180,7 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif //__LINUX__
 
 		.CompilerInputUnity = '$ConfigName$-glfw-unity'
+	#if __OSX__
 		.CompilerInputFiles = {
 			'$ProjectPath$/external/glfw/src/cocoa_init.m',
 			'$ProjectPath$/external/glfw/src/cocoa_joystick.m',
@@ -187,6 +188,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/glfw/src/cocoa_window.m',
 			'$ProjectPath$/external/glfw/src/nsgl_context.m',
 		}
+	#endif //__OSX__
 		.CompilerOutputPath = '$IntermediateFilePath$'
 
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$glfw$LibSuffix$'
@@ -277,7 +279,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'freetype2-unity*.c'
 	}
 
-	ObjectList('$ConfigName$-freetype2')
+	Library('$ConfigName$-freetype2')
 	{
 		.IntermediateFilePath + '/freetype2'
 
@@ -287,6 +289,8 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.CompilerInputUnity = '$ConfigName$-freetype2-unity'
 		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$freetype2$LibSuffix$'
 	}
 
 	Unity('$ConfigName$-imgui-unity')
@@ -304,9 +308,9 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.UnityOutputPath = '$IntermediateFilePath$/external/imgui'
 		.UnityOutputPattern = 'imgui-unity*.cpp'
-		}
+	}
 
-	ObjectList('$ConfigName$-imgui')
+	Library('$ConfigName$-imgui')
 	{
 		.IntermediateFilePath + '/imgui'
 
@@ -319,9 +323,11 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.CompilerInputUnity = '$ConfigName$-imgui-unity'
 		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$imgui$LibSuffix$'
 	}
 
-	ObjectList('$ConfigName$-gl3w')
+	Library('$ConfigName$-gl3w')
 	{
 		.IntermediateFilePath + '/gl3w'
 
@@ -332,6 +338,8 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/gl3w/src/gl3w.c',
 		}
 		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$gl3w$LibSuffix$'
 	}
 
 	ObjectList('$ConfigName$-tracy-client')
@@ -353,46 +361,44 @@ ForEach(.Config in .Clang_x64_Configs)
 		.CompilerOutputPath = '$IntermediateFilePath$'
 	}
 
-	ObjectList('$ConfigName$-tracy-nfd-c')
+	// todo: replace with code directly under external
+	Library('$ConfigName$-tracy-nfd')
 	{
 		.IntermediateFilePath + '/tracy-nfd'
-
-		.CompilerOptions + .CompilerOptionsC
-			+ ' -I$ProjectPath$/external/tracy'
 
 		.CompilerInputFiles = {
 			'$ProjectPath$/external/tracy/nfd/nfd_common.c'
 		}
 
-	#if __OSX__
-		.CompilerInputFiles + {
-			'$ProjectPath$/external/tracy/nfd/nfd_cocoa.m'
-		}
-	#endif //__OSX__
-	#if __LINUX__
-		.CompilerInputFiles + {
-			'$ProjectPath$/external/tracy/nfd/nfd_gtk.c'
-		}
-	#endif //__LINUX__
-
-		.CompilerOutputPath = '$IntermediateFilePath$'
-	}
-
-#if __WINDOWS__
-	ObjectList('$ConfigName$-tracy-nfd-cpp')
-	{
-		.IntermediateFilePath + '/tracy-nfd'
-
+	#if __WINDOWS__
 		.CompilerOptions + .CompilerOptionsCpp
 			+ ' -I$ProjectPath$/external/tracy'
 
 		.CompilerInputFiles = {
 			'$ProjectPath$/external/tracy/nfd/nfd_win.cpp'
 		}
+	#endif
+	#if __OSX__
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/tracy'
+
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/tracy/nfd/nfd_cocoa.m'
+		}
+	#endif //__OSX__
+	#if __LINUX__
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/tracy'
+
+		.CompilerInputFiles + {
+			'$ProjectPath$/external/tracy/nfd/nfd_gtk.c'
+		}
+	#endif //__LINUX__
 
 		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$nfd$LibSuffix$'
 	}
-#endif
 
 	Unity('$ConfigName$-tracy-unity')
 	{
@@ -444,12 +450,9 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-glfw',
 			'$ConfigName$-imgui',
 			'$ConfigName$-freetype2',
-			'$ConfigName$-tracy-nfd-c',
+			'$ConfigName$-tracy-nfd',
 			'$ConfigName$-tracy',
 		}
-	#if __WINDOWS__
-		.Libraries + '$ConfigName$-tracy-nfd-cpp'
-	#endif //__WINDOWS__
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/tracy$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
@@ -746,6 +749,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$/external/cereal/include'
 			+ ' -I$ProjectPath$/external/picosha2'
 			+ ' -I$ProjectPath$/external/mio/include'
+			+ ' -I$ProjectPath$/external/tracy/nfd'
 			+ ' -I$ProjectPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DSLANG_STATIC'
@@ -770,6 +774,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ConfigName$-xxhash',
 			'$ConfigName$-imgui',
 			'$ConfigName$-freetype2',
+			'$ConfigName$-tracy-nfd',
 			'$ConfigName$-tracy-client',
 			'$ConfigName$-volcano',
 		}
@@ -845,6 +850,7 @@ ForEach(.Config in .Clang_x64_Configs)
 
 Alias('all')
 {
-	.Targets = .AllConfigNames
-//	.Targets = { 'debug' }
+//	.Targets = .AllConfigNames
+	.Targets = { 'debug' }
 }
+
