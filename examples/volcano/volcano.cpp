@@ -137,11 +137,14 @@ struct WindowData
 
 	bool clearEnable = true;
     ClearValue<B> clearValue;
+
+	std::vector<CommandBuffer<B>> commandBuffers;		// count = [frameCount*threadCount] [f0cb0
+														// f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
+	std::vector<Fence<B>> fences;						// count = [frameCount]
+	std::vector<Semaphore<B>> imageAcquiredSemaphores;	// count = [frameCount]
+	std::vector<Semaphore<B>> renderCompleteSemaphores;	// count = [frameCount]
     
-	uint32_t frameIndex;             // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
-    uint32_t semaphoreIndex;         // Current set of swapchain wait semaphores we're using (needs to be distinct from per frame data)
-    
-	// todo: decide where frame data should be owned. right now this is a bit unclear due to imgui legacy.
+	uint32_t frameIndex; // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
 	std::vector<Frame<B>> frames;
     
 	Buffer<B> uniformBuffer;
@@ -232,7 +235,7 @@ public:
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 		const char* resourcePath, bool /*verbose*/)
 		: myResourcePath(resourcePath)
-		, myFrameCommandBufferThreadCount(2)
+		, myCommandBufferThreadCount(2)
 		, myRequestedCommandBufferThreadCount(2)
 	{
 		ZoneScoped;
@@ -338,7 +341,7 @@ public:
 
 			cleanupFrameResources();
 
-			myFrameCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY);
+			myCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY);
 
 			std::vector<Model<B>*> models;
 			models.push_back(myResources.model.get());
@@ -464,7 +467,7 @@ private:
 			escBufferState = escState;
 		}
 
-		if (myFrameCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
+		if (myCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
 			window.createFrameResourcesFlag = true;
 
 		if (window.activeView)
@@ -2445,11 +2448,11 @@ private:
 			window.frames[imageIt].framebuffer = window.swapchain.frameBuffers[imageIt];
 		}
 
-		myFrameCommandPools.resize(myFrameCommandBufferThreadCount);
-		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * window.frames.size());
+		myFrameCommandPools.resize(myCommandBufferThreadCount);
+		window.commandBuffers.resize(myCommandBufferThreadCount * window.frames.size());
 
 		std::vector<VkCommandBuffer> threadCommandBuffers;
-		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
+		for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
 		{
 			myFrameCommandPools[cmdIt] = createCommandPool(
 				myDevice,
@@ -2463,41 +2466,41 @@ private:
 				window.frames.size());
 
 			for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
-				myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt] =
+				window.commandBuffers[myCommandBufferThreadCount * frameIt + cmdIt] =
 					threadCommandBuffers[frameIt];
 		}
 
-		myFrameFences.resize(window.frames.size());
-		myImageAcquiredSemaphores.resize(window.frames.size());
-		myRenderCompleteSemaphores.resize(window.frames.size());
+		window.fences.resize(window.frames.size());
+		window.imageAcquiredSemaphores.resize(window.frames.size());
+		window.renderCompleteSemaphores.resize(window.frames.size());
 
 		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 		{
 			VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-			CHECK_VK(vkCreateFence(myDevice, &fenceInfo, nullptr, &myFrameFences[frameIt]));
+			CHECK_VK(vkCreateFence(myDevice, &fenceInfo, nullptr, &window.fences[frameIt]));
 
 			VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 			CHECK_VK(vkCreateSemaphore(
-				myDevice, &semaphoreInfo, nullptr, &myImageAcquiredSemaphores[frameIt]));
+				myDevice, &semaphoreInfo, nullptr, &window.imageAcquiredSemaphores[frameIt]));
 			CHECK_VK(vkCreateSemaphore(
-				myDevice, &semaphoreInfo, nullptr, &myRenderCompleteSemaphores[frameIt]));
+				myDevice, &semaphoreInfo, nullptr, &window.renderCompleteSemaphores[frameIt]));
 
-			auto primaryCmd = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
+			auto primaryCmd = window.commandBuffers[myCommandBufferThreadCount * frameIt];
 
 			// IMGUI uses primary command buffer only
 			auto& fd = window.frames[frameIt];
 			fd.commandBuffer = primaryCmd;
-			fd.fence = myFrameFences[frameIt];
+			fd.fence = window.fences[frameIt];
 
 			auto& frame = window.frames[frameIt];
-			frame.imageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
-			frame.renderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
+			frame.imageAcquiredSemaphore = window.imageAcquiredSemaphores[frameIt];
+			frame.renderCompleteSemaphore = window.renderCompleteSemaphores[frameIt];
 		}
 
 		updateDescriptorSets(window);
 
-		myTracyContext = TracyVkContext(myPhysicalDevice, myDevice, myQueue, myFrameCommandBuffers[0]);
+		myTracyContext = TracyVkContext(myPhysicalDevice, myDevice, myQueue, window.commandBuffers[0]);
 	}
 
 	void checkFlipOrPresentResult(WindowData<B>& window, VkResult result) const
@@ -2706,7 +2709,7 @@ private:
 		{
 			// setup draw parameters
 			constexpr uint32_t drawCount = NX * NY;
-			uint32_t segmentCount = std::max(myFrameCommandBufferThreadCount - 1u, 1u);
+			uint32_t segmentCount = std::max(myCommandBufferThreadCount - 1u, 1u);
 
 			assert(myGraphicsPipelineConfig.resources != nullptr);
 			auto& resources = *myGraphicsPipelineConfig.resources;
@@ -2716,8 +2719,8 @@ private:
 			{
 				ZoneScopedN("beginSecondaryCommands");
 
-				VkCommandBuffer cmd = myFrameCommandBuffers
-					[window.frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+				VkCommandBuffer cmd = window.commandBuffers
+					[window.frameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
 
 				VkCommandBufferInheritanceInfo inherit = {
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
@@ -2756,8 +2759,8 @@ private:
 					[this, &resources, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt) {
 						ZoneScopedN("drawSegment");
 
-						VkCommandBuffer cmd = myFrameCommandBuffers
-							[frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+						VkCommandBuffer cmd = resources.window->commandBuffers
+							[frameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
 
 						//TracyVkZone(myTracyContext, cmd, "draw");
 
@@ -2828,8 +2831,8 @@ private:
 			// end secondary command buffers
 			for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 			{
-				VkCommandBuffer cmd = myFrameCommandBuffers
-						[window.frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+				VkCommandBuffer cmd = window.commandBuffers
+						[window.frameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
 				{
 					ZoneScopedN("endSecondaryCommands");
 
@@ -2886,8 +2889,8 @@ private:
 				frame.commandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			vkCmdExecuteCommands(
-				frame.commandBuffer, (myFrameCommandBufferThreadCount - 1),
-				&myFrameCommandBuffers[(window.frameIndex * myFrameCommandBufferThreadCount) + 1]);
+				frame.commandBuffer, (myCommandBufferThreadCount - 1),
+				&window.commandBuffers[(window.frameIndex * myCommandBufferThreadCount) + 1]);
 
 			vkCmdEndRenderPass(frame.commandBuffer);
 		}
@@ -2966,17 +2969,17 @@ private:
 
 		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 		{
-			vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
-			vkDestroySemaphore(myDevice, myImageAcquiredSemaphores[frameIt], nullptr);
-			vkDestroySemaphore(myDevice, myRenderCompleteSemaphores[frameIt], nullptr);
+			vkDestroyFence(myDevice, window.fences[frameIt], nullptr);
+			vkDestroySemaphore(myDevice, window.imageAcquiredSemaphores[frameIt], nullptr);
+			vkDestroySemaphore(myDevice, window.renderCompleteSemaphores[frameIt], nullptr);
 		}
 
 		std::vector<VkCommandBuffer> threadCommandBuffers(window.frames.size());
-		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
+		for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
 		{
 			for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 				threadCommandBuffers[frameIt] =
-					myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
+					window.commandBuffers[myCommandBufferThreadCount * frameIt + cmdIt];
 
 			vkFreeCommandBuffers(
 				myDevice, myFrameCommandPools[cmdIt], window.frames.size(), threadCommandBuffers.data());
@@ -3086,13 +3089,7 @@ private:
 	
 	DescriptorPool<B> myDescriptorPool;
 
-	std::vector<CommandPool<B>> myFrameCommandPools;		// count = [threadCount]
-	std::vector<CommandBuffer<B>> myFrameCommandBuffers;	// count = [frameCount*threadCount] [f0cb0
-															// f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
-	std::vector<Fence<B>> myFrameFences;					// count = [frameCount]
-	std::vector<Semaphore<B>> myImageAcquiredSemaphores;	// count = [frameCount]
-	std::vector<Semaphore<B>> myRenderCompleteSemaphores;	// count = [frameCount]
-
+	std::vector<CommandPool<B>> myFrameCommandPools; // count = [threadCount]
 	CommandPool<B> myTransferCommandPool;
 
 	static constexpr uint32_t NX = 2;
@@ -3109,7 +3106,7 @@ private:
 
 	std::filesystem::path myResourcePath;
 
-	uint32_t myFrameCommandBufferThreadCount = 0;
+	uint32_t myCommandBufferThreadCount = 0;
 	int myRequestedCommandBufferThreadCount = 0;
 
 	std::map<int, bool> myKeysPressed;
