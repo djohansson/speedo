@@ -184,8 +184,6 @@ struct SwapchainContext
 	SwapchainInfo<B> info;
 	Swapchain<B> swapchain;
 
-	std::vector<Framebuffer<B>> frameBuffers;
-
 	std::vector<Image<B>> colorImages;
 	std::vector<ImageView<B>> colorImageViews;
 

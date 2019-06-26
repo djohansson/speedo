@@ -106,12 +106,11 @@ struct ViewData
 };
 
 template <GraphicsBackend B>
-struct Frame
+struct FrameData
 {
-	Image<B> backbuffer;
-	ImageView<B> backbufferView;
-	Framebuffer<B> framebuffer;
-	CommandBuffer<B> commandBuffer;
+	uint32_t index = 0;
+	Framebuffer<B> frameBuffer;
+	std::vector<CommandBuffer<B>> commandBuffers; // count = [threadCount]
 	Fence<B> fence;
 	Semaphore<B> imageAcquiredSemaphore;
 	Semaphore<B> renderCompleteSemaphore;
@@ -137,16 +136,10 @@ struct WindowData
 
 	bool clearEnable = true;
     ClearValue<B> clearValue;
-
-	std::vector<CommandBuffer<B>> commandBuffers;		// count = [frameCount*threadCount] [f0cb0
-														// f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
-	std::vector<Fence<B>> fences;						// count = [frameCount]
-	std::vector<Semaphore<B>> imageAcquiredSemaphores;	// count = [frameCount]
-	std::vector<Semaphore<B>> renderCompleteSemaphores;	// count = [frameCount]
     
 	uint32_t frameIndex; // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
-	std::vector<Frame<B>> frames;
-    
+	std::vector<FrameData<B>> frames;
+
 	Buffer<B> uniformBuffer;
 	Allocation<B> uniformBufferMemory;
 
@@ -1631,9 +1624,10 @@ private:
 		uint32_t imageCount;
 		CHECK_VK(
 			vkGetSwapchainImagesKHR(device, window.swapchain.swapchain, &imageCount, nullptr));
-		window.swapchain.frameBuffers.resize(imageCount);
+		
 		window.swapchain.colorImages.resize(imageCount);
 		window.swapchain.colorImageViews.resize(imageCount);
+		
 		CHECK_VK(vkGetSwapchainImagesKHR(
 			device, window.swapchain.swapchain, &imageCount,
 			window.swapchain.colorImages.data()));
@@ -2399,28 +2393,6 @@ private:
 
 		createSwapchainImageViews();
 
-		auto createFramebuffers = [this, &window](uint32_t width, uint32_t height) {
-			ZoneScopedN("createFramebuffers");
-
-			std::array<VkImageView, 2> attachments = {nullptr, window.swapchain.depthTexture.imageView};
-			VkFramebufferCreateInfo info = {};
-			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			info.renderPass = myGraphicsPipelineConfig.renderPass;
-			info.attachmentCount = attachments.size();
-			info.pAttachments = attachments.data();
-			info.width = width;
-			info.height = height;
-			info.layers = 1;
-			for (uint32_t i = 0; i < window.swapchain.frameBuffers.size(); i++)
-			{
-				attachments[0] = window.swapchain.colorImageViews[i];
-				CHECK_VK(vkCreateFramebuffer(
-					myDevice, &info, nullptr, &window.swapchain.frameBuffers[i]));
-			}
-		};
-
-		createFramebuffers(window.framebufferWidth, window.framebufferHeight);
-
 		for (auto& model : models)
 		{
 			createPipelineConfig(myDevice, *model);
@@ -2438,69 +2410,70 @@ private:
 
 		window.frames.resize(window.swapchain.colorImages.size());
 
-		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
-		window.frameIndex = window.frames.size() - 1;
-		
-		for (uint32_t imageIt = 0; imageIt < window.frames.size(); imageIt++)
-		{
-			window.frames[imageIt].backbuffer = window.swapchain.colorImages[imageIt];
-			window.frames[imageIt].backbufferView = window.swapchain.colorImageViews[imageIt];
-			window.frames[imageIt].framebuffer = window.swapchain.frameBuffers[imageIt];
-		}
-
 		myFrameCommandPools.resize(myCommandBufferThreadCount);
-		window.commandBuffers.resize(myCommandBufferThreadCount * window.frames.size());
-
-		std::vector<VkCommandBuffer> threadCommandBuffers;
-		for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
+		for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
 		{
-			myFrameCommandPools[cmdIt] = createCommandPool(
+			myFrameCommandPools[threadIt] = createCommandPool(
 				myDevice,
 				VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT |
 					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 				myQueueFamilyIndex);
-
-			threadCommandBuffers = allocateCommandBuffers(
-				myDevice, myFrameCommandPools[cmdIt],
-				cmdIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY,
-				window.frames.size());
-
-			for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
-				window.commandBuffers[myCommandBufferThreadCount * frameIt + cmdIt] =
-					threadCommandBuffers[frameIt];
 		}
 
-		window.fences.resize(window.frames.size());
-		window.imageAcquiredSemaphores.resize(window.frames.size());
-		window.renderCompleteSemaphores.resize(window.frames.size());
+		auto createFramebuffer = [this, &window](uint frameIndex)
+		{
+			std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.swapchain.depthTexture.imageView};
+			VkFramebufferCreateInfo info = {};
+			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			info.renderPass = myGraphicsPipelineConfig.renderPass;
+			info.attachmentCount = attachments.size();
+			info.pAttachments = attachments.data();
+			info.width = window.framebufferWidth;
+			info.height = window.framebufferHeight;
+			info.layers = 1;
+
+			VkFramebuffer outFramebuffer = VK_NULL_HANDLE;
+			CHECK_VK(vkCreateFramebuffer(myDevice, &info, nullptr, &outFramebuffer));
+
+			return outFramebuffer;
+		};
 
 		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 		{
+			auto& frame = window.frames[frameIt];
+
+			frame.index = frameIt;
+
+			frame.frameBuffer = createFramebuffer(frameIt);
+			frame.commandBuffers.resize(myCommandBufferThreadCount);
+
+			for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
+			{
+				VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+				cmdInfo.commandPool = myFrameCommandPools[threadIt];
+				cmdInfo.level = threadIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+				cmdInfo.commandBufferCount = 1;
+				CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, &frame.commandBuffers[threadIt]));
+			}
+
 			VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-			CHECK_VK(vkCreateFence(myDevice, &fenceInfo, nullptr, &window.fences[frameIt]));
+			CHECK_VK(vkCreateFence(myDevice, &fenceInfo, nullptr, &frame.fence));
 
 			VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 			CHECK_VK(vkCreateSemaphore(
-				myDevice, &semaphoreInfo, nullptr, &window.imageAcquiredSemaphores[frameIt]));
+				myDevice, &semaphoreInfo, nullptr, &frame.imageAcquiredSemaphore));
 			CHECK_VK(vkCreateSemaphore(
-				myDevice, &semaphoreInfo, nullptr, &window.renderCompleteSemaphores[frameIt]));
-
-			auto primaryCmd = window.commandBuffers[myCommandBufferThreadCount * frameIt];
-
-			// IMGUI uses primary command buffer only
-			auto& fd = window.frames[frameIt];
-			fd.commandBuffer = primaryCmd;
-			fd.fence = window.fences[frameIt];
-
-			auto& frame = window.frames[frameIt];
-			frame.imageAcquiredSemaphore = window.imageAcquiredSemaphores[frameIt];
-			frame.renderCompleteSemaphore = window.renderCompleteSemaphores[frameIt];
+				myDevice, &semaphoreInfo, nullptr, &frame.renderCompleteSemaphore));
 		}
 
 		updateDescriptorSets(window);
 
-		myTracyContext = TracyVkContext(myPhysicalDevice, myDevice, myQueue, window.commandBuffers[0]);
+		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
+		window.frameIndex = window.frames.size() - 1;
+
+		// todo: set up on transfer commandlist
+		myTracyContext = TracyVkContext(myPhysicalDevice, myDevice, myQueue, window.frames[0].commandBuffers[0]);
 	}
 
 	void checkFlipOrPresentResult(WindowData<B>& window, VkResult result) const
@@ -2705,7 +2678,7 @@ private:
 			updateUniformBuffers(window);
 		}));
 
-		std::future<void> secondaryCommandsFuture(std::async(std::launch::async, [this, &window]
+		std::future<void> secondaryCommandsFuture(std::async(std::launch::async, [this, &window, &frame]
 		{
 			// setup draw parameters
 			constexpr uint32_t drawCount = NX * NY;
@@ -2719,13 +2692,12 @@ private:
 			{
 				ZoneScopedN("beginSecondaryCommands");
 
-				VkCommandBuffer cmd = window.commandBuffers
-					[window.frameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+				VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
 
 				VkCommandBufferInheritanceInfo inherit = {
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 				inherit.renderPass = myGraphicsPipelineConfig.renderPass;
-				inherit.framebuffer = window.frames[window.frameIndex].framebuffer;
+				inherit.framebuffer = frame.frameBuffer;
 
 				CHECK_VK(vkResetCommandBuffer(cmd, 0));
 				VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -2747,8 +2719,6 @@ private:
 				uint32_t dx = window.framebufferWidth / NX;
 				uint32_t dy = window.framebufferHeight / NY;
 
-				uint32_t frameIndex = window.frameIndex;
-
 				std::array<uint32_t, 128> seq;
 				std::iota(seq.begin(), seq.begin() + segmentCount, 0);
 				std::for_each_n(
@@ -2756,11 +2726,10 @@ private:
 	// 				std::execution::par,
 	// #endif
 					seq.begin(), segmentCount,
-					[this, &resources, &dx, &dy, &segmentDrawCount, &frameIndex](uint32_t segmentIt) {
+					[this, &resources, &dx, &dy, &segmentDrawCount, &frame](uint32_t segmentIt) {
 						ZoneScopedN("drawSegment");
 
-						VkCommandBuffer cmd = resources.window->commandBuffers
-							[frameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+						VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
 
 						//TracyVkZone(myTracyContext, cmd, "draw");
 
@@ -2807,12 +2776,12 @@ private:
 								vkCmdSetScissor(cmd, 0, 1, &scissor);
 							};
 
-							auto drawModel = [&n, &frameIndex](
+							auto drawModel = [&n, &frame](
 												VkCommandBuffer cmd, uint32_t indexCount,
 												uint32_t descriptorSetCount,
 												const VkDescriptorSet* descriptorSets,
 												VkPipelineLayout pipelineLayout) {
-								uint32_t uniformBufferOffset = (frameIndex * drawCount + n) * sizeof(UniformBufferObject);
+								uint32_t uniformBufferOffset = (frame.index * drawCount + n) * sizeof(UniformBufferObject);
 								vkCmdBindDescriptorSets(
 									cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
 									descriptorSetCount, descriptorSets, 1, &uniformBufferOffset);
@@ -2831,8 +2800,8 @@ private:
 			// end secondary command buffers
 			for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 			{
-				VkCommandBuffer cmd = window.commandBuffers
-						[window.frameIndex * myCommandBufferThreadCount + (segmentIt + 1)];
+				VkCommandBuffer cmd = frame.commandBuffers
+						[segmentIt + 1];
 				{
 					ZoneScopedN("endSecondaryCommands");
 
@@ -2848,20 +2817,20 @@ private:
 		{
 			ZoneScopedN("beginCommands");
 
-			CHECK_VK(vkResetCommandBuffer(frame.commandBuffer, 0));
+			CHECK_VK(vkResetCommandBuffer(frame.commandBuffers[0], 0));
 			VkCommandBufferBeginInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 			info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-			CHECK_VK(vkBeginCommandBuffer(frame.commandBuffer, &info));
+			CHECK_VK(vkBeginCommandBuffer(frame.commandBuffers[0], &info));
 		}
 
 		// collect timing scopes
 		{
 			ZoneScopedN("tracyVkCollect");
 
-			TracyVkZone(myTracyContext, frame.commandBuffer, "tracyVkCollect");
+			TracyVkZone(myTracyContext, frame.commandBuffers[0], "tracyVkCollect");
 
-			TracyVkCollect(myTracyContext, frame.commandBuffer);
+			TracyVkCollect(myTracyContext, frame.commandBuffers[0]);
 		}
 
 		// call secondary command buffers
@@ -2874,25 +2843,23 @@ private:
 
 			ZoneScopedN("executeCommands");
 
-			TracyVkZone(myTracyContext, frame.commandBuffer, "executeCommands");
+			TracyVkZone(myTracyContext, frame.commandBuffers[0], "executeCommands");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = myGraphicsPipelineConfig.renderPass;
-			beginInfo.framebuffer = frame.framebuffer;
+			beginInfo.framebuffer = frame.frameBuffer;
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent = {static_cast<uint32_t>(window.framebufferWidth),
 										   static_cast<uint32_t>(window.framebufferHeight)};
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
 			vkCmdBeginRenderPass(
-				frame.commandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+				frame.commandBuffers[0], &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-			vkCmdExecuteCommands(
-				frame.commandBuffer, (myCommandBufferThreadCount - 1),
-				&window.commandBuffers[(window.frameIndex * myCommandBufferThreadCount) + 1]);
+			vkCmdExecuteCommands(frame.commandBuffers[0], (myCommandBufferThreadCount - 1), &frame.commandBuffers[1]);
 
-			vkCmdEndRenderPass(frame.commandBuffer);
+			vkCmdEndRenderPass(frame.commandBuffers[0]);
 		}
 
 		// Record Imgui Draw Data and draw funcs into primary command buffer
@@ -2900,22 +2867,22 @@ private:
 		{
 			ZoneScopedN("drawIMGUI");
 
-			TracyVkZone(myTracyContext, frame.commandBuffer, "drawIMGUI");
+			TracyVkZone(myTracyContext, frame.commandBuffers[0], "drawIMGUI");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = myGraphicsPipelineConfig.renderPass;
-			beginInfo.framebuffer = frame.framebuffer;
+			beginInfo.framebuffer = frame.frameBuffer;
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent.width = window.framebufferWidth;
 			beginInfo.renderArea.extent.height = window.framebufferHeight;
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
-			vkCmdBeginRenderPass(frame.commandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBeginRenderPass(frame.commandBuffers[0], &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.commandBuffer);
+			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.commandBuffers[0]);
 
-			vkCmdEndRenderPass(frame.commandBuffer);
+			vkCmdEndRenderPass(frame.commandBuffers[0]);
 		}
 
 		// Submit primary command buffer
@@ -2936,11 +2903,11 @@ private:
 			submitInfo.pWaitSemaphores = &imageAquiredSemaphore;
 			submitInfo.pWaitDstStageMask = &waitStage;
 			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &frame.commandBuffer;
+			submitInfo.pCommandBuffers = &frame.commandBuffers[0];
 			submitInfo.signalSemaphoreCount = 1;
 			submitInfo.pSignalSemaphores = &frame.renderCompleteSemaphore;
 
-			CHECK_VK(vkEndCommandBuffer(frame.commandBuffer));
+			CHECK_VK(vkEndCommandBuffer(frame.commandBuffers[0]));
 			CHECK_VK(vkQueueSubmit(myQueue, 1, &submitInfo, frame.fence));
 		}
 	}
@@ -2967,27 +2934,20 @@ private:
 
 		auto& window = *myResources.window;
 
-		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
+		for (auto& frame : window.frames)
 		{
-			vkDestroyFence(myDevice, window.fences[frameIt], nullptr);
-			vkDestroySemaphore(myDevice, window.imageAcquiredSemaphores[frameIt], nullptr);
-			vkDestroySemaphore(myDevice, window.renderCompleteSemaphores[frameIt], nullptr);
+			vkDestroyFence(myDevice, frame.fence, nullptr);
+			vkDestroySemaphore(myDevice, frame.imageAcquiredSemaphore, nullptr);
+			vkDestroySemaphore(myDevice, frame.renderCompleteSemaphore, nullptr);
+
+			for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
+				vkFreeCommandBuffers(myDevice, myFrameCommandPools[threadIt], 1, &frame.commandBuffers[threadIt]);
+
+			vkDestroyFramebuffer(myDevice, frame.frameBuffer, nullptr);
 		}
 
-		std::vector<VkCommandBuffer> threadCommandBuffers(window.frames.size());
-		for (uint32_t cmdIt = 0; cmdIt < myCommandBufferThreadCount; cmdIt++)
-		{
-			for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
-				threadCommandBuffers[frameIt] =
-					window.commandBuffers[myCommandBufferThreadCount * frameIt + cmdIt];
-
-			vkFreeCommandBuffers(
-				myDevice, myFrameCommandPools[cmdIt], window.frames.size(), threadCommandBuffers.data());
-			vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
-		}
-
-		for (VkFramebuffer framebuffer : window.swapchain.frameBuffers)
-			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
+		for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
+			vkDestroyCommandPool(myDevice, myFrameCommandPools[threadIt], nullptr);	
 
 		vkDestroyImageView(myDevice, window.swapchain.depthTexture.imageView, nullptr);
 
