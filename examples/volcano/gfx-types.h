@@ -189,7 +189,20 @@ struct SwapchainContext
 	std::vector<Image<B>> colorImages;
 	std::vector<ImageView<B>> colorImageViews;
 
-	Image<B> depthImage;
-	Allocation<B> depthImageMemory;
-	ImageView<B> depthImageView;
+	Texture<B> depthTexture;
 };
+
+template <GraphicsBackend B>
+using CommandPool = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandPool, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using CommandBuffer = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBuffer, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using Fence = std::conditional_t<B == GraphicsBackend::Vulkan, VkFence, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using Semaphore = std::conditional_t<B == GraphicsBackend::Vulkan, VkSemaphore, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;

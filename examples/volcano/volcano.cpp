@@ -1,6 +1,4 @@
-// wip: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
-// 		 members where possible
-// wip: separate VK objects from generic ones.
+// wip: separate VK objects from generic ones. create constructors/destructors for composite structs, and use shared_ptrs when referencing them.
 // wip: dynamic mesh layout, depending on input data structure
 // wip: instrumentation and timing information
 // todo: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
@@ -12,6 +10,9 @@
 // todo: compute pipeline
 // todo: clustered forward shading
 // todo: shader graph
+
+// done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
+// 		 members where possible
 
 #include "volcano.h"
 #include "aabb.h"
@@ -105,16 +106,28 @@ struct ViewData
 };
 
 template <GraphicsBackend B>
-using ImGui_WindowData =
-	std::conditional_t<B == GraphicsBackend::Vulkan, ImGui_ImplVulkanH_Window, std::nullptr_t>;
-
-template <GraphicsBackend B>
 struct ImGuiData
 {
-	ImGui_WindowData<B> window;
 	std::vector<ImFont*> fonts;
 
 	bool enable = false;
+};
+
+template <GraphicsBackend B>
+struct Frame
+{
+	CommandBuffer<B> commandBuffer;
+	Fence<B> fence;
+	Image<B> backbuffer;
+	ImageView<B> backbufferView;
+	Framebuffer<B> framebuffer;
+};
+
+template <GraphicsBackend B>
+struct FrameSemaphores
+{
+	Semaphore<B> imageAcquiredSemaphore;
+	Semaphore<B> renderCompleteSemaphore;
 };
 
 template <GraphicsBackend B>
@@ -134,6 +147,16 @@ struct WindowData
 
 	std::vector<ViewData> views;
 	std::optional<size_t> activeView;
+
+	bool clearEnable = true;
+    ClearValue<B> clearValue;
+    
+	uint32_t frameIndex;             // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
+    uint32_t semaphoreIndex;         // Current set of swapchain wait semaphores we're using (needs to be distinct from per frame data)
+    
+	// todo: decide where frame data should be owned. right now this is a bit unclear due to imgui legacy.
+	std::vector<Frame<B>> frames;
+    std::vector<FrameSemaphores<B>> frameSemaphores;
 
 	Buffer<B> uniformBuffer;
 	Allocation<B> uniformBufferMemory;
@@ -244,9 +267,11 @@ public:
 		window.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
 		window.surface = createSurface<B>(myInstance, view);
 
+		uint32_t frameCount = 0;
+
 		std::tie(
 			myDevice, myPhysicalDevice, myPhysicalDeviceProperties, window.swapchain.info, window.surfaceFormat,
-			window.presentMode, myFrameCount, myQueue, myQueueFamilyIndex) =
+			window.presentMode, frameCount, myQueue, myQueueFamilyIndex) =
 			createDevice<B>(myInstance, window.surface);
 
 		myAllocator = createAllocator<B>(myDevice, myPhysicalDevice);
@@ -267,7 +292,7 @@ public:
 		myResources.texture = loadTexture<B>(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 
 		createBuffer(
-			myFrameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			frameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, window.uniformBuffer,
 			window.uniformBufferMemory, "uniformBuffer");
 
@@ -276,7 +301,7 @@ public:
 			myPhysicalDeviceProperties,
 			std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"));
 
-		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, *myResources.window);
+		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, frameCount, *myResources.window);
 
 		std::vector<Model<B>*> models;
 		models.push_back(myResources.model.get());
@@ -380,7 +405,7 @@ public:
 		window.framebufferWidth = width;
 		window.framebufferHeight = height;
 
-		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, window);
+		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, window.swapchain.colorImages.size(), window);
 
 		std::vector<Model<B>*> models;
 		models.push_back(myResources.model.get());
@@ -544,7 +569,7 @@ private:
 			ImGui::DragInt(
 				"Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
 			ImGui::ColorEdit3(
-				"Clear Color", &window.imgui.window.ClearValue.color.float32[0]);
+				"Clear Color", &window.clearValue.color.float32[0]);
 			ImGui::End();
 		}
 
@@ -1579,6 +1604,7 @@ private:
 		Device<B> device,
 		PhysicalDevice<B> physicalDevice,
 		VmaAllocator allocator,
+		uint32_t frameCount,
 		WindowData<B>& window) const
 	{
 		ZoneScoped;
@@ -1588,7 +1614,7 @@ private:
 			VkSwapchainCreateInfoKHR info = {};
 			info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 			info.surface = window.surface;
-			info.minImageCount = myFrameCount;
+			info.minImageCount = frameCount;
 			info.imageFormat = window.surfaceFormat.format;
 			info.imageColorSpace = window.surfaceFormat.colorSpace;
 			info.imageExtent = {window.framebufferWidth, window.framebufferHeight};
@@ -1609,7 +1635,7 @@ private:
 		{
 			vkDestroySwapchainKHR(device, window.swapchain.swapchain, nullptr);
 			vmaDestroyImage(
-				allocator, window.swapchain.depthImage, window.swapchain.depthImageMemory);
+				allocator, window.swapchain.depthTexture.image, window.swapchain.depthTexture.imageMemory);
 		}
 
 		window.swapchain.swapchain = newSwapchain;
@@ -1632,10 +1658,10 @@ private:
 		createImage2D(
 			window.framebufferWidth, window.framebufferHeight, window.depthFormat, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			window.swapchain.depthImage, window.swapchain.depthImageMemory, "depthImage");
+			window.swapchain.depthTexture.image, window.swapchain.depthTexture.imageMemory, "depthImage");
 
 		transitionImageLayout(
-			window.swapchain.depthImage, window.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
+			window.swapchain.depthTexture.image, window.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 	}
 
@@ -2329,8 +2355,8 @@ private:
 		initInfo.Queue = myQueue;
 		initInfo.PipelineCache = VK_NULL_HANDLE;
 		initInfo.DescriptorPool = myDescriptorPool;
-		initInfo.MinImageCount = myFrameCount;
-		initInfo.ImageCount = myFrameCount;
+		initInfo.MinImageCount = window.swapchain.colorImages.size();
+		initInfo.ImageCount = window.swapchain.colorImages.size();
 		initInfo.Allocator = nullptr; // myAllocator;
 		// initInfo.HostAllocationCallbacks = nullptr;
 		initInfo.CheckVkResultFn = CHECK_VK;
@@ -2378,8 +2404,8 @@ private:
 					window.swapchain.colorImages[i], window.surfaceFormat.format,
 					VK_IMAGE_ASPECT_COLOR_BIT);
 
-			window.swapchain.depthImageView = createImageView2D(
-				window.swapchain.depthImage, window.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+			window.swapchain.depthTexture.imageView = createImageView2D(
+				window.swapchain.depthTexture.image, window.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 		};
 
 		createSwapchainImageViews();
@@ -2387,7 +2413,7 @@ private:
 		auto createFramebuffers = [this, &window](uint32_t width, uint32_t height) {
 			ZoneScopedN("createFramebuffers");
 
-			std::array<VkImageView, 2> attachments = {nullptr, window.swapchain.depthImageView};
+			std::array<VkImageView, 2> attachments = {nullptr, window.swapchain.depthTexture.imageView};
 			VkFramebufferCreateInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			info.renderPass = myGraphicsPipelineConfig.renderPass;
@@ -2415,43 +2441,27 @@ private:
 				myGraphicsPipelineLayout.descriptorSetLayouts.get_deleter().size);
 		}
 
-		auto& imguiWindow = window.imgui.window;
-		imguiWindow.ImageCount = myFrameCount;
-
 		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
-		imguiWindow.FrameIndex = imguiWindow.ImageCount - 1;
+		window.frameIndex = window.swapchain.colorImages.size() - 1;
 
-		imguiWindow.Width = window.framebufferWidth;
-		imguiWindow.Height = window.framebufferHeight;
+		window.clearEnable = true;
+		window.clearValue.color.float32[0] = 0.4f;
+		window.clearValue.color.float32[1] = 0.4f;
+		window.clearValue.color.float32[2] = 0.5f;
+		window.clearValue.color.float32[3] = 1.0f;
 
-		imguiWindow.Swapchain = window.swapchain.swapchain;
-		imguiWindow.SurfaceFormat = window.surfaceFormat;
-		imguiWindow.Surface = window.surface;
-		imguiWindow.PresentMode = window.presentMode;
-
-		imguiWindow.RenderPass = myGraphicsPipelineConfig.renderPass;
-
-		// we will clear before IMGUI, using imguiWindow.ClearValue
-		imguiWindow.ClearEnable = false;
-		imguiWindow.ClearValue.color.float32[0] = 0.4f;
-		imguiWindow.ClearValue.color.float32[1] = 0.4f;
-		imguiWindow.ClearValue.color.float32[2] = 0.5f;
-		imguiWindow.ClearValue.color.float32[3] = 1.0f;
-
-		imguiWindow.Frames =
-			(ImGui_ImplVulkanH_Frame*)malloc(sizeof(ImGui_ImplVulkanH_Frame) * imguiWindow.ImageCount);
-		imguiWindow.FrameSemaphores = (ImGui_ImplVulkanH_FrameSemaphores*)malloc(
-			sizeof(ImGui_ImplVulkanH_FrameSemaphores) * imguiWindow.ImageCount);
+		window.frames.resize(window.swapchain.colorImages.size());
+		window.frameSemaphores.resize(window.swapchain.colorImages.size());
 
 		for (uint32_t imageIt = 0; imageIt < window.swapchain.colorImages.size(); imageIt++)
 		{
-			imguiWindow.Frames[imageIt].Backbuffer = window.swapchain.colorImages[imageIt];
-			imguiWindow.Frames[imageIt].BackbufferView = window.swapchain.colorImageViews[imageIt];
-			imguiWindow.Frames[imageIt].Framebuffer = window.swapchain.frameBuffers[imageIt];
+			window.frames[imageIt].backbuffer = window.swapchain.colorImages[imageIt];
+			window.frames[imageIt].backbufferView = window.swapchain.colorImageViews[imageIt];
+			window.frames[imageIt].framebuffer = window.swapchain.frameBuffers[imageIt];
 		}
 
 		myFrameCommandPools.resize(myFrameCommandBufferThreadCount);
-		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * myFrameCount);
+		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * window.swapchain.colorImages.size());
 
 		std::vector<VkCommandBuffer> threadCommandBuffers;
 		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
@@ -2465,18 +2475,18 @@ private:
 			threadCommandBuffers = allocateCommandBuffers(
 				myDevice, myFrameCommandPools[cmdIt],
 				cmdIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY,
-				myFrameCount);
+				window.swapchain.colorImages.size());
 
-			for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
+			for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
 				myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt] =
 					threadCommandBuffers[frameIt];
 		}
 
-		myFrameFences.resize(myFrameCount);
-		myImageAcquiredSemaphores.resize(myFrameCount);
-		myRenderCompleteSemaphores.resize(myFrameCount);
+		myFrameFences.resize(window.swapchain.colorImages.size());
+		myImageAcquiredSemaphores.resize(window.swapchain.colorImages.size());
+		myRenderCompleteSemaphores.resize(window.swapchain.colorImages.size());
 
-		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
+		for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
 		{
 			VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -2491,14 +2501,13 @@ private:
 			auto primaryCmd = myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt];
 
 			// IMGUI uses primary command buffer only
-			auto& fd = imguiWindow.Frames[frameIt];
-			fd.CommandPool = myFrameCommandPools[0];
-			fd.CommandBuffer = primaryCmd;
-			fd.Fence = myFrameFences[frameIt];
+			auto& fd = window.frames[frameIt];
+			fd.commandBuffer = primaryCmd;
+			fd.fence = myFrameFences[frameIt];
 
-			auto& fs = imguiWindow.FrameSemaphores[frameIt];
-			fs.ImageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
-			fs.RenderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
+			auto& fs = window.frameSemaphores[frameIt];
+			fs.imageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
+			fs.renderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 
 		updateDescriptorSets(window);
@@ -2546,7 +2555,7 @@ private:
 		view.projection = clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
 	}
 
-	void updateUniformBuffers(WindowData<B>& window, uint32_t frameIndex) const
+	void updateUniformBuffers(WindowData<B>& window) const
 	{
 		ZoneScoped;
 
@@ -2560,7 +2569,7 @@ private:
 
 		for (uint32_t n = 0; n < (NX * NY); n++)
 		{
-			UniformBufferObject& ubo = reinterpret_cast<UniformBufferObject*>(data)[frameIndex * (NX * NY) + n];
+			UniformBufferObject& ubo = reinterpret_cast<UniformBufferObject*>(data)[window.frameIndex * (NX * NY) + n];
 
 			// float tp = fmod((0.0025f * n) + t, period);
 			// float s = smootherstep(
@@ -2607,7 +2616,7 @@ private:
 		vmaFlushAllocation(
 			myAllocator,
 			window.uniformBufferMemory,
-			sizeof(UniformBufferObject) * frameIndex * (NX * NY),
+			sizeof(UniformBufferObject) * window.frameIndex * (NX * NY),
 			sizeof(UniformBufferObject) * (NX * NY));
 
 		vmaUnmapMemory(myAllocator, window.uniformBufferMemory);
@@ -2659,59 +2668,57 @@ private:
 	{
 		ZoneScoped;
 
-		auto& imguiWindow = window.imgui.window;
-
 		VkSemaphore& imageAquiredSemaphore =
-			imguiWindow.FrameSemaphores[imguiWindow.FrameIndex].ImageAcquiredSemaphore;
+			window.frameSemaphores[window.frameIndex].imageAcquiredSemaphore;
 
 		{
 			ZoneScopedN("acquireNextImage");
 
 			checkFlipOrPresentResult(window, vkAcquireNextImageKHR(
-				myDevice, imguiWindow.Swapchain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE,
-				&imguiWindow.FrameIndex));
+				myDevice, window.swapchain.swapchain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE,
+				&window.frameIndex));
 		}
 
 		/* TODO: MGPU method from vk 1.1 spec
 		{
 			VkAcquireNextImageInfoKHR nextImageInfo = {};
 			nextImageInfo.sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR;
-			nextImageInfo.swapchain = imguiWindow.Swapchain;
+			nextImageInfo.swapchain = window.wwapchain;
 			nextImageInfo.timeout = UINT64_MAX;
 			nextImageInfo.semaphore = imageAquiredSemaphore;
 			nextImageInfo.fence = VK_NULL_HANDLE;
 			nextImageInfo.deviceMask = ?;
 
-			checkFlipOrPresentResult(vkAcquireNextImage2KHR(myDevice, &nextImageInfo,
-		&imguiWindow.FrameIndex));
+			checkFlipOrPresentResult(window, vkAcquireNextImage2KHR(myDevice, &nextImageInfo,
+		&window.frameIndex));
 		}
 		 */
 
-		auto& frame = imguiWindow.Frames[imguiWindow.FrameIndex];
-		auto& frameSemaphores = imguiWindow.FrameSemaphores[imguiWindow.FrameIndex];
+		auto& frame = window.frames[window.frameIndex];
+		auto& frameSemaphores = window.frameSemaphores[window.frameIndex];
 
 		std::array<VkClearValue, 2> clearValues = {};
-		clearValues[0] = imguiWindow.ClearValue;
+		clearValues[0] = window.clearValue;
 		clearValues[1].depthStencil = {1.0f, 0};
 
 		// wait for frame to be completed before starting to use it
 		{
 			ZoneScopedN("waitForFrameFence");
 
-			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.Fence, VK_TRUE, UINT64_MAX));
-			CHECK_VK(vkResetFences(myDevice, 1, &frame.Fence));
+			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.fence, VK_TRUE, UINT64_MAX));
+			CHECK_VK(vkResetFences(myDevice, 1, &frame.fence));
 
 			auto lastGraphicsFrameTimestamp = window.graphicsFrameTimestamp;
 			window.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
 			window.graphicsDeltaTime = window.graphicsFrameTimestamp - lastGraphicsFrameTimestamp;
 		}
 
-		std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this, &window, &imguiWindow]
+		std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this, &window]
 		{
-			updateUniformBuffers(window, imguiWindow.FrameIndex);
+			updateUniformBuffers(window);
 		}));
 
-		std::future<void> secondaryCommandsFuture(std::async(std::launch::async, [this, &window, &imguiWindow]
+		std::future<void> secondaryCommandsFuture(std::async(std::launch::async, [this, &window]
 		{
 			// setup draw parameters
 			constexpr uint32_t drawCount = NX * NY;
@@ -2726,12 +2733,12 @@ private:
 				ZoneScopedN("beginSecondaryCommands");
 
 				VkCommandBuffer cmd = myFrameCommandBuffers
-					[imguiWindow.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+					[window.frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 
 				VkCommandBufferInheritanceInfo inherit = {
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 				inherit.renderPass = myGraphicsPipelineConfig.renderPass;
-				inherit.framebuffer = imguiWindow.Frames[imguiWindow.FrameIndex].Framebuffer;
+				inherit.framebuffer = window.frames[window.frameIndex].framebuffer;
 
 				CHECK_VK(vkResetCommandBuffer(cmd, 0));
 				VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -2753,7 +2760,7 @@ private:
 				uint32_t dx = window.framebufferWidth / NX;
 				uint32_t dy = window.framebufferHeight / NY;
 
-				uint32_t frameIndex = imguiWindow.FrameIndex;
+				uint32_t frameIndex = window.frameIndex;
 
 				std::array<uint32_t, 128> seq;
 				std::iota(seq.begin(), seq.begin() + segmentCount, 0);
@@ -2838,7 +2845,7 @@ private:
 			for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
 			{
 				VkCommandBuffer cmd = myFrameCommandBuffers
-						[imguiWindow.FrameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
+						[window.frameIndex * myFrameCommandBufferThreadCount + (segmentIt + 1)];
 				{
 					ZoneScopedN("endSecondaryCommands");
 
@@ -2857,20 +2864,20 @@ private:
 		{
 			ZoneScopedN("beginCommands");
 
-			CHECK_VK(vkResetCommandBuffer(frame.CommandBuffer, 0));
+			CHECK_VK(vkResetCommandBuffer(frame.commandBuffer, 0));
 			VkCommandBufferBeginInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 			info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-			CHECK_VK(vkBeginCommandBuffer(frame.CommandBuffer, &info));
+			CHECK_VK(vkBeginCommandBuffer(frame.commandBuffer, &info));
 		}
 
 		// collect timing scopes
 		{
 			ZoneScopedN("tracyVkCollect");
 
-			TracyVkZone(myTracyContext, frame.CommandBuffer, "tracyVkCollect");
+			TracyVkZone(myTracyContext, frame.commandBuffer, "tracyVkCollect");
 
-			TracyVkCollect(myTracyContext, frame.CommandBuffer);
+			TracyVkCollect(myTracyContext, frame.commandBuffer);
 		}
 
 		// call secondary command buffers
@@ -2883,25 +2890,25 @@ private:
 
 			ZoneScopedN("executeCommands");
 
-			TracyVkZone(myTracyContext, frame.CommandBuffer, "executeCommands");
+			TracyVkZone(myTracyContext, frame.commandBuffer, "executeCommands");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 			beginInfo.renderPass = myGraphicsPipelineConfig.renderPass;
-			beginInfo.framebuffer = frame.Framebuffer;
+			beginInfo.framebuffer = frame.framebuffer;
 			beginInfo.renderArea.offset = {0, 0};
 			beginInfo.renderArea.extent = {static_cast<uint32_t>(window.framebufferWidth),
 										   static_cast<uint32_t>(window.framebufferHeight)};
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
 			vkCmdBeginRenderPass(
-				frame.CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+				frame.commandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			vkCmdExecuteCommands(
-				frame.CommandBuffer, (myFrameCommandBufferThreadCount - 1),
-				&myFrameCommandBuffers[(imguiWindow.FrameIndex * myFrameCommandBufferThreadCount) + 1]);
+				frame.commandBuffer, (myFrameCommandBufferThreadCount - 1),
+				&myFrameCommandBuffers[(window.frameIndex * myFrameCommandBufferThreadCount) + 1]);
 
-			vkCmdEndRenderPass(frame.CommandBuffer);
+			vkCmdEndRenderPass(frame.commandBuffer);
 		}
 
 		// Record Imgui Draw Data and draw funcs into primary command buffer
@@ -2915,22 +2922,22 @@ private:
 			// 	drawIMGUIFuture.get();
 			// }
 
-			TracyVkZone(myTracyContext, frame.CommandBuffer, "drawIMGUI");
+			TracyVkZone(myTracyContext, frame.commandBuffer, "drawIMGUI");
 
 			VkRenderPassBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			beginInfo.renderPass = imguiWindow.RenderPass;
-			beginInfo.framebuffer = frame.Framebuffer;
+			beginInfo.renderPass = myGraphicsPipelineConfig.renderPass;
+			beginInfo.framebuffer = frame.framebuffer;
 			beginInfo.renderArea.offset = {0, 0};
-			beginInfo.renderArea.extent.width = imguiWindow.Width;
-			beginInfo.renderArea.extent.height = imguiWindow.Height;
+			beginInfo.renderArea.extent.width = window.framebufferWidth;
+			beginInfo.renderArea.extent.height = window.framebufferHeight;
 			beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 			beginInfo.pClearValues = clearValues.data();
-			vkCmdBeginRenderPass(frame.CommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBeginRenderPass(frame.commandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer);
+			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.commandBuffer);
 
-			vkCmdEndRenderPass(frame.CommandBuffer);
+			vkCmdEndRenderPass(frame.commandBuffer);
 		}
 
 		// Submit primary command buffer
@@ -2951,12 +2958,12 @@ private:
 			submitInfo.pWaitSemaphores = &imageAquiredSemaphore;
 			submitInfo.pWaitDstStageMask = &waitStage;
 			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &frame.CommandBuffer;
+			submitInfo.pCommandBuffers = &frame.commandBuffer;
 			submitInfo.signalSemaphoreCount = 1;
-			submitInfo.pSignalSemaphores = &frameSemaphores.RenderCompleteSemaphore;
+			submitInfo.pSignalSemaphores = &frameSemaphores.renderCompleteSemaphore;
 
-			CHECK_VK(vkEndCommandBuffer(frame.CommandBuffer));
-			CHECK_VK(vkQueueSubmit(myQueue, 1, &submitInfo, frame.Fence));
+			CHECK_VK(vkEndCommandBuffer(frame.commandBuffer));
+			CHECK_VK(vkQueueSubmit(myQueue, 1, &submitInfo, frame.fence));
 		}
 	}
 
@@ -2964,16 +2971,15 @@ private:
 	{
 		ZoneScoped;
 
-		auto& imguiWindow = window.imgui.window;
-		auto& fs = imguiWindow.FrameSemaphores[imguiWindow.FrameIndex];
+		auto& fs = window.frameSemaphores[window.frameIndex];
 
 		VkPresentInfoKHR info = {};
 		info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		info.waitSemaphoreCount = 1;
-		info.pWaitSemaphores = &fs.RenderCompleteSemaphore;
+		info.pWaitSemaphores = &fs.renderCompleteSemaphore;
 		info.swapchainCount = 1;
 		info.pSwapchains = &window.swapchain.swapchain;
-		info.pImageIndices = &imguiWindow.FrameIndex;
+		info.pImageIndices = &window.frameIndex;
 		checkFlipOrPresentResult(window, vkQueuePresentKHR(myQueue, &info));
 	}
 
@@ -2983,29 +2989,29 @@ private:
 
 		auto& window = *myResources.window;
 
-		for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
+		for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
 		{
 			vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
 			vkDestroySemaphore(myDevice, myImageAcquiredSemaphores[frameIt], nullptr);
 			vkDestroySemaphore(myDevice, myRenderCompleteSemaphores[frameIt], nullptr);
 		}
 
-		std::vector<VkCommandBuffer> threadCommandBuffers(myFrameCount);
+		std::vector<VkCommandBuffer> threadCommandBuffers(window.swapchain.colorImages.size());
 		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
 		{
-			for (uint32_t frameIt = 0; frameIt < myFrameCount; frameIt++)
+			for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
 				threadCommandBuffers[frameIt] =
 					myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
 
 			vkFreeCommandBuffers(
-				myDevice, myFrameCommandPools[cmdIt], myFrameCount, threadCommandBuffers.data());
+				myDevice, myFrameCommandPools[cmdIt], window.swapchain.colorImages.size(), threadCommandBuffers.data());
 			vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
 		}
 
 		for (VkFramebuffer framebuffer : window.swapchain.frameBuffers)
 			vkDestroyFramebuffer(myDevice, framebuffer, nullptr);
 
-		vkDestroyImageView(myDevice, window.swapchain.depthImageView, nullptr);
+		vkDestroyImageView(myDevice, window.swapchain.depthTexture.imageView, nullptr);
 
 		for (VkImageView imageView : window.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
@@ -3023,7 +3029,7 @@ private:
 		ZoneScoped;
 
 		vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
-		vmaDestroyImage(vmaAllocator, swapchain.depthImage, swapchain.depthImageMemory);
+		vmaDestroyImage(vmaAllocator, swapchain.depthTexture.image, swapchain.depthTexture.imageMemory);
 	}
 
 	template <GraphicsBackend B>
@@ -3093,22 +3099,26 @@ private:
 
 	Instance<B> myInstance;
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
+
 	PhysicalDevice<B> myPhysicalDevice;
 	PhysicalDeviceProperties<B> myPhysicalDeviceProperties;
 	Device<B> myDevice;
+	
 	VmaAllocator myAllocator = VK_NULL_HANDLE;
+	
 	int myQueueFamilyIndex = -1;
 	Queue<B> myQueue;
+	
 	DescriptorPool<B> myDescriptorPool;
 
-	std::vector<VkCommandPool> myFrameCommandPools;		 // count = [threadCount]
-	std::vector<VkCommandBuffer> myFrameCommandBuffers;  // count = [frameCount*threadCount] [f0cb0
-														 // f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
-	std::vector<VkFence> myFrameFences;					 // count = [frameCount]
-	std::vector<VkSemaphore> myImageAcquiredSemaphores;  // count = [frameCount]
-	std::vector<VkSemaphore> myRenderCompleteSemaphores; // count = [frameCount]
+	std::vector<CommandPool<B>> myFrameCommandPools;		// count = [threadCount]
+	std::vector<CommandBuffer<B>> myFrameCommandBuffers;	// count = [frameCount*threadCount] [f0cb0
+															// f0cb1 f1cb0 f1cb1 f2cb0 f2cb1 ...]
+	std::vector<Fence<B>> myFrameFences;					// count = [frameCount]
+	std::vector<Semaphore<B>> myImageAcquiredSemaphores;	// count = [frameCount]
+	std::vector<Semaphore<B>> myRenderCompleteSemaphores;	// count = [frameCount]
 
-	VkCommandPool myTransferCommandPool;
+	CommandPool<B> myTransferCommandPool;
 
 	static constexpr uint32_t NX = 2;
 	static constexpr uint32_t NY = 1;
@@ -3124,7 +3134,6 @@ private:
 
 	std::filesystem::path myResourcePath;
 
-	uint32_t myFrameCount = 0;
 	uint32_t myFrameCommandBufferThreadCount = 0;
 	int myRequestedCommandBufferThreadCount = 0;
 
