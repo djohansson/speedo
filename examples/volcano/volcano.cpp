@@ -106,14 +106,6 @@ struct ViewData
 };
 
 template <GraphicsBackend B>
-struct ImGuiData
-{
-	std::vector<ImFont*> fonts;
-
-	bool enable = false;
-};
-
-template <GraphicsBackend B>
 struct Frame
 {
 	CommandBuffer<B> commandBuffer;
@@ -161,11 +153,10 @@ struct WindowData
 	Buffer<B> uniformBuffer;
 	Allocation<B> uniformBufferMemory;
 
-	ImGuiData<B> imgui;
-
 	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
 	std::chrono::duration<double> graphicsDeltaTime;
 
+	bool imguiEnable = true;
 	bool createFrameResourcesFlag = false;
 };
 
@@ -475,7 +466,7 @@ private:
 			static bool escBufferState = false;
 			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
 			if (escState && !escBufferState)
-				window.imgui.enable = !window.imgui.enable;
+				window.imguiEnable = !window.imguiEnable;
 			escBufferState = escState;
 		}
 
@@ -2334,17 +2325,18 @@ private:
 			"ProggyClean.ttf",	 "ProggyTiny.ttf", "Roboto-Medium.ttf",
 		};
 
+		ImFont* defaultFont = nullptr;
 		for (auto font : fonts)
 		{
 			fontPath.replace_filename(font);
-			window.imgui.fonts.emplace_back(io.Fonts->AddFontFromFileTTF(
+			defaultFont = io.Fonts->AddFontFromFileTTF(
 				fontPath.u8string().c_str(), 16.0f,
-				&config) /*,[](ImFont* f) { ImGui::MemFree(f); }*/);
+				&config);
 		}
 
 		// Setup style
 		ImGui::StyleColorsClassic();
-		io.FontDefault = window.imgui.fonts.back();
+		io.FontDefault = defaultFont;
 
 		// Setup Vulkan binding
 		ImGui_ImplVulkan_InitInfo initInfo = {};
@@ -2856,7 +2848,7 @@ private:
 
 		// std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this, &window]
 		// {
-			if (window.imgui.enable)
+			if (window.imguiEnable)
 				drawIMGUI(window);
 		// }));
 		
@@ -2912,7 +2904,7 @@ private:
 		}
 
 		// Record Imgui Draw Data and draw funcs into primary command buffer
-		if (window.imgui.enable)
+		if (window.imguiEnable)
 		{
 			ZoneScopedN("drawIMGUI");
 
