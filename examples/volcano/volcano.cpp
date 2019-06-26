@@ -108,16 +108,11 @@ struct ViewData
 template <GraphicsBackend B>
 struct Frame
 {
-	CommandBuffer<B> commandBuffer;
-	Fence<B> fence;
 	Image<B> backbuffer;
 	ImageView<B> backbufferView;
 	Framebuffer<B> framebuffer;
-};
-
-template <GraphicsBackend B>
-struct FrameSemaphores
-{
+	CommandBuffer<B> commandBuffer;
+	Fence<B> fence;
 	Semaphore<B> imageAcquiredSemaphore;
 	Semaphore<B> renderCompleteSemaphore;
 };
@@ -148,8 +143,7 @@ struct WindowData
     
 	// todo: decide where frame data should be owned. right now this is a bit unclear due to imgui legacy.
 	std::vector<Frame<B>> frames;
-    std::vector<FrameSemaphores<B>> frameSemaphores;
-
+    
 	Buffer<B> uniformBuffer;
 	Allocation<B> uniformBufferMemory;
 
@@ -2433,9 +2427,6 @@ private:
 				myGraphicsPipelineLayout.descriptorSetLayouts.get_deleter().size);
 		}
 
-		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
-		window.frameIndex = window.swapchain.colorImages.size() - 1;
-
 		window.clearEnable = true;
 		window.clearValue.color.float32[0] = 0.4f;
 		window.clearValue.color.float32[1] = 0.4f;
@@ -2443,9 +2434,11 @@ private:
 		window.clearValue.color.float32[3] = 1.0f;
 
 		window.frames.resize(window.swapchain.colorImages.size());
-		window.frameSemaphores.resize(window.swapchain.colorImages.size());
 
-		for (uint32_t imageIt = 0; imageIt < window.swapchain.colorImages.size(); imageIt++)
+		// vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
+		window.frameIndex = window.frames.size() - 1;
+		
+		for (uint32_t imageIt = 0; imageIt < window.frames.size(); imageIt++)
 		{
 			window.frames[imageIt].backbuffer = window.swapchain.colorImages[imageIt];
 			window.frames[imageIt].backbufferView = window.swapchain.colorImageViews[imageIt];
@@ -2453,7 +2446,7 @@ private:
 		}
 
 		myFrameCommandPools.resize(myFrameCommandBufferThreadCount);
-		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * window.swapchain.colorImages.size());
+		myFrameCommandBuffers.resize(myFrameCommandBufferThreadCount * window.frames.size());
 
 		std::vector<VkCommandBuffer> threadCommandBuffers;
 		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
@@ -2467,18 +2460,18 @@ private:
 			threadCommandBuffers = allocateCommandBuffers(
 				myDevice, myFrameCommandPools[cmdIt],
 				cmdIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY,
-				window.swapchain.colorImages.size());
+				window.frames.size());
 
-			for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
+			for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 				myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt] =
 					threadCommandBuffers[frameIt];
 		}
 
-		myFrameFences.resize(window.swapchain.colorImages.size());
-		myImageAcquiredSemaphores.resize(window.swapchain.colorImages.size());
-		myRenderCompleteSemaphores.resize(window.swapchain.colorImages.size());
+		myFrameFences.resize(window.frames.size());
+		myImageAcquiredSemaphores.resize(window.frames.size());
+		myRenderCompleteSemaphores.resize(window.frames.size());
 
-		for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
+		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 		{
 			VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -2497,9 +2490,9 @@ private:
 			fd.commandBuffer = primaryCmd;
 			fd.fence = myFrameFences[frameIt];
 
-			auto& fs = window.frameSemaphores[frameIt];
-			fs.imageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
-			fs.renderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
+			auto& frame = window.frames[frameIt];
+			frame.imageAcquiredSemaphore = myImageAcquiredSemaphores[frameIt];
+			frame.renderCompleteSemaphore = myRenderCompleteSemaphores[frameIt];
 		}
 
 		updateDescriptorSets(window);
@@ -2661,7 +2654,7 @@ private:
 		ZoneScoped;
 
 		VkSemaphore& imageAquiredSemaphore =
-			window.frameSemaphores[window.frameIndex].imageAcquiredSemaphore;
+			window.frames[window.frameIndex].imageAcquiredSemaphore;
 
 		{
 			ZoneScopedN("acquireNextImage");
@@ -2687,8 +2680,7 @@ private:
 		 */
 
 		auto& frame = window.frames[window.frameIndex];
-		auto& frameSemaphores = window.frameSemaphores[window.frameIndex];
-
+		
 		std::array<VkClearValue, 2> clearValues = {};
 		clearValues[0] = window.clearValue;
 		clearValues[1].depthStencil = {1.0f, 0};
@@ -2846,11 +2838,8 @@ private:
 			}
 		}));
 
-		// std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this, &window]
-		// {
-			if (window.imguiEnable)
-				drawIMGUI(window);
-		// }));
+		if (window.imguiEnable)
+			drawIMGUI(window);
 		
 		// begin primary command buffer
 		{
@@ -2908,12 +2897,6 @@ private:
 		{
 			ZoneScopedN("drawIMGUI");
 
-			// {
-			// 	ZoneScopedN("waitIMGUIPrepare");
-
-			// 	drawIMGUIFuture.get();
-			// }
-
 			TracyVkZone(myTracyContext, frame.commandBuffer, "drawIMGUI");
 
 			VkRenderPassBeginInfo beginInfo = {};
@@ -2952,7 +2935,7 @@ private:
 			submitInfo.commandBufferCount = 1;
 			submitInfo.pCommandBuffers = &frame.commandBuffer;
 			submitInfo.signalSemaphoreCount = 1;
-			submitInfo.pSignalSemaphores = &frameSemaphores.renderCompleteSemaphore;
+			submitInfo.pSignalSemaphores = &frame.renderCompleteSemaphore;
 
 			CHECK_VK(vkEndCommandBuffer(frame.commandBuffer));
 			CHECK_VK(vkQueueSubmit(myQueue, 1, &submitInfo, frame.fence));
@@ -2963,12 +2946,12 @@ private:
 	{
 		ZoneScoped;
 
-		auto& fs = window.frameSemaphores[window.frameIndex];
+		auto& frame = window.frames[window.frameIndex];
 
 		VkPresentInfoKHR info = {};
 		info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		info.waitSemaphoreCount = 1;
-		info.pWaitSemaphores = &fs.renderCompleteSemaphore;
+		info.pWaitSemaphores = &frame.renderCompleteSemaphore;
 		info.swapchainCount = 1;
 		info.pSwapchains = &window.swapchain.swapchain;
 		info.pImageIndices = &window.frameIndex;
@@ -2981,22 +2964,22 @@ private:
 
 		auto& window = *myResources.window;
 
-		for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
+		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 		{
 			vkDestroyFence(myDevice, myFrameFences[frameIt], nullptr);
 			vkDestroySemaphore(myDevice, myImageAcquiredSemaphores[frameIt], nullptr);
 			vkDestroySemaphore(myDevice, myRenderCompleteSemaphores[frameIt], nullptr);
 		}
 
-		std::vector<VkCommandBuffer> threadCommandBuffers(window.swapchain.colorImages.size());
+		std::vector<VkCommandBuffer> threadCommandBuffers(window.frames.size());
 		for (uint32_t cmdIt = 0; cmdIt < myFrameCommandBufferThreadCount; cmdIt++)
 		{
-			for (uint32_t frameIt = 0; frameIt < window.swapchain.colorImages.size(); frameIt++)
+			for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 				threadCommandBuffers[frameIt] =
 					myFrameCommandBuffers[myFrameCommandBufferThreadCount * frameIt + cmdIt];
 
 			vkFreeCommandBuffers(
-				myDevice, myFrameCommandPools[cmdIt], window.swapchain.colorImages.size(), threadCommandBuffers.data());
+				myDevice, myFrameCommandPools[cmdIt], window.frames.size(), threadCommandBuffers.data());
 			vkDestroyCommandPool(myDevice, myFrameCommandPools[cmdIt], nullptr);
 		}
 
