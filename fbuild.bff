@@ -415,6 +415,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/tracy/server/TracyView.cpp'
 			'$ProjectPath$/external/tracy/server/TracyWorker.cpp'
 			'$ProjectPath$/external/tracy/profiler/src/main.cpp'
+			'$ProjectPath$/external/tracy/profiler/src/ResolvService.cpp'
 			'$ProjectPath$/external/tracy/profiler/src/winmain.cpp'
 			'$ProjectPath$/external/tracy/profiler/src/winmainarchdiscovery.cpp'
 			'$ProjectPath$/external/tracy/imguicolortextedit/TextEditor.cpp'
