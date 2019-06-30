@@ -1,6 +1,7 @@
-// wip: separate VK objects from generic ones. create constructors/destructors for composite structs, and use shared_ptrs when referencing them.
+// wip: separate VK objects from generic ones.
 // wip: dynamic mesh layout, depending on input data structure
-// wip: instrumentation and timing information
+// todo: create constructors/destructors for composite structs, and use shared_ptrs when referencing them.
+// todo: specialize on graphics backend
 // todo: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 // todo: move stuff from headers into compilation units
 // todo: extract descriptor sets
@@ -13,6 +14,7 @@
 
 // done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
+// done: instrumentation and timing information
 
 #include "volcano.h"
 #include "aabb.h"
@@ -109,11 +111,11 @@ template <GraphicsBackend B>
 struct FrameData
 {
 	uint32_t index = 0;
-	Framebuffer<B> frameBuffer;
-	std::vector<CommandBuffer<B>> commandBuffers; // count = [threadCount]
-	Fence<B> fence;
-	Semaphore<B> imageAcquiredSemaphore;
-	Semaphore<B> renderCompleteSemaphore;
+	FramebufferHandle<B> frameBuffer = 0;
+	std::vector<CommandBufferHandle<B>> commandBuffers; // count = [threadCount]
+	FenceHandle<B> fence = 0;
+	SemaphoreHandle<B> imageAcquiredSemaphore = 0;
+	SemaphoreHandle<B> renderCompleteSemaphore = 0;
 };
 
 template <GraphicsBackend B>
@@ -124,24 +126,24 @@ struct WindowData
 	uint32_t framebufferWidth = 0;
 	uint32_t framebufferHeight = 0;
 
-	Surface<B> surface;
-	SurfaceFormat<B> surfaceFormat;
+	SurfaceHandle<B> surface = 0;
+	SurfaceFormat<B> surfaceFormat = {};
 	Format<B> depthFormat;
 	PresentMode<B> presentMode;
 
-	SwapchainContext<B> swapchain;
+	SwapchainContext<B> swapchain = {};
 
 	std::vector<ViewData> views;
 	std::optional<size_t> activeView;
 
 	bool clearEnable = true;
-    ClearValue<B> clearValue;
+    ClearValue<B> clearValue = {};
     
-	uint32_t frameIndex; // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
+	uint32_t frameIndex = 0; // Current frame being rendered to (0 <= frameIndex < frames.count())
 	std::vector<FrameData<B>> frames;
 
-	Buffer<B> uniformBuffer;
-	Allocation<B> uniformBufferMemory;
+	BufferHandle<B> uniformBuffer = 0;
+	AllocationHandle<B> uniformBufferMemory = 0;
 
 	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
 	std::chrono::duration<double> graphicsDeltaTime;
@@ -155,7 +157,7 @@ struct GraphicsPipelineResourceContext // temp
 {
 	std::shared_ptr<Model<B>> model;
 	std::shared_ptr<Texture<B>> texture;
-	Sampler<B> sampler;
+	SamplerHandle<B> sampler = 0;
 
 	std::shared_ptr<WindowData<B>> window; // temp - replace with generic render target structure
 };
@@ -163,9 +165,9 @@ struct GraphicsPipelineResourceContext // temp
 template <GraphicsBackend B>
 struct PipelineConfiguration
 {
-	GraphicsPipelineResourceContext<B>* resources = nullptr; // todo: replace with shared_ptr
-	PipelineLayoutContext<B>* layout = nullptr;				 // todo: replace with shared_ptr
-	RenderPass<B> renderPass;
+	std::shared_ptr<GraphicsPipelineResourceContext<B>> resources;
+	std::shared_ptr<PipelineLayoutContext<B>> layout;
+	RenderPassHandle<B> renderPass = 0;
 };
 
 using EntryPoint = std::pair<std::string, uint32_t>;
@@ -210,7 +212,15 @@ struct SerializableShaderReflectionModule
 };
 
 #pragma pack(push, 1)
+template <GraphicsBackend B>
 struct PipelineCacheHeader
+{
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+template <>
+struct PipelineCacheHeader<GraphicsBackend::Vulkan>
 {
 	uint32_t headerLength = 0;
 	uint32_t cacheHeaderVersion = 0;
@@ -226,7 +236,7 @@ class Application
 public:
 	Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-		const char* resourcePath, bool /*verbose*/)
+		const char* resourcePath)
 		: myResourcePath(resourcePath)
 		, myCommandBufferThreadCount(2)
 		, myRequestedCommandBufferThreadCount(2)
@@ -235,58 +245,60 @@ public:
 
 		assert(std::filesystem::is_directory(myResourcePath));
 
-		myInstance = createInstance<B>();
+		myInstance = createInstance();
 		myDebugCallback = createDebugCallback(myInstance);
 
-		myResources.window = std::make_shared<WindowData<B>>();
-		auto& window = *myResources.window;
+		myDefaultResources = std::make_shared<GraphicsPipelineResourceContext<B>>();
+		myDefaultResources->window = std::make_shared<WindowData<B>>();
+		auto& window = *myDefaultResources->window;
 
 		window.width = width;
 		window.height = height;
 		window.framebufferWidth = framebufferWidth;
 		window.framebufferHeight = framebufferHeight;
 		window.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
-		window.surface = createSurface<B>(myInstance, view);
+		window.surface = createSurface(myInstance, view);
 
 		uint32_t frameCount = 0;
 
 		std::tie(
 			myDevice, myPhysicalDevice, myPhysicalDeviceProperties, window.swapchain.info, window.surfaceFormat,
 			window.presentMode, frameCount, myQueue, myQueueFamilyIndex) =
-			createDevice<B>(myInstance, window.surface);
+			createDevice(myInstance, window.surface);
 
-		myAllocator = createAllocator<B>(myDevice, myPhysicalDevice);
+		myAllocator = createAllocator(myDevice, myPhysicalDevice);
 
 		myTransferCommandPool = createCommandPool(
 			myDevice,
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 			myQueueFamilyIndex);
 
-		myResources.sampler = createTextureSampler<B>(myDevice);
-		myDescriptorPool = createDescriptorPool<B>();
+		myDefaultResources->sampler = createTextureSampler(myDevice);
+		myDescriptorPool = createDescriptorPool();
 
-		auto slangShaders = loadSlangShaders<B>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang"));
+		auto slangShaders = loadSlangShaders(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang"));
 
-		myGraphicsPipelineLayout = createPipelineLayoutContext<B>(myDevice, *slangShaders);
+		myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<B>>();
+		*myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice, *slangShaders);
 		
-		myResources.model = loadModel<B>(std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
-		myResources.texture = loadTexture<B>(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
+		myDefaultResources->model = loadModel(std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
+		myDefaultResources->texture = loadTexture(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 
 		createBuffer(
 			frameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, window.uniformBuffer,
 			window.uniformBufferMemory, "uniformBuffer");
 
-		myPipelineCache = loadPipelineCache<B>(
+		myPipelineCache = loadPipelineCache(
 			myDevice,
 			myPhysicalDeviceProperties,
 			std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"));
 
-		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, frameCount, *myResources.window);
+		createSwapchain(myDevice, myPhysicalDevice, myAllocator, frameCount, *myDefaultResources->window);
 
 		std::vector<Model<B>*> models;
-		models.push_back(myResources.model.get());
-		createFrameResources(*myResources.window, models);
+		models.push_back(myDefaultResources->model.get());
+		createFrameResources(*myDefaultResources->window, models);
 
 		float dpiScaleX = static_cast<float>(framebufferWidth) / width;
 		float dpiScaleY = static_cast<float>(framebufferHeight) / height;
@@ -309,9 +321,9 @@ public:
 		if (!std::filesystem::exists(cacheFilePath))
 			std::filesystem::create_directory(cacheFilePath);
 
-		savePipelineCache<B>(myDevice, myPipelineCache, myPhysicalDeviceProperties, cacheFilePath / "pipeline.cache");
+		savePipelineCache(myDevice, myPipelineCache, myPhysicalDeviceProperties, cacheFilePath / "pipeline.cache");
 
-		cleanup<B>();
+		cleanup();
 	}
 
 	void draw()
@@ -319,7 +331,7 @@ public:
 		FrameMark;
 		ZoneScoped;
 
-		auto& window = *myResources.window;
+		auto& window = *myDefaultResources->window;
 
 		// re-create frame resources if needed
 		if (window.createFrameResourcesFlag)
@@ -337,7 +349,7 @@ public:
 			myCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY);
 
 			std::vector<Model<B>*> models;
-			models.push_back(myResources.model.get());
+			models.push_back(myDefaultResources->model.get());
 			createFrameResources(window, models);
 		}
 
@@ -348,7 +360,7 @@ public:
 
 	void resizeWindow(const window_state& state)
 	{
-		auto& window = *myResources.window;
+		auto& window = *myDefaultResources->window;
 
 		if (state.fullscreen_enabled)
 		{
@@ -366,7 +378,7 @@ public:
 	{
 		ZoneScoped;
 
-		auto& window = *myResources.window;
+		auto& window = *myDefaultResources->window;
 
 		{
 			ZoneScopedN("queueWaitIdle");
@@ -386,18 +398,18 @@ public:
 		window.framebufferWidth = width;
 		window.framebufferHeight = height;
 
-		createSwapchain<B>(myDevice, myPhysicalDevice, myAllocator, window.swapchain.colorImages.size(), window);
+		createSwapchain(myDevice, myPhysicalDevice, myAllocator, window.swapchain.colorImages.size(), window);
 
 		std::vector<Model<B>*> models;
-		models.push_back(myResources.model.get());
-		createFrameResources(*myResources.window, models);
+		models.push_back(myDefaultResources->model.get());
+		createFrameResources(*myDefaultResources->window, models);
 	}
 
 	void onMouse(const mouse_state& state)
 	{
 		ZoneScoped;
 
-		auto& window = *myResources.window;
+		auto& window = *myDefaultResources->window;
 
 		bool leftPressed = state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS;
 		bool rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
@@ -451,7 +463,7 @@ private:
 
 		// update input dependent state
 		{
-			ImGuiIO& io = ImGui::GetIO();
+			auto& io = ImGui::GetIO();
 
 			static bool escBufferState = false;
 			bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
@@ -540,88 +552,85 @@ private:
 	{
 		ZoneScoped;
 
+		using namespace ImGui;
+
 		ImGui_ImplVulkan_NewFrame();
 
-		ImGui::NewFrame();
-		ImGui::ShowDemoWindow();
+		NewFrame();
+		ShowDemoWindow();
 
 		{
-			ImGui::Begin("Render Options");
-			ImGui::DragInt(
+			Begin("Render Options");
+			DragInt(
 				"Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
-			ImGui::ColorEdit3(
+			ColorEdit3(
 				"Clear Color", &window.clearValue.color.float32[0]);
-			ImGui::End();
+			End();
 		}
 
 		{
-			ImGui::Begin("GUI Options");
+			Begin("GUI Options");
 			// static int styleIndex = 0;
-			ImGui::ShowStyleSelector("Styles" /*, &styleIndex*/);
-			ImGui::ShowFontSelector("Fonts");
-			if (ImGui::Button("Show User Guide"))
+			ShowStyleSelector("Styles" /*, &styleIndex*/);
+			ShowFontSelector("Fonts");
+			if (Button("Show User Guide"))
 			{
-				ImGui::SetNextWindowPosCenter(0);
-				ImGui::OpenPopup("UserGuide");
+				SetNextWindowPosCenter(0);
+				OpenPopup("UserGuide");
 			}
-			if (ImGui::BeginPopup(
+			if (BeginPopup(
 					"UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
 			{
-				ImGui::ShowUserGuide();
-				ImGui::EndPopup();
+				ShowUserGuide();
+				EndPopup();
 			}
-			ImGui::End();
+			End();
 		}
 
 		{
-			ImGui::Begin("File");
+			Begin("File");
 
-			if (ImGui::Button("Open OBJ file"))
+			if (Button("Open OBJ file"))
             {
                 nfdchar_t* pathStr;
                 auto res = NFD_OpenDialog("obj", myResourcePath.u8string().c_str(), &pathStr);
                 if (res == NFD_OKAY)
                 {
-                    myResources.model = loadModel<B>(std::filesystem::absolute(pathStr));
+                    myDefaultResources->model = loadModel(std::filesystem::absolute(pathStr));
 
 					updateDescriptorSets(window);
                 }
             }
 
-			if (ImGui::Button("Open JPG file"))
+			if (Button("Open JPG file"))
             {
                 nfdchar_t* pathStr;
                 auto res = NFD_OpenDialog("jpg", myResourcePath.u8string().c_str(), &pathStr);
                 if (res == NFD_OKAY)
                 {
-                    myResources.texture = loadTexture<B>(std::filesystem::absolute(pathStr));
+                    myDefaultResources->texture = loadTexture(std::filesystem::absolute(pathStr));
 
 					updateDescriptorSets(window);
                 }
             }
 
-			ImGui::End();
+			End();
 		}
 
 		{
-			ImGui::ShowMetricsWindow();
+			ShowMetricsWindow();
 		}
 
-		ImGui::Render();
+		Render();
 	}
 
-	template <GraphicsBackend B>
 	std::shared_ptr<Model<B>> loadModel(const std::filesystem::path& modelFile) const
 	{
 		ZoneScoped;
 
-		// todo: replace with generic structures / code?
-		using VkInputAttributeDescription =
-			SerializableVertexInputAttributeDescription<B>;
-
 		VertexAllocator vertices;
 		std::vector<uint32_t> indices;
-		std::vector<VkInputAttributeDescription> attributeDescriptions;
+		std::vector<SerializableVertexInputAttributeDescription<B>> attributeDescriptions;
 		AABB3f aabb;
 
 		auto loadPBin = [&vertices, &indices, &attributeDescriptions, &aabb](std::istream& stream) {
@@ -669,11 +678,11 @@ private:
 #endif
 
 			attributeDescriptions.emplace_back(
-				VkInputAttributeDescription{{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u}});
+				SerializableVertexInputAttributeDescription<B>{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u});
 			attributeDescriptions.emplace_back(
-				VkInputAttributeDescription{{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u}});
+				SerializableVertexInputAttributeDescription<B>{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u});
 			attributeDescriptions.emplace_back(
-				VkInputAttributeDescription{{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u}});
+				SerializableVertexInputAttributeDescription<B>{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u});
 
 			std::unordered_map<uint64_t, uint32_t> uniqueVertices;
 
@@ -766,7 +775,6 @@ private:
 		return outModel;
 	}
 
-	template <GraphicsBackend B>
 	std::shared_ptr<Texture<B>> loadTexture(const std::filesystem::path& imageFile) const
 	{
 		ZoneScoped;
@@ -859,7 +867,6 @@ private:
 		return outTexture;
 	}
 
-	template <GraphicsBackend B>
 	std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile) const
 	{
 		ZoneScoped;
@@ -1139,9 +1146,8 @@ private:
 		return slangModule;
 	}
 
-	template <GraphicsBackend B>
-	PipelineCache<B> loadPipelineCache(
-		Device<B> device,
+	PipelineCacheHandle<B> loadPipelineCache(
+		DeviceHandle<B> device,
 		PhysicalDeviceProperties<B> physicalDeviceProperties,
 		const std::filesystem::path& cacheFilePath) const
 	{
@@ -1153,7 +1159,8 @@ private:
 			cereal::BinaryInputArchive bin(stream);
 			bin(cacheData);
 
-			const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+			const PipelineCacheHeader<GraphicsBackend::Vulkan>* header =
+				reinterpret_cast<const PipelineCacheHeader<GraphicsBackend::Vulkan>*>(cacheData.data());
 
 			std::cout << "headerLength: " << header->headerLength << "\n";
 			std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
@@ -1180,11 +1187,11 @@ private:
 		if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
 			loadBinaryFile(cacheFilePath, sourceFileInfo, loadCache, false);
 
-		auto createPipelineCache = [](Device<B> device, const std::vector<std::byte>& cacheData)
+		auto createPipelineCache = [](DeviceHandle<B> device, const std::vector<std::byte>& cacheData)
 		{
 			ZoneScopedN("createPipelineCache");
 
-			PipelineCache<B> cache;
+			PipelineCacheHandle<B> cache;
 
 			VkPipelineCacheCreateInfo createInfo = {};
 			createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
@@ -1200,10 +1207,9 @@ private:
 		return createPipelineCache(device, cacheData);
 	};
 
-	template <GraphicsBackend B>
 	void savePipelineCache(
-		Device<B> device,
-		PipelineCache<B> pipelineCache,
+		DeviceHandle<B> device,
+		PipelineCacheHandle<B> pipelineCache,
 		PhysicalDeviceProperties<B> physicalDeviceProperties,
 		const std::filesystem::path& cacheFilePath) const
 	{
@@ -1219,7 +1225,8 @@ private:
 				std::vector<std::byte> cacheData(cacheDataSize);
 				CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
 
-				const PipelineCacheHeader* header = reinterpret_cast<const PipelineCacheHeader*>(cacheData.data());
+				const PipelineCacheHeader<GraphicsBackend::Vulkan>* header =
+					reinterpret_cast<const PipelineCacheHeader<GraphicsBackend::Vulkan>*>(cacheData.data());
 
 				std::cout << "headerLength: " << header->headerLength << "\n";
 				std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
@@ -1251,40 +1258,36 @@ private:
 		saveBinaryFile(cacheFilePath, cacheFileInfo, savePipelineCacheData, false);
 	}
 
-	template <GraphicsBackend B>
 	PipelineLayoutContext<B> createPipelineLayoutContext(
-		Device<B> device,
+		DeviceHandle<B> device,
 		const SerializableShaderReflectionModule<B>& slangModule) const
 	{
 		ZoneScoped;
 
-		using VkPipelineLayoutContext = PipelineLayoutContext<B>;
-		VkPipelineLayoutContext pipelineLayout;
+		PipelineLayoutContext<B> pipelineLayout;
 
-		using VkShaderModuleType = ShaderModule<B>;
-		auto vkShaderDeleter = [device](VkShaderModuleType* module, size_t size) {
+		auto shaderDeleter = [device](ShaderModuleHandle<B>* module, size_t size) {
 			for (size_t i = 0; i < size; i++)
 				vkDestroyShaderModule(device, *(module + i), nullptr);
 		};
 		pipelineLayout.shaders =
-			std::unique_ptr<VkShaderModuleType[], ArrayDeleter<VkShaderModuleType>>(
-				new VkShaderModuleType[slangModule.shaders.size()],
-				{vkShaderDeleter, slangModule.shaders.size()});
+			std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>>(
+				new ShaderModuleHandle<B>[slangModule.shaders.size()],
+				{shaderDeleter, slangModule.shaders.size()});
 
-		using VkDescriptorSetLayoutType = DescriptorSetLayout<B>;
-		auto vkDescriptorSetLayoutDeleter =
-			[device](VkDescriptorSetLayoutType* layout, size_t size) {
+		auto descriptorSetLayoutDeleter =
+			[device](DescriptorSetLayoutHandle<B>* layout, size_t size) {
 				for (size_t i = 0; i < size; i++)
 					vkDestroyDescriptorSetLayout(device, *(layout + i), nullptr);
 			};
 		pipelineLayout.descriptorSetLayouts = std::unique_ptr<
-			VkDescriptorSetLayoutType[], ArrayDeleter<VkDescriptorSetLayoutType>>(
-			new VkDescriptorSetLayoutType[slangModule.bindings.size()],
-			{vkDescriptorSetLayoutDeleter, slangModule.bindings.size()});
+			DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>(
+			new DescriptorSetLayoutHandle<B>[slangModule.bindings.size()],
+			{descriptorSetLayoutDeleter, slangModule.bindings.size()});
 
 		for (const auto& shader : slangModule.shaders)
 		{
-			auto createShaderModule = [](Device<B> device, const ShaderEntry& shader)
+			auto createShaderModule = [](DeviceHandle<B> device, const ShaderEntry& shader)
 			{
 				ZoneScopedN("createShaderModule");
 
@@ -1323,8 +1326,7 @@ private:
 		return pipelineLayout;
 	};
 
-	template <GraphicsBackend B>
-	Instance<B> createInstance() const
+	InstanceHandle<B> createInstance() const
 	{
 		ZoneScoped;
 
@@ -1415,33 +1417,31 @@ private:
 		return instance;
 	}
 
-	template <GraphicsBackend B>
-	Surface<B> createSurface(Instance<B> instance, void* view) const
+	SurfaceHandle<B> createSurface(InstanceHandle<B> instance, void* view) const
 	{
 		ZoneScoped;
 
-		Surface<B> surface;
+		SurfaceHandle<B> surface;
 		CHECK_VK(glfwCreateWindowSurface(
 			instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
 
 		return surface;
 	}
 
-	template <GraphicsBackend B>
 	std::tuple<
-		Device<B>, PhysicalDevice<B>, PhysicalDeviceProperties<B>, SwapchainInfo<B>, SurfaceFormat<B>, PresentMode<B>, uint32_t,
-		Queue<B>, int>
-	createDevice(Instance<B> instance, Surface<B> surface) const
+		DeviceHandle<B>, PhysicalDeviceHandle<B>, PhysicalDeviceProperties<B>, SwapchainInfo<B>, SurfaceFormat<B>, PresentMode<B>, uint32_t,
+		QueueHandle<B>, int>
+	createDevice(InstanceHandle<B> instance, SurfaceHandle<B> surface) const
 	{
 		ZoneScoped;
 
-		Device<B> logicalDevice;
-		PhysicalDevice<B> physicalDevice;
+		DeviceHandle<B> logicalDevice;
+		PhysicalDeviceHandle<B> physicalDevice;
 		SwapchainInfo<B> swapChainInfo;
 		SurfaceFormat<B> selectedSurfaceFormat;
 		PresentMode<B> selectedPresentMode;
 		uint32_t selectedFrameCount;
-		Queue<B> selectedQueue;
+		QueueHandle<B> selectedQueue;
 		int selectedQueueFamilyIndex = -1;
 		PhysicalDeviceProperties<B> physicalDeviceProperties;
 
@@ -1580,17 +1580,16 @@ private:
 			selectedPresentMode, selectedFrameCount, selectedQueue, selectedQueueFamilyIndex);
 	}
 
-	template <GraphicsBackend B>
 	void createSwapchain(
-		Device<B> device,
-		PhysicalDevice<B> physicalDevice,
+		DeviceHandle<B> device,
+		PhysicalDeviceHandle<B> physicalDevice,
 		VmaAllocator allocator,
 		uint32_t frameCount,
 		WindowData<B>& window) const
 	{
 		ZoneScoped;
 
-		Swapchain<B> newSwapchain;
+		SwapchainHandle<B> newSwapchain;
 		{
 			VkSwapchainCreateInfoKHR info = {};
 			info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1647,8 +1646,7 @@ private:
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 	}
 
-	template <GraphicsBackend B>
-	VmaAllocator createAllocator(Device<B> device, PhysicalDevice<B> physicalDevice) const
+	VmaAllocator createAllocator(DeviceHandle<B> device, PhysicalDeviceHandle<B> physicalDevice) const
 	{
 		ZoneScoped;
 
@@ -1692,8 +1690,7 @@ private:
 		return allocator;
 	}
 
-	template <GraphicsBackend B>
-	DescriptorPool<B> createDescriptorPool() const
+	DescriptorPoolHandle<B> createDescriptorPool() const
 	{
 		ZoneScoped;
 
@@ -1718,14 +1715,13 @@ private:
 		poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(sizeof_array(poolSizes));
 		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
-		DescriptorPool<B> outDescriptorPool;
+		DescriptorPoolHandle<B> outDescriptorPool;
 		CHECK_VK(vkCreateDescriptorPool(myDevice, &poolInfo, nullptr, &outDescriptorPool));
 
 		return outDescriptorPool;
 	}
 
-	template <GraphicsBackend B>
-	RenderPass<B> createRenderPass(Device<B> device, const WindowData<B>& window) const
+	RenderPassHandle<B> createRenderPass(DeviceHandle<B> device, const WindowData<B>& window) const
 	{
 		ZoneScoped;
 
@@ -1781,17 +1777,16 @@ private:
 		renderPassInfo.dependencyCount = 1;
 		renderPassInfo.pDependencies = &dependency;
 
-		RenderPass<B> outRenderPass;
+		RenderPassHandle<B> outRenderPass;
 		CHECK_VK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
 
 		return outRenderPass;
 	}
 
-	template <GraphicsBackend B>
-	Pipeline<B> createGraphicsPipeline(
-		Device<B> device,
+	PipelineHandle<B> createGraphicsPipeline(
+		DeviceHandle<B> device,
 		const PipelineConfiguration<B>& pipeline,
-		PipelineCache<B>& pipelineCache,
+		PipelineCacheHandle<B>& pipelineCache,
 		const Model<B>& model) const
 	{
 		ZoneScoped;
@@ -1951,7 +1946,7 @@ private:
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 		pipelineInfo.basePipelineIndex = -1;
 
-		Pipeline<B> outPipeline;
+		PipelineHandle<B> outPipeline;
 
 		CHECK_VK(vkCreateGraphicsPipelines(
 			device, pipelineCache, 1, &pipelineInfo, nullptr, &outPipeline));
@@ -1959,20 +1954,20 @@ private:
 		return outPipeline;
 	};
 
-	template <GraphicsBackend B>
-	void createPipelineConfig(Device<B> device, const Model<B>& model)
+	 // temp - replace with proper code
+	void createPipelineConfig(DeviceHandle<B> device, const Model<B>& model)
 	{
 		ZoneScoped;
 
-		myGraphicsPipelineConfig.resources = &myResources;
-		myGraphicsPipelineConfig.layout = &myGraphicsPipelineLayout;
+		myGraphicsPipelineConfig.resources = myDefaultResources;
+		myGraphicsPipelineConfig.layout = myGraphicsPipelineLayout;
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
 	{
 		ZoneScoped;
 
-		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
+		CommandBufferHandle<B> commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
 		//TracyVkZone(myTracyContext, commandBuffer, "copyBuffer");
 
@@ -1987,7 +1982,7 @@ private:
 
 	void createBuffer(
 		VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
-		VkBuffer& outBuffer, VmaAllocation& outBufferMemory, const char* debugName) const
+		BufferHandle<B>& outBuffer, AllocationHandle<B>& outBufferMemory, const char* debugName) const
 	{
 		ZoneScoped;
 
@@ -2011,8 +2006,8 @@ private:
 
 	template <typename T>
 	void createDeviceLocalBuffer(
-		const T* bufferData, size_t bufferSize, VkBufferUsageFlags usage, VkBuffer& outBuffer,
-		VmaAllocation& outBufferMemory, const char* debugName) const
+		const T* bufferData, size_t bufferSize, VkBufferUsageFlags usage, BufferHandle<B>& outBuffer,
+		AllocationHandle<B>& outBufferMemory, const char* debugName) const
 	{
 		ZoneScoped;
 
@@ -2020,8 +2015,8 @@ private:
 		assert(bufferSize > 0);
 
 		// todo: use staging buffer pool, or use scratchpad memory
-		VkBuffer stagingBuffer;
-		VmaAllocation stagingBufferMemory;
+		BufferHandle<B> stagingBuffer;
+		AllocationHandle<B> stagingBufferMemory;
 		std::string debugString;
 		debugString.append(debugName);
 		debugString.append("_staging");
@@ -2045,11 +2040,11 @@ private:
 	}
 
 	void transitionImageLayout(
-		VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) const
+		ImageHandle<B> image, Format<B> format, VkImageLayout oldLayout, VkImageLayout newLayout) const
 	{
 		ZoneScoped;
 
-		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
+		CommandBufferHandle<B> commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 		
 		//TracyVkZone(myTracyContext, commandBuffer, "transitionImageLayout");
 
@@ -2125,11 +2120,11 @@ private:
 		endSingleTimeCommands(myDevice, myQueue, commandBuffer, myTransferCommandPool);
 	}
 
-	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const
+	void copyBufferToImage(BufferHandle<B> buffer, ImageHandle<B> image, uint32_t width, uint32_t height) const
 	{
 		ZoneScoped;
 
-		VkCommandBuffer commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
+		CommandBufferHandle<B> commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
 		//TracyVkZone(myTracyContext, commandBuffer, "copyBufferToImage");
 
@@ -2151,9 +2146,9 @@ private:
 	}
 
 	void createImage2D(
-		uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-		VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, VkImage& outImage,
-		VmaAllocation& outImageMemory, const char* debugName) const
+		uint32_t width, uint32_t height, Format<B> format, VkImageTiling tiling,
+		VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, ImageHandle<B>& outImage,
+		AllocationHandle<B>& outImageMemory, const char* debugName) const
 	{
 		ZoneScoped;
 
@@ -2190,7 +2185,7 @@ private:
 	template <typename T>
 	void createDeviceLocalImage2D(
 		const T* imageData, uint32_t width, uint32_t height, VkFormat format,
-		VkImageUsageFlags usage, VkImage& outImage, VmaAllocation& outImageMemory,
+		VkImageUsageFlags usage, ImageHandle<B>& outImage, AllocationHandle<B>& outImageMemory,
 		const char* debugName) const
 	{
 		ZoneScoped;
@@ -2202,8 +2197,8 @@ private:
 		uint32_t pixelSizeBytes = getFormatSize(format, pixelSizeBytesDivisor);
 		VkDeviceSize imageSize = width * height * pixelSizeBytes / pixelSizeBytesDivisor;
 
-		VkBuffer stagingBuffer;
-		VmaAllocation stagingBufferMemory;
+		BufferHandle<B> stagingBuffer;
+		AllocationHandle<B> stagingBufferMemory;
 		std::string debugString;
 		debugString.append(debugName);
 		debugString.append("_staging");
@@ -2232,12 +2227,12 @@ private:
 		vmaDestroyBuffer(myAllocator, stagingBuffer, stagingBufferMemory);
 	}
 
-	VkImageView
-	createImageView2D(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) const
+	ImageViewHandle<B> createImageView2D(ImageHandle<B> image, Format<B> format, VkImageAspectFlags aspectFlags) const
 	{
 		ZoneScoped;
 
-		VkImageView imageView;
+		ImageViewHandle<B> imageView = 0;
+		
 		VkImageViewCreateInfo viewInfo = {};
 		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		viewInfo.image = image;
@@ -2258,8 +2253,7 @@ private:
 		return imageView;
 	}
 
-	template <GraphicsBackend B>
-	Sampler<B> createTextureSampler(Device<B> device) const
+	SamplerHandle<B> createTextureSampler(DeviceHandle<B> device) const
 	{
 		ZoneScoped;
 
@@ -2281,7 +2275,7 @@ private:
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = 0.0f;
 
-		Sampler<B> outSampler;
+		SamplerHandle<B> outSampler;
 		CHECK_VK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));
 
 		return outSampler;
@@ -2291,9 +2285,11 @@ private:
 	{
 		ZoneScoped;
 
+		using namespace ImGui;
+
 		IMGUI_CHECKVERSION();
-		ImGui::CreateContext();
-		ImGuiIO& io = ImGui::GetIO();
+		CreateContext();
+		auto& io = GetIO();
 		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
@@ -2326,7 +2322,7 @@ private:
 		}
 
 		// Setup style
-		ImGui::StyleColorsClassic();
+		StyleColorsClassic();
 		io.FontDefault = defaultFont;
 
 		// Setup Vulkan binding
@@ -2357,7 +2353,6 @@ private:
 		}
 	}
 
-	template<GraphicsBackend B>
 	void createFrameResources(
 		WindowData<B>& window,
 		const std::vector<Model<B>*>& models)
@@ -2377,7 +2372,7 @@ private:
 			updateProjectionMatrix(view);
 		}
 
-		myGraphicsPipelineConfig.renderPass = createRenderPass<B>(myDevice, window);
+		myGraphicsPipelineConfig.renderPass = createRenderPass(myDevice, window);
 
 		auto createSwapchainImageViews = [this, &window]() {
 			ZoneScopedN("createSwapchainImageViews");
@@ -2398,8 +2393,8 @@ private:
 			createPipelineConfig(myDevice, *model);
 			myGraphicsPipeline = createGraphicsPipeline(myDevice, myGraphicsPipelineConfig, myPipelineCache, *model);
 			myDescriptorSets = allocateDescriptorSets(
-				myDevice, myDescriptorPool, myGraphicsPipelineLayout.descriptorSetLayouts.get(),
-				myGraphicsPipelineLayout.descriptorSetLayouts.get_deleter().size);
+				myDevice, myDescriptorPool, myGraphicsPipelineLayout->descriptorSetLayouts.get(),
+				myGraphicsPipelineLayout->descriptorSetLayouts.get_deleter().size);
 		}
 
 		window.clearEnable = true;
@@ -2443,7 +2438,6 @@ private:
 			auto& frame = window.frames[frameIt];
 
 			frame.index = frameIt;
-
 			frame.frameBuffer = createFramebuffer(frameIt);
 			frame.commandBuffers.resize(myCommandBufferThreadCount);
 
@@ -2539,7 +2533,7 @@ private:
 
 			// const auto& model = glm::rotate(
 			// 	glm::translate(
-			// 		myResources.model.transform,
+			// 		myDefaultResources->model.transform,
 			// 		glm::vec3(0, 0, -0.01f - std::numeric_limits<float>::epsilon())),
 			// 	s * glm::radians(360.0f),
 			//  	glm::vec3(0.0, 0.0, 1.0));
@@ -2569,7 +2563,7 @@ private:
 			// 	lerp(proj0[2], proj1[2], s),
 			// 	lerp(proj0[3], proj1[3], s));
 
-			ubo.model = glm::mat4(1.0f); // myResources.model.transform;
+			ubo.model = glm::mat4(1.0f); // myDefaultResources->model.transform;
 			ubo.view = glm::mat4(window.views[n].view);
 			ubo.proj = window.views[n].projection;
 		}
@@ -2594,8 +2588,8 @@ private:
 
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = myResources.texture->imageView;
-		imageInfo.sampler = myResources.sampler;
+		imageInfo.imageView = myDefaultResources->texture->imageView;
+		imageInfo.sampler = myDefaultResources->sampler;
 
 		std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2657,7 +2651,7 @@ private:
 
 		auto& frame = window.frames[window.frameIndex];
 		
-		std::array<VkClearValue, 2> clearValues = {};
+		std::array<ClearValue<B>, 2> clearValues = {};
 		clearValues[0] = window.clearValue;
 		clearValues[1].depthStencil = {1.0f, 0};
 
@@ -2791,8 +2785,8 @@ private:
 							setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
 							drawModel(
-								cmd, myResources.model->indexCount, myDescriptorSets.size(),
-								myDescriptorSets.data(), myGraphicsPipelineLayout.layout);
+								cmd, myDefaultResources->model->indexCount, myDescriptorSets.size(),
+								myDescriptorSets.data(), myGraphicsPipelineLayout->layout);
 						}
 					});
 			}
@@ -2932,7 +2926,7 @@ private:
 	{
 		ZoneScoped;
 
-		auto& window = *myResources.window;
+		auto& window = *myDefaultResources->window;
 
 		for (auto& frame : window.frames)
 		{
@@ -2961,8 +2955,7 @@ private:
 		TracyVkDestroy(myTracyContext);
 	}
 
-	template <GraphicsBackend B>
-	void cleanupSwapchain(Device<B> device, VmaAllocator vmaAllocator, SwapchainContext<B>& swapchain) const
+	void cleanupSwapchain(DeviceHandle<B> device, VmaAllocator vmaAllocator, SwapchainContext<B>& swapchain) const
 	{
 		ZoneScoped;
 
@@ -2970,7 +2963,6 @@ private:
 		vmaDestroyImage(vmaAllocator, swapchain.depthTexture.image, swapchain.depthTexture.imageMemory);
 	}
 
-	template <GraphicsBackend B>
 	void cleanup()
 	{
 		ZoneScoped;
@@ -2980,31 +2972,31 @@ private:
 		ImGui_ImplVulkan_Shutdown();
 		ImGui::DestroyContext();
 
-		auto& window = *myResources.window;
+		auto& window = *myDefaultResources->window;
 
-		cleanupSwapchain<B>(myDevice, myAllocator, window.swapchain);
+		cleanupSwapchain(myDevice, myAllocator, window.swapchain);
 
 		vmaDestroyBuffer(myAllocator, window.uniformBuffer, window.uniformBufferMemory);
 
 		{
 			vmaDestroyBuffer(
-				myAllocator, myResources.model->vertexBuffer, myResources.model->vertexBufferMemory);
+				myAllocator, myDefaultResources->model->vertexBuffer, myDefaultResources->model->vertexBufferMemory);
 			vmaDestroyBuffer(
-				myAllocator, myResources.model->indexBuffer, myResources.model->indexBufferMemory);
+				myAllocator, myDefaultResources->model->indexBuffer, myDefaultResources->model->indexBufferMemory);
 
 			vmaDestroyImage(
-				myAllocator, myResources.texture->image, myResources.texture->imageMemory);
-			vkDestroyImageView(myDevice, myResources.texture->imageView, nullptr);
+				myAllocator, myDefaultResources->texture->image, myDefaultResources->texture->imageMemory);
+			vkDestroyImageView(myDevice, myDefaultResources->texture->imageView, nullptr);
 		}
 
 		vkDestroyPipelineCache(myDevice, myPipelineCache, nullptr);
-		vkDestroyPipelineLayout(myDevice, myGraphicsPipelineLayout.layout, nullptr);
+		vkDestroyPipelineLayout(myDevice, myGraphicsPipelineLayout->layout, nullptr);
 
 		// todo: wrap these in a deleter.
-		myGraphicsPipelineLayout.shaders.reset();
-		myGraphicsPipelineLayout.descriptorSetLayouts.reset();
+		myGraphicsPipelineLayout->shaders.reset();
+		myGraphicsPipelineLayout->descriptorSetLayouts.reset();
 
-		vkDestroySampler(myDevice, myResources.sampler, nullptr);
+		vkDestroySampler(myDevice, myDefaultResources->sampler, nullptr);
 
 		vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 		vkDestroyCommandPool(myDevice, myTransferCommandPool, nullptr);
@@ -3035,33 +3027,36 @@ private:
 		glm::mat4 pad;
 	};
 
-	Instance<B> myInstance;
-	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
+	InstanceHandle<B> myInstance = 0;
 
-	PhysicalDevice<B> myPhysicalDevice;
+	PhysicalDeviceHandle<B> myPhysicalDevice = 0;
 	PhysicalDeviceProperties<B> myPhysicalDeviceProperties;
-	Device<B> myDevice;
+	DeviceHandle<B> myDevice = 0;
 	
+	// todo -> generic
+	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
 	VmaAllocator myAllocator = VK_NULL_HANDLE;
+	TracyVkCtx myTracyContext;
+	// end todo
 	
 	int myQueueFamilyIndex = -1;
-	Queue<B> myQueue;
+	QueueHandle<B> myQueue = 0;
 	
-	DescriptorPool<B> myDescriptorPool;
+	DescriptorPoolHandle<B> myDescriptorPool = 0;
 
-	std::vector<CommandPool<B>> myFrameCommandPools; // count = [threadCount]
-	CommandPool<B> myTransferCommandPool;
+	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [threadCount]
+	CommandPoolHandle<B> myTransferCommandPool = 0;
 
 	static constexpr uint32_t NX = 2;
 	static constexpr uint32_t NY = 1;
 
-	GraphicsPipelineResourceContext<B> myResources;
-	PipelineLayoutContext<B> myGraphicsPipelineLayout;
-	PipelineConfiguration<B> myGraphicsPipelineConfig;
-	Pipeline<B> myGraphicsPipeline; // ~ "PSO"
-	PipelineCache<B> myPipelineCache;
+	std::shared_ptr<GraphicsPipelineResourceContext<B>> myDefaultResources;
+	std::shared_ptr<PipelineLayoutContext<B>> myGraphicsPipelineLayout;
+	PipelineConfiguration<B> myGraphicsPipelineConfig = {};
+	PipelineHandle<B> myGraphicsPipeline = 0; // ~ "PSO"
+	PipelineCacheHandle<B> myPipelineCache = 0;
 
-	using DescriptorSetVector = std::vector<DescriptorSet<B>>;
+	using DescriptorSetVector = std::vector<DescriptorSetHandle<B>>;
 	DescriptorSetVector myDescriptorSets;
 
 	std::filesystem::path myResourcePath;
@@ -3072,15 +3067,13 @@ private:
 	std::map<int, bool> myKeysPressed;
 	std::array<bool, 2> myMouseButtonsPressed;
 	std::array<glm::vec2, 2> myMousePosition;
-
-	TracyVkCtx myTracyContext;
 };
 
 static Application<GraphicsBackend::Vulkan>* theApp = nullptr;
 
 int vkapp_create(
 	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-	const char* resourcePath, bool verbose)
+	const char* resourcePath)
 {
 	assert(view != nullptr);
 	assert(theApp == nullptr);
@@ -3093,24 +3086,23 @@ int vkapp_create(
 	putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
 #endif
 
-	if (verbose)
-	{
-		static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
-		if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
-			std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << std::endl;
+#ifdef _DEBUG
+	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
+	if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
+		std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << std::endl;
 
-		static const char* VK_LAYER_PATH_STR = "VK_LAYER_PATH";
-		if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
-			std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << std::endl;
+	static const char* VK_LAYER_PATH_STR = "VK_LAYER_PATH";
+	if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
+		std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << std::endl;
 
-		static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
-		if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
-			std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
-	}
+	static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
+	if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
+		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
+#endif
 
 	theApp = new Application<GraphicsBackend::Vulkan>(
 		view, width, height, framebufferWidth, framebufferHeight,
-		resourcePath ? resourcePath : "./", verbose);
+		resourcePath ? resourcePath : "./");
 
 	return EXIT_SUCCESS;
 }
