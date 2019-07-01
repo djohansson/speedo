@@ -1,7 +1,5 @@
 #pragma once
 
-#include "gfx-types.h"
-
 #include <cassert>
 #include <cstdint>
 #include <optional>
@@ -192,115 +190,6 @@ void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer comma
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, VkPhysicalDeviceProperties> getSuitableSwapchainAndQueueFamilyIndex(
-	VkSurfaceKHR surface, VkPhysicalDevice device)
-{
-	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
-
-	VkPhysicalDeviceProperties deviceProperties;
-	vkGetPhysicalDeviceProperties(device, &deviceProperties);
-
-	VkPhysicalDeviceFeatures deviceFeatures;
-	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-	assert(deviceFeatures.inheritedQueries);
-
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
-
-	uint32_t formatCount;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-	if (formatCount != 0)
-	{
-		swapchainInfo.formats.resize(formatCount);
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-											 swapchainInfo.formats.data());
-	}
-
-	assert(!swapchainInfo.formats.empty());
-
-	uint32_t presentModeCount;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-	if (presentModeCount != 0)
-	{
-		swapchainInfo.presentModes.resize(presentModeCount);
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-												  swapchainInfo.presentModes.data());
-	}
-
-	assert(!swapchainInfo.presentModes.empty());
-
-	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-	{
-		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-
-		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
-
-		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
-		{
-			const auto& queueFamily = queueFamilies[i];
-
-			VkBool32 presentSupport = false;
-			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-
-			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-				presentSupport)
-			{
-				return std::make_tuple(swapchainInfo, i, deviceProperties);
-			}
-		}
-	}
-
-	return std::make_tuple(swapchainInfo, -1, deviceProperties);
-}
-
-std::vector<VertexInputBindingDescription<GraphicsBackend::Vulkan>>
-calculateInputBindingDescriptions(
-	const std::vector<SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>>&
-		attributeDescriptions)
-{
-	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
-
-	AttributeMap attributes;
-
-	for (const auto& attribute : attributeDescriptions)
-	{
-		assert(attribute.binding == 0); // todo: please implement me
-
-		attributes[attribute.location] = std::make_pair(attribute.format, attribute.offset);
-	}
-
-	//int32_t lastBinding = -1;
-	int32_t lastLocation = -1;
-	uint32_t lastOffset = 0;
-	uint32_t lastSize = 0;
-
-	uint32_t stride = 0;
-
-	for (const auto& [location, formatAndOffset] : attributes)
-	{
-		if (location != (lastLocation + 1))
-			return {};
-
-		lastLocation = location;
-
-		if (formatAndOffset.second < (lastOffset + lastSize))
-			return {};
-
-		lastSize = getFormatSize(formatAndOffset.first);
-		lastOffset = formatAndOffset.second;
-
-		stride = lastOffset + lastSize;
-	}
-
-	// assert(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
-
-	return {VertexInputBindingDescription<GraphicsBackend::Vulkan>{0u, stride,
-																   VK_VERTEX_INPUT_RATE_VERTEX}};
-}
-
 VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
 {
 	VkDebugReportCallbackCreateInfoEXT debugCallbackInfo = {};
@@ -337,3 +226,74 @@ VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
 
 	return debugCallback;
 }
+
+void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{
+	auto commandBuffer = beginSingleTimeCommands(device, commandPool);
+
+	VkBufferCopy copyRegion = {};
+	copyRegion.srcOffset = 0;
+	copyRegion.dstOffset = 0;
+	copyRegion.size = size;
+	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+	endSingleTimeCommands(device, queue, commandBuffer, commandPool);
+}
+
+void createBuffer(
+	VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
+	VkBuffer& outBuffer, VmaAllocation& outBufferMemory, const char* debugName)
+{
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VmaAllocationCreateInfo allocInfo = {};
+	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
+	allocInfo.usage = (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? VMA_MEMORY_USAGE_GPU_ONLY
+																	: VMA_MEMORY_USAGE_UNKNOWN;
+	allocInfo.requiredFlags = flags;
+	allocInfo.memoryTypeBits = 0; // memRequirements.memoryTypeBits;
+	allocInfo.pUserData = (void*)debugName;
+
+	CHECK_VK(vmaCreateBuffer(
+		allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
+}
+
+template <typename T>
+void createDeviceLocalBuffer(
+	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
+	const T* bufferData, size_t bufferSize, VkBufferUsageFlags usage, VkBuffer& outBuffer,
+	VmaAllocation& outBufferMemory, const char* debugName)
+{
+	assert(bufferData != nullptr);
+	assert(bufferSize > 0);
+
+	// todo: use staging buffer pool, or use scratchpad memory
+	VkBuffer stagingBuffer;
+	VmaAllocation stagingBufferMemory;
+	std::string debugString;
+	debugString.append(debugName);
+	debugString.append("_staging");
+	
+	createBuffer(
+		allocator, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		stagingBuffer, stagingBufferMemory, debugString.c_str());
+
+	void* data;
+	CHECK_VK(vmaMapMemory(allocator, stagingBufferMemory, &data));
+	memcpy(data, bufferData, bufferSize);
+	vmaUnmapMemory(allocator, stagingBufferMemory);
+
+	createBuffer(
+		allocator, bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outBuffer, outBufferMemory, debugName);
+
+	copyBuffer(device, commandPool, queue, stagingBuffer, outBuffer, bufferSize);
+
+	vmaDestroyBuffer(allocator, stagingBuffer, stagingBufferMemory);
+}
+

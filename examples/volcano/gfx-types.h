@@ -1,12 +1,10 @@
 #pragma once
 
 #include "utils.h"
+#include "vk-utils.h"
 
 #include <cstdint>
 #include <type_traits>
-
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 
 enum class GraphicsBackend
@@ -19,6 +17,9 @@ using InstanceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkInstan
 
 template <GraphicsBackend B>
 using ImageHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkImage, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using AllocatorHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VmaAllocator, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using AllocationHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VmaAllocation, std::nullptr_t>;
@@ -160,14 +161,48 @@ struct SerializableVertexInputAttributeDescription : public VertexInputAttribute
 template <GraphicsBackend B>
 struct Model
 {
+	Model(VkDevice device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator,
+		const std::byte* vertices, size_t verticesSizeBytes,
+		const std::byte* indices, uint32_t indexCount, size_t indexSizeBytes,
+		const std::vector<SerializableVertexInputAttributeDescription<B>>& attributeDescriptions,
+		const char* filename)
+	: allocator(allocator)
+	, indexCount(indexCount)
+	{
+		createDeviceLocalBuffer(
+			device, commandPool, queue, allocator,
+			vertices, verticesSizeBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			vertexBuffer, vertexBufferMemory, filename);
+
+		createDeviceLocalBuffer(
+			device, commandPool, queue, allocator,
+			indices, indexCount * indexSizeBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+			indexBuffer, indexBufferMemory, filename);
+
+		attributes.reserve(attributeDescriptions.size());
+		std::copy(
+			attributeDescriptions.begin(), attributeDescriptions.end(),
+			std::back_inserter(attributes));
+		
+		bindings = calculateInputBindingDescriptions(attributeDescriptions);
+	}
+
+	~Model()
+	{
+		vmaDestroyBuffer(allocator, vertexBuffer, vertexBufferMemory);
+		vmaDestroyBuffer(allocator, indexBuffer, indexBufferMemory);
+	}
+
+	AllocatorHandle<B> allocator;
+
 	BufferHandle<B> vertexBuffer = 0;
 	AllocationHandle<B> vertexBufferMemory = 0;
 	BufferHandle<B> indexBuffer = 0;
 	AllocationHandle<B> indexBufferMemory = 0;
 	uint32_t indexCount = 0;
 
-	std::vector<VertexInputAttributeDescription<B>> attributeDescriptions;
-	std::vector<VertexInputBindingDescription<B>> bindingDescriptions;
+	std::vector<VertexInputAttributeDescription<B>> attributes;
+	std::vector<VertexInputBindingDescription<B>> bindings;
 };
 
 template <GraphicsBackend B>
@@ -186,8 +221,6 @@ struct SwapchainContext
 
 	std::vector<ImageHandle<B>> colorImages;
 	std::vector<ImageViewHandle<B>> colorImageViews;
-
-	Texture<B> depthTexture = {};
 };
 
 template <GraphicsBackend B>

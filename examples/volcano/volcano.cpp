@@ -111,11 +111,16 @@ template <GraphicsBackend B>
 struct FrameData
 {
 	uint32_t index = 0;
+	
 	FramebufferHandle<B> frameBuffer = 0;
 	std::vector<CommandBufferHandle<B>> commandBuffers; // count = [threadCount]
+	
 	FenceHandle<B> fence = 0;
-	SemaphoreHandle<B> imageAcquiredSemaphore = 0;
 	SemaphoreHandle<B> renderCompleteSemaphore = 0;
+	SemaphoreHandle<B> newImageAcquiredSemaphore = 0;
+
+	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
+	std::chrono::duration<double> graphicsDeltaTime;
 };
 
 template <GraphicsBackend B>
@@ -128,10 +133,12 @@ struct WindowData
 
 	SurfaceHandle<B> surface = 0;
 	SurfaceFormat<B> surfaceFormat = {};
-	Format<B> depthFormat;
 	PresentMode<B> presentMode;
 
 	SwapchainContext<B> swapchain = {};
+
+	Texture<B> zBuffer = {};
+	Format<B> zBufferFormat;
 
 	std::vector<ViewData> views;
 	std::optional<size_t> activeView;
@@ -140,13 +147,11 @@ struct WindowData
     ClearValue<B> clearValue = {};
     
 	uint32_t frameIndex = 0; // Current frame being rendered to (0 <= frameIndex < frames.count())
+	uint32_t lastFrameIndex = 0; // Last frame being rendered to (0 <= frameIndex < frames.count())
 	std::vector<FrameData<B>> frames;
 
 	BufferHandle<B> uniformBuffer = 0;
 	AllocationHandle<B> uniformBufferMemory = 0;
-
-	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
-	std::chrono::duration<double> graphicsDeltaTime;
 
 	bool imguiEnable = true;
 	bool createFrameResourcesFlag = false;
@@ -230,6 +235,115 @@ struct PipelineCacheHeader<GraphicsBackend::Vulkan>
 };
 #pragma pack(pop)
 
+std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, PhysicalDeviceProperties<GraphicsBackend::Vulkan>> getSuitableSwapchainAndQueueFamilyIndex(
+	VkSurfaceKHR surface, VkPhysicalDevice device)
+{
+	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
+
+	VkPhysicalDeviceProperties deviceProperties;
+	vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+	VkPhysicalDeviceFeatures deviceFeatures;
+	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+	assert(deviceFeatures.inheritedQueries);
+
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
+
+	uint32_t formatCount;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+	if (formatCount != 0)
+	{
+		swapchainInfo.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
+											 swapchainInfo.formats.data());
+	}
+
+	assert(!swapchainInfo.formats.empty());
+
+	uint32_t presentModeCount;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+	if (presentModeCount != 0)
+	{
+		swapchainInfo.presentModes.resize(presentModeCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
+												  swapchainInfo.presentModes.data());
+	}
+
+	assert(!swapchainInfo.presentModes.empty());
+
+	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+	{
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
+		{
+			const auto& queueFamily = queueFamilies[i];
+
+			VkBool32 presentSupport = false;
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+				presentSupport)
+			{
+				return std::make_tuple(swapchainInfo, i, deviceProperties);
+			}
+		}
+	}
+
+	return std::make_tuple(swapchainInfo, -1, deviceProperties);
+}
+
+std::vector<VertexInputBindingDescription<GraphicsBackend::Vulkan>>
+calculateInputBindingDescriptions(
+	const std::vector<SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>>&
+		attributeDescriptions)
+{
+	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
+
+	AttributeMap attributes;
+
+	for (const auto& attribute : attributeDescriptions)
+	{
+		assert(attribute.binding == 0); // todo: please implement me
+
+		attributes[attribute.location] = std::make_pair(attribute.format, attribute.offset);
+	}
+
+	//int32_t lastBinding = -1;
+	int32_t lastLocation = -1;
+	uint32_t lastOffset = 0;
+	uint32_t lastSize = 0;
+
+	uint32_t stride = 0;
+
+	for (const auto& [location, formatAndOffset] : attributes)
+	{
+		if (location != (lastLocation + 1))
+			return {};
+
+		lastLocation = location;
+
+		if (formatAndOffset.second < (lastOffset + lastSize))
+			return {};
+
+		lastSize = getFormatSize(formatAndOffset.first);
+		lastOffset = formatAndOffset.second;
+
+		stride = lastOffset + lastSize;
+	}
+
+	// assert(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
+
+	return {VertexInputBindingDescription<GraphicsBackend::Vulkan>{0u, stride,
+																   VK_VERTEX_INPUT_RATE_VERTEX}};
+}
+
 template <GraphicsBackend B>
 class Application
 {
@@ -256,7 +370,6 @@ public:
 		window.height = height;
 		window.framebufferWidth = framebufferWidth;
 		window.framebufferHeight = framebufferHeight;
-		window.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
 		window.surface = createSurface(myInstance, view);
 
 		uint32_t frameCount = 0;
@@ -285,7 +398,7 @@ public:
 		myDefaultResources->texture = loadTexture(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 
 		createBuffer(
-			frameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			myAllocator, frameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, window.uniformBuffer,
 			window.uniformBufferMemory, "uniformBuffer");
 
@@ -459,7 +572,8 @@ private:
 	{
 		ZoneScoped;
 
-		float dt = window.graphicsDeltaTime.count();
+		auto& frame = window.frames[window.lastFrameIndex];
+		float dt = frame.graphicsDeltaTime.count();
 
 		// update input dependent state
 		{
@@ -745,34 +859,10 @@ private:
 		if (vertices.empty() || indices.empty())
 			throw std::runtime_error("Failed to load model.");
 
-		auto createModel = [this](
-							   const auto& vertices, const std::vector<uint32_t>& indices,
-							   const auto& attributeDescriptions, const char* filename) {
-			Model<B> outModel;
-
-			createDeviceLocalBuffer(
-				vertices.data(), vertices.sizeBytes(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-				outModel.vertexBuffer, outModel.vertexBufferMemory, filename);
-
-			createDeviceLocalBuffer(
-				indices.data(), indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				outModel.indexBuffer, outModel.indexBufferMemory, filename);
-
-			outModel.indexCount = indices.size();
-			outModel.attributeDescriptions.reserve(attributeDescriptions.size());
-			std::copy(
-				attributeDescriptions.begin(), attributeDescriptions.end(),
-				std::back_inserter(outModel.attributeDescriptions));
-			outModel.bindingDescriptions = calculateInputBindingDescriptions(attributeDescriptions);
-
-			return outModel;
-		};
-
-		auto outModel = std::make_shared<Model<B>>();
-
-		*outModel = createModel(vertices, indices, attributeDescriptions, modelFile.u8string().c_str());
-
-		return outModel;
+		return std::make_shared<Model<B>>(
+			myDevice, myTransferCommandPool, myQueue, myAllocator,
+			vertices.data(), vertices.sizeBytes(),
+			(const std::byte*)indices.data(), indices.size(), sizeof(uint32_t), attributeDescriptions, modelFile.u8string().c_str());
 	}
 
 	std::shared_ptr<Texture<B>> loadTexture(const std::filesystem::path& imageFile) const
@@ -1615,7 +1705,7 @@ private:
 		{
 			vkDestroySwapchainKHR(device, window.swapchain.swapchain, nullptr);
 			vmaDestroyImage(
-				allocator, window.swapchain.depthTexture.image, window.swapchain.depthTexture.imageMemory);
+				allocator, window.zBuffer.image, window.zBuffer.imageMemory);
 		}
 
 		window.swapchain.swapchain = newSwapchain;
@@ -1631,18 +1721,18 @@ private:
 			device, window.swapchain.swapchain, &imageCount,
 			window.swapchain.colorImages.data()));
 
-		window.depthFormat = findSupportedFormat(
+		window.zBufferFormat = findSupportedFormat(
 			physicalDevice,
 			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
 		createImage2D(
-			window.framebufferWidth, window.framebufferHeight, window.depthFormat, VK_IMAGE_TILING_OPTIMAL,
+			window.framebufferWidth, window.framebufferHeight, window.zBufferFormat, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			window.swapchain.depthTexture.image, window.swapchain.depthTexture.imageMemory, "depthImage");
+			window.zBuffer.image, window.zBuffer.imageMemory, "zBuffer");
 
 		transitionImageLayout(
-			window.swapchain.depthTexture.image, window.depthFormat, VK_IMAGE_LAYOUT_UNDEFINED,
+			window.zBuffer.image, window.zBufferFormat, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 	}
 
@@ -1736,7 +1826,7 @@ private:
 		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 		VkAttachmentDescription depthAttachment = {};
-		depthAttachment.format = window.depthFormat;
+		depthAttachment.format = window.zBufferFormat;
 		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1832,11 +1922,11 @@ private:
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = model.bindingDescriptions.size();
-		vertexInputInfo.pVertexBindingDescriptions = model.bindingDescriptions.data();
+		vertexInputInfo.vertexBindingDescriptionCount = model.bindings.size();
+		vertexInputInfo.pVertexBindingDescriptions = model.bindings.data();
 		vertexInputInfo.vertexAttributeDescriptionCount =
-			static_cast<uint32_t>(model.attributeDescriptions.size());
-		vertexInputInfo.pVertexAttributeDescriptions = model.attributeDescriptions.data();
+			static_cast<uint32_t>(model.attributes.size());
+		vertexInputInfo.pVertexAttributeDescriptions = model.attributes.data();
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1961,82 +2051,6 @@ private:
 
 		myGraphicsPipelineConfig.resources = myDefaultResources;
 		myGraphicsPipelineConfig.layout = myGraphicsPipelineLayout;
-	}
-
-	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
-	{
-		ZoneScoped;
-
-		CommandBufferHandle<B> commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
-
-		//TracyVkZone(myTracyContext, commandBuffer, "copyBuffer");
-
-		VkBufferCopy copyRegion = {};
-		copyRegion.srcOffset = 0;
-		copyRegion.dstOffset = 0;
-		copyRegion.size = size;
-		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-
-		endSingleTimeCommands(myDevice, myQueue, commandBuffer, myTransferCommandPool);
-	}
-
-	void createBuffer(
-		VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
-		BufferHandle<B>& outBuffer, AllocationHandle<B>& outBufferMemory, const char* debugName) const
-	{
-		ZoneScoped;
-
-		VkBufferCreateInfo bufferInfo = {};
-		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = size;
-		bufferInfo.usage = usage;
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-		VmaAllocationCreateInfo allocInfo = {};
-		allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
-		allocInfo.usage = (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? VMA_MEMORY_USAGE_GPU_ONLY
-																		: VMA_MEMORY_USAGE_UNKNOWN;
-		allocInfo.requiredFlags = flags;
-		allocInfo.memoryTypeBits = 0; // memRequirements.memoryTypeBits;
-		allocInfo.pUserData = (void*)debugName;
-
-		CHECK_VK(vmaCreateBuffer(
-			myAllocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
-	}
-
-	template <typename T>
-	void createDeviceLocalBuffer(
-		const T* bufferData, size_t bufferSize, VkBufferUsageFlags usage, BufferHandle<B>& outBuffer,
-		AllocationHandle<B>& outBufferMemory, const char* debugName) const
-	{
-		ZoneScoped;
-
-		assert(bufferData != nullptr);
-		assert(bufferSize > 0);
-
-		// todo: use staging buffer pool, or use scratchpad memory
-		BufferHandle<B> stagingBuffer;
-		AllocationHandle<B> stagingBufferMemory;
-		std::string debugString;
-		debugString.append(debugName);
-		debugString.append("_staging");
-		createBuffer(
-			bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			stagingBuffer, stagingBufferMemory, debugString.c_str());
-
-		void* data;
-		CHECK_VK(vmaMapMemory(myAllocator, stagingBufferMemory, &data));
-		memcpy(data, bufferData, bufferSize);
-		vmaUnmapMemory(myAllocator, stagingBufferMemory);
-
-		createBuffer(
-			bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, outBuffer, outBufferMemory, debugName);
-
-		copyBuffer(stagingBuffer, outBuffer, bufferSize);
-
-		vmaDestroyBuffer(myAllocator, stagingBuffer, stagingBufferMemory);
 	}
 
 	void transitionImageLayout(
@@ -2202,8 +2216,9 @@ private:
 		std::string debugString;
 		debugString.append(debugName);
 		debugString.append("_staging");
+		
 		createBuffer(
-			imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			myAllocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			stagingBuffer, stagingBufferMemory, debugString.c_str());
 
@@ -2382,8 +2397,8 @@ private:
 					window.swapchain.colorImages[i], window.surfaceFormat.format,
 					VK_IMAGE_ASPECT_COLOR_BIT);
 
-			window.swapchain.depthTexture.imageView = createImageView2D(
-				window.swapchain.depthTexture.image, window.depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+			window.zBuffer.imageView = createImageView2D(
+				window.zBuffer.image, window.zBufferFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 		};
 
 		createSwapchainImageViews();
@@ -2403,8 +2418,6 @@ private:
 		window.clearValue.color.float32[2] = 0.5f;
 		window.clearValue.color.float32[3] = 1.0f;
 
-		window.frames.resize(window.swapchain.colorImages.size());
-
 		myFrameCommandPools.resize(myCommandBufferThreadCount);
 		for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
 		{
@@ -2417,7 +2430,7 @@ private:
 
 		auto createFramebuffer = [this, &window](uint frameIndex)
 		{
-			std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.swapchain.depthTexture.imageView};
+			std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.zBuffer.imageView};
 			VkFramebufferCreateInfo info = {};
 			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			info.renderPass = myGraphicsPipelineConfig.renderPass;
@@ -2433,6 +2446,7 @@ private:
 			return outFramebuffer;
 		};
 
+		window.frames.resize(window.swapchain.colorImages.size());
 		for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
 		{
 			auto& frame = window.frames[frameIt];
@@ -2456,9 +2470,11 @@ private:
 
 			VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 			CHECK_VK(vkCreateSemaphore(
-				myDevice, &semaphoreInfo, nullptr, &frame.imageAcquiredSemaphore));
-			CHECK_VK(vkCreateSemaphore(
 				myDevice, &semaphoreInfo, nullptr, &frame.renderCompleteSemaphore));
+			CHECK_VK(vkCreateSemaphore(
+				myDevice, &semaphoreInfo, nullptr, &frame.newImageAcquiredSemaphore));
+
+			frame.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
 		}
 
 		updateDescriptorSets(window);
@@ -2517,51 +2533,9 @@ private:
 		void* data;
 		CHECK_VK(vmaMapMemory(myAllocator, window.uniformBufferMemory, &data));
 
-		// static auto start = std::chrono::high_resolution_clock::now();
-		// auto now = std::chrono::high_resolution_clock::now();
-		// constexpr float period = 10.0;
-		// float t = std::chrono::duration<float>(now - start).count();
-
 		for (uint32_t n = 0; n < (NX * NY); n++)
 		{
 			UniformBufferObject& ubo = reinterpret_cast<UniformBufferObject*>(data)[window.frameIndex * (NX * NY) + n];
-
-			// float tp = fmod((0.0025f * n) + t, period);
-			// float s = smootherstep(
-			// 	smoothstep(clamp(ramp(tp < (0.5f * period) ? tp : period - tp, 0, 0.5f * period), 0,
-			// 1)));
-
-			// const auto& model = glm::rotate(
-			// 	glm::translate(
-			// 		myDefaultResources->model.transform,
-			// 		glm::vec3(0, 0, -0.01f - std::numeric_limits<float>::epsilon())),
-			// 	s * glm::radians(360.0f),
-			//  	glm::vec3(0.0, 0.0, 1.0));
-
-			// glm::mat4 view0 = glm::mat4(1);
-			// glm::mat4 proj0 = glm::frustum(-1.0, 1.0, -1.0, 1.0, 0.01, 10.0);
-			// glm::mat4 view1 =
-			// 	glm::lookAt(
-			// 		glm::vec3(1.5f, 1.5f, 1.0f),
-			// 		glm::vec3(0.0f, 0.0f, -0.5f),
-			// 		glm::vec3(0.0f, 0.0f, -1.0f));
-			// glm::mat4 proj1 =
-			// 	glm::perspective(
-			// 		glm::radians(75.0f),
-			// 		window.swapchain.width / static_cast<float>(window.swapchain.height),
-			// 		0.01f,
-			// 		10.0f);
-
-			// const auto& view = glm::mat4(
-			// 	lerp(view0[0], view1[0], s),
-			// 	lerp(view0[1], view1[1], s),
-			// 	lerp(view0[2], view1[2], s),
-			// 	lerp(view0[3], view1[3], s));
-			// const auto& proj = glm::mat4(
-			// 	lerp(proj0[0], proj1[0], s),
-			// 	lerp(proj0[1], proj1[1], s),
-			// 	lerp(proj0[2], proj1[2], s),
-			// 	lerp(proj0[3], proj1[3], s));
 
 			ubo.model = glm::mat4(1.0f); // myDefaultResources->model.transform;
 			ubo.view = glm::mat4(window.views[n].view);
@@ -2623,38 +2597,19 @@ private:
 	{
 		ZoneScoped;
 
-		VkSemaphore& imageAquiredSemaphore =
-			window.frames[window.frameIndex].imageAcquiredSemaphore;
+		window.lastFrameIndex = window.frameIndex;
+		auto& lastFrame = window.frames[window.lastFrameIndex];
 
 		{
 			ZoneScopedN("acquireNextImage");
 
 			checkFlipOrPresentResult(window, vkAcquireNextImageKHR(
-				myDevice, window.swapchain.swapchain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE,
+				myDevice, window.swapchain.swapchain, UINT64_MAX, lastFrame.newImageAcquiredSemaphore, VK_NULL_HANDLE,
 				&window.frameIndex));
 		}
 
-		/* TODO: MGPU method from vk 1.1 spec
-		{
-			VkAcquireNextImageInfoKHR nextImageInfo = {};
-			nextImageInfo.sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR;
-			nextImageInfo.swapchain = window.wwapchain;
-			nextImageInfo.timeout = UINT64_MAX;
-			nextImageInfo.semaphore = imageAquiredSemaphore;
-			nextImageInfo.fence = VK_NULL_HANDLE;
-			nextImageInfo.deviceMask = ?;
-
-			checkFlipOrPresentResult(window, vkAcquireNextImage2KHR(myDevice, &nextImageInfo,
-		&window.frameIndex));
-		}
-		 */
-
 		auto& frame = window.frames[window.frameIndex];
 		
-		std::array<ClearValue<B>, 2> clearValues = {};
-		clearValues[0] = window.clearValue;
-		clearValues[1].depthStencil = {1.0f, 0};
-
 		// wait for frame to be completed before starting to use it
 		{
 			ZoneScopedN("waitForFrameFence");
@@ -2662,9 +2617,8 @@ private:
 			CHECK_VK(vkWaitForFences(myDevice, 1, &frame.fence, VK_TRUE, UINT64_MAX));
 			CHECK_VK(vkResetFences(myDevice, 1, &frame.fence));
 
-			auto lastGraphicsFrameTimestamp = window.graphicsFrameTimestamp;
-			window.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
-			window.graphicsDeltaTime = window.graphicsFrameTimestamp - lastGraphicsFrameTimestamp;
+			frame.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
+			frame.graphicsDeltaTime = frame.graphicsFrameTimestamp - lastFrame.graphicsFrameTimestamp;
 		}
 
 		std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this, &window]
@@ -2827,6 +2781,10 @@ private:
 			TracyVkCollect(myTracyContext, frame.commandBuffers[0]);
 		}
 
+		std::array<ClearValue<B>, 2> clearValues = {};
+		clearValues[0] = window.clearValue;
+		clearValues[1].depthStencil = {1.0f, 0};
+
 		// call secondary command buffers
 		{
 			{
@@ -2894,7 +2852,7 @@ private:
 			VkSubmitInfo submitInfo = {};
 			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 			submitInfo.waitSemaphoreCount = 1;
-			submitInfo.pWaitSemaphores = &imageAquiredSemaphore;
+			submitInfo.pWaitSemaphores = &lastFrame.newImageAcquiredSemaphore;
 			submitInfo.pWaitDstStageMask = &waitStage;
 			submitInfo.commandBufferCount = 1;
 			submitInfo.pCommandBuffers = &frame.commandBuffers[0];
@@ -2931,8 +2889,8 @@ private:
 		for (auto& frame : window.frames)
 		{
 			vkDestroyFence(myDevice, frame.fence, nullptr);
-			vkDestroySemaphore(myDevice, frame.imageAcquiredSemaphore, nullptr);
 			vkDestroySemaphore(myDevice, frame.renderCompleteSemaphore, nullptr);
+			vkDestroySemaphore(myDevice, frame.newImageAcquiredSemaphore, nullptr);
 
 			for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
 				vkFreeCommandBuffers(myDevice, myFrameCommandPools[threadIt], 1, &frame.commandBuffers[threadIt]);
@@ -2943,7 +2901,7 @@ private:
 		for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
 			vkDestroyCommandPool(myDevice, myFrameCommandPools[threadIt], nullptr);	
 
-		vkDestroyImageView(myDevice, window.swapchain.depthTexture.imageView, nullptr);
+		vkDestroyImageView(myDevice, window.zBuffer.imageView, nullptr);
 
 		for (VkImageView imageView : window.swapchain.colorImageViews)
 			vkDestroyImageView(myDevice, imageView, nullptr);
@@ -2953,14 +2911,6 @@ private:
 		vkDestroyPipeline(myDevice, myGraphicsPipeline, nullptr);
 
 		TracyVkDestroy(myTracyContext);
-	}
-
-	void cleanupSwapchain(DeviceHandle<B> device, VmaAllocator vmaAllocator, SwapchainContext<B>& swapchain) const
-	{
-		ZoneScoped;
-
-		vkDestroySwapchainKHR(device, swapchain.swapchain, nullptr);
-		vmaDestroyImage(vmaAllocator, swapchain.depthTexture.image, swapchain.depthTexture.imageMemory);
 	}
 
 	void cleanup()
@@ -2974,15 +2924,12 @@ private:
 
 		auto& window = *myDefaultResources->window;
 
-		cleanupSwapchain(myDevice, myAllocator, window.swapchain);
-
+		vkDestroySwapchainKHR(myDevice, window.swapchain.swapchain, nullptr);
+		vmaDestroyImage(myAllocator, window.zBuffer.image, window.zBuffer.imageMemory);
 		vmaDestroyBuffer(myAllocator, window.uniformBuffer, window.uniformBufferMemory);
 
 		{
-			vmaDestroyBuffer(
-				myAllocator, myDefaultResources->model->vertexBuffer, myDefaultResources->model->vertexBufferMemory);
-			vmaDestroyBuffer(
-				myAllocator, myDefaultResources->model->indexBuffer, myDefaultResources->model->indexBufferMemory);
+			myDefaultResources->model.reset();
 
 			vmaDestroyImage(
 				myAllocator, myDefaultResources->texture->image, myDefaultResources->texture->imageMemory);
@@ -3030,17 +2977,18 @@ private:
 	InstanceHandle<B> myInstance = 0;
 
 	PhysicalDeviceHandle<B> myPhysicalDevice = 0;
-	PhysicalDeviceProperties<B> myPhysicalDeviceProperties;
+	PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
 	DeviceHandle<B> myDevice = 0;
 	
 	// todo -> generic
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
-	VmaAllocator myAllocator = VK_NULL_HANDLE;
 	TracyVkCtx myTracyContext;
 	// end todo
 	
 	int myQueueFamilyIndex = -1;
 	QueueHandle<B> myQueue = 0;
+
+	AllocatorHandle<B> myAllocator = 0;
 	
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
 
