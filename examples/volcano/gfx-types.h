@@ -93,16 +93,6 @@ using PipelineLayoutHandle =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkPipelineLayout, std::nullptr_t>;
 
 template <GraphicsBackend B>
-struct PipelineLayoutContext
-{
-	std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> shaders;
-	std::unique_ptr<DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>
-		descriptorSetLayouts;
-
-	PipelineLayoutHandle<B> layout = 0;
-};
-
-template <GraphicsBackend B>
 using DescriptorPoolHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorPool, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -122,14 +112,6 @@ template <GraphicsBackend B>
 using SamplerHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSampler, std::nullptr_t>;
 
 template <GraphicsBackend B>
-struct Texture
-{
-	ImageHandle<B> image = 0;
-	AllocationHandle<B> imageMemory = 0;
-	ImageViewHandle<B> imageView = 0;
-};
-
-template <GraphicsBackend B>
 using VertexInputBindingDescription = std::conditional_t<
 	B == GraphicsBackend::Vulkan, VkVertexInputBindingDescription, std::nullptr_t>;
 
@@ -140,6 +122,37 @@ using VertexInputRate =
 template <GraphicsBackend B>
 using VertexInputAttributeDescription = std::conditional_t<
 	B == GraphicsBackend::Vulkan, VkVertexInputAttributeDescription, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using CommandPoolHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandPool, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using CommandBufferHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBuffer, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using FenceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkFence, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using SemaphoreHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSemaphore, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ImageUsageFlags = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageUsageFlags, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ImageAspectFlagBits = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageAspectFlagBits, std::nullptr_t>;
+
+template <GraphicsBackend B>
+struct PipelineLayoutContext
+{
+	std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> shaders;
+	std::unique_ptr<DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>
+		descriptorSetLayouts;
+
+	PipelineLayoutHandle<B> layout = 0;
+};
 
 template <GraphicsBackend B>
 struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>
@@ -159,53 +172,6 @@ struct SerializableVertexInputAttributeDescription : public VertexInputAttribute
 };
 
 template <GraphicsBackend B>
-struct Model
-{
-	Model(VkDevice device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator,
-		const std::byte* vertices, size_t verticesSizeBytes,
-		const std::byte* indices, uint32_t indexCount, size_t indexSizeBytes,
-		const std::vector<SerializableVertexInputAttributeDescription<B>>& attributeDescriptions,
-		const char* filename)
-	: allocator(allocator)
-	, indexCount(indexCount)
-	{
-		createDeviceLocalBuffer(
-			device, commandPool, queue, allocator,
-			vertices, verticesSizeBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-			vertexBuffer, vertexBufferMemory, filename);
-
-		createDeviceLocalBuffer(
-			device, commandPool, queue, allocator,
-			indices, indexCount * indexSizeBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-			indexBuffer, indexBufferMemory, filename);
-
-		attributes.reserve(attributeDescriptions.size());
-		std::copy(
-			attributeDescriptions.begin(), attributeDescriptions.end(),
-			std::back_inserter(attributes));
-		
-		bindings = calculateInputBindingDescriptions(attributeDescriptions);
-	}
-
-	~Model()
-	{
-		vmaDestroyBuffer(allocator, vertexBuffer, vertexBufferMemory);
-		vmaDestroyBuffer(allocator, indexBuffer, indexBufferMemory);
-	}
-
-	AllocatorHandle<B> allocator;
-
-	BufferHandle<B> vertexBuffer = 0;
-	AllocationHandle<B> vertexBufferMemory = 0;
-	BufferHandle<B> indexBuffer = 0;
-	AllocationHandle<B> indexBufferMemory = 0;
-	uint32_t indexCount = 0;
-
-	std::vector<VertexInputAttributeDescription<B>> attributes;
-	std::vector<VertexInputBindingDescription<B>> bindings;
-};
-
-template <GraphicsBackend B>
 struct SwapchainInfo
 {
 	SurfaceCapabilities<B> capabilities = {};
@@ -222,18 +188,3 @@ struct SwapchainContext
 	std::vector<ImageHandle<B>> colorImages;
 	std::vector<ImageViewHandle<B>> colorImageViews;
 };
-
-template <GraphicsBackend B>
-using CommandPoolHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandPool, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using CommandBufferHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBuffer, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using FenceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkFence, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using SemaphoreHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSemaphore, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;
