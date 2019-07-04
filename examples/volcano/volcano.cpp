@@ -17,7 +17,6 @@
 // done: instrumentation and timing information
 
 #include "volcano.h"
-#include "aabb.h"
 #include "file.h"
 #include "gfx.h"
 #include "glm.h"
@@ -25,14 +24,12 @@
 #include "model.h"
 #include "texture.h"
 #include "utils.h"
-#include "vertex.h"
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
 #	include <sdkddkver.h>
 #endif
 
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -51,29 +48,12 @@
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-
-#define STBI_NO_STDIO
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
-#define STB_DXT_IMPLEMENTATION
-#include <stb_dxt.h>
-
-//#define TINYOBJLOADER_USE_EXPERIMENTAL
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-#	define TINYOBJ_LOADER_OPT_IMPLEMENTATION
-#	include <experimental/tinyobj_loader_opt.h>
-#else
-#	define TINYOBJLOADER_IMPLEMENTATION
-#	include <tiny_obj_loader.h>
-#endif
 
 #include <cereal/archives/binary.hpp>
 #include <cereal/archives/portable_binary.hpp>
@@ -235,6 +215,72 @@ struct PipelineCacheHeader<GraphicsBackend::Vulkan>
 };
 #pragma pack(pop)
 
+std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, PhysicalDeviceProperties<GraphicsBackend::Vulkan>>
+getSuitableSwapchainAndQueueFamilyIndex(
+	VkSurfaceKHR surface, VkPhysicalDevice device)
+{
+	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
+
+	VkPhysicalDeviceProperties deviceProperties;
+	vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+	VkPhysicalDeviceFeatures deviceFeatures;
+	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+	assert(deviceFeatures.inheritedQueries);
+
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
+
+	uint32_t formatCount;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+	if (formatCount != 0)
+	{
+		swapchainInfo.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
+											 swapchainInfo.formats.data());
+	}
+
+	assert(!swapchainInfo.formats.empty());
+
+	uint32_t presentModeCount;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+	if (presentModeCount != 0)
+	{
+		swapchainInfo.presentModes.resize(presentModeCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
+												  swapchainInfo.presentModes.data());
+	}
+
+	assert(!swapchainInfo.presentModes.empty());
+
+	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+	{
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
+		{
+			const auto& queueFamily = queueFamilies[i];
+
+			VkBool32 presentSupport = false;
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+				presentSupport)
+			{
+				return std::make_tuple(swapchainInfo, i, deviceProperties);
+			}
+		}
+	}
+
+	return std::make_tuple(swapchainInfo, -1, deviceProperties);
+}
+
+
 template <GraphicsBackend B>
 class Application
 {
@@ -285,20 +331,45 @@ public:
 		myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<B>>();
 		*myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice, *slangShaders);
 		
-		myDefaultResources->model = loadModel(std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
-		myDefaultResources->texture = loadTexture(std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
+		myDefaultResources->model = std::make_shared<Model<B>>(
+			myDevice, myTransferCommandPool, myQueue, myAllocator,
+			std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
+		myDefaultResources->texture = std::make_shared<Texture<B>>(
+			myDevice, myTransferCommandPool, myQueue, myAllocator,
+			std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 
-		createBuffer(
+		std::tie(window.uniformBuffer, window.uniformBufferMemory) = createBuffer(
 			myAllocator, frameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, window.uniformBuffer,
-			window.uniformBufferMemory, "uniformBuffer");
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, "uniformBuffer");
 
 		myPipelineCache = loadPipelineCache(
 			myDevice,
 			myPhysicalDeviceProperties,
 			std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"));
 
-		createSwapchain(myDevice, myPhysicalDevice, myAllocator, frameCount, *myDefaultResources->window);
+		myDefaultResources->window->swapchain = createSwapchainContext(
+			myDevice, myPhysicalDevice, myAllocator, frameCount,
+			*myDefaultResources->window);
+
+		// todo: append stencil bit for depthstencil composite formats
+		Texture<GraphicsBackend::Vulkan>::TextureData textureData = 
+		{
+			window.framebufferWidth,
+			window.framebufferHeight,
+			1,
+			0,
+			nullptr, 
+			findSupportedFormat(
+				myPhysicalDevice,
+				{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+				VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT,
+			"zBuffer"
+		};
+		window.zBuffer = std::make_shared<Texture<B>>(
+			myDevice, myTransferCommandPool, myQueue, myAllocator,
+			textureData);
 
 		std::vector<Model<B>*> models;
 		models.push_back(myDefaultResources->model.get());
@@ -383,6 +454,7 @@ public:
 		ZoneScoped;
 
 		auto& window = *myDefaultResources->window;
+		auto frameCount = window.swapchain.colorImages.size();
 
 		{
 			ZoneScopedN("queueWaitIdle");
@@ -402,7 +474,29 @@ public:
 		window.framebufferWidth = width;
 		window.framebufferHeight = height;
 
-		createSwapchain(myDevice, myPhysicalDevice, myAllocator, window.swapchain.colorImages.size(), window);
+		myDefaultResources->window->swapchain = createSwapchainContext(
+			myDevice, myPhysicalDevice, myAllocator, frameCount,
+			*myDefaultResources->window);
+
+		// todo: append stencil bit for depthstencil composite formats
+		Texture<GraphicsBackend::Vulkan>::TextureData textureData = 
+		{
+			window.framebufferWidth,
+			window.framebufferHeight,
+			1,
+			0,
+			nullptr, 
+			findSupportedFormat(
+				myPhysicalDevice,
+				{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+				VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT,
+			"zBuffer"
+		};
+		window.zBuffer = std::make_shared<Texture<B>>(
+			myDevice, myTransferCommandPool, myQueue, myAllocator,
+			textureData);
 
 		std::vector<Model<B>*> models;
 		models.push_back(myDefaultResources->model.get());
@@ -601,7 +695,9 @@ private:
                 auto res = NFD_OpenDialog("obj", myResourcePath.u8string().c_str(), &pathStr);
                 if (res == NFD_OKAY)
                 {
-                    myDefaultResources->model = loadModel(std::filesystem::absolute(pathStr));
+                    myDefaultResources->model = std::make_shared<Model<B>>(
+						myDevice, myTransferCommandPool, myQueue, myAllocator,
+						std::filesystem::absolute(pathStr));
 
 					updateDescriptorSets(window);
                 }
@@ -613,7 +709,9 @@ private:
                 auto res = NFD_OpenDialog("jpg", myResourcePath.u8string().c_str(), &pathStr);
                 if (res == NFD_OKAY)
                 {
-                    myDefaultResources->texture = loadTexture(std::filesystem::absolute(pathStr));
+                    myDefaultResources->texture = std::make_shared<Texture<B>>(
+						myDevice, myTransferCommandPool, myQueue, myAllocator,
+						std::filesystem::absolute(pathStr));
 
 					updateDescriptorSets(window);
                 }
@@ -627,208 +725,6 @@ private:
 		}
 
 		Render();
-	}
-
-	std::shared_ptr<Model<B>> loadModel(const std::filesystem::path& modelFile) const
-	{
-		ZoneScoped;
-
-		VertexAllocator vertices;
-		std::vector<uint32_t> indices;
-		std::vector<SerializableVertexInputAttributeDescription<B>> attributeDescriptions;
-		AABB3f aabb;
-
-		auto loadPBin = [&vertices, &indices, &attributeDescriptions, &aabb](std::istream& stream) {
-			cereal::PortableBinaryInputArchive pbin(stream);
-			pbin(vertices, indices, attributeDescriptions, aabb);
-		};
-
-		auto savePBin = [&vertices, &indices, &attributeDescriptions, &aabb](std::ostream& stream) {
-			cereal::PortableBinaryOutputArchive pbin(stream);
-			pbin(vertices, indices, attributeDescriptions, aabb);
-		};
-
-		auto loadOBJ = [&vertices, &indices, &attributeDescriptions, &aabb](std::istream& stream) {
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-			using namespace tinyobj_opt;
-#else
-			using namespace tinyobj;
-#endif
-			attrib_t attrib;
-			std::vector<shape_t> shapes;
-			std::vector<material_t> materials;
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-			std::streambuf* raw_buffer = stream.rdbuf();
-			std::streamsize bufferSize = stream.gcount();
-			std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
-			raw_buffer->sgetn(buffer.get(), bufferSize);
-			LoadOption option;
-			if (!parseObj(&attrib, &shapes, &materials, buffer.get(), bufferSize, option))
-				throw std::runtime_error("Failed to load model.");
-#else
-			std::string warn, err;
-			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &stream))
-				throw std::runtime_error(err);
-#endif
-
-			uint32_t indexCount = 0;
-			for (const auto& shape : shapes)
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-				for (uint32_t faceOffset = shape.face_offset;
-					 faceOffset < (shape.face_offset + shape.length);
-					 faceOffset++)
-					indexCount += attrib.face_num_verts[faceOffset];
-#else
-				indexCount += shape.mesh.indices.size();
-#endif
-
-			attributeDescriptions.emplace_back(
-				SerializableVertexInputAttributeDescription<B>{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u});
-			attributeDescriptions.emplace_back(
-				SerializableVertexInputAttributeDescription<B>{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u});
-			attributeDescriptions.emplace_back(
-				SerializableVertexInputAttributeDescription<B>{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u});
-
-			std::unordered_map<uint64_t, uint32_t> uniqueVertices;
-
-			vertices.setStride(32);
-
-			ScopedVertexAllocation vertexScope(vertices);
-			vertices.reserve(indexCount / 3); // guesstimate
-			indices.reserve(indexCount);
-
-			size_t posOffset = attributeDescriptions[0].offset;
-			size_t colorOffset = attributeDescriptions[1].offset;
-			size_t texCoordOffset = attributeDescriptions[2].offset;
-
-			for (const auto& shape : shapes)
-			{
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-				for (uint32_t faceOffset = shape.face_offset;
-					 faceOffset < (shape.face_offset + shape.length);
-					 faceOffset++)
-				{
-					const index_t& index = attrib.indices[faceOffset];
-#else
-				for (const auto& index : shape.mesh.indices)
-				{
-#endif
-					auto& vertex = *vertexScope.createVertices();
-
-					glm::vec3* pos = vertex.dataAs<glm::vec3>(posOffset);
-					*pos = {attrib.vertices[3 * index.vertex_index + 0],
-							attrib.vertices[3 * index.vertex_index + 1],
-							attrib.vertices[3 * index.vertex_index + 2]};
-
-					glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
-					*color = {1.0f, 1.0f, 1.0f};
-
-					glm::vec2* texCoord = vertex.dataAs<glm::vec2>(texCoordOffset);
-					*texCoord = {attrib.texcoords[2 * index.texcoord_index + 0],
-								 1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
-
-					uint64_t vertexHash = vertex.hash();
-
-					if (uniqueVertices.count(vertexHash) == 0)
-					{
-						uniqueVertices[vertexHash] = static_cast<uint32_t>(vertices.size() - 1);
-						aabb.merge(*pos);
-					}
-					else
-					{
-						vertexScope.freeVertices(&vertex);
-					}
-
-					indices.push_back(uniqueVertices[vertexHash]);
-				}
-			}
-		};
-
-		loadCachedSourceFile(
-			modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
-
-		if (vertices.empty() || indices.empty())
-			throw std::runtime_error("Failed to load model.");
-
-		return std::make_shared<Model<B>>(
-			myDevice, myTransferCommandPool, myQueue, myAllocator,
-			vertices.data(), vertices.sizeBytes(),
-			(const std::byte*)indices.data(), indices.size(), sizeof(uint32_t), attributeDescriptions, modelFile.u8string().c_str());
-	}
-
-	std::shared_ptr<Texture<B>> loadTexture(const std::filesystem::path& imageFile) const
-	{
-		ZoneScoped;
-
-		int nx, ny, nChannels;
-		size_t dxtImageSize;
-		std::unique_ptr<std::byte[]> dxtImageData;
-
-		auto loadPBin = [&nx, &ny, &nChannels, &dxtImageData, &dxtImageSize](std::istream& stream) {
-			cereal::PortableBinaryInputArchive pbin(stream);
-			pbin(nx, ny, nChannels, dxtImageSize);
-			dxtImageData = std::make_unique<std::byte[]>(dxtImageSize);
-			pbin(cereal::binary_data(dxtImageData.get(), dxtImageSize));
-		};
-
-		auto savePBin = [&nx, &ny, &nChannels, &dxtImageData, &dxtImageSize](std::ostream& stream) {
-			cereal::PortableBinaryOutputArchive pbin(stream);
-			pbin(nx, ny, nChannels, dxtImageSize);
-			pbin(cereal::binary_data(dxtImageData.get(), dxtImageSize));
-		};
-
-		auto loadImage = [&nx, &ny, &nChannels, &dxtImageData,
-						  &dxtImageSize](std::istream& stream) {
-			stbi_io_callbacks callbacks;
-			callbacks.read = &stbi_istream_callbacks::read;
-			callbacks.skip = &stbi_istream_callbacks::skip;
-			callbacks.eof = &stbi_istream_callbacks::eof;
-			stbi_uc* imageData =
-				stbi_load_from_callbacks(&callbacks, &stream, &nx, &ny, &nChannels, STBI_rgb_alpha);
-
-			bool hasAlpha = nChannels == 4;
-			uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-			dxtImageSize = hasAlpha ? nx * ny : nx * ny / 2;
-			dxtImageData = std::make_unique<std::byte[]>(dxtImageSize);
-
-			auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride,
-								   stbi_uc* dst) {
-				for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
-				{
-					std::copy(src, src + stride * 4, &dst[rowIt * 16]);
-					src += width * stride;
-				}
-			};
-
-			stbi_uc block[64] = {0};
-			const stbi_uc* src = imageData;
-			stbi_uc* dst = reinterpret_cast<stbi_uc*>(dxtImageData.get());
-			for (uint32_t rowIt = 0; rowIt < ny; rowIt += 4)
-			{
-				for (uint32_t colIt = 0; colIt < nx; colIt += 4)
-				{
-					uint32_t offset = (rowIt * nx + colIt) * 4;
-					extractBlock(src + offset, nx, 4, block);
-					stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
-					dst += compressedBlockSize;
-				}
-			}
-
-			stbi_image_free(imageData);
-		};
-
-		loadCachedSourceFile(
-			imageFile, imageFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
-
-		if (dxtImageData == nullptr)
-			throw std::runtime_error("Failed to load image.");
-
-		return std::make_shared<Texture<B>>(
-			myDevice, myTransferCommandPool, myQueue, myAllocator,
-			dxtImageData.get(), nx, ny,
-			nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK
-						   : VK_FORMAT_BC5_UNORM_BLOCK, // todo: write utility function for this
-			VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, imageFile.u8string().c_str());
 	}
 
 	std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile) const
@@ -1274,7 +1170,7 @@ private:
 		for (auto& [space, layoutBindings] : slangModule.bindings)
 		{
 			pipelineLayout.descriptorSetLayouts.get()[layoutIt++] =
-				createDescriptorSetLayout(device, layoutBindings);
+				createDescriptorSetLayout(device, layoutBindings.data(), layoutBindings.size());
 		}
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
@@ -1544,16 +1440,16 @@ private:
 			selectedPresentMode, selectedFrameCount, selectedQueue, selectedQueueFamilyIndex);
 	}
 
-	void createSwapchain(
+	SwapchainContext<B> createSwapchainContext(
 		DeviceHandle<B> device,
 		PhysicalDeviceHandle<B> physicalDevice,
 		VmaAllocator allocator,
 		uint32_t frameCount,
-		WindowData<B>& window) const
+		const WindowData<B>& window) const
 	{
 		ZoneScoped;
 
-		SwapchainHandle<B> newSwapchain;
+		SwapchainContext<B> outSwapchain = {};
 		{
 			VkSwapchainCreateInfoKHR info = {};
 			info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1572,35 +1468,24 @@ private:
 			info.clipped = VK_TRUE;
 			info.oldSwapchain = window.swapchain.swapchain;
 
-			CHECK_VK(vkCreateSwapchainKHR(device, &info, nullptr, &newSwapchain));
+			CHECK_VK(vkCreateSwapchainKHR(device, &info, nullptr, &outSwapchain.swapchain));
 		}
 
-		if (window.swapchain.swapchain)
+		if (window.swapchain.swapchain != VK_NULL_HANDLE)
 			vkDestroySwapchainKHR(device, window.swapchain.swapchain, nullptr);
-
-		window.swapchain.swapchain = newSwapchain;
 
 		uint32_t imageCount;
 		CHECK_VK(
-			vkGetSwapchainImagesKHR(device, window.swapchain.swapchain, &imageCount, nullptr));
+			vkGetSwapchainImagesKHR(device, outSwapchain.swapchain, &imageCount, nullptr));
 		
-		window.swapchain.colorImages.resize(imageCount);
-		window.swapchain.colorImageViews.resize(imageCount);
+		outSwapchain.colorImages.resize(imageCount);
+		outSwapchain.colorImageViews.resize(imageCount);
 		
 		CHECK_VK(vkGetSwapchainImagesKHR(
-			device, window.swapchain.swapchain, &imageCount,
-			window.swapchain.colorImages.data()));
+			device, outSwapchain.swapchain, &imageCount,
+			outSwapchain.colorImages.data()));
 
-		// todo: append stencil bit for depthstencil composite formats
-		window.zBuffer = std::make_shared<Texture<B>>(
-			myDevice, myTransferCommandPool, myQueue, myAllocator,
-			nullptr, window.framebufferWidth, window.framebufferHeight,
-			findSupportedFormat(
-				physicalDevice,
-				{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-				VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT,
-			"zBuffer");
+		return outSwapchain;
 	}
 
 	VmaAllocator createAllocator(DeviceHandle<B> device, PhysicalDeviceHandle<B> physicalDevice) const
@@ -2254,7 +2139,10 @@ private:
 			uint32_t segmentCount = std::max(myCommandBufferThreadCount - 1u, 1u);
 
 			assert(myGraphicsPipelineConfig.resources != nullptr);
-			auto& resources = *myGraphicsPipelineConfig.resources;
+			auto& config = myGraphicsPipelineConfig;
+			auto& descriptorSets = myDescriptorSets;
+			auto& layoutConfig = *myGraphicsPipelineLayout;
+			auto& pipeline = myGraphicsPipeline;
 
 			// begin secondary command buffers
 			for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
@@ -2265,7 +2153,7 @@ private:
 
 				VkCommandBufferInheritanceInfo inherit = {
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
-				inherit.renderPass = myGraphicsPipelineConfig.renderPass;
+				inherit.renderPass = config.renderPass;
 				inherit.framebuffer = frame.frameBuffer;
 
 				CHECK_VK(vkResetCommandBuffer(cmd, 0));
@@ -2295,7 +2183,7 @@ private:
 	// 				std::execution::par,
 	// #endif
 					seq.begin(), segmentCount,
-					[this, &resources, &dx, &dy, &segmentDrawCount, &frame](uint32_t segmentIt) {
+					[&config, &descriptorSets, &layoutConfig, &pipeline, &dx, &dy, &segmentDrawCount, &frame](uint32_t segmentIt) {
 						ZoneScopedN("drawSegment");
 
 						VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
@@ -2305,13 +2193,13 @@ private:
 						// bind pipeline and inputs
 						{
 							// bind pipeline and vertex/index buffers
-							vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline);
+							vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-							VkBuffer vertexBuffers[] = {resources.model->vertexBuffer};
+							VkBuffer vertexBuffers[] = {config.resources->model->vertexBuffer};
 							VkDeviceSize vertexOffsets[] = {0};
 
 							vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-							vkCmdBindIndexBuffer(cmd, resources.model->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+							vkCmdBindIndexBuffer(cmd, config.resources->model->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 						}
 
 						for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -2360,8 +2248,8 @@ private:
 							setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
 							drawModel(
-								cmd, myDefaultResources->model->indexCount, myDescriptorSets.size(),
-								myDescriptorSets.data(), myGraphicsPipelineLayout->layout);
+								cmd, config.resources->model->indexCount, descriptorSets.size(),
+								descriptorSets.data(), layoutConfig.layout);
 						}
 					});
 			}

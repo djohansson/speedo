@@ -12,60 +12,60 @@ class VertexAllocator
 public:
 	VertexAllocator() = default;
 
-	void lock()
+	inline void lock()
 	{
 		assert(!myIsLocked);
 
 		myIsLocked = true;
 	}
 
-	void unlock()
+	inline void unlock()
 	{
 		assert(myIsLocked);
 
 		myIsLocked = false;
 	}
 
-	bool isLocked() const
+	inline bool isLocked() const
 	{
 		return myIsLocked;
 	}
 
-	size_t size() const
+	inline size_t size() const
 	{
 		return myData.size() / stride();
 	}
 
-	size_t sizeBytes() const
+	inline size_t sizeBytes() const
 	{
 		return myData.size();
 	}
 
-	void reserve(size_t size)
+	inline void reserve(size_t size)
 	{
 		assert(myIsLocked);
 
 		myData.reserve(size * stride());
 	}
 
-	void setStride(size_t stride)
+	inline void setStride(size_t stride)
 	{
 		assert(!myIsLocked);
 
 		myStride = stride;
 	}
 
-	size_t stride() const
+	inline size_t stride() const
 	{
 		return myStride;
 	}
 
-	const std::byte* data() const
+	inline const std::byte* data() const
 	{
 		return myData.data();
 	}
 
-	bool empty() const
+	inline bool empty() const
 	{
 		return myData.size() == 0;
 	}
@@ -73,47 +73,12 @@ public:
 	// todo: handle alignment properly
 	// todo: rewrite without vector
 	// todo: handle pointer invalidation. std::deque? needs to be flattened before upload to gpu in that case.
-	std::byte* allocate(size_t count = 1)
-	{
-		auto bytes = count * stride();
-		myData.resize(myData.size() + bytes);
-		return (myData.data() + myData.size()) - bytes;
-	}
+	std::byte* allocate(size_t count = 1);
 
 	// unless freeing the last item this is _very_ inefficient
-	void free(std::byte* ptr, size_t count = 1)
-	{
-		assert(ptr != nullptr);
+	void free(std::byte* ptr, size_t count = 1);
 
-		std::byte* first = myData.data();
-		std::byte* last = first + myData.size();
-
-		auto bytes = count * stride();
-		assert(bytes > 0);
-
-		std::byte* next = ptr + bytes;
-
-		if (next == last) // is we are freeing the last item we can just resize
-		{
-			myData.resize(myData.size() - bytes);
-		}
-		else if ((next - first) % stride() != 0) // else check alignment
-		{
-			if ((next < last && next > first)) // and that we are inside the right range
-			{
-				// copy over this item with rest of range, resize down to right size.
-				std::copy(next, last, ptr);
-				myData.resize(myData.size() - bytes);
-			}
-		}
-	}
-
-	void clear()
-	{
-		myData.clear();
-		myStride = 0;
-		myIsLocked = false;
-	}
+	void clear();
 
 	template <class Archive>
 	void serialize(Archive& ar)
@@ -185,24 +150,11 @@ private:
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
 
-thread_local ScopedVertexAllocation* Vertex::st_allocationScope = nullptr;
-
 class ScopedVertexAllocation : Noncopyable
 {
 public:
-	inline ScopedVertexAllocation(VertexAllocator& allocator)
-		: myAllocatorRef(allocator)
-		, myPrevScope(Vertex::getScope())
-	{
-		myAllocatorRef.lock();
-		Vertex::setScope(this);
-	}
-
-	inline ~ScopedVertexAllocation()
-	{
-		Vertex::setScope(myPrevScope);
-		myAllocatorRef.unlock();
-	}
+	ScopedVertexAllocation(VertexAllocator& allocator);
+	~ScopedVertexAllocation();
 
 	inline Vertex* createVertices(size_t count = 1)
 	{
@@ -223,21 +175,3 @@ private:
 	VertexAllocator& myAllocatorRef;
 	ScopedVertexAllocation* const myPrevScope = nullptr;
 };
-
-VertexAllocator& Vertex::allocator()
-{
-	assert(st_allocationScope != nullptr);
-	return st_allocationScope->allocator();
-}
-
-namespace std
-{
-template <>
-struct hash<Vertex>
-{
-	inline size_t operator()(Vertex const& vertex) const
-	{
-		return vertex.hash();
-	}
-};
-} // namespace std

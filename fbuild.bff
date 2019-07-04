@@ -726,7 +726,8 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.UnityInputPath = '$ProjectPath$/examples/volcano'
 		.UnityInputPattern = "*.cpp"
-		.UnityInputExcludedFiles = { 
+		.UnityInputExcludedFiles = {
+			'$ProjectPath$/examples/volcano/volcano.cpp',
 			'$ProjectPath$/examples/volcano/main.cpp',
 		}
 		.UnityOutputPath = '$IntermediateFilePath$/examples/volcano'
@@ -759,6 +760,7 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.CompilerInputUnity = '$ConfigName$-volcano-unity'
 		.CompilerInputFiles = {
+			'$ProjectPath$/examples/volcano/volcano.cpp',
 			'$ProjectPath$/examples/volcano/main.cpp',
 		}
 		.CompilerOutputPath = '$IntermediateFilePath$'

@@ -22,27 +22,6 @@ inline uint32_t roundUp(uint32_t numToRound, uint32_t multiple)
 	return numToRound + multiple - remainder;
 }
 
-namespace stbi_istream_callbacks
-{
-int read(void* user, char* data, int size)
-{
-	std::istream* stream = static_cast<std::istream*>(user);
-	return stream->rdbuf()->sgetn(data, size);
-}
-
-void skip(void* user, int size)
-{
-	std::istream* stream = static_cast<std::istream*>(user);
-	stream->seekg(size, std::ios::cur);
-}
-
-int eof(void* user)
-{
-	std::istream* stream = static_cast<std::istream*>(user);
-	return stream->tellg() != std::istream::pos_type(-1);
-}
-} // namespace stbi_istream_callbacks
-
 template <typename T>
 struct ArrayDeleter
 {
