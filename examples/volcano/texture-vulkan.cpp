@@ -46,9 +46,9 @@ int eof(void* user)
 namespace texture
 {
 
-Texture<GraphicsBackend::Vulkan>::TextureData load(const std::filesystem::path& textureFile)
+TextureData<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFile)
 {
-    Texture<GraphicsBackend::Vulkan>::TextureData data = {};
+    TextureData<GraphicsBackend::Vulkan> data = {};
     data.debugName = textureFile.u8string();
 
     auto loadPBin = [&data](std::istream& stream) {
@@ -121,7 +121,7 @@ Texture<GraphicsBackend::Vulkan>::TextureData load(const std::filesystem::path& 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-    const TextureData& data)
+    const TextureData<GraphicsBackend::Vulkan>& data)
     : device(device)
     , allocator(allocator)
     , format(data.format)

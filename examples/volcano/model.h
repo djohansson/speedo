@@ -1,7 +1,7 @@
 #pragma once
 
 #include "aabb.h"
-#include "gfx-types.h"
+#include "gfx.h"
 #include "vertex.h"
 
 #include <filesystem>
@@ -10,19 +10,20 @@
 #include <vector>
 
 template <GraphicsBackend B>
+struct ModelData
+{
+	VertexAllocator vertices;
+	std::vector<uint32_t> indices;
+	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
+	AABB3f aabb = {};
+	std::string debugName;
+};
+
+template <GraphicsBackend B>
 struct Model
 {
-	struct ModelData
-	{
-		VertexAllocator vertices;
-		std::vector<uint32_t> indices;
-		std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
-		AABB3f aabb = {};
-		std::string debugName;
-	};
-
 	Model(DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
-		const ModelData& modelData);
+		const ModelData<B>& modelData);
 
 	Model(DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
 		const std::filesystem::path& modelFile);

@@ -38,6 +38,9 @@ template <GraphicsBackend B>
 using Format = std::conditional_t<B == GraphicsBackend::Vulkan, VkFormat, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using ColorSpace = std::conditional_t<B == GraphicsBackend::Vulkan, VkColorSpaceKHR, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using PresentMode =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
 
@@ -143,48 +146,3 @@ using ImageUsageFlags = std::conditional_t<B == GraphicsBackend::Vulkan, VkImage
 
 template <GraphicsBackend B>
 using ImageAspectFlagBits = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageAspectFlagBits, std::nullptr_t>;
-
-template <GraphicsBackend B>
-struct PipelineLayoutContext
-{
-	std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> shaders;
-	std::unique_ptr<DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>
-		descriptorSetLayouts;
-
-	PipelineLayoutHandle<B> layout = 0;
-};
-
-template <GraphicsBackend B>
-struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>
-{
-	using BaseType = VertexInputAttributeDescription<B>;
-
-	template <class Archive, GraphicsBackend B = B>
-	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
-	{
-		static_assert(sizeof(*this) == sizeof(BaseType));
-
-		ar(BaseType::location);
-		ar(BaseType::binding);
-		ar(BaseType::format);
-		ar(BaseType::offset);
-	}
-};
-
-template <GraphicsBackend B>
-struct SwapchainInfo
-{
-	SurfaceCapabilities<B> capabilities = {};
-	std::vector<SurfaceFormat<B>> formats;
-	std::vector<PresentMode<B>> presentModes;
-};
-
-template <GraphicsBackend B>
-struct SwapchainContext
-{
-	SwapchainInfo<B> info = {};
-	SwapchainHandle<B> swapchain = 0;
-
-	std::vector<ImageHandle<B>> colorImages;
-	std::vector<ImageViewHandle<B>> colorImageViews;
-};

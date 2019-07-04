@@ -1,9 +1,9 @@
-// wip: separate VK objects from generic ones.
-// wip: dynamic mesh layout, depending on input data structure
-// todo: create constructors/destructors for composite structs, and use shared_ptrs when referencing them.
-// todo: specialize on graphics backend
-// todo: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
-// todo: move stuff from headers into compilation units
+// wip: create generic gfx structures and functions. long term goal is to move all functions from vk-utils.h into gfx.h.
+// wip: dynamic mesh layout, depending on input data structure.
+// wip: create constructors/destructors for composite structs, and use shared_ptrs when referencing them. done: Texture, Model.
+// wip: specialize on graphics backend
+// wip: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
+// wip: move stuff from headers into compilation units
 // todo: extract descriptor sets
 // todo: resource loading / manager
 // todo: graph based GUI
@@ -19,7 +19,6 @@
 #include "volcano.h"
 #include "file.h"
 #include "gfx.h"
-#include "glm.h"
 #include "math.h"
 #include "model.h"
 #include "texture.h"
@@ -73,37 +72,6 @@
 
 #include <slang.h>
 
-struct ViewData
-{
-	struct ViewportData
-	{
-		uint32_t width = 0;
-		uint32_t height = 0;
-	} viewport;
-
-	glm::vec3 camPos = glm::vec3(0.0f, -2.0f, 0.0f);
-	glm::vec3 camRot = glm::vec3(0.0f, 0.0f, 0.0);
-
-	glm::mat4x3 view = glm::mat4x3(1.0f);
-	glm::mat4 projection = glm::mat4(1.0f);
-};
-
-template <GraphicsBackend B>
-struct FrameData
-{
-	uint32_t index = 0;
-	
-	FramebufferHandle<B> frameBuffer = 0;
-	std::vector<CommandBufferHandle<B>> commandBuffers; // count = [threadCount]
-	
-	FenceHandle<B> fence = 0;
-	SemaphoreHandle<B> renderCompleteSemaphore = 0;
-	SemaphoreHandle<B> newImageAcquiredSemaphore = 0;
-
-	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
-	std::chrono::duration<double> graphicsDeltaTime;
-};
-
 template <GraphicsBackend B>
 struct WindowData
 {
@@ -154,132 +122,6 @@ struct PipelineConfiguration
 	std::shared_ptr<PipelineLayoutContext<B>> layout;
 	RenderPassHandle<B> renderPass = 0;
 };
-
-using EntryPoint = std::pair<std::string, uint32_t>;
-using ShaderBinary = std::vector<std::byte>;
-using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;
-
-template <GraphicsBackend B>
-struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<B>
-{
-	using BaseType = DescriptorSetLayoutBinding<B>;
-
-	template <class Archive, GraphicsBackend B = B>
-	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
-	{
-		static_assert(sizeof(*this) == sizeof(BaseType));
-
-		ar(BaseType::binding);
-		ar(BaseType::descriptorType);
-		ar(BaseType::descriptorCount);
-		ar(BaseType::stageFlags);
-		// ar(pImmutableSamplers); // todo
-	}
-};
-
-// this is a temporary object only used during loading.
-template <GraphicsBackend B>
-struct SerializableShaderReflectionModule
-{
-	using ShaderEntryVector = std::vector<ShaderEntry>;
-	using BindingsMap =
-		std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
-
-	template <class Archive>
-	void serialize(Archive& ar)
-	{
-		ar(shaders);
-		ar(bindings);
-	}
-
-	ShaderEntryVector shaders;
-	BindingsMap bindings;
-};
-
-#pragma pack(push, 1)
-template <GraphicsBackend B>
-struct PipelineCacheHeader
-{
-};
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-template <>
-struct PipelineCacheHeader<GraphicsBackend::Vulkan>
-{
-	uint32_t headerLength = 0;
-	uint32_t cacheHeaderVersion = 0;
-	uint32_t vendorID = 0;
-	uint32_t deviceID = 0;
-	uint8_t pipelineCacheUUID[VK_UUID_SIZE] = {};
-};
-#pragma pack(pop)
-
-std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, PhysicalDeviceProperties<GraphicsBackend::Vulkan>>
-getSuitableSwapchainAndQueueFamilyIndex(
-	VkSurfaceKHR surface, VkPhysicalDevice device)
-{
-	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
-
-	VkPhysicalDeviceProperties deviceProperties;
-	vkGetPhysicalDeviceProperties(device, &deviceProperties);
-
-	VkPhysicalDeviceFeatures deviceFeatures;
-	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-	assert(deviceFeatures.inheritedQueries);
-
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
-
-	uint32_t formatCount;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-	if (formatCount != 0)
-	{
-		swapchainInfo.formats.resize(formatCount);
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-											 swapchainInfo.formats.data());
-	}
-
-	assert(!swapchainInfo.formats.empty());
-
-	uint32_t presentModeCount;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-	if (presentModeCount != 0)
-	{
-		swapchainInfo.presentModes.resize(presentModeCount);
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-												  swapchainInfo.presentModes.data());
-	}
-
-	assert(!swapchainInfo.presentModes.empty());
-
-	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-	{
-		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-
-		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
-
-		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
-		{
-			const auto& queueFamily = queueFamilies[i];
-
-			VkBool32 presentSupport = false;
-			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-
-			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-				presentSupport)
-			{
-				return std::make_tuple(swapchainInfo, i, deviceProperties);
-			}
-		}
-	}
-
-	return std::make_tuple(swapchainInfo, -1, deviceProperties);
-}
-
 
 template <GraphicsBackend B>
 class Application
@@ -352,7 +194,7 @@ public:
 			*myDefaultResources->window);
 
 		// todo: append stencil bit for depthstencil composite formats
-		Texture<GraphicsBackend::Vulkan>::TextureData textureData = 
+		TextureData<B> textureData = 
 		{
 			window.framebufferWidth,
 			window.framebufferHeight,
@@ -479,7 +321,7 @@ public:
 			*myDefaultResources->window);
 
 		// todo: append stencil bit for depthstencil composite formats
-		Texture<GraphicsBackend::Vulkan>::TextureData textureData = 
+		TextureData<B> textureData = 
 		{
 			window.framebufferWidth,
 			window.framebufferHeight,
@@ -1019,23 +861,10 @@ private:
 			cereal::BinaryInputArchive bin(stream);
 			bin(cacheData);
 
-			const PipelineCacheHeader<GraphicsBackend::Vulkan>* header =
-				reinterpret_cast<const PipelineCacheHeader<GraphicsBackend::Vulkan>*>(cacheData.data());
-
-			std::cout << "headerLength: " << header->headerLength << "\n";
-			std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
-			std::cout << "vendorID: " << header->vendorID << "\n";
-			std::cout << "deviceID: " << header->deviceID << "\n";
-			std::cout << "pipelineCacheUUID: ";
-			for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
-				std::cout << header->pipelineCacheUUID[i];
-			std::cout << std::endl;
-
-			if (header->headerLength <= 0 ||
-				header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
-				header->vendorID != physicalDeviceProperties.vendorID ||
-				header->deviceID != physicalDeviceProperties.deviceID ||
-				memcmp(header->pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
+			const PipelineCacheHeader<B>* header =
+				reinterpret_cast<const PipelineCacheHeader<B>*>(cacheData.data());
+			
+			if (!isCacheValid(header, physicalDeviceProperties))
 			{
 				std::cout << "Invalid pipeline cache, creating new." << std::endl;
 				cacheData.clear();
@@ -1085,23 +914,10 @@ private:
 				std::vector<std::byte> cacheData(cacheDataSize);
 				CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
 
-				const PipelineCacheHeader<GraphicsBackend::Vulkan>* header =
-					reinterpret_cast<const PipelineCacheHeader<GraphicsBackend::Vulkan>*>(cacheData.data());
+				const PipelineCacheHeader<B>* header =
+					reinterpret_cast<const PipelineCacheHeader<B>*>(cacheData.data());
 
-				std::cout << "headerLength: " << header->headerLength << "\n";
-				std::cout << "cacheHeaderVersion: " << header->cacheHeaderVersion << "\n";
-				std::cout << "vendorID: " << header->vendorID << "\n";
-				std::cout << "deviceID: " << header->deviceID << "\n";
-				std::cout << "pipelineCacheUUID: ";
-				for (uint32_t i = 0; i < VK_UUID_SIZE; i++)
-					std::cout << header->pipelineCacheUUID[i];
-				std::cout << std::endl;
-
-				if (header->headerLength <= 0 ||
-					header->cacheHeaderVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
-					header->vendorID != physicalDeviceProperties.vendorID ||
-					header->deviceID != physicalDeviceProperties.deviceID ||
-					memcmp(header->pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header->pipelineCacheUUID)) != 0)
+				if (!isCacheValid(header, physicalDeviceProperties))
 				{
 					std::cout << "Invalid pipeline cache, something is seriously wrong. Exiting." << std::endl;
 					return;
@@ -1271,7 +1087,7 @@ private:
 		info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
 		info.ppEnabledExtensionNames = requiredExtensions.data();
 
-		VkInstance instance = VK_NULL_HANDLE;
+		InstanceHandle<B> instance = 0;
 		CHECK_VK(vkCreateInstance(&info, NULL, &instance));
 
 		return instance;
@@ -1310,23 +1126,23 @@ private:
 		if (deviceCount == 0)
 			throw std::runtime_error("failed to find GPUs with Vulkan support!");
 
-		std::vector<VkPhysicalDevice> devices(deviceCount);
+		std::vector<PhysicalDeviceHandle<B>> devices(deviceCount);
 		CHECK_VK(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
 
 		for (const auto& device : devices)
 		{
 			std::tie(swapChainInfo, selectedQueueFamilyIndex, physicalDeviceProperties) =
-				getSuitableSwapchainAndQueueFamilyIndex(surface, device);
+				getSuitableSwapchainAndQueueFamilyIndex<B>(surface, device);
 
 			if (selectedQueueFamilyIndex >= 0)
 			{
 				physicalDevice = device;
 
-				const VkFormat requestSurfaceImageFormat[] = {
+				const Format<B> requestSurfaceImageFormat[] = {
 					VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
 					VK_FORMAT_R8G8B8_UNORM};
-				const VkColorSpaceKHR requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-				const VkPresentModeKHR requestPresentMode[] = {
+				const ColorSpace<B> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+				const PresentMode<B> requestPresentMode[] = {
 					VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
 					VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
 
@@ -1336,7 +1152,7 @@ private:
 				for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
 					 request_i++)
 				{
-					VkSurfaceFormatKHR requestedFormat = {requestSurfaceImageFormat[request_i],
+					SurfaceFormat<B> requestedFormat = {requestSurfaceImageFormat[request_i],
 														  requestSurfaceColorSpace};
 					auto formatIt = std::find(
 						swapChainInfo.formats.begin(), swapChainInfo.formats.end(),
@@ -1373,7 +1189,7 @@ private:
 			}
 		}
 
-		if (physicalDevice == VK_NULL_HANDLE)
+		if (!physicalDevice)
 			throw std::runtime_error("failed to find a suitable GPU!");
 
 		const float graphicsQueuePriority = 1.0f;
@@ -2521,14 +2337,13 @@ private:
 	std::array<glm::vec2, 2> myMousePosition;
 };
 
-static Application<GraphicsBackend::Vulkan>* theApp = nullptr;
+static std::unique_ptr<Application<GraphicsBackend::Vulkan>> theApp;
 
 int vkapp_create(
 	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 	const char* resourcePath)
 {
 	assert(view != nullptr);
-	assert(theApp == nullptr);
 
 	static const char* DISABLE_VK_LAYER_VALVE_steam_overlay_1 =
 		"DISABLE_VK_LAYER_VALVE_steam_overlay_1=1";
@@ -2552,7 +2367,7 @@ int vkapp_create(
 		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
 #endif
 
-	theApp = new Application<GraphicsBackend::Vulkan>(
+	theApp = std::make_unique<Application<GraphicsBackend::Vulkan>>(
 		view, width, height, framebufferWidth, framebufferHeight,
 		resourcePath ? resourcePath : "./");
 
@@ -2561,14 +2376,14 @@ int vkapp_create(
 
 void vkapp_draw()
 {
-	assert(theApp != nullptr);
+	assert(theApp);
 
 	theApp->draw();
 }
 
 void vkapp_resizeWindow(const window_state* state)
 {
-	assert(theApp != nullptr);
+	assert(theApp);
 	assert(state != nullptr);
 
 	theApp->resizeWindow(*state);
@@ -2576,14 +2391,14 @@ void vkapp_resizeWindow(const window_state* state)
 
 void vkapp_resizeFramebuffer(int width, int height)
 {
-	assert(theApp != nullptr);
+	assert(theApp);
 
 	theApp->resizeFramebuffer(width, height);
 }
 
 void vkapp_mouse(const mouse_state* state)
 {
-	assert(theApp != nullptr);
+	assert(theApp);
 	assert(state != nullptr);
 
 	theApp->onMouse(*state);
@@ -2591,7 +2406,7 @@ void vkapp_mouse(const mouse_state* state)
 
 void vkapp_keyboard(const keyboard_state* state)
 {
-	assert(theApp != nullptr);
+	assert(theApp);
 	assert(state != nullptr);
 
 	theApp->onKeyboard(*state);
@@ -2599,7 +2414,7 @@ void vkapp_keyboard(const keyboard_state* state)
 
 void vkapp_destroy()
 {
-	assert(theApp != nullptr);
+	assert(theApp);
 
-	delete theApp;
+	theApp.reset();
 }

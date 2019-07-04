@@ -6,24 +6,25 @@
 #include <memory>
 
 template <GraphicsBackend B>
+struct TextureData
+{
+    uint32_t nx = 0;
+    uint32_t ny = 0;
+    uint32_t nChannels = 0;
+    size_t imageSize = 0;
+    std::unique_ptr<std::byte[]> imageData;
+    Format<B> format;
+    ImageUsageFlags<B> flags = 0;
+    ImageAspectFlagBits<B> aspectFlags;
+    std::string debugName;
+};
+
+template <GraphicsBackend B>
 struct Texture
 {
-    struct TextureData
-	{
-        uint32_t nx = 0;
-        uint32_t ny = 0;
-        uint32_t nChannels = 0;
-        size_t imageSize = 0;
-        std::unique_ptr<std::byte[]> imageData;
-        Format<B> format;
-        ImageUsageFlags<B> flags = 0;
-        ImageAspectFlagBits<B> aspectFlags;
-        std::string debugName;
-    };
-
     Texture(
         DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
-        const TextureData& data);
+        const TextureData<B>& data);
 
     Texture(
         DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,

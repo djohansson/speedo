@@ -77,9 +77,9 @@ calculateInputBindingDescriptions(
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-Model<GraphicsBackend::Vulkan>::ModelData load(const std::filesystem::path& modelFile)
+ModelData<GraphicsBackend::Vulkan> load(const std::filesystem::path& modelFile)
 {
-	Model<GraphicsBackend::Vulkan>::ModelData data = {};
+	ModelData<GraphicsBackend::Vulkan> data = {};
 	data.debugName = modelFile.u8string();
 	
 	auto loadPBin = [&data](std::istream& stream) {
@@ -203,7 +203,7 @@ Model<GraphicsBackend::Vulkan>::ModelData load(const std::filesystem::path& mode
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
     VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-    const ModelData& data)
+    const ModelData<GraphicsBackend::Vulkan>& data)
 : allocator(allocator)
 , indexCount(data.indices.size())
 {
