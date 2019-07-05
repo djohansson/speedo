@@ -12,6 +12,11 @@ enum class GraphicsBackend
 	Vulkan
 };
 
+
+
+template <GraphicsBackend B>
+using Result = std::conditional_t<B == GraphicsBackend::Vulkan, VkResult, std::nullptr_t>;
+
 template <GraphicsBackend B>
 using InstanceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkInstance, std::nullptr_t>;
 
