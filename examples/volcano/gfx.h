@@ -4,11 +4,11 @@
 #include "glm.h"
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
-
 
 template <GraphicsBackend B>
 struct PipelineLayoutContext
@@ -133,8 +133,27 @@ struct FrameData
 };
 
 template <GraphicsBackend B>
-bool isCacheValid(const PipelineCacheHeader<B>* header, const PhysicalDeviceProperties<B>& physicalDeviceProperties);
+bool isCacheValid(const PipelineCacheHeader<B>& header, const PhysicalDeviceProperties<B>& physicalDeviceProperties);
 
 template <GraphicsBackend B>
 std::tuple<SwapchainInfo<B>, int, PhysicalDeviceProperties<B>>
 getSuitableSwapchainAndQueueFamilyIndex(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
+
+template <GraphicsBackend B>
+std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile);
+
+template <GraphicsBackend B>
+PipelineLayoutContext<B> createPipelineLayoutContext(DeviceHandle<B> device, const SerializableShaderReflectionModule<B>& slangModule);
+
+template <GraphicsBackend B>
+PipelineCacheHandle<B> loadPipelineCache(DeviceHandle<B> device, PhysicalDeviceProperties<B> physicalDeviceProperties,
+	const std::filesystem::path& cacheFilePath);
+
+template <GraphicsBackend B>
+void savePipelineCache(DeviceHandle<B> device, PipelineCacheHandle<B> pipelineCache, PhysicalDeviceProperties<B> physicalDeviceProperties,
+	const std::filesystem::path& cacheFilePath);
+
+template <GraphicsBackend B>
+InstanceHandle<B> createInstance();
+
+#include "gfx.inl"
