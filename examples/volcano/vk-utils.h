@@ -53,7 +53,10 @@ std::tuple<VkBuffer, VmaAllocation>  createBuffer(
 
 std::tuple<VkBuffer, VmaAllocation> createDeviceLocalBuffer(
 	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	const std::byte* bufferData, size_t bufferSize, VkBufferUsageFlags usage, const char* debugName);
+	const std::byte* bufferData, VkDeviceSize bufferSize, VkBufferUsageFlags usage, const char* debugName);
+
+VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
+	VkBufferViewCreateFlags flags, VkFormat format, VkDeviceSize offset, VkDeviceSize range);
 
 void transitionImageLayout(
 	VkDevice device, VkCommandPool commandPool, VkQueue queue, 

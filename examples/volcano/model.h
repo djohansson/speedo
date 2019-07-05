@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aabb.h"
+#include "buffer.h"
 #include "gfx.h"
 #include "vertex.h"
 

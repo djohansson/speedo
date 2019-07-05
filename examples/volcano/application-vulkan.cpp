@@ -596,7 +596,7 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
     ZoneScoped;
 
     VkDescriptorBufferInfo bufferInfo = {};
-    bufferInfo.buffer = window.uniformBuffer;
+    bufferInfo.buffer = window.viewBuffer->buffer;
     bufferInfo.offset = 0;
     bufferInfo.range = VK_WHOLE_SIZE;
 
@@ -781,16 +781,16 @@ void Application<GraphicsBackend::Vulkan>::cleanupFrameResources()
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::updateUniformBuffers(WindowData<GraphicsBackend::Vulkan>& window) const
+void Application<GraphicsBackend::Vulkan>::updateViewBuffer(WindowData<GraphicsBackend::Vulkan>& window) const
 {
     ZoneScoped;
 
     void* data;
-    CHECK_VK(vmaMapMemory(myAllocator, window.uniformBufferMemory, &data));
+    CHECK_VK(vmaMapMemory(myAllocator, window.viewBuffer->bufferMemory, &data));
 
     for (uint32_t n = 0; n < (NX * NY); n++)
     {
-        UniformBufferObject& ubo = reinterpret_cast<UniformBufferObject*>(data)[window.frameIndex * (NX * NY) + n];
+        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[window.frameIndex * (NX * NY) + n];
 
         ubo.model = glm::mat4(1.0f); // myDefaultResources->model.transform;
         ubo.view = glm::mat4(window.views[n].view);
@@ -799,11 +799,11 @@ void Application<GraphicsBackend::Vulkan>::updateUniformBuffers(WindowData<Graph
 
     vmaFlushAllocation(
         myAllocator,
-        window.uniformBufferMemory,
-        sizeof(UniformBufferObject) * window.frameIndex * (NX * NY),
-        sizeof(UniformBufferObject) * (NX * NY));
+        window.viewBuffer->bufferMemory,
+        sizeof(ViewBufferData) * window.frameIndex * (NX * NY),
+        sizeof(ViewBufferData) * (NX * NY));
 
-    vmaUnmapMemory(myAllocator, window.uniformBufferMemory);
+    vmaUnmapMemory(myAllocator, window.viewBuffer->bufferMemory);
 }
 
 template <>
@@ -878,10 +878,6 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice, myTransferCommandPool, myQueue, myAllocator,
         std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
 
-    std::tie(window.uniformBuffer, window.uniformBufferMemory) = createBuffer(
-        myAllocator, frameCount * (NX * NY) * sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, "uniformBuffer");
-
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
         myDevice,
         myPhysicalDeviceProperties,
@@ -890,6 +886,18 @@ Application<GraphicsBackend::Vulkan>::Application(
     myDefaultResources->window->swapchain = createSwapchainContext(
         myDevice, myPhysicalDevice, myAllocator, frameCount,
         *myDefaultResources->window);
+
+    BufferData<GraphicsBackend::Vulkan> bufferData =
+    {
+        frameCount * (NX * NY) * sizeof(ViewBufferData),
+        nullptr,
+        VK_FORMAT_UNDEFINED,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        0,
+        VK_WHOLE_SIZE,
+    };
+    window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(myDevice, myAllocator, bufferData);
 
     // todo: append stencil bit for depthstencil composite formats
     TextureData<GraphicsBackend::Vulkan> textureData = 
@@ -945,10 +953,10 @@ Application<GraphicsBackend::Vulkan>::~Application()
     auto& window = *myDefaultResources->window;
 
     vkDestroySwapchainKHR(myDevice, window.swapchain.swapchain, nullptr);
-    vmaDestroyBuffer(myAllocator, window.uniformBuffer, window.uniformBufferMemory);
 
     {
         window.zBuffer.reset();
+        window.viewBuffer.reset();
         myDefaultResources->model.reset();
         myDefaultResources->texture.reset();
     }
@@ -1012,9 +1020,9 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
         frame.graphicsDeltaTime = frame.graphicsFrameTimestamp - lastFrame.graphicsFrameTimestamp;
     }
 
-    std::future<void> updateUniformBuffersFuture(std::async(std::launch::async, [this, &window]
+    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, &window]
     {
-        updateUniformBuffers(window);
+        updateViewBuffer(window);
     }));
 
     std::future<void> secondaryCommandsFuture(std::async(std::launch::async, [this, &window, &frame]
@@ -1121,10 +1129,10 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
                                             uint32_t descriptorSetCount,
                                             const VkDescriptorSet* descriptorSets,
                                             VkPipelineLayout pipelineLayout) {
-                            uint32_t uniformBufferOffset = (frame.index * drawCount + n) * sizeof(UniformBufferObject);
+                            uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(ViewBufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                                descriptorSetCount, descriptorSets, 1, &uniformBufferOffset);
+                                descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
                             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
                         };
 
@@ -1237,7 +1245,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
         {
             ZoneScopedN("waitFramePrepare");
 
-            updateUniformBuffersFuture.get();
+            updateViewBufferFuture.get();
             
         }
 

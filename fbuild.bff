@@ -727,8 +727,10 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityInputPath = '$ProjectPath$/examples/volcano'
 		.UnityInputPattern = "*.cpp"
 		.UnityInputExcludedFiles = {
+			'$ProjectPath$/examples/volcano/application-glfw.cpp',
 			'$ProjectPath$/examples/volcano/application-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/gfx-vulkan.cpp',
+			'$ProjectPath$/examples/volcano/buffer-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/model-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/texture-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/volcano.cpp',
@@ -764,8 +766,10 @@ ForEach(.Config in .Clang_x64_Configs)
 
 		.CompilerInputUnity = '$ConfigName$-volcano-unity'
 		.CompilerInputFiles = {
+			'$ProjectPath$/examples/volcano/application-glfw.cpp',
 			'$ProjectPath$/examples/volcano/application-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/gfx-vulkan.cpp',
+			'$ProjectPath$/examples/volcano/buffer-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/model-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/texture-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/volcano.cpp',

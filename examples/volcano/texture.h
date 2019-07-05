@@ -11,11 +11,11 @@ struct TextureData
     uint32_t nx = 0;
     uint32_t ny = 0;
     uint32_t nChannels = 0;
-    size_t imageSize = 0;
+    DeviceSize<B> imageSize = 0;
     std::unique_ptr<std::byte[]> imageData;
     Format<B> format;
-    ImageUsageFlags<B> flags = 0;
-    ImageAspectFlagBits<B> aspectFlags;
+    Flags<B> flags = 0;
+    Flags<B> aspectFlags;
     std::string debugName;
 };
 

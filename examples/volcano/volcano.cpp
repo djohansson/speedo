@@ -3,7 +3,7 @@
 
 static std::unique_ptr<Application<GraphicsBackend::Vulkan>> theApplication;
 
-int vkapp_create(
+int volcano_create(
 	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 	const char* resourcePath)
 {
@@ -38,14 +38,14 @@ int vkapp_create(
 	return EXIT_SUCCESS;
 }
 
-void vkapp_draw()
+void volcano_draw()
 {
 	assert(theApplication);
 
 	theApplication->draw();
 }
 
-void vkapp_resizeWindow(const window_state* state)
+void volcano_resizeWindow(const window_state* state)
 {
 	assert(theApplication);
 	assert(state != nullptr);
@@ -53,14 +53,14 @@ void vkapp_resizeWindow(const window_state* state)
 	theApplication->resizeWindow(*state);
 }
 
-void vkapp_resizeFramebuffer(int width, int height)
+void volcano_resizeFramebuffer(int width, int height)
 {
 	assert(theApplication);
 
 	theApplication->resizeFramebuffer(width, height);
 }
 
-void vkapp_mouse(const mouse_state* state)
+void volcano_mouse(const mouse_state* state)
 {
 	assert(theApplication);
 	assert(state != nullptr);
@@ -68,7 +68,7 @@ void vkapp_mouse(const mouse_state* state)
 	theApplication->onMouse(*state);
 }
 
-void vkapp_keyboard(const keyboard_state* state)
+void volcano_keyboard(const keyboard_state* state)
 {
 	assert(theApplication);
 	assert(state != nullptr);
@@ -76,7 +76,7 @@ void vkapp_keyboard(const keyboard_state* state)
 	theApplication->onKeyboard(*state);
 }
 
-void vkapp_destroy()
+void volcano_destroy()
 {
 	assert(theApplication);
 

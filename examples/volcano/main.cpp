@@ -22,7 +22,7 @@ static void onMouseEnter(GLFWwindow* window, int entered)
 {
     g_mouse.inside_window = entered;
 
-	vkapp_mouse(&g_mouse);
+	volcano_mouse(&g_mouse);
 }
 
 static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
@@ -31,7 +31,7 @@ static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 	g_mouse.action = action;
 	g_mouse.mods = mods;
 
-	vkapp_mouse(&g_mouse);
+	volcano_mouse(&g_mouse);
 }
 
 static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
@@ -39,7 +39,7 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 	g_mouse.xpos = xpos;
 	g_mouse.ypos = ypos;
 
-	vkapp_mouse(&g_mouse);
+	volcano_mouse(&g_mouse);
 }
 
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -87,12 +87,12 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 	g_keyboard.action = action;
 	g_keyboard.mods = mods;
 
-	vkapp_keyboard(&g_keyboard);
+	volcano_keyboard(&g_keyboard);
 }
 
 static void onFramebufferResize(GLFWwindow*, int w, int h)
 {
-	vkapp_resizeFramebuffer(w, h);
+	volcano_resizeFramebuffer(w, h);
 }
 
 static void onWindowResize(GLFWwindow*, int w, int h)
@@ -103,7 +103,7 @@ static void onWindowResize(GLFWwindow*, int w, int h)
 		g_window.height = h;
 	}
 
-	vkapp_resizeWindow(&g_window);
+	volcano_resizeWindow(&g_window);
 }
 
 static void onWindowFocusChanged(GLFWwindow* window, int focused)
@@ -170,7 +170,7 @@ int main(int, char**)
 	int framebufferWidth, framebufferHeight;
 	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
 
-	vkapp_create(window, g_window.width, g_window.height, framebufferWidth, framebufferHeight, "./resources/");
+	volcano_create(window, g_window.width, g_window.height, framebufferWidth, framebufferHeight, "./resources/");
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 
@@ -180,12 +180,12 @@ int main(int, char**)
 
 		ImGui_ImplGlfw_NewFrame();
 
-		vkapp_draw();
+		volcano_draw();
 	}
 
 	ImGui_ImplGlfw_Shutdown();
 
-	vkapp_destroy();
+	volcano_destroy();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();

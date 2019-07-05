@@ -12,13 +12,20 @@ enum class GraphicsBackend
 	Vulkan
 };
 
-
-
 template <GraphicsBackend B>
 using Result = std::conditional_t<B == GraphicsBackend::Vulkan, VkResult, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using Flags = std::conditional_t<B == GraphicsBackend::Vulkan, VkFlags, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DeviceSize = std::conditional_t<B == GraphicsBackend::Vulkan, VkDeviceSize, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using InstanceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkInstance, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using BufferHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkBuffer, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using ImageHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkImage, std::nullptr_t>;
@@ -28,6 +35,9 @@ using AllocatorHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VmaAllo
 
 template <GraphicsBackend B>
 using AllocationHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VmaAllocation, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using BufferViewHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkBufferView, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using ImageViewHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageView, std::nullptr_t>;
@@ -48,9 +58,6 @@ using ColorSpace = std::conditional_t<B == GraphicsBackend::Vulkan, VkColorSpace
 template <GraphicsBackend B>
 using PresentMode =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using BufferHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkBuffer, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using SurfaceCapabilities =
@@ -145,9 +152,3 @@ using SemaphoreHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSemap
 
 template <GraphicsBackend B>
 using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using ImageUsageFlags = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageUsageFlags, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using ImageAspectFlagBits = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageAspectFlagBits, std::nullptr_t>;

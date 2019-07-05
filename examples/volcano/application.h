@@ -16,6 +16,7 @@
 // 		 members where possible
 // done: instrumentation and timing information
 
+#include "buffer.h"
 #include "file.h"
 #include "gfx.h"
 #include "math.h"
@@ -87,9 +88,7 @@ struct WindowData
 	std::optional<size_t> activeView;
 
 	// buffer for all views.
-	// todo: encapsulate
-	BufferHandle<B> uniformBuffer = 0;
-	AllocationHandle<B> uniformBufferMemory = 0;
+	std::shared_ptr<Buffer<B>> viewBuffer;
 
 	bool clearEnable = true;
     ClearValue<B> clearValue = {};
@@ -149,7 +148,7 @@ private:
 	void createFrameResources(WindowData<B>& window);
 	void cleanupFrameResources();
 	void updateInput(WindowData<B>& window) const;
-	void updateUniformBuffers(WindowData<B>& window) const;
+	void updateViewBuffer(WindowData<B>& window) const;
 	void initIMGUI(WindowData<B>& window, float dpiScaleX, float dpiScaleY) const;
 	void drawIMGUI(WindowData<B>& window);
 	void checkFlipOrPresentResult(WindowData<B>& window, Result<B> result) const;
@@ -191,17 +190,16 @@ private:
 	//
 
 	// todo: encapsulate in View/ViewData
-	void updateViewMatrix(ViewData& view) const;
-	void updateProjectionMatrix(ViewData& view) const;
-	//
-
-	struct UniformBufferObject
+	struct ViewBufferData
 	{
 		glm::mat4 model;
 		glm::mat4 view;
 		glm::mat4 proj;
 		glm::mat4 pad;
 	};
+	void updateViewMatrix(ViewData& view) const;
+	void updateProjectionMatrix(ViewData& view) const;
+	//
 
 	InstanceHandle<B> myInstance = 0;
 
