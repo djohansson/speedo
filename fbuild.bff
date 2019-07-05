@@ -733,6 +733,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/examples/volcano/buffer-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/model-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/texture-vulkan.cpp',
+			'$ProjectPath$/examples/volcano/vk-utils.cpp',
 			'$ProjectPath$/examples/volcano/volcano.cpp',
 			'$ProjectPath$/examples/volcano/main.cpp',
 		}
@@ -772,6 +773,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/examples/volcano/buffer-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/model-vulkan.cpp',
 			'$ProjectPath$/examples/volcano/texture-vulkan.cpp',
+			'$ProjectPath$/examples/volcano/vk-utils.cpp',
 			'$ProjectPath$/examples/volcano/volcano.cpp',
 			'$ProjectPath$/examples/volcano/main.cpp',
 		}
