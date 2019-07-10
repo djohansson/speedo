@@ -46,36 +46,37 @@ int eof(void* user)
 namespace texture
 {
 
-TextureData<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFile)
+TextureCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFile)
 {
-    TextureData<GraphicsBackend::Vulkan> data = {};
-    data.debugName = textureFile.u8string();
+    TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
+    desc.debugName = textureFile.u8string();
 
-    auto loadPBin = [&data](std::istream& stream) {
+    auto loadPBin = [&desc](std::istream& stream) {
         cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(data.nx, data.ny, data.nChannels, data.imageSize);
-        data.imageData = std::make_unique<std::byte[]>(data.imageSize);
-        pbin(cereal::binary_data(data.imageData.get(), data.imageSize));
+        pbin(desc.nx, desc.ny, desc.nChannels, desc.size);
+        // todo: avoid temp copy - copy directly from mapped memory to gpu
+        desc.initialData = std::make_unique<std::byte[]>(desc.size);
+        pbin(cereal::binary_data(desc.initialData.get(), desc.size));
     };
 
-    auto savePBin = [&data](std::ostream& stream) {
+    auto savePBin = [&desc](std::ostream& stream) {
         cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(data.nx, data.ny, data.nChannels, data.imageSize);
-        pbin(cereal::binary_data(data.imageData.get(), data.imageSize));
+        pbin(desc.nx, desc.ny, desc.nChannels, desc.size);
+        pbin(cereal::binary_data(desc.initialData.get(), desc.size));
     };
 
-    auto loadImage = [&data](std::istream& stream) {
+    auto loadImage = [&desc](std::istream& stream) {
         stbi_io_callbacks callbacks;
         callbacks.read = &stbi_istream_callbacks::read;
         callbacks.skip = &stbi_istream_callbacks::skip;
         callbacks.eof = &stbi_istream_callbacks::eof;
         stbi_uc* stbiImageData =
-            stbi_load_from_callbacks(&callbacks, &stream, (int*)&data.nx, (int*)&data.ny, (int*)&data.nChannels, STBI_rgb_alpha);
+            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.nx, (int*)&desc.ny, (int*)&desc.nChannels, STBI_rgb_alpha);
 
-        bool hasAlpha = data.nChannels == 4;
+        bool hasAlpha = desc.nChannels == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        data.imageSize = hasAlpha ? data.nx * data.ny : data.nx * data.ny / 2;
-        data.imageData = std::make_unique<std::byte[]>(data.imageSize);
+        desc.size = hasAlpha ? desc.nx * desc.ny : desc.nx * desc.ny / 2;
+        desc.initialData = std::make_unique<std::byte[]>(desc.size);
 
         auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride,
                                 stbi_uc* dst) {
@@ -88,13 +89,13 @@ TextureData<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFi
 
         stbi_uc block[64] = {0};
         const stbi_uc* src = stbiImageData;
-        stbi_uc* dst = reinterpret_cast<stbi_uc*>(data.imageData.get());
-        for (uint32_t rowIt = 0; rowIt < data.ny; rowIt += 4)
+        stbi_uc* dst = reinterpret_cast<stbi_uc*>(desc.initialData.get());
+        for (uint32_t rowIt = 0; rowIt < desc.ny; rowIt += 4)
         {
-            for (uint32_t colIt = 0; colIt < data.nx; colIt += 4)
+            for (uint32_t colIt = 0; colIt < desc.nx; colIt += 4)
             {
-                uint32_t offset = (rowIt * data.nx + colIt) * 4;
-                extractBlock(src + offset, data.nx, 4, block);
+                uint32_t offset = (rowIt * desc.nx + colIt) * 4;
+                extractBlock(src + offset, desc.nx, 4, block);
                 stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
                 dst += compressedBlockSize;
             }
@@ -106,14 +107,14 @@ TextureData<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFi
     loadCachedSourceFile(
         textureFile, textureFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
-    if (data.imageData == nullptr)
+    if (desc.initialData == nullptr)
         throw std::runtime_error("Failed to load image.");
 
-    data.format = data.nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
-    data.flags = VK_IMAGE_USAGE_SAMPLED_BIT;
-    data.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+    desc.format = desc.nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
+    desc.flags = VK_IMAGE_USAGE_SAMPLED_BIT;
+    desc.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
 
-    return data;
+    return desc;
 }
 
 }
@@ -121,17 +122,19 @@ TextureData<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFi
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-    const TextureData<GraphicsBackend::Vulkan>& data)
-    : device(device)
-    , allocator(allocator)
-    , format(data.format)
+    TextureCreateDesc<GraphicsBackend::Vulkan>&& desc)
+    : myDevice(device)
+    , myAllocator(allocator)
+    , myDesc(std::move(desc))
 {
-    std::tie(image, imageMemory) = createDeviceLocalImage2D(
-        device, commandPool, queue, allocator,
-        data.imageData.get(), data.nx, data.ny, data.format, data.flags,
-        data.debugName.c_str());
+    std::tie(myImage, myImageMemory) = createDeviceLocalImage2D(
+        myDevice, commandPool, queue, myAllocator,
+        myDesc.initialData.get(), myDesc.nx, myDesc.ny, myDesc.format, myDesc.flags,
+        myDesc.debugName.c_str());
 
-    imageView = createImageView2D(device, image, data.format, data.aspectFlags);
+    myDesc.initialData.reset();
+
+    myImageView = createImageView2D(device, myImage, myDesc.format, myDesc.aspectFlags);
 }
 
 template <>
@@ -145,6 +148,6 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
-    vmaDestroyImage(allocator, image, imageMemory);
-    vkDestroyImageView(device, imageView, nullptr);
+    vmaDestroyImage(myAllocator, myImage, myImageMemory);
+    vkDestroyImageView(myDevice, myImageView, nullptr);
 }

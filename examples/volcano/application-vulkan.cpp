@@ -297,7 +297,7 @@ RenderPassHandle<GraphicsBackend::Vulkan> Application<GraphicsBackend::Vulkan>::
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     VkAttachmentDescription depthAttachment = {};
-    depthAttachment.format = window.zBuffer->format;
+    depthAttachment.format = window.zBuffer->getDesc().format;
     depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -393,11 +393,11 @@ PipelineHandle<GraphicsBackend::Vulkan> Application<GraphicsBackend::Vulkan>::cr
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = pipelineConfig.resources->model->bindings.size();
-    vertexInputInfo.pVertexBindingDescriptions = pipelineConfig.resources->model->bindings.data();
+    vertexInputInfo.vertexBindingDescriptionCount = pipelineConfig.resources->model->getBindings().size();
+    vertexInputInfo.pVertexBindingDescriptions = pipelineConfig.resources->model->getBindings().data();
     vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(pipelineConfig.resources->model->attributes.size());
-    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->attributes.data();
+        static_cast<uint32_t>(pipelineConfig.resources->model->getAttributes().size());
+    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getAttributes().data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -596,13 +596,13 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
     ZoneScoped;
 
     VkDescriptorBufferInfo bufferInfo = {};
-    bufferInfo.buffer = window.viewBuffer->buffer;
+    bufferInfo.buffer = window.viewBuffer->getBuffer();
     bufferInfo.offset = 0;
     bufferInfo.range = VK_WHOLE_SIZE;
 
     VkDescriptorImageInfo imageInfo = {};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = pipelineConfig.resources->texture->imageView;
+    imageInfo.imageView = pipelineConfig.resources->texture->getImageView();
     imageInfo.sampler = pipelineConfig.resources->sampler;
 
     std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
@@ -692,7 +692,7 @@ void Application<GraphicsBackend::Vulkan>::createFrameResources(WindowData<Graph
 
     auto createFramebuffer = [this, &window](uint frameIndex)
     {
-        std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.zBuffer->imageView};
+        std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.zBuffer->getImageView()};
         VkFramebufferCreateInfo info = {};
         info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         info.renderPass = myGraphicsPipelineConfig->renderPass;
@@ -786,7 +786,7 @@ void Application<GraphicsBackend::Vulkan>::updateViewBuffer(WindowData<GraphicsB
     ZoneScoped;
 
     void* data;
-    CHECK_VK(vmaMapMemory(myAllocator, window.viewBuffer->bufferMemory, &data));
+    CHECK_VK(vmaMapMemory(myAllocator, window.viewBuffer->getBufferMemory(), &data));
 
     for (uint32_t n = 0; n < (NX * NY); n++)
     {
@@ -799,11 +799,11 @@ void Application<GraphicsBackend::Vulkan>::updateViewBuffer(WindowData<GraphicsB
 
     vmaFlushAllocation(
         myAllocator,
-        window.viewBuffer->bufferMemory,
+        window.viewBuffer->getBufferMemory(),
         sizeof(ViewBufferData) * window.frameIndex * (NX * NY),
         sizeof(ViewBufferData) * (NX * NY));
 
-    vmaUnmapMemory(myAllocator, window.viewBuffer->bufferMemory);
+    vmaUnmapMemory(myAllocator, window.viewBuffer->getBufferMemory());
 }
 
 template <>
@@ -901,24 +901,24 @@ Application<GraphicsBackend::Vulkan>::Application(
     window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(myDevice, myAllocator, std::move(bufferDesc));
 
     // todo: append stencil bit for depthstencil composite formats
-    TextureData<GraphicsBackend::Vulkan> textureData = 
+    TextureCreateDesc<GraphicsBackend::Vulkan> textureData = 
     {
         window.framebufferWidth,
         window.framebufferHeight,
         1,
         0,
-        nullptr, 
         findSupportedFormat(
             myPhysicalDevice,
             {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
             VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_DEPTH_BIT,
+        nullptr, 
         "zBuffer"
     };
     window.zBuffer = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         myDevice, myTransferCommandPool, myQueue, myAllocator,
-        textureData);
+        std::move(textureData));
 
     createFrameResources(*myDefaultResources->window);
 
@@ -1087,11 +1087,11 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
                         // bind pipeline and vertex/index buffers
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                        VkBuffer vertexBuffers[] = {config.resources->model->vertexBuffer};
+                        VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer()};
                         VkDeviceSize vertexOffsets[] = {0};
 
                         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                        vkCmdBindIndexBuffer(cmd, config.resources->model->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     }
 
                     for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -1140,7 +1140,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
                         drawModel(
-                            cmd, config.resources->model->indexCount, config.descriptorSets.size(),
+                            cmd, config.resources->model->getIndexCount(), config.descriptorSets.size(),
                             config.descriptorSets.data(), config.layout->layout);
                     }
                 });
@@ -1347,24 +1347,24 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int heig
         *myDefaultResources->window);
 
     // todo: append stencil bit for depthstencil composite formats
-    TextureData<GraphicsBackend::Vulkan> textureData = 
+    TextureCreateDesc<GraphicsBackend::Vulkan> textureData = 
     {
         window.framebufferWidth,
         window.framebufferHeight,
         1,
         0,
-        nullptr, 
         findSupportedFormat(
             myPhysicalDevice,
             {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
             VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_DEPTH_BIT,
+        nullptr, 
         "zBuffer"
     };
     window.zBuffer = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         myDevice, myTransferCommandPool, myQueue, myAllocator,
-        textureData);
+        std::move(textureData));
 
     createFrameResources(*myDefaultResources->window);
 }

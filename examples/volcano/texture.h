@@ -6,25 +6,28 @@
 #include <memory>
 
 template <GraphicsBackend B>
-struct TextureData
+struct TextureCreateDesc
 {
     uint32_t nx = 0;
     uint32_t ny = 0;
     uint32_t nChannels = 0;
-    DeviceSize<B> imageSize = 0;
-    std::unique_ptr<std::byte[]> imageData;
+    DeviceSize<B> size = 0;
     Format<B> format;
     Flags<B> flags = 0;
     Flags<B> aspectFlags;
+    // todo: avoid temp copy - copy directly from mapped memory to gpu
+    std::unique_ptr<std::byte[]> initialData;
     std::string debugName;
 };
 
 template <GraphicsBackend B>
-struct Texture
+class Texture
 {
+public:
+
     Texture(
         DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
-        const TextureData<B>& data);
+        TextureCreateDesc<B>&& data);
 
     Texture(
         DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
@@ -32,12 +35,20 @@ struct Texture
 
     ~Texture();
 
-    DeviceHandle<B> device = 0; 
-    AllocatorHandle<B> allocator = 0;
+    const auto& getDesc() const { return myDesc; }
+    
+    const auto getImage() const { return myImage; }
+    const auto getImageMemory() const { return myImageMemory; }
+    const auto getImageView() const { return myImageView; }
 
-	ImageHandle<B> image = 0;
-	AllocationHandle<B> imageMemory = 0;
-	ImageViewHandle<B> imageView = 0;
+private:
 
-    Format<B> format;
+    TextureCreateDesc<B> myDesc;
+
+    DeviceHandle<B> myDevice = 0; 
+    AllocatorHandle<B> myAllocator = 0;
+
+	ImageHandle<B> myImage = 0;
+	AllocationHandle<B> myImageMemory = 0;
+	ImageViewHandle<B> myImageView = 0;
 };

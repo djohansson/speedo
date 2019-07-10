@@ -13,25 +13,36 @@ struct BufferCreateDesc
     Flags<B> memoryFlags = 0;
     DeviceSize<B> offset = 0;
     DeviceSize<B> range = 0;
-    const std::byte* initialData = nullptr;
-    const char* debugName = nullptr;
+    // todo: avoid temp copy - copy directly from mapped memory to gpu
+    std::unique_ptr<std::byte[]> initialData;
+    std::string debugName;
 };
 
 template <GraphicsBackend B>
-struct Buffer
+class Buffer
 {
+public:
+
     Buffer(
         DeviceHandle<B> device, AllocatorHandle<B> allocator,
         BufferCreateDesc<B>&& desc);
 
     ~Buffer();
 
-    DeviceHandle<B> device = 0; 
-    AllocatorHandle<B> allocator = 0;
+    const auto& getDesc() const { return myDesc; }
+    
+    const auto getBuffer() const { return myBuffer; }
+    const auto getBufferMemory() const { return myBufferMemory; }
+    const auto getBufferView() const { return myBufferView; }
 
-    BufferCreateDesc<B> desc;
+private:
 
-	BufferHandle<B> buffer = 0;
-	AllocationHandle<B> bufferMemory = 0;
-    BufferViewHandle<B> bufferView = 0;
+    DeviceHandle<B> myDevice = 0; 
+    AllocatorHandle<B> myAllocator = 0;
+
+    BufferCreateDesc<B> myDesc;
+
+	BufferHandle<B> myBuffer = 0;
+	AllocationHandle<B> myBufferMemory = 0;
+    BufferViewHandle<B> myBufferView = 0;
 };

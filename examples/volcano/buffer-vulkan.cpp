@@ -6,23 +6,25 @@ template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
     VkDevice device, VmaAllocator allocator,
     BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
-    : device(device)
-    , allocator(allocator)
-    , desc(std::move(desc))
+    : myDevice(device)
+    , myAllocator(allocator)
+    , myDesc(std::move(desc))
 {
-    assert(desc.initialData == nullptr); // todo: implement
+    assert(myDesc.initialData == nullptr); // todo: implement
 
-    std::tie(buffer, bufferMemory) = createBuffer(
-		allocator, desc.size, desc.usageFlags, desc.memoryFlags, desc.debugName);
+    std::tie(myBuffer, myBufferMemory) = createBuffer(
+		myAllocator, myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
 
-    if (desc.usageFlags == VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT ||
-        desc.usageFlags == VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)
-        bufferView = createBufferView(device, buffer, 0, desc.format, desc.offset, desc.range);
+    myDesc.initialData.reset();
+
+    if (myDesc.usageFlags == VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT ||
+        myDesc.usageFlags == VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)
+        myBufferView = createBufferView(myDevice, myBuffer, 0, myDesc.format, myDesc.offset, myDesc.range);
 }
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
-    vmaDestroyBuffer(allocator, buffer, bufferMemory);
-    vkDestroyBufferView(device, bufferView, nullptr);
+    vmaDestroyBuffer(myAllocator, myBuffer, myBufferMemory);
+    vkDestroyBufferView(myDevice, myBufferView, nullptr);
 }

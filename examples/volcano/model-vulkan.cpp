@@ -77,13 +77,14 @@ calculateInputBindingDescriptions(
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-ModelData<GraphicsBackend::Vulkan> load(const std::filesystem::path& modelFile)
+ModelCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& modelFile)
 {
-	ModelData<GraphicsBackend::Vulkan> data = {};
+	ModelCreateDesc<GraphicsBackend::Vulkan> data = {};
 	data.debugName = modelFile.u8string();
 	
 	auto loadPBin = [&data](std::istream& stream) {
 		cereal::PortableBinaryInputArchive pbin(stream);
+		// todo: avoid temp copy - copy directly from mapped memory to gpu
 		pbin(data.vertices, data.indices, data.attributes, data.aabb);
 	};
 
@@ -203,26 +204,27 @@ ModelData<GraphicsBackend::Vulkan> load(const std::filesystem::path& modelFile)
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
     VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-    const ModelData<GraphicsBackend::Vulkan>& data)
-: allocator(allocator)
-, indexCount(data.indices.size())
+    ModelCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: myAllocator(allocator)
+, myIndexCount(desc.indices.size())
+, myAABB(desc.aabb)
 {
-    std::tie(vertexBuffer, vertexBufferMemory) = createDeviceLocalBuffer(
+    std::tie(myVertexBuffer, myVertexBufferMemory) = createDeviceLocalBuffer(
         device, commandPool, queue, allocator,
-        data.vertices.data(), data.vertices.sizeBytes(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        data.debugName.c_str());
+        desc.vertices.data(), desc.vertices.sizeBytes(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        desc.debugName.c_str());
 
-    std::tie(indexBuffer, indexBufferMemory) = createDeviceLocalBuffer(
+    std::tie(myIndexBuffer, myIndexBufferMemory) = createDeviceLocalBuffer(
         device, commandPool, queue, allocator,
-        reinterpret_cast<const std::byte*>(data.indices.data()), data.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        data.debugName.c_str());
+        reinterpret_cast<const std::byte*>(desc.indices.data()), desc.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        desc.debugName.c_str());
 
-    attributes.reserve(data.attributes.size());
+    myAttributes.reserve(desc.attributes.size());
     std::copy(
-        data.attributes.begin(), data.attributes.end(),
-        std::back_inserter(attributes));
+        desc.attributes.begin(), desc.attributes.end(),
+        std::back_inserter(myAttributes));
     
-    bindings = model::calculateInputBindingDescriptions(attributes);
+    myBindings = model::calculateInputBindingDescriptions(myAttributes);
 }
 
 template <>
@@ -236,6 +238,6 @@ Model<GraphicsBackend::Vulkan>::Model(
 template <>
 Model<GraphicsBackend::Vulkan>::~Model()
 {
-    vmaDestroyBuffer(allocator, vertexBuffer, vertexBufferMemory);
-    vmaDestroyBuffer(allocator, indexBuffer, indexBufferMemory);
+    vmaDestroyBuffer(myAllocator, myVertexBuffer, myVertexBufferMemory);
+    vmaDestroyBuffer(myAllocator, myIndexBuffer, myIndexBufferMemory);
 }
