@@ -27,6 +27,9 @@ struct InputTextureDesc
     bool isDepthTexture = false;
     bool isRWTexture = false;
     int size = 4;
+
+    Format format = Format::RGBA_Unorm_UInt8;            
+
     InputTextureContent content = InputTextureContent::One;
 };
 
@@ -72,13 +75,17 @@ class ShaderInputLayout
 {
 public:
     Slang::List<ShaderInputLayoutEntry> entries;
-    Slang::List<Slang::String> globalTypeArguments;
-    Slang::List<Slang::String> entryPointTypeArguments;
+    Slang::List<Slang::String> globalGenericTypeArguments;
+    Slang::List<Slang::String> entryPointGenericTypeArguments;
+    Slang::List<Slang::String> globalExistentialTypeArguments;
+    Slang::List<Slang::String> entryPointExistentialTypeArguments;
     int numRenderTargets = 1;
     void Parse(const char * source);
 };
 
-void generateTextureData(TextureData & output, const InputTextureDesc & desc);
+void generateTextureDataRGB8(TextureData& output, const InputTextureDesc& desc);
+void generateTextureData(TextureData& output, const InputTextureDesc& desc);
+
 
 } // namespace render_test
 

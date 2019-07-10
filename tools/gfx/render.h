@@ -141,8 +141,10 @@ struct ShaderCompileRequest
     EntryPoint vertexShader;
     EntryPoint fragmentShader;
     EntryPoint computeShader;
-    Slang::List<Slang::String> globalTypeArguments;
-    Slang::List<Slang::String> entryPointTypeArguments;
+    Slang::List<Slang::String> globalGenericTypeArguments;
+    Slang::List<Slang::String> entryPointGenericTypeArguments;
+    Slang::List<Slang::String> entryPointExistentialTypeArguments;
+    Slang::List<Slang::String> globalExistentialTypeArguments;
 };
 
 /// Different formats of things like pixels or elements of vertices
@@ -777,11 +779,15 @@ public:
 
     struct Desc
     {
-        int width;          ///< Width in pixels
-        int height;         ///< height in pixels
+        int width;                  ///< Width in pixels
+        int height;                 ///< height in pixels
+        Slang::String adapter;      ///< Name to identify the adapter to use
     };
 
     virtual SlangResult initialize(const Desc& desc, void* inWindowHandle) = 0;
+
+    bool hasFeature(const Slang::UnownedStringSlice& feature) { return getFeatures().IndexOf(Slang::String(feature)) != UInt(-1); }
+    virtual const Slang::List<Slang::String>& getFeatures() = 0;
 
     virtual void setClearColor(const float color[4]) = 0;
     virtual void clearFrame() = 0;
@@ -972,6 +978,9 @@ struct RendererUtil
 
         /// Get the binding style from the type
     static BindingStyle getBindingStyle(RendererType type) { return s_rendererTypeToBindingStyle[int(type)]; }
+
+        /// Get as text
+    static Slang::UnownedStringSlice toText(RendererType type);
 
     private:
     static void compileTimeAsserts();

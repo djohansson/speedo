@@ -2,6 +2,7 @@
 #include "emit.h"
 
 #include "../core/slang-writer.h"
+#include "ir-bind-existentials.h"
 #include "ir-dce.h"
 #include "ir-entry-point-uniforms.h"
 #include "ir-glsl-legalize.h"
@@ -46,6 +47,8 @@ struct ExtensionUsageTracker
     StringBuilder glslExtensionRequireLines;
 
     ProfileVersion profileVersion = ProfileVersion::GLSL_110;
+
+    bool hasHalfExtension = false;
 };
 
 void requireGLSLExtension(
@@ -72,6 +75,21 @@ void requireGLSLVersionImpl(
     if ((UInt)version > (UInt)tracker->profileVersion)
     {
         tracker->profileVersion = version;
+    }
+}
+
+void requireGLSLHalfExtension(ExtensionUsageTracker* tracker)
+{
+    if (!tracker->hasHalfExtension)
+    {
+        // https://github.com/KhronosGroup/GLSL/blob/master/extensions/ext/GL_EXT_shader_16bit_storage.txt
+        requireGLSLExtension(tracker, "GL_EXT_shader_16bit_storage");
+
+        // https://github.com/KhronosGroup/GLSL/blob/master/extensions/ext/GL_EXT_shader_explicit_arithmetic_types.txt
+        // Use GL_KHX_shader_explicit_arithmetic_types because that is what appears defined in glslang 
+        requireGLSLExtension(tracker, "GL_KHX_shader_explicit_arithmetic_types");
+        
+        tracker->hasHalfExtension = true;
     }
 }
 
@@ -540,7 +558,7 @@ struct EmitVisitor
 
 
     // Emit a `#line` directive to the output.
-    // Doesn't udpate state of source-location tracking.
+    // Doesn't update state of source-location tracking.
     void emitLineDirective(
         HumaneSourceLoc const& sourceLocation)
     {
@@ -789,7 +807,8 @@ struct EmitVisitor
     }
 
     void emitGLSLTypePrefix(
-        IRType* type)
+        IRType* type,
+        bool promoteHalfToFloat = false)
     {
         switch (type->op)
         {
@@ -809,15 +828,27 @@ struct EmitVisitor
 
         case kIROp_BoolType:    Emit("b");		break;
 
-        case kIROp_HalfType:    Emit("f16");		break;
+        case kIROp_HalfType:
+        {
+            _requireHalf();
+            if (promoteHalfToFloat)
+            {
+                // no prefix
+            }
+            else
+            {
+                Emit("f16");
+            }
+            break;
+        }
         case kIROp_DoubleType:  Emit("d");		break;
 
         case kIROp_VectorType:
-            emitGLSLTypePrefix(cast<IRVectorType>(type)->getElementType());
+            emitGLSLTypePrefix(cast<IRVectorType>(type)->getElementType(), promoteHalfToFloat);
             break;
 
         case kIROp_MatrixType:
-            emitGLSLTypePrefix(cast<IRMatrixType>(type)->getElementType());
+            emitGLSLTypePrefix(cast<IRMatrixType>(type)->getElementType(), promoteHalfToFloat);
             break;
 
         default:
@@ -884,7 +915,15 @@ struct EmitVisitor
         IRTextureTypeBase*  type,
         char const*         baseName)
     {
-        emitGLSLTypePrefix(type->getElementType());
+        if (type->getElementType()->op == kIROp_HalfType)
+        {
+            // Texture access is always as float types if half is specified
+
+        }
+        else
+        {
+            emitGLSLTypePrefix(type->getElementType(), true);
+        }
 
         Emit(baseName);
         switch (type->GetBaseShape())
@@ -1196,6 +1235,14 @@ struct EmitVisitor
         }
     }
 
+    void _requireHalf()
+    {
+        if (getTarget(context) == CodeGenTarget::GLSL)
+        {
+            requireGLSLHalfExtension(&context->shared->extensionUsageTracker);
+        }
+    }
+
     void emitSimpleTypeImpl(IRType* type)
     {
         switch (type->op)
@@ -1216,7 +1263,19 @@ struct EmitVisitor
         case kIROp_UIntType:    Emit("uint");       return;
         case kIROp_UInt64Type:  Emit("uint64_t");   return;
 
-        case kIROp_HalfType:    Emit("half");       return;
+        case kIROp_HalfType:
+        {
+            _requireHalf();
+            if (getTarget(context) == CodeGenTarget::GLSL)
+            {
+                Emit("float16_t");
+            }
+            else
+            {
+                Emit("half");
+            }
+            return;
+        }
         case kIROp_FloatType:   Emit("float");      return;
         case kIROp_DoubleType:  Emit("double");     return;
 
@@ -1468,6 +1527,7 @@ struct EmitVisitor
     EOpInfo leftSide(EOpInfo const& outerPrec, EOpInfo const& prec)
     {
         EOpInfo result;
+        result.op = nullptr;
         result.leftPrecedence = outerPrec.leftPrecedence;
         result.rightPrecedence = prec.leftPrecedence;
         return result;
@@ -1476,6 +1536,7 @@ struct EmitVisitor
     EOpInfo rightSide(EOpInfo const& prec, EOpInfo const& outerPrec)
     {
         EOpInfo result;
+        result.op = nullptr;
         result.leftPrecedence = prec.rightPrecedence;
         result.rightPrecedence = outerPrec.rightPrecedence;
         return result;
@@ -1671,6 +1732,8 @@ struct EmitVisitor
 
         case LayoutResourceKind::RegisterSpace:
         case LayoutResourceKind::GenericResource:
+        case LayoutResourceKind::ExistentialTypeParam:
+        case LayoutResourceKind::ExistentialObjectParam:
             // ignore
             break;
         default:
@@ -2346,6 +2409,7 @@ struct EmitVisitor
         case kIROp_GlobalConstant:
         case kIROp_GlobalParam:
         case kIROp_Param:
+        case kIROp_Func:
             return false;
 
         // Always fold these in, because they are trivial
@@ -2464,6 +2528,15 @@ struct EmitVisitor
             {
                 return true;
             }
+        }
+
+        // If the instruction is at global scope, then it might represent
+        // a constant (e.g., the value of an enum case).
+        //
+        if(as<IRModuleInst>(inst->getParent()))
+        {
+            if(!inst->mightHaveSideEffects())
+                return true;
         }
 
         // Having dealt with all of the cases where we *must* fold things
@@ -2963,7 +3036,6 @@ struct EmitVisitor
 
         auto name = String(targetIntrinsic->getDefinition());
 
-
         if(isOrdinaryName(name))
         {
             // Simple case: it is just an ordinary name, so we call it like a builtin.
@@ -2984,19 +3056,18 @@ struct EmitVisitor
         }
         else
         {
-            // If it returns void -> then we don't need parenthesis
+            int openParenCount = 0;
 
             const auto returnType = inst->getDataType();
-            const bool isVoid = as<IRVoidType>(returnType) != nullptr;
-            
-            // We could determine here is the return type is void... if so no braces?
 
-            // General case: we are going to emit some more complex text.
-
-            if (!isVoid)
+            // If it returns void -> then we don't need parenthesis 
+            if (as<IRVoidType>(returnType) == nullptr)
             {
                 Emit("(");
+                openParenCount++;
             }
+
+            // General case: we are going to emit some more complex text.
 
             char const* cursor = name.begin();
             char const* end = name.end();
@@ -3060,6 +3131,40 @@ struct EmitVisitor
                         {
                             SLANG_UNEXPECTED("bad format in intrinsic definition");
                         }
+                    }
+                    break;
+
+                case 'c':
+                    {
+                        // When doing texture access in glsl the result may need to be cast.
+                        // In particular if the underlying texture is 'half' based, glsl only accesses (read/write)
+                        // as float. So we need to cast to a half type on output.
+                        // When storing into a texture it is still the case the value written must be half - but
+                        // we don't need to do any casting there as half is coerced to float without a problem.
+                        SLANG_RELEASE_ASSERT(argCount >= 1);
+                        
+                        auto textureArg = args[0].get();
+                        if (auto baseTextureType = as<IRTextureType>(textureArg->getDataType()))
+                        {
+                            auto elementType = baseTextureType->getElementType();
+                            IRBasicType* underlyingType = nullptr;
+                            if (auto basicType = as<IRBasicType>(elementType))
+                            {
+                                underlyingType = basicType;
+                            }
+                            else if (auto vectorType = as<IRVectorType>(elementType))
+                            {
+                                underlyingType = as<IRBasicType>(vectorType->getElementType());
+                            }
+
+                            // We only need to output a cast if the underlying type is half.
+                            if (underlyingType && underlyingType->op == kIROp_HalfType)
+                            {
+                                emitSimpleTypeImpl(elementType);
+                                emit("(");
+                                openParenCount++;
+                            }
+                        }    
                     }
                     break;
 
@@ -3152,7 +3257,7 @@ struct EmitVisitor
                         }
                         else
                         {
-                            // Othwerwise, we need to construct a 4-vector from the
+                            // Otherwise, we need to construct a 4-vector from the
                             // value we have, padding it out with zero elements as
                             // needed.
                             //
@@ -3356,7 +3461,8 @@ struct EmitVisitor
                 }
             }
 
-            if (!isVoid)
+            // Close any remaining open parens
+            for (; openParenCount > 0; --openParenCount)
             {
                 Emit(")");
             }
@@ -3596,32 +3702,94 @@ struct EmitVisitor
         }
     }
 
-    void emitComparison(EmitContext* ctx, IRInst* inst, IREmitMode mode, EOpInfo& inOutOuterPrec, const EOpInfo& opPrec, bool* needCloseOut)
+    void _maybeEmitGLSLCast(EmitContext* ctx, IRType* castType, IRInst* inst, IREmitMode mode)
     {
-        *needCloseOut = maybeEmitParens(inOutOuterPrec, opPrec);
-
-        if (getTarget(ctx) == CodeGenTarget::GLSL
-            && as<IRVectorType>(inst->getOperand(0)->getDataType())
-            && as<IRVectorType>(inst->getOperand(1)->getDataType()))
+        // Wrap in cast if a cast type is specified
+        if (castType)
         {
-            const char* funcName = getGLSLVectorCompareFunctionName(inst->op);
-            SLANG_ASSERT(funcName);
-
-            emit(funcName);
+            emitIRType(ctx, castType);
             emit("(");
-            emitIROperand(ctx, inst->getOperand(0), mode, leftSide(inOutOuterPrec, opPrec));
-            emit(",");
-            emitIROperand(ctx, inst->getOperand(1), mode, rightSide(inOutOuterPrec, opPrec));
+
+            // Emit the operand
+            emitIROperand(ctx, inst, mode, kEOp_General);
+
             emit(")");
         }
         else
         {
-            emitIROperand(ctx, inst->getOperand(0), mode, leftSide(inOutOuterPrec, opPrec));
-            emit(" ");
-            emit(opPrec.op);
-            emit(" ");
-            emitIROperand(ctx, inst->getOperand(1), mode, rightSide(inOutOuterPrec, opPrec));
+            // Emit the operand
+            emitIROperand(ctx, inst, mode, kEOp_General);
         }
+    }
+
+    void emitNot(EmitContext* ctx, IRInst* inst, IREmitMode mode, EOpInfo& ioOuterPrec, bool* outNeedClose)
+    {
+        IRInst* operand = inst->getOperand(0);
+
+        if (getTarget(ctx) == CodeGenTarget::GLSL)
+        {
+            if (auto vectorType = as<IRVectorType>(operand->getDataType()))
+            {
+                // Handle as a function call
+                auto prec = kEOp_Postfix;
+                *outNeedClose = maybeEmitParens(ioOuterPrec, prec);
+
+                emit("not(");
+                emitIROperand(ctx, operand, mode, kEOp_General);
+                emit(")");
+                return;
+            }
+        }
+
+        auto prec = kEOp_Prefix;
+        *outNeedClose = maybeEmitParens(ioOuterPrec, prec);
+
+        emit("!");
+        emitIROperand(ctx, operand, mode, rightSide(prec, ioOuterPrec));
+    }
+
+
+    void emitComparison(EmitContext* ctx, IRInst* inst, IREmitMode mode, EOpInfo& ioOuterPrec, const EOpInfo& opPrec, bool* needCloseOut)
+    {        
+        if (getTarget(ctx) == CodeGenTarget::GLSL)
+        {
+            IRInst* left = inst->getOperand(0);
+            IRInst* right = inst->getOperand(1);
+
+            auto leftVectorType = as<IRVectorType>(left->getDataType());
+            auto rightVectorType = as<IRVectorType>(right->getDataType());
+
+            // If either side is a vector handle as a vector
+            if (leftVectorType || rightVectorType)
+            {
+                const char* funcName = getGLSLVectorCompareFunctionName(inst->op);
+                SLANG_ASSERT(funcName);
+
+                // Determine the vector type
+                const auto vecType = leftVectorType ? leftVectorType : rightVectorType;
+
+                // Handle as a function call
+                auto prec = kEOp_Postfix;
+                *needCloseOut = maybeEmitParens(ioOuterPrec, prec);
+
+                emit(funcName);
+                emit("(");
+                _maybeEmitGLSLCast(ctx, (leftVectorType ? nullptr : vecType), left, mode);
+                emit(",");
+                _maybeEmitGLSLCast(ctx, (rightVectorType ? nullptr : vecType), right, mode);
+                emit(")");
+
+                return;
+            }
+        }
+
+        *needCloseOut = maybeEmitParens(ioOuterPrec, opPrec);
+
+        emitIROperand(ctx, inst->getOperand(0), mode, leftSide(ioOuterPrec, opPrec));
+        emit(" ");
+        emit(opPrec.op);
+        emit(" ");
+        emitIROperand(ctx, inst->getOperand(1), mode, rightSide(ioOuterPrec, opPrec));
     }
 
     void emitIRInstExpr(
@@ -3799,11 +3967,7 @@ struct EmitVisitor
 
         case kIROp_Not:
             {
-                auto prec = kEOp_Prefix;
-                needClose = maybeEmitParens(outerPrec, prec);
-
-                emit("!");
-                emitIROperand(ctx, inst->getOperand(0), mode, rightSide(prec, outerPrec));
+                emitNot(ctx, inst,  mode, outerPrec, &needClose);
             }
             break;
 
@@ -3956,14 +4120,29 @@ struct EmitVisitor
 
         case kIROp_Select:
             {
-                auto prec = kEOp_Conditional;
-                needClose = maybeEmitParens(outerPrec, prec);
+                if (getTarget(ctx) == CodeGenTarget::GLSL &&
+                    inst->getOperand(0)->getDataType()->op != kIROp_BoolType)
+                {
+                    // For GLSL, emit a call to `mix` if condition is a vector
+                    emit("mix(");
+                    emitIROperand(ctx, inst->getOperand(2), mode, leftSide(kEOp_General, kEOp_General));
+                    emit(", ");
+                    emitIROperand(ctx, inst->getOperand(1), mode, leftSide(kEOp_General, kEOp_General));
+                    emit(", ");
+                    emitIROperand(ctx, inst->getOperand(0), mode, leftSide(kEOp_General, kEOp_General));
+                    emit(")");
+                }
+                else
+                {
+                    auto prec = kEOp_Conditional;
+                    needClose = maybeEmitParens(outerPrec, prec);
 
-                emitIROperand(ctx, inst->getOperand(0), mode, leftSide(outerPrec, prec));
-                emit(" ? ");
-                emitIROperand(ctx, inst->getOperand(1), mode, prec);
-                emit(" : ");
-                emitIROperand(ctx, inst->getOperand(2), mode, rightSide(prec, outerPrec));
+                    emitIROperand(ctx, inst->getOperand(0), mode, leftSide(outerPrec, prec));
+                    emit(" ? ");
+                    emitIROperand(ctx, inst->getOperand(1), mode, prec);
+                    emit(" : ");
+                    emitIROperand(ctx, inst->getOperand(2), mode, rightSide(prec, outerPrec));
+                }
             }
             break;
 
@@ -5594,9 +5773,29 @@ struct EmitVisitor
                             {
                             default: Emit("rgba");  break;
 
-                            // TODO: GLSL doesn't actually seem to support 3-component formats
-                            // universally, so this might cause problems.
-                            case 3:  Emit("rgb");   break;
+                            case 3:
+                            {
+                                // TODO: GLSL doesn't support 3-component formats so for now we are going to
+                                // default to rgba
+                                //
+                                // The SPIR-V spec (https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.pdf)
+                                // section 3.11 on Image Formats it does not list rgbf32.
+                                //
+                                // It seems SPIR-V can support having an image with an unknown-at-compile-time
+                                // format, so long as the underlying API supports it. Ideally this would mean that we can
+                                // just drop all these qualifiers when emitting GLSL for Vulkan targets.
+                                //
+                                // This raises the question of what to do more long term. For Vulkan hopefully we can just
+                                // drop the layout. For OpenGL targets it would seem reasonable to have well-defined rules
+                                // for inferring the format (and just document that 3-component formats map to 4-component formats,
+                                // but that shouldn't matter because the API wouldn't let the user allocate those 3-component formats anyway),
+                                // and add an attribute for specifying the format manually if you really want to override our
+                                // inference (e.g., to specify r11fg11fb10f).
+
+                                Emit("rgba");
+                                //Emit("rgb");                                
+                                break;
+                            }
 
                             case 2:  Emit("rg");    break;
                             case 1:  Emit("r");     break;
@@ -6608,25 +6807,19 @@ StructTypeLayout* getScopeStructLayout(
     ScopeLayout*  scopeLayout)
 {
     auto scopeTypeLayout = scopeLayout->parametersLayout->typeLayout;
+
+    if( auto constantBufferTypeLayout = as<ParameterGroupTypeLayout>(scopeTypeLayout) )
+    {
+        scopeTypeLayout = constantBufferTypeLayout->offsetElementTypeLayout;
+    }
+
     if( auto structTypeLayout = as<StructTypeLayout>(scopeTypeLayout) )
     {
         return structTypeLayout;
     }
-    else if( auto constantBufferTypeLayout = as<ParameterGroupTypeLayout>(scopeTypeLayout) )
-    {
-        auto elementTypeLayout = constantBufferTypeLayout->offsetElementTypeLayout;
-        auto elementTypeStructLayout = as<StructTypeLayout>(elementTypeLayout);
 
-        // We expect all constant buffers to contain `struct` types for now
-        SLANG_RELEASE_ASSERT(elementTypeStructLayout);
-
-        return elementTypeStructLayout;
-    }
-    else
-    {
-        SLANG_UNEXPECTED("uhandled global-scope binding layout");
-        return nullptr;
-    }
+    SLANG_UNEXPECTED("uhandled global-scope binding layout");
+    return nullptr;
 }
 
     /// Given a layout computed for a program, get the layout to use when lookup up variables.
@@ -6639,9 +6832,28 @@ StructTypeLayout* getGlobalStructLayout(
     return getScopeStructLayout(programLayout);
 }
 
-void legalizeTypes(
-    TypeLegalizationContext*    context,
-    IRModule*                   module);
+static void dumpIR(
+    BackEndCompileRequest* compileRequest,
+    IRModule*       irModule,
+    char const*     label)
+{
+    DiagnosticSinkWriter writerImpl(compileRequest->getSink());
+    WriterHelper writer(&writerImpl);
+
+    if(label)
+    {
+        writer.put("### ");
+        writer.put(label);
+        writer.put(":\n");
+    }
+
+    dumpIR(irModule, writer.getWriter());
+
+    if( label )
+    {
+        writer.put("###\n");
+    }
+}
 
 static void dumpIRIfEnabled(
     BackEndCompileRequest* compileRequest,
@@ -6650,22 +6862,7 @@ static void dumpIRIfEnabled(
 {
     if(compileRequest->shouldDumpIR)
     {
-        DiagnosticSinkWriter writerImpl(compileRequest->getSink());
-        WriterHelper writer(&writerImpl);
-
-        if(label)
-        {
-            writer.put("### ");
-            writer.put(label);
-            writer.put(":\n");
-        }
-
-        dumpIR(irModule, writer.getWriter());
-
-        if( label )
-        {
-            writer.put("###\n");
-        }
+        dumpIR(compileRequest, irModule, label);
     }
 }
 
@@ -6730,7 +6927,7 @@ String emitEntryPoint(
         auto irEntryPoint = linkedIR.entryPoint;
 
 #if 0
-        dumpIRIfEnabled(compileRequest, irModule, "CLONED");
+        dumpIRIfEnabled(compileRequest, irModule, "LINKED");
 #endif
 
         validateIRModuleIfEnabled(compileRequest, irModule);
@@ -6739,6 +6936,23 @@ String emitEntryPoint(
         // IR, then do it here, for the target-specific, but
         // un-specialized IR.
         dumpIRIfEnabled(compileRequest, irModule);
+
+        // When there are top-level existential-type parameters
+        // to the shader, we need to take the side-band information
+        // on how the existential "slots" were bound to concrete
+        // types, and use it to introduce additional explicit
+        // shader parameters for those slots, to be wired up to
+        // use sites.
+        //
+        bindExistentialSlots(irModule, sink);
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "EXISTENTIALS BOUND");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
+
+
+
 
         // Now that we've linked the IR code, any layout/binding
         // information has been attached to shader parameters
@@ -6751,6 +6965,10 @@ String emitEntryPoint(
         // the global scope instead.
         //
         moveEntryPointUniformParamsToGlobalScope(irModule);
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "ENTRY POINT UNIFORMS MOVED");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
 
         // Desguar any union types, since these will be illegal on
         // various targets.
@@ -6788,27 +7006,70 @@ String emitEntryPoint(
 #endif
         validateIRModuleIfEnabled(compileRequest, irModule);
 
-        // After we've fully specialized all generics, and
-        // "devirtualized" all the calls through interfaces,
-        // we need to ensure that the code only uses types
-        // that are legal on the chosen target.
+
+        // Specialization can introduce dead code that could trip
+        // up downstream passes like type legalization, so we
+        // will run a DCE pass to clean up after the specialization.
         //
-        {
-            // TODO: The presence of `TypeLegalizationContext`
-            // in the public API of the `legalizeTypes` function
-            // is a throwback to when there was AST-level
-            // type legalization and all the complications it
-            // created. The pass should be refactored to not
-            // expose these details.
-            //
-            TypeLegalizationContext typeLegalizationContext;
-            initialize(&typeLegalizationContext,
-                session,
-                irModule);
-            legalizeTypes(
-                &typeLegalizationContext,
-                irModule);
-        }
+        // TODO: Are there other cleanup optimizations we should
+        // apply at this point?
+        //
+        eliminateDeadCode(compileRequest, irModule);
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "AFTER DCE");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
+        // The Slang language allows interfaces to be used like
+        // ordinary types (including placing them in constant
+        // buffers and entry-point parameter lists), but then
+        // getting them to lay out in a reasonable way requires
+        // us to treat fields/variables with interface type
+        // *as if* they were pointers to heap-allocated "objects."
+        //
+        // Specialization will have replaced fields/variables
+        // with interface types like `IFoo` with fields/variables
+        // with pointer-like types like `ExistentialBox<SomeType>`.
+        //
+        // We need to legalize these pointer-like types away,
+        // which involves two main changes:
+        //
+        //  1. Any `ExistentialBox<...>` fields need to be moved
+        //  out of their enclosing `struct` type, so that the layout
+        //  of the enclosing type is computed as if the field had
+        //  zero size.
+        //
+        //  2. Once an `ExistentialBox<X>` has been floated out
+        //  of its parent and landed somwhere permanent (e.g., either
+        //  a dedicated variable, or a field of constant buffer),
+        //  we need to replace it with just an `X`, after which we
+        //  will have (more) legal shader code.
+        //
+        legalizeExistentialTypeLayout(
+            irModule,
+            sink);
+        eliminateDeadCode(compileRequest, irModule);
+
+#if 0
+        dumpIRIfEnabled(compileRequest, irModule, "EXISTENTIALS LEGALIZED");
+#endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+
+        // Many of our target languages and/or downstream compilers
+        // don't support `struct` types that have resource-type fields.
+        // In order to work around this limitation, we will rewrite the
+        // IR so that any structure types with resource-type fields get
+        // split into a "tuple" that comprises the ordinary fields (still
+        // bundles up as a `struct`) and one element for each resource-type
+        // field (recursively).
+        //
+        // What used to be individual variables/parameters/arguments/etc.
+        // then become multiple variables/parameters/arguments/etc.
+        //
+        legalizeResourceTypes(
+            irModule,
+            sink);
+        eliminateDeadCode(compileRequest, irModule);
 
         //  Debugging output of legalization
 #if 0
@@ -6869,16 +7130,17 @@ String emitEntryPoint(
                 irEntryPoint,
                 compileRequest->getSink(),
                 &sharedContext.extensionUsageTracker);
+
+#if 0
+                dumpIRIfEnabled(compileRequest, irModule, "GLSL LEGALIZED");
+#endif
+                validateIRModuleIfEnabled(compileRequest, irModule);
         }
         break;
 
         default:
             break;
         }
-#if 0
-        dumpIRIfEnabled(compileRequest, irModule, "GLSL LEGALIZED");
-#endif
-        validateIRModuleIfEnabled(compileRequest, irModule);
 
         // The resource-based specialization pass above
         // may create specialized versions of functions, but
@@ -6929,8 +7191,8 @@ String emitEntryPoint(
     String code = sharedContext.sb.ProduceString();
     sharedContext.sb.Clear();
 
-    // Now that we've emitted the code for all the declaratiosn in the file,
-    // it is time to stich together the final output.
+    // Now that we've emitted the code for all the declarations in the file,
+    // it is time to stitch together the final output.
 
     // There may be global-scope modifiers that we should emit now
     visitor.emitGLSLPreprocessorDirectives();

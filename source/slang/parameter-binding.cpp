@@ -395,9 +395,6 @@ struct ParameterBindingContext
     // the resource usage of shader parameters.
     TypeLayoutContext layoutContext;
 
-    // A dictionary to accelerate looking up parameters by name
-    Dictionary<Name*, ParameterInfo*> mapNameToParameterInfo;
-
     // What stage (if any) are we compiling for?
     Stage stage;
 
@@ -573,424 +570,6 @@ LayoutSemanticInfo ExtractLayoutSemanticInfo(
     return info;
 }
 
-static Name* getReflectionName(VarDeclBase* varDecl)
-{
-    if (auto reflectionNameModifier = varDecl->FindModifier<ParameterGroupReflectionName>())
-        return reflectionNameModifier->nameAndLoc.name;
-
-    return varDecl->getName();
-}
-
-// Information tracked when doing a structural
-// match of types.
-struct StructuralTypeMatchStack
-{
-    DeclRef<VarDeclBase>        leftDecl;
-    DeclRef<VarDeclBase>        rightDecl;
-    StructuralTypeMatchStack*   parent;
-};
-
-static void diagnoseParameterTypeMismatch(
-    ParameterBindingContext*    context,
-    StructuralTypeMatchStack*   inStack)
-{
-    SLANG_ASSERT(inStack);
-
-    // The bottom-most entry in the stack should represent
-    // the shader parameters that kicked things off
-    auto stack = inStack;
-    while(stack->parent)
-        stack = stack->parent;
-
-    getSink(context)->diagnose(stack->leftDecl, Diagnostics::shaderParameterDeclarationsDontMatch, getReflectionName(stack->leftDecl));
-    getSink(context)->diagnose(stack->rightDecl, Diagnostics::seeOtherDeclarationOf, getReflectionName(stack->rightDecl));
-}
-
-// Two types that were expected to match did not.
-// Inform the user with a suitable message.
-static void diagnoseTypeMismatch(
-    ParameterBindingContext*    context,
-    StructuralTypeMatchStack*   inStack)
-{
-    auto stack = inStack;
-    SLANG_ASSERT(stack);
-    diagnoseParameterTypeMismatch(context, stack);
-
-    auto leftType = GetType(stack->leftDecl);
-    auto rightType = GetType(stack->rightDecl);
-
-    if( stack->parent )
-    {
-        getSink(context)->diagnose(stack->leftDecl, Diagnostics::fieldTypeMisMatch, getReflectionName(stack->leftDecl), leftType, rightType);
-        getSink(context)->diagnose(stack->rightDecl, Diagnostics::seeOtherDeclarationOf, getReflectionName(stack->rightDecl));
-
-        stack = stack->parent;
-        if( stack )
-        {
-            while( stack->parent )
-            {
-                getSink(context)->diagnose(stack->leftDecl, Diagnostics::usedInDeclarationOf, getReflectionName(stack->leftDecl));
-                stack = stack->parent;
-            }
-        }
-    }
-    else
-    {
-        getSink(context)->diagnose(stack->leftDecl, Diagnostics::shaderParameterTypeMismatch, leftType, rightType);
-    }
-}
-
-// Two types that were expected to match did not.
-// Inform the user with a suitable message.
-static void diagnoseTypeFieldsMismatch(
-    ParameterBindingContext*    context,
-    DeclRef<Decl> const&        left,
-    DeclRef<Decl> const&        right,
-    StructuralTypeMatchStack*   stack)
-{
-    diagnoseParameterTypeMismatch(context, stack);
-
-    getSink(context)->diagnose(left, Diagnostics::fieldDeclarationsDontMatch, left.GetName());
-    getSink(context)->diagnose(right, Diagnostics::seeOtherDeclarationOf, right.GetName());
-
-    if( stack )
-    {
-        while( stack->parent )
-        {
-            getSink(context)->diagnose(stack->leftDecl, Diagnostics::usedInDeclarationOf, getReflectionName(stack->leftDecl));
-            stack = stack->parent;
-        }
-    }
-}
-
-static void collectFields(
-    DeclRef<AggTypeDecl>    declRef,
-    List<DeclRef<VarDecl>>& outFields)
-{
-    for( auto fieldDeclRef : getMembersOfType<VarDecl>(declRef) )
-    {
-        if(fieldDeclRef.getDecl()->HasModifier<HLSLStaticModifier>())
-            continue;
-
-        outFields.Add(fieldDeclRef);
-    }
-}
-
-static bool validateTypesMatch(
-    ParameterBindingContext*    context,
-    Type*                       left,
-    Type*                       right,
-    StructuralTypeMatchStack*   stack);
-
-static bool validateIntValuesMatch(
-    ParameterBindingContext*    context,
-    IntVal*                     left,
-    IntVal*                     right,
-    StructuralTypeMatchStack*   stack)
-{
-    if(left->EqualsVal(right))
-        return true;
-
-    // TODO: are there other cases we need to handle here?
-
-    diagnoseTypeMismatch(context, stack);
-    return false;
-}
-
-
-static bool validateValuesMatch(
-    ParameterBindingContext*    context,
-    Val*                        left,
-    Val*                        right,
-    StructuralTypeMatchStack*   stack)
-{
-    if( auto leftType = dynamicCast<Type>(left) )
-    {
-        if( auto rightType = dynamicCast<Type>(right) )
-        {
-            return validateTypesMatch(context, leftType, rightType, stack);
-        }
-    }
-
-    if( auto leftInt = dynamicCast<IntVal>(left) )
-    {
-        if( auto rightInt = dynamicCast<IntVal>(right) )
-        {
-            return validateIntValuesMatch(context, leftInt, rightInt, stack);
-        }
-    }
-
-    if( auto leftWitness = dynamicCast<SubtypeWitness>(left) )
-    {
-        if( auto rightWitness = dynamicCast<SubtypeWitness>(right) )
-        {
-            return true;
-        }
-    }
-
-    diagnoseTypeMismatch(context, stack);
-    return false;
-}
-
-static bool validateGenericSubstitutionsMatch(
-    ParameterBindingContext*    context,
-    GenericSubstitution*        left,
-    GenericSubstitution*        right,
-    StructuralTypeMatchStack*   stack)
-{
-    if( !left )
-    {
-        if( !right )
-        {
-            return true;
-        }
-
-        diagnoseTypeMismatch(context, stack);
-        return false;
-    }
-
-
-
-    UInt argCount = left->args.Count();
-    if( argCount != right->args.Count() )
-    {
-        diagnoseTypeMismatch(context, stack);
-        return false;
-    }
-
-    for( UInt aa = 0; aa < argCount; ++aa )
-    {
-        auto leftArg = left->args[aa];
-        auto rightArg = right->args[aa];
-
-        if(!validateValuesMatch(context, leftArg, rightArg, stack))
-            return false;
-    }
-
-    return true;
-}
-
-static bool validateThisTypeSubstitutionsMatch(
-    ParameterBindingContext*    /*context*/,
-    ThisTypeSubstitution*       /*left*/,
-    ThisTypeSubstitution*       /*right*/,
-    StructuralTypeMatchStack*   /*stack*/)
-{
-    // TODO: actual checking.
-    return true;
-}
-
-static bool validateSpecializationsMatch(
-    ParameterBindingContext*    context,
-    SubstitutionSet             left,
-    SubstitutionSet             right,
-    StructuralTypeMatchStack*   stack)
-{
-    auto ll = left.substitutions;
-    auto rr = right.substitutions;
-    for(;;)
-    {
-        // Skip any global generic substitutions.
-        if(auto leftGlobalGeneric = as<GlobalGenericParamSubstitution>(ll))
-        {
-            ll = leftGlobalGeneric->outer;
-            continue;
-        }
-        if(auto rightGlobalGeneric = as<GlobalGenericParamSubstitution>(rr))
-        {
-            rr = rightGlobalGeneric->outer;
-            continue;
-        }
-
-        // If either ran out, then we expect both to have run out.
-        if(!ll || !rr)
-            return !ll && !rr;
-
-        auto leftSubst = ll;
-        auto rightSubst = rr;
-
-        ll = ll->outer;
-        rr = rr->outer;
-
-        if(auto leftGeneric = as<GenericSubstitution>(leftSubst))
-        {
-            if(auto rightGeneric = as<GenericSubstitution>(rightSubst))
-            {
-                if(validateGenericSubstitutionsMatch(context, leftGeneric, rightGeneric, stack))
-                {
-                    continue;
-                }
-            }
-        }
-        else if(auto leftThisType = as<ThisTypeSubstitution>(leftSubst))
-        {
-            if(auto rightThisType = as<ThisTypeSubstitution>(rightSubst))
-            {
-                if(validateThisTypeSubstitutionsMatch(context, leftThisType, rightThisType, stack))
-                {
-                    continue;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    return true;
-}
-
-// Determine if two types "match" for the purposes of `cbuffer` layout rules.
-//
-static bool validateTypesMatch(
-    ParameterBindingContext*    context,
-    Type*                       left,
-    Type*                       right,
-    StructuralTypeMatchStack*   stack)
-{
-    if(left->Equals(right))
-        return true;
-
-    // It is possible that the types don't match exactly, but
-    // they *do* match structurally.
-
-    // Note: the following code will lead to infinite recursion if there
-    // are ever recursive types. We'd need a more refined system to
-    // cache the matches we've already found.
-
-    if( auto leftDeclRefType = as<DeclRefType>(left) )
-    {
-        if( auto rightDeclRefType = as<DeclRefType>(right) )
-        {
-            // Are they references to matching decl refs?
-            auto leftDeclRef = leftDeclRefType->declRef;
-            auto rightDeclRef = rightDeclRefType->declRef;
-
-            // Do the reference the same declaration? Or declarations
-            // with the same name?
-            //
-            // TODO: we should only consider the same-name case if the
-            // declarations come from translation units being compiled
-            // (and not an imported module).
-            if( leftDeclRef.getDecl() == rightDeclRef.getDecl()
-                || leftDeclRef.GetName() == rightDeclRef.GetName() )
-            {
-                // Check that any generic arguments match
-                if( !validateSpecializationsMatch(
-                    context,
-                    leftDeclRef.substitutions,
-                    rightDeclRef.substitutions,
-                    stack) )
-                {
-                    return false;
-                }
-
-                // Check that any declared fields match too.
-                if( auto leftStructDeclRef = leftDeclRef.as<AggTypeDecl>() )
-                {
-                    if( auto rightStructDeclRef = rightDeclRef.as<AggTypeDecl>() )
-                    {
-                        List<DeclRef<VarDecl>> leftFields;
-                        List<DeclRef<VarDecl>> rightFields;
-
-                        collectFields(leftStructDeclRef, leftFields);
-                        collectFields(rightStructDeclRef, rightFields);
-
-                        UInt leftFieldCount = leftFields.Count();
-                        UInt rightFieldCount = rightFields.Count();
-
-                        if( leftFieldCount != rightFieldCount )
-                        {
-                            diagnoseTypeFieldsMismatch(context, leftDeclRef, rightDeclRef, stack);
-                            return false;
-                        }
-
-                        for( UInt ii = 0; ii < leftFieldCount; ++ii )
-                        {
-                            auto leftField = leftFields[ii];
-                            auto rightField = rightFields[ii];
-
-                            if( leftField.GetName() != rightField.GetName() )
-                            {
-                                diagnoseTypeFieldsMismatch(context, leftDeclRef, rightDeclRef, stack);
-                                return false;
-                            }
-
-                            auto leftFieldType = GetType(leftField);
-                            auto rightFieldType = GetType(rightField);
-
-                            StructuralTypeMatchStack subStack;
-                            subStack.parent = stack;
-                            subStack.leftDecl = leftField;
-                            subStack.rightDecl = rightField;
-
-                            if(!validateTypesMatch(context, leftFieldType,rightFieldType, &subStack))
-                                return false;
-                        }
-                    }
-                }
-
-                // Everything seemed to match recursively.
-                return true;
-            }
-        }
-    }
-
-    // If we are looking at `T[N]` and `U[M]` we want to check that
-    // `T` is structurally equivalent to `U` and `N` is the same as `M`.
-    else if( auto leftArrayType = as<ArrayExpressionType>(left) )
-    {
-        if( auto rightArrayType = as<ArrayExpressionType>(right) )
-        {
-            if(!validateTypesMatch(context, leftArrayType->baseType, rightArrayType->baseType, stack) )
-                return false;
-
-            if(!validateValuesMatch(context, leftArrayType->ArrayLength, rightArrayType->ArrayLength, stack))
-                return false;
-
-            return true;
-        }
-    }
-
-    diagnoseTypeMismatch(context, stack);
-    return false;
-}
-
-// This function is supposed to determine if two global shader
-// parameter declarations represent the same logical parameter
-// (so that they should get the exact same binding(s) allocated).
-//
-static bool doesParameterMatch(
-    ParameterBindingContext* context,
-    RefPtr<VarLayout>   varLayout,
-    ParameterInfo* parameterInfo)
-{
-    // Any "varying" parameter should automatically be excluded
-    //
-    // Note that we use the `typeLayout` field rather than
-    // looking at resource information on the variable directly,
-    // because this may be called when binding hasn't been performed.
-    for (auto rr : varLayout->typeLayout->resourceInfos)
-    {
-        switch (rr.kind)
-        {
-        case LayoutResourceKind::VertexInput:
-        case LayoutResourceKind::FragmentOutput:
-            return false;
-
-        default:
-            break;
-        }
-    }
-
-    StructuralTypeMatchStack stack;
-    stack.parent = nullptr;
-    stack.leftDecl = varLayout->varDecl;
-    stack.rightDecl = parameterInfo->varLayouts[0]->varDecl;
-
-    validateTypesMatch(context, varLayout->typeLayout->type, parameterInfo->varLayouts[0]->typeLayout->type, &stack);
-
-    return true;
-}
 
 //
 
@@ -1020,90 +599,6 @@ static bool findLayoutArg(
     return findLayoutArg<T>(declRef.getDecl(), outVal);
 }
 
-//
-
-static bool isGLSLBuiltinName(VarDeclBase* varDecl)
-{
-    return getText(getReflectionName(varDecl)).StartsWith("gl_");
-}
-
-RefPtr<Type> tryGetEffectiveTypeForGLSLVaryingInput(
-    ParameterBindingContext*    context,
-    VarDeclBase*                varDecl)
-{
-    if (isGLSLBuiltinName(varDecl))
-        return nullptr;
-
-    auto type = varDecl->getType();
-    if( varDecl->HasModifier<InModifier>() || as<GLSLInputParameterGroupType>(type))
-    {
-        // Special case to handle "arrayed" shader inputs, as used
-        // for Geometry and Hull input
-        switch( context->stage )
-        {
-        case Stage::Geometry:
-        case Stage::Hull:
-        case Stage::Domain:
-            // Tessellation `patch` variables should stay as written
-            if( !varDecl->HasModifier<GLSLPatchModifier>() )
-            {
-                // Unwrap array type, if present
-                if( auto arrayType = as<ArrayExpressionType>(type) )
-                {
-                    type = arrayType->baseType.Ptr();
-                }
-            }
-            break;
-
-        default:
-            break;
-        }
-
-        return type;
-    }
-
-    return nullptr;
-}
-
-RefPtr<Type> tryGetEffectiveTypeForGLSLVaryingOutput(
-    ParameterBindingContext*    context,
-    VarDeclBase*                varDecl)
-{
-    if (isGLSLBuiltinName(varDecl))
-        return nullptr;
-
-    auto type = varDecl->getType();
-    if( varDecl->HasModifier<OutModifier>() || as<GLSLOutputParameterGroupType>(type))
-    {
-        // Special case to handle "arrayed" shader outputs, as used
-        // for Hull Shader output
-        //
-        // Note(tfoley): there is unfortunate code duplication
-        // with the `in` case above.
-        switch( context->stage )
-        {
-        case Stage::Hull:
-            // Tessellation `patch` variables should stay as written
-            if( !varDecl->HasModifier<GLSLPatchModifier>() )
-            {
-                // Unwrap array type, if present
-                if( auto arrayType = as<ArrayExpressionType>(type) )
-                {
-                    type = arrayType->baseType.Ptr();
-                }
-            }
-            break;
-
-        default:
-            break;
-        }
-
-        return type;
-    }
-
-    return nullptr;
-}
-
     /// Determine how to lay out a global variable that might be a shader parameter.
     ///
     /// Returns `nullptr` if the declaration does not represent a shader parameter.
@@ -1117,7 +612,7 @@ RefPtr<TypeLayout> getTypeLayoutForGlobalShaderParameter(
 
     if( varDecl->HasModifier<ShaderRecordAttribute>() && as<ConstantBufferType>(type) )
     {
-        return CreateTypeLayout(
+        return createTypeLayout(
             layoutContext.with(rules->getShaderRecordConstantBufferRules()),
             type);
     }
@@ -1127,7 +622,7 @@ RefPtr<TypeLayout> getTypeLayoutForGlobalShaderParameter(
     // qualifier before we move on to anything else.
     if (varDecl->HasModifier<PushConstantAttribute>() && as<ConstantBufferType>(type))
     {
-        return CreateTypeLayout(
+        return createTypeLayout(
             layoutContext.with(rules->getPushConstantBufferRules()),
             type);
     }
@@ -1144,26 +639,12 @@ RefPtr<TypeLayout> getTypeLayoutForGlobalShaderParameter(
 
     // An "ordinary" global variable is implicitly a uniform
     // shader parameter.
-    return CreateTypeLayout(
+    return createTypeLayout(
         layoutContext.with(rules->getConstantBufferRules()),
         type);
 }
 
-RefPtr<TypeLayout> getTypeLayoutForGlobalShaderParameter(
-    ParameterBindingContext*    context,
-    VarDeclBase*                varDecl)
-{
-    return getTypeLayoutForGlobalShaderParameter(context, varDecl, varDecl->getType());
-}
-
 //
-
-enum EntryPointParameterDirection
-{
-    kEntryPointParameterDirection_Input  = 0x1,
-    kEntryPointParameterDirection_Output = 0x2,
-};
-typedef unsigned int EntryPointParameterDirectionMask;
 
 struct EntryPointParameterState
 {
@@ -1197,15 +678,22 @@ static void collectGlobalGenericParameter(
 
 // Collect a single declaration into our set of parameters
 static void collectGlobalScopeParameter(
-    ParameterBindingContext*    context,
-    RefPtr<VarDeclBase>         varDecl)
+    ParameterBindingContext*        context,
+    GlobalShaderParamInfo const&    shaderParamInfo,
+    SubstitutionSet                 globalGenericSubst)
 {
+    auto varDeclRef = shaderParamInfo.paramDeclRef;
+
+    // We apply any substitutions for global generic parameters here.
+    auto type = GetType(varDeclRef)->Substitute(globalGenericSubst).as<Type>();
+
     // We use a single operation to both check whether the
     // variable represents a shader parameter, and to compute
     // the layout for that parameter's type.
     auto typeLayout = getTypeLayoutForGlobalShaderParameter(
         context,
-        varDecl.Ptr());
+        varDeclRef.getDecl(),
+        type);
 
     // If we did not find appropriate layout rules, then it
     // must mean that this global variable is *not* a shader
@@ -1216,45 +704,43 @@ static void collectGlobalScopeParameter(
     // Now create a variable layout that we can use
     RefPtr<VarLayout> varLayout = new VarLayout();
     varLayout->typeLayout = typeLayout;
-    varLayout->varDecl = DeclRef<Decl>(varDecl.Ptr(), nullptr).as<VarDeclBase>();
+    varLayout->varDecl = varDeclRef;
 
-    // This declaration may represent the same logical parameter
-    // as a declaration that came from a different translation unit.
-    // If that is the case, we want to re-use the same `VarLayout`
-    // across both parameters.
+    // The logic in `check.cpp` that created the `GlobalShaderParamInfo`
+    // will have identified any cases where there might be multiple
+    // global variables that logically represent the same shader parameter.
     //
-    // TODO: This logic currently detects *any* global-scope parameters
-    // with matching names, but it should eventually be narrowly
-    // scoped so that it only applies to parameters from unnamed modules.
+    // We will track the same basic information during layout using
+    // the `ParameterInfo` type.
     //
-    // First we look for an existing entry matching the name
-    // of this parameter:
-    auto parameterName = getReflectionName(varDecl);
-    ParameterInfo* parameterInfo = nullptr;
-    if( context->mapNameToParameterInfo.TryGetValue(parameterName, parameterInfo) )
-    {
-        // If the parameters have the same name, but don't "match" according to some reasonable rules,
-        // then we need to bail out.
-        if( !doesParameterMatch(context, varLayout, parameterInfo) )
-        {
-            parameterInfo = nullptr;
-        }
-    }
+    // TODO: `ParameterInfo` should probably become `LayoutParamInfo`.
+    //
+    ParameterInfo* parameterInfo = new ParameterInfo();
+    context->shared->parameters.Add(parameterInfo);
 
-    // If we didn't find a matching parameter, then we need to create one here
-    if( !parameterInfo )
-    {
-        parameterInfo = new ParameterInfo();
-        context->shared->parameters.Add(parameterInfo);
-        context->mapNameToParameterInfo.AddIfNotExists(parameterName, parameterInfo);
-    }
-    else
-    {
-        varLayout->flags |= VarLayoutFlag::IsRedeclaration;
-    }
-
-    // Add this variable declaration to the list of declarations for the parameter
+    // Add the first variable declaration to the list of declarations for the parameter
     parameterInfo->varLayouts.Add(varLayout);
+
+    // Add any additional variables to the list of declarations
+    for( auto additionalVarDeclRef : shaderParamInfo.additionalParamDeclRefs )
+    {
+        // TODO: We should either eliminate the design choice where different
+        // declarations of the "same" shade parameter get merged across
+        // translation units (it is effectively just a compatiblity feature),
+        // or we should clean things up earlier in the chain so that we can
+        // re-use a single `VarLayout` across all of the different declarations.
+        //
+        // TODO: It would also make sense in these cases to ensure that
+        // such global shader parameters get the same mangled name across
+        // all translation units, so that they can automatically be collapsed
+        // during linking.
+
+        RefPtr<VarLayout> additionalVarLayout = new VarLayout();
+        additionalVarLayout->typeLayout = typeLayout;
+        additionalVarLayout->varDecl = additionalVarDeclRef;
+
+        parameterInfo->varLayouts.Add(additionalVarLayout);
+    }
 }
 
 static RefPtr<UsedRangeSet> findUsedRangeSetForSpace(
@@ -1792,38 +1278,25 @@ static void completeBindingsForParameter(
     applyBindingInfoToParameter(varLayout, bindingInfos);
 }
 
-
-
-static void collectGlobalScopeParameters(
+    /// Allocate binding location for any "pending" data in a shader parameter.
+    ///
+    /// When a parameter contains interface-type fields (recursively), we might
+    /// not have included them in the base layout for the parameter, and instead
+    /// need to allocate space for them after all other shader parameters have
+    /// been laid out.
+    ///
+    /// This function should be called on the `pendingVarLayout` field of an
+    /// existing `VarLayout` to ensure that its pending data has been properly
+    /// assigned storage. It handles the case where the `pendingVarLayout`
+    /// field is null.
+    ///
+static void _allocateBindingsForPendingData(
     ParameterBindingContext*    context,
-    ModuleDecl*          program)
+    RefPtr<VarLayout>           pendingVarLayout)
 {
-    // First enumerate parameters at global scope
-    // We collect two things here:
-    // 1. A shader parameter, which is always a variable
-    // 2. A global entry-point generic parameter type (`type_param`),
-    //    which is a GlobalGenericParamDecl
-    // We collect global generic type parameters in the first pass,
-    // So we can fill in the correct index into ordinary type layouts 
-    // for generic types in the second pass.
-    for (auto decl : program->Members)
-    {
-        if (auto genParamDecl = as<GlobalGenericParamDecl>(decl))
-            collectGlobalGenericParameter(context, genParamDecl);
-    }
-    for (auto decl : program->Members)
-    {
-        if (auto varDecl = as<VarDeclBase>(decl))
-            collectGlobalScopeParameter(context, varDecl);
-    }
+    if(!pendingVarLayout) return;
 
-    // Next, we need to enumerate the parameters of
-    // each entry point (which requires knowing what the
-    // entry points *are*)
-
-    // TODO(tfoley): Entry point functions should be identified
-    // by looking for a generated modifier that is attached
-    // to global-scope function declarations.
+    completeBindingsForParameter(context, pendingVarLayout);
 }
 
 struct SimpleSemanticInfo
@@ -1891,7 +1364,7 @@ static RefPtr<TypeLayout> processSimpleEntryPointParameter(
     String semanticName = optSemanticName ? *optSemanticName : "";
     String sn = semanticName.ToLower();
 
-    RefPtr<TypeLayout> typeLayout =  new TypeLayout();
+    RefPtr<TypeLayout> typeLayout;
     if (sn.StartsWith("sv_")
         || sn.StartsWith("nv_"))
     {
@@ -1915,11 +1388,11 @@ static RefPtr<TypeLayout> processSimpleEntryPointParameter(
 
                 // We also need to track this as an ordinary varying output from the stage,
                 // since that is how GLSL will want to see it.
-                auto rules = context->getRulesFamily()->getVaryingOutputRules();
-                SimpleLayoutInfo layout = GetLayout(
-                    context->layoutContext.with(rules),
-                    type);
-                typeLayout->addResourceUsage(layout.kind, layout.size);
+                //
+                typeLayout = getSimpleVaryingParameterTypeLayout(
+                    context->layoutContext,
+                    type,
+                    kEntryPointParameterDirection_Output);
             }
         }
 
@@ -1929,6 +1402,21 @@ static RefPtr<TypeLayout> processSimpleEntryPointParameter(
             {
                 state.isSampleRate = true;
             }
+        }
+
+        if( !typeLayout )
+        {
+            // If we didn't compute a special-case layout for the
+            // system-value parameter (e.g., because it was an
+            // `SV_Target` output), then create a default layout
+            // that consumes no input/output varying slots.
+            // (since system parameters are distinct from
+            // user-defined parameters for layout purposes)
+            //
+            typeLayout = getSimpleVaryingParameterTypeLayout(
+                context->layoutContext,
+                type,
+                0);
         }
 
         // Remember the system-value semantic so that we can query it later
@@ -1942,25 +1430,13 @@ static RefPtr<TypeLayout> processSimpleEntryPointParameter(
     }
     else
     {
-        // user-defined semantic
-
-        if (state.directionMask & kEntryPointParameterDirection_Input)
-        {
-            auto rules = context->getRulesFamily()->getVaryingInputRules();
-            SimpleLayoutInfo layout = GetLayout(
-                context->layoutContext.with(rules),
-                type);
-            typeLayout->addResourceUsage(layout.kind, layout.size);
-        }
-
-        if (state.directionMask & kEntryPointParameterDirection_Output)
-        {
-            auto rules = context->getRulesFamily()->getVaryingOutputRules();
-            SimpleLayoutInfo layout = GetLayout(
-                context->layoutContext.with(rules),
-                type);
-            typeLayout->addResourceUsage(layout.kind, layout.size);
-        }
+        // In this case we have a user-defined semantic, which means
+        // an ordinary input and/or output varying parameter.
+        //
+        typeLayout = getSimpleVaryingParameterTypeLayout(
+                context->layoutContext,
+                type,
+                state.directionMask);
     }
 
     if (state.isSampleRate
@@ -2097,13 +1573,13 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
         case Stage::ClosestHit:
         case Stage::Miss:
             // `in out` or `out` parameter is payload
-            return CreateTypeLayout(context->layoutContext.with(
+            return createTypeLayout(context->layoutContext.with(
                 context->getRulesFamily()->getRayPayloadParameterRules()),
                 type);
 
         case Stage::Callable:
             // `in out` or `out` parameter is payload
-            return CreateTypeLayout(context->layoutContext.with(
+            return createTypeLayout(context->layoutContext.with(
                 context->getRulesFamily()->getCallablePayloadParameterRules()),
                 type);
 
@@ -2133,7 +1609,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
         case Stage::AnyHit:
         case Stage::ClosestHit:
             // `in` parameter is hit attributes
-            return CreateTypeLayout(context->layoutContext.with(
+            return createTypeLayout(context->layoutContext.with(
                 context->getRulesFamily()->getHitAttributesParameterRules()),
                 type);
         }
@@ -2279,7 +1755,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
 static RefPtr<TypeLayout> computeEntryPointParameterTypeLayout(
     ParameterBindingContext*        context,
     SubstitutionSet                 typeSubst,
-    DeclRef<ParamDecl>              paramDeclRef,
+    DeclRef<VarDeclBase>            paramDeclRef,
     RefPtr<VarLayout>               paramVarLayout,
     EntryPointParameterState&       state)
 {
@@ -2294,7 +1770,7 @@ static RefPtr<TypeLayout> computeEntryPointParameterTypeLayout(
         // a uniform shader parameter passed via the implicitly-defined
         // constant buffer (e.g., the `$Params` constant buffer seen in fxc/dxc output).
         //
-        return CreateTypeLayout(
+        return createTypeLayout(
             context->layoutContext.with(context->getRulesFamily()->getConstantBufferRules()),
             paramType);
     }
@@ -2350,7 +1826,13 @@ struct ScopeLayoutBuilder
     LayoutRulesImpl*            m_rules = nullptr;
     RefPtr<StructTypeLayout>    m_structLayout;
     UniformLayoutInfo           m_structLayoutInfo;
-    bool                        m_needConstantBuffer = false;
+
+    // We need to compute a layout for any "pending" data inside
+    // of the parameters being added to the scope, to facilitate
+    // later allocating space for all the pending parameters after
+    // the primary shader parameters.
+    //
+    StructTypeLayoutBuilder     m_pendingDataTypeLayoutBuilder;
 
     void beginLayout(
         ParameterBindingContext* context)
@@ -2372,8 +1854,6 @@ struct ScopeLayoutBuilder
         LayoutSize uniformSize = layoutInfo ? layoutInfo->count : 0;
         if( uniformSize != 0 )
         {
-            m_needConstantBuffer = true;
-
             // Make sure uniform fields get laid out properly...
 
             UniformLayoutInfo fieldInfo(
@@ -2410,6 +1890,33 @@ struct ScopeLayoutBuilder
         {
             m_structLayout->mapVarToLayout.Add(firstVarLayout->varDecl.getDecl(), firstVarLayout);
         }
+
+        // Any "pending" items on a field type become "pending" items
+        // on the overall `struct` type layout.
+        //
+        // TODO: This logic ends up duplicated between here and the main
+        // `struct` layout logic in `type-layout.cpp`. If this gets any
+        // more complicated we should see if there is a way to share it.
+        //
+        if( auto fieldPendingDataTypeLayout = firstVarLayout->typeLayout->pendingDataTypeLayout )
+        {
+            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, m_rules);
+            auto fieldPendingDataVarLayout = m_pendingDataTypeLayoutBuilder.addField(firstVarLayout->varDecl, fieldPendingDataTypeLayout);
+
+            m_structLayout->pendingDataTypeLayout = m_pendingDataTypeLayoutBuilder.getTypeLayout();
+
+            if( parameterInfo )
+            {
+                for( auto& varLayout : parameterInfo->varLayouts )
+                {
+                    varLayout->pendingVarLayout = fieldPendingDataVarLayout;
+                }
+            }
+            else
+            {
+                firstVarLayout->pendingVarLayout = fieldPendingDataVarLayout;
+            }
+        }
     }
 
     void addParameter(
@@ -2429,30 +1936,39 @@ struct ScopeLayoutBuilder
 
     RefPtr<VarLayout> endLayout()
     {
+        // Finish computing the layout for the ordindary data (if any).
+        //
         m_rules->EndStructLayout(&m_structLayoutInfo);
+        m_pendingDataTypeLayoutBuilder.endLayout();
+
+        // Copy the final layout information computed for ordinary data
+        // over to the struct type layout for the scope.
+        //
+        m_structLayout->addResourceUsage(LayoutResourceKind::Uniform, m_structLayoutInfo.size);
+        m_structLayout->uniformAlignment = m_structLayout->uniformAlignment;
 
         RefPtr<TypeLayout> scopeTypeLayout = m_structLayout;
 
-        // If the caller decided to allocate a constant buffer for
-        // the ordinary data, then we need to wrap up the structure
-        // type (layout) in a constant buffer type (layout).
+        // If a constant buffer is needed (because there is a non-zero
+        // amount of uniform data), then we need to wrap up the layout
+        // to reflect the constant buffer that will be generated.
         //
-        if( m_needConstantBuffer )
-        {
-            auto constantBufferLayout = createParameterGroupTypeLayout(
-                m_context->layoutContext,
-                nullptr,
-                m_rules,
-                m_rules->GetObjectLayout(ShaderParameterKind::ConstantBuffer),
-                m_structLayout);
-
-            scopeTypeLayout = constantBufferLayout;
-        }
+        scopeTypeLayout = createConstantBufferTypeLayoutIfNeeded(
+            m_context->layoutContext,
+            scopeTypeLayout);
 
         // We now have a bunch of layout information, which we should
         // record into a suitable object that represents the scope
         RefPtr<VarLayout> scopeVarLayout = new VarLayout();
         scopeVarLayout->typeLayout = scopeTypeLayout;
+
+        if( auto pendingTypeLayout = scopeTypeLayout->pendingDataTypeLayout )
+        {
+            RefPtr<VarLayout> pendingVarLayout = new VarLayout();
+            pendingVarLayout->typeLayout = pendingTypeLayout;
+            scopeVarLayout->pendingVarLayout = pendingVarLayout;
+        }
+
         return scopeVarLayout;
     }
 };
@@ -2518,7 +2034,7 @@ static void collectEntryPointParameters(
     {
         SLANG_ASSERT(taggedUnionType);
         auto substType = taggedUnionType->Substitute(typeSubst).as<Type>();
-        auto typeLayout = CreateTypeLayout(context->layoutContext, substType);
+        auto typeLayout = createTypeLayout(context->layoutContext, substType);
         entryPointLayout->taggedUnionTypeLayouts.Add(typeLayout);
     }
 
@@ -2545,8 +2061,22 @@ static void collectEntryPointParameters(
     scopeBuilder.beginLayout(context);
     auto paramsStructLayout = scopeBuilder.m_structLayout;
 
-    for( auto paramDeclRef : getMembersOfType<ParamDecl>(entryPointFuncDeclRef) )
+    for( auto& shaderParamInfo : entryPoint->getShaderParams() )
     {
+        auto paramDeclRef = shaderParamInfo.paramDeclRef;
+
+        // When computing layout for an entry-point parameter,
+        // we want to make sure that the layout context has access
+        // to the existential type arguments (if any) that were
+        // provided for the entry-point existential type parameters (if any).
+        //
+        context->layoutContext= context->layoutContext
+            .withExistentialTypeArgs(
+                entryPoint->getExistentialTypeArgCount(),
+                entryPoint->getExistentialTypeArgs())
+            .withExistentialTypeSlotsOffsetBy(
+                shaderParamInfo.firstExistentialTypeSlot);
+
         // Any error messages we emit during the process should
         // refer to the location of this parameter.
         //
@@ -2664,22 +2194,52 @@ static void collectParameters(
     // logical namespace/"linkage" so that two parameters
     // with the same name should represent the same
     // parameter, and get the same binding(s)
+
     ParameterBindingContext contextData = *inContext;
     auto context = &contextData;
+    context->stage = Stage::Unknown;
+
+    auto globalGenericSubst = program->getGlobalGenericSubstitution();
+
+    // We will start by looking for any global generic type parameters.
 
     for(RefPtr<Module> module : program->getModuleDependencies())
     {
-        context->stage = Stage::Unknown;
+        for( auto genParamDecl : module->getModuleDecl()->getMembersOfType<GlobalGenericParamDecl>() )
+        {
+            collectGlobalGenericParameter(context, genParamDecl);
+        }
+    }
 
-        // First look at global-scope parameters
-        collectGlobalScopeParameters(context, module->getModuleDecl());
+    // Once we have enumerated global generic type parameters, we can
+    // begin enumerating shader parameters, starting at the global scope.
+    //
+    // Because we have already enumerated the global generic type parameters,
+    // we will be able to look up the index of a global generic type parameter
+    // when we see it referenced in the type of one of the shader parameters.
+
+    for(auto& globalParamInfo : program->getShaderParams() )
+    {
+        // When computing layout for a global shader parameter,
+        // we want to make sure that the layout context has access
+        // to the existential type arguments (if any) that were
+        // provided for the global existential type parameters (if any).
+        //
+        context->layoutContext= context->layoutContext
+            .withExistentialTypeArgs(
+                program->getExistentialTypeArgCount(),
+                program->getExistentialTypeArgs())
+            .withExistentialTypeSlotsOffsetBy(
+                globalParamInfo.firstExistentialTypeSlot);
+
+        collectGlobalScopeParameter(context, globalParamInfo, globalGenericSubst);
     }
 
     // Next consider parameters for entry points
     for(auto entryPoint : program->getEntryPoints())
     {
         context->stage = entryPoint->getStage();
-        collectEntryPointParameters(context, entryPoint, SubstitutionSet());
+        collectEntryPointParameters(context, entryPoint, globalGenericSubst);
     }
     context->entryPointLayout = nullptr;
 }
@@ -2790,23 +2350,43 @@ RefPtr<ProgramLayout> generateParameterBindings(
     // As a starting point, we will definitely need a "default" space if
     // we are creating a default constant buffer, since it should get
     // a binding in that "default" space.
+    //
     bool needDefaultSpace = needDefaultConstantBuffer;
     if (!needDefaultSpace)
     {
+        // Next we will look at the global-scope parameters and see if
+        // any of them requires a `register` or `binding` that will
+        // thus need to land in a default space.
+        //
         for (auto& parameterInfo : sharedContext.parameters)
         {
             SLANG_RELEASE_ASSERT(parameterInfo->varLayouts.Count() != 0);
             auto firstVarLayout = parameterInfo->varLayouts.First();
 
-            // Does the parameter have any resource usage that isn't just
-            // allocating a whole register space?
+            // For each parameter, we will look at each resource it consumes.
+            //
             for (auto resInfo : firstVarLayout->typeLayout->resourceInfos)
             {
-                if (resInfo.kind != LayoutResourceKind::RegisterSpace)
-                {
-                    needDefaultSpace = true;
-                    break;
-                }
+                // We don't care about whole register spaces/sets, since
+                // we don't need to allocate a default space/set for a parameter
+                // that itself consumes a whole space/set.
+                //
+                if( resInfo.kind == LayoutResourceKind::RegisterSpace )
+                    continue;
+
+                // We also don't want to consider resource kinds for which
+                // the variable already has an (explicit) binding, since
+                // the space from the explicit binding will be used, so
+                // that a default space isn't needed.
+                //
+                if( parameterInfo->bindingInfo[resInfo.kind].count != 0 )
+                    continue;
+
+                // Otherwise, we have a shader parameter that will need
+                // a default space or set to live in.
+                //
+                needDefaultSpace = true;
+                break;
             }
         }
     }
@@ -2923,6 +2503,47 @@ RefPtr<ProgramLayout> generateParameterBindings(
         cbInfo->space = globalConstantBufferBinding.space;
         cbInfo->index = globalConstantBufferBinding.index;
     }
+
+    // After we have laid out all the ordinary parameters,
+    // we need to go through the global scope plus each entry point,
+    // and "flush" out any pending data that was associated with
+    // those scopes as part of dealing with interface-type parameters.
+    //
+    _allocateBindingsForPendingData(&context, globalScopeVarLayout->pendingVarLayout);
+    for( auto entryPoint : sharedContext.programLayout->entryPoints )
+    {
+        _allocateBindingsForPendingData(&context, entryPoint->parametersLayout->pendingVarLayout);
+    }
+
+
+    // HACK: we want global parameters to not have to deal with offsetting
+    // by the `VarLayout` stored in `globalScopeVarLayout`, so we will scan
+    // through and for any global parameter that used "pending" data, we will manually
+    // offset all of its resource infos to account for where the global pending data
+    // got placed.
+    //
+    // TODO: A more appropriate solution would be to pass the `globalScopeVarLayout`
+    // down into the pass that puts layout information onto global parameters in
+    // the IR, and apply the offsetting there.
+    //
+    for( auto& parameterInfo : sharedContext.parameters )
+    {
+        for( auto varLayout : parameterInfo->varLayouts )
+        {
+            auto pendingVarLayout = varLayout->pendingVarLayout;
+            if(!pendingVarLayout) continue;
+
+            for( auto& resInfo : pendingVarLayout->resourceInfos )
+            {
+                if( auto globalResInfo = globalScopeVarLayout->pendingVarLayout->FindResourceInfo(resInfo.kind) )
+                {
+                    resInfo.index += globalResInfo->index;
+                    resInfo.space += globalResInfo->space;
+                }
+            }
+        }
+    }
+
     programLayout->parametersLayout = globalScopeVarLayout;
 
     {
@@ -2951,288 +2572,6 @@ void generateParameterBindings(
     DiagnosticSink* sink)
 {
     program->getTargetProgram(targetReq)->getOrCreateLayout(sink);
-}
-
-RefPtr<ProgramLayout> specializeProgramLayout(
-    TargetRequest*  targetReq,
-    ProgramLayout*  oldProgramLayout, 
-    SubstitutionSet typeSubst,
-    DiagnosticSink* sink)
-{
-    // The goal of the layout specialization step is to take an existing `ProgramLayout`,
-    // and add a layout to any parameter(s) that could not be laid out previously, because
-    // they had a dependence on generic type parameters that made layout impossible at
-    // the time.
-    //
-    // TODO: It would be far simpler to just "re-do" the entire layout process, just
-    // with knowledge of what the global type substitution is, but that would mean that
-    // global parameters that come after a generic-dependent parameter might change
-    // their location/binding/register depending on what types are plugged in.
-    // Our current design preserves the layout for any global parameter that was placed during
-    // the initial layout of a program (before the generic arguments were know).
-    // It isn't clear that this design choice pays off in practice, since there is  lot
-    // of complexity in this function.
-
-    RefPtr<ProgramLayout> newProgramLayout;
-    newProgramLayout = new ProgramLayout();
-    newProgramLayout->targetProgram = oldProgramLayout->targetProgram;
-    newProgramLayout->globalGenericParams = oldProgramLayout->globalGenericParams;
-
-    // The basic idea will be to iterate over the parameters in the old layout,
-    // and "pick up where we left off" in terms of allocating registers to things.
-    //
-    // That means we will look at the existing parameters (that were laid out already)
-    // and mark any registers/bytes/bindings/etc. that they occupy as "used" so
-    // that the subsequent layout of the generic-dependency parameters will not
-    // collide with them.
-    //
-    // We will use the same kind of context type as the original parameter binding
-    // step did, so we initialize its state here:
-
-    auto layoutContext = getInitialLayoutContextForTarget(targetReq, newProgramLayout);
-    SLANG_ASSERT(layoutContext.rules);
-
-    SharedParameterBindingContext sharedContext(
-        layoutContext.getRulesFamily(),
-        newProgramLayout,
-        targetReq,
-        sink);
-
-    ParameterBindingContext context;
-    context.shared = &sharedContext;
-    context.layoutContext = layoutContext;
-
-    // We will also need state for laying out any global-scope parameters
-    // that include ordinary/uniform data.
-    //
-    auto oldGlobalStructLayout = getGlobalStructLayout(oldProgramLayout);
-    SLANG_ASSERT(oldGlobalStructLayout);
-
-    ScopeLayoutBuilder newGlobalScopeLayoutBuilder;
-    newGlobalScopeLayoutBuilder.beginLayout(&context);
-    auto& newGlobalStructLayoutInfo = newGlobalScopeLayoutBuilder.m_structLayoutInfo;
-    auto newGlobalStructLayout = newGlobalScopeLayoutBuilder.m_structLayout;
-
-    // The initial state for uniform layout will be based on whatever
-    // global-scope ordinary/uniform parameters were laid out before.
-    // The alignment can be read directly from the old global layout.
-    //
-    newGlobalStructLayoutInfo.alignment = oldGlobalStructLayout->uniformAlignment;
-    newGlobalStructLayoutInfo.size = 0;
-
-    // The remaining information needs to be collected by looking at
-    // the individual parameters in the existing layout.
-    //
-    bool oldAnyUniforms = false;
-    for(auto oldVarLayout : oldGlobalStructLayout->fields)
-    {
-        // If a parameter made use of a global generic parameter, then we would
-        // have skipped applying layout to it in the original layout process,
-        // and so we should skip it for the process of recovering the existing
-        // layout information.
-        //
-        if (oldVarLayout->FindResourceInfo(LayoutResourceKind::GenericResource))
-            continue;
-
-        // Otherwise, we will "reserve" any resources that the parameter was
-        // determined to consume.
-        //
-        // The easy case is any registers/bindings used for textures/sampler/etc.
-        // We iterate over the kinds of resources consumed by teh parameter.
-        //
-        for( auto varResInfo : oldVarLayout->resourceInfos )
-        {
-            // For each kind of resource consumed the `varResInfo` will tell us
-            // the start of the consumed range, whle the type will be needed
-            // to tell us the amount of resources consumed.
-            //
-            if( auto typeResInfo = oldVarLayout->typeLayout->FindResourceInfo(varResInfo.kind) )
-            {
-                // We will mark the range of resources consumed by theis parameter
-                // as "used" so that it cannot be claimed by later parameters.
-                //
-                auto usedRangeSet = findUsedRangeSetForSpace(&context, varResInfo.space);
-                markSpaceUsed(&context, varResInfo.space);
-                usedRangeSet->usedResourceRanges[(int)varResInfo.kind].Add(
-                    nullptr, // we don't need to track parameter info here
-                    varResInfo.index,
-                    varResInfo.index + typeResInfo->count);
-            }
-        }
-
-        // The more subtle case is when the parameter consumes ordinary bytes
-        // of uniform (constant buffer) memory, because we do not use the
-        // same "used range" model to allocate space for ordinary data.
-        //
-        // Instead, we simply track the highest byte offset covered by any parameter.
-        //
-        if (auto varUniformInfo = oldVarLayout->FindResourceInfo(LayoutResourceKind::Uniform))
-        {
-            oldAnyUniforms = true;
-
-            if( auto typeUniformInfo = oldVarLayout->typeLayout->FindResourceInfo(LayoutResourceKind::Uniform) )
-            {
-                newGlobalStructLayoutInfo.size = maximum(
-                    newGlobalStructLayoutInfo.size,
-                    varUniformInfo->index + typeUniformInfo->count);
-            }
-        }
-    }
-
-    // Rather than attempt to re-use the entry-point layout information
-    // that was collected in the first pass, we will re-collect the
-    // information for entry points from scratch.
-    //
-    // This ensures that when an entry point makes use of a generic type
-    // parameter, the layout of its parameter list strictly follows
-    // the declaration order.
-    //
-    for( auto entryPoint : oldProgramLayout->getProgram()->getEntryPoints() )
-    {
-        collectEntryPointParameters(&context, entryPoint, typeSubst);
-        context.entryPointLayout = nullptr;
-    }
-
-    // Now that we've marked thing as being used, we can make a second
-    // sweep to compute the requirements of any generic-dependent parameters.
-    //
-    // Along the way we will build up the new layout for the global-scope
-    // structure type, including the offsets of all ordinary/uniform fields.
-    //
-
-    bool newAnyUniforms = oldAnyUniforms;
-    List<RefPtr<VarLayout>> newVarLayouts;
-    Dictionary<RefPtr<VarLayout>, RefPtr<VarLayout>> mapOldLayoutToNew;
-    for(auto oldVarLayout : oldGlobalStructLayout->fields)
-    {
-        // In this pass, the variables that *don't* depend on generic parameters
-        // are the easy ones to handle. We can just copy them over to the new layout.
-        //
-        if(!oldVarLayout->FindResourceInfo(LayoutResourceKind::GenericResource))
-        {
-            newGlobalStructLayout->fields.Add(oldVarLayout);
-            continue;
-        }
-
-        // In the case where things are generic-dependent, we need to re-do
-        // the type layout process on the type that results from doing
-        // substitution with the global generic arguments.
-        //
-        RefPtr<Type> oldType = oldVarLayout->getTypeLayout()->getType();
-        SLANG_ASSERT(oldType);
-        RefPtr<Type> newType = oldType->Substitute(typeSubst).as<Type>();
-
-        RefPtr<TypeLayout> newTypeLayout = getTypeLayoutForGlobalShaderParameter(
-            &context,
-            oldVarLayout->varDecl,
-            newType);
-
-        RefPtr<VarLayout> newVarLayout = new VarLayout();
-        newVarLayout->varDecl = oldVarLayout->varDecl;
-        newVarLayout->stage = oldVarLayout->stage;
-        newVarLayout->typeLayout = newTypeLayout;
-
-        newGlobalScopeLayoutBuilder.addParameter(newVarLayout);
-        newVarLayouts.Add(newVarLayout);
-        mapOldLayoutToNew.Add(oldVarLayout, newVarLayout);
-
-        if(auto uniformInfo = newTypeLayout->FindResourceInfo(LayoutResourceKind::Uniform))
-        {
-            if(uniformInfo->count != 0)
-            {
-                newAnyUniforms = true;
-                diagnoseGlobalUniform(&sharedContext, newVarLayout->varDecl);
-            }
-        }
-
-    }
-    auto newGlobalScopeVarLayout = newGlobalScopeLayoutBuilder.endLayout();
-
-    // We had better have made a copy of every field in the original layout.
-    //
-    SLANG_ASSERT(oldGlobalStructLayout->fields.Count() == newGlobalStructLayout->fields.Count());
-
-    // If there were no global-scope uniforms before, but there
-    // are now that we've done global substitution, then we
-    // need to allocate a global constant buffer to hold them.
-    //
-    auto newGlobalConstantBufferBinding = maybeAllocateConstantBufferBinding(&context, newAnyUniforms && !oldAnyUniforms);
-
-    // Now we need to "complete" finding for each of the new parameters,
-    // which is the step that actually allocates resource to them.
-    //
-    // Note: we don't support generic-dependent parameters with explicit bindings,
-    // so we should probably emit an error message about that in the original
-    // layout step.
-    //
-    for(auto newVarLayout : newVarLayouts)
-    {
-        completeBindingsForParameter(&context, newVarLayout);
-    }
-
-    // One remaining missing step is that the `StructLayout` type maintains
-    // a map from variable declarations to their layouts, and in some cases
-    // multiple declarations will map to the same layout (because, e.g., the
-    // same `cbuffer` was declared in both a vertex and fragment shader file).
-    //
-    // We need to clone that remapping information over from the old program
-    // layout. This is why we created the `mapOldLayoutToNew` mapping in
-    // the preceding loop.
-    //
-    // TODO: This step would be easier if the `StructLayout::mapVarToLayout`
-    // dictionary were instead a mapping from variable declaration to the
-    // *index* of the corresponding layout in the `fields` array.
-    //
-    for(auto entry : oldGlobalStructLayout->mapVarToLayout)
-    {
-        RefPtr<VarLayout> varLayout = entry.Value;
-        mapOldLayoutToNew.TryGetValue(varLayout, varLayout);
-        newGlobalStructLayout->mapVarToLayout[entry.Key] = varLayout;
-    }
-
-    // Just as for the initial computation of layout, we will complete
-    // binding for entry-point parameters *after* we have laid out
-    // all the global-scope parameters.
-    //
-    // Note that this includes layout of generic-dependent global scope
-    // parameters, so it is possible for entry point uniform parameters
-    // to end up with a different register/binding after generic specialization.
-    // (There really isn't a great way around that)
-    //
-    for( auto entryPoint : sharedContext.programLayout->entryPoints )
-    {
-        auto entryPointParamsLayout = entryPoint->parametersLayout;
-        completeBindingsForParameter(&context, entryPointParamsLayout);
-    }
-
-    // As a last step we need to set up the binding/offset information
-    // for the global scope itself.
-    //
-    // We will start by copying whatever information was in the old layout.
-    //
-    {
-        auto oldGlobalScopeVarLayout = oldProgramLayout->parametersLayout;
-        for( auto oldResInfo : oldGlobalScopeVarLayout->resourceInfos )
-        {
-            auto newResInfo = newGlobalScopeVarLayout->findOrAddResourceInfo(oldResInfo.kind);
-            newResInfo->space = oldResInfo.space;
-            newResInfo->kind = oldResInfo.kind;
-        }
-    }
-
-    // If we had to create a constant buffer to house the global-scope
-    // ordinary/uniform data, then we need to make sure to set that
-    // information on the global scope.
-    //
-    if(newGlobalConstantBufferBinding.kind != LayoutResourceKind::None )
-    {
-        auto resInfo = newGlobalScopeVarLayout->findOrAddResourceInfo(newGlobalConstantBufferBinding.kind);
-        resInfo->space = newGlobalConstantBufferBinding.space;
-        resInfo->index = newGlobalConstantBufferBinding.index;
-    }
-
-    newProgramLayout->parametersLayout = newGlobalScopeVarLayout;
-    return newProgramLayout;
 }
 
 } // namespace Slang

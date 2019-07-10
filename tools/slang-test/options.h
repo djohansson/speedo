@@ -6,7 +6,7 @@
 #include "../../source/core/dictionary.h"
 
 #include "test-reporter.h"
-#include "render-api-util.h"
+#include "../../source/core/slang-render-api-util.h"
 #include "../../source/core/smart-pointer.h"
 
 // A category that a test can be tagged with
@@ -73,7 +73,7 @@ struct Options
     Slang::Dictionary<TestCategory*, TestCategory*> excludeCategories;
 
     // By default we can test against all apis
-    RenderApiFlags enabledApis = RenderApiFlag::AllOf;
+    Slang::RenderApiFlags enabledApis = Slang::RenderApiFlag::AllOf;
 
     // The subCommand to execute. Will be empty if there is no subCommand 
     Slang::String subCommand;      
@@ -82,8 +82,12 @@ struct Options
     Slang::List<Slang::String> subCommandArgs;
 
     // By default we potentially synthesize test for all 
-    // TODO: Vulkan is disabled by default for now as the majority as vulkan synthesized tests fail  
-    RenderApiFlags synthesizedTestApis = RenderApiFlag::AllOf & ~RenderApiFlag::Vulkan;
+    // TODO: Vulkan is disabled by default for now as the majority as vulkan synthesized tests
+    // OpenGL is disabled for now
+    Slang::RenderApiFlags synthesizedTestApis = Slang::RenderApiFlag::AllOf & ~(Slang::RenderApiFlag::Vulkan | Slang::RenderApiFlag::OpenGl);
+
+    // The adapter to use. If empty will match first found adapter.
+    Slang::String adapter;
 
         /// Parse the args, report any errors into stdError, and write the results into optionsOut
     static SlangResult parse(int argc, char** argv, TestCategorySet* categorySet, Slang::WriterHelper stdError, Options* optionsOut);

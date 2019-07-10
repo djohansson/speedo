@@ -7,11 +7,12 @@
 #include "../../slang-com-helper.h"
 
 #include "../../source/core/slang-string-util.h"
+#include "../../source/core/slang-byte-encode-util.h"
 
 using namespace Slang;
 
 #include "os.h"
-#include "render-api-util.h"
+#include "../../source/core/slang-render-api-util.h"
 #include "test-context.h"
 #include "test-reporter.h"
 #include "options.h"
@@ -436,7 +437,7 @@ OSError spawnAndWaitSharedLibrary(TestContext* context, const String& testPath, 
         spawner.standardError_ = stdErrorString;
         spawner.standardOutput_ = stdOutString;
 
-        spawner.resultCode_ = TestToolUtil::getReturnCode(res);
+        spawner.resultCode_ = (int)TestToolUtil::getReturnCode(res);
 
         return kOSError_None;
     }
@@ -444,21 +445,37 @@ OSError spawnAndWaitSharedLibrary(TestContext* context, const String& testPath, 
     return kOSError_OperationFailed;
 }
 
-
-OSError spawnAndWait(TestContext* context, const String& testPath, SpawnType spawnType, OSProcessSpawner& spawner)
+ToolReturnCode getReturnCode(OSProcessSpawner& spawner)
 {
+    return TestToolUtil::getReturnCodeFromInt(spawner.getResultCode());
+}
+
+ToolReturnCode spawnAndWait(TestContext* context, const String& testPath, SpawnType spawnType, OSProcessSpawner& spawner)
+{
+    const auto& options = context->options;
+
+    OSError spawnResult = kOSError_OperationFailed;
     switch (spawnType)
     {
         case SpawnType::UseExe:
         {
-            return spawnAndWaitExe(context, testPath, spawner);
+            spawnResult = spawnAndWaitExe(context, testPath, spawner);
+            break;
         }
         case SpawnType::UseSharedLibrary:
         {
-            return spawnAndWaitSharedLibrary(context, testPath, spawner);
+            spawnResult = spawnAndWaitSharedLibrary(context, testPath, spawner);
+            break;
         }
+        default: break;
     }
-    return kOSError_OperationFailed;
+
+    if (spawnResult != kOSError_None)
+    {
+        return ToolReturnCode::FailedToRun;
+    }
+
+    return getReturnCode(spawner);
 }
 
 String getOutput(OSProcessSpawner& spawner)
@@ -529,6 +546,25 @@ static void _initSlangCompiler(TestContext* context, OSProcessSpawner& spawnerOu
     }
 }
 
+TestResult asTestResult(ToolReturnCode code)
+{
+    switch (code)
+    {
+        case ToolReturnCode::Success:               return TestResult::Pass;
+        case ToolReturnCode::Ignored:               return TestResult::Ignored;
+        default:                                    return TestResult::Fail;
+    }
+}
+
+#define TEST_RETURN_ON_DONE(x) \
+    { \
+        const ToolReturnCode toolRet_ = x; \
+        if (TestToolUtil::isDone(toolRet_)) \
+        { \
+            return asTestResult(toolRet_); \
+        } \
+    }
+
 TestResult runSimpleTest(TestContext* context, TestInput& input)
 {
     // need to execute the stand-alone Slang compiler on the file, and compare its output to what we expect
@@ -546,10 +582,7 @@ TestResult runSimpleTest(TestContext* context, TestInput& input)
         spawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     String actualOutput = getOutput(spawner);
 
@@ -620,10 +653,7 @@ TestResult runReflectionTest(TestContext* context, TestInput& input)
         spawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     String actualOutput = getOutput(spawner);
 
@@ -771,11 +801,8 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
         expectedSpawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, input.spawnType, expectedSpawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
-
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, expectedSpawner));
+    
     String expectedOutput = getOutput(expectedSpawner);
     String expectedOutputPath = outputStem + ".expected";
     try
@@ -787,10 +814,8 @@ TestResult runCrossCompilerTest(TestContext* context, TestInput& input)
         return TestResult::Fail;
     }
 
-    if (spawnAndWait(context, outputStem, input.spawnType, actualSpawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, actualSpawner));
+
     String actualOutput = getOutput(actualSpawner);
 
     TestResult result = TestResult::Pass;
@@ -846,10 +871,7 @@ TestResult generateHLSLBaseline(TestContext* context, TestInput& input)
     spawner.pushArgument("-pass-through");
     spawner.pushArgument("fxc");
 
-    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     String expectedOutput = getOutput(spawner);
     String expectedOutputPath = outputStem + ".expected";
@@ -894,10 +916,7 @@ TestResult runHLSLComparisonTest(TestContext* context, TestInput& input)
     spawner.pushArgument("-target");
     spawner.pushArgument("dxbc-assembly");
 
-    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     // We ignore output to stdout, and only worry about what the compiler
     // wrote to stderr.
@@ -1003,10 +1022,7 @@ TestResult doGLSLComparisonTestRun(TestContext* context,
         spawner.pushArgument(arg);
     }
 
-    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     OSProcessSpawner::ResultCode resultCode = spawner.getResultCode();
 
@@ -1042,6 +1058,13 @@ TestResult runGLSLComparisonTest(TestContext* context, TestInput& input)
     TestResult hlslResult   =  doGLSLComparisonTestRun(context, input, "__GLSL__",  "glslang", ".expected",    &expectedOutput);
     TestResult slangResult  =  doGLSLComparisonTestRun(context, input, "__SLANG__", nullptr,   ".actual",      &actualOutput);
 
+    // If either is ignored, the whole test is
+    if (hlslResult == TestResult::Ignored ||
+        slangResult == TestResult::Ignored)
+    {
+        return TestResult::Ignored;
+    }
+
     Slang::File::WriteAllText(outputStem + ".expected", expectedOutput);
     Slang::File::WriteAllText(outputStem + ".actual",   actualOutput);
 
@@ -1058,6 +1081,14 @@ TestResult runGLSLComparisonTest(TestContext* context, TestInput& input)
     return TestResult::Pass;
 }
 
+static void _addRenderTestOptions(const Options& options, OSProcessSpawner& spawner)
+{
+    if (options.adapter.Length())
+    {
+        spawner.pushArgument("-adapter");
+        spawner.pushArgument(options.adapter);
+    }
+}
 
 TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, const char *const* langOpts, size_t numLangOpts)
 {
@@ -1076,6 +1107,8 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
 	spawner.pushExecutablePath(String(context->options.binDir) + "render-test" + osGetExecutableSuffix());
 	spawner.pushArgument(filePath999);
 
+    _addRenderTestOptions(context->options, spawner);
+
 	for (auto arg : input.testOptions->args)
 	{
 		spawner.pushArgument(arg);
@@ -1092,11 +1125,7 @@ TestResult runComputeComparisonImpl(TestContext* context, TestInput& input, cons
     // clear the stale actual output file first. This will allow us to detect error if render-test fails and outputs nothing.
     File::WriteAllText(actualOutputFile, "");
 
-	if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-	{
-        printf("error spawning render-test\n");
-		return TestResult::Fail;
-	}
+	TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     auto actualOutput = getOutput(spawner);
     auto expectedOutput = getExpectedOutput(outputStem);
@@ -1182,6 +1211,8 @@ TestResult doRenderComparisonTestRun(TestContext* context, TestInput& input, cha
     spawner.pushExecutablePath(String(context->options.binDir) + "render-test" + osGetExecutableSuffix());
     spawner.pushArgument(filePath);
 
+    _addRenderTestOptions(context->options, spawner);
+
     for( auto arg : input.testOptions->args )
     {
         spawner.pushArgument(arg);
@@ -1191,10 +1222,7 @@ TestResult doRenderComparisonTestRun(TestContext* context, TestInput& input, cha
     spawner.pushArgument("-o");
     spawner.pushArgument(outputStem + outputKind + ".png");
 
-    if (spawnAndWait(context, outputStem, input.spawnType, spawner) != kOSError_None)
-    {
-        return TestResult::Fail;
-    }
+    TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, spawner));
 
     OSProcessSpawner::ResultCode resultCode = spawner.getResultCode();
 
@@ -1391,7 +1419,15 @@ TestResult runHLSLRenderComparisonTestImpl(
     String actualOutput;
 
     TestResult hlslResult   =  doRenderComparisonTestRun(context, input, expectedArg, ".expected", &expectedOutput);
+    if (hlslResult != TestResult::Pass)
+    {
+        return hlslResult;
+    }
     TestResult slangResult  =  doRenderComparisonTestRun(context, input, actualArg, ".actual", &actualOutput);
+    if (slangResult != TestResult::Pass)
+    {
+        return slangResult;
+    }
 
     Slang::File::WriteAllText(outputStem + ".expected", expectedOutput);
     Slang::File::WriteAllText(outputStem + ".actual",   actualOutput);
@@ -1437,6 +1473,12 @@ TestResult skipTest(TestContext* /* context */, TestInput& /*input*/)
 
 static bool hasRenderOption(RenderApiType apiType, const List<String>& options)
 {
+    SLANG_ASSERT(apiType != RenderApiType::Unknown);
+    if (apiType == RenderApiType::Unknown)
+    {
+        return false;
+    }
+
     const RenderApiUtil::Info& info = RenderApiUtil::getInfo(apiType);
 
     List<UnownedStringSlice> namesList;
@@ -1448,25 +1490,12 @@ static bool hasRenderOption(RenderApiType apiType, const List<String>& options)
         if (option.StartsWith("-"))
         {
             const UnownedStringSlice parameter(option.Buffer() + 1, option.Buffer() + option.Length());
-            // See if we have a match
-            for (int j = 0; j < SLANG_COUNT_OF(RenderApiUtil::s_infos); j++)
+            const RenderApiType paramType = RenderApiUtil::findApiTypeByName(parameter);
+
+            // Found it
+            if (apiType == paramType)
             {
-                const auto& apiInfo = RenderApiUtil::s_infos[j];
-                const UnownedStringSlice names(info.names);
-
-                if (names.indexOf(',') >= 0)
-                {
-                    StringUtil::split(names, ',', namesList);
-
-                    if (namesList.IndexOf(parameter) != UInt(-1))
-                    {
-                        return true;
-                    }
-                }
-                else if (names == parameter)
-                {
-                    return true;
-                }
+                return true;
             }
         }
     }
@@ -1656,6 +1685,74 @@ bool testPassesCategoryMask(
     return false;
 }
 
+static RenderApiType _findRenderApi(const List<String>& args, bool onlyExplicit)
+{
+    RenderApiType targetLanguageRenderer = RenderApiType::Unknown;
+   
+    for (const auto& arg: args)
+    {
+        const UnownedStringSlice argSlice = arg.getUnownedSlice();
+        if (argSlice.size() && argSlice[0] == '-' && !argSlice.startsWith(UnownedStringSlice::fromLiteral("--")))
+        {
+            UnownedStringSlice argName(argSlice.begin() + 1, argSlice.end());
+
+            RenderApiType renderType = RenderApiUtil::findRenderApiType(argName);
+            if (renderType != RenderApiType::Unknown)
+            {
+                return renderType;
+            }
+
+            if (!onlyExplicit)
+            {
+                RenderApiType implicitRenderType = RenderApiUtil::findImplicitLanguageRenderApiType(argName);
+                if (implicitRenderType != RenderApiType::Unknown)
+                {
+                    targetLanguageRenderer = implicitRenderType;
+                }
+            }
+        }
+    }
+
+    return targetLanguageRenderer;
+}
+
+static void _addSynthesizedTest(RenderApiType rendererType, const List<TestOptions>& renderTests, List<TestOptions>& outSynthesizedTests)
+{
+    for (const auto& test : renderTests)
+    {
+        // If doesn't have an explicit render api, add one and add to the synthesized tests
+        RenderApiType explicitRenderer = _findRenderApi(test.args, true);
+
+        if (explicitRenderer == RenderApiType::Unknown)
+        {
+            // Add the explicit parameter
+
+            TestOptions options(test);
+
+            StringBuilder builder;
+            builder << "-";
+            builder << RenderApiUtil::getApiName(rendererType);
+
+            options.args.Add(builder);
+
+            // If the target is vulkan remove the -hlsl option
+            if (rendererType == RenderApiType::Vulkan)
+            {
+                UInt index = options.args.IndexOf("-hlsl");
+                if (index != UInt(-1))
+                {
+                    options.args.RemoveAt(index);
+                }
+            }
+
+            // Add to the tests
+            outSynthesizedTests.Add(options);
+
+            return;
+        }
+    }
+}
+
 void runTestsOnFile(
     TestContext*    context,
     String          filePath)
@@ -1676,64 +1773,50 @@ void runTestsOnFile(
         return;
     }
 
-    List<TestOptions> synthesizedTests;
-
-    // If dx12 is available synthesize Dx12 test
-    if ((context->options.synthesizedTestApis & RenderApiFlag::D3D12) != 0)
+    // If synthesized tests are wanted look into adding them
+    if (context->options.synthesizedTestApis)
     {
-        // If doesn't have option generate dx12 options from dx11
-        if (!hasRenderOption(RenderApiType::D3D12, testList))
-        {
-            const int numTests = int(testList.tests.Count());
-            for (int i = 0; i < numTests; i++)
-            {
-                const TestOptions& testOptions = testList.tests[i];
-                // If it's a render test, and there is on d3d option, add one
-                if (isRenderTest(testOptions.command) && !hasRenderOption(RenderApiType::D3D12, testOptions))
-                {
-                    // Add with -dx12 option
-                    TestOptions testOptionsCopy(testOptions);
-                    testOptionsCopy.args.Add("-dx12");
+        List<TestOptions> synthesizedTests;
 
-                    synthesizedTests.Add(testOptionsCopy);
+        // Lets find all tests which are render tests
+        RenderApiFlags apisUsed = 0;
+        List<TestOptions> renderTests;
+
+        const int numTests = int(testList.tests.Count());
+        for (int i = 0; i < numTests; i++)
+        {
+            const TestOptions& testOptions = testList.tests[i];
+            if (isRenderTest(testOptions.command))
+            {
+                RenderApiType renderType = _findRenderApi(testOptions.args, false);
+                if (renderType != RenderApiType::Unknown)
+                {
+                    apisUsed |= (1 << int(renderType));
                 }
+                renderTests.Add(testOptions);
             }
         }
-    }
+        // What render options do we want to synthesize
+        RenderApiFlags missingApis = (~apisUsed) & context->options.synthesizedTestApis;
+        
+        // We can only synthesize if if there isn't an explicit render option
 
-    // If Vulkan is available synthesize Vulkan test
-    if ((context->options.synthesizedTestApis & RenderApiFlag::Vulkan) != 0)
-    {
-        // If doesn't have option generate dx12 options from dx11
-        if (!hasRenderOption(RenderApiType::Vulkan, testList))
+        while (missingApis)
         {
-            const int numTests = int(testList.tests.Count());
-            for (int i = 0; i < numTests; i++)
-            {
-                const TestOptions& testOptions = testList.tests[i];
-                // If it's a render test, and there is on d3d option, add one
-                if (isRenderTest(testOptions.command) && !isHLSLTest(testOptions.command) && !hasRenderOption(RenderApiType::Vulkan, testOptions))
-                {
-                    // Add with -vk option
-                    TestOptions testOptionsCopy(testOptions);
-                    testOptionsCopy.args.Add("-vk");
+            const int index = ByteEncodeUtil::calcMsb8(missingApis);
+            SLANG_ASSERT(index >= 0 && index <= int(RenderApiType::CountOf));
 
-                    UInt index = testOptionsCopy.args.IndexOf("-hlsl");
-                    if (index != UInt(-1))
-                    {
-                        testOptionsCopy.args.RemoveAt(index);
-                    }
+            _addSynthesizedTest(RenderApiType(index), renderTests, synthesizedTests); 
 
-                    synthesizedTests.Add(testOptionsCopy);
-                }
-            }
+            // Disable the bit
+            missingApis &= ~(RenderApiFlags(1) << index);
         }
-    }
 
-    // Add any tests that were synthesized
-    for (UInt i = 0; i < synthesizedTests.Count(); ++i)
-    {
-        testList.tests.Add(synthesizedTests[i]);
+        // Add any tests that were synthesized
+        for (UInt i = 0; i < synthesizedTests.Count(); ++i)
+        {
+            testList.tests.Add(synthesizedTests[i]);
+        }
     }
 
     // We have found a test to run!

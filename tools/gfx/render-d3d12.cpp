@@ -26,6 +26,7 @@
 #include <d3dcompiler.h>
 
 #include "../../slang-com-ptr.h"
+#include "flag-combiner.h"
 
 #include "resource-d3d12.h"
 #include "descriptor-heap-d3d12.h"
@@ -55,6 +56,7 @@ class D3D12Renderer : public Renderer
 public:
     // Renderer    implementation
     virtual SlangResult initialize(const Desc& desc, void* inWindowHandle) override;
+    virtual const List<String>& getFeatures() override { return m_features; }
     virtual void setClearColor(const float color[4]) override;
     virtual void clearFrame() override;
     virtual void presentFrame() override;
@@ -102,11 +104,32 @@ public:
     ~D3D12Renderer();
 
 protected:
+    
     static const Int kMaxNumRenderFrames = 4;
     static const Int kMaxNumRenderTargets = 3;
 
     static const Int kMaxRTVCount = 8;
     static const Int kMaxDescriptorSetCount = 16;
+
+    struct DeviceInfo
+    {
+        void clear()
+        {
+            m_dxgiFactory.setNull();
+            m_device.setNull();
+            m_adapter.setNull();
+            m_desc = {}; 
+            m_desc1 = {};
+            m_isWarp = false;
+        }
+
+        bool m_isWarp;
+        ComPtr<IDXGIFactory> m_dxgiFactory;
+        ComPtr<ID3D12Device> m_device;
+        ComPtr<IDXGIAdapter> m_adapter;
+        DXGI_ADAPTER_DESC m_desc;
+        DXGI_ADAPTER_DESC1 m_desc1;
+    };
 
     struct Submitter
     {
@@ -451,7 +474,7 @@ protected:
         /// Blocks until gpu has completed all work
     void releaseFrameResources();
 
-    Result createBuffer(const D3D12_RESOURCE_DESC& resourceDesc, const void* srcData, D3D12Resource& uploadResource, D3D12_RESOURCE_STATES finalState, D3D12Resource& resourceOut);
+    Result createBuffer(const D3D12_RESOURCE_DESC& resourceDesc, const void* srcData, size_t srcDataSize, D3D12Resource& uploadResource, D3D12_RESOURCE_STATES finalState, D3D12Resource& resourceOut);
 
     void beginRender();
 
@@ -478,8 +501,8 @@ protected:
 //    Result _calcBindParameters(BindParameters& params);
 //    RenderState* findRenderState(PipelineType pipelineType);
 
-    PFN_D3D12_SERIALIZE_ROOT_SIGNATURE m_D3D12SerializeRootSignature = nullptr;
-
+    Result _createDevice(DeviceCheckFlags deviceCheckFlags, const UnownedStringSlice& nameMatch, D3D_FEATURE_LEVEL featureLevel, DeviceInfo& outDeviceInfo);
+    
     D3D12CircularResourceHeap m_circularResourceHeap;
 
     int m_commandListOpenCount = 0;            ///< If >0 the command list should be open
@@ -520,7 +543,9 @@ protected:
 
     ComPtr<ID3D12Debug> m_dxDebug;
 
-    ComPtr<ID3D12Device> m_device;
+    DeviceInfo m_deviceInfo;
+    ID3D12Device* m_device = nullptr;
+
     ComPtr<IDXGISwapChain3> m_swapChain;
     ComPtr<ID3D12CommandQueue> m_commandQueue;
 //    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
@@ -555,13 +580,21 @@ protected:
     D3D12Resource m_backBufferResources[kMaxNumRenderTargets];
     D3D12Resource m_renderTargetResources[kMaxNumRenderTargets];
 
+    
     RefPtr<ResourceViewImpl> m_rtvs[kMaxRTVCount];
     RefPtr<ResourceViewImpl> m_dsv;
 
     int32_t m_depthStencilUsageFlags = 0;    ///< D3DUtil::UsageFlag combination for depth stencil
     int32_t m_targetUsageFlags = 0;            ///< D3DUtil::UsageFlag combination for target
 
+    // Dll entry points
+    PFN_D3D12_GET_DEBUG_INTERFACE m_D3D12GetDebugInterface = nullptr;
+    PFN_D3D12_CREATE_DEVICE m_D3D12CreateDevice = nullptr;
+    PFN_D3D12_SERIALIZE_ROOT_SIGNATURE m_D3D12SerializeRootSignature = nullptr;
+
     HWND m_hwnd = nullptr;
+
+    List<String> m_features;
 };
 
 Renderer* createD3D12Renderer()
@@ -697,7 +730,7 @@ static void _initBufferResourceDesc(size_t bufferSize, D3D12_RESOURCE_DESC& out)
     out.Flags = D3D12_RESOURCE_FLAG_NONE;
 }
 
-Result D3D12Renderer::createBuffer(const D3D12_RESOURCE_DESC& resourceDesc, const void* srcData, D3D12Resource& uploadResource, D3D12_RESOURCE_STATES finalState, D3D12Resource& resourceOut)
+Result D3D12Renderer::createBuffer(const D3D12_RESOURCE_DESC& resourceDesc, const void* srcData, size_t srcDataSize, D3D12Resource& uploadResource, D3D12_RESOURCE_STATES finalState, D3D12Resource& resourceOut)
 {
    const  size_t bufferSize = size_t(resourceDesc.Width);
 
@@ -738,7 +771,7 @@ Result D3D12Renderer::createBuffer(const D3D12_RESOURCE_DESC& resourceDesc, cons
         ID3D12Resource* dxUploadResource = uploadResource.getResource();
 
         SLANG_RETURN_ON_FAIL(dxUploadResource->Map(0, &readRange, reinterpret_cast<void**>(&dstData)));
-        ::memcpy(dstData, srcData, bufferSize);
+        ::memcpy(dstData, srcData, srcDataSize);
         dxUploadResource->Unmap(0, nullptr);
 
         m_commandList->CopyBufferRegion(resourceOut, 0, uploadResource, 0, bufferSize);
@@ -1279,6 +1312,99 @@ Result D3D12Renderer::_bindRenderState(PipelineStateImpl* pipelineStateImpl, ID3
 
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!! Renderer interface !!!!!!!!!!!!!!!!!!!!!!!!!!
 
+Result D3D12Renderer::_createDevice(DeviceCheckFlags deviceCheckFlags, const UnownedStringSlice& nameMatch, D3D_FEATURE_LEVEL featureLevel, DeviceInfo& outDeviceInfo)
+{
+    outDeviceInfo.clear();
+
+    ComPtr<IDXGIFactory> dxgiFactory;
+    SLANG_RETURN_ON_FAIL(D3DUtil::createFactory(deviceCheckFlags, dxgiFactory));
+
+    List<ComPtr<IDXGIAdapter>> dxgiAdapters;
+    SLANG_RETURN_ON_FAIL(D3DUtil::findAdapters(deviceCheckFlags, nameMatch, dxgiFactory, dxgiAdapters));
+
+    ComPtr<ID3D12Device> device;
+    ComPtr<IDXGIAdapter> adapter;
+
+    for (int i = 0; i < int(dxgiAdapters.Count()); ++i)
+    {
+        IDXGIAdapter* dxgiAdapter = dxgiAdapters[i];
+        if (SLANG_SUCCEEDED(m_D3D12CreateDevice(dxgiAdapter, featureLevel, IID_PPV_ARGS(device.writeRef()))))
+        {
+            adapter = dxgiAdapter;
+            break;
+        }
+    }
+
+    if (!device)
+    {
+        return SLANG_FAIL;
+    }
+
+    if (m_dxDebug && (deviceCheckFlags & DeviceCheckFlag::UseDebug))
+    {
+        m_dxDebug->EnableDebugLayer();
+
+        ComPtr<ID3D12InfoQueue> infoQueue;
+        if (SLANG_SUCCEEDED(device->QueryInterface(infoQueue.writeRef())))
+        {
+            // Make break 
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+            infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+            // infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+
+            // Apparently there is a problem with sm 6.3 with spurious errors, with debug layer enabled
+            D3D12_FEATURE_DATA_SHADER_MODEL featureShaderModel;
+            featureShaderModel.HighestShaderModel = D3D_SHADER_MODEL(0x63);
+            SLANG_SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &featureShaderModel, sizeof(featureShaderModel)));
+
+            if (featureShaderModel.HighestShaderModel >= D3D_SHADER_MODEL(0x63))
+            {
+                // Filter out any messages that cause issues
+                // TODO: Remove this when the debug layers work properly
+                D3D12_MESSAGE_ID messageIds[] =
+                {
+                    // When the debug layer is enabled this error is triggered sometimes after a CopyDescriptorsSimple
+                    // call The failed check validates that the source and destination ranges of the copy do not
+                    // overlap. The check assumes descriptor handles are pointers to memory, but this is not always the
+                    // case and the check fails (even though everything is okay).
+                    D3D12_MESSAGE_ID_COPY_DESCRIPTORS_INVALID_RANGES,
+                };
+
+                // We filter INFO messages because they are way too many
+                D3D12_MESSAGE_SEVERITY severities[] = { D3D12_MESSAGE_SEVERITY_INFO };
+
+                D3D12_INFO_QUEUE_FILTER infoQueueFilter = {};
+                infoQueueFilter.DenyList.NumSeverities = SLANG_COUNT_OF(severities);
+                infoQueueFilter.DenyList.pSeverityList = severities;
+                infoQueueFilter.DenyList.NumIDs = SLANG_COUNT_OF(messageIds);
+                infoQueueFilter.DenyList.pIDList = messageIds;
+
+                infoQueue->PushStorageFilter(&infoQueueFilter);
+            }
+        }
+    }
+
+    // Get the descs
+    {
+        adapter->GetDesc(&outDeviceInfo.m_desc);
+
+        // Look up GetDesc1 info
+        ComPtr<IDXGIAdapter1> adapter1;
+        if (SLANG_SUCCEEDED(adapter->QueryInterface(adapter1.writeRef())))
+        {
+            adapter1->GetDesc1(&outDeviceInfo.m_desc1);
+        }
+    }
+
+    // Save other info
+    outDeviceInfo.m_device = device;
+    outDeviceInfo.m_dxgiFactory = dxgiFactory;
+    outDeviceInfo.m_adapter = adapter;
+    outDeviceInfo.m_isWarp = D3DUtil::isWarp(dxgiFactory, adapter);
+
+    return SLANG_OK;
+}
+
 Result D3D12Renderer::initialize(const Desc& desc, void* inWindowHandle)
 {
     m_hwnd = (HWND)inWindowHandle;
@@ -1291,130 +1417,103 @@ Result D3D12Renderer::initialize(const Desc& desc, void* inWindowHandle)
         return SLANG_FAIL;
     }
 
-    HMODULE dxgiModule = LoadLibraryA("Dxgi.dll");
-    if (!dxgiModule)
-    {
-        fprintf(stderr, "error: failed load 'dxgi.dll'\n");
-        return SLANG_FAIL;
-    }
-
-
-#define LOAD_D3D_PROC(TYPE, NAME) \
-        TYPE NAME##_ = (TYPE) loadProc(d3dModule, #NAME);
-#define LOAD_DXGI_PROC(TYPE, NAME) \
-        TYPE NAME##_ = (TYPE) loadProc(dxgiModule, #NAME);
-
-    UINT dxgiFactoryFlags = 0;
-
-#if ENABLE_DEBUG_LAYER
-    {
-        LOAD_D3D_PROC(PFN_D3D12_GET_DEBUG_INTERFACE, D3D12GetDebugInterface);
-        if (D3D12GetDebugInterface_)
-        {
-            if (SUCCEEDED(D3D12GetDebugInterface_(IID_PPV_ARGS(m_dxDebug.writeRef()))))
-            {
-                m_dxDebug->EnableDebugLayer();
-                dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-            }
-        }
-    }
-#endif
-
+    // Get all the dll entry points
     m_D3D12SerializeRootSignature = (PFN_D3D12_SERIALIZE_ROOT_SIGNATURE)loadProc(d3dModule, "D3D12SerializeRootSignature");
     if (!m_D3D12SerializeRootSignature)
     {
         return SLANG_FAIL;
     }
 
-    // Try and create DXGIFactory
-    ComPtr<IDXGIFactory4> dxgiFactory;
+#if ENABLE_DEBUG_LAYER
+    m_D3D12GetDebugInterface = (PFN_D3D12_GET_DEBUG_INTERFACE)loadProc(d3dModule, "D3D12GetDebugInterface");
+    if (m_D3D12GetDebugInterface)
     {
-        typedef HRESULT(WINAPI *PFN_DXGI_CREATE_FACTORY_2)(UINT Flags, REFIID riid, _COM_Outptr_ void **ppFactory);
-        LOAD_DXGI_PROC(PFN_DXGI_CREATE_FACTORY_2, CreateDXGIFactory2);
-        if (!CreateDXGIFactory2_)
+        if (SLANG_SUCCEEDED(m_D3D12GetDebugInterface(IID_PPV_ARGS(m_dxDebug.writeRef()))))
         {
-            return SLANG_FAIL;
+#if 0
+            // Can enable for extra validation. NOTE! That d3d12 warns if you do.... 
+            // D3D12 MESSAGE : Device Debug Layer Startup Options : GPU - Based Validation is enabled(disabled by default).
+            // This results in new validation not possible during API calls on the CPU, by creating patched shaders that have validation
+            // added directly to the shader. However, it can slow things down a lot, especially for applications with numerous
+            // PSOs.Time to see the first render frame may take several minutes.
+            // [INITIALIZATION MESSAGE #1016: CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS]
+
+            ComPtr<ID3D12Debug1> debug1;
+            if (SLANG_SUCCEEDED(m_dxDebug->QueryInterface(debug1.writeRef())))
+            {
+                debug1->SetEnableGPUBasedValidation(true);
+            }
+#endif
+
+            m_dxDebug->EnableDebugLayer();
         }
-        SLANG_RETURN_ON_FAIL(CreateDXGIFactory2_(dxgiFactoryFlags, IID_PPV_ARGS(dxgiFactory.writeRef())));
     }
+#endif
 
-    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-
-    // Search for an adapter that meets our requirements
-    ComPtr<IDXGIAdapter> adapter;
-
-    LOAD_D3D_PROC(PFN_D3D12_CREATE_DEVICE, D3D12CreateDevice);
-    if (!D3D12CreateDevice_)
+    m_D3D12CreateDevice = (PFN_D3D12_CREATE_DEVICE)loadProc(d3dModule, "D3D12CreateDevice");
+    if (!m_D3D12CreateDevice)
     {
         return SLANG_FAIL;
     }
 
-    const bool useWarp = false;
+    FlagCombiner combiner;
+    // TODO: we should probably provide a command-line option
+    // to override UseDebug of default rather than leave it
+    // up to each back-end to specify.
+#if ENABLE_DEBUG_LAYER
+    combiner.add(DeviceCheckFlag::UseDebug, ChangeType::OnOff);                 ///< First try debug then non debug
+#else
+    combiner.add(DeviceCheckFlag::UseDebug, ChangeType::Off);                   ///< Don't bother with debug
+#endif
+    combiner.add(DeviceCheckFlag::UseHardwareDevice, ChangeType::OnOff);        ///< First try hardware, then reference
+    
+    const D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
 
-    if (useWarp)
+    const int numCombinations = combiner.getNumCombinations();
+    for (int i = 0; i < numCombinations; ++i)
     {
-        SLANG_RETURN_ON_FAIL(dxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(adapter.writeRef())));
-        SLANG_RETURN_ON_FAIL(D3D12CreateDevice_(adapter, featureLevel, IID_PPV_ARGS(m_device.writeRef())));
-    }
-    else
-    {
-        UINT adapterCounter = 0;
-        for (;;)
+        if (SLANG_SUCCEEDED(_createDevice(combiner.getCombination(i), desc.adapter.getUnownedSlice(), featureLevel, m_deviceInfo)))
         {
-            UINT adapterIndex = adapterCounter++;
-
-            ComPtr<IDXGIAdapter1> candidateAdapter;
-            if (dxgiFactory->EnumAdapters1(adapterIndex, candidateAdapter.writeRef()) == DXGI_ERROR_NOT_FOUND)
-                break;
-
-            DXGI_ADAPTER_DESC1 desc;
-            candidateAdapter->GetDesc1(&desc);
-
-            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
-            {
-                
-                // TODO: may want to allow software driver as fallback
-            }
-            else
-            {
-                continue;
-            }
-
-            if (SUCCEEDED(D3D12CreateDevice_(candidateAdapter, featureLevel, IID_PPV_ARGS(m_device.writeRef()))))
-            {
-                // We found one!
-                adapter = candidateAdapter;
-                break;
-            }
+            break;
         }
     }
 
-    if (!adapter)
+    if (!m_deviceInfo.m_adapter)
     {
         // Couldn't find an adapter
         return SLANG_FAIL;
     }
 
-    // set up debug layer
-#ifndef NDEBUG
+    // Set the device
+    m_device = m_deviceInfo.m_device;
+
+    // Find what features are supported
     {
+        // Check this is how this is laid out...
+        SLANG_COMPILE_TIME_ASSERT(D3D_SHADER_MODEL_6_0 == 0x60);
 
-        LOAD_D3D_PROC(PFN_D3D12_GET_DEBUG_INTERFACE, D3D12GetDebugInterface);
-        if (!D3D12GetDebugInterface_)
         {
-            return SLANG_FAIL;
+            D3D12_FEATURE_DATA_SHADER_MODEL featureShaderModel;
+            featureShaderModel.HighestShaderModel = D3D_SHADER_MODEL(0x62);
+
+            // TODO: Currently warp causes a crash when using half, so disable for now
+            if (SLANG_SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &featureShaderModel, sizeof(featureShaderModel))) &&
+                m_deviceInfo.m_isWarp == false &&
+                featureShaderModel.HighestShaderModel >= 0x62)
+            {
+                // With sm_6_2 we have half
+                m_features.Add("half");
+            }
         }
-
-        ComPtr<ID3D12Debug> debug;
-
-        if (!SUCCEEDED(D3D12GetDebugInterface_(IID_PPV_ARGS(debug.writeRef()))))
+        // Check what min precision support we have
         {
-            return SLANG_FAIL;
+            D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+            if (SLANG_SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
+            {
+                auto minPrecisionSupport = options.MinPrecisionSupport;
+            }
         }
-
-        debug->EnableDebugLayer();
     }
-#endif
 
     m_numRenderFrames = 3;
     m_numRenderTargets = 2;
@@ -1470,7 +1569,7 @@ Result D3D12Renderer::initialize(const Desc& desc, void* inWindowHandle)
 
     // Swap chain needs the queue so that it can force a flush on it.
     ComPtr<IDXGISwapChain> swapChain;
-    SLANG_RETURN_ON_FAIL(dxgiFactory->CreateSwapChain(m_commandQueue, &swapChainDesc, swapChain.writeRef()));
+    SLANG_RETURN_ON_FAIL(m_deviceInfo.m_dxgiFactory->CreateSwapChain(m_commandQueue, &swapChainDesc, swapChain.writeRef()));
     SLANG_RETURN_ON_FAIL(swapChain->QueryInterface(m_swapChain.writeRef()));
 
     if (!m_hasVsync)
@@ -1487,7 +1586,7 @@ Result D3D12Renderer::initialize(const Desc& desc, void* inWindowHandle)
     }
 
     // This sample does not support fullscreen transitions.
-    SLANG_RETURN_ON_FAIL(dxgiFactory->MakeWindowAssociation(m_hwnd, DXGI_MWA_NO_ALT_ENTER));
+    SLANG_RETURN_ON_FAIL(m_deviceInfo.m_dxgiFactory->MakeWindowAssociation(m_hwnd, DXGI_MWA_NO_ALT_ENTER));
 
     m_renderTargetIndex = m_swapChain->GetCurrentBackBufferIndex();
 
@@ -1879,18 +1978,16 @@ Result D3D12Renderer::createTextureResource(Resource::Usage initialUsage, const 
     // We should have this many sub resources
     assert(initData->numSubResources == numMipMaps * srcDesc.size.depth * arraySize);
 
-    // This is just the size for one array upload -> not for the whole texure
+    // NOTE! This is just the size for one array upload -> not for the whole texture
     UInt64 requiredSize = 0;
     m_device->GetCopyableFootprints(&resourceDesc, 0, numMipMaps, 0, layouts.begin(), mipNumRows.begin(), mipRowSizeInBytes.begin(), &requiredSize);
 
     // Sub resource indexing
     // https://msdn.microsoft.com/en-us/library/windows/desktop/dn705766(v=vs.85).aspx#subresource_indexing
-
-    int subResourceIndex = 0;
-    for (int i = 0; i < arraySize; i++)
     {
         // Create the upload texture
         D3D12Resource uploadTexture;
+       
         {
             D3D12_HEAP_PROPERTIES heapProps;
 
@@ -1918,69 +2015,71 @@ Result D3D12Renderer::createTextureResource(Resource::Usage initialUsage, const 
 
             uploadTexture.setDebugName(L"TextureUpload");
         }
-
+        // Get the pointer to the upload resource
         ID3D12Resource* uploadResource = uploadTexture;
 
-        uint8_t* p;
-        uploadResource->Map(0, nullptr, reinterpret_cast<void**>(&p));
-
-        for (int j = 0; j < numMipMaps; ++j)
+        int subResourceIndex = 0;
+        for (int arrayIndex = 0; arrayIndex < arraySize; arrayIndex++)
         {
-            const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout = layouts[j];
-            const D3D12_SUBRESOURCE_FOOTPRINT& footprint = layout.Footprint;
-            (void)footprint;
+            uint8_t* p;
+            uploadResource->Map(0, nullptr, reinterpret_cast<void**>(&p));
 
-            const TextureResource::Size mipSize = srcDesc.size.calcMipSize(j);
-
-            assert(footprint.Width == mipSize.width && footprint.Height == mipSize.height && footprint.Depth == mipSize.depth);
-
-            const ptrdiff_t dstMipRowPitch = ptrdiff_t(layouts[j].Footprint.RowPitch);
-            const ptrdiff_t srcMipRowPitch = ptrdiff_t(initData->mipRowStrides[j]);
-
-            assert(dstMipRowPitch >= srcMipRowPitch);
-
-            const uint8_t* srcRow = (const uint8_t*)initData->subResources[subResourceIndex];
-            uint8_t* dstRow = p + layouts[j].Offset;
-
-            // Copy the depth each mip
-            for (int l = 0; l < mipSize.depth; l++)
+            for (int j = 0; j < numMipMaps; ++j)
             {
-                // Copy rows
-                for (int k = 0; k < mipSize.height; ++k)
-                {
-                    ::memcpy(dstRow, srcRow, srcMipRowPitch);
+                const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout = layouts[j];
+                const D3D12_SUBRESOURCE_FOOTPRINT& footprint = layout.Footprint;
 
-                    srcRow += srcMipRowPitch;
-                    dstRow += dstMipRowPitch;
+                const TextureResource::Size mipSize = srcDesc.size.calcMipSize(j);
+
+                assert(footprint.Width == mipSize.width && footprint.Height == mipSize.height && footprint.Depth == mipSize.depth);
+
+                const ptrdiff_t dstMipRowPitch = ptrdiff_t(footprint.Footprint.RowPitch);
+                const ptrdiff_t srcMipRowPitch = ptrdiff_t(initData->mipRowStrides[j]);
+
+                assert(dstMipRowPitch >= srcMipRowPitch);
+
+                const uint8_t* srcRow = (const uint8_t*)initData->subResources[subResourceIndex];
+                uint8_t* dstRow = p + layouts[j].Offset;
+
+                // Copy the depth each mip
+                for (int l = 0; l < mipSize.depth; l++)
+                {
+                    // Copy rows
+                    for (int k = 0; k < mipSize.height; ++k)
+                    {
+                        ::memcpy(dstRow, srcRow, srcMipRowPitch);
+
+                        srcRow += srcMipRowPitch;
+                        dstRow += dstMipRowPitch;
+                    }
                 }
+
+                //assert(srcRow == (const uint8_t*)(srcMip.Buffer() + srcMip.Count()));
+            }
+            uploadResource->Unmap(0, nullptr);
+
+            for (int mipIndex = 0; mipIndex < numMipMaps; ++mipIndex)
+            {
+                // https://msdn.microsoft.com/en-us/library/windows/desktop/dn903862(v=vs.85).aspx
+
+                D3D12_TEXTURE_COPY_LOCATION src;
+                src.pResource = uploadTexture;
+                src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                src.PlacedFootprint = layouts[mipIndex];
+
+                D3D12_TEXTURE_COPY_LOCATION dst;
+                dst.pResource = texture->m_resource;
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                dst.SubresourceIndex = subResourceIndex;
+                m_commandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+                subResourceIndex++;
             }
 
-            //assert(srcRow == (const uint8_t*)(srcMip.Buffer() + srcMip.Count()));
+            // Block - waiting for copy to complete (so can drop upload texture)
+            submitGpuWorkAndWait();
         }
-        uploadResource->Unmap(0, nullptr);
-
-        for (int mipIndex = 0; mipIndex < numMipMaps; ++mipIndex)
-        {
-            // https://msdn.microsoft.com/en-us/library/windows/desktop/dn903862(v=vs.85).aspx
-
-            D3D12_TEXTURE_COPY_LOCATION src;
-            src.pResource = uploadTexture;
-            src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            src.PlacedFootprint = layouts[mipIndex];
-
-            D3D12_TEXTURE_COPY_LOCATION dst;
-            dst.pResource = texture->m_resource;
-            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            dst.SubresourceIndex = subResourceIndex;
-            m_commandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-
-            subResourceIndex++;
-        }
-
-        // Block - waiting for copy to complete (so can drop upload texture)
-        submitGpuWorkAndWait();
     }
-
     {
         const D3D12_RESOURCE_STATES finalState = _calcResourceState(initialUsage);
         D3D12BarrierSubmitter submitter(m_commandList);
@@ -2033,7 +2132,7 @@ Result D3D12Renderer::createBufferResource(Resource::Usage initialUsage, const B
         case Style::ResourceBacked:
         {
             const D3D12_RESOURCE_STATES initialState = _calcResourceState(initialUsage);
-            SLANG_RETURN_ON_FAIL(createBuffer(bufferDesc, initData, buffer->m_uploadResource, initialState, buffer->m_resource));
+            SLANG_RETURN_ON_FAIL(createBuffer(bufferDesc, initData, srcDesc.sizeInBytes, buffer->m_uploadResource, initialState, buffer->m_resource));
             break;
         }
         default:
@@ -2219,7 +2318,16 @@ Result D3D12Renderer::createTextureView(TextureResource* texture, ResourceView::
     case ResourceView::Type::ShaderResource:
         {
             SLANG_RETURN_ON_FAIL(m_viewAllocator.allocate(&viewImpl->m_descriptor));
-            m_device->CreateShaderResourceView(resourceImpl->m_resource, nullptr, viewImpl->m_descriptor.cpuHandle);
+
+            // Need to construct the D3D12_SHADER_RESOURCE_VIEW_DESC because otherwise TextureCube is not accessed
+            // appropriately (rather than just passing nullptr to CreateShaderResourceView)
+            const D3D12_RESOURCE_DESC resourceDesc = resourceImpl->m_resource.getResource()->GetDesc();
+            const DXGI_FORMAT pixelFormat = resourceDesc.Format;
+
+            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
+            _initSrvDesc(resourceImpl->getType(), resourceImpl->getDesc(), resourceDesc, pixelFormat, srvDesc);
+
+            m_device->CreateShaderResourceView(resourceImpl->m_resource, &srvDesc, viewImpl->m_descriptor.cpuHandle);
         }
         break;
     }
@@ -2247,7 +2355,6 @@ Result D3D12Renderer::createBufferView(BufferResource* buffer, ResourceView::Des
             uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
             uavDesc.Format = D3DUtil::getMapFormat(desc.format);
             uavDesc.Buffer.FirstElement = 0;
-            uavDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes);
 
             if(resourceDesc.elementSize)
             {
@@ -2258,6 +2365,11 @@ Result D3D12Renderer::createBufferView(BufferResource* buffer, ResourceView::Des
             {
                 uavDesc.Buffer.Flags |= D3D12_BUFFER_UAV_FLAG_RAW;
                 uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+                uavDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / 4);
+            }
+            else
+            {
+                uavDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / RendererUtil::getFormatSize(desc.format));
             }
 
 
@@ -2276,12 +2388,21 @@ Result D3D12Renderer::createBufferView(BufferResource* buffer, ResourceView::Des
             srvDesc.Format = D3DUtil::getMapFormat(desc.format);
             srvDesc.Buffer.StructureByteStride = 0;
             srvDesc.Buffer.FirstElement = 0;
-            srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes);
 
             if(resourceDesc.elementSize)
             {
                 srvDesc.Buffer.StructureByteStride = resourceDesc.elementSize;
                 srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / resourceDesc.elementSize);
+            }
+            else if(desc.format == Format::Unknown)
+            {
+                srvDesc.Buffer.Flags |= D3D12_BUFFER_SRV_FLAG_RAW;
+                srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+                srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / 4);
+            }
+            else
+            {
+                srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / RendererUtil::getFormatSize(desc.format));
             }
 
             SLANG_RETURN_ON_FAIL(m_viewAllocator.allocate(&viewImpl->m_descriptor));
@@ -2847,7 +2968,7 @@ void D3D12Renderer::setBindingState(BindingState* state)
 
 void D3D12Renderer::DescriptorSetImpl::setConstantBuffer(UInt range, UInt index, BufferResource* buffer)
 {
-    auto dxDevice = m_renderer->m_device.get();
+    auto dxDevice = m_renderer->m_device;
 
     auto resourceImpl = (BufferResourceImpl*) buffer;
     auto resourceDesc = resourceImpl->getDesc();

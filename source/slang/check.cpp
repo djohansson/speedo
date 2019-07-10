@@ -188,7 +188,7 @@ namespace Slang
             FixityChecked,
             TypeChecked,
             DirectionChecked,
-            Appicable,
+            Applicable,
         };
         Status status = Status::Unchecked;
 
@@ -557,6 +557,117 @@ namespace Slang
             return isDeclUsableAsStaticMember(decl);
         }
 
+            /// Move `expr` into a temporary variable and execute `func` on that variable.
+            ///
+            /// Returns an expression that wraps both the creation and initialization of
+            /// the temporary, and the computation created by `func`.
+            ///
+        template<typename F>
+        RefPtr<Expr> moveTemp(RefPtr<Expr> const& expr, F const& func)
+        {
+            RefPtr<VarDecl> varDecl = new VarDecl();
+            varDecl->ParentDecl = nullptr; // TODO: need to fill this in somehow!
+            varDecl->checkState = DeclCheckState::Checked;
+            varDecl->nameAndLoc.loc = expr->loc;
+            varDecl->initExpr = expr;
+            varDecl->type.type = expr->type.type;
+
+            auto varDeclRef = makeDeclRef(varDecl.Ptr());
+
+            RefPtr<LetExpr> letExpr = new LetExpr();
+            letExpr->decl = varDecl;
+
+            auto body = func(varDeclRef);
+
+            letExpr->body = body;
+            letExpr->type = body->type;
+
+            return letExpr;
+        }
+
+            /// Execute `func` on a variable with the value of `expr`.
+            ///
+            /// If `expr` is just a reference to an immutable (e.g., `let`) variable
+            /// then this might use the existing variable. Otherwise it will create
+            /// a new variable to hold `expr`, using `moveTemp()`.
+            ///
+        template<typename F>
+        RefPtr<Expr> maybeMoveTemp(RefPtr<Expr> const& expr, F const& func)
+        {
+            if(auto varExpr = as<VarExpr>(expr))
+            {
+                auto declRef = varExpr->declRef;
+                if(auto varDeclRef = declRef.as<LetDecl>())
+                    return func(varDeclRef);
+            }
+
+            return moveTemp(expr, func);
+        }
+
+            /// Return an expression that represents "opening" the existential `expr`.
+            ///
+            /// The type of `expr` must be an interface type, matching `interfaceDeclRef`.
+            ///
+            /// If we scope down the PL theory to just the case that Slang cares about,
+            /// a value of an existential type like `IMover` is a tuple of:
+            ///
+            ///  * a concrete type `X`
+            ///  * a witness `w` of the fact that `X` implements `IMover`
+            ///  * a value `v` of type `X`
+            ///
+            /// "Opening" an existential value is the process of decomposing a single
+            /// value `e : IMover` into the pieces `X`, `w`, and `v`.
+            ///
+            /// Rather than return all those pieces individually, this operation
+            /// returns an expression that logically corresponds to `v`: an expression
+            /// of type `X`, where the type carries the knowledge that `X` implements `IMover`.
+            ///
+        RefPtr<Expr> openExistential(
+            RefPtr<Expr>            expr,
+            DeclRef<InterfaceDecl>  interfaceDeclRef)
+        {
+            // If `expr` refers to an immutable binding,
+            // then we can use it directly. If it refers
+            // to an arbitrary expression or a mutable
+            // binding, we will move its value into an
+            // immutable temporary so that we can use
+            // it directly.
+            //
+            auto interfaceDecl = interfaceDeclRef.getDecl();
+            return maybeMoveTemp(expr, [&](DeclRef<VarDeclBase> varDeclRef)
+            {
+                RefPtr<ExtractExistentialType> openedType = new ExtractExistentialType();
+                openedType->declRef = varDeclRef;
+
+                RefPtr<ExtractExistentialSubtypeWitness> openedWitness = new ExtractExistentialSubtypeWitness();
+                openedWitness->sub = openedType;
+                openedWitness->sup = expr->type.type;
+                openedWitness->declRef = varDeclRef;
+
+                RefPtr<ThisTypeSubstitution> openedThisType = new ThisTypeSubstitution();
+                openedThisType->outer = interfaceDeclRef.substitutions.substitutions;
+                openedThisType->interfaceDecl = interfaceDecl;
+                openedThisType->witness = openedWitness;
+
+                DeclRef<InterfaceDecl> substDeclRef = DeclRef<InterfaceDecl>(interfaceDecl, openedThisType);
+                auto substDeclRefType = DeclRefType::Create(getSession(), substDeclRef);
+
+                RefPtr<ExtractExistentialValueExpr> openedValue = new ExtractExistentialValueExpr();
+                openedValue->declRef = varDeclRef;
+                openedValue->type = QualType(substDeclRefType);
+
+                return openedValue;
+            });
+        }
+
+            /// If `expr` has existential type, then open it.
+            ///
+            /// Returns an expression that opens `expr` if it had existential type.
+            /// Otherwise returns `expr` itself.
+            ///
+            /// See `openExistential` for a discussion of what "opening" an
+            /// existential-type value means.
+            ///
         RefPtr<Expr> maybeOpenExistential(RefPtr<Expr> expr)
         {
             auto exprType = expr->type.type;
@@ -584,45 +695,7 @@ namespace Slang
                     {
                         // Okay, here is the case that matters.
                         //
-
-                        auto interfaceDecl = interfaceDeclRef.getDecl();
-
-                        RefPtr<VarDecl> varDecl = new VarDecl();
-                        varDecl->ParentDecl = nullptr; // TODO: need to fill this in somehow!
-                        varDecl->checkState = DeclCheckState::Checked;
-                        varDecl->nameAndLoc.loc = expr->loc;
-                        varDecl->initExpr = expr;
-                        varDecl->type.type = expr->type.type;
-
-                        auto varDeclRef = makeDeclRef(varDecl.Ptr());
-
-                        RefPtr<LetExpr> letExpr = new LetExpr();
-                        letExpr->decl = varDecl;
-
-                        RefPtr<ExtractExistentialType> openedType = new ExtractExistentialType();
-                        openedType->declRef = varDeclRef;
-
-                        RefPtr<ExtractExistentialSubtypeWitness> openedWitness = new ExtractExistentialSubtypeWitness();
-                        openedWitness->sub = openedType;
-                        openedWitness->sup = expr->type.type;
-                        openedWitness->declRef = varDeclRef;
-
-                        RefPtr<ThisTypeSubstitution> openedThisType = new ThisTypeSubstitution();
-                        openedThisType->outer = interfaceDeclRef.substitutions.substitutions;
-                        openedThisType->interfaceDecl = interfaceDecl;
-                        openedThisType->witness = openedWitness;
-
-                        DeclRef<InterfaceDecl> substDeclRef = DeclRef<InterfaceDecl>(interfaceDecl, openedThisType);
-                        auto substDeclRefType = DeclRefType::Create(getSession(), substDeclRef);
-
-                        RefPtr<ExtractExistentialValueExpr> openedValue = new ExtractExistentialValueExpr();
-                        openedValue->declRef = varDeclRef;
-                        openedValue->type = QualType(substDeclRefType);
-
-                        letExpr->body = openedValue;
-                        letExpr->type = openedValue->type;
-
-                        return letExpr;
+                        return openExistential(expr, interfaceDeclRef);
                     }
                 }
             }
@@ -1379,10 +1452,33 @@ namespace Slang
             // we want to check for is whether a direct initialization
             // is possible (a type conversion exists).
             //
-            return CanCoerce(toType, fromExpr->type);
+            return canCoerce(toType, fromExpr->type);
         }
 
-        bool tryReadArgFromInitializerList(
+            /// Read a value from an initializer list expression.
+            ///
+            /// This reads one or more argument from the initializer list
+            /// given as `fromInitializerListExpr` to initialize a value
+            /// of type `toType`. This may involve reading one or
+            /// more arguments from the initializer list, depending
+            /// on whether `toType` is an aggregate or not, and on
+            /// whether the next argument in the initializer list is
+            /// itself an initializer list.
+            ///
+            /// This routine returns `true` if it was able to read
+            /// arguments that can form a value of type `toType`,
+            /// and `false` otherwise.
+            ///
+            /// If the routine succeeds and `outToExpr` is non-null,
+            /// then it will be filled in with an expression
+            /// representing the value (or type `toType`) that was read,
+            /// or it will be left null to indicate that a default
+            /// value should be used.
+            ///
+            /// If the routine fails and `outToExpr` is non-null,
+            /// then a suitable diagnostic will be emitted.
+            ///
+        bool _readValueFromInitializerList(
             RefPtr<Type>                toType,
             RefPtr<Expr>*               outToExpr,
             RefPtr<InitializerListExpr> fromInitializerListExpr,
@@ -1414,7 +1510,7 @@ namespace Slang
             if(shouldUseInitializerDirectly(toType, firstInitExpr))
             {
                 ioInitArgIndex++;
-                return TryCoerceImpl(
+                return _coerce(
                     toType,
                     outToExpr,
                     firstInitExpr->type,
@@ -1438,14 +1534,33 @@ namespace Slang
             // The fallback case is to recursively read the
             // type from the same list as an aggregate.
             //
-            return tryReadAggregateFromInitializerList(
+            return _readAggregateValueFromInitializerList(
                 toType,
                 outToExpr,
                 fromInitializerListExpr,
                 ioInitArgIndex);
         }
 
-        bool tryReadAggregateFromInitializerList(
+            /// Read an aggregate value from an initializer list expression.
+            ///
+            /// This reads one or more arguments from the initializer list
+            /// given as `fromInitializerListExpr` to initialize the
+            /// fields/elements of a value of type `toType`.
+            ///
+            /// This routine returns `true` if it was able to read
+            /// arguments that can form a value of type `toType`,
+            /// and `false` otherwise.
+            ///
+            /// If the routine succeeds and `outToExpr` is non-null,
+            /// then it will be filled in with an expression
+            /// representing the value (or type `toType`) that was read,
+            /// or it will be left null to indicate that a default
+            /// value should be used.
+            ///
+            /// If the routine fails and `outToExpr` is non-null,
+            /// then a suitable diagnostic will be emitted.
+            ///
+        bool _readAggregateValueFromInitializerList(
             RefPtr<Type>                inToType,
             RefPtr<Expr>*               outToExpr,
             RefPtr<InitializerListExpr> fromInitializerListExpr,
@@ -1466,7 +1581,7 @@ namespace Slang
                 if(ioArgIndex < argCount)
                 {
                     auto arg = fromInitializerListExpr->args[ioArgIndex++];
-                    return TryCoerceImpl(
+                    return _coerce(
                         toType,
                         outToExpr,
                         arg->type,
@@ -1510,7 +1625,7 @@ namespace Slang
                 for(UInt ee = 0; ee < elementCount; ++ee)
                 {
                     RefPtr<Expr> coercedArg;
-                    bool argResult = tryReadArgFromInitializerList(
+                    bool argResult = _readValueFromInitializerList(
                         toElementType,
                         outToExpr ? &coercedArg : nullptr,
                         fromInitializerListExpr,
@@ -1558,7 +1673,7 @@ namespace Slang
                     for(UInt ee = 0; ee < elementCount; ++ee)
                     {
                         RefPtr<Expr> coercedArg;
-                        bool argResult = tryReadArgFromInitializerList(
+                        bool argResult = _readValueFromInitializerList(
                             toElementType,
                             outToExpr ? &coercedArg : nullptr,
                             fromInitializerListExpr,
@@ -1584,7 +1699,7 @@ namespace Slang
                     while(ioArgIndex < argCount)
                     {
                         RefPtr<Expr> coercedArg;
-                        bool argResult = tryReadArgFromInitializerList(
+                        bool argResult = _readValueFromInitializerList(
                             toElementType,
                             outToExpr ? &coercedArg : nullptr,
                             fromInitializerListExpr,
@@ -1648,7 +1763,7 @@ namespace Slang
                 for(UInt rr = 0; rr < rowCount; ++rr)
                 {
                     RefPtr<Expr> coercedArg;
-                    bool argResult = tryReadArgFromInitializerList(
+                    bool argResult = _readValueFromInitializerList(
                         toRowType,
                         outToExpr ? &coercedArg : nullptr,
                         fromInitializerListExpr,
@@ -1676,7 +1791,7 @@ namespace Slang
                     for(auto fieldDeclRef : getMembersOfType<VarDecl>(toStructDeclRef))
                     {
                         RefPtr<Expr> coercedArg;
-                        bool argResult = tryReadArgFromInitializerList(
+                        bool argResult = _readValueFromInitializerList(
                             GetType(fieldDeclRef),
                             outToExpr ? &coercedArg : nullptr,
                             fromInitializerListExpr,
@@ -1700,6 +1815,10 @@ namespace Slang
                 // list invalid if we are trying to read something
                 // off of it that wasn't handled by the cases above.
                 //
+                if(outToExpr)
+                {
+                    getSink()->diagnose(fromInitializerListExpr, Diagnostics::cannotUseInitializerListForType, inToType);
+                }
                 return false;
             }
 
@@ -1719,7 +1838,26 @@ namespace Slang
             return true;
         }
 
-        bool tryCoerceInitializerList(
+            /// Coerce an initializer-list expression to a specific type.
+            ///
+            /// This reads one or more arguments from the initializer list
+            /// given as `fromInitializerListExpr` to initialize the
+            /// fields/elements of a value of type `toType`.
+            ///
+            /// This routine returns `true` if it was able to read
+            /// arguments that can form a value of type `toType`,
+            /// with no arguments left over, and `false` otherwise.
+            ///
+            /// If the routine succeeds and `outToExpr` is non-null,
+            /// then it will be filled in with an expression
+            /// representing the value (or type `toType`) that was read,
+            /// or it will be left null to indicate that a default
+            /// value should be used.
+            ///
+            /// If the routine fails and `outToExpr` is non-null,
+            /// then a suitable diagnostic will be emitted.
+            ///
+        bool _coerceInitializerList(
             RefPtr<Type>                toType,
             RefPtr<Expr>*               outToExpr,
             RefPtr<InitializerListExpr> fromInitializerListExpr)
@@ -1730,53 +1868,106 @@ namespace Slang
             // TODO: we should handle the special case of `{0}` as an initializer
             // for arbitrary `struct` types here.
 
-            if(!tryReadAggregateFromInitializerList(toType, outToExpr, fromInitializerListExpr, argIndex))
+            if(!_readAggregateValueFromInitializerList(toType, outToExpr, fromInitializerListExpr, argIndex))
                 return false;
 
             if(argIndex != argCount)
             {
-                getSink()->diagnose(fromInitializerListExpr, Diagnostics::tooManyInitializers, argIndex, argCount);
+                if( outToExpr )
+                {
+                    getSink()->diagnose(fromInitializerListExpr, Diagnostics::tooManyInitializers, argIndex, argCount);
+                }
             }
 
             return true;
         }
 
-
-        // Central engine for implementing implicit coercion logic
-        bool TryCoerceImpl(
-            RefPtr<Type>			toType,		// the target type for conversion
-            RefPtr<Expr>*	outToExpr,	// (optional) a place to stuff the target expression
-            RefPtr<Type>			fromType,	// the source type for the conversion
-            RefPtr<Expr>	fromExpr,	// the source expression
-            ConversionCost*					outCost)	// (optional) a place to stuff the conversion cost
+            /// Report that implicit type coercion is not possible.
+        bool _failedCoercion(
+            RefPtr<Type>    toType,
+            RefPtr<Expr>*   outToExpr,
+            RefPtr<Expr>    fromExpr)
         {
-            // Easy case: the types are equal
-            if (toType->Equals(fromType))
+            if(outToExpr)
             {
-                if (outToExpr)
+                getSink()->diagnose(fromExpr->loc, Diagnostics::typeMismatch, toType, fromExpr->type);
+            }
+            return false;
+        }
+
+            /// Central engine for implementing implicit coercion logic
+            ///
+            /// This function tries to find an implicit conversion path from
+            /// `fromType` to `toType`. It returns `true` if a conversion
+            /// is found, and `false` if not.
+            ///
+            /// If a conversion is found, then its cost will be written to `outCost`.
+            ///
+            /// If a `fromExpr` is provided, it must be of type `fromType`,
+            /// and represent a value to be converted.
+            ///
+            /// If `outToExpr` is non-null, and if a conversion is found, then
+            /// `*outToExpr` will be set to an expression that performs the
+            /// implicit conversion of `fromExpr` (which must be non-null
+            /// to `toType`).
+            ///
+            /// The case where `outToExpr` is non-null is used to identify
+            /// when a conversion is being done "for real" so that diagnostics
+            /// should be emitted on failure.
+            ///
+        bool _coerce(
+            RefPtr<Type>    toType,
+            RefPtr<Expr>*   outToExpr,
+            RefPtr<Type>    fromType,
+            RefPtr<Expr>    fromExpr,
+            ConversionCost* outCost)
+        {
+            // An important and easy case is when the "to" and "from" types are equal.
+            //
+            if( toType->Equals(fromType) )
+            {
+                if(outToExpr)
                     *outToExpr = fromExpr;
-                if (outCost)
+                if(outCost)
                     *outCost = kConversionCost_None;
                 return true;
             }
 
-            // If either type is an error, then let things pass.
-            if (as<ErrorType>(toType) || as<ErrorType>(fromType))
+            // Another important case is when either the "to" or "from" type
+            // represents an error. In such a case we must have already
+            // reporeted the error, so it is better to allow the conversion
+            // to pass than to report a "cascading" error that might not
+            // make any sense.
+            //
+            if(as<ErrorType>(toType) || as<ErrorType>(fromType))
             {
-                if (outToExpr)
+                if(outToExpr)
                     *outToExpr = CreateImplicitCastExpr(toType, fromExpr);
-                if (outCost)
+                if(outCost)
                     *outCost = kConversionCost_None;
                 return true;
             }
 
-            // Coercion from an initializer list is allowed for many types
+            // Coercion from an initializer list is allowed for many types,
+            // so we will farm that out to its own subroutine.
+            //
             if( auto fromInitializerListExpr = as<InitializerListExpr>(fromExpr))
             {
-                if(!tryCoerceInitializerList(toType, outToExpr, fromInitializerListExpr))
+                if( !_coerceInitializerList(
+                    toType,
+                    outToExpr,
+                    fromInitializerListExpr) )
+                {
                     return false;
+                }
 
-                // For now, coercion from an initializer list has no cost
+                // For now, we treat coercion from an initializer list
+                // as having  no cost, so that all conversions from initializer
+                // lists are equally valid. This is fine given where initializer
+                // lists are allowed to appear now, but might need to be made
+                // more strict if we allow for initializer lists in more
+                // places in the language (e.g., as function arguments).
+                //
                 if(outCost)
                 {
                     *outCost = kConversionCost_None;
@@ -1785,16 +1976,14 @@ namespace Slang
                 return true;
             }
 
+            // If we are casting to an interface type, then that will succeed
+            // if the "from" type conforms to the interface.
             //
             if (auto toDeclRefType = as<DeclRefType>(toType))
             {
                 auto toTypeDeclRef = toDeclRefType->declRef;
                 if (auto interfaceDeclRef = toTypeDeclRef.as<InterfaceDecl>())
                 {
-                    // Trying to convert to an interface type.
-                    //
-                    // We will allow this if the type conforms to the interface.
-
                     if(auto witness = tryGetInterfaceConformanceWitness(fromType, interfaceDeclRef))
                     {
                         if (outToExpr)
@@ -1804,89 +1993,54 @@ namespace Slang
                         return true;
                     }
                 }
-
-                // Note: The following seems completely broken, and we should be using
-                // a `fromTypeDeclRef` here for the case when casting *from* a generic
-                // type parameter to an interface type...
-                //
-#if 0
-                else if (auto genParamDeclRef = toTypeDeclRef.as<GenericTypeParamDecl>())
-                {
-                    // We need to enumerate the constraints placed on this type by its outer
-                    // generic declaration, and see if any of them guarantees that we
-                    // satisfy the given interface..
-                    auto genericDeclRef = genParamDeclRef.GetParent().as<GenericDecl>();
-                    SLANG_ASSERT(genericDeclRef);
-
-                    for (auto constraintDeclRef : getMembersOfType<GenericTypeConstraintDecl>(genericDeclRef))
-                    {
-                        auto sub = GetSub(constraintDeclRef);
-                        auto sup = GetSup(constraintDeclRef);
-
-                        auto subDeclRef = as<DeclRefType>(sub);
-                        if (!subDeclRef)
-                            continue;
-                        if (subDeclRef->declRef != genParamDeclRef)
-                            continue;
-                        auto supDeclRefType = as<DeclRefType>(sup);
-                        if (supDeclRefType)
-                        {
-                            auto toInterfaceDeclRef = supDeclRefType->declRef.as<InterfaceDecl>();
-                            if (DoesTypeConformToInterface(fromType, toInterfaceDeclRef))
-                            {
-                                if (outToExpr)
-                                    *outToExpr = CreateImplicitCastExpr(toType, fromExpr);
-                                if (outCost)
-                                    *outCost = kConversionCost_CastToInterface;
-                                return true;
-                            }
-                        }
-                    }
-
-                }
-#endif
-
             }
 
-            // Are we converting from a parameter group type to its element type?
+            // We allow implicit conversion of a parameter group type like
+            // `ConstantBuffer<X>` or `ParameterBlock<X>` to its element
+            // type `X`.
+            //
             if(auto fromParameterGroupType = as<ParameterGroupType>(fromType))
             {
                 auto fromElementType = fromParameterGroupType->getElementType();
 
-                // If we have, e.g., `ConstantBuffer<A>` and we want to convert
-                // to `B`, where conversion from `A` to `B` is possible, then
-                // we will do so here.
+                // If we convert, e.g., `ConstantBuffer<A> to `A`, we will allow
+                // subsequent conversion of `A` to `B` if such a conversion
+                // is possible.
+                //
+                ConversionCost subCost = kConversionCost_None;
 
-                ConversionCost subCost = 0;
-                if(CanCoerce(toType, fromElementType, &subCost))
+                RefPtr<DerefExpr> derefExpr;
+                if(outToExpr)
                 {
-                    if(outCost)
-                        *outCost = subCost + kConversionCost_ImplicitDereference;
-
-                    if(outToExpr)
-                    {
-                        auto derefExpr = new DerefExpr();
-                        derefExpr->base = fromExpr;
-                        derefExpr->type = QualType(fromElementType);
-
-                        return TryCoerceImpl(
-                            toType,
-                            outToExpr,
-                            fromElementType,
-                            derefExpr,
-                            nullptr);
-                    }
-                    return true;
+                    derefExpr = new DerefExpr();
+                    derefExpr->base = fromExpr;
+                    derefExpr->type = QualType(fromElementType);
                 }
+
+                if(!_coerce(
+                    toType,
+                    outToExpr,
+                    fromElementType,
+                    derefExpr,
+                    &subCost))
+                {
+                    return false;
+                }
+
+                if(outCost)
+                    *outCost = subCost + kConversionCost_ImplicitDereference;
+                return true;
             }
 
-
-            // Look for an initializer/constructor declaration in the target type,
-            // which is marked as usable for implicit conversion, and which takes
-            // the source type as an argument.
+            // The main general-purpose approach for conversion is
+            // using suitable marked initializer ("constructor")
+            // declarations on the target type.
+            //
+            // This is treated as a form of overload resolution,
+            // since we are effectively forming an overloaded
+            // call to one of the initializers in the target type.
 
             OverloadResolveContext overloadContext;
-
             overloadContext.disallowNestedConversions = true;
             overloadContext.argCount = 1;
             overloadContext.argTypes = &fromType;
@@ -1904,64 +2058,86 @@ namespace Slang
 
             AddTypeOverloadCandidates(toType, overloadContext, toType);
 
+            // After all of the overload candidates have been added
+            // to the context and processed, we need to see whether
+            // there was one best overload or not.
+            //
             if(overloadContext.bestCandidates.Count() != 0)
             {
-                // There were multiple candidates that were equally good.
+                // In this case there were multiple equally-good candidates to call.
+                //
+                // We will start by checking if the candidates are
+                // even applicable, because if not, then we shouldn't
+                // consider the conversion as possible.
+                //
+                if(overloadContext.bestCandidates[0].status != OverloadCandidate::Status::Applicable)
+                    return _failedCoercion(toType, outToExpr, fromExpr);
 
-                // First, we will check if these candidates are even applicable.
-                // If they aren't, then they can't be used for conversion.
-                if(overloadContext.bestCandidates[0].status != OverloadCandidate::Status::Appicable)
-                    return false;
-
-                // If we reach this point, then we have multiple candidates which are
-                // all equally applicable, which means we have an ambiguity.
-                // If the user is just querying whether a conversion is possible, we
-                // will tell them it is, because ambiguity should trigger an ambiguity
-                // error, and not a "no conversion possible" error.
-
+                // If all of the candidates in `bestCandidates` are applicable,
+                // then we have an ambiguity.
+                //
                 // We will compute a nominal conversion cost as the minimum over
                 // all the conversions available.
-                ConversionCost cost = kConversionCost_GeneralConversion;
+                //
+                ConversionCost bestCost = kConversionCost_Explicit;
                 for(auto candidate : overloadContext.bestCandidates)
                 {
                     ConversionCost candidateCost = getImplicitConversionCost(
                         candidate.item.declRef.getDecl());
 
-                    if(candidateCost < cost)
-                        cost = candidateCost;
+                    if(candidateCost < bestCost)
+                        bestCost = candidateCost;
+                }
+
+                // Conceptually, we want to treat the conversion as
+                // possible, but report it as ambiguous if we actually
+                // need to reify the result as an expression.
+                //
+                if(outToExpr)
+                {
+                    getSink()->diagnose(fromExpr, Diagnostics::ambiguousConversion, fromType, toType);
+
+                    *outToExpr = CreateErrorExpr(fromExpr);
                 }
 
                 if(outCost)
-                    *outCost = cost;
-
-                if(outToExpr)
-                {
-                    // The user is asking for us to actually perform the conversion,
-                    // so we need to generate an appropriate expression here.
-
-                    // YONGH: I am confused why we are not hitting this case before
-                    //throw "foo bar baz";
-                    // YONGH: temporary work around, may need to create the actual
-                    // invocation expr to the constructor call
-                    *outToExpr = fromExpr;
-                }
+                    *outCost = bestCost;
 
                 return true;
             }
             else if(overloadContext.bestCandidate)
             {
-                // There is a single best candidate for conversion.
+                // If there is a single best candidate for conversion,
+                // then we want to use it.
+                //
+                // It is possible that there was a single best candidate,
+                // but it wasn't actually usable, so we will check for
+                // that case first.
+                //
+                if(overloadContext.bestCandidate->status != OverloadCandidate::Status::Applicable)
+                    return _failedCoercion(toType, outToExpr, fromExpr);
 
-                // It might not actually be usable, so let's check that first.
-                if(overloadContext.bestCandidate->status != OverloadCandidate::Status::Appicable)
-                    return false;
-
-                // Okay, it is applicable, and we just need to let the user
-                // know about it, and optionally construct a call.
-
-                // We need to extract the conversion cost from the candidate we found.
+                // Next, we need to look at the implicit conversion
+                // cost associated with the initializer we are invoking.
+                //
                 ConversionCost cost = getImplicitConversionCost(
                         overloadContext.bestCandidate->item.declRef.getDecl());;
+
+                // If the cost is too high to be usable as an
+                // implicit conversion, then we will report the
+                // conversion as possible (so that an overload involving
+                // this conversion will be selected over one without),
+                // but then emit a diagnostic when actually reifying
+                // the result expression.
+                //
+                if( cost >= kConversionCost_Explicit )
+                {
+                    if( outToExpr )
+                    {
+                        getSink()->diagnose(fromExpr, Diagnostics::typeMismatch, toType, fromType);
+                        getSink()->diagnose(fromExpr, Diagnostics::noteExplicitConversionPossible, fromType, toType);
+                    }
+                }
 
                 if(outCost)
                     *outCost = cost;
@@ -2012,21 +2188,30 @@ namespace Slang
                 return true;
             }
 
-            return false;
+            return _failedCoercion(toType, outToExpr, fromExpr);
         }
 
-        // Check whether a type coercion is possible
-        bool CanCoerce(
-            RefPtr<Type>			toType,			// the target type for conversion
-            RefPtr<Type>			fromType,		// the source type for the conversion
-            ConversionCost*					outCost = 0)	// (optional) a place to stuff the conversion cost
+            /// Check whether implicit type coercion from `fromType` to `toType` is possible.
+            ///
+            /// If conversion is possible, returns `true` and sets `outCost` to the cost
+            /// of the conversion found (if `outCost` is non-null).
+            ///
+            /// If conversion is not possible, returns `false`.
+            ///
+        bool canCoerce(
+            RefPtr<Type>    toType,
+            RefPtr<Type>    fromType,
+            ConversionCost* outCost = 0)
         {
+            // As an optimization, we will maintain a cache of conversion results
+            // for basic types such as scalars and vectors.
+            //
             BasicTypeKey key1, key2;
             BasicTypeKeyPair cacheKey;
             bool shouldAddToCache = false;
             ConversionCost cost;
             TypeCheckingCache* typeCheckingCache = getSession()->getTypeCheckingCache();
-            if (key1.fromType(toType.Ptr()) && key2.fromType(fromType.Ptr()))
+            if( key1.fromType(toType.Ptr()) && key2.fromType(fromType.Ptr()) )
             {
                 cacheKey.type1 = key1;
                 cacheKey.type2 = key2;
@@ -2040,20 +2225,33 @@ namespace Slang
                 else
                     shouldAddToCache = true;
             }
-            bool rs = TryCoerceImpl(
+
+            // If there was no suitable entry in the cache,
+            // then we fall back to the general-purpose
+            // conversion checking logic.
+            //
+            // Note that we are passing in `nullptr` as
+            // the output expression to be constructed,
+            // which suppresses emission of any diagnostics
+            // during the coercion process.
+            //
+            bool rs = _coerce(
                 toType,
                 nullptr,
                 fromType,
                 nullptr,
                 &cost);
+
             if (outCost)
                 *outCost = cost;
+
             if (shouldAddToCache)
             {
                 if (!rs)
                     cost = kConversionCost_Impossible;
                 typeCheckingCache->conversionCostCache[cacheKey] = cost;
             }
+
             return rs;
         }
 
@@ -2100,21 +2298,19 @@ namespace Slang
             return expr;
         }
 
-        // Perform type coercion, and emit errors if it isn't possible
-        RefPtr<Expr> Coerce(
-            RefPtr<Type>			toType,
-            RefPtr<Expr>	fromExpr)
+            /// Implicitly coerce `fromExpr` to `toType` and diagnose errors if it isn't possible
+        RefPtr<Expr> coerce(
+            RefPtr<Type>    toType,
+            RefPtr<Expr>    fromExpr)
         {
             RefPtr<Expr> expr;
-            if (!TryCoerceImpl(
+            if (!_coerce(
                 toType,
                 &expr,
                 fromExpr->type.Ptr(),
                 fromExpr.Ptr(),
                 nullptr))
             {
-                getSink()->diagnose(fromExpr->loc, Diagnostics::typeMismatch, toType, fromExpr->type);
-
                 // Note(tfoley): We don't call `CreateErrorExpr` here, because that would
                 // clobber the type on `fromExpr`, and an invariant here is that coercion
                 // really shouldn't *change* the expression that is passed in, but should
@@ -2176,7 +2372,7 @@ namespace Slang
                     if (auto initExpr = varDecl->initExpr)
                     {
                         initExpr = CheckTerm(initExpr);
-                        initExpr = Coerce(varDecl->type.Ptr(), initExpr);
+                        initExpr = coerce(varDecl->type.Ptr(), initExpr);
                         varDecl->initExpr = initExpr;
 
                         // If this is an array variable, then we first want to give
@@ -2319,6 +2515,25 @@ namespace Slang
             expr = CheckExpr(expr);
 
             auto intVal = CheckIntegerConstantExpression(expr.Ptr());
+            if(!intVal)
+                return nullptr;
+
+            auto constIntVal = as<ConstantIntVal>(intVal);
+            if(!constIntVal)
+            {
+                getSink()->diagnose(expr->loc, Diagnostics::expectedIntegerConstantNotLiteral);
+                return nullptr;
+            }
+            return constIntVal;
+        }
+
+        RefPtr<ConstantIntVal> checkConstantEnumVal(
+            RefPtr<Expr>    expr)
+        {
+            // First type-check the expression as normal
+            expr = CheckExpr(expr);
+
+            auto intVal = CheckEnumConstantExpression(expr.Ptr());
             if(!intVal)
                 return nullptr;
 
@@ -2530,10 +2745,24 @@ namespace Slang
                 }
                 else if (auto bindingAttr = as<GLSLBindingAttribute>(attr))
                 {
-                    SLANG_ASSERT(attr->args.Count() == 2);
+                    // This must be vk::binding or gl::binding (as specified in core.meta.slang under vk_binding/gl_binding)
+                    // Must have 2 int parameters. Ideally this would all be checked from the specification
+                    // in core.meta.slang, but that's not completely implemented. So for now we check here.
+                    if (attr->args.Count() != 2)
+                    {
+                        return false;
+                    }
+
+                    // TODO(JS): Prior validation currently doesn't ensure both args are ints (as specified in core.meta.slang), so check here
+                    // to make sure they both are
                     auto binding = checkConstantIntVal(attr->args[0]);
                     auto set = checkConstantIntVal(attr->args[1]);
 
+                    if (binding == nullptr || set == nullptr)
+                    {
+                        return false;
+                    }
+                    
                     bindingAttr->binding = int32_t(binding->value);
                     bindingAttr->set = int32_t(set->value);
                 }
@@ -2614,7 +2843,7 @@ namespace Slang
                     if (attr->args.Count() == 1)
                     {
                         RefPtr<IntVal> outIntVal;
-                        if (auto cInt = checkConstantIntVal(attr->args[0]))
+                        if (auto cInt = checkConstantEnumVal(attr->args[0]))
                         {
                             targetClassId = (uint32_t)(cInt->value);
                         }
@@ -2629,6 +2858,13 @@ namespace Slang
                         getSink()->diagnose(attr, Diagnostics::invalidAttributeTarget);
                         return false;
                     }
+                }
+                else if (auto unrollAttr = as<UnrollAttribute>(attr))
+                {
+                    // Check has an argument. We need this because default behavior is to give an error
+                    // if an attribute has arguments, but not handled explicitly (and the default param will come through
+                    // as 1 arg if nothing is specified)
+                    SLANG_ASSERT(attr->args.Count() == 1);
                 }
                 else if (auto userDefAttr = as<UserDefinedAttribute>(attr))
                 {
@@ -2655,7 +2891,7 @@ namespace Slang
                             if (!typeChecked)
                             {
                                 arg = CheckExpr(arg);
-                                arg = Coerce(paramDecl->getType(), arg);
+                                arg = coerce(paramDecl->getType(), arg);
                             }
                         }
                         paramIndex++;
@@ -2740,7 +2976,6 @@ namespace Slang
                 {
                     // TODO: support checking the argument against the declared
                     // type for the parameter.
-                    
                 }
                 else
                 {
@@ -2753,6 +2988,9 @@ namespace Slang
                         //
                         // TODO: we need to figure out how to hook up
                         // default arguments as needed.
+                        // For now just copy the expression over.
+
+                        attr->args.Add(paramDecl->initExpr);
                     }
                     else
                     {
@@ -3957,7 +4195,7 @@ namespace Slang
                 if(auto initExpr = decl->tagExpr)
                 {
                     initExpr = CheckExpr(initExpr);
-                    initExpr = Coerce(tagType, initExpr);
+                    initExpr = coerce(tagType, initExpr);
 
                     // We want to enforce that this is an integer constant
                     // expression, but we don't actually care to retain
@@ -4491,7 +4729,7 @@ namespace Slang
                 // actual type of the parameter.
                 //
                 initExpr = CheckExpr(initExpr);
-                initExpr = Coerce(typeExpr.type, initExpr);
+                initExpr = coerce(typeExpr.type, initExpr);
                 paramDecl->initExpr = initExpr;
 
                 // TODO: a default argument expression needs to
@@ -4499,6 +4737,22 @@ namespace Slang
                 // For example, it should not be allowed to refer
                 // to other parameters of the same function (or maybe
                 // only the parameters to its left...).
+
+                // A default argument value should not be allowed on an
+                // `out` or `inout` parameter.
+                //
+                // TODO: we could relax this by requiring the expression
+                // to yield an lvalue, but that seems like a feature
+                // with limited practical utility (and an easy source
+                // of confusing behavior).
+                //
+                // Note: the `InOutModifier` class inherits from `OutModifier`,
+                // so we only need to check for the base case.
+                //
+                if(paramDecl->FindModifier<OutModifier>())
+                {
+                    getSink()->diagnose(initExpr, Diagnostics::outputParameterCannotHaveDefaultValue);
+                }
             }
 
             paramDecl->SetCheckState(DeclCheckState::Checked);
@@ -4617,7 +4871,7 @@ namespace Slang
         {
             RefPtr<Expr> e = expr;
             e = CheckTerm(e);
-            e = Coerce(getSession()->getBoolType(), e);
+            e = coerce(getSession()->getBoolType(), e);
             return e;
         }
 
@@ -4768,7 +5022,7 @@ namespace Slang
                 {
                     if (function)
                     {
-                        stmt->Expression = Coerce(function->ReturnType.Ptr(), stmt->Expression);
+                        stmt->Expression = coerce(function->ReturnType.Ptr(), stmt->Expression);
                     }
                     else
                     {
@@ -5138,7 +5392,7 @@ namespace Slang
             if(IsErrorExpr(inExpr)) return nullptr;
 
             // First coerce the expression to the expected type
-            auto expr = Coerce(getSession()->getIntType(),inExpr);
+            auto expr = coerce(getSession()->getIntType(),inExpr);
 
             // No need to issue further errors if the type coercion failed.
             if(IsErrorExpr(expr)) return nullptr;
@@ -5151,6 +5405,21 @@ namespace Slang
             return result;
         }
 
+        RefPtr<IntVal> CheckEnumConstantExpression(Expr* expr)
+        {
+            // No need to issue further errors if the expression didn't even type-check.
+            if(IsErrorExpr(expr)) return nullptr;
+
+            // No need to issue further errors if the type coercion failed.
+            if(IsErrorExpr(expr)) return nullptr;
+
+            auto result = TryConstantFoldExpr(expr);
+            if (!result)
+            {
+                getSink()->diagnose(expr, Diagnostics::expectedIntegerConstantNotConstant);
+            }
+            return result;
+        }
 
 
         RefPtr<Expr> CheckSimpleSubscriptExpr(
@@ -5327,15 +5596,6 @@ namespace Slang
             return true;
         }
 
-        // Coerce an expression to a specific  type that it is expected to have in context
-        RefPtr<Expr> CoerceExprToType(
-            RefPtr<Expr>	expr,
-            RefPtr<Type>			type)
-        {
-            // TODO(tfoley): clean this up so there is only one version...
-            return Coerce(type, expr);
-        }
-
         RefPtr<Expr> visitParenExpr(ParenExpr* expr)
         {
             auto base = expr->base;
@@ -5392,7 +5652,7 @@ namespace Slang
 
             auto type = expr->left->type;
 
-            expr->right = Coerce(type, CheckTerm(expr->right));
+            expr->right = coerce(type, CheckTerm(expr->right));
 
             if (!type.IsLeftValue)
             {
@@ -6005,7 +6265,7 @@ namespace Slang
         {
             // Can we convert at all?
             ConversionCost conversionCost;
-            if(!CanCoerce(toType, fromType, &conversionCost))
+            if(!canCoerce(toType, fromType, &conversionCost))
                 return false;
 
             // Is the conversion cheap enough to be done implicitly?
@@ -6630,14 +6890,14 @@ namespace Slang
                     if (context.mode == OverloadResolveContext::Mode::JustTrying)
                     {
                         ConversionCost cost = kConversionCost_None;
-                        if (!CanCoerce(GetType(valParamRef), arg->type, &cost))
+                        if (!canCoerce(GetType(valParamRef), arg->type, &cost))
                         {
                             return false;
                         }
                         candidate.conversionCostSum += cost;
                     }
 
-                    arg = Coerce(GetType(valParamRef), arg);
+                    arg = coerce(GetType(valParamRef), arg);
                     auto val = ExtractGenericArgInteger(arg);
                     checkedArgs.Add(val);
                 }
@@ -6691,7 +6951,7 @@ namespace Slang
                         if(!GetType(param)->Equals(argType))
                             return false;
                     }
-                    else if (!CanCoerce(GetType(param), argType, &cost))
+                    else if (!canCoerce(GetType(param), argType, &cost))
                     {
                         return false;
                     }
@@ -6699,7 +6959,7 @@ namespace Slang
                 }
                 else
                 {
-                    arg = Coerce(GetType(param), arg);
+                    arg = coerce(GetType(param), arg);
                 }
             }
             return true;
@@ -6836,7 +7096,7 @@ namespace Slang
             if (!TryCheckOverloadCandidateConstraints(context, candidate))
                 return;
 
-            candidate.status = OverloadCandidate::Status::Appicable;
+            candidate.status = OverloadCandidate::Status::Applicable;
         }
 
         // Create the representation of a given generic applied to some arguments
@@ -6995,7 +7255,7 @@ namespace Slang
 
             // If both candidates are applicable, then we need to compare
             // the costs of their type conversion sequences
-            if(left->status == OverloadCandidate::Status::Appicable)
+            if(left->status == OverloadCandidate::Status::Applicable)
             {
                 if (left->conversionCostSum != right->conversionCostSum)
                     return left->conversionCostSum - right->conversionCostSum;
@@ -8188,7 +8448,7 @@ namespace Slang
 
                 String argsList = getCallSignatureString(context);
 
-                if (context.bestCandidates[0].status != OverloadCandidate::Status::Appicable)
+                if (context.bestCandidates[0].status != OverloadCandidate::Status::Applicable)
                 {
                     // There were multiple equally-good candidates, but none actually usable.
                     // We will construct a diagnostic message to help out.
@@ -8266,7 +8526,7 @@ namespace Slang
             else
             {
                 // Nothing at all was found that we could even consider invoking
-                getSink()->diagnose(expr->FunctionExpr, Diagnostics::expectedFunction);
+                getSink()->diagnose(expr->FunctionExpr, Diagnostics::expectedFunction, funcExprType);
                 expr->type = QualType(getSession()->getErrorType());
                 return expr;
             }
@@ -8367,7 +8627,7 @@ namespace Slang
             if (context.bestCandidates.Count() > 0)
             {
                 // Things were ambiguous.
-                if (context.bestCandidates[0].status != OverloadCandidate::Status::Appicable)
+                if (context.bestCandidates[0].status != OverloadCandidate::Status::Applicable)
                 {
                     // There were multiple equally-good candidates, but none actually usable.
                     // We will construct a diagnostic message to help out.
@@ -8494,15 +8754,25 @@ namespace Slang
                             }
                             else
                             {
-                                // This implies that the function had an `out`
-                                // or `inout` parameter and they gave it a default
-                                // argument expression. I'm not even sure what
-                                // that would mean.
+                                // There are two ways we could get here, both involving
+                                // a call where the number of argument expressions is
+                                // less than the number of parameters on the callee:
                                 //
-                                // TODO: make sure this gets validated on the
-                                // declaring side.
+                                // 1. There might be fewer arguments than parameters
+                                // because the trailing parameters should be defaulted
                                 //
-                                SLANG_DIAGNOSE_UNEXPECTED(getSink(), invoke, "default argument expression for out/inout paameter");
+                                // 2. There might be fewer arguments than parameters
+                                // because the call is incorrect.
+                                //
+                                // In case (2) an error would have already been diagnosed,
+                                // and we don't want to emit another cascading error here.
+                                //
+                                // In case (1) this implies the user declared an `out`
+                                // or `inout` parameter with a default argument expression.
+                                // That should be an error, but it should be detected
+                                // on the declaration instead of here at the use site.
+                                //
+                                // Thus, it makes sense to ignore this case here.
                             }
                         }
                     }
@@ -8747,21 +9017,167 @@ namespace Slang
             }
         }
 
-        RefPtr<Expr> visitStaticMemberExpr(StaticMemberExpr* /*expr*/)
+        // Look up a static member
+        // @param expr Can be StaticMemberExpr or MemberExpr
+        // @param baseExpression Is the underlying type expression determined from resolving expr
+        RefPtr<Expr> _lookupStaticMember(RefPtr<DeclRefExpr> expr, RefPtr<Expr> baseExpression)
         {
-            // StaticMemberExpr means it is already checked
-            SLANG_UNEXPECTED("should not occur in unchecked AST");
-            UNREACHABLE_RETURN(nullptr);
+            auto& baseType = baseExpression->type;
+
+            if (auto typeType = as<TypeType>(baseType))
+            {
+                // We are looking up a member inside a type.
+                // We want to be careful here because we should only find members
+                // that are implicitly or explicitly `static`.
+                //
+                // TODO: this duplicates a *lot* of logic with the case below.
+                // We need to fix that.
+                auto type = typeType->type;
+
+                if (as<ErrorType>(type))
+                {
+                    return CreateErrorExpr(expr);
+                }
+
+                LookupResult lookupResult = lookUpMember(
+                    getSession(),
+                    this,
+                    expr->name,
+                    type);
+                if (!lookupResult.isValid())
+                {
+                    return lookupMemberResultFailure(expr, baseType);
+                }
+
+                // We need to confirm that whatever member we
+                // are trying to refer to is usable via static reference.
+                //
+                // TODO: eventually we might allow a non-static
+                // member to be adapted by turning it into something
+                // like a closure that takes the missing `this` parameter.
+                //
+                // E.g., a static reference to a method could be treated
+                // as a value with a function type, where the first parameter
+                // is `type`.
+                //
+                // The biggest challenge there is that we'd need to arrange
+                // to generate "dispatcher" functions that could be used
+                // to implement that function, in the case where we are
+                // making a static reference to some kind of polymorphic declaration.
+                //
+                // (Also, static references to fields/properties would get even
+                // harder, because you'd have to know whether a getter/setter/ref-er
+                // is needed).
+                //
+                // For now let's just be expedient and disallow all of that, because
+                // we can always add it back in later.
+
+                if (!lookupResult.isOverloaded())
+                {
+                    // The non-overloaded case is relatively easy. We just want
+                    // to look at the member being referenced, and check if
+                    // it is allowed in a `static` context:
+                    //
+                    if (!isUsableAsStaticMember(lookupResult.item))
+                    {
+                        getSink()->diagnose(
+                            expr->loc,
+                            Diagnostics::staticRefToNonStaticMember,
+                            type,
+                            expr->name);
+                    }
+                }
+                else
+                {
+                    // The overloaded case is trickier, because we should first
+                    // filter the list of candidates, because if there is anything
+                    // that *is* usable in a static context, then we should assume
+                    // the user just wants to reference that. We should only
+                    // issue an error if *all* of the items that were discovered
+                    // are non-static.
+                    bool anyNonStatic = false;
+                    List<LookupResultItem> staticItems;
+                    for (auto item : lookupResult.items)
+                    {
+                        // Is this item usable as a static member?
+                        if (isUsableAsStaticMember(item))
+                        {
+                            // If yes, then it will be part of the output.
+                            staticItems.Add(item);
+                        }
+                        else
+                        {
+                            // If no, then we might need to output an error.
+                            anyNonStatic = true;
+                        }
+                    }
+
+                    // Was there anything non-static in the list?
+                    if (anyNonStatic)
+                    {
+                        // If we had some static items, then that's okay,
+                        // we just want to use our newly-filtered list.
+                        if (staticItems.Count())
+                        {
+                            lookupResult.items = staticItems;
+                        }
+                        else
+                        {
+                            // Otherwise, it is time to report an error.
+                            getSink()->diagnose(
+                                expr->loc,
+                                Diagnostics::staticRefToNonStaticMember,
+                                type,
+                                expr->name);
+                        }
+                    }
+                    // If there were no non-static items, then the `items`
+                    // array already represents what we'd get by filtering...
+                }
+
+                return createLookupResultExpr(
+                    lookupResult,
+                    baseExpression,
+                    expr->loc);
+            }
+            else if (as<ErrorType>(baseType))
+            {
+                return CreateErrorExpr(expr);
+            }
+
+            // Failure
+            return lookupMemberResultFailure(expr, baseType);
         }
 
-        RefPtr<Expr> lookupResultFailure(
-            MemberExpr*     expr,
+        RefPtr<Expr> visitStaticMemberExpr(StaticMemberExpr* expr)
+        {
+            expr->BaseExpression = CheckExpr(expr->BaseExpression);
+
+            // Not sure this is needed -> but guess someone could do 
+            expr->BaseExpression = MaybeDereference(expr->BaseExpression);
+
+            // If the base of the member lookup has an interface type
+            // *without* a suitable this-type substitution, then we are
+            // trying to perform lookup on a value of existential type,
+            // and we should "open" the existential here so that we
+            // can expose its structure.
+            //
+
+            expr->BaseExpression = maybeOpenExistential(expr->BaseExpression);
+            // Do a static lookup
+            return _lookupStaticMember(expr, expr->BaseExpression);
+        }
+
+        RefPtr<Expr> lookupMemberResultFailure(
+            DeclRefExpr*     expr,
             QualType const& baseType)
         {
+            // Check it's a member expression
+            SLANG_ASSERT(as<StaticMemberExpr>(expr) || as<MemberExpr>(expr));
+
             getSink()->diagnose(expr, Diagnostics::noMemberOfNameInType, expr->name, baseType);
             expr->type = QualType(getSession()->getErrorType());
             return expr;
-
         }
 
         RefPtr<Expr> visitMemberExpr(MemberExpr * expr)
@@ -8805,119 +9221,7 @@ namespace Slang
             }
             else if(auto typeType = as<TypeType>(baseType))
             {
-                // We are looking up a member inside a type.
-                // We want to be careful here because we should only find members
-                // that are implicitly or explicitly `static`.
-                //
-                // TODO: this duplicates a *lot* of logic with the case below.
-                // We need to fix that.
-                auto type = typeType->type;
-
-                if (as<ErrorType>(type))
-                {
-                    return CreateErrorExpr(expr);
-                }
-
-                LookupResult lookupResult = lookUpMember(
-                    getSession(),
-                    this,
-                    expr->name,
-                    type);
-                if (!lookupResult.isValid())
-                {
-                    return lookupResultFailure(expr, baseType);
-                }
-
-                // We need to confirm that whatever member we
-                // are trying to refer to is usable via static reference.
-                //
-                // TODO: eventually we might allow a non-static
-                // member to be adapted by turning it into something
-                // like a closure that takes the missing `this` parameter.
-                //
-                // E.g., a static reference to a method could be treated
-                // as a value with a function type, where the first parameter
-                // is `type`.
-                //
-                // The biggest challenge there is that we'd need to arrange
-                // to generate "dispatcher" functions that could be used
-                // to implement that function, in the case where we are
-                // making a static reference to some kind of polymorphic declaration.
-                //
-                // (Also, static references to fields/properties would get even
-                // harder, because you'd have to know whether a getter/setter/ref-er
-                // is needed).
-                //
-                // For now let's just be expedient and disallow all of that, because
-                // we can always add it back in later.
-
-                if(!lookupResult.isOverloaded())
-                {
-                    // The non-overloaded case is relatively easy. We just want
-                    // to look at the member being referenced, and check if
-                    // it is allowed in a `static` context:
-                    //
-                    if(!isUsableAsStaticMember(lookupResult.item))
-                    {
-                        getSink()->diagnose(
-                            expr->loc,
-                            Diagnostics::staticRefToNonStaticMember,
-                            type,
-                            expr->name);
-                    }
-                }
-                else
-                {
-                    // The overloaded case is trickier, because we should first
-                    // filter the list of candidates, because if there is anything
-                    // that *is* usable in a static context, then we should assume
-                    // the user just wants to reference that. We should only
-                    // issue an error if *all* of the items that were discovered
-                    // are non-static.
-                    bool anyNonStatic = false;
-                    List<LookupResultItem> staticItems;
-                    for(auto item : lookupResult.items)
-                    {
-                        // Is this item usable as a static member?
-                        if(isUsableAsStaticMember(item))
-                        {
-                            // If yes, then it will be part of the output.
-                            staticItems.Add(item);
-                        }
-                        else
-                        {
-                            // If no, then we might need to output an error.
-                            anyNonStatic = true;
-                        }
-                    }
-
-                    // Was there anything non-static in the list?
-                    if(anyNonStatic)
-                    {
-                        // If we had some static items, then that's okay,
-                        // we just want to use our newly-filtered list.
-                        if(staticItems.Count())
-                        {
-                            lookupResult.items = staticItems;
-                        }
-                        else
-                        {
-                            // Otherwise, it is time to report an error.
-                            getSink()->diagnose(
-                                expr->loc,
-                                Diagnostics::staticRefToNonStaticMember,
-                                type,
-                                expr->name);
-                        }
-                    }
-                    // If there were no non-static items, then the `items`
-                    // array already represents what we'd get by filtering...
-                }
-
-                return createLookupResultExpr(
-                    lookupResult,
-                    expr->BaseExpression,
-                    expr->loc);
+                return _lookupStaticMember(expr, expr->BaseExpression);
             }
             else if (as<ErrorType>(baseType))
             {
@@ -8932,7 +9236,7 @@ namespace Slang
                     baseType.Ptr());
                 if (!lookupResult.isValid())
                 {
-                    return lookupResultFailure(expr, baseType);
+                    return lookupMemberResultFailure(expr, baseType);
                 }
 
                 // TODO: need to filter for declarations that are valid to refer
@@ -9232,13 +9536,118 @@ namespace Slang
         }
     }
 
+        /// Recursively walk `paramDeclRef` and add any required existential slots to `ioSlots`.
+    static void _collectExistentialTypeParamsRec(
+        ExistentialTypeSlots&       ioSlots,
+        DeclRef<VarDeclBase>    paramDeclRef);
+
+        /// Recursively walk `type` and discover any required existential type parameters.
+    static void _collectExistentialTypeParamsRec(
+        ExistentialTypeSlots&   ioSlots,
+        Type*               type)
+    {
+        // Whether or not something is an array does not affect
+        // the number of existential slots it introduces.
+        //
+        while( auto arrayType = as<ArrayExpressionType>(type) )
+        {
+            type = arrayType->baseType;
+        }
+
+        if( auto parameterGroupType = as<ParameterGroupType>(type) )
+        {
+            _collectExistentialTypeParamsRec(ioSlots, parameterGroupType->getElementType());
+            return;
+        }
+
+        if( auto declRefType = as<DeclRefType>(type) )
+        {
+            auto typeDeclRef = declRefType->declRef;
+            if( auto interfaceDeclRef = typeDeclRef.as<InterfaceDecl>() )
+            {
+                // Each leaf parameter of interface type adds one slot.
+                //
+                ioSlots.paramTypes.Add(type);
+            }
+            else if( auto structDeclRef = typeDeclRef.as<StructDecl>() )
+            {
+                // A structure type should recursively introduce
+                // existential slots for its fields.
+                //
+                for( auto fieldDeclRef : GetFields(structDeclRef) )
+                {
+                    if(fieldDeclRef.getDecl()->HasModifier<HLSLStaticModifier>())
+                        continue;
+
+                    _collectExistentialTypeParamsRec(ioSlots, fieldDeclRef);
+                }
+            }
+        }
+
+        // TODO: We eventually need to handle cases like constant
+        // buffers and parameter blocks that may have existential
+        // element types.
+    }
+
+    static void _collectExistentialTypeParamsRec(
+        ExistentialTypeSlots&       ioSlots,
+        DeclRef<VarDeclBase>    paramDeclRef)
+    {
+        _collectExistentialTypeParamsRec(ioSlots, GetType(paramDeclRef));
+    }
+
+
+        /// Add information about a shader parameter to `ioParams` and `ioSlots`
+    static void _collectExistentialSlotsForShaderParam(
+        ShaderParamInfo&        ioParamInfo,
+        ExistentialTypeSlots&       ioSlots,
+        DeclRef<VarDeclBase>    paramDeclRef)
+    {
+        UInt startSlot = ioSlots.paramTypes.Count();
+        _collectExistentialTypeParamsRec(ioSlots, paramDeclRef);
+        UInt endSlot = ioSlots.paramTypes.Count();
+        UInt slotCount = endSlot - startSlot;
+
+        ioParamInfo.firstExistentialTypeSlot = startSlot;
+        ioParamInfo.existentialTypeSlotCount = slotCount;
+    }
+
+        /// Enumerate the existential-type parameters of an `EntryPoint`.
+        ///
+        /// Any parameters found will be added to the list of existential slots on `this`.
+        ///
+    void EntryPoint::_collectShaderParams()
+    {
+        // Note: we defensively test whether there is a function decl-ref
+        // because this routine gets called from the constructor, and
+        // a "dummy" entry point will have a null pointer for the function.
+        //
+        if( auto funcDeclRef = getFuncDeclRef() )
+        {
+            for( auto paramDeclRef : GetParameters(funcDeclRef) )
+            {
+                ShaderParamInfo shaderParamInfo;
+                shaderParamInfo.paramDeclRef = paramDeclRef;
+
+                _collectExistentialSlotsForShaderParam(
+                    shaderParamInfo,
+                    m_existentialSlots,
+                    paramDeclRef);
+
+                m_shaderParams.Add(shaderParamInfo);
+            }
+        }
+    }
+
     // Validate that an entry point function conforms to any additional
     // constraints based on the stage (and profile?) it specifies.
     void validateEntryPoint(
-        FuncDecl*       entryPointFuncDecl,
-        Stage           stage,
+        EntryPoint*     entryPoint,
         DiagnosticSink* sink)
     {
+        auto entryPointFuncDecl = entryPoint->getFuncDecl();
+        auto stage = entryPoint->getStage();
+
         // TODO: We currently do minimal checking here, but this is the
         // right place to perform the following validation checks:
         //
@@ -9494,19 +9903,504 @@ namespace Slang
         }
 
 
-        // Now that we've *found* the entry point, it is time to validate
-        // that it actually meets the constraints for the chosen stage/profile.
-        //
-        validateEntryPoint(
-            entryPointFuncDecl,
-            entryPointProfile.GetStage(),
-            sink);
-
         RefPtr<EntryPoint> entryPoint = EntryPoint::create(
             makeDeclRef(entryPointFuncDecl),
             entryPointProfile);
 
+        // Now that we've *found* the entry point, it is time to validate
+        // that it actually meets the constraints for the chosen stage/profile.
+        //
+        validateEntryPoint(entryPoint, sink);
+
         return entryPoint;
+    }
+
+    /// Get the name a variable will use for reflection purposes
+Name* getReflectionName(VarDeclBase* varDecl)
+{
+    if (auto reflectionNameModifier = varDecl->FindModifier<ParameterGroupReflectionName>())
+        return reflectionNameModifier->nameAndLoc.name;
+
+    return varDecl->getName();
+}
+
+// Information tracked when doing a structural
+// match of types.
+struct StructuralTypeMatchStack
+{
+    DeclRef<VarDeclBase>        leftDecl;
+    DeclRef<VarDeclBase>        rightDecl;
+    StructuralTypeMatchStack*   parent;
+};
+
+static void diagnoseParameterTypeMismatch(
+    DiagnosticSink*             sink,
+    StructuralTypeMatchStack*   inStack)
+{
+    SLANG_ASSERT(inStack);
+
+    // The bottom-most entry in the stack should represent
+    // the shader parameters that kicked things off
+    auto stack = inStack;
+    while(stack->parent)
+        stack = stack->parent;
+
+    sink->diagnose(stack->leftDecl, Diagnostics::shaderParameterDeclarationsDontMatch, getReflectionName(stack->leftDecl));
+    sink->diagnose(stack->rightDecl, Diagnostics::seeOtherDeclarationOf, getReflectionName(stack->rightDecl));
+}
+
+// Two types that were expected to match did not.
+// Inform the user with a suitable message.
+static void diagnoseTypeMismatch(
+    DiagnosticSink*             sink,
+    StructuralTypeMatchStack*   inStack)
+{
+    auto stack = inStack;
+    SLANG_ASSERT(stack);
+    diagnoseParameterTypeMismatch(sink, stack);
+
+    auto leftType = GetType(stack->leftDecl);
+    auto rightType = GetType(stack->rightDecl);
+
+    if( stack->parent )
+    {
+        sink->diagnose(stack->leftDecl, Diagnostics::fieldTypeMisMatch, getReflectionName(stack->leftDecl), leftType, rightType);
+        sink->diagnose(stack->rightDecl, Diagnostics::seeOtherDeclarationOf, getReflectionName(stack->rightDecl));
+
+        stack = stack->parent;
+        if( stack )
+        {
+            while( stack->parent )
+            {
+                sink->diagnose(stack->leftDecl, Diagnostics::usedInDeclarationOf, getReflectionName(stack->leftDecl));
+                stack = stack->parent;
+            }
+        }
+    }
+    else
+    {
+        sink->diagnose(stack->leftDecl, Diagnostics::shaderParameterTypeMismatch, leftType, rightType);
+    }
+}
+
+// Two types that were expected to match did not.
+// Inform the user with a suitable message.
+static void diagnoseTypeFieldsMismatch(
+    DiagnosticSink*             sink,
+    DeclRef<Decl> const&        left,
+    DeclRef<Decl> const&        right,
+    StructuralTypeMatchStack*   stack)
+{
+    diagnoseParameterTypeMismatch(sink, stack);
+
+    sink->diagnose(left, Diagnostics::fieldDeclarationsDontMatch, left.GetName());
+    sink->diagnose(right, Diagnostics::seeOtherDeclarationOf, right.GetName());
+
+    if( stack )
+    {
+        while( stack->parent )
+        {
+            sink->diagnose(stack->leftDecl, Diagnostics::usedInDeclarationOf, getReflectionName(stack->leftDecl));
+            stack = stack->parent;
+        }
+    }
+}
+
+static void collectFields(
+    DeclRef<AggTypeDecl>    declRef,
+    List<DeclRef<VarDecl>>& outFields)
+{
+    for( auto fieldDeclRef : getMembersOfType<VarDecl>(declRef) )
+    {
+        if(fieldDeclRef.getDecl()->HasModifier<HLSLStaticModifier>())
+            continue;
+
+        outFields.Add(fieldDeclRef);
+    }
+}
+
+static bool validateTypesMatch(
+    DiagnosticSink*             sink,
+    Type*                       left,
+    Type*                       right,
+    StructuralTypeMatchStack*   stack);
+
+static bool validateIntValuesMatch(
+    DiagnosticSink*             sink,
+    IntVal*                     left,
+    IntVal*                     right,
+    StructuralTypeMatchStack*   stack)
+{
+    if(left->EqualsVal(right))
+        return true;
+
+    // TODO: are there other cases we need to handle here?
+
+    diagnoseTypeMismatch(sink, stack);
+    return false;
+}
+
+
+static bool validateValuesMatch(
+    DiagnosticSink*             sink,
+    Val*                        left,
+    Val*                        right,
+    StructuralTypeMatchStack*   stack)
+{
+    if( auto leftType = dynamicCast<Type>(left) )
+    {
+        if( auto rightType = dynamicCast<Type>(right) )
+        {
+            return validateTypesMatch(sink, leftType, rightType, stack);
+        }
+    }
+
+    if( auto leftInt = dynamicCast<IntVal>(left) )
+    {
+        if( auto rightInt = dynamicCast<IntVal>(right) )
+        {
+            return validateIntValuesMatch(sink, leftInt, rightInt, stack);
+        }
+    }
+
+    if( auto leftWitness = dynamicCast<SubtypeWitness>(left) )
+    {
+        if( auto rightWitness = dynamicCast<SubtypeWitness>(right) )
+        {
+            return true;
+        }
+    }
+
+    diagnoseTypeMismatch(sink, stack);
+    return false;
+}
+
+static bool validateGenericSubstitutionsMatch(
+    DiagnosticSink*             sink,
+    GenericSubstitution*        left,
+    GenericSubstitution*        right,
+    StructuralTypeMatchStack*   stack)
+{
+    if( !left )
+    {
+        if( !right )
+        {
+            return true;
+        }
+
+        diagnoseTypeMismatch(sink, stack);
+        return false;
+    }
+
+
+
+    UInt argCount = left->args.Count();
+    if( argCount != right->args.Count() )
+    {
+        diagnoseTypeMismatch(sink, stack);
+        return false;
+    }
+
+    for( UInt aa = 0; aa < argCount; ++aa )
+    {
+        auto leftArg = left->args[aa];
+        auto rightArg = right->args[aa];
+
+        if(!validateValuesMatch(sink, leftArg, rightArg, stack))
+            return false;
+    }
+
+    return true;
+}
+
+static bool validateThisTypeSubstitutionsMatch(
+    DiagnosticSink*             /*sink*/,
+    ThisTypeSubstitution*       /*left*/,
+    ThisTypeSubstitution*       /*right*/,
+    StructuralTypeMatchStack*   /*stack*/)
+{
+    // TODO: actual checking.
+    return true;
+}
+
+static bool validateSpecializationsMatch(
+    DiagnosticSink*             sink,
+    SubstitutionSet             left,
+    SubstitutionSet             right,
+    StructuralTypeMatchStack*   stack)
+{
+    auto ll = left.substitutions;
+    auto rr = right.substitutions;
+    for(;;)
+    {
+        // Skip any global generic substitutions.
+        if(auto leftGlobalGeneric = as<GlobalGenericParamSubstitution>(ll))
+        {
+            ll = leftGlobalGeneric->outer;
+            continue;
+        }
+        if(auto rightGlobalGeneric = as<GlobalGenericParamSubstitution>(rr))
+        {
+            rr = rightGlobalGeneric->outer;
+            continue;
+        }
+
+        // If either ran out, then we expect both to have run out.
+        if(!ll || !rr)
+            return !ll && !rr;
+
+        auto leftSubst = ll;
+        auto rightSubst = rr;
+
+        ll = ll->outer;
+        rr = rr->outer;
+
+        if(auto leftGeneric = as<GenericSubstitution>(leftSubst))
+        {
+            if(auto rightGeneric = as<GenericSubstitution>(rightSubst))
+            {
+                if(validateGenericSubstitutionsMatch(sink, leftGeneric, rightGeneric, stack))
+                {
+                    continue;
+                }
+            }
+        }
+        else if(auto leftThisType = as<ThisTypeSubstitution>(leftSubst))
+        {
+            if(auto rightThisType = as<ThisTypeSubstitution>(rightSubst))
+            {
+                if(validateThisTypeSubstitutionsMatch(sink, leftThisType, rightThisType, stack))
+                {
+                    continue;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+// Determine if two types "match" for the purposes of `cbuffer` layout rules.
+//
+static bool validateTypesMatch(
+    DiagnosticSink*             sink,
+    Type*                       left,
+    Type*                       right,
+    StructuralTypeMatchStack*   stack)
+{
+    if(left->Equals(right))
+        return true;
+
+    // It is possible that the types don't match exactly, but
+    // they *do* match structurally.
+
+    // Note: the following code will lead to infinite recursion if there
+    // are ever recursive types. We'd need a more refined system to
+    // cache the matches we've already found.
+
+    if( auto leftDeclRefType = as<DeclRefType>(left) )
+    {
+        if( auto rightDeclRefType = as<DeclRefType>(right) )
+        {
+            // Are they references to matching decl refs?
+            auto leftDeclRef = leftDeclRefType->declRef;
+            auto rightDeclRef = rightDeclRefType->declRef;
+
+            // Do the reference the same declaration? Or declarations
+            // with the same name?
+            //
+            // TODO: we should only consider the same-name case if the
+            // declarations come from translation units being compiled
+            // (and not an imported module).
+            if( leftDeclRef.getDecl() == rightDeclRef.getDecl()
+                || leftDeclRef.GetName() == rightDeclRef.GetName() )
+            {
+                // Check that any generic arguments match
+                if( !validateSpecializationsMatch(
+                    sink,
+                    leftDeclRef.substitutions,
+                    rightDeclRef.substitutions,
+                    stack) )
+                {
+                    return false;
+                }
+
+                // Check that any declared fields match too.
+                if( auto leftStructDeclRef = leftDeclRef.as<AggTypeDecl>() )
+                {
+                    if( auto rightStructDeclRef = rightDeclRef.as<AggTypeDecl>() )
+                    {
+                        List<DeclRef<VarDecl>> leftFields;
+                        List<DeclRef<VarDecl>> rightFields;
+
+                        collectFields(leftStructDeclRef, leftFields);
+                        collectFields(rightStructDeclRef, rightFields);
+
+                        UInt leftFieldCount = leftFields.Count();
+                        UInt rightFieldCount = rightFields.Count();
+
+                        if( leftFieldCount != rightFieldCount )
+                        {
+                            diagnoseTypeFieldsMismatch(sink, leftDeclRef, rightDeclRef, stack);
+                            return false;
+                        }
+
+                        for( UInt ii = 0; ii < leftFieldCount; ++ii )
+                        {
+                            auto leftField = leftFields[ii];
+                            auto rightField = rightFields[ii];
+
+                            if( leftField.GetName() != rightField.GetName() )
+                            {
+                                diagnoseTypeFieldsMismatch(sink, leftDeclRef, rightDeclRef, stack);
+                                return false;
+                            }
+
+                            auto leftFieldType = GetType(leftField);
+                            auto rightFieldType = GetType(rightField);
+
+                            StructuralTypeMatchStack subStack;
+                            subStack.parent = stack;
+                            subStack.leftDecl = leftField;
+                            subStack.rightDecl = rightField;
+
+                            if(!validateTypesMatch(sink, leftFieldType,rightFieldType, &subStack))
+                                return false;
+                        }
+                    }
+                }
+
+                // Everything seemed to match recursively.
+                return true;
+            }
+        }
+    }
+
+    // If we are looking at `T[N]` and `U[M]` we want to check that
+    // `T` is structurally equivalent to `U` and `N` is the same as `M`.
+    else if( auto leftArrayType = as<ArrayExpressionType>(left) )
+    {
+        if( auto rightArrayType = as<ArrayExpressionType>(right) )
+        {
+            if(!validateTypesMatch(sink, leftArrayType->baseType, rightArrayType->baseType, stack) )
+                return false;
+
+            if(!validateValuesMatch(sink, leftArrayType->ArrayLength, rightArrayType->ArrayLength, stack))
+                return false;
+
+            return true;
+        }
+    }
+
+    diagnoseTypeMismatch(sink, stack);
+    return false;
+}
+
+// This function is supposed to determine if two global shader
+// parameter declarations represent the same logical parameter
+// (so that they should get the exact same binding(s) allocated).
+//
+static bool doesParameterMatch(
+    DiagnosticSink*         sink,
+    DeclRef<VarDeclBase>    varDeclRef,
+    DeclRef<VarDeclBase>    existingVarDeclRef)
+{
+    StructuralTypeMatchStack stack;
+    stack.parent = nullptr;
+    stack.leftDecl = varDeclRef;
+    stack.rightDecl = existingVarDeclRef;
+
+    validateTypesMatch(sink, GetType(varDeclRef), GetType(existingVarDeclRef), &stack);
+
+    return true;
+}
+
+
+
+
+        /// Enumerate the existential-type parameters of a `Program`.
+        ///
+        /// Any parameters found will be added to the list of existential slots on `this`.
+        ///
+    void Program::_collectShaderParams(DiagnosticSink* sink)
+    {
+        // We need to collect all of the global shader parameters
+        // referenced by the compile request, and for each we
+        // need to do a few things:
+        //
+        // * We need to determine if the parameter is a duplicate/redeclaration
+        //   of the "same" parameter in another translation unit, and collapse
+        //   those into one logical shader parameter if so.
+        //
+        // * We need to determine what existential type slots are introduced
+        //   by the parameter, and associate that information with the parameter.
+        //
+        // To deal with the first issue, we will maintain a map from a parameter
+        // name to the index of an existing parameter with that name.
+        //
+        Dictionary<Name*, Int> mapNameToParamIndex;
+
+        for( auto module : getModuleDependencies() )
+        {
+            auto moduleDecl = module->getModuleDecl();
+            for( auto globalVar : moduleDecl->getMembersOfType<VarDecl>() )
+            {
+                if(!isGlobalShaderParameter(globalVar))
+                    continue;
+
+                // This declaration may represent the same logical parameter
+                // as a declaration that came from a different translation unit.
+                // If that is the case, we want to re-use the same `ShaderParamInfo`
+                // across both parameters.
+                //
+                // TODO: This logic currently detects *any* global-scope parameters
+                // with matching names, but it should eventually be narrowly
+                // scoped so that it only applies to parameters from unnamed modules
+                // (that is, modules that represent directly-compiled shader files
+                // and not `import`ed code).
+                //
+                // First we look for an existing entry matching the name
+                // of this parameter:
+                //
+                auto paramName = getReflectionName(globalVar);
+                Int existingParamIndex = -1;
+                if( mapNameToParamIndex.TryGetValue(paramName, existingParamIndex) )
+                {
+                    // If the parameters have the same name, but don't "match" according to some reasonable rules,
+                    // then we will treat them as distinct global parameters.
+                    //
+                    // Note: all of the mismatch cases currently report errors, so that
+                    // compilation will fail on a mismatch.
+                    //
+                    auto& existingParam = m_shaderParams[existingParamIndex];
+                    if( doesParameterMatch(sink, makeDeclRef(globalVar.Ptr()), existingParam.paramDeclRef) )
+                    {
+                        // If we hit this case, then we had a match, and we should
+                        // consider the new variable to be a redclaration of
+                        // the existing one.
+
+                        existingParam.additionalParamDeclRefs.Add(
+                            makeDeclRef(globalVar.Ptr()));
+                        continue;
+                    }
+                }
+
+                Int newParamIndex = Int(m_shaderParams.Count());
+                mapNameToParamIndex.Add(paramName, newParamIndex);
+
+                GlobalShaderParamInfo shaderParamInfo;
+                shaderParamInfo.paramDeclRef = makeDeclRef(globalVar.Ptr());
+
+                _collectExistentialSlotsForShaderParam(
+                    shaderParamInfo,
+                    m_globalExistentialSlots,
+                    makeDeclRef(globalVar.Ptr()));
+
+                m_shaderParams.Add(shaderParamInfo);
+            }
+        }
     }
 
         /// Create a `Program` to represent the compiled code.
@@ -9623,32 +10517,99 @@ namespace Slang
                     Profile profile;
                     profile.setStage(entryPointAttr->stage);
 
-                    validateEntryPoint(funcDecl, entryPointAttr->stage, sink);
-
                     RefPtr<EntryPoint> entryPoint = EntryPoint::create(
                         makeDeclRef(funcDecl),
                         profile);
+
+                    validateEntryPoint(entryPoint, sink);
+
                     program->addEntryPoint(entryPoint);
                     translationUnit->entryPoints.Add(entryPoint);
                 }
             }
         }
 
+        program->_collectShaderParams(sink);
+
         return program;
     }
 
-            /// Create a specialization an existing entry point based on generic arguments.
-    DeclRef<FuncDecl> specializeEntryPoint(
+    static void _specializeExistentialTypeParams(
         Linkage*                    linkage,
-        FuncDecl*                   entryPointFuncDecl,
-        List<RefPtr<Expr>> const&   genericArgs,
+        ExistentialTypeSlots&           ioSlots,
+        List<RefPtr<Expr>> const&   args,
         DiagnosticSink*             sink)
     {
+        UInt slotCount = ioSlots.paramTypes.Count();
+        UInt argCount = args.Count();
+
+        if( slotCount != argCount )
+        {
+            sink->diagnose(SourceLoc(), Diagnostics::mismatchExistentialSlotArgCount, slotCount, argCount);
+            return;
+        }
+
+        SemanticsVisitor visitor(linkage, sink);
+
+        for( UInt ii = 0; ii < slotCount; ++ii )
+        {
+            auto slotType = ioSlots.paramTypes[ii];
+            auto argExpr = args[ii];
+
+            auto argType = checkProperType(linkage, TypeExp(argExpr), sink);
+            if(!argType)
+            {
+                // TODO: Each slot should track a source location and/or a `VarDeclBase`
+                // that names the parameter that the slot corresponds to.
+
+                sink->diagnose(SourceLoc(), Diagnostics::existentialSlotArgNotAType, ii);
+                return;
+            }
+
+
+            auto witness = visitor.tryGetSubtypeWitness(argType, slotType);
+            if (!witness)
+            {
+                // If no witness was found, then we will be unable to satisfy
+                // the conformances required.
+                sink->diagnose(SourceLoc(), Diagnostics::existentialSlotArgDoesNotConform, ii, slotType);
+                return;
+            }
+
+            ExistentialTypeSlots::Arg arg;
+            arg.type = argType;
+            arg.witness = witness;
+            ioSlots.args.Add(arg);
+        }
+    }
+
+    void EntryPoint::_specializeExistentialTypeParams(
+        List<RefPtr<Expr>> const&   args,
+        DiagnosticSink*             sink)
+    {
+        Slang::_specializeExistentialTypeParams(getLinkage(), m_existentialSlots, args, sink);
+    }
+
+            /// Create a specialization an existing entry point based on generic arguments.
+    RefPtr<EntryPoint> createSpecializedEntryPoint(
+        EntryPoint*                 unspecializedEntryPoint,
+        List<RefPtr<Expr>> const&   genericArgs,
+        List<RefPtr<Expr>> const&   existentialArgs,
+        DiagnosticSink*             sink)
+    {
+        auto linkage = unspecializedEntryPoint->getLinkage();
+
+        // TODO: Need to be careful in case entry point already has a decl-ref,
+        // pertaining to outer specializations (e.g., when entry point was
+        // nested in a generic type.
+        //
+        auto entryPointFuncDecl = unspecializedEntryPoint->getFuncDecl();
+
         SemanticsVisitor semantics(
             linkage,
             sink);
 
-        DeclRef<FuncDecl> entryPointFuncDeclRef = makeDeclRef(entryPointFuncDecl);
+        DeclRef<FuncDecl> entryPointFuncDeclRef = makeDeclRef(entryPointFuncDecl.Ptr());
         if( auto genericDecl = as<GenericDecl>(entryPointFuncDecl->ParentDecl) )
         {
             // We will construct a suitable `GenericAppExpr` to represent
@@ -9702,7 +10663,7 @@ namespace Slang
             {
                 // Any semantic error that occured should have been
                 // reported already.
-                return DeclRef<FuncDecl>();
+                return nullptr;
             }
             else
             {
@@ -9710,11 +10671,18 @@ namespace Slang
                 // function should always be a `DeclRefExpr`
                 //
                 SLANG_UNEXPECTED("reference to generic decl wasn't a `DeclRefExpr`");
-                UNREACHABLE_RETURN(DeclRef<FuncDecl>());
+                UNREACHABLE_RETURN(nullptr);
             }
         }
 
-        return entryPointFuncDeclRef;
+        RefPtr<EntryPoint> specializedEntryPoint = EntryPoint::create(
+            entryPointFuncDeclRef,
+            unspecializedEntryPoint->getProfile());
+
+        // Next we need to validate the existential arguments.
+        specializedEntryPoint->_specializeExistentialTypeParams(existentialArgs, sink);
+
+        return specializedEntryPoint;
     }
 
         /// Parse an array of strings as generic arguments.
@@ -9771,11 +10739,20 @@ namespace Slang
         }
     }
 
+    void Program::_specializeExistentialTypeParams(
+        List<RefPtr<Expr>> const&   args,
+        DiagnosticSink*             sink)
+    {
+        Slang::_specializeExistentialTypeParams(getLinkage(), m_globalExistentialSlots, args, sink);
+    }
+
+
         /// Specialize a program to global generic arguments
     RefPtr<Program> createSpecializedProgram(
         Linkage*                    linkage,
         Program*                    unspecializedProgram,
         List<RefPtr<Expr>> const&   globalGenericArgs,
+        List<RefPtr<Expr>> const&   globalExistentialArgs,
         DiagnosticSink*             sink)
     {
         // The given `unspecializedProgram` should be one that
@@ -9827,6 +10804,8 @@ namespace Slang
         // We have an appropriate number of arguments for the global generic parameters,
         // and now we need to check that the arguments conform to the declared constraints.
         //
+        SemanticsVisitor visitor(linkage, sink);
+
         // Along the way, we will build up an appropriate set of substitutions to represent
         // the generic arguments and their conformances.
         //
@@ -9905,7 +10884,6 @@ namespace Slang
                 auto interfaceType = GetSup(DeclRef<GenericTypeConstraintDecl>(constraint, nullptr));
 
                 // Use our semantic-checking logic to search for a witness to the required conformance
-                SemanticsVisitor visitor(linkage, sink);
                 auto witness = visitor.tryGetSubtypeWitness(globalGenericArg, interfaceType);
                 if (!witness)
                 {
@@ -9937,6 +10915,17 @@ namespace Slang
 
         specializedProgram->setGlobalGenericSubsitution(globalGenericSubsts);
 
+        // Now deal with the shader parameters and existential arguments
+        //
+        // Note: We should in theory be able to just copy over the shader
+        // parameters and existential slot information from the unspecialized
+        // program. This could save some time, but it would also mean that
+        // the only way to create a specialized program is by creating an
+        // unspecialized on first, which is maybe not always desirable.
+        //
+        specializedProgram->_collectShaderParams(sink);
+        specializedProgram->_specializeExistentialTypeParams(globalExistentialArgs, sink);
+
         return specializedProgram;
     }
 
@@ -9949,12 +10938,11 @@ namespace Slang
         /// Returns a specialized entry point if everything worked as expected.
         /// Returns null and diagnoses errors if anything goes wrong.
         ///
-    RefPtr<EntryPoint> specializeEntryPoint(
+    RefPtr<EntryPoint> createSpecializedEntryPoint(
         EndToEndCompileRequest*                         endToEndReq,
         EntryPoint*                                     unspecializedEntryPoint,
         EndToEndCompileRequest::EntryPointInfo const&   entryPointInfo)
     {
-        auto linkage = endToEndReq->getLinkage();
         auto sink = endToEndReq->getSink();
         auto entryPointFuncDecl = unspecializedEntryPoint->getFuncDecl();
 
@@ -9967,18 +10955,20 @@ namespace Slang
             entryPointInfo.genericArgStrings,
             genericArgs);
 
+        List<RefPtr<Expr>> existentialArgs;
+        parseGenericArgStrings(
+            endToEndReq,
+            entryPointInfo.existentialArgStrings,
+            existentialArgs);
+
         // Next we specialize the entry point function given the parsed
         // generic argument expressions.
         //
-        auto entryPointFuncDeclRef = specializeEntryPoint(
-            linkage,
-            entryPointFuncDecl,
+        auto entryPoint = createSpecializedEntryPoint(
+            unspecializedEntryPoint,
             genericArgs,
+            existentialArgs,
             sink);
-
-        RefPtr<EntryPoint> entryPoint = EntryPoint::create(
-            entryPointFuncDeclRef,
-            unspecializedEntryPoint->getProfile());
 
         return entryPoint;
     }
@@ -10005,6 +10995,13 @@ namespace Slang
             endToEndReq->globalGenericArgStrings,
             globalGenericArgs);
 
+        // Also handle global existential type arguments.
+        List<RefPtr<Expr>> globalExistentialArgs;
+        parseGenericArgStrings(
+            endToEndReq,
+            endToEndReq->globalExistentialSlotArgStrings,
+            globalExistentialArgs);
+
         // Now we create the initial specialized program by
         // applying the global generic arguments (if any) to the
         // unspecialized program.
@@ -10013,6 +11010,7 @@ namespace Slang
             endToEndReq->getLinkage(),
             unspecializedProgram,
             globalGenericArgs,
+            globalExistentialArgs,
             endToEndReq->getSink());
 
         // If anything went wrong with the global generic
@@ -10045,7 +11043,7 @@ namespace Slang
             auto unspecializedEntryPoint = unspecializedProgram->getEntryPoint(ii);
             auto& entryPointInfo = endToEndReq->entryPoints[ii];
 
-            auto specializedEntryPoint = specializeEntryPoint(endToEndReq, unspecializedEntryPoint, entryPointInfo);
+            auto specializedEntryPoint = createSpecializedEntryPoint(endToEndReq, unspecializedEntryPoint, entryPointInfo);
             specializedProgram->addEntryPoint(specializedEntryPoint);
         }
 

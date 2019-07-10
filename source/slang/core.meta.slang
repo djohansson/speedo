@@ -703,12 +703,12 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 if (isMultisample)
                 {
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetch($0, $1, $3)$z\")\n";
+                    sb << "__target_intrinsic(glsl, \"$ctexelFetch($0, $1, $3)$z\")\n";
                 }
                 else
                 {
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetch($0, ";
+                    sb << "__target_intrinsic(glsl, \"$ctexelFetch($0, ";
                     if( needsMipLevel )
                     {
                         sb << "($1)." << kGLSLLoadCoordsSwizzle[loadCoordCount] << ", ($1)." << kGLSLLoadLODSwizzle[loadCoordCount];
@@ -730,12 +730,12 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 if (isMultisample)
                 {
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetchOffset($0, $0, $1, $2)$z\")\n";
+                    sb << "__target_intrinsic(glsl, \"$ctexelFetchOffset($0, $0, $1, $2)$z\")\n";
                 }
                 else
                 {
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetch($0, ";
+                    sb << "__target_intrinsic(glsl, \"$ctexelFetch($0, ";
                     if( needsMipLevel )
                     {
                         sb << "($1)." << kGLSLLoadCoordsSwizzle[loadCoordCount] << ", ($1)." << kGLSLLoadLODSwizzle[loadCoordCount];
@@ -786,7 +786,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 case SLANG_RESOURCE_ACCESS_NONE:
                 case SLANG_RESOURCE_ACCESS_READ:
                     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-                    sb << "__target_intrinsic(glsl, \"texelFetch($0, " << ivecN << "($1)";
+                    sb << "__target_intrinsic(glsl, \"$ctexelFetch($0, " << ivecN << "($1)";
                     if( !isMultisample )
                     {
                         sb << ", 0";
@@ -799,7 +799,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     break;
 
                 default:
-                    sb << "__target_intrinsic(glsl, \"imageLoad($0, " << ivecN << "($1)";
+                    sb << "__target_intrinsic(glsl, \"$cimageLoad($0, " << ivecN << "($1)";
                     if( isMultisample )
                     {
                         // TODO: how to handle passing through sample index?
@@ -834,13 +834,13 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
             {
                 // `Sample()`
 
-                sb << "__target_intrinsic(glsl, \"texture($p, $2)$z\")\n";
+                sb << "__target_intrinsic(glsl, \"$ctexture($p, $2)$z\")\n";
                 sb << "T Sample(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location);\n";
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureOffset($p, $2, $3)$z\")\n";
+                    sb << "__target_intrinsic(glsl, \"$ctextureOffset($p, $2, $3)$z\")\n";
                     sb << "T Sample(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                     sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset);\n";
@@ -864,13 +864,13 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
 
                 // `SampleBias()`
-                sb << "__target_intrinsic(glsl, \"texture($p, $2, $3)$z\")\n";
+                sb << "__target_intrinsic(glsl, \"$ctexture($p, $2, $3)$z\")\n";
                 sb << "T SampleBias(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, float bias);\n";
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureOffset($p, $2, $3, $4)$z\")\n";
+                    sb << "__target_intrinsic(glsl, \"$ctextureOffset($p, $2, $3, $4)$z\")\n";
                     sb << "T SampleBias(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, float bias, ";
                     sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset);\n";
@@ -898,7 +898,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     if (extCoordCount < 3)
                         extCoordCount = 3;
 
-                    sb << "__target_intrinsic(glsl, \"textureLod($p, ";
+                    sb << "__target_intrinsic(glsl, \"$ctextureLod($p, ";
 
                     sb << "vec" << extCoordCount << "($2,";
                     for (int ii = arrCoordCount; ii < extCoordCount - 1; ++ii)
@@ -916,7 +916,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     if (extCoordCount < 3)
                         extCoordCount = 3;
 
-                    sb << "__target_intrinsic(glsl, \"textureGrad($p, ";
+                    sb << "__target_intrinsic(glsl, \"$ctextureGrad($p, ";
 
                     sb << "vec" << extCoordCount << "($2,";
                     for (int ii = arrCoordCount; ii < extCoordCount - 1; ++ii)
@@ -953,7 +953,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 }
 
 
-                sb << "__target_intrinsic(glsl, \"textureGrad($p, $2, $3, $4)$z\")\n";
+                sb << "__target_intrinsic(glsl, \"$ctextureGrad($p, $2, $3, $4)$z\")\n";
 //                sb << "__intrinsic_op(sampleGrad)\n";
                 sb << "T SampleGrad(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
@@ -963,7 +963,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureGradOffset($p, $2, $3, $4, $5)$z\")\n";
+                    sb << "__target_intrinsic(glsl, \"$ctextureGradOffset($p, $2, $3, $4, $5)$z\")\n";
 //                    sb << "__intrinsic_op(sampleGrad)\n";
                     sb << "T SampleGrad(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
@@ -974,14 +974,14 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
                 // `SampleLevel`
 
-                sb << "__target_intrinsic(glsl, \"textureLod($p, $2, $3)$z\")\n";
+                sb << "__target_intrinsic(glsl, \"$ctextureLod($p, $2, $3)$z\")\n";
                 sb << "T SampleLevel(SamplerState s, ";
                 sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                 sb << "float level);\n";
 
                 if( baseShape != TextureFlavor::Shape::ShapeCube )
                 {
-                    sb << "__target_intrinsic(glsl, \"textureLodOffset($p, $2, $3, $4)$z\")\n";
+                    sb << "__target_intrinsic(glsl, \"$ctextureLodOffset($p, $2, $3, $4)$z\")\n";
                     sb << "T SampleLevel(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                     sb << "float level, ";
@@ -1001,8 +1001,12 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
             static const struct {
                 char const* genericPrefix;
                 char const* elementType;
+                char const* outputType;
             } kGatherExtensionCases[] = {
-                { "__generic<T, let N : int>", "vector<T,N>" },
+                { "__generic<T, let N : int>", "vector<T,N>", "vector<T, 4>" },
+                { "", "float", "vector<float, 4>" },
+                { "", "int" , "vector<int, 4>"},
+                { "", "uint", "vector<uint, 4>"},
 
                 // TODO: need a case here for scalars `T`, but also
                 // need to ensure that case doesn't accidentally match
@@ -1021,7 +1025,6 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                 if (isArray) sb << "Array";
                 sb << "<" << cc.elementType << " >";
                 sb << "\n{\n";
-
 
                 // `Gather`
                 // (tricky because it returns a 4-vector of the element type
@@ -1046,27 +1049,29 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     auto componentIndex = kk.componentIndex;
                     auto componentName = kk.componentName;
 
+                    auto outputType = cc.outputType;
+
                     EMIT_LINE_DIRECTIVE();
 
                     sb << "__target_intrinsic(glsl, \"textureGather($p, $2, " << componentIndex << ")\")\n";
-                    sb << "vector<T, 4> Gather" << componentName << "(SamplerState s, ";
+                    sb << outputType << " Gather" << componentName << "(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount << " location);\n";
 
                     EMIT_LINE_DIRECTIVE();
                     sb << "__target_intrinsic(glsl, \"textureGatherOffset($p, $2, $3, " << componentIndex << ")\")\n";
-                    sb << "vector<T, 4> Gather" << componentName << "(SamplerState s, ";
+                    sb << outputType << " Gather" << componentName << "(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
                     sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset);\n";
 
                     EMIT_LINE_DIRECTIVE();
-                    sb << "vector<T, 4> Gather" << componentName << "(SamplerState s, ";
+                    sb << outputType << " Gather" << componentName << "(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
                     sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset, ";
                     sb << "out uint status);\n";
 
                     EMIT_LINE_DIRECTIVE();
                     sb << "__target_intrinsic(glsl, \"textureGatherOffsets($p, $2, int" << kBaseTextureTypes[tt].coordCount << "[]($3, $4, $5, $6), " << componentIndex << ")\")\n";
-                    sb << "vector<T, 4> Gather" << componentName << "(SamplerState s, ";
+                    sb << outputType << " Gather" << componentName << "(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
                     sb << "int" << kBaseTextureTypes[tt].coordCount << " offset1, ";
                     sb << "int" << kBaseTextureTypes[tt].coordCount << " offset2, ";
@@ -1074,7 +1079,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                     sb << "int" << kBaseTextureTypes[tt].coordCount << " offset4);\n";
 
                     EMIT_LINE_DIRECTIVE();
-                    sb << "vector<T, 4> Gather" << componentName << "(SamplerState s, ";
+                    sb << outputType << " Gather" << componentName << "(SamplerState s, ";
                     sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
                     sb << "int" << kBaseTextureTypes[tt].coordCount << " offset1, ";
                     sb << "int" << kBaseTextureTypes[tt].coordCount << " offset2, ";
@@ -1098,22 +1103,25 @@ for (auto op : unaryOps)
         if ((type.flags & op.flags) == 0)
             continue;
 
+        char const* resultType = type.name;
+        if (op.flags & BOOL_RESULT) resultType = "bool";
+
         char const* fixity = (op.flags & POSTFIX) != 0 ? "__postfix " : "__prefix ";
         char const* qual = (op.flags & ASSIGNMENT) != 0 ? "in out " : "";
 
         // scalar version
         sb << fixity;
-        sb << "__intrinsic_op(" << int(op.opCode) << ") " << type.name << " operator" << op.opName << "(" << qual << type.name << " value);\n";
+        sb << "__intrinsic_op(" << int(op.opCode) << ") " << resultType << " operator" << op.opName << "(" << qual << type.name << " value);\n";
 
         // vector version
         sb << "__generic<let N : int> ";
         sb << fixity;
-        sb << "__intrinsic_op(" << int(op.opCode) << ") vector<" << type.name << ",N> operator" << op.opName << "(" << qual << "vector<" << type.name << ",N> value);\n";
+        sb << "__intrinsic_op(" << int(op.opCode) << ") vector<" << resultType << ",N> operator" << op.opName << "(" << qual << "vector<" << type.name << ",N> value);\n";
 
         // matrix version
         sb << "__generic<let N : int, let M : int> ";
         sb << fixity;
-        sb << "__intrinsic_op(" << int(op.opCode) << ") matrix<" << type.name << ",N,M> operator" << op.opName << "(" << qual << "matrix<" << type.name << ",N,M> value);\n";
+        sb << "__intrinsic_op(" << int(op.opCode) << ") matrix<" << resultType << ",N,M> operator" << op.opName << "(" << qual << "matrix<" << type.name << ",N,M> value);\n";
     }
 }
 
@@ -1128,7 +1136,7 @@ for (auto op : binaryOps)
         char const* rightType = leftType;
         char const* resultType = leftType;
 
-        if (op.flags & COMPARISON) resultType = "bool";
+        if (op.flags & BOOL_RESULT) resultType = "bool";
 
         char const* leftQual = "";
         if(op.flags & ASSIGNMENT) leftQual = "in out ";

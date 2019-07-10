@@ -74,6 +74,8 @@ DIAGNOSTIC(    21, Error, expectedArgumentForOption, "expected an argument for c
 
 DIAGNOSTIC(    24, Error, unknownLineDirectiveMode, "unknown '#line' directive mode '$0'");
 DIAGNOSTIC(    25, Error, unknownFloatingPointMode, "unknown floating-point mode '$0'");
+DIAGNOSTIC(    26, Error, unknownOptimiziationLevel, "unknown optimization level '$0'");
+DIAGNOSTIC(    27, Error, uknownDebugInfoLevel, "unknown debug info level '$0'");
 
 DIAGNOSTIC(    30, Warning, sameStageSpecifiedMoreThanOnce, "the stage '$0' was specified more than once for entry point '$1'")
 DIAGNOSTIC(    31, Error, conflictingStagesForEntryPoint, "conflicting stages have been specified for entry point '$0'")
@@ -242,8 +244,12 @@ DIAGNOSTIC(30201, Error, functionRedefinition, "function '$0' already has a body
 DIAGNOSTIC(30202, Error, functionRedeclarationWithDifferentReturnType, "function '$0' declared to return '$1' was previously declared to return '$2'")
 
 
-DIAGNOSTIC(33070, Error, expectedFunction, "expression preceding parenthesis of apparent call must have function type.")
+DIAGNOSTIC(33070, Error, expectedFunction, "expected a function, got '$0'")
 DIAGNOSTIC(33071, Error, expectedAStringLiteral, "expected a string literal")
+
+DIAGNOSTIC(   -1, Note, noteExplicitConversionPossible, "explicit conversion from '$0' to '$1' is possible")
+DIAGNOSTIC(30080, Error, ambiguousConversion, "more than one implicit conversion exists from '$0' to '$1'")
+
 
 
 
@@ -258,7 +264,6 @@ DIAGNOSTIC(31004, Error, expectedSingleIntArg, "attribute '$0' expects a single 
 DIAGNOSTIC(31005, Error, expectedSingleStringArg, "attribute '$0' expects a single string argument")
 
 DIAGNOSTIC(31006, Error, attributeFunctionNotFound, "Could not find function '$0' for attribute'$1'")
-
 
 DIAGNOSTIC(31100, Error, unknownStageName, "unknown stage name '$0'")
 DIAGNOSTIC(31120, Error, invalidAttributeTarget, "invalid syntax target for user defined attribute")
@@ -287,9 +292,13 @@ DIAGNOSTIC(30500, Error, tooManyInitializers, "too many initializers (expected $
 DIAGNOSTIC(30501, Error, cannotUseInitializerListForArrayOfUnknownSize, "cannot use initializer list for array of statically unknown size '$0'");
 DIAGNOSTIC(30502, Error, cannotUseInitializerListForVectorOfUnknownSize, "cannot use initializer list for vector of statically unknown size '$0'");
 DIAGNOSTIC(30503, Error, cannotUseInitializerListForMatrixOfUnknownSize, "cannot use initializer list for matrix of statically unknown size '$0' rows");
+DIAGNOSTIC(30504, Error, cannotUseInitializerListForType, "cannot use initializer list for type '$0'")
 
 // 306xx: variables
 DIAGNOSTIC(30600, Error, varWithoutTypeMustHaveInitializer, "a variable declaration without an initial-value expression must be given an explicit type");
+
+// 307xx: parameters
+DIAGNOSTIC(30700, Error, outputParameterCannotHaveDefaultValue, "an 'out' or 'inout' parameter cannot have a default-value expression");
 
 DIAGNOSTIC(39999, Error, expectedIntegerConstantWrongType, "expected integer constant (found: '$0')")
 DIAGNOSTIC(39999, Error, expectedIntegerConstantNotConstant, "expression does not evaluate to a compile-time constant")
@@ -356,9 +365,12 @@ DIAGNOSTIC(38024, Error, invalidDispatchThreadIDType, "parameter with SV_Dispatc
 
 DIAGNOSTIC(-1, Note, noteWhenCompilingEntryPoint, "when compiling entry point '$0'")
 
-DIAGNOSTIC(38020, Error, mismatchGlobalGenericArguments, "expected $0 global generic arguments ($1 provided)")
-DIAGNOSTIC(38021, Error, globalTypeArgumentDoesNotConformToInterface, "type argument `$1` for global generic parameter `$0` does not conform to interface `$2`.")
+DIAGNOSTIC(38025, Error, mismatchGlobalGenericArguments, "expected $0 global generic arguments ($1 provided)")
+DIAGNOSTIC(38026, Error, globalTypeArgumentDoesNotConformToInterface, "type argument `$1` for global generic parameter `$0` does not conform to interface `$2`.")
 
+DIAGNOSTIC(38027, Error, mismatchExistentialSlotArgCount, "expected $0 existential slot arguments ($1 provided)")
+DIAGNOSTIC(38028, Error, existentialSlotArgNotAType, "existential slot argument $0 was not a type")
+DIAGNOSTIC(38029, Error, existentialSlotArgDoesNotConform, "existential slot argument $0 does not conform to the required interface '$1'")
 
 DIAGNOSTIC(38200, Error, recursiveModuleImport, "module `$0` recursively imports itself")
 DIAGNOSTIC(39999, Fatal, errorInImportedModule, "error in imported module, compilation ceased.")
@@ -420,6 +432,9 @@ DIAGNOSTIC(41010, Warning, missingReturn, "control flow may reach end of non-'vo
 //
 // 5xxxx - Target code generation.
 //
+
+DIAGNOSTIC(50010, Internal, missingExistentialBindingsForParameter, "missing argument for existential parameter slot");
+
 DIAGNOSTIC(50020, Error, invalidTessCoordType,          "TessCoord must have vec2 or vec3 type.")
 DIAGNOSTIC(50020, Error, invalidFragCoordType,          "FragCoord must be a vec4.")
 DIAGNOSTIC(50020, Error, invalidInvocationIdType,       "InvocationId must have int type.")

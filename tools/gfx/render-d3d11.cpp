@@ -15,6 +15,7 @@
 //#include <slang.h>
 
 #include "../../slang-com-ptr.h"
+#include "flag-combiner.h"
 
 // We will be rendering with Direct3D 11, so we need to include
 // the Windows and D3D11 headers
@@ -54,6 +55,7 @@ public:
 
     // Renderer    implementation
     virtual SlangResult initialize(const Desc& desc, void* inWindowHandle) override;
+    virtual const List<String>& getFeatures() override { return m_features; }
     virtual void setClearColor(const float color[4]) override;
     virtual void clearFrame() override;
     virtual void presentFrame() override;
@@ -329,6 +331,8 @@ public:
     Desc m_desc;
 
     float m_clearColor[4] = { 0, 0, 0, 0 };
+
+    List<String> m_features;
 };
 
 Renderer* createD3D11Renderer()
@@ -413,17 +417,6 @@ SlangResult D3D11Renderer::initialize(const Desc& desc, void* inWindowHandle)
         return SLANG_FAIL;
     }
 
-    UINT deviceFlags = 0;
-
-#ifdef _DEBUG
-    // We will enable the D3D debug more for debug builds.
-    //
-    // TODO: we should probably provide a command-line option
-    // to override this kind of default rather than leave it
-    // up to each back-end to specify.
-    deviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
     // Our swap chain uses RGBA8 with sRGB, with double buffering.
     DXGI_SWAP_CHAIN_DESC swapChainDesc = { 0 };
     swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -455,25 +448,58 @@ SlangResult D3D11Renderer::initialize(const Desc& desc, void* inWindowHandle)
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_9_1;
     const int totalNumFeatureLevels = SLANG_COUNT_OF(featureLevels);
 
-    // On a machine that does not have an up-to-date version of D3D installed,
-    // the `D3D11CreateDeviceAndSwapChain` call will fail with `E_INVALIDARG`
-    // if you ask for featuer level 11_1. The workaround is to call
-    // `D3D11CreateDeviceAndSwapChain` up to twice: the first time with 11_1
-    // at the start of the list of requested feature levels, and the second
-    // time without it.
-    // 
-    // We first try create using hardware and then software (reference) driver
-    // Test until we get a successful result
-
     {
+        // On a machine that does not have an up-to-date version of D3D installed,
+        // the `D3D11CreateDeviceAndSwapChain` call will fail with `E_INVALIDARG`
+        // if you ask for feature level 11_1 (DeviceCheckFlag::UseFullFeatureLevel).
+        // The workaround is to call `D3D11CreateDeviceAndSwapChain` the first time
+        // with 11_1 and then back off to 11_0 if that fails.
+
+        FlagCombiner combiner;
+        // TODO: we should probably provide a command-line option
+        // to override UseDebug of default rather than leave it
+        // up to each back-end to specify.
+
+#if _DEBUG
+        combiner.add(DeviceCheckFlag::UseDebug, ChangeType::OnOff);                 ///< First try debug then non debug
+#else
+        combiner.add(DeviceCheckFlag::UseDebug, ChangeType::Off);                   ///< Don't bother with debug
+#endif
+        combiner.add(DeviceCheckFlag::UseHardwareDevice, ChangeType::OnOff);        ///< First try hardware, then reference
+        combiner.add(DeviceCheckFlag::UseFullFeatureLevel, ChangeType::OnOff);      ///< First try fully featured, then degrade features
+
+        const int numCombinations = combiner.getNumCombinations();
         Result res = SLANG_FAIL;
-        for (int ii = 0; ii < 4; ++ii)
+        for (int i = 0; i < numCombinations; ++i)
         {
-            const D3D_DRIVER_TYPE driverType = (ii & 2) ? D3D_DRIVER_TYPE_REFERENCE : D3D_DRIVER_TYPE_HARDWARE;
-            const int startFeatureIndex = (ii & 1);
+            const auto deviceCheckFlags = combiner.getCombination(i);
+
+            // If we have an adapter set on the desc, look it up. We only need to do so for hardware
+            ComPtr<IDXGIAdapter> adapter;
+            if (desc.adapter.Length() &&  (deviceCheckFlags & DeviceCheckFlag::UseHardwareDevice))
+            {
+                List<ComPtr<IDXGIAdapter>> dxgiAdapters;
+                D3DUtil::findAdapters(deviceCheckFlags, desc.adapter.getUnownedSlice(), dxgiAdapters);
+                if (dxgiAdapters.Count() == 0)
+                {
+                    continue;
+                }
+                adapter = dxgiAdapters[0];
+            }
+
+            // The adapter can be nullptr - that just means 'default', but when so we need to select the driver type
+            D3D_DRIVER_TYPE driverType = D3D_DRIVER_TYPE_UNKNOWN;
+            if (adapter == nullptr)
+            {
+                // If we don't have an adapter, select directly
+                driverType = (deviceCheckFlags & DeviceCheckFlag::UseHardwareDevice) ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_REFERENCE;
+            }
+
+            const int startFeatureIndex = (deviceCheckFlags & DeviceCheckFlag::UseFullFeatureLevel) ? 0 : 1; 
+            const UINT deviceFlags = (deviceCheckFlags & DeviceCheckFlag::UseDebug) ? D3D11_CREATE_DEVICE_DEBUG : 0;
 
             res = D3D11CreateDeviceAndSwapChain_(
-                nullptr,                    // adapter (use default)
+                adapter,                   
                 driverType,
                 nullptr,                    // software
                 deviceFlags,
@@ -777,8 +803,15 @@ Result D3D11Renderer::createBufferResource(Resource::Usage initialUsage, const B
     BufferResource::Desc srcDesc(descIn);
     srcDesc.setDefaults(initialUsage);
 
-    // Make aligned to 256 bytes... not sure why, but if you remove this the tests do fail.
-    const size_t alignedSizeInBytes = D3DUtil::calcAligned(srcDesc.sizeInBytes, 256);
+    auto d3dBindFlags = _calcResourceBindFlags(srcDesc.bindFlags);
+
+    size_t alignedSizeInBytes = srcDesc.sizeInBytes;
+
+    if(d3dBindFlags & D3D11_BIND_CONSTANT_BUFFER)
+    {
+        // Make aligned to 256 bytes... not sure why, but if you remove this the tests do fail.
+        alignedSizeInBytes = D3DUtil::calcAligned(alignedSizeInBytes, 256);
+    }
 
     // Hack to make the initialization never read from out of bounds memory, by copying into a buffer
     List<uint8_t> initDataBuffer;
@@ -791,7 +824,7 @@ Result D3D11Renderer::createBufferResource(Resource::Usage initialUsage, const B
 
     D3D11_BUFFER_DESC bufferDesc = { 0 };
     bufferDesc.ByteWidth = UINT(alignedSizeInBytes);
-    bufferDesc.BindFlags = _calcResourceBindFlags(srcDesc.bindFlags);
+    bufferDesc.BindFlags = d3dBindFlags;
     // For read we'll need to do some staging
     bufferDesc.CPUAccessFlags = _calcResourceAccessFlags(descIn.cpuAccessFlags & Resource::AccessFlag::Write);
     bufferDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -1048,7 +1081,6 @@ Result D3D11Renderer::createBufferView(BufferResource* buffer, ResourceView::Des
             uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
             uavDesc.Format = D3DUtil::getMapFormat(desc.format);
             uavDesc.Buffer.FirstElement = 0;
-            uavDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes);
 
             if(resourceDesc.elementSize)
             {
@@ -1058,6 +1090,11 @@ Result D3D11Renderer::createBufferView(BufferResource* buffer, ResourceView::Des
             {
                 uavDesc.Buffer.Flags |= D3D11_BUFFER_UAV_FLAG_RAW;
                 uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+                uavDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / 4);
+            }
+            else
+            {
+                uavDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / RendererUtil::getFormatSize(desc.format));
             }
 
             ComPtr<ID3D11UnorderedAccessView> uav;
@@ -1076,15 +1113,33 @@ Result D3D11Renderer::createBufferView(BufferResource* buffer, ResourceView::Des
             D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
             srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
             srvDesc.Format = D3DUtil::getMapFormat(desc.format);
-            srvDesc.Buffer.ElementOffset = 0;
-            srvDesc.Buffer.ElementWidth = 1;
             srvDesc.Buffer.FirstElement = 0;
-            srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes);
 
             if(resourceDesc.elementSize)
             {
-                srvDesc.Buffer.ElementWidth = resourceDesc.elementSize;
                 srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / resourceDesc.elementSize);
+            }
+            else if(desc.format == Format::Unknown)
+            {
+                // We need to switch to a different member of the `union`,
+                // so that we can set the `BufferEx.Flags` member.
+                //
+                srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+
+                // Because we've switched, we need to re-set the `FirstElement`
+                // field to be valid, since we can't count on all compilers
+                // to respect that `Buffer.FirstElement` and `BufferEx.FirstElement`
+                // alias in memory.
+                //
+                srvDesc.BufferEx.FirstElement = 0;
+
+                srvDesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+                srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+                srvDesc.BufferEx.NumElements = UINT(resourceDesc.sizeInBytes / 4);
+            }
+            else
+            {
+                srvDesc.Buffer.NumElements = UINT(resourceDesc.sizeInBytes / RendererUtil::getFormatSize(desc.format));
             }
 
             ComPtr<ID3D11ShaderResourceView> srv;

@@ -554,15 +554,16 @@ SLANG_API SlangResourceShape spReflectionType_GetResourceShape(SlangReflectionTy
         return SHAPE;               \
     } while(0)
 
-    CASE(HLSLStructuredBufferType,                      SLANG_STRUCTURED_BUFFER,    SLANG_RESOURCE_ACCESS_READ);
-    CASE(HLSLRWStructuredBufferType,                    SLANG_STRUCTURED_BUFFER,    SLANG_RESOURCE_ACCESS_READ_WRITE);
-    CASE(HLSLRasterizerOrderedStructuredBufferType,     SLANG_STRUCTURED_BUFFER,    SLANG_RESOURCE_ACCESS_RASTER_ORDERED);
-    CASE(HLSLAppendStructuredBufferType,                SLANG_STRUCTURED_BUFFER,    SLANG_RESOURCE_ACCESS_APPEND);
-    CASE(HLSLConsumeStructuredBufferType,               SLANG_STRUCTURED_BUFFER,    SLANG_RESOURCE_ACCESS_CONSUME);
-    CASE(HLSLByteAddressBufferType,                     SLANG_BYTE_ADDRESS_BUFFER,  SLANG_RESOURCE_ACCESS_READ);
-    CASE(HLSLRWByteAddressBufferType,                   SLANG_BYTE_ADDRESS_BUFFER,  SLANG_RESOURCE_ACCESS_READ_WRITE);
-    CASE(HLSLRasterizerOrderedByteAddressBufferType,    SLANG_BYTE_ADDRESS_BUFFER,  SLANG_RESOURCE_ACCESS_RASTER_ORDERED);
-    CASE(UntypedBufferResourceType,                     SLANG_BYTE_ADDRESS_BUFFER,  SLANG_RESOURCE_ACCESS_READ);
+    CASE(HLSLStructuredBufferType,                      SLANG_STRUCTURED_BUFFER,        SLANG_RESOURCE_ACCESS_READ);
+    CASE(HLSLRWStructuredBufferType,                    SLANG_STRUCTURED_BUFFER,        SLANG_RESOURCE_ACCESS_READ_WRITE);
+    CASE(HLSLRasterizerOrderedStructuredBufferType,     SLANG_STRUCTURED_BUFFER,        SLANG_RESOURCE_ACCESS_RASTER_ORDERED);
+    CASE(HLSLAppendStructuredBufferType,                SLANG_STRUCTURED_BUFFER,        SLANG_RESOURCE_ACCESS_APPEND);
+    CASE(HLSLConsumeStructuredBufferType,               SLANG_STRUCTURED_BUFFER,        SLANG_RESOURCE_ACCESS_CONSUME);
+    CASE(HLSLByteAddressBufferType,                     SLANG_BYTE_ADDRESS_BUFFER,      SLANG_RESOURCE_ACCESS_READ);
+    CASE(HLSLRWByteAddressBufferType,                   SLANG_BYTE_ADDRESS_BUFFER,      SLANG_RESOURCE_ACCESS_READ_WRITE);
+    CASE(HLSLRasterizerOrderedByteAddressBufferType,    SLANG_BYTE_ADDRESS_BUFFER,      SLANG_RESOURCE_ACCESS_RASTER_ORDERED);
+    CASE(RaytracingAccelerationStructureType,           SLANG_ACCELERATION_STRUCTURE,   SLANG_RESOURCE_ACCESS_READ);
+    CASE(UntypedBufferResourceType,                     SLANG_BYTE_ADDRESS_BUFFER,      SLANG_RESOURCE_ACCESS_READ);
 #undef CASE
 
     return SLANG_RESOURCE_NONE;
@@ -641,7 +642,8 @@ SLANG_API SlangReflectionType * spReflection_FindTypeByName(SlangReflection * re
     // when type lookup fails.
     //
     Slang::DiagnosticSink sink;
-
+    
+    sink.sourceManager = programLayout->getTargetReq()->getLinkage()->getSourceManager();;
     RefPtr<Type> result = program->getTypeFromString(name, &sink);
     return (SlangReflectionType*)result.Ptr();
 }
@@ -660,7 +662,7 @@ SLANG_API SlangReflectionTypeLayout* spReflection_GetTypeLayout(
     RefPtr<TypeLayout> result;
     if (targetReq->getTypeLayouts().TryGetValue(type, result))
         return (SlangReflectionTypeLayout*)result.Ptr();
-    result = CreateTypeLayout(layoutContext, type);
+    result = createTypeLayout(layoutContext, type);
     targetReq->getTypeLayouts()[type] = result;
     return (SlangReflectionTypeLayout*)result.Ptr();
 }

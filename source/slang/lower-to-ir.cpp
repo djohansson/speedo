@@ -1849,6 +1849,43 @@ void addArgs(
 
 //
 
+// When we try to turn a `LoweredValInfo` into an address of some temporary storage,
+// we can either do it "aggressively" or not (what we'll call the "default" behavior,
+// although it isn't strictly more common).
+//
+// The case that this is mostly there to address is when somebody writes an operation
+// like:
+//
+//      foo[a] = b;
+//
+// In that case, we might as well just use the `set` accessor if there is one, rather
+// than complicate things. However, in more complex cases like:
+//
+//      foo[a].x = b;
+//
+// there is no way to satisfy the semantics of the code the user wrote (in terms of
+// only writing one vector component, and not a full vector) by using the `set`
+// accessor, and we need to be "aggressive" in turning the lvalue `foo[a]` into
+// an address.
+//
+// TODO: realistically IR lowering is too early to be binding to this choice,
+// because different accessors might be supported on different targets.
+//
+enum class TryGetAddressMode
+{
+    Default,
+    Aggressive,
+};
+
+/// Try to coerce `inVal` into a `LoweredValInfo::ptr()` with a simple address.
+LoweredValInfo tryGetAddress(
+    IRGenContext*           context,
+    LoweredValInfo const&   inVal,
+    TryGetAddressMode       mode);
+
+
+//
+
 template<typename Derived>
 struct ExprLoweringVisitorBase : ExprVisitor<Derived, LoweredValInfo>
 {
@@ -2607,6 +2644,17 @@ struct ExprLoweringVisitorBase : ExprVisitor<Derived, LoweredValInfo>
         IRInst*         indexVal)
     {
         auto builder = getBuilder();
+
+        // The `tryGetAddress` operation will take a complex value representation
+        // and try to turn it into a single pointer, if possible.
+        //
+        baseVal = tryGetAddress(context, baseVal, TryGetAddressMode::Aggressive);
+
+        // The `materialize` operation should ensure that we only have to deal
+        // with the small number of base cases for lowered value representations.
+        //
+        baseVal = materialize(context, baseVal);
+
         switch (baseVal.flavor)
         {
         case LoweredValInfo::Flavor::Simple:
@@ -3646,35 +3694,6 @@ static LoweredValInfo moveIntoMutableTemp(
     return var;
 }
 
-// When we try to turn a `LoweredValInfo` into an address of some temporary storage,
-// we can either do it "aggressively" or not (what we'll call the "default" behavior,
-// although it isn't strictly more common).
-//
-// The case that this is mostly there to address is when somebody writes an operation
-// like:
-//
-//      foo[a] = b;
-//
-// In that case, we might as well just use the `set` accessor if there is one, rather
-// than complicate things. However, in more complex cases like:
-//
-//      foo[a].x = b;
-//
-// there is no way to satisfy the semantics of the code the user wrote (in terms of
-// only writing one vector component, and not a full vector) by using the `set`
-// accessor, and we need to be "aggressive" in turning the lvalue `foo[a]` into
-// an address.
-//
-// TODO: realistically IR lowering is too early to be binding to this choice,
-// because different accessors might be supported on different targets.
-//
-enum class TryGetAddressMode
-{
-    Default,
-    Aggressive,
-};
-
-/// Try to coerce `inVal` into a `LoweredValInfo::ptr()` with a simple address.
 LoweredValInfo tryGetAddress(
     IRGenContext*           context,
     LoweredValInfo const&   inVal,
@@ -4793,21 +4812,23 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         // A user-defined variable declaration will usually turn into
         // an `alloca` operation for the variable's storage,
         // plus some code to initialize it and then store to the variable.
-        //
-        // TODO: we may want to special-case things when the variable's
-        // type, qualifiers, or context mark it as something that can't
-        // be mutable (or even do some limited dataflow pass to check
-        // which variables ever get assigned) so that we can directly
-        // emit an SSA value in this common case.
-        //
 
         IRType* varType = lowerType(context, decl->getType());
 
-        // TODO: If the variable is marked `static` then we need to
-        // deal with it specially: we should move its allocation out
-        // to the global scope, and then we have to deal with its
-        // initializer expression a bit carefully (it should only
-        // be initialized on-demand at its first use).
+        // As a special case, an immutable local variable with an
+        // initializer can just lower to the SSA value of its initializer.
+        //
+        if(as<LetDecl>(decl))
+        {
+            if(auto initExpr = decl->initExpr)
+            {
+                auto initVal = lowerRValueExpr(context, initExpr);
+                initVal = materialize(context, initVal);
+                setGlobalValue(context, decl, initVal);
+                return initVal;
+            }
+        }
+
 
         LoweredValInfo varVal = createVar(context, varType, decl);
 
@@ -6187,6 +6208,30 @@ static void lowerProgramEntryPointToIR(
     {
         builder->addExportDecoration(loweredEntryPointFunc, getMangledName(entryPointFuncDeclRef).getUnownedSlice());
     }
+
+    // We may have shader parameters of interface/existential type,
+    // which need us to supply concrete type information for specialization.
+    //
+    auto existentialTypeArgCount = entryPoint->getExistentialTypeArgCount();
+    if( existentialTypeArgCount )
+    {
+        List<IRInst*> existentialSlotArgs;
+        for( UInt ii = 0; ii < existentialTypeArgCount; ++ii )
+        {
+            auto arg = entryPoint->getExistentialTypeArg(ii);
+
+            auto irArgType = lowerType(context, arg.type);
+            auto irWitnessTable = lowerSimpleVal(context, arg.witness);
+
+            existentialSlotArgs.Add(irArgType);
+            existentialSlotArgs.Add(irWitnessTable);
+        }
+
+        builder->addBindExistentialSlotsDecoration(loweredEntryPointFunc, existentialSlotArgs.Count(), existentialSlotArgs.Buffer());
+    }
+
+
+
 }
 
     /// Ensure that `decl` and all relevant declarations under it get emitted.
@@ -6393,6 +6438,28 @@ RefPtr<IRModule> generateIRForProgram(
             builder->emitBindGlobalGenericParam(constraintParam, constraintVal);
         }
     }
+
+    // We may have shader parameters of interface/existential type,
+    // which need us to supply concrete type information for specialization.
+    //
+    auto existentialTypeArgCount = program->getExistentialTypeArgCount();
+    if( existentialTypeArgCount )
+    {
+        List<IRInst*> existentialSlotArgs;
+        for( UInt ii = 0; ii < existentialTypeArgCount; ++ii )
+        {
+            auto arg = program->getExistentialTypeArg(ii);
+
+            auto irArgType = lowerType(context, arg.type);
+            auto irWitnessTable = lowerSimpleVal(context, arg.witness);
+
+            existentialSlotArgs.Add(irArgType);
+            existentialSlotArgs.Add(irWitnessTable);
+        }
+
+        builder->emitBindGlobalExistentialSlots(existentialSlotArgs.Count(), existentialSlotArgs.Buffer());
+    }
+
 
     // TODO: Should we apply any of the validation or
     // mandatory optimization passes here?

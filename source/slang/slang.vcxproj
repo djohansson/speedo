@@ -181,6 +181,7 @@
     <ClInclude Include="expr-defs.h" />
     <ClInclude Include="glsl.meta.slang.h" />
     <ClInclude Include="hlsl.meta.slang.h" />
+    <ClInclude Include="ir-bind-existentials.h" />
     <ClInclude Include="ir-clone.h" />
     <ClInclude Include="ir-constexpr.h" />
     <ClInclude Include="ir-dce.h" />
@@ -223,6 +224,7 @@
     <ClInclude Include="syntax-defs.h" />
     <ClInclude Include="syntax-visitors.h" />
     <ClInclude Include="syntax.h" />
+    <ClInclude Include="tmpC85.tmp.h" />
     <ClInclude Include="token-defs.h" />
     <ClInclude Include="token.h" />
     <ClInclude Include="type-defs.h" />
@@ -237,6 +239,7 @@
     <ClCompile Include="diagnostics.cpp" />
     <ClCompile Include="dxc-support.cpp" />
     <ClCompile Include="emit.cpp" />
+    <ClCompile Include="ir-bind-existentials.cpp" />
     <ClCompile Include="ir-clone.cpp" />
     <ClCompile Include="ir-constexpr.cpp" />
     <ClCompile Include="ir-dce.cpp" />
@@ -316,4 +319,4 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
-</Project> 
+</Project>

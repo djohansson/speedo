@@ -226,6 +226,10 @@ namespace Slang
                 }
             }
         }
+
+        // Collect any existential-type parameters used by the entry point
+        //
+        _collectShaderParams();
     }
 
     Module* EntryPoint::getModule()
@@ -742,7 +746,29 @@ namespace Slang
         flags |= D3DCOMPILE_ENABLE_STRICTNESS;
         flags |= D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES;
 
-        const String sourcePath = "slang-geneated";// calcTranslationUnitSourcePath(entryPoint->getTranslationUnit());
+        auto linkage = compileRequest->getLinkage();
+        switch( linkage->optimizationLevel )
+        {
+        default:
+            break;
+
+        case OptimizationLevel::None:       flags |= D3DCOMPILE_OPTIMIZATION_LEVEL0; break;
+        case OptimizationLevel::Default:    flags |= D3DCOMPILE_OPTIMIZATION_LEVEL1; break;
+        case OptimizationLevel::High:       flags |= D3DCOMPILE_OPTIMIZATION_LEVEL2; break;
+        case OptimizationLevel::Maximal:    flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3; break;
+        }
+
+        switch( linkage->debugInfoLevel )
+        {
+        case DebugInfoLevel::None:
+            break;
+
+        default:
+            flags |= D3DCOMPILE_DEBUG;
+            break;
+        }
+
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
 
         ComPtr<ID3DBlob> codeBlob;
         ComPtr<ID3DBlob> diagnosticsBlob;
@@ -839,7 +865,7 @@ namespace Slang
 
 // Implementations in `dxc-support.cpp`
 
-int emitDXILForEntryPointUsingDXC(
+SlangResult emitDXILForEntryPointUsingDXC(
     BackEndCompileRequest*  compileRequest,
     EntryPoint*             entryPoint,
     Int                     entryPointIndex,

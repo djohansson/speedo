@@ -91,7 +91,7 @@ namespace Slang
         RefPtr<Scope> currentScope;
 
         TokenReader tokenReader;
-        DiagnosticSink * sink;
+        DiagnosticSink* sink;
         int genericDepth = 0;
 
         // Have we seen any `import` declarations? If so, we need
@@ -388,7 +388,7 @@ namespace Slang
         }
         for (int ii = 0; ii < recoverAfterCount; ++ii)
         {
-            switch (recoverBefore[ii])
+            switch (recoverAfter[ii])
             {
             default:
                 break;
@@ -454,8 +454,9 @@ namespace Slang
                     // We are looking for end-of-file, so it is okay to skip here
                 }
                 else
-
-                return false;
+                {
+                    return false;
+                }
             }
 
             // Skip balanced tokens and try again.
@@ -818,8 +819,12 @@ namespace Slang
         auto keywordToken = advanceToken(parser);
 
         RefPtr<RefObject> parsedObject = syntaxDecl->parseCallback(parser, syntaxDecl->parseUserData);
-        auto syntax = as<T>(parsedObject);
+        if (!parsedObject)
+        {
+            return false;
+        }
 
+        auto syntax = as<T>(parsedObject);
         if (syntax)
         {
             if (!syntax->loc.isValid())
@@ -1733,8 +1738,10 @@ namespace Slang
     }
     static RefPtr<Expr> parseMemberType(Parser * parser, RefPtr<Expr> base)
     {
+        // When called the :: or . have been consumed, so don't need to consume here.
+
         RefPtr<MemberExpr> memberExpr = new MemberExpr();
-        parser->ReadToken(TokenType::Dot);
+
         parser->FillPosition(memberExpr.Ptr());
         memberExpr->BaseExpression = base;
         memberExpr->name = expectIdentifier(parser).name;
@@ -1848,18 +1855,17 @@ namespace Slang
             case TokenType::OpLess:
                 typeExpr = parseGenericApp(parser, typeExpr);
                 break;
+            case TokenType::Scope:
+                parser->ReadToken(TokenType::Scope);
+                typeExpr = parseMemberType(parser, typeExpr);
+                break;
             case TokenType::Dot:
+                parser->ReadToken(TokenType::Dot);
                 typeExpr = parseMemberType(parser, typeExpr);
                 break;
             default:
                 shouldLoop = false;
             }
-        }
-
-        // GLSL allows `[]` directly in a type specifier
-        if (parser->getSourceLanguage() == SourceLanguage::GLSL)
-        {
-            typeExpr = parsePostfixTypeSuffix(parser, typeExpr);
         }
 
         typeSpec.expr = typeExpr;
@@ -3023,8 +3029,9 @@ namespace Slang
         FillPosition(rs.Ptr());
         ReadToken("class");
         rs->nameAndLoc = expectIdentifier(this);
-        ReadToken(TokenType::LBrace);
+
         parseOptionalInheritanceClause(this, rs.Ptr());
+
         parseAggTypeDeclBody(this, rs.Ptr());
         return rs;
     }
@@ -4192,6 +4199,26 @@ namespace Slang
                 }
                 break;
 
+            // Scope access `x::m`
+            case TokenType::Scope:
+            {
+                RefPtr<StaticMemberExpr> staticMemberExpr = new StaticMemberExpr();
+
+                // TODO(tfoley): why would a member expression need this?
+                staticMemberExpr->scope = parser->currentScope.Ptr();
+
+                parser->FillPosition(staticMemberExpr.Ptr());
+                staticMemberExpr->BaseExpression = expr;
+                parser->ReadToken(TokenType::Scope);
+                staticMemberExpr->name = expectIdentifier(parser).name;
+
+                if (peekTokenType(parser) == TokenType::OpLess)
+                    expr = maybeParseGenericApp(parser, staticMemberExpr);
+                else
+                    expr = staticMemberExpr;
+
+                break;
+            }
             // Member access `x.m`
             case TokenType::Dot:
                 {
@@ -4444,7 +4471,14 @@ namespace Slang
 
                 parser->ReadToken(TokenType::OpAssign);
 
+                // If the token asked for is not returned found will put in recovering state, and return token found
                 Token valToken = parser->ReadToken(TokenType::IntegerLiteral);
+                // If wasn't the desired IntegerLiteral return that couldn't parse
+                if (valToken.type != TokenType::IntegerLiteral)
+                {
+                    return nullptr;
+                }
+
                 // Work out the value
                 auto value = getIntegerLiteralValue(valToken);
 

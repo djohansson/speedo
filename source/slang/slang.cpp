@@ -429,13 +429,12 @@ void TranslationUnitRequest::addSourceFile(SourceFile* sourceFile)
     // We want to record that the compiled module has a dependency
     // on the path of the source file, but we also need to account
     // for cases where the user added a source string/blob without
-    // an associated path (so that the API passes along an empty
-    // string).
-    //
-    auto path = sourceFile->getPathInfo().foundPath;
-    if(path.Length())
+    // an associated path and/or wasn't from a file.
+
+    auto pathInfo = sourceFile->getPathInfo();
+    if (pathInfo.hasFileFoundPath())
     {
-        getModule()->addFilePathDependency(path);
+        getModule()->addFilePathDependency(pathInfo.foundPath);
     }
 }
 
@@ -560,7 +559,7 @@ Type* Program::getTypeFromString(String typeStr, DiagnosticSink* sink)
         RefPtr<Expr> typeExpr = linkage->parseTypeString(
             typeStr, s);
         type = checkProperType(linkage, TypeExp(typeExpr), sink);
-        if(type)
+        if (type && !type.as<ErrorType>())
             break;
     }
     if( type )
@@ -589,8 +588,18 @@ void FrontEndCompileRequest::parseTranslationUnit(
     TranslationUnitRequest* translationUnit)
 {
     IncludeHandlerImpl includeHandler;
-    includeHandler.linkage = getLinkage();
-    includeHandler.searchDirectories = &searchDirectories;
+
+    auto linkage = getLinkage();
+
+    // TODO(JS): NOTE! Here we are using the searchDirectories on the linkage. This is because
+    // currently the API only allows the setting search paths on linkage.
+    // 
+    // Here we should probably be using the searchDirectories on the FrontEndCompileRequest.
+    // If searchDirectories.parent pointed to the one in the Linkage would mean linkage paths
+    // would be checked too (after those on the FrontEndCompileRequest). 
+
+    includeHandler.linkage = linkage;
+    includeHandler.searchDirectories = &linkage->searchDirectories;
 
     RefPtr<Scope> languageScope;
     switch (translationUnit->sourceLanguage)
@@ -968,8 +977,8 @@ void FrontEndCompileRequest::addTranslationUnitSourceBlob(
     String const&   path,
     ISlangBlob*     sourceBlob)
 {
-    PathInfo pathInfo = PathInfo::makePath(path);
-    SourceFile* sourceFile = getSourceManager()->createSourceFileWithBlob(pathInfo, sourceBlob);
+    // The path specified may or may not be a file path - mark as being constructed 'FromString'.
+    SourceFile* sourceFile = getSourceManager()->createSourceFileWithBlob(PathInfo::makeFromString(path), sourceBlob);
     
     addTranslationUnitSourceFile(translationUnitIndex, sourceFile);
 }
@@ -979,9 +988,9 @@ void FrontEndCompileRequest::addTranslationUnitSourceString(
     String const&   path,
     String const&   source)
 {
-    PathInfo pathInfo = PathInfo::makePath(path);
-    SourceFile* sourceFile = getSourceManager()->createSourceFileWithString(pathInfo, source);
-    
+    // The path specified may or may not be a file path - mark as being constructed 'FromString'.
+    SourceFile* sourceFile = getSourceManager()->createSourceFileWithString(PathInfo::makeFromString(path), source);
+
     addTranslationUnitSourceFile(translationUnitIndex, sourceFile);
 }
 
@@ -1009,10 +1018,10 @@ void FrontEndCompileRequest::addTranslationUnitSourceFile(
         return;
     }
 
-    addTranslationUnitSourceBlob(
-        translationUnitIndex,
-        path,
-        sourceBlob);
+    // Was loaded from the specified path
+    const auto pathInfo = PathInfo::makePath(path);
+    SourceFile* sourceFile = getSourceManager()->createSourceFileWithBlob(pathInfo, sourceBlob);
+    addTranslationUnitSourceFile(translationUnitIndex, sourceFile);
 }
 
 int FrontEndCompileRequest::addEntryPoint(
@@ -1490,6 +1499,14 @@ void Session::addBuiltinSource(
         m_builtinLinkage,
         &sink);
 
+    SourceManager* sourceManager = getBuiltinSourceManager();
+
+    // Set the source manager on the sink
+    sink.sourceManager = sourceManager;
+    // Make the linkage use the builtin source manager
+    Linkage* linkage = compileRequest->getLinkage();
+    linkage->setSourceManager(sourceManager);
+
     Name* moduleName = getNamePool()->getName(path);
     auto translationUnitIndex = compileRequest->addTranslationUnit(SourceLanguage::Slang, moduleName);
 
@@ -1816,6 +1833,30 @@ SLANG_API void spSetTargetMatrixLayoutMode(
     spSetMatrixLayoutMode(request, mode);
 }
 
+/*!
+@brief Set the level of debug information to produce.
+*/
+SLANG_API void spSetDebugInfoLevel(
+    SlangCompileRequest*    request,
+    SlangDebugInfoLevel     level)
+{
+    auto req = convert(request);
+    auto linkage = req->getLinkage();
+    linkage->debugInfoLevel = Slang::DebugInfoLevel(level);
+}
+
+/*!
+@brief Set the level of optimization to perform.
+*/
+SLANG_API void spSetOptimizationLevel(
+    SlangCompileRequest*    request,
+    SlangOptimizationLevel  level)
+{
+    auto req = convert(request);
+    auto linkage = req->getLinkage();
+    linkage->optimizationLevel = Slang::OptimizationLevel(level);
+}
+
 
 SLANG_API void spSetOutputContainerFormat(
     SlangCompileRequest*    request,
@@ -2083,6 +2124,45 @@ SLANG_API SlangResult spSetGlobalGenericArgs(
     return SLANG_OK;
 }
 
+SLANG_API SlangResult spSetTypeNameForGlobalExistentialTypeParam(
+    SlangCompileRequest*    request,
+    int                     slotIndex,
+    char const*             typeName)
+{
+    if(!request)        return SLANG_FAIL;
+    if(slotIndex < 0)   return SLANG_FAIL;
+    if(!typeName)       return SLANG_FAIL;
+
+    auto req = convert(request);
+    auto& typeArgStrings = req->globalExistentialSlotArgStrings;
+    if(Slang::UInt(slotIndex) >= typeArgStrings.Count())
+        typeArgStrings.SetSize(slotIndex+1);
+    typeArgStrings[slotIndex] = Slang::String(typeName);
+    return SLANG_OK;
+}
+
+SLANG_API SlangResult spSetTypeNameForEntryPointExistentialTypeParam(
+    SlangCompileRequest*    request,
+    int                     entryPointIndex,
+    int                     slotIndex,
+    char const*             typeName)
+{
+    if(!request)            return SLANG_FAIL;
+    if(entryPointIndex < 0) return SLANG_FAIL;
+    if(slotIndex < 0)       return SLANG_FAIL;
+    if(!typeName)           return SLANG_FAIL;
+
+    auto req = convert(request);
+    if(Slang::UInt(entryPointIndex) >= req->entryPoints.Count())
+        return SLANG_FAIL;
+
+    auto& entryPointInfo = req->entryPoints[entryPointIndex];
+    auto& typeArgStrings = entryPointInfo.existentialArgStrings;
+    if(Slang::UInt(slotIndex) >= typeArgStrings.Count())
+        typeArgStrings.SetSize(slotIndex+1);
+    typeArgStrings[slotIndex] = Slang::String(typeName);
+    return SLANG_OK;
+}
 
 // Compile in a context that already has its translation units specified
 SLANG_API SlangResult spCompile(

@@ -387,8 +387,10 @@ Result RenderTestApp::initializeShaders(ShaderCompiler* shaderCompiler)
 		compileRequest.computeShader.source = sourceInfo;
 		compileRequest.computeShader.name = computeEntryPointName;
 	}
-	compileRequest.globalTypeArguments = m_shaderInputLayout.globalTypeArguments;
-	compileRequest.entryPointTypeArguments = m_shaderInputLayout.entryPointTypeArguments;
+	compileRequest.globalGenericTypeArguments = m_shaderInputLayout.globalGenericTypeArguments;
+	compileRequest.entryPointGenericTypeArguments = m_shaderInputLayout.entryPointGenericTypeArguments;
+	compileRequest.globalExistentialTypeArguments = m_shaderInputLayout.globalExistentialTypeArguments;
+	compileRequest.entryPointExistentialTypeArguments = m_shaderInputLayout.entryPointExistentialTypeArguments;
 	m_shaderProgram = shaderCompiler->compileProgram(compileRequest);
 
     return m_shaderProgram ? SLANG_OK : SLANG_FAIL;
@@ -553,24 +555,47 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
 			return SLANG_FAIL;
 	}
 
+    StringBuilder rendererName;
+    rendererName << "[" << RendererUtil::toText(gOptions.rendererType) << "] ";
+    if (gOptions.adapter.Length())
+    {
+        rendererName << "'" << gOptions.adapter << "'";
+    }
+
+
     if (!renderer)
     {
-        fprintf(stderr, "Unable to create renderer\n");
+        fprintf(stderr, "Unable to create renderer %s\n", rendererName.Buffer());
         return SLANG_FAIL;
     }
 
     Renderer::Desc desc;
     desc.width = gWindowWidth;
     desc.height = gWindowHeight;
+    desc.adapter = gOptions.adapter;
 
     {
         SlangResult res = renderer->initialize(desc, (HWND)window->getHandle());
         if (SLANG_FAILED(res))
         {
-            fprintf(stderr, "Unable to initialize renderer\n");
+            fprintf(stderr, "Unable to initialize renderer %s\n", rendererName.Buffer());
             return res;
         }
     }
+
+    {
+        for (const auto& feature : gOptions.renderFeatures)
+        {
+            // If doesn't have required feature... we have to give up
+            if (!renderer->hasFeature(feature.getUnownedSlice()))
+            {
+                return SLANG_E_NOT_AVAILABLE;
+            }
+        }
+    }
+
+    // Use the profile name set on options if set
+    profileName = gOptions.profileName ? gOptions.profileName : profileName;
 
     ShaderCompiler shaderCompiler;
     shaderCompiler.renderer = renderer;
@@ -665,7 +690,6 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
 	return SLANG_OK;
 }
 
-
 int main(int argc, char**  argv)
 {
     using namespace Slang;
@@ -676,6 +700,6 @@ int main(int argc, char**  argv)
     SlangResult res = innerMain(stdWriters, session, argc, argv);
     spDestroySession(session);
 
-	return SLANG_FAILED(res) ? 1 : 0;
+	return (int)TestToolUtil::getReturnCode(res);
 }
 
