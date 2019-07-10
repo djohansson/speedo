@@ -107,7 +107,7 @@ static bool isNameNextChar(char c)
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c == '_') || (c >= '0' && c <= '9');
 }
 
-namespace { // anonymous
+namespace renderapiutil { // anonymous
 enum class Token 
 {
     eError,
@@ -117,9 +117,11 @@ enum class Token
 };
 }
 
-static Token nextToken(Slang::UnownedStringSlice& textInOut, Slang::UnownedStringSlice& lexemeOut)
+static renderapiutil::Token nextToken(Slang::UnownedStringSlice& textInOut, Slang::UnownedStringSlice& lexemeOut)
 {
     using namespace Slang;
+    using namespace renderapiutil;
+
     if (textInOut.size() <= 0)
     {
         return Token::eEnd;
@@ -154,6 +156,7 @@ static Token nextToken(Slang::UnownedStringSlice& textInOut, Slang::UnownedStrin
 /* static */Slang::Result RenderApiUtil::parseApiFlags(const Slang::UnownedStringSlice& textIn, RenderApiFlags initialFlags, RenderApiFlags* apiFlagsOut)
 {
     using namespace Slang;
+    using namespace renderapiutil;
 
     UnownedStringSlice text(textIn);
     UnownedStringSlice lexeme;
