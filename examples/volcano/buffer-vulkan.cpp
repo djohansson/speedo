@@ -5,19 +5,19 @@
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
     VkDevice device, VmaAllocator allocator,
-    const BufferData<GraphicsBackend::Vulkan>& data)
+    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : device(device)
     , allocator(allocator)
-    , format(data.format)
+    , desc(std::move(desc))
 {
-    assert(data.bufferData.get() == nullptr); // todo: implement constructor for this case
+    assert(desc.initialData == nullptr); // todo: implement
 
     std::tie(buffer, bufferMemory) = createBuffer(
-			allocator, data.bufferSize, data.usageFlags, data.memoryFlags, data.debugName.c_str());
+		allocator, desc.size, desc.usageFlags, desc.memoryFlags, desc.debugName);
 
-    if (data.usageFlags == VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT ||
-        data.usageFlags == VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)
-        bufferView = createBufferView(device, buffer, 0, data.format, data.offset, data.range);
+    if (desc.usageFlags == VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT ||
+        desc.usageFlags == VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)
+        bufferView = createBufferView(device, buffer, 0, desc.format, desc.offset, desc.range);
 }
 
 template <>

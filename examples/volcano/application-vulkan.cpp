@@ -887,17 +887,18 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice, myPhysicalDevice, myAllocator, frameCount,
         *myDefaultResources->window);
 
-    BufferData<GraphicsBackend::Vulkan> bufferData =
+    BufferCreateDesc<GraphicsBackend::Vulkan> bufferDesc =
     {
         frameCount * (NX * NY) * sizeof(ViewBufferData),
-        nullptr,
         VK_FORMAT_UNDEFINED,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         0,
         VK_WHOLE_SIZE,
+        nullptr,
+        "viewBuffer"
     };
-    window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(myDevice, myAllocator, bufferData);
+    window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(myDevice, myAllocator, std::move(bufferDesc));
 
     // todo: append stencil bit for depthstencil composite formats
     TextureData<GraphicsBackend::Vulkan> textureData = 
