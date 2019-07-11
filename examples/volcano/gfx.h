@@ -103,6 +103,14 @@ struct PipelineCacheHeader
 
 struct ViewData
 {
+	struct BufferData
+	{
+		glm::mat4 model;
+		glm::mat4 view;
+		glm::mat4 proj;
+		glm::mat4 pad;
+	};
+
 	struct ViewportData
 	{
 		uint32_t width = 0;

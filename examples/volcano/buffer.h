@@ -40,7 +40,7 @@ private:
     DeviceHandle<B> myDevice = 0; 
     AllocatorHandle<B> myAllocator = 0;
 
-    BufferCreateDesc<B> myDesc;
+    BufferCreateDesc<B> myDesc = {};
 
 	BufferHandle<B> myBuffer = 0;
 	AllocationHandle<B> myBufferMemory = 0;

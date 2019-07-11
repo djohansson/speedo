@@ -190,38 +190,28 @@ private:
 	//
 
 	// todo: encapsulate in View/ViewData
-	struct ViewBufferData
-	{
-		glm::mat4 model;
-		glm::mat4 view;
-		glm::mat4 proj;
-		glm::mat4 pad;
-	};
 	void updateViewMatrix(ViewData& view) const;
 	void updateProjectionMatrix(ViewData& view) const;
 	//
 
 	InstanceHandle<B> myInstance = 0;
 
+	// todo: encapsulate in DeviceContext
 	PhysicalDeviceHandle<B> myPhysicalDevice = 0;
 	PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
 	DeviceHandle<B> myDevice = 0;
-	
 	// todo -> generic
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
 	TracyVkCtx myTracyContext;
 	// end todo
-	
 	int myQueueFamilyIndex = -1;
 	QueueHandle<B> myQueue = 0;
-
 	AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
-
 	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [threadCount]
 	CommandPoolHandle<B> myTransferCommandPool = 0;
-
 	PipelineCacheHandle<B> myPipelineCache = 0;
+	//
 
 	static constexpr uint32_t NX = 2;
 	static constexpr uint32_t NY = 1;

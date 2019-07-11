@@ -43,10 +43,10 @@ public:
 
 private:
 
-    TextureCreateDesc<B> myDesc;
-
     DeviceHandle<B> myDevice = 0; 
     AllocatorHandle<B> myAllocator = 0;
+
+    TextureCreateDesc<B> myDesc = {};
 
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
