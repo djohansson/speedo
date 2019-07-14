@@ -8,11 +8,8 @@ template <GraphicsBackend B>
 struct BufferCreateDesc
 {
     DeviceSize<B> size = 0;
-    Format<B> format;
     Flags<B> usageFlags = 0;
     Flags<B> memoryFlags = 0;
-    DeviceSize<B> offset = 0;
-    DeviceSize<B> range = 0;
     // todo: avoid temp copy - copy directly from mapped memory to gpu
     std::unique_ptr<std::byte[]> initialData;
     std::string debugName;
@@ -33,7 +30,8 @@ public:
     
     const auto getBuffer() const { return myBuffer; }
     const auto getBufferMemory() const { return myBufferMemory; }
-    const auto getBufferView() const { return myBufferView; }
+    
+    BufferViewHandle<B> createView(Format<B> format, DeviceSize<B> offset, DeviceSize<B> range) const;
 
 private:
 
@@ -44,5 +42,4 @@ private:
 
 	BufferHandle<B> myBuffer = 0;
 	AllocationHandle<B> myBufferMemory = 0;
-    BufferViewHandle<B> myBufferView = 0;
 };

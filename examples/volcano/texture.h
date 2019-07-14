@@ -14,7 +14,6 @@ struct TextureCreateDesc
     DeviceSize<B> size = 0;
     Format<B> format;
     Flags<B> flags = 0;
-    Flags<B> aspectFlags;
     // todo: avoid temp copy - copy directly from mapped memory to gpu
     std::unique_ptr<std::byte[]> initialData;
     std::string debugName;
@@ -39,8 +38,9 @@ public:
     
     const auto getImage() const { return myImage; }
     const auto getImageMemory() const { return myImageMemory; }
-    const auto getImageView() const { return myImageView; }
 
+    ImageViewHandle<B> createView(Flags<B> aspectFlags) const;
+    
 private:
 
     DeviceHandle<B> myDevice = 0; 
@@ -50,5 +50,4 @@ private:
 
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
-	ImageViewHandle<B> myImageView = 0;
 };

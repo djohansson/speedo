@@ -112,7 +112,6 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& tex
 
     desc.format = desc.nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
     desc.flags = VK_IMAGE_USAGE_SAMPLED_BIT;
-    desc.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
 
     return desc;
 }
@@ -133,8 +132,6 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         myDesc.debugName.c_str());
 
     myDesc.initialData.reset();
-
-    myImageView = createImageView2D(device, myImage, myDesc.format, myDesc.aspectFlags);
 }
 
 template <>
@@ -149,5 +146,10 @@ template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
     vmaDestroyImage(myAllocator, myImage, myImageMemory);
-    vkDestroyImageView(myDevice, myImageView, nullptr);
+}
+
+template <>
+ImageViewHandle<GraphicsBackend::Vulkan> Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
+{
+    return createImageView2D(myDevice, myImage, myDesc.format, aspectFlags);
 }

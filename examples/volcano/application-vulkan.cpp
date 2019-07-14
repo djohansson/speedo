@@ -602,7 +602,7 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
 
     VkDescriptorImageInfo imageInfo = {};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = pipelineConfig.resources->texture->getImageView();
+    imageInfo.imageView = pipelineConfig.resources->textureView;
     imageInfo.sampler = pipelineConfig.resources->sampler;
 
     std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
@@ -692,7 +692,7 @@ void Application<GraphicsBackend::Vulkan>::createFrameResources(WindowData<Graph
 
     auto createFramebuffer = [this, &window](uint frameIndex)
     {
-        std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.zBuffer->getImageView()};
+        std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.zBufferView};
         VkFramebufferCreateInfo info = {};
         info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         info.renderPass = myGraphicsPipelineConfig->renderPass;
@@ -877,6 +877,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         myDevice, myTransferCommandPool, myQueue, myAllocator,
         std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
+    myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
         myDevice,
@@ -890,11 +891,8 @@ Application<GraphicsBackend::Vulkan>::Application(
     BufferCreateDesc<GraphicsBackend::Vulkan> bufferDesc =
     {
         frameCount * (NX * NY) * sizeof(ViewData::BufferData),
-        VK_FORMAT_UNDEFINED,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        0,
-        VK_WHOLE_SIZE,
         nullptr,
         "viewBuffer"
     };
@@ -912,13 +910,13 @@ Application<GraphicsBackend::Vulkan>::Application(
             {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
             VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT,
         nullptr, 
         "zBuffer"
     };
     window.zBuffer = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         myDevice, myTransferCommandPool, myQueue, myAllocator,
         std::move(textureData));
+    window.zBufferView = window.zBuffer->createView(VK_IMAGE_ASPECT_DEPTH_BIT);
 
     createFrameResources(*myDefaultResources->window);
 
@@ -1358,13 +1356,13 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int heig
             {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
             VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT,
         nullptr, 
         "zBuffer"
     };
     window.zBuffer = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         myDevice, myTransferCommandPool, myQueue, myAllocator,
         std::move(textureData));
+    window.zBufferView = window.zBuffer->createView(VK_IMAGE_ASPECT_DEPTH_BIT);
 
     createFrameResources(*myDefaultResources->window);
 }

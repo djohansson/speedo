@@ -16,15 +16,17 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 		myAllocator, myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
 
     myDesc.initialData.reset();
-
-    if (myDesc.usageFlags == VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT ||
-        myDesc.usageFlags == VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)
-        myBufferView = createBufferView(myDevice, myBuffer, 0, myDesc.format, myDesc.offset, myDesc.range);
 }
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
     vmaDestroyBuffer(myAllocator, myBuffer, myBufferMemory);
-    vkDestroyBufferView(myDevice, myBufferView, nullptr);
+}
+
+template <>
+BufferViewHandle<GraphicsBackend::Vulkan> Buffer<GraphicsBackend::Vulkan>::createView(
+    Format<GraphicsBackend::Vulkan> format, DeviceSize<GraphicsBackend::Vulkan> offset, DeviceSize<GraphicsBackend::Vulkan> range) const
+{
+    return createBufferView(myDevice, myBuffer, 0, format, offset, range);
 }

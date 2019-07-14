@@ -83,12 +83,14 @@ struct WindowData
 	SwapchainContext<B> swapchain = {};
 
 	std::shared_ptr<Texture<B>> zBuffer;
+	ImageViewHandle<B> zBufferView = 0;
 	
 	std::vector<ViewData> views;
 	std::optional<size_t> activeView;
 
 	// buffer for all views.
 	std::shared_ptr<Buffer<B>> viewBuffer;
+	//
 
 	bool clearEnable = true;
     ClearValue<B> clearValue = {};
@@ -102,10 +104,11 @@ struct WindowData
 };
 
 template <GraphicsBackend B>
-struct GraphicsPipelineResourceContext // temp
+struct GraphicsPipelineResourceContext
 {
-	std::shared_ptr<Model<B>> model;
-	std::shared_ptr<Texture<B>> texture;
+	std::shared_ptr<Model<B>> model; // temp
+	std::shared_ptr<Texture<B>> texture; // temp
+	ImageViewHandle<B> textureView = 0;
 	SamplerHandle<B> sampler = 0;
 
 	std::shared_ptr<WindowData<B>> window; // temp - replace with generic render target structure
