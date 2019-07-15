@@ -104,7 +104,7 @@ struct WindowData
 };
 
 template <GraphicsBackend B>
-struct GraphicsPipelineResourceContext
+struct GraphicsPipelineResourceView
 {
 	std::shared_ptr<Model<B>> model; // temp
 	std::shared_ptr<Texture<B>> texture; // temp
@@ -117,7 +117,7 @@ struct GraphicsPipelineResourceContext
 template <GraphicsBackend B>
 struct PipelineConfiguration
 {
-	std::shared_ptr<GraphicsPipelineResourceContext<B>> resources;
+	std::shared_ptr<GraphicsPipelineResourceView<B>> resources;
 	std::shared_ptr<PipelineLayoutContext<B>> layout;
 
 	RenderPassHandle<B> renderPass = 0; // should perhaps not be stored here...
@@ -188,7 +188,7 @@ private:
 	// todo: encapsulate in PipelineConfiguration
 	PipelineConfiguration<B> createPipelineConfig(DeviceHandle<B> device, RenderPassHandle<B> renderPass,
 		DescriptorPoolHandle<B> descriptorPool, PipelineCacheHandle<B> pipelineCache,
-        std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceContext<B>> resourceContext) const;
+        std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceView<B>> resources) const;
 	void updateDescriptorSets(const WindowData<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
 	//
 
@@ -220,7 +220,7 @@ private:
 	static constexpr uint32_t NY = 1;
 
 	// todo: figure out best way of organizing these
-	std::shared_ptr<GraphicsPipelineResourceContext<B>> myDefaultResources;
+	std::shared_ptr<GraphicsPipelineResourceView<B>> myDefaultResources;
 	std::shared_ptr<PipelineLayoutContext<B>> myGraphicsPipelineLayout;
 	std::shared_ptr<PipelineConfiguration<B>> myGraphicsPipelineConfig;
 	//

@@ -47,13 +47,13 @@ VkDebugReportCallbackEXT createDebugCallback(VkInstance instance);
 
 void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-std::tuple<VkBuffer, VmaAllocation>  createBuffer(
+std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
 	const char* debugName);
 
-std::tuple<VkBuffer, VmaAllocation> createDeviceLocalBuffer(
+std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	const std::byte* bufferData, VkDeviceSize bufferSize, VkBufferUsageFlags usage, const char* debugName);
+	VkBuffer stagingBuffer, VkDeviceSize bufferSize, VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 	VkBufferViewCreateFlags flags, VkFormat format, VkDeviceSize offset, VkDeviceSize range);
@@ -68,13 +68,14 @@ void copyBufferToImage(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VmaAllocator allocator,
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
+	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
-std::tuple<VkImage, VmaAllocation> createDeviceLocalImage2D(
+std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	const std::byte* imageData, uint32_t width, uint32_t height, VkFormat format,
-	VkImageUsageFlags usage, const char* debugName);
+	VkBuffer stagingBuffer, 
+	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
+	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 

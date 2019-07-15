@@ -260,44 +260,28 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
     return std::make_tuple(outBuffer, outBufferMemory);
 }
 
-std::tuple<VkBuffer, VmaAllocation> createDeviceLocalBuffer(
+std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	const std::byte* bufferData, VkDeviceSize bufferSize, VkBufferUsageFlags usage, const char* debugName)
+	VkBuffer stagingBuffer, VkDeviceSize bufferSize, VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
 	assert(bufferSize > 0);
 
 	VkBuffer outBuffer = VK_NULL_HANDLE;
 	VmaAllocation outBufferMemory = VK_NULL_HANDLE;
 
-	if (bufferData != nullptr)
+	if (stagingBuffer != VK_NULL_HANDLE)
 	{
-		std::string debugString;
-		debugString.append(debugName);
-		debugString.append("_staging");
-		
-		auto [stagingBuffer, stagingBufferMemory] = createBuffer(
-			allocator, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			debugString.c_str());
-
-		void* data;
-		CHECK_VK(vmaMapMemory(allocator, stagingBufferMemory, &data));
-		memcpy(data, bufferData, bufferSize);
-		vmaUnmapMemory(allocator, stagingBufferMemory);
-
 		std::tie(outBuffer, outBufferMemory) = createBuffer(
 			allocator, bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, debugName);
+			memoryFlags, debugName);
 
 		copyBuffer(device, commandPool, queue, stagingBuffer, outBuffer, bufferSize);
-
-		vmaDestroyBuffer(allocator, stagingBuffer, stagingBufferMemory);
 	}
 	else
 	{
 		std::tie(outBuffer, outBufferMemory) = createBuffer(
 			allocator, bufferSize, usage,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, debugName);
+			memoryFlags, debugName);
 	}
 
     return std::make_tuple(outBuffer, outBufferMemory);
@@ -326,8 +310,6 @@ void transitionImageLayout(
 {
 	auto commandBuffer = beginSingleTimeCommands(device, commandPool);
 	
-	//TracyVkZone(myTracyContext, commandBuffer, "transitionImageLayout");
-
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	barrier.oldLayout = oldLayout;
@@ -406,8 +388,6 @@ void copyBufferToImage(
 {
 	auto commandBuffer = beginSingleTimeCommands(device, commandPool);
 
-	//TracyVkZone(myTracyContext, commandBuffer, "copyBufferToImage");
-
 	VkBufferImageCopy region = {};
 	region.bufferOffset = 0;
 	region.bufferRowLength = 0;
@@ -427,7 +407,7 @@ void copyBufferToImage(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VmaAllocator allocator,
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
+	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
 	VkImageCreateInfo imageInfo = {};
@@ -441,7 +421,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	imageInfo.format = format;
 	imageInfo.tiling = tiling;
 	imageInfo.usage = usage;
-	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.initialLayout = layout;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.flags = 0;
@@ -464,10 +444,11 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
     return std::make_tuple(outImage, outImageMemory);
 }
 
-std::tuple<VkImage, VmaAllocation> createDeviceLocalImage2D(
+std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	const std::byte* imageData, uint32_t width, uint32_t height, VkFormat format,
-	VkImageUsageFlags usage, const char* debugName)
+	VkBuffer stagingBuffer, 
+	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
+	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
 	assert((width & 1) == 0);
 	assert((height & 1) == 0);
@@ -475,49 +456,29 @@ std::tuple<VkImage, VmaAllocation> createDeviceLocalImage2D(
     VkImage outImage = VK_NULL_HANDLE;
     VmaAllocation outImageMemory = VK_NULL_HANDLE;
 
-	if (imageData != nullptr)
+	if (stagingBuffer != VK_NULL_HANDLE)
 	{
-		uint32_t pixelSizeBytesDivisor;
-		uint32_t pixelSizeBytes = getFormatSize(format, pixelSizeBytesDivisor);
-		VkDeviceSize imageSize = width * height * pixelSizeBytes / pixelSizeBytesDivisor;
-
-		std::string debugString;
-		debugString.append(debugName);
-		debugString.append("_staging");
-		
-		auto [stagingBuffer, stagingBufferMemory] = createBuffer(
-			allocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			debugString.c_str());
-
-		void* data;
-		CHECK_VK(vmaMapMemory(allocator, stagingBufferMemory, &data));
-		memcpy(data, imageData, imageSize);
-		vmaUnmapMemory(allocator, stagingBufferMemory);
-
 		std::tie(outImage, outImageMemory) = createImage2D(
-			allocator, width, height, format, VK_IMAGE_TILING_OPTIMAL, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, debugName);
+			allocator, width, height, format, tiling, VK_IMAGE_LAYOUT_UNDEFINED, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			memoryFlags, debugName);
 
 		transitionImageLayout(
-			device, commandPool, queue, outImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+			device, commandPool, queue, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		copyBufferToImage(device, commandPool, queue, allocator, stagingBuffer, outImage, width, height);
 		transitionImageLayout(
-			device, commandPool, queue, outImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		vmaDestroyBuffer(allocator, stagingBuffer, stagingBufferMemory);
+			device, commandPool, queue, outImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			layout);
 	}
 	else
 	{
 		std::tie(outImage, outImageMemory) = createImage2D(
-			allocator, width, height, format, VK_IMAGE_TILING_OPTIMAL, usage,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, debugName);
+			allocator, width, height, format, tiling, VK_IMAGE_LAYOUT_UNDEFINED, usage,
+			memoryFlags, debugName);
 
 		transitionImageLayout(
 			device, commandPool, queue, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
-			hasDepthComponent(format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			layout);
 	}
 
     return std::make_tuple(outImage, outImageMemory);

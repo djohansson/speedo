@@ -19,11 +19,11 @@ void Application<B>::resizeWindow(const window_state& state)
 template <GraphicsBackend B>
 PipelineConfiguration<B> Application<B>::createPipelineConfig(DeviceHandle<B> device, RenderPassHandle<B> renderPass,
     DescriptorPoolHandle<B> descriptorPool, PipelineCacheHandle<B> pipelineCache,
-    std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceContext<B>> resourceContext) const
+    std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceView<B>> resources) const
 {
     PipelineConfiguration<B> outPipelineConfig = {};
 
-    outPipelineConfig.resources = resourceContext;
+    outPipelineConfig.resources = resources;
     outPipelineConfig.layout = layoutContext;
 
     outPipelineConfig.renderPass = renderPass;
@@ -31,7 +31,7 @@ PipelineConfiguration<B> Application<B>::createPipelineConfig(DeviceHandle<B> de
 
     outPipelineConfig.descriptorSets = allocateDescriptorSets(
             device, descriptorPool, layoutContext->descriptorSetLayouts.get(),
-            layoutContext->descriptorSetLayouts.get_deleter().size);
+            layoutContext->descriptorSetLayouts.get_deleter().getSize());
 
     return outPipelineConfig;
 }

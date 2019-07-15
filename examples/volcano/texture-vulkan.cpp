@@ -46,26 +46,41 @@ int eof(void* user)
 namespace texture
 {
 
-TextureCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& textureFile)
+TextureCreateDesc<GraphicsBackend::Vulkan> load(VmaAllocator allocator, const std::filesystem::path& textureFile)
 {
     TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
     desc.debugName = textureFile.u8string();
 
-    auto loadPBin = [&desc](std::istream& stream) {
+    auto loadPBin = [&desc, allocator](std::istream& stream) {
         cereal::PortableBinaryInputArchive pbin(stream);
         pbin(desc.nx, desc.ny, desc.nChannels, desc.size);
-        // todo: avoid temp copy - copy directly from mapped memory to gpu
-        desc.initialData = std::make_unique<std::byte[]>(desc.size);
-        pbin(cereal::binary_data(desc.initialData.get(), desc.size));
+
+        std::string debugString;
+        debugString.append(desc.debugName);
+        debugString.append("_staging");
+        
+        std::tie(desc.initialData, desc.initialDataMemory) = createBuffer(
+            allocator, desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            debugString.c_str());
+
+        std::byte* data;
+        CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
+        pbin(cereal::binary_data(data, desc.size));
+        vmaUnmapMemory(allocator, desc.initialDataMemory);
     };
 
-    auto savePBin = [&desc](std::ostream& stream) {
+    auto savePBin = [&desc, allocator](std::ostream& stream) {
         cereal::PortableBinaryOutputArchive pbin(stream);
         pbin(desc.nx, desc.ny, desc.nChannels, desc.size);
-        pbin(cereal::binary_data(desc.initialData.get(), desc.size));
+
+        std::byte* data;
+        CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
+        pbin(cereal::binary_data(data, desc.size));
+        vmaUnmapMemory(allocator, desc.initialDataMemory);
     };
 
-    auto loadImage = [&desc](std::istream& stream) {
+    auto loadImage = [&desc, allocator](std::istream& stream) {
         stbi_io_callbacks callbacks;
         callbacks.read = &stbi_istream_callbacks::read;
         callbacks.skip = &stbi_istream_callbacks::skip;
@@ -76,7 +91,18 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& tex
         bool hasAlpha = desc.nChannels == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
         desc.size = hasAlpha ? desc.nx * desc.ny : desc.nx * desc.ny / 2;
-        desc.initialData = std::make_unique<std::byte[]>(desc.size);
+
+        std::string debugString;
+        debugString.append(desc.debugName);
+        debugString.append("_staging");
+        
+        std::tie(desc.initialData, desc.initialDataMemory) = createBuffer(
+            allocator, desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            debugString.c_str());
+
+        std::byte* data;
+        CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
 
         auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride,
                                 stbi_uc* dst) {
@@ -89,7 +115,7 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& tex
 
         stbi_uc block[64] = {0};
         const stbi_uc* src = stbiImageData;
-        stbi_uc* dst = reinterpret_cast<stbi_uc*>(desc.initialData.get());
+        stbi_uc* dst = reinterpret_cast<stbi_uc*>(data);
         for (uint32_t rowIt = 0; rowIt < desc.ny; rowIt += 4)
         {
             for (uint32_t colIt = 0; colIt < desc.nx; colIt += 4)
@@ -101,17 +127,20 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(const std::filesystem::path& tex
             }
         }
 
+        vmaUnmapMemory(allocator, desc.initialDataMemory);
         stbi_image_free(stbiImageData);
     };
 
     loadCachedSourceFile(
         textureFile, textureFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
-    if (desc.initialData == nullptr)
-        throw std::runtime_error("Failed to load image.");
-
     desc.format = desc.nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
-    desc.flags = VK_IMAGE_USAGE_SAMPLED_BIT;
+    desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    uint32_t pixelSizeBytesDivisor;
+    if (desc.initialData == VK_NULL_HANDLE ||
+        desc.size != desc.nx * desc.ny * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
+        throw std::runtime_error("Failed to load image.");
 
     return desc;
 }
@@ -126,19 +155,29 @@ Texture<GraphicsBackend::Vulkan>::Texture(
     , myAllocator(allocator)
     , myDesc(std::move(desc))
 {
-    std::tie(myImage, myImageMemory) = createDeviceLocalImage2D(
-        myDevice, commandPool, queue, myAllocator,
-        myDesc.initialData.get(), myDesc.nx, myDesc.ny, myDesc.format, myDesc.flags,
+    std::tie(myImage, myImageMemory) = createImage2D(
+        myDevice,
+        commandPool,
+        queue,
+        myAllocator,
+        myDesc.initialData,
+        myDesc.nx,
+        myDesc.ny,
+        myDesc.format, 
+        VK_IMAGE_TILING_OPTIMAL,
+        hasDepthComponent(myDesc.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        myDesc.usage,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         myDesc.debugName.c_str());
 
-    myDesc.initialData.reset();
+    vmaDestroyBuffer(allocator, desc.initialData, desc.initialDataMemory);
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
     const std::filesystem::path& textureFile)
-    : Texture(device, commandPool, queue, allocator, texture::load(textureFile))
+    : Texture(device, commandPool, queue, allocator, texture::load(allocator, textureFile))
 {
 }
 

@@ -10,8 +10,10 @@ struct BufferCreateDesc
     DeviceSize<B> size = 0;
     Flags<B> usageFlags = 0;
     Flags<B> memoryFlags = 0;
-    // todo: avoid temp copy - copy directly from mapped memory to gpu
-    std::unique_ptr<std::byte[]> initialData;
+    // these will be destroyed in Buffer:s constructor
+    BufferHandle<B> initialData = 0;
+    AllocationHandle<B> initialDataMemory = 0;
+    //
     std::string debugName;
 };
 
@@ -21,7 +23,7 @@ class Buffer
 public:
 
     Buffer(
-        DeviceHandle<B> device, AllocatorHandle<B> allocator,
+        DeviceHandle<B> device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator,
         BufferCreateDesc<B>&& desc);
 
     ~Buffer();

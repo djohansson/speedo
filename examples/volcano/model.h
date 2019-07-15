@@ -13,11 +13,17 @@
 template <GraphicsBackend B>
 struct ModelCreateDesc
 {
-	// todo: avoid temp copy - copy directly from mapped memory to gpu
-	VertexAllocator vertices;
-	std::vector<uint32_t> indices;
-	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
 	AABB3f aabb = {};
+	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
+	DeviceSize<B> vertexBufferSize = 0;
+	DeviceSize<B> indexBufferSize = 0;
+	uint32_t indexCount = 0;
+	// these will be destroyed in Buffer:s constructor
+	BufferHandle<B> initialVertices = 0;
+	AllocationHandle<B> initialVerticesMemory = 0;
+	BufferHandle<B> initialIndices = 0;
+	AllocationHandle<B> initialIndicesMemory = 0;
+    //
 	std::string debugName;
 };
 
@@ -34,31 +40,22 @@ public:
 
 	~Model();
 
-	const auto getVertexBuffer() const { return myVertexBuffer; }
-	const auto getVertexBufferMemory() const { return myVertexBufferMemory; }
-	const auto getIndexBuffer() const { return myIndexBuffer; }
-	const auto getIndexBufferMemory() const { return myIndexBufferMemory; }
+	const auto& getDesc() const { return myDesc; }
+
+	const auto& getVertexBuffer() const { return myVertexBuffer; }
+	const auto& getIndexBuffer() const { return myIndexBuffer; }
 	
-	const auto getIndexCount() const { return myIndexCount; }
-
-	const auto& getAttributes() const { return myAttributes; }
 	const auto& getBindings() const { return myBindings; }
-
-	const auto& getAABB() const { return myAABB; }
 
 private:
 
+	DeviceHandle<B> myDevice = 0;
 	AllocatorHandle<B> myAllocator = 0;
 
-	BufferHandle<B> myVertexBuffer = 0;
-	AllocationHandle<B> myVertexBufferMemory = 0;
-	BufferHandle<B> myIndexBuffer = 0;
-	AllocationHandle<B> myIndexBufferMemory = 0;
-	
-	uint32_t myIndexCount = 0;
+	ModelCreateDesc<B> myDesc = {};
 
-	std::vector<VertexInputAttributeDescription<B>> myAttributes;
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 
-	AABB3f myAABB = {};
+	Buffer<B> myVertexBuffer = {};
+	Buffer<B> myIndexBuffer = {};
 };

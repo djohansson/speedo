@@ -13,9 +13,11 @@ struct TextureCreateDesc
     uint32_t nChannels = 0;
     DeviceSize<B> size = 0;
     Format<B> format;
-    Flags<B> flags = 0;
-    // todo: avoid temp copy - copy directly from mapped memory to gpu
-    std::unique_ptr<std::byte[]> initialData;
+    Flags<B> usage = 0;
+    // these will be destroyed in Texture:s constructor
+    BufferHandle<B> initialData = 0;
+    AllocationHandle<B> initialDataMemory = 0;
+    //
     std::string debugName;
 };
 
@@ -43,7 +45,7 @@ public:
     
 private:
 
-    DeviceHandle<B> myDevice = 0; 
+    DeviceHandle<B> myDevice = 0;
     AllocatorHandle<B> myAllocator = 0;
 
     TextureCreateDesc<B> myDesc = {};

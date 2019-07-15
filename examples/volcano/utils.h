@@ -23,23 +23,32 @@ inline uint32_t roundUp(uint32_t numToRound, uint32_t multiple)
 }
 
 template <typename T>
-struct ArrayDeleter
+class ArrayDeleter
 {
 	using DeleteFcn = std::function<void(T*, size_t)>;
 
+public:
+
 	ArrayDeleter() = default;
-	ArrayDeleter(DeleteFcn&& deleter_, size_t size_)
-		: deleter(deleter_)
-		, size(size_)
+	ArrayDeleter(DeleteFcn&& deleter)
+		: myDeleter(std::move(deleter))
+	{}
+	ArrayDeleter(DeleteFcn&& deleter, size_t size)
+		: myDeleter(std::move(deleter))
+		, mySize(size)
 	{}
 
 	inline void operator()(T* array) const
 	{
-		deleter(array, size);
+		myDeleter(array, mySize);
 	}
 
-	DeleteFcn deleter;
-	size_t size;
+	inline size_t getSize() const { return mySize; }
+
+private:
+
+	DeleteFcn myDeleter = [](T* data, size_t){ delete [] data; };
+	size_t mySize = 0;
 };
 
 class Noncopyable

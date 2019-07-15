@@ -4,18 +4,16 @@
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
-    VkDevice device, VmaAllocator allocator,
+    VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
     BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : myDevice(device)
     , myAllocator(allocator)
     , myDesc(std::move(desc))
 {
-    assert(myDesc.initialData == nullptr); // todo: implement
-
     std::tie(myBuffer, myBufferMemory) = createBuffer(
-		myAllocator, myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
+		myDevice, commandPool, queue, myAllocator, myDesc.initialData, myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
 
-    myDesc.initialData.reset();
+    vmaDestroyBuffer(myAllocator, myDesc.initialData, myDesc.initialDataMemory);
 }
 
 template <>

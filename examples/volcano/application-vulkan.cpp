@@ -396,8 +396,8 @@ PipelineHandle<GraphicsBackend::Vulkan> Application<GraphicsBackend::Vulkan>::cr
     vertexInputInfo.vertexBindingDescriptionCount = pipelineConfig.resources->model->getBindings().size();
     vertexInputInfo.pVertexBindingDescriptions = pipelineConfig.resources->model->getBindings().data();
     vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(pipelineConfig.resources->model->getAttributes().size());
-    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getAttributes().data();
+        static_cast<uint32_t>(pipelineConfig.resources->model->getDesc().attributes.size());
+    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getDesc().attributes.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -839,7 +839,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     myInstance = createInstance<GraphicsBackend::Vulkan>();
     myDebugCallback = createDebugCallback(myInstance);
 
-    myDefaultResources = std::make_shared<GraphicsPipelineResourceContext<GraphicsBackend::Vulkan>>();
+    myDefaultResources = std::make_shared<GraphicsPipelineResourceView<GraphicsBackend::Vulkan>>();
     myDefaultResources->window = std::make_shared<WindowData<GraphicsBackend::Vulkan>>();
     auto& window = *myDefaultResources->window;
 
@@ -893,10 +893,11 @@ Application<GraphicsBackend::Vulkan>::Application(
         frameCount * (NX * NY) * sizeof(ViewData::BufferData),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        nullptr,
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE,
         "viewBuffer"
     };
-    window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(myDevice, myAllocator, std::move(bufferDesc));
+    window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(myDevice, myTransferCommandPool, myQueue, myAllocator, std::move(bufferDesc));
 
     // todo: append stencil bit for depthstencil composite formats
     TextureCreateDesc<GraphicsBackend::Vulkan> textureData = 
@@ -910,7 +911,8 @@ Application<GraphicsBackend::Vulkan>::Application(
             {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
             VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        nullptr, 
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE, 
         "zBuffer"
     };
     window.zBuffer = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
@@ -954,9 +956,11 @@ Application<GraphicsBackend::Vulkan>::~Application()
     vkDestroySwapchainKHR(myDevice, window.swapchain.swapchain, nullptr);
 
     {
+        vkDestroyImageView(myDevice, window.zBufferView, nullptr);
         window.zBuffer.reset();
         window.viewBuffer.reset();
         myDefaultResources->model.reset();
+        vkDestroyImageView(myDevice, myDefaultResources->textureView, nullptr);
         myDefaultResources->texture.reset();
     }
 
@@ -1085,11 +1089,11 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
                         // bind pipeline and vertex/index buffers
                         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                        VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer()};
+                        VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
                         VkDeviceSize vertexOffsets[] = {0};
 
                         vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                        vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     }
 
                     for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -1138,7 +1142,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
                         drawModel(
-                            cmd, config.resources->model->getIndexCount(), config.descriptorSets.size(),
+                            cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
                             config.descriptorSets.data(), config.layout->layout);
                     }
                 });
@@ -1356,7 +1360,8 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int heig
             {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
             VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        nullptr, 
+        VK_NULL_HANDLE,
+        VK_NULL_HANDLE,
         "zBuffer"
     };
     window.zBuffer = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
