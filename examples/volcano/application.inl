@@ -37,7 +37,7 @@ PipelineConfiguration<B> Application<B>::createPipelineConfig(DeviceHandle<B> de
 }
 
 template <GraphicsBackend B>
-void Application<B>::updateViewMatrix(ViewData& view) const
+void Application<B>::updateViewMatrix(View& view) const
 {
     auto Rx = glm::rotate(glm::mat4(1.0), view.camRot.x, glm::vec3(-1, 0, 0));
     auto Ry = glm::rotate(glm::mat4(1.0), view.camRot.y, glm::vec3(0, -1, 0));
@@ -47,7 +47,7 @@ void Application<B>::updateViewMatrix(ViewData& view) const
 }
 
 template <GraphicsBackend B>
-void Application<B>::updateProjectionMatrix(ViewData& view) const
+void Application<B>::updateProjectionMatrix(View& view) const
 {
     constexpr glm::mat4 clip = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f,
                                 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f,  0.5f, 1.0f};

@@ -1,8 +1,6 @@
-cbuffer g_uniforms
+cbuffer g_view
 {
-    float4x4 model;
-    float4x4 view;
-    float4x4 proj;
+    float4x4 viewProj;
 };
 
 Texture2D g_texture;
@@ -42,14 +40,13 @@ VertexStageOutput vertexMain(AssembledVertex assembledVertex)
 
     output.coarseVertex.color = color;
     output.coarseVertex.texCoord = texCoord;
-    output.sv_position = mul(proj, mul(view, mul(model, float4(position, 1.0))));
+    output.sv_position = mul(viewProj, float4(position, 1.0));
 
     return output;
 }
 
 float4 fragmentMain(CoarseVertex coarseVertex : CoarseVertex) : SV_Target
 {
-    //float3 color = coarseVertex.color;
     float3 color = g_texture.Sample(g_sampler, coarseVertex.texCoord).rgb;
 
     return float4(color, 1.0);

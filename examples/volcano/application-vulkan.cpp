@@ -790,18 +790,16 @@ void Application<GraphicsBackend::Vulkan>::updateViewBuffer(WindowData<GraphicsB
 
     for (uint32_t n = 0; n < (NX * NY); n++)
     {
-        ViewData::BufferData& ubo = reinterpret_cast<ViewData::BufferData*>(data)[window.frameIndex * (NX * NY) + n];
+        View::BufferData& ubo = reinterpret_cast<View::BufferData*>(data)[window.frameIndex * (NX * NY) + n];
 
-        ubo.model = glm::mat4(1.0f); // myDefaultResources->model.transform;
-        ubo.view = glm::mat4(window.views[n].view);
-        ubo.proj = window.views[n].projection;
+        ubo.viewProj = window.views[n].projection * glm::mat4(window.views[n].view);
     }
 
     vmaFlushAllocation(
         myAllocator,
         window.viewBuffer->getBufferMemory(),
-        sizeof(ViewData::BufferData) * window.frameIndex * (NX * NY),
-        sizeof(ViewData::BufferData) * (NX * NY));
+        sizeof(View::BufferData) * window.frameIndex * (NX * NY),
+        sizeof(View::BufferData) * (NX * NY));
 
     vmaUnmapMemory(myAllocator, window.viewBuffer->getBufferMemory());
 }
@@ -890,7 +888,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     BufferCreateDesc<GraphicsBackend::Vulkan> bufferDesc =
     {
-        frameCount * (NX * NY) * sizeof(ViewData::BufferData),
+        frameCount * (NX * NY) * sizeof(View::BufferData),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         VK_NULL_HANDLE,
@@ -1132,7 +1130,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
                                             uint32_t descriptorSetCount,
                                             const VkDescriptorSet* descriptorSets,
                                             VkPipelineLayout pipelineLayout) {
-                            uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(ViewData::BufferData);
+                            uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(View::BufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                                 descriptorSetCount, descriptorSets, 1, &viewBufferOffset);

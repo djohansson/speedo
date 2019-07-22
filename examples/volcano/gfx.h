@@ -2,6 +2,7 @@
 
 #include "gfx-types.h"
 #include "glm.h"
+#include "view.h"
 
 #include <chrono>
 #include <filesystem>
@@ -99,29 +100,6 @@ struct SerializableVertexInputAttributeDescription : public VertexInputAttribute
 template <GraphicsBackend B>
 struct PipelineCacheHeader
 {
-};
-
-struct ViewData
-{
-	struct BufferData
-	{
-		glm::mat4 model;
-		glm::mat4 view;
-		glm::mat4 proj;
-		glm::mat4 pad;
-	};
-
-	struct ViewportData
-	{
-		uint32_t width = 0;
-		uint32_t height = 0;
-	} viewport;
-
-	glm::vec3 camPos = glm::vec3(0.0f, -2.0f, 0.0f);
-	glm::vec3 camRot = glm::vec3(0.0f, 0.0f, 0.0);
-
-	glm::mat4x3 view = glm::mat4x3(1.0f);
-	glm::mat4 projection = glm::mat4(1.0f);
 };
 
 template <GraphicsBackend B>

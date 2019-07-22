@@ -85,7 +85,7 @@ struct WindowData
 	std::shared_ptr<Texture<B>> zBuffer;
 	ImageViewHandle<B> zBufferView = 0;
 	
-	std::vector<ViewData> views;
+	std::vector<View> views;
 	std::optional<size_t> activeView;
 
 	// buffer for all views.
@@ -192,9 +192,9 @@ private:
 	void updateDescriptorSets(const WindowData<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
 	//
 
-	// todo: encapsulate in View/ViewData
-	void updateViewMatrix(ViewData& view) const;
-	void updateProjectionMatrix(ViewData& view) const;
+	// todo: encapsulate in View/View
+	void updateViewMatrix(View& view) const;
+	void updateProjectionMatrix(View& view) const;
 	//
 
 	InstanceHandle<B> myInstance = 0;
