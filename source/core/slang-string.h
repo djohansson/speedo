@@ -1,14 +1,14 @@
-#ifndef FUNDAMENTAL_LIB_STRING_H
-#define FUNDAMENTAL_LIB_STRING_H
+#ifndef SLANG_CORE_STRING_H
+#define SLANG_CORE_STRING_H
 
 #include <string.h>
 #include <cstdlib>
 #include <stdio.h>
 
-#include "smart-pointer.h"
-#include "common.h"
-#include "hash.h"
-#include "secure-crt.h"
+#include "slang-smart-pointer.h"
+#include "slang-common.h"
+#include "slang-hash.h"
+#include "slang-secure-crt.h"
 
 #include <new>
 
@@ -66,44 +66,56 @@ namespace Slang
     {
     public:
         UnownedStringSlice()
-            : beginData(nullptr)
-            , endData(nullptr)
+            : m_begin(nullptr)
+            , m_end(nullptr)
         {}
 
         explicit UnownedStringSlice(char const* a) :
-            beginData(a),
-            endData(a + strlen(a))
+            m_begin(a),
+            m_end(a + strlen(a))
         {}
         UnownedStringSlice(char const* b, char const* e)
-            : beginData(b)
-            , endData(e)
+            : m_begin(b)
+            , m_end(e)
         {}
         UnownedStringSlice(char const* b, size_t len)
-            : beginData(b)
-            , endData(b + len)
+            : m_begin(b)
+            , m_end(b + len)
         {}
 
         char const* begin() const
         {
-            return beginData;
+            return m_begin;
         }
 
         char const* end() const
         {
-            return endData;
+            return m_end;
         }
 
-        UInt size() const
+        Index size() const
         {
-            return endData - beginData;
+            return Index(m_end - m_begin);
         }
 
-        int indexOf(char c) const
+        Index indexOf(char c) const
         {
-            const int size = int(endData - beginData);
-            for (int i = 0; i < size; ++i)
+            const Index size = int(m_end - m_begin);
+            for (Index i = 0; i < size; ++i)
             {
-                if (beginData[i] == c)
+                if (m_begin[i] == c)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        Index lastIndexOf(char c) const
+        {
+            const Index size = Index(m_end - m_begin);
+            for (Index i = size - 1; i >= 0; --i)
+            {
+                if (m_begin[i] == c)
                 {
                     return i;
                 }
@@ -111,21 +123,38 @@ namespace Slang
             return -1;
         }
 
-        const char& operator[](UInt i) const
+        const char& operator[](Index i) const
         {
-            assert(i < UInt(endData - beginData));
-            return beginData[i];
+            assert(i >= 0 && i < Index(m_end - m_begin));
+            return m_begin[i];
         }
 
         bool operator==(UnownedStringSlice const& other) const
         {
-            return size() == other.size()
-                && memcmp(begin(), other.begin(), size()) == 0;
+            // Note that memcmp is undefined when passed in null ptrs, so if we want to handle
+            // we need to cover that case.
+            // Can only be nullptr if size is 0.
+            auto thisSize = size();
+            auto otherSize = other.size();
+
+            if (thisSize != otherSize)
+            {
+                return false;
+            }
+
+            const char*const thisChars = begin();
+            const char*const otherChars = other.begin();
+            if (thisChars == otherChars || thisSize == 0)
+            {
+                return true;
+            }
+            SLANG_ASSERT(thisChars && otherChars);
+            return memcmp(thisChars, otherChars, thisSize) == 0;
         }
 
         bool operator==(char const* str) const
         {
-            return (*this) == UnownedStringSlice(str, str + strlen(str));
+            return (*this) == UnownedStringSlice(str, str + ::strlen(str));
         }
 
         bool operator!=(UnownedStringSlice const& other) const
@@ -139,17 +168,20 @@ namespace Slang
         bool endsWith(UnownedStringSlice const& other) const;
         bool endsWith(char const* str) const;
 
+
+        UnownedStringSlice trim() const;
+
         int GetHashCode() const
         {
-            return Slang::GetHashCode(beginData, size_t(endData - beginData)); 
+            return Slang::GetHashCode(m_begin, size_t(m_end - m_begin)); 
         }
 
         template <size_t SIZE> 
         SLANG_FORCE_INLINE static UnownedStringSlice fromLiteral(const char (&in)[SIZE]) { return UnownedStringSlice(in, SIZE - 1); }
 
     private:
-        char const* beginData;
-        char const* endData;
+        char const* m_begin;
+        char const* m_end;
     };
 
     // A `StringRepresentation` provides the backing storage for
@@ -157,10 +189,10 @@ namespace Slang
     class StringRepresentation : public RefObject
     {
     public:
-        UInt length;
-        UInt capacity;
+        Index length;
+        Index capacity;
 
-        SLANG_FORCE_INLINE UInt getLength() const
+        SLANG_FORCE_INLINE Index getLength() const
         {
             return length;
         }
@@ -189,7 +221,7 @@ namespace Slang
             return (a == b) || asSlice(a) == asSlice(b);
         }
 
-        static StringRepresentation* createWithCapacityAndLength(UInt capacity, UInt length)
+        static StringRepresentation* createWithCapacityAndLength(Index capacity, Index length)
         {
             SLANG_ASSERT(capacity >= length);
             void* allocation = operator new(sizeof(StringRepresentation) + capacity + 1);
@@ -200,17 +232,17 @@ namespace Slang
             return obj;
         }
 
-        static StringRepresentation* createWithCapacity(UInt capacity)
+        static StringRepresentation* createWithCapacity(Index capacity)
         {
             return createWithCapacityAndLength(capacity, 0);
         }
 
-        static StringRepresentation* createWithLength(UInt length)
+        static StringRepresentation* createWithLength(Index length)
         {
             return createWithCapacityAndLength(length, length);
         }
 
-        StringRepresentation* cloneWithCapacity(UInt newCapacity)
+        StringRepresentation* cloneWithCapacity(Index newCapacity)
         {
             StringRepresentation* newObj = createWithCapacityAndLength(newCapacity, length);
             memcpy(getData(), newObj->getData(), length + 1);
@@ -222,11 +254,11 @@ namespace Slang
             return cloneWithCapacity(length);
         }
 
-        StringRepresentation* ensureCapacity(UInt required)
+        StringRepresentation* ensureCapacity(Index required)
         {
             if (capacity >= required) return this;
 
-            UInt newCapacity = capacity;
+            Index newCapacity = capacity;
             if (!newCapacity) newCapacity = 16; // TODO: figure out good value for minimum capacity
 
             while (newCapacity < required)
@@ -292,9 +324,43 @@ namespace Slang
     class OSString
     {
     public:
+            /// Default
         OSString();
+            /// NOTE! This assumes that begin is a new wchar_t[] buffer, and it will
+            /// now be owned by the OSString
         OSString(wchar_t* begin, wchar_t* end);
-        ~OSString();
+            /// Move Ctor
+        OSString(OSString&& rhs):
+            m_begin(rhs.m_begin),
+            m_end(rhs.m_end)
+        {
+            rhs.m_begin = nullptr;
+            rhs.m_end = nullptr;
+        }
+            // Copy Ctor
+        OSString(const OSString& rhs) :
+            m_begin(nullptr),
+            m_end(nullptr)
+        {
+            set(rhs.m_begin, rhs.m_end);
+        }
+
+            /// =
+        void operator=(const OSString& rhs) { set(rhs.m_begin, rhs.m_end); }
+        void operator=(OSString&& rhs)
+        {
+            auto begin = m_begin;
+            auto end = m_end;
+            m_begin = rhs.m_begin;
+            m_end = rhs.m_end;
+            rhs.m_begin = begin;
+            rhs.m_end = end;
+        }
+
+        ~OSString() { _releaseBuffer(); }
+
+        size_t getLength() const { return (m_end - m_begin); }
+        void set(const wchar_t* begin, const wchar_t* end);
 
         operator wchar_t const*() const
         {
@@ -305,8 +371,11 @@ namespace Slang
         wchar_t const* end() const;
 
     private:
-        wchar_t* beginData;
-        wchar_t* endData;
+
+        void _releaseBuffer();
+
+        wchar_t* m_begin;           ///< First character. This is a new wchar_t[] buffer
+        wchar_t* m_end;             ///< Points to terminating 0
     };
 
 	/*!
@@ -322,36 +391,35 @@ namespace Slang
 
         char* getData() const
         {
-            return buffer ? buffer->getData() : (char*)"";
+            return m_buffer ? m_buffer->getData() : (char*)"";
         }
 
-        UInt getLength() const
-        {
-            return buffer ? buffer->getLength() : 0;
-        }
-
-        void ensureUniqueStorageWithCapacity(UInt capacity);
      
-        RefPtr<StringRepresentation> buffer;
+        void ensureUniqueStorageWithCapacity(Index capacity);
+     
+        RefPtr<StringRepresentation> m_buffer;
 
     public:
 
 		String() = default;
         explicit String(StringRepresentation* buffer)
-            : buffer(buffer)
+            : m_buffer(buffer)
         {}
 
-		static String FromWString(const wchar_t * wstr);
-		static String FromWString(const wchar_t * wstr, const wchar_t * wend);
-		static String FromWChar(const wchar_t ch);
-		static String FromUnicodePoint(unsigned int codePoint);
+		static String fromWString(const wchar_t * wstr);
+		static String fromWString(const wchar_t * wstr, const wchar_t * wend);
+		static String fromWChar(const wchar_t ch);
+		static String fromUnicodePoint(unsigned int codePoint);
+		String()
+		{
+		}
 
             /// Returns a buffer which can hold at least count chars
-        char* prepareForAppend(UInt count);
+        char* prepareForAppend(Index count);
             /// Append data written to buffer output via 'prepareForAppend' directly written 'inplace'
-        void appendInPlace(const char* chars, UInt count);
+        void appendInPlace(const char* chars, Index count);
 
-        SLANG_FORCE_INLINE StringRepresentation* getStringRepresentation() const { return buffer; }
+        SLANG_FORCE_INLINE StringRepresentation* getStringRepresentation() const { return m_buffer; }
 
 		const char * begin() const
 		{
@@ -375,6 +443,9 @@ namespace Slang
         void append(String const& str);
         void append(StringSlice const& slice);
         void append(UnownedStringSlice const& slice);
+
+            /// Append a character (to remove ambiguity with other integral types)
+        void appendChar(char chr);
 
 		String(int32_t val, int radix = 10)
 		{
@@ -437,14 +508,14 @@ namespace Slang
 		}
 		String(String const& str)
 		{
-            buffer = str.buffer;
+            m_buffer = str.m_buffer;
 #if 0
 			this->operator=(str);
 #endif
 		}
 		String(String&& other)
 		{
-            buffer = _Move(other.buffer);
+            m_buffer = _Move(other.m_buffer);
 		}
 
         String(StringSlice const& slice)
@@ -459,74 +530,79 @@ namespace Slang
 
 		~String()
 		{
-            buffer = 0;
+            m_buffer.setNull(); 
 		}
 
 		String & operator=(const String & str)
 		{
-            buffer = str.buffer;
+            m_buffer = str.m_buffer;
 			return *this;
 		}
 		String & operator=(String&& other)
 		{
-            buffer = _Move(other.buffer);
+            m_buffer = _Move(other.m_buffer);
             return *this;
 		}
-		char operator[](UInt id) const
+		char operator[](Index id) const
 		{
-#if _DEBUG
-			if (id < 0 || id >= getLength())
-				throw "Operator[]: index out of range.";
-#endif
+            SLANG_ASSERT(id >= 0 && id < getLength());
 			return begin()[id];
 		}
+
+        Index getLength() const
+        {
+            return m_buffer ? m_buffer->getLength() : 0;
+        }
 
 		friend String operator+(const char*op1, const String & op2);
 		friend String operator+(const String & op1, const char * op2);
 		friend String operator+(const String & op1, const String & op2);
 
-		StringSlice TrimStart() const
+		StringSlice trimStart() const
 		{
-			if (!buffer)
+			if (!m_buffer)
 				return StringSlice();
-			UInt startIndex = 0;
+			Index startIndex = 0;
+            const char*const data = getData();
 			while (startIndex < getLength() &&
-				(getData()[startIndex] == ' ' || getData()[startIndex] == '\t' || getData()[startIndex] == '\r' || getData()[startIndex] == '\n'))
+				(data[startIndex] == ' ' || data[startIndex] == '\t' || data[startIndex] == '\r' || data[startIndex] == '\n'))
 				startIndex++;
-            return StringSlice(buffer, startIndex, getLength());
+            return StringSlice(m_buffer, startIndex, getLength());
 		}
 
-		StringSlice TrimEnd() const
+		StringSlice trimEnd() const
 		{
-			if (!buffer)
+			if (!m_buffer)
 				return StringSlice();
 
-			UInt endIndex = getLength();
+			Index endIndex = getLength();
+            const char*const data = getData();
 			while (endIndex > 0 &&
-				(getData()[endIndex-1] == ' ' || getData()[endIndex-1] == '\t' || getData()[endIndex-1] == '\r' || getData()[endIndex-1] == '\n'))
+				(data[endIndex-1] == ' ' || data[endIndex-1] == '\t' || data[endIndex-1] == '\r' || data[endIndex-1] == '\n'))
 				endIndex--;
 
-            return StringSlice(buffer, 0, endIndex);
+            return StringSlice(m_buffer, 0, endIndex);
 		}
 
-		StringSlice Trim() const
+		StringSlice trim() const
 		{
-			if (!buffer)
+			if (!m_buffer)
 				return StringSlice();
 
-			UInt startIndex = 0;
+			Index startIndex = 0;
+            const char*const data = getData();
 			while (startIndex < getLength() &&
-				(getData()[startIndex] == ' ' || getData()[startIndex] == '\t'))
+				(data[startIndex] == ' ' || data[startIndex] == '\t'))
 				startIndex++;
-			UInt endIndex = getLength();
+            Index endIndex = getLength();
 			while (endIndex > startIndex &&
-				(getData()[endIndex-1] == ' ' || getData()[endIndex-1] == '\t'))
+				(data[endIndex-1] == ' ' || data[endIndex-1] == '\t'))
 				endIndex--;
 
-            return StringSlice(buffer, startIndex, endIndex);
+            return StringSlice(m_buffer, startIndex, endIndex);
 		}
 
-		StringSlice SubString(UInt id, UInt len) const
+		StringSlice subString(Index id, Index len) const
 		{
 			if (len == 0)
 				return StringSlice();
@@ -539,17 +615,17 @@ namespace Slang
 			if (len < 0)
 				throw "SubString: length less than zero.";
 #endif
-            return StringSlice(buffer, id, id + len);
+            return StringSlice(m_buffer, id, id + len);
 		}
 
-		char const* Buffer() const
+		char const* getBuffer() const
 		{
             return getData();
 		}
 
-        OSString ToWString(UInt* len = 0) const;
+        OSString toWString(Index* len = 0) const;
 
-		bool Equals(const String & str, bool caseSensitive = true)
+		bool equals(const String & str, bool caseSensitive = true)
 		{
 			if (caseSensitive)
 				return (strcmp(begin(), str.begin()) == 0);
@@ -596,7 +672,7 @@ namespace Slang
 			return (strcmp(begin(), str.begin()) <= 0);
 		}
 
-		String ToUpper() const
+		String toUpper() const
 		{
             String result;
             for (auto c : *this)
@@ -607,7 +683,7 @@ namespace Slang
             return result;
 		}
 
-		String ToLower() const
+		String toLower() const
 		{
             String result;
             for (auto c : *this)
@@ -618,108 +694,114 @@ namespace Slang
             return result;
 		}
 
-		UInt Length() const
-		{
-			return getLength();
-		}
-
-		UInt IndexOf(const char * str, UInt id) const // String str
+        Index indexOf(const char * str, Index id) const // String str
 		{
 			if (id >= getLength())
-				return UInt(-1);
+				return Index(-1);
 			auto findRs = strstr(begin() + id, str);
-			UInt res = findRs ? findRs - begin() : -1;
+			Index res = findRs ? findRs - begin() : Index(-1);
 			return res;
 		}
 
-		UInt IndexOf(const String & str, UInt id) const
+        Index indexOf(const String & str, Index id) const
 		{
-			return IndexOf(str.begin(), id);
+			return indexOf(str.begin(), id);
 		}
 
-		UInt IndexOf(const char * str) const
+        Index indexOf(const char * str) const
 		{
-			return IndexOf(str, 0);
+			return indexOf(str, 0);
 		}
 
-		UInt IndexOf(const String & str) const
+        Index indexOf(const String & str) const
 		{
-			return IndexOf(str.begin(), 0);
+			return indexOf(str.begin(), 0);
 		}
 
-		UInt IndexOf(char ch, UInt id) const
+        Index indexOf(char ch, Index id) const
 		{
-#if _DEBUG
-			if (id < 0 || id >= getLength())
-				throw "SubString: index out of range.";
-#endif
-			if (!buffer)
-				return UInt(-1);
-			for (UInt i = id; i < getLength(); i++)
-				if (getData()[i] == ch)
+            const Index length = getLength();
+            SLANG_ASSERT(id >= 0 && id <= length);
+
+			if (!m_buffer)
+				return Index(-1);
+
+            const char* data = getData();
+			for (Index i = id; i < length; i++)
+				if (data[i] == ch)
 					return i;
-			return UInt(-1);
+			return Index(-1);
 		}
 
-		UInt IndexOf(char ch) const
+        Index indexOf(char ch) const
 		{
-			return IndexOf(ch, 0);
+			return indexOf(ch, 0);
 		}
 
-		UInt LastIndexOf(char ch) const
-		{
-			for (UInt i = getLength(); i > 0; i--)
-				if (getData()[i-1] == ch)
-					return i-1;
-			return UInt(-1);
+        Index lastIndexOf(char ch) const
+		{            
+            const Index length = getLength();
+            const char* data = getData();
+
+            // TODO(JS): If we know Index is signed we can do this a bit more simply
+
+            for (Index i = length; i > 0; i--)
+				if (data[i - 1] == ch)
+					return i - 1;
+			return Index(-1);
 		}
 
-		bool StartsWith(const char * str) const // String str
+		bool startsWith(const char * str) const // String str
 		{
-			if (!buffer)
+			if (!m_buffer)
 				return false;
-			UInt strLen = strlen(str);
+            Index strLen = Index(::strlen(str));
 			if (strLen > getLength())
 				return false;
-			for (UInt i = 0; i < strLen; i++)
-				if (str[i] != getData()[i])
+
+            const char*const data = getData();
+
+			for (Index i = 0; i < strLen; i++)
+				if (str[i] != data[i])
 					return false;
 			return true;
 		}
 
-		bool StartsWith(const String & str) const
+		bool startsWith(const String& str) const
 		{
-			return StartsWith(str.begin());
+			return startsWith(str.begin());
 		}
 
-		bool EndsWith(char const * str)  const // String str
+		bool endsWith(char const * str)  const // String str
 		{
-			if (!buffer)
+			if (!m_buffer)
 				return false;
-			UInt strLen = strlen(str);
-			if (strLen > getLength())
+
+			const Index strLen = Index(::strlen(str));
+            const Index len = getLength();
+
+			if (strLen > len)
 				return false;
-			for (UInt i = strLen; i > 0; i--)
-				if (str[i-1] != getData()[getLength() - strLen + i-1])
+            const char* data = getData();
+			for (Index i = strLen; i > 0; i--)
+				if (str[i-1] != data[len - strLen + i-1])
 					return false;
 			return true;
 		}
 
-		bool EndsWith(const String & str) const
+		bool endsWith(const String & str) const
 		{
-			return EndsWith(str.begin());
+			return endsWith(str.begin());
 		}
 
-		bool Contains(const char * str) const // String str
+		bool contains(const char * str) const // String str
 		{
-			if (!buffer)
-				return false;
-			return (IndexOf(str) != UInt(-1)) ? true : false;
+			return m_buffer && indexOf(str) != Index(-1); 
 		}
 
-		bool Contains(const String & str) const
+		bool contains(const String & str) const
 		{
-			return Contains(str.begin());
+			return contains(str.begin());
 		}
 
 		int GetHashCode() const
@@ -729,7 +811,7 @@ namespace Slang
 
         UnownedStringSlice getUnownedSlice() const
         {
-            return StringRepresentation::asSlice(buffer);
+            return StringRepresentation::asSlice(m_buffer);
         }
 	};
 
@@ -849,7 +931,7 @@ namespace Slang
 		}
 		void Append(const String & str)
 		{
-			Append(str.Buffer(), str.Length());
+			Append(str.getBuffer(), str.getLength());
 		}
 		void Append(const char * str)
 		{
@@ -917,7 +999,7 @@ namespace Slang
 
 		void Clear()
 		{
-            buffer = 0;
+            m_buffer.setNull();
 		}
 	};
 

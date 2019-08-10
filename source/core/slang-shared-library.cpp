@@ -1,8 +1,9 @@
 #include "slang-shared-library.h"
 
 #include "../../slang-com-ptr.h"
-#include "../core/slang-io.h"
-#include "../core/slang-string-util.h"
+
+#include "slang-io.h"
+#include "slang-string-util.h"
 
 namespace Slang
 {
@@ -100,7 +101,7 @@ SlangResult ConfigurableSharedLibraryLoader::loadSharedLibrary(const char* path,
 {
     SLANG_UNUSED(pathIn);
     // The replacement is the *whole* string
-    return SharedLibrary::loadWithPlatformFilename(entryString.begin(), handleOut);
+    return SharedLibrary::loadWithPlatformPath(entryString.begin(), handleOut);
 }
 
 /* static */Result ConfigurableSharedLibraryLoader::changePath(const char* pathIn, const String& entryString, SharedLibrary::Handle& handleOut )
@@ -108,9 +109,9 @@ SlangResult ConfigurableSharedLibraryLoader::loadSharedLibrary(const char* path,
     // Okay we need to reconstruct the name and insert the path
     StringBuilder builder;
     SharedLibrary::appendPlatformFileName(UnownedStringSlice(pathIn), builder);
-    String path = Path::Combine(entryString, builder);
+    String path = Path::combine(entryString, builder);
 
-    return SharedLibrary::loadWithPlatformFilename(path.begin(), handleOut);
+    return SharedLibrary::loadWithPlatformPath(path.begin(), handleOut);
 }
 
 

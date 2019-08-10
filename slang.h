@@ -298,8 +298,15 @@ convention for interface methods.
 
 #ifdef __cplusplus
 // C++ specific macros
+// Clang
+#if SLANG_CLANG
+#    if (__clang_major__*10 + __clang_minor__) >= 33
+#       define SLANG_HAS_MOVE_SEMANTICS 1
+#       define SLANG_HAS_ENUM_CLASS 1
+#       define SLANG_OVERRIDE override
+#    endif
 // Gcc
-#	if SLANG_GCC_FAMILY
+#elif SLANG_GCC_FAMILY
 // Check for C++11
 #		if (__cplusplus >= 201103L)
 #			if (__GNUC__ * 100 + __GNUC_MINOR__) >= 405
@@ -344,6 +351,91 @@ convention for interface methods.
 
 #endif // __cplusplus
 
+/* Macros for detecting processor */
+#if defined(_M_ARM) || defined(__ARM_EABI__)
+// This is special case for nVidia tegra
+#   define SLANG_PROCESSOR_ARM 1
+#elif defined(__i386__) || defined(_M_IX86)
+#   define SLANG_PROCESSOR_X86 1
+#elif defined(_M_AMD64) || defined(_M_X64) || defined(__amd64) || defined(__x86_64)
+#   define SLANG_PROCESSOR_X86_64 1
+#elif defined(_PPC_) || defined(__ppc__) || defined(__POWERPC__) || defined(_M_PPC)
+#   if defined(__powerpc64__) || defined(__ppc64__) || defined(__PPC64__) || defined(__64BIT__) || defined(_LP64) || defined(__LP64__)
+#       define SLANG_PROCESSOR_POWER_PC_64 1
+#   else
+#       define SLANG_PROCESSOR_POWER_PC 1
+#   endif
+#elif defined(__arm__)
+#   define SLANG_PROCESSOR_ARM 1
+#elif defined(__aarch64__)
+#   define SLANG_PROCESSOR_ARM_64 1
+#endif 
+
+#ifndef SLANG_PROCESSOR_ARM
+#   define SLANG_PROCESSOR_ARM 0
+#endif
+
+#ifndef SLANG_PROCESSOR_ARM_64
+#   define SLANG_PROCESSOR_ARM_64 0
+#endif
+
+#ifndef SLANG_PROCESSOR_X86
+#   define SLANG_PROCESSOR_X86 0
+#endif
+
+#ifndef SLANG_PROCESSOR_X86_64
+#   define SLANG_PROCESSOR_X86_64 0
+#endif
+
+#ifndef SLANG_PROCESSOR_POWER_PC
+#   define SLANG_PROCESSOR_POWER_PC 0
+#endif
+
+#ifndef SLANG_PROCESSOR_POWER_PC_64
+#   define SLANG_PROCESSOR_POWER_PC_64 0
+#endif
+
+// Processor families
+
+#define SLANG_PROCESSOR_FAMILY_X86 (SLANG_PROCESSOR_X86_64 | SLANG_PROCESSOR_X86)
+#define SLANG_PROCESSOR_FAMILY_ARM (SLANG_PROCESSOR_ARM | SLANG_PROCESSOR_ARM_64)
+#define SLANG_PROCESSOR_FAMILY_POWER_PC (SLANG_PROCESSOR_POWER_PC_64 | SLANG_PROCESSOR_POWER_PC)
+
+// Pointer size
+#define SLANG_PTR_IS_64 (SLANG_PROCESSOR_ARM_64 | SLANG_PROCESSOR_X86_64 | SLANG_PROCESSOR_POWER_PC_64)
+#define SLANG_PTR_IS_32 (SLANG_PTR_IS_64 ^ 1)
+
+// Processor features
+#if SLANG_PROCESSOR_FAMILY_X86
+#   define SLANG_LITTLE_ENDIAN 1
+#   define SLANG_UNALIGNED_ACCESS 1
+#elif SLANG_PROCESSOR_FAMILY_ARM
+#   if defined(__ARMEB__)
+#       define SLANG_BIG_ENDIAN 1
+#   else
+#       define SLANG_LITTLE_ENDIAN 1
+#   endif
+#elif SLANG_PROCESSOR_FAMILY_POWER_PC
+#       define SLANG_BIG_ENDIAN 1
+#endif
+
+#ifndef SLANG_LITTLE_ENDIAN
+#   define SLANG_LITTLE_ENDIAN 0
+#endif
+
+#ifndef SLANG_BIG_ENDIAN
+#   define SLANG_BIG_ENDIAN 0
+#endif
+
+#ifndef SLANG_UNALIGNED_ACCESS
+#   define SLANG_UNALIGNED_ACCESS 0
+#endif
+
+// One endianess must be set
+#if ((SLANG_BIG_ENDIAN | SLANG_LITTLE_ENDIAN) == 0)
+#   error "Couldn't determine endianess"
+#endif
+
 #ifndef  SLANG_NO_INTTYPES
 #include <inttypes.h>
 #endif // ! SLANG_NO_INTTYPES
@@ -365,8 +457,17 @@ extern "C"
     */
 
     typedef uint32_t    SlangUInt32;
-    typedef intptr_t    SlangInt;
-    typedef uintptr_t   SlangUInt;
+
+    // Use SLANG_PTR_ macros to determine SlangInt/SlangUInt types.
+    // This is used over say using size_t/ptrdiff_t/intptr_t/uintptr_t, because on some targets, these types are distinct from
+    // their uint_t/int_t equivalents and so produce ambiguity with function overloading.   
+#if SLANG_PTR_IS_64
+    typedef int64_t    SlangInt;
+    typedef uint64_t   SlangUInt;
+#else
+    typedef int32_t    SlangInt;
+    typedef uint32_t   SlangUInt;
+#endif
 
     typedef bool SlangBool;
     
@@ -411,6 +512,10 @@ extern "C"
         SLANG_DXBC_ASM,
         SLANG_DXIL,
         SLANG_DXIL_ASM,
+        SLANG_C_SOURCE,             ///< The C language
+        SLANG_CPP_SOURCE,           ///< The C++ language
+        SLANG_EXECUTABLE,           ///< Executable (for hosting CPU/OS)
+        SLANG_SHARED_LIBRARY,       ///< A shared library/Dll (for hosting CPU/OS)
     };
 
     /* A "container format" describes the way that the outputs
@@ -434,6 +539,11 @@ extern "C"
         SLANG_PASS_THROUGH_FXC,
         SLANG_PASS_THROUGH_DXC,
         SLANG_PASS_THROUGH_GLSLANG,
+        SLANG_PASS_THROUGH_CLANG,                   ///< Clang C/C++ compiler 
+        SLANG_PASS_THROUGH_VISUAL_STUDIO,           ///< Visual studio C/C++ compiler
+        SLANG_PASS_THROUGH_GCC,                     ///< GCC C/C++ compiler
+        SLANG_PASS_THROUGH_GENERIC_C_CPP,           ///< Generic C or C++ compiler, which is decided by the source type
+        SLANG_PASS_THROUGH_COUNT_OF,
     };
 
     /*!
@@ -498,6 +608,8 @@ extern "C"
         SLANG_SOURCE_LANGUAGE_SLANG,
         SLANG_SOURCE_LANGUAGE_HLSL,
         SLANG_SOURCE_LANGUAGE_GLSL,
+        SLANG_SOURCE_LANGUAGE_C,
+        SLANG_SOURCE_LANGUAGE_CPP,
     };
 
     typedef unsigned int SlangProfileID;
@@ -709,7 +821,7 @@ extern "C"
         uint32_t AddRef() { return addRef(); }
         uint32_t Release() { return release(); }
     };
-    #define SLANG_UUID_ISlangUnknown { 0x00000000, 0x0000, 0x0000, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 }
+    #define SLANG_UUID_ISlangUnknown { 0x00000000, 0x0000, 0x0000, { 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 } }
 
     /** A "blob" of binary data.
 
@@ -721,7 +833,7 @@ extern "C"
         virtual SLANG_NO_THROW void const* SLANG_MCALL getBufferPointer() = 0;
         virtual SLANG_NO_THROW size_t SLANG_MCALL getBufferSize() = 0;
     };
-    #define SLANG_UUID_ISlangBlob { 0x8BA5FB08, 0x5195, 0x40e2, 0xAC, 0x58, 0x0D, 0x98, 0x9C, 0x3A, 0x01, 0x02 }
+    #define SLANG_UUID_ISlangBlob { 0x8BA5FB08, 0x5195, 0x40e2, { 0xAC, 0x58, 0x0D, 0x98, 0x9C, 0x3A, 0x01, 0x02 } }
 
     /** A (real or virtual) file system.
 
@@ -751,12 +863,12 @@ extern "C"
             char const*     path,
             ISlangBlob** outBlob) = 0;
     };
-    #define SLANG_UUID_ISlangFileSystem { 0x003A09FC, 0x3A4D, 0x4BA0, 0xAD, 0x60, 0x1F, 0xD8, 0x63, 0xA9, 0x15, 0xAB }
+    #define SLANG_UUID_ISlangFileSystem { 0x003A09FC, 0x3A4D, 0x4BA0, { 0xAD, 0x60, 0x1F, 0xD8, 0x63, 0xA9, 0x15, 0xAB } }
 
 
     typedef void(*SlangFuncPtr)(void);
 
-    /** An interface that can be used to encapsulate access to a shared library. An implementaion 
+    /** An interface that can be used to encapsulate access to a shared library. An implementation 
     does not have to implement the library as a shared library. 
     */
     struct ISlangSharedLibrary: public ISlangUnknown
@@ -773,11 +885,16 @@ extern "C"
     struct ISlangSharedLibraryLoader: public ISlangUnknown
     {
         public:
+            /** Load a shared library. In typical usage the library name should *not* contain any platform
+            specific elements. For example on windows a dll name should *not* be passed with a '.dll' extension,
+            and similarly on linux a shared library should *not* be passed with the 'lib' prefix and '.so' extension
+            @path path The unadorned filename and/or path for the shared library
+            @ param sharedLibraryOut Holds the shared library if successfully loaded */
         virtual SLANG_NO_THROW SlangResult SLANG_MCALL loadSharedLibrary(
             const char*     path,
             ISlangSharedLibrary** sharedLibraryOut) = 0;
     };
-    #define SLANG_UUID_ISlangSharedLibraryLoader { 0x6264ab2b, 0xa3e8, 0x4a06,{ 0x97, 0xf1, 0x49, 0xbc, 0x2d, 0x2a, 0xb1, 0x4d } };
+    #define SLANG_UUID_ISlangSharedLibraryLoader { 0x6264ab2b, 0xa3e8, 0x4a06, { 0x97, 0xf1, 0x49, 0xbc, 0x2d, 0x2a, 0xb1, 0x4d } };
     
     /* Type that identifies how a path should be interpreted */
     typedef unsigned int SlangPathType;
@@ -938,13 +1055,16 @@ extern "C"
     
     #define SLANG_UUID_ISlangWriter { 0xec457f0e, 0x9add, 0x4e6b,{ 0x85, 0x1c, 0xd7, 0xfa, 0x71, 0x6d, 0x15, 0xfd } };
 
+    namespace slang {
+    struct IGlobalSession;
+    } // namespace slang
+
     /*!
     @brief An instance of the Slang library.
     */
-    typedef struct SlangSession SlangSession;
+    typedef slang::IGlobalSession SlangSession;
 
-    typedef struct SlangLinkage SlangLinkage;
-    typedef struct SlangModule SlangModule;
+    typedef struct SlangProgramLayout SlangProgramLayout;
 
     /*!
     @brief A request for one or more compilation actions to be performed.
@@ -1011,20 +1131,6 @@ extern "C"
         SlangSession*   session,
         char const*     sourcePath,
         char const*     sourceString);
-
-
-
-    SLANG_API SlangLinkage* spCreateLinkage(
-        SlangSession* session);
-
-    SLANG_API void spDestroyLinkage(
-        SlangLinkage* linkage);
-
-    SLANG_API SlangModule* spLoadModule(
-        SlangLinkage* linkage,
-        char const* moduleName);
-
-
 
     /*!
     @brief Create a compile request.
@@ -1462,11 +1568,14 @@ extern "C"
         SlangCompileRequest*    request,
         size_t*                 outSize);
 
-    /* Note(tfoley): working on new reflection interface...
+    /*
+    Forward declarations of types used in the reflection interface;
     */
 
-    typedef struct SlangReflection                  SlangReflection;
-    typedef struct SlangReflectionEntryPoint        SlangReflectionEntryPoint;
+    typedef struct SlangProgramLayout SlangProgramLayout;
+    typedef struct SlangEntryPoint SlangEntryPoint;
+    typedef struct SlangEntryPointLayout SlangEntryPointLayout;
+
     typedef struct SlangReflectionModifier          SlangReflectionModifier;
     typedef struct SlangReflectionType              SlangReflectionType;
     typedef struct SlangReflectionTypeLayout        SlangReflectionTypeLayout;
@@ -1474,6 +1583,12 @@ extern "C"
     typedef struct SlangReflectionVariableLayout    SlangReflectionVariableLayout;
     typedef struct SlangReflectionTypeParameter     SlangReflectionTypeParameter;
     typedef struct SlangReflectionUserAttribute     SlangReflectionUserAttribute;
+
+    /*
+    Type aliases to maintain backward compatibility.
+    */
+    typedef SlangProgramLayout SlangReflection;
+    typedef SlangEntryPointLayout SlangReflectionEntryPoint;
 
     // get reflection data from a compilation request
     SLANG_API SlangReflection* spGetReflection(
@@ -1499,6 +1614,7 @@ extern "C"
         SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER,
         SLANG_TYPE_KIND_INTERFACE,
         SLANG_TYPE_KIND_OUTPUT_STREAM,
+        SLANG_TYPE_KIND_SPECIALIZED,
         SLANG_TYPE_KIND_COUNT,
     };
 
@@ -1718,6 +1834,10 @@ extern "C"
 
     SLANG_API int spReflectionTypeLayout_getGenericParamIndex(SlangReflectionTypeLayout* type);
 
+    SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLayout(SlangReflectionTypeLayout* type);
+
+    SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getSpecializedTypePendingDataVarLayout(SlangReflectionTypeLayout* type);
+
     // Variable Reflection
 
     SLANG_API char const* spReflectionVariable_GetName(SlangReflectionVariable* var);
@@ -1749,6 +1869,9 @@ extern "C"
     SLANG_API SlangStage spReflectionVariableLayout_getStage(
         SlangReflectionVariableLayout* var);
 
+
+    SLANG_API SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDataLayout(SlangReflectionVariableLayout* var);
+
     // Shader Parameter Reflection
 
     typedef SlangReflectionVariableLayout SlangReflectionParameter;
@@ -1778,6 +1901,12 @@ extern "C"
     SLANG_API int spReflectionEntryPoint_usesAnySampleRateInput(
         SlangReflectionEntryPoint* entryPoint);
 
+    SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(
+        SlangReflectionEntryPoint* entryPoint);
+
+    SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
+        SlangReflectionEntryPoint* entryPoint);
+
     // SlangReflectionTypeParameter
     SLANG_API char const* spReflectionTypeParameter_GetName(SlangReflectionTypeParameter* typeParam);
     SLANG_API unsigned spReflectionTypeParameter_GetIndex(SlangReflectionTypeParameter* typeParam);
@@ -1803,15 +1932,19 @@ extern "C"
     SLANG_API SlangUInt spReflection_getGlobalConstantBufferBinding(SlangReflection* reflection);
     SLANG_API size_t spReflection_getGlobalConstantBufferSize(SlangReflection* reflection);
 
+    SLANG_API  SlangReflectionType* spReflection_specializeType(
+        SlangReflection*            reflection,
+        SlangReflectionType*        type,
+        SlangInt                    specializationArgCount,
+        SlangReflectionType* const* specializationArgs,
+        ISlangBlob**                outDiagnostics);
+
 #ifdef __cplusplus
 }
 
 /* Helper interfaces for C++ users */
 namespace slang
 {
-#define SLANG_SAFE_BOOL(expr) \
-    operator bool() const { return expr; }
-
     struct BufferReflection;
     struct TypeLayoutReflection;
     struct TypeReflection;
@@ -1863,7 +1996,8 @@ namespace slang
             ShaderStorageBuffer = SLANG_TYPE_KIND_SHADER_STORAGE_BUFFER,
             ParameterBlock = SLANG_TYPE_KIND_PARAMETER_BLOCK,
             GenericTypeParameter = SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER,
-            Interface = SLANG_TYPE_KIND_INTERFACE
+            Interface = SLANG_TYPE_KIND_INTERFACE,
+            Specialized = SLANG_TYPE_KIND_SPECIALIZED,
         };
 
         enum ScalarType : SlangScalarType
@@ -2138,6 +2272,18 @@ namespace slang
             return spReflectionTypeLayout_getGenericParamIndex(
                 (SlangReflectionTypeLayout*) this);
         }
+
+        TypeLayoutReflection* getPendingDataTypeLayout()
+        {
+            return (TypeLayoutReflection*) spReflectionTypeLayout_getPendingDataTypeLayout(
+                (SlangReflectionTypeLayout*) this);
+        }
+
+        VariableLayoutReflection* getSpecializedTypePendingDataVarLayout()
+        {
+            return (VariableLayoutReflection*) spReflectionTypeLayout_getSpecializedTypePendingDataVarLayout(
+                (SlangReflectionTypeLayout*) this);
+        }
     };
 
     struct Modifier
@@ -2256,6 +2402,11 @@ namespace slang
         {
             return spReflectionVariableLayout_getStage((SlangReflectionVariableLayout*) this);
         }
+
+        VariableLayoutReflection* getPendingDataLayout()
+        {
+            return (VariableLayoutReflection*) spReflectionVariableLayout_getPendingDataLayout((SlangReflectionVariableLayout*) this);
+        }
     };
 
     struct EntryPointReflection
@@ -2291,7 +2442,23 @@ namespace slang
         {
             return 0 != spReflectionEntryPoint_usesAnySampleRateInput((SlangReflectionEntryPoint*) this);
         }
+
+        VariableLayoutReflection* getVarLayout()
+        {
+            return (VariableLayoutReflection*) spReflectionEntryPoint_getVarLayout((SlangReflectionEntryPoint*) this);
+        }
+
+        TypeLayoutReflection* getTypeLayout()
+        {
+            return getVarLayout()->getTypeLayout();
+        }
+
+        bool hasDefaultConstantBuffer()
+        {
+            return spReflectionEntryPoint_hasDefaultConstantBuffer((SlangReflectionEntryPoint*) this) != 0;
+        }
     };
+    typedef EntryPointReflection EntryPointLayout;
 
     struct TypeParameterReflection
     {
@@ -2317,6 +2484,8 @@ namespace slang
     {
         Default = SLANG_LAYOUT_RULES_DEFAULT,
     };
+
+    typedef struct ShaderReflection ProgramLayout;
 
     struct ShaderReflection
     {
@@ -2345,9 +2514,9 @@ namespace slang
             return (VariableLayoutReflection*) spReflection_GetParameterByIndex((SlangReflection*) this, index);
         }
 
-        static ShaderReflection* get(SlangCompileRequest* request)
+        static ProgramLayout* get(SlangCompileRequest* request)
         {
-            return (ShaderReflection*) spGetReflection(request);
+            return (ProgramLayout*) spGetReflection(request);
         }
 
         SlangUInt getEntryPointCount()
@@ -2393,8 +2562,422 @@ namespace slang
                 (SlangReflection*) this,
                 name);
         }
+
+        TypeReflection* specializeType(
+            TypeReflection*         type,
+            SlangInt                specializationArgCount,
+            TypeReflection* const*  specializationArgs,
+            ISlangBlob**            outDiagnostics)
+        {
+            return (TypeReflection*) spReflection_specializeType(
+                (SlangReflection*) this,
+                (SlangReflectionType*) type,
+                specializationArgCount,
+                (SlangReflectionType* const*) specializationArgs,
+                outDiagnostics);
+        }
+    };
+
+    typedef ISlangBlob IBlob;
+
+    struct IComponentType;
+    struct IGlobalSession;
+    struct IModule;
+    struct ISession;
+
+    struct SessionDesc;
+    struct SpecializationArg;
+    struct TargetDesc;
+
+        /** A global session for interaction with the Slang library.
+
+        An application may create and re-use a single global session across
+        multiple sessions, in order to amortize startups costs (in current
+        Slang this is mostly the cost of loading the Slang standard library).
+
+        The global session is currently *not* thread-safe and objects created from
+        a single global session should only be used from a single thread at
+        a time.
+        */
+    struct IGlobalSession : public ISlangUnknown
+    {
+    public:
+            /** Create a new session for loading and compiling code.
+            */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL createSession(
+            SessionDesc const&  desc,
+            ISession**          outSession) = 0;
+
+            /** Look up the internal ID of a profile by its `name`.
+
+            Profile IDs are *not* guaranteed to be stable across versions
+            of the Slang library, so clients are expected to look up
+            profiles by name at runtime.
+            */
+        virtual SLANG_NO_THROW SlangProfileID SLANG_MCALL findProfile(
+            char const*     name) = 0;
+    };
+
+    #define SLANG_UUID_IGlobalSession { 0xc140b5fd, 0xc78, 0x452e, { 0xba, 0x7c, 0x1a, 0x1e, 0x70, 0xc7, 0xf7, 0x1c } };
+
+        /** Description of a code generation target.
+        */
+    struct TargetDesc
+    {
+            /** The target format to generate code for (e.g., SPIR-V, DXIL, etc.)
+            */
+        SlangCompileTarget      format = SLANG_TARGET_UNKNOWN;
+
+            /** The compilation profile supported by the target (e.g., "Shader Model 5.1")
+            */
+        SlangProfileID          profile = SLANG_PROFILE_UNKNOWN;
+
+            /** Flags for the code generation target. Currently unused. */
+        SlangTargetFlags        flags = 0;
+
+            /** Default mode to use for floating-point operations on the target.
+            */
+        SlangFloatingPointMode  floatingPointMode = SLANG_FLOATING_POINT_MODE_DEFAULT;
+
+            /** Optimization level to use for the target.
+            */
+        SlangOptimizationLevel optimizationLevel = SLANG_OPTIMIZATION_LEVEL_DEFAULT;
+    };
+
+    typedef uint32_t SessionFlags;
+    enum
+    {
+        kSessionFlags_None = 0,
+
+        /** Use application-specific policy for semantics of the `shared` keyword.
+        
+        This is a legacy/compatibility flag to help an existing Slang client
+        migrate to new language features, and should *not* be used by other
+        clients. This feature may be removed in a future release without a
+        deprecation warning, and this bit may be re-used for another feature.
+        You have been warned.
+        */
+        kSessionFlag_FalcorCustomSharedKeywordSemantics = 1 << 0,
+    };
+
+    struct PreprocessorMacroDesc
+    {
+        const char* name;
+        const char* value;
+    };
+
+    struct SessionDesc
+    {
+            /** Code generation targets to include in the session.
+            */
+        TargetDesc const*   targets = nullptr;
+        SlangInt            targetCount = 0;
+
+            /** Flags to configure the session.
+            */
+        SessionFlags flags = kSessionFlags_None;
+
+            /** Default layout to assume for variables with matrix types.
+            */
+        SlangMatrixLayoutMode defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
+
+            /** Paths to use when searching for `#include`d or `import`ed files.
+            */
+        char const* const*  searchPaths = nullptr;
+        SlangInt            searchPathCount = 0;
+
+        PreprocessorMacroDesc const*    preprocessorMacros = nullptr;
+        SlangInt                        preprocessorMacroCount = 0;
+
+    };
+
+        /** A session provides a scope for code that is loaded.
+
+        A session can be used to load modules of Slang source code,
+        and to request target-specific compiled binaries and layout
+        information.
+
+        In order to be able to load code, the session owns a set
+        of active "search paths" for resolving `#include` directives
+        and `import` declrations, as well as a set of global
+        preprocessor definitions that will be used for all code
+        that gets `import`ed in the session.
+
+        If multiple user shaders are loaded in the same session,
+        and import the same module (e.g., two source files do `import X`)
+        then there will only be one copy of `X` loaded within the session.
+
+        In order to be able to generate target code, the session
+        owns a list of available compilation targets, which specify
+        code generation options.
+
+        Code loaded and compiled within a session is owned by the session
+        and will remain resident in memory until the session is released.
+        Applications wishing to control the memory usage for compiled
+        and loaded code should use multiple sessions.
+        */
+    struct ISession : public ISlangUnknown
+    {
+    public:
+            /** Get the global session thas was used to create this session.
+            */
+        virtual SLANG_NO_THROW IGlobalSession* SLANG_MCALL getGlobalSession() = 0;
+
+            /** Load a module as it would be by code using `import`.
+            */
+        virtual SLANG_NO_THROW IModule* SLANG_MCALL loadModule(
+            const char* moduleName,
+            IBlob**     outDiagnostics = nullptr) = 0;
+
+            /** Combine multiple component types to create a composite component type.
+
+            The `componentTypes` array must contain `componentTypeCount` pointers
+            to component types that were loaded or created using the same session.
+
+            The shader parameters and specialization parameters of the composite will
+            be the union of those in `componentTypes`. The relative order of child
+            component types is significant, and will affect the order in which
+            parameters are reflected and laid out.
+
+            The entry-point functions of the composite will be the union of those in
+            `componentTypes`, and will follow the ordering of `componentTypes`.
+
+            The requirements of the composite component type will be a subset of
+            those in `componentTypes`. If an entry in `componentTypes` has a requirement
+            that can be satisfied by another entry, then the composition will
+            satisfy the requirement and it will not appear as a requirement of
+            the composite. If multiple entries in `componentTypes` have a requirement
+            for the same type, then only the first such requirement will be retained
+            on the composite. The relative ordering of requirements on the composite
+            will otherwise match that of `componentTypes`.
+
+            If any diagnostics are generated during creation of the composite, they
+            will be written to `outDiagnostics`. If an error is encountered, the
+            function will return null.
+
+            It is an error to create a composite component type that recursively
+            aggregates the a single module more than once.
+            */
+        virtual SLANG_NO_THROW IComponentType* SLANG_MCALL createCompositeComponentType(
+            IComponentType* const*  componentTypes,
+            SlangInt                componentTypeCount,
+            ISlangBlob**            outDiagnostics = nullptr) = 0;
+
+            /** Specialize a type based on type arguments.
+            */
+        virtual SLANG_NO_THROW TypeReflection* SLANG_MCALL specializeType(
+            TypeReflection*             type,
+            SpecializationArg const*    specializationArgs,
+            SlangInt                    specializationArgCount,
+            ISlangBlob**                outDiagnostics = nullptr) = 0;
+
+
+            /** Get the layout `type` on the chosen `target`.
+            */
+        virtual SLANG_NO_THROW TypeLayoutReflection* SLANG_MCALL getTypeLayout(
+            TypeReflection* type,
+            SlangInt        targetIndex = 0,
+            LayoutRules     rules = LayoutRules::Default,
+            ISlangBlob**    outDiagnostics = nullptr) = 0;
+
+            /** Create a request to load/compile front-end code.
+            */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL createCompileRequest(
+            SlangCompileRequest**   outCompileRequest) = 0;
+    };
+
+    #define SLANG_UUID_ISession { 0x67618701, 0xd116, 0x468f, { 0xab, 0x3b, 0x47, 0x4b, 0xed, 0xce, 0xe, 0x3d } }
+
+        /** A component type is a unit of shader code layout, reflection, and linking.
+
+        A component type is a unit of shader code that can be included into
+        a linked and compiled shader program. Each component type may have:
+
+        * Zero or more uniform shader parameters, representing textures,
+          buffers, etc. that the code in the component depends on.
+
+        * Zero or more *specialization* parameters, which are type or
+          value parameters that can be used to synthesize specialized
+          versions of the component type.
+
+        * Zero or more entry points, which are the individually invocable
+          kernels that can have final code generated.
+
+        * Zero or more *requirements*, which are other component
+          types on which the component type depends.
+
+        One example of a component type is a module of Slang code:
+
+        * The global-scope shader parameters declared in the module are
+          the parameters when considered as a component type.
+
+        * Any global-scope generic or interface type parameters introduce
+          specialization parameters for the module.
+
+        * A module does not by default include any entry points when
+          considered as a component type (although the code of the
+          module might *declare* some entry points).
+
+        * Any other modules that are `import`ed in the source code
+          become requirements of the module, when considered as a
+          component type.
+
+        An entry point is another example of a component type:
+
+        * The `uniform` parameters of the entry point function are
+          its shader parameters when considered as a component type.
+
+        * Any generic or interface-type parameters of the entry point
+          introduce specialization parameters.
+
+        * An entry point component type exposes a single entry point (itself).
+
+        * An entry point has one requirement for the module in which
+          it was defined.
+
+        Component types can be manipulated in a few ways:
+
+        * Multiple component types can be combined into a composite, which
+          combines all of their code, parameters, etc.
+
+        * A component type can be specialized, by "plugging in" types and
+          values for its specialization parameters.
+
+        * A component type can be laid out for a particular target, giving
+          offsets/bindings to the shader parameters it contains.
+
+        * Generated kernel code can be requested for entry points.
+
+        */
+    struct IComponentType : public ISlangUnknown
+    {
+            /** Get the runtime session that this component type belongs to.
+            */
+        virtual SLANG_NO_THROW ISession* SLANG_MCALL getSession() = 0;
+
+            /** Get the layout for this program for the chosen `targetIndex`.
+
+            The resulting layout will establish offsets/bindings for all
+            of the global and entry-point shader parameters in the
+            component type.
+
+            If this component type has specialization parameters (that is,
+            it is not fully specialized), then the resulting layout may
+            be incomplete, and plugging in arguments for generic specialization
+            parameters may result in a component type that doesn't have
+            a compatible layout. If the component type only uses
+            interface-type specialization parameters, then the layout
+            for a specialization should be compatible with an unspecialized
+            layout (all parameters in the unspecialized layout will have
+            the same offset/binding in the specialized layout).
+
+            If this component type is combined into a composite, then
+            the absolute offsets/bindings of parameters may not stay the same.
+            If the shader parameters in a component type don't make
+            use of explicit binding annotations (e.g., `register(...)`),
+            then the *relative* offset of shader parameters will stay
+            the same when it is used in a composition.
+            */
+        virtual SLANG_NO_THROW ProgramLayout* SLANG_MCALL getLayout(
+            SlangInt    targetIndex = 0,
+            IBlob**     outDiagnostics = nullptr) = 0;
+
+            /** Get the compiled code for the entry point at `entryPointIndex` for the chosen `targetIndex`
+
+            Entry point code can only be computed for a component type that
+            has no specialization parameters (it must be fully specialized)
+            and that has no requirements (it must be fully linked).
+
+            If code has not already been generated for the given entry point and target,
+            then a compilation error may be detected, in which case `outDiagnostics`
+            (if non-null) will be filled in with a blob of messages diagnosing the error.
+            */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getEntryPointCode(
+            SlangInt    entryPointIndex,
+            SlangInt    targetIndex,
+            IBlob**     outCode,
+            IBlob**     outDiagnostics = nullptr) = 0;
+
+            /** Specialize the component by binding its specialization parameters to concrete arguments.
+
+            The `specializationArgs` array must have `specializationArgCount` entries, and
+            this must match the number of specialization parameters on this component type.
+
+            If the specialization arguments are not valid, then the function will return null.
+
+            If any diagnostics (error or warnings) are produced, they will be written to `outDiagnostics`.
+            */
+        virtual SLANG_NO_THROW IComponentType* SLANG_MCALL specialize(
+            SpecializationArg const*    specializationArgs,
+            SlangInt                    specializationArgCount,
+            ISlangBlob**                outDiagnostics = nullptr) = 0;
+    };
+    #define SLANG_UUID_IComponentType { 0x5bc42be8, 0x5c50, 0x4929, { 0x9e, 0x5e, 0xd1, 0x5e, 0x7c, 0x24, 0x1, 0x5f } };
+
+        /** A module is the granularity of shader code compilation and loading.
+
+        In most cases a module corresponds to a single compile "translation unit."
+        This will often be a single `.slang` or `.hlsl` file and everything it
+        `#include`s.
+
+        Notably, a module `M` does *not* include the things it `import`s, as these
+        as distinct modules that `M` depends on. There is a directed graph of
+        module dependencies, and all modules in the graph must belong to the
+        same session (`ISession`).
+
+        A module establishes a namespace for looking up types, functions, etc.
+        */
+    struct IModule : public IComponentType
+    {
+    public:
+        /** Note: eventually operations for looking up types or entry
+        points by name should appear here.
+        */
+    };
+    
+    #define SLANG_UUID_IModule { 0xc720e64, 0x8722, 0x4d31, { 0x89, 0x90, 0x63, 0x8a, 0x98, 0xb1, 0xc2, 0x79 } }
+
+
+        /** Argument used for specialization to types/values.
+        */
+    struct SpecializationArg
+    {
+        enum class Kind : int32_t
+        {
+            Unknown,    /**< An invalid specialization argument. */
+            Type,       /**< Specialize to a type. */
+        };
+
+        /** The kind of specialization argument. */
+        Kind kind;
+        union
+        {
+            /** A type specialization argument, used for `Kind::Type`. */
+            TypeReflection* type;
+        };
     };
 }
+
+#define SLANG_API_VERSION 0
+
+SLANG_API SlangResult slang_createGlobalSession(
+    SlangInt                apiVersion,
+    slang::IGlobalSession** outGlobalSession);
+
+namespace slang
+{
+    inline SlangResult createGlobalSession(
+        slang::IGlobalSession** outGlobalSession)
+    {
+        return slang_createGlobalSession(SLANG_API_VERSION, outGlobalSession);
+    }
+}
+
+/**
+*/
+SLANG_API SlangResult spCompileRequest_getProgram(
+    SlangCompileRequest*    request,
+    slang::IComponentType** outProgram);
 
 #endif
 
