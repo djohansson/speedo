@@ -192,6 +192,9 @@ namespace Slang
     }
 }
 
+namespace SlangVisualStudioCompilerUtil
+{
+
 static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::OutputMessage::Type& outType)
 {
     typedef CPPCompiler::OutputMessage::Type Type;
@@ -328,7 +331,7 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
         }
 
         // Extract the bit before the code
-        SLANG_RETURN_ON_FAIL(_parseErrorType(UnownedStringSlice(errorSection.begin(), errorSection.begin() + errorCodeIndex).trim(), outMsg.type));
+        SLANG_RETURN_ON_FAIL(SlangVisualStudioCompilerUtil::_parseErrorType(UnownedStringSlice(errorSection.begin(), errorSection.begin() + errorCodeIndex).trim(), outMsg.type));
 
         // Link codes start with LNK prefix
         postError = UnownedStringSlice(postPath.begin() + errorColonIndex + 1, end); 
@@ -337,6 +340,8 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
     outMsg.text = postError;
 
     return SLANG_OK;
+}
+
 }
 
 /* static */SlangResult VisualStudioCompilerUtil::parseOutput(const ExecuteResult& exeRes, CPPCompiler::Output& outOutput)
@@ -351,7 +356,7 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
 #endif
 
         OutputMessage msg;
-        if (SLANG_SUCCEEDED(_parseVisualStudioLine(line, msg)))
+        if (SLANG_SUCCEEDED(SlangVisualStudioCompilerUtil::_parseVisualStudioLine(line, msg)))
         {
             outOutput.messages.add(msg);
         }

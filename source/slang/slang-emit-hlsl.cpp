@@ -745,6 +745,9 @@ void HLSLSourceEmitter::emitSimpleFuncParamImpl(IRParam* param)
     Super::emitSimpleFuncParamImpl(param);
 }
 
+namespace SlangEmitHlsl
+{
+
 static UnownedStringSlice _getInterpolationModifierText(IRInterpolationMode mode)
 {
     switch (mode)
@@ -756,6 +759,8 @@ static UnownedStringSlice _getInterpolationModifierText(IRInterpolationMode mode
         case IRInterpolationMode::Centroid:             return UnownedStringSlice::fromLiteral("centroid");
         default:                                        return UnownedStringSlice();
     }
+}
+
 }
 
 void HLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* valueType, VarLayout* layout)
@@ -770,7 +775,7 @@ void HLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* 
 
         auto decoration = (IRInterpolationModeDecoration*)dd;
   
-        UnownedStringSlice modeText = _getInterpolationModifierText(decoration->getMode());
+        UnownedStringSlice modeText = SlangEmitHlsl::_getInterpolationModifierText(decoration->getMode());
         if (modeText.size() > 0)
         {
             m_writer->emit(modeText);

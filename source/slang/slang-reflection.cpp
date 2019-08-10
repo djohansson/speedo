@@ -940,6 +940,8 @@ SLANG_API int spReflectionTypeLayout_getGenericParamIndex(SlangReflectionTypeLay
 
 SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Reflection;
+
     auto typeLayout = convert(inTypeLayout);
     if(!typeLayout) return nullptr;
 
@@ -949,6 +951,8 @@ SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLa
 
 SLANG_API SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDataLayout(SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Reflection;
+
     auto varLayout = convert(inVarLayout);
     if(!varLayout) return nullptr;
 
@@ -958,6 +962,8 @@ SLANG_API SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDa
 
 SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getSpecializedTypePendingDataVarLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Reflection;
+
     auto typeLayout = convert(inTypeLayout);
     if(!typeLayout) return nullptr;
 
@@ -1431,6 +1437,8 @@ SLANG_API int spReflectionEntryPoint_usesAnySampleRateInput(
 SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Reflection;
+
     auto entryPointLayout = convert(inEntryPoint);
     if(!entryPointLayout)
         return nullptr;
@@ -1447,6 +1455,8 @@ static bool hasDefaultConstantBuffer(ScopeLayout* layout)
 SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Reflection;
+
     auto entryPointLayout = convert(inEntryPoint);
     if(!entryPointLayout)
         return 0;
@@ -1458,6 +1468,8 @@ SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
 // SlangReflectionTypeParameter
 SLANG_API char const* spReflectionTypeParameter_GetName(SlangReflectionTypeParameter * inTypeParam)
 {
+    using namespace Reflection;
+
     auto specializationParam = convert(inTypeParam);
     if( auto genericParamLayout = as<GenericSpecializationParamLayout>(specializationParam) )
     {
@@ -1477,6 +1489,8 @@ SLANG_API unsigned spReflectionTypeParameter_GetIndex(SlangReflectionTypeParamet
 
 SLANG_API unsigned int spReflectionTypeParameter_GetConstraintCount(SlangReflectionTypeParameter* inTypeParam)
 {
+    using namespace Reflection;
+
     auto specializationParam = convert(inTypeParam);
     if(auto genericParamLayout = as<GenericSpecializationParamLayout>(specializationParam))
     {
@@ -1493,6 +1507,8 @@ SLANG_API unsigned int spReflectionTypeParameter_GetConstraintCount(SlangReflect
 
 SLANG_API SlangReflectionType* spReflectionTypeParameter_GetConstraintByIndex(SlangReflectionTypeParameter * inTypeParam, unsigned index)
 {
+    using namespace Reflection;
+    
     auto specializationParam = convert(inTypeParam);
     if(auto genericParamLayout = as<GenericSpecializationParamLayout>(specializationParam))
     {
@@ -1643,6 +1659,8 @@ SLANG_API  SlangReflectionType* spReflection_specializeType(
     SlangReflectionType* const* specializationArgs,
     ISlangBlob**                outDiagnostics)
 {
+    using namespace Reflection;
+
     auto programLayout = convert(inProgramLayout);
     if(!programLayout) return nullptr;
 

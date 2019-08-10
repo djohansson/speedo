@@ -1446,6 +1446,9 @@ void GLSLSourceEmitter::emitRateQualifiersImpl(IRRate* rate)
     }
 }
 
+namespace SlangEmitGlsl
+{
+
 static UnownedStringSlice _getInterpolationModifierText(IRInterpolationMode mode)
 {
     switch (mode)
@@ -1459,6 +1462,8 @@ static UnownedStringSlice _getInterpolationModifierText(IRInterpolationMode mode
     }
 }
 
+}
+
 void GLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* valueType, VarLayout* layout)
 {
     bool anyModifiers = false;
@@ -1469,7 +1474,7 @@ void GLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* 
             continue;
 
         auto decoration = (IRInterpolationModeDecoration*)dd;
-        const UnownedStringSlice slice = _getInterpolationModifierText(decoration->getMode());
+        const UnownedStringSlice slice = SlangEmitGlsl::_getInterpolationModifierText(decoration->getMode());
 
         if (slice.size())
         {

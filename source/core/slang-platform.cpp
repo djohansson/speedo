@@ -188,8 +188,6 @@ SLANG_COMPILE_TIME_ASSERT(E_OUTOFMEMORY == SLANG_E_OUT_OF_MEMORY);
 #elif SLANG_LINUX_FAMILY
     dst.Append("lib");
     dst.Append(name);
-#ifdef __OSX__
-    dst.Append(".dylib");
 #else
     // Just guess we can do with the name on it's own
     dst.Append(name);

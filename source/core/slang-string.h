@@ -410,9 +410,6 @@ namespace Slang
 		static String fromWString(const wchar_t * wstr, const wchar_t * wend);
 		static String fromWChar(const wchar_t ch);
 		static String fromUnicodePoint(unsigned int codePoint);
-		String()
-		{
-		}
 
             /// Returns a buffer which can hold at least count chars
         char* prepareForAppend(Index count);
