@@ -63,8 +63,8 @@ Compiler('Compiler-Clang')
 		+ ' -stdlib=libc++'
 #endif
 	.CompilerOptions = .BaseCompilerOptions
-		+ ' -Wall'
-	.BaseLinkerOptions = '"%1" -o "%2" -g'
+		+ ' -Wall -fuse-ld=lld'
+	.BaseLinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
 		+ .BaseLibPaths
 	.LinkerOptionsCpp = ''
 #if !__WINDOWS__
@@ -76,11 +76,11 @@ Compiler('Compiler-Clang')
 	.LinkerOptions = .BaseLinkerOptions
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.CompilerDebugOptimizations = ' -O0'
-	.CompilerReleaseOptimizations = ' -O3'
+	.CompilerReleaseOptimizations = ' -O3 -flto'
 	.LibrarianDebugOptimizations = ''
 	.LibrarianReleaseOptimizations = ''
 	.LinkerDebugOptimizations = ''
-	.LinkerReleaseOptimizations = ''
+	.LinkerReleaseOptimizations = ' -flto'
 ]
 .Clang_x64_BaseConfig = [
 	Using(.Clang_BaseConfig)

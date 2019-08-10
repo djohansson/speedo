@@ -690,7 +690,7 @@ void Application<GraphicsBackend::Vulkan>::createFrameResources(WindowData<Graph
             myQueueFamilyIndex);
     }
 
-    auto createFramebuffer = [this, &window](uint frameIndex)
+    auto createFramebuffer = [this, &window](uint32_t frameIndex)
     {
         std::array<VkImageView, 2> attachments = {window.swapchain.colorImageViews[frameIndex], window.zBufferView};
         VkFramebufferCreateInfo info = {};
