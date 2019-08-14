@@ -48,6 +48,7 @@ Compiler('Compiler-Clang')
 		+ ' -D_WIN32_LEAN_AND_MEAN'
 		+ ' -DNOMINMAX'
 		+ ' -gcodeview'
+		+ ' -fuse-ld=lld'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -63,9 +64,11 @@ Compiler('Compiler-Clang')
 		+ ' -stdlib=libc++'
 #endif
 	.CompilerOptions = .BaseCompilerOptions
-		+ ' -Wall -fuse-ld=lld'
-	.BaseLinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
+	.BaseLinkerOptions = '"%1" -o "%2" -g'
 		+ .BaseLibPaths
+#if __WINDOWS__
+		+ ' -fuse-ld=lld'
+#endif
 	.LinkerOptionsCpp = ''
 #if !__WINDOWS__
 		+ ' -lc++'

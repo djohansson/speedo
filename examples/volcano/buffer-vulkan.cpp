@@ -4,7 +4,7 @@
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
-    VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
+    VkDevice device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<GraphicsBackend::Vulkan> allocator,
     BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : myDevice(device)
     , myAllocator(allocator)

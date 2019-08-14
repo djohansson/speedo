@@ -180,7 +180,7 @@ private:
 	SwapchainContext<B> createSwapchainContext(
 		DeviceHandle<B> device,
 		PhysicalDeviceHandle<B> physicalDevice,
-		VmaAllocator allocator,
+		AllocatorHandle<B> allocator,
 		uint32_t frameCount,
 		const WindowData<B>& window) const;
 	//
