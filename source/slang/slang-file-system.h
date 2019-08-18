@@ -6,12 +6,13 @@
 #include "../../slang-com-ptr.h"
 
 #include "../core/slang-string-util.h"
-#include "../core/dictionary.h"
+#include "../core/slang-dictionary.h"
 
 namespace Slang
 {
 
-class OSFileSystem : public ISlangFileSystemExt
+// Implementation of ISlangFileSystemExt for the OS
+class OSFileSystemExt : public ISlangFileSystemExt
 {
 public:
     // ISlangUnknown 
@@ -48,18 +49,47 @@ public:
         const char* path,
         ISlangBlob** outCanonicalPath) SLANG_OVERRIDE;
 
-    virtual SLANG_NO_THROW void SLANG_MCALL clearCache() {}
+    virtual SLANG_NO_THROW void SLANG_MCALL clearCache() SLANG_OVERRIDE {}
 
         /// Get a default instance
     static ISlangFileSystemExt* getSingleton() { return &s_singleton; }
 
 private:
         /// Make so not constructible
-    OSFileSystem() {}
-    virtual ~OSFileSystem() {}
+    OSFileSystemExt() {}
+    virtual ~OSFileSystemExt() {}
 
     ISlangUnknown* getInterface(const Guid& guid);
 
+    static OSFileSystemExt s_singleton;
+};
+
+// Implementation of ISlangFileSystem for the OS (ie only has simplified interface of just loadFile)
+class OSFileSystem : public ISlangFileSystem
+{
+public:
+        // ISlangUnknown 
+    SLANG_IUNKNOWN_QUERY_INTERFACE
+    SLANG_NO_THROW uint32_t SLANG_MCALL addRef() SLANG_OVERRIDE { return 1; }
+    SLANG_NO_THROW uint32_t SLANG_MCALL release() SLANG_OVERRIDE { return 1; }
+
+    // ISlangFileSystem
+    virtual SLANG_NO_THROW SlangResult SLANG_MCALL loadFile(
+        char const*     path,
+        ISlangBlob**    outBlob) SLANG_OVERRIDE
+    {
+        // Can just use OsFileSystemExt impl
+        return OSFileSystemExt::getSingleton()->loadFile(path, outBlob);
+    }
+
+     static ISlangFileSystem* getSingleton() { return &s_singleton; }
+
+private:
+    /// Make so not constructible
+        OSFileSystem() {}
+    virtual ~OSFileSystem() {}
+
+    ISlangUnknown* getInterface(const Guid& guid);
     static OSFileSystem s_singleton;
 };
 
@@ -132,9 +162,9 @@ class CacheFileSystem: public ISlangFileSystemExt, public RefObject
 
     virtual SLANG_NO_THROW SlangResult SLANG_MCALL getCanonicalPath(
         const char* path,
-        ISlangBlob** outCanonicalPath);
+        ISlangBlob** outCanonicalPath) SLANG_OVERRIDE;
 
-    virtual SLANG_NO_THROW void SLANG_MCALL clearCache();
+    virtual SLANG_NO_THROW void SLANG_MCALL clearCache() SLANG_OVERRIDE;
 
         /// Ctor
     CacheFileSystem(ISlangFileSystem* fileSystem, UniqueIdentityMode uniqueIdentityMode = UniqueIdentityMode::Default, PathStyle pathStyle = PathStyle::Default);

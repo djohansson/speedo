@@ -1,13 +1,14 @@
-#ifndef SLANG_SHARED_LIBRARY_H_INCLUDED
-#define SLANG_SHARED_LIBRARY_H_INCLUDED
+#ifndef SLANG_CORE_SHARED_LIBRARY_H
+#define SLANG_CORE_SHARED_LIBRARY_H
 
 #include "../../slang.h"
 #include "../../slang-com-helper.h"
 #include "../../slang-com-ptr.h"
 
-#include "../core/platform.h"
-#include "../core/common.h"
-#include "../core/dictionary.h"
+#include "../core/slang-io.h"
+#include "../core/slang-platform.h"
+#include "../core/slang-common.h"
+#include "../core/slang-dictionary.h"
 
 namespace Slang
 {
@@ -82,6 +83,30 @@ class DefaultSharedLibrary : public ISlangSharedLibrary, public RefObject
     ISlangUnknown* getInterface(const Guid& guid);
 
     SharedLibrary::Handle m_sharedLibraryHandle = nullptr;
+};
+
+class TemporarySharedLibrary : public DefaultSharedLibrary
+{
+public:
+    typedef DefaultSharedLibrary Super;
+
+        /// Get the path to the shared library
+    const String& getPath() const { return m_path; }
+
+        /// Ctor
+    TemporarySharedLibrary(const SharedLibrary::Handle sharedLibraryHandle, const String& path):
+        Super(sharedLibraryHandle),
+        m_path(path)
+    {
+    }
+
+    virtual ~TemporarySharedLibrary();
+
+        /// Any files specified in this set will be deleted on exit
+    TemporaryFileSet m_temporaryFileSet;
+
+protected:
+    String m_path;
 };
 
 class ConfigurableSharedLibraryLoader: public ISlangSharedLibraryLoader, public RefObject

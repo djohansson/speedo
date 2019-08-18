@@ -1,10 +1,9 @@
 // test-context.cpp
 #include "test-context.h"
 
-#include "os.h"
+#include "../../source/core/slang-io.h"
 #include "../../source/core/slang-string-util.h"
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -58,11 +57,11 @@ TestContext::InnerMainFunc TestContext::getInnerMainFunc(const String& dirPath, 
 
     StringBuilder builder;
     SharedLibrary::appendPlatformFileName(sharedLibToolBuilder.getUnownedSlice(), builder);
-    String path = Path::Combine(dirPath, builder);
+    String path = Path::combine(dirPath, builder);
 
     SharedLibraryTool tool = {};
 
-    if (SLANG_SUCCEEDED(SharedLibrary::loadWithPlatformFilename(path.begin(), tool.m_sharedLibrary)))
+    if (SLANG_SUCCEEDED(SharedLibrary::loadWithPlatformPath(path.begin(), tool.m_sharedLibrary)))
     {
         tool.m_func = (InnerMainFunc)SharedLibrary::findFuncByName(tool.m_sharedLibrary, "innerMain");
     }
@@ -91,3 +90,22 @@ void TestContext::setInnerMainFunc(const String& name, InnerMainFunc func)
         m_sharedLibTools.Add(name, tool);
     }
 }
+
+CPPCompilerSet* TestContext::getCPPCompilerSet()
+{
+    if (!cppCompilerSet)
+    {
+        cppCompilerSet = new CPPCompilerSet;
+
+        CPPCompilerUtil::InitializeSetDesc desc;
+        CPPCompilerUtil::initializeSet(desc, cppCompilerSet);
+    }
+    return cppCompilerSet;
+}
+
+Slang::CPPCompiler* TestContext::getDefaultCPPCompiler()
+{
+    CPPCompilerSet* set = getCPPCompilerSet();
+    return set ? set->getDefaultCompiler() : nullptr;
+}
+

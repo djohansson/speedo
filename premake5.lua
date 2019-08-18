@@ -48,6 +48,7 @@
 -- From in the build directory you can use
 -- % premake5 --file=../premake5.lua --os=linux gmake 
 
+
 newoption {
    trigger     = "override-module",
    description = "(Optional) Specify a lua file that can override functions",
@@ -68,8 +69,19 @@ newoption {
    allowed     = { { "true", "True"}, { "false", "False" } }
 }
 
+newoption {
+   trigger     = "target-detail",
+   description = "(Optional) More specific target information",
+   value       = "string",
+   allowed     = { {"cygwin"}, {"mingw"} }
+}
+
 buildLocation = _OPTIONS["build-location"]
 executeBinary = (_OPTIONS["execute-binary"] == "true")
+targetDetail = _OPTIONS["target-detail"]
+
+-- Is true when the target is really windows (ie not something on top of windows like cygwin)
+local isTargetWindows = (os.target() == "windows") and not (targetDetail == "mingw" or targetDetail == "cygwin")
 
 overrideModule = {}
 local overrideModulePath = _OPTIONS["override-module"]
@@ -78,6 +90,18 @@ if overrideModulePath then
 end
 
 targetName = "%{cfg.system}-%{cfg.platform:lower()}"
+
+if not (targetDetail == nil) then
+    targetName = targetDetail .. "-%{cfg.platform:lower()}"
+end
+
+-- This is needed for gcc, for the 'fileno' functions on cygwin
+-- _GNU_SOURCE makes realpath available in gcc
+if targetDetail == "cygwin" then
+    buildoptions { "-D_POSIX_SOURCE" }
+    filter { "toolset:gcc*" }
+        buildoptions { "-D_GNU_SOURCE" }
+end
 
 workspace "slang"
     -- We will support debug/release configuration and x86/x64 builds.
@@ -121,7 +145,7 @@ workspace "slang"
 		buildoptions { "-Wno-unused-but-set-variable", "-Wno-implicit-fallthrough"  }
 		
     filter { "toolset:clang" }
-         buildoptions { "-Wno-deprecated-register", "-Wno-tautological-compare", "-Wno-missing-braces", "-Wno-undefined-var-template", "-Wno-unused-function"}
+         buildoptions { "-Wno-deprecated-register", "-Wno-tautological-compare", "-Wno-missing-braces", "-Wno-undefined-var-template", "-Wno-unused-function", "-Wno-return-std-move"}
 		
     -- When compiling the debug configuration, we want to turn
     -- optimization off, make sure debug symbols are output,
@@ -379,7 +403,7 @@ function example(name)
     links { "slang", "core", "gfx" }
 end
 
-if os.target() == "windows" then
+if isTargetWindows then
     --
     -- With all of these helper routines defined, we can now define the
     -- actual projects quite simply. For example, here is the entire
@@ -416,6 +440,12 @@ standardProject "core"
     --
     warnings "Extra"
     flags { "FatalWarnings" }
+    
+    if isTargetWindows then
+        addSourceDir "source/core/windows"
+    else
+        addSourceDir "source/core/unix"
+    end
     
     -- We need the core library to be relocatable to be able to link with slang.so
     filter { "system:linux" }
@@ -471,7 +501,7 @@ toolSharedLibrary "slang-reflection-test"
 -- TODO: Fix that requirement.
 --
 
-if os.target() == "windows" then    
+if isTargetWindows then    
     toolSharedLibrary "render-test"
         uuid "61F7EB00-7281-4BF3-9470-7C2EA92620C3"
         
@@ -501,18 +531,24 @@ tool "gfx"
 
     includedirs { ".", "external", "source", "external/imgui" }
 
-    filter { "system:windows" }
-
+    -- To special case that we may be building using cygwin on windows. If 'true windows' we build for dx12/vk and run the script
+    -- If not we assume it's a cygwin/mingw type situation and remove files that aren't appropriate
+    if isTargetWindows then
         systemversion "10.0.14393.0"
 
         -- For Windows targets, we want to copy d3dcompiler_47.dll,
         -- dxcompiler.dll, and dxil.dll from the Windows SDK redistributable
         -- directory into the output directory.
         postbuildcommands { '"$(SolutionDir)tools\\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/%{cfg.platform:lower()}/" "%{cfg.targetdir}/"'}
+    else
+         removefiles { "tools/gfx/circular-resource-heap-d3d12.cpp", "tools/gfx/d3d-util.cpp", "tools/gfx/descriptor-heap-d3d12.cpp", "tools/gfx/render-d3d11.cpp", "tools/gfx/render-d3d12.cpp", "tools/gfx/render-gl.cpp", "tools/gfx/resource-d3d12.cpp", "tools/gfx/render-vk.cpp", "tools/gfx/vk-swap-chain.cpp", "tools/gfx/window.cpp" }
+    end
 
-        filter { "system:not windows" }
-            removefiles { "tools/gfx/circular-resource-heap-d3d12.cpp", "tools/gfx/d3d-util.cpp", "tools/gfx/descriptor-heap-d3d12.cpp", "tools/gfx/render-d3d11.cpp", "tools/gfx/render-d3d12.cpp", "tools/gfx/render-gl.cpp", "tools/gfx/resource-d3d12.cpp", "tools/gfx/render-vk.cpp", "tools/gfx/vk-swap-chain.cpp", "tools/gfx/window.cpp" }
-
+	-- Remove VK from OSX gfx build
+	if os.target() == "macosx" then
+		removefiles { "tools/gfx/render-vk.cpp", "tools/gfx/vk-device-queue.cpp", "tools/gfx/vk-api.cpp", "tools/gfx/vk-module.cpp", "tools/gfx/vk-swap-chain.cpp", "tools/gfx/vk-util.cpp" }
+	end
+    
 --
 -- The `slangc` command-line application is just a very thin wrapper
 -- around the Slang dynamic library, so its build is extermely simple.
@@ -674,7 +710,7 @@ standardProject "slang-glslang"
         addSourceDir( "external/glslang/glslang/OSDependent/Windows" )
         removefiles { "external/glslang/glslang/OSDependent/Windows/main.cpp" }
 
-    filter { "system:linux" }
+    filter { "system:linux or macosx" }
         links { "dl", "pthread" }
         addSourceDir("external/glslang/glslang/OSDependent/Unix")
         buildoptions{"-fPIC", "-pthread"}

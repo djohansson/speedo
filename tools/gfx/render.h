@@ -9,9 +9,11 @@
 
 #include "../../slang-com-helper.h"
 
-#include "../../source/core/smart-pointer.h"
-#include "../../source/core/list.h"
-#include "../../source/core/dictionary.h"
+#include "../../source/core/slang-smart-pointer.h"
+#include "../../source/core/slang-list.h"
+#include "../../source/core/slang-dictionary.h"
+
+#include "../../slang.h"
 
 namespace gfx {
 
@@ -25,8 +27,8 @@ using Slang::List;
 typedef SlangResult Result;
 
 // Had to move here, because Options needs types defined here
-typedef intptr_t Int;
-typedef uintptr_t UInt;
+typedef SlangInt Int;
+typedef SlangUInt UInt;
 
 // pre declare types
 class Surface;
@@ -786,7 +788,7 @@ public:
 
     virtual SlangResult initialize(const Desc& desc, void* inWindowHandle) = 0;
 
-    bool hasFeature(const Slang::UnownedStringSlice& feature) { return getFeatures().IndexOf(Slang::String(feature)) != UInt(-1); }
+    bool hasFeature(const Slang::UnownedStringSlice& feature) { return getFeatures().indexOf(Slang::String(feature)) != Slang::Index(-1); }
     virtual const Slang::List<Slang::String>& getFeatures() = 0;
 
     virtual void setClearColor(const float color[4]) = 0;

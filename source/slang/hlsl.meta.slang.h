@@ -1307,7 +1307,7 @@ SLANG_RAW("__generic<T : __BuiltinFloatingPointType, let N : int> vector<T,N> si
 SLANG_RAW("__generic<T : __BuiltinFloatingPointType, let N : int, let M : int> matrix<T,N,M> sin(matrix<T,N,M> x);\n")
 SLANG_RAW("\n")
 SLANG_RAW("// Sine and cosine\n")
-SLANG_RAW("__generic<T : __BuiltinFloatingPointType, let N : int> void sincos(T x, out T s, out T c);\n")
+SLANG_RAW("__generic<T : __BuiltinFloatingPointType> void sincos(T x, out T s, out T c);\n")
 SLANG_RAW("__generic<T : __BuiltinFloatingPointType, let N : int> void sincos(vector<T,N> x, out vector<T,N> s, out vector<T,N> c);\n")
 SLANG_RAW("__generic<T : __BuiltinFloatingPointType, let N : int, let M : int> void sincos(matrix<T,N,M> x, out matrix<T,N,M> s, out matrix<T,N,M> c);\n")
 SLANG_RAW("\n")
@@ -1505,7 +1505,8 @@ static const int kBaseBufferAccessLevelCount = sizeof(kBaseBufferAccessLevels) /
 
 for (int aa = 0; aa < kBaseBufferAccessLevelCount; ++aa)
 {
-    auto flavor = TextureFlavor::create(TextureFlavor::Shape::ShapeBuffer, kBaseBufferAccessLevels[aa].access).flavor;
+    auto access = kBaseBufferAccessLevels[aa].access;
+    auto flavor = TextureFlavor::create(TextureFlavor::Shape::ShapeBuffer, access).flavor;
     sb << "__generic<T>\n";
     sb << "__magic_type(Texture," << int(flavor) << ")\n";
     sb << "__intrinsic_type(" << (kIROp_TextureType + (int(flavor) << kIROpMeta_OtherShift)) << ")\n";
@@ -1515,8 +1516,10 @@ for (int aa = 0; aa < kBaseBufferAccessLevelCount; ++aa)
 
     sb << "void GetDimensions(out uint dim);\n";
 
+    char const* glslLoadFuncName = (access == SLANG_RESOURCE_ACCESS_READ) ? "texelFetch" : "imageLoad";
+
     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-    sb << "__target_intrinsic(glsl, \"texelFetch($0, $1)$z\")\n";
+    sb << "__target_intrinsic(glsl, \"" << glslLoadFuncName << "($0, $1)$z\")\n";
     sb << "T Load(int location);\n";
 
     sb << "T Load(int location, out uint status);\n";
@@ -1524,9 +1527,9 @@ for (int aa = 0; aa < kBaseBufferAccessLevelCount; ++aa)
     sb << "__subscript(uint index) -> T {\n";
 
     sb << "__glsl_extension(GL_EXT_samplerless_texture_functions)";
-    sb << "__target_intrinsic(glsl, \"texelFetch($0, int($1))$z\") get;\n";
+    sb << "__target_intrinsic(glsl, \"" << glslLoadFuncName << "($0, int($1))$z\") get;\n";
 
-    if (kBaseBufferAccessLevels[aa].access != SLANG_RESOURCE_ACCESS_READ)
+    if (access != SLANG_RESOURCE_ACCESS_READ)
     {
         sb << "ref;\n";
     }
@@ -1535,7 +1538,7 @@ for (int aa = 0; aa < kBaseBufferAccessLevelCount; ++aa)
 
     sb << "};\n";
 }
-SLANG_RAW("#line 1462 \"hlsl.meta.slang\"")
+SLANG_RAW("#line 1465 \"hlsl.meta.slang\"")
 SLANG_RAW("\n")
 SLANG_RAW("\n")
 SLANG_RAW("\n")

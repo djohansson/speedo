@@ -3,10 +3,10 @@
 
 #include "../../slang.h"
 
-#include "../../source/core/list.h"
-#include "../../source/core/slang-string-util.h"
+#include "slang-list.h"
+#include "slang-string-util.h"
 
-#include "platform.h"
+#include "slang-platform.h"
 
 namespace Slang {
 
@@ -62,7 +62,7 @@ UnownedStringSlice RenderApiUtil::getApiName(RenderApiType type)
         if (names.indexOf(',') >= 0)
         {
             StringUtil::split(names, ',', namesList);
-            if (namesList.IndexOf(name) != UInt(-1))
+            if (namesList.indexOf(name) != Index(-1))
             {
                 return apiInfo.type;
             }
@@ -265,10 +265,10 @@ static bool _canLoadSharedLibrary(const char* libName)
 #if SLANG_WINDOWS_FAMILY
     switch (type)
     {
-        case RenderApiType::OpenGl:    return _canLoadSharedLibrary("opengl32.dll");
-        case RenderApiType::Vulkan:    return _canLoadSharedLibrary("vulkan-1.dll");
-        case RenderApiType::D3D11:     return _canLoadSharedLibrary("d3d11.dll"); 
-        case RenderApiType::D3D12:     return _canLoadSharedLibrary("d3d12.dll"); 
+        case RenderApiType::OpenGl:    return _canLoadSharedLibrary("opengl32");
+        case RenderApiType::Vulkan:    return _canLoadSharedLibrary("vulkan-1");
+        case RenderApiType::D3D11:     return _canLoadSharedLibrary("d3d11"); 
+        case RenderApiType::D3D12:     return _canLoadSharedLibrary("d3d12"); 
         default: break; 
     }
 #elif SLANG_UNIX_FAMILY

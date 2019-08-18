@@ -1,8 +1,9 @@
 #include "slang-shared-library.h"
 
 #include "../../slang-com-ptr.h"
-#include "../core/slang-io.h"
-#include "../core/slang-string-util.h"
+
+#include "slang-io.h"
+#include "slang-string-util.h"
 
 namespace Slang
 {
@@ -57,6 +58,18 @@ SlangResult DefaultSharedLibraryLoader::loadSharedLibrary(const char* path, ISla
 
 /* !!!!!!!!!!!!!!!!!!!!!!!!!! DefaultSharedLibrary !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
 
+TemporarySharedLibrary::~TemporarySharedLibrary()
+{
+    if (m_sharedLibraryHandle)
+    {
+        // We have to unload if we want to be able to remove
+        SharedLibrary::unload(m_sharedLibraryHandle);
+        m_sharedLibraryHandle = nullptr;
+    }
+}
+
+/* !!!!!!!!!!!!!!!!!!!!!!!!!! DefaultSharedLibrary !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
+
 ISlangUnknown* DefaultSharedLibrary::getInterface(const Guid& guid)
 {
     return (guid == SlangSharedLibrary::IID_ISlangUnknown || guid == SlangSharedLibrary::IID_ISlangSharedLibrary) ? static_cast<ISlangSharedLibrary*>(this) : nullptr;
@@ -64,7 +77,10 @@ ISlangUnknown* DefaultSharedLibrary::getInterface(const Guid& guid)
 
 DefaultSharedLibrary::~DefaultSharedLibrary()
 {
-    SharedLibrary::unload(m_sharedLibraryHandle);
+    if (m_sharedLibraryHandle)
+    {
+        SharedLibrary::unload(m_sharedLibraryHandle);
+    }
 }
 
 SlangFuncPtr DefaultSharedLibrary::findFuncByName(char const* name)
@@ -100,7 +116,7 @@ SlangResult ConfigurableSharedLibraryLoader::loadSharedLibrary(const char* path,
 {
     SLANG_UNUSED(pathIn);
     // The replacement is the *whole* string
-    return SharedLibrary::loadWithPlatformFilename(entryString.begin(), handleOut);
+    return SharedLibrary::loadWithPlatformPath(entryString.begin(), handleOut);
 }
 
 /* static */Result ConfigurableSharedLibraryLoader::changePath(const char* pathIn, const String& entryString, SharedLibrary::Handle& handleOut )
@@ -108,9 +124,9 @@ SlangResult ConfigurableSharedLibraryLoader::loadSharedLibrary(const char* path,
     // Okay we need to reconstruct the name and insert the path
     StringBuilder builder;
     SharedLibrary::appendPlatformFileName(UnownedStringSlice(pathIn), builder);
-    String path = Path::Combine(entryString, builder);
+    String path = Path::combine(entryString, builder);
 
-    return SharedLibrary::loadWithPlatformFilename(path.begin(), handleOut);
+    return SharedLibrary::loadWithPlatformPath(path.begin(), handleOut);
 }
 
 
