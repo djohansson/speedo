@@ -20,6 +20,9 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.UnityInputPath = '$ProjectPath$/source/core'
 		.UnityInputPattern = "*.cpp"
+	#if !__WINDOWS__
+		.UnityInputExcludePath = '$ProjectPath$/source/core/windows'
+	#endif
 		.UnityOutputPath = '$IntermediateFilePath$/source/core'
 		.UnityOutputPattern = 'core-unity*.cpp'
 	}
