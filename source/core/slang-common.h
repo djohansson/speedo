@@ -65,7 +65,7 @@ namespace Slang
 #define UNREACHABLE(x) x;
 #endif
 
-    SLANG_RETURN_NEVER void signalUnexpectedError(char const* message);
+    SLANG_API SLANG_RETURN_NEVER void signalUnexpectedError(char const* message);
 }
 
 #define SLANG_UNEXPECTED(reason) \

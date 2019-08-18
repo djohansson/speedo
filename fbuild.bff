@@ -20,22 +20,28 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.UnityInputPath = '$ProjectPath$/source/core'
 		.UnityInputPattern = "*.cpp"
+		
+	#if !__WINDOWS__
+	 	.UnityInputExcludePath = '$ProjectPath$/source/core/windows'
+	#else
+	 	.UnityInputExcludePath = '$ProjectPath$/source/core/unix'
+	#endif
 		.UnityOutputPath = '$IntermediateFilePath$/source/core'
 		.UnityOutputPattern = 'core-unity*.cpp'
 	}
 	
-	Library('$ConfigName$-core')
+	ObjectList('$ConfigName$-core-obj')
 	{
 		.IntermediateFilePath + '/core'
 
 		.CompilerOptions + .CompilerOptionsCpp
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
-			+ ' -DSLANG_STATIC'
 			+ ' -Wno-reorder'
 			+ ' -Wno-inconsistent-missing-override'
 			+ ' -Wno-missing-braces'
 			+ ' -Wno-macro-redefined'
+			+ ' -DSLANG_DYNAMIC_EXPORT'
 
 		.CompilerInputUnity = '$ConfigName$-core-unity'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -51,14 +57,13 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'slang-unity*.cpp'
 	}
 
-	Library('$ConfigName$-slang')
+	ObjectList('$ConfigName$-slang-obj')
 	{
 		.IntermediateFilePath + '/slang'
 
 		.CompilerOptions + .CompilerOptionsCpp
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
-			+ ' -DSLANG_STATIC'
 			+ ' -Wno-undefined-var-template'
 			+ ' -Wno-inconsistent-missing-override'
 			+ ' -Wno-unused-local-typedef'
@@ -72,21 +77,67 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -Wno-macro-redefined'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-invalid-offsetof'
+			+ ' -DSLANG_DYNAMIC_EXPORT'
 		
 		.CompilerInputUnity = '$ConfigName$-slang-unity'
 		.CompilerOutputPath = '$IntermediateFilePath$'
-		
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$slang$LibSuffix$'
 	}
 
-	ObjectList('$ConfigName$-slangc')
+	Unity('$ConfigName$-gfx-unity')
+	{
+		.UnityInputPath = '$ProjectPath$/tools/gfx'
+		.UnityInputPattern = "*.cpp"
+		.UnityOutputPath = '$IntermediateFilePath$/tools/gfx'
+		.UnityOutputPattern = 'gfx-unity*.cpp'
+	}
+
+	ObjectList('$ConfigName$-gfx-obj')
+	{
+		.IntermediateFilePath + '/gfx'
+
+		.CompilerOptions + .CompilerOptionsCpp
+			+ ' -I$ProjectPath$'
+			+ ' -I$ProjectPath$/source'
+			+ ' -I$ProjectPath$/tools'
+			+ ' -I$ProjectPath$/external/imgui'
+			+ ' -I$VulkanSDKPath$/include'
+			+ ' -Wno-unused-local-typedef'
+			+ ' -Wno-int-to-pointer-cast'
+			+ ' -Wno-macro-redefined'
+			+ ' -Wno-reorder'
+			+ ' -Wno-unused-function'
+			+ ' -Wno-missing-braces'
+			+ ' -Wno-inconsistent-missing-override'
+		
+		.CompilerInputUnity = '$ConfigName$-gfx-unity'
+		.CompilerOutputPath = '$IntermediateFilePath$'
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$gfx$LibSuffix$'
+	}
+
+	DLL('$ConfigName$-slang-dll')
+	{
+		.IntermediateFilePath + '/slang'
+		.Libraries = {
+			'$ConfigName$-core-obj',
+			'$ConfigName$-slang-obj',
+		}
+		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/$DllPrefix$slang$DllSuffix$'
+		.LinkerOptions + .LinkerOptionsCpp
+			+ ' -shared'
+	#if __WINDOWS__
+		.LinkerType = 'msvc'
+		.LinkerOptions + ' -lshell32'
+			+ ' -ladvapi32'
+	#endif //__WINDOWS__
+	}
+
+	ObjectList('$ConfigName$-slangc-obj')
 	{
 		.IntermediateFilePath + '/slangc'
 
 		.CompilerOptions + .CompilerOptionsCpp
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
-			+ ' -DSLANG_STATIC'
 			+ ' -Wno-undefined-var-template'
 			+ ' -Wno-inconsistent-missing-override'
 			+ ' -Wno-unused-local-typedef'
@@ -110,9 +161,8 @@ ForEach(.Config in .Clang_x64_Configs)
 		.IntermediateFilePath + '/slangc'
 
 		.Libraries = {
-			'$ConfigName$-core',
-			'$ConfigName$-slang',
-			'$ConfigName$-slangc',
+			'$ConfigName$-slangc-obj',
+			'$ConfigName$-slang-dll',
 		}
 
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/slangc$ExeSuffix$'
@@ -164,7 +214,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'glfw-unity*.c'
 	}
 
-	Library('$ConfigName$-glfw')
+	Library('$ConfigName$-glfw-lib')
 	{
 		.IntermediateFilePath + '/glfw'
 
@@ -194,7 +244,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$glfw$LibSuffix$'
 	}
 
-	Library('$ConfigName$-murmur3')
+	Library('$ConfigName$-murmur3-lib')
 	{
 		.IntermediateFilePath + '/murmur3'
 
@@ -208,7 +258,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$murmur3$LibSuffix$'
 	}
 
-	Library('$ConfigName$-xxhash')
+	Library('$ConfigName$-xxhash-lib')
 	{
 		.IntermediateFilePath + '/xxhash'
 
@@ -279,7 +329,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'freetype2-unity*.c'
 	}
 
-	Library('$ConfigName$-freetype2')
+	Library('$ConfigName$-freetype2-lib')
 	{
 		.IntermediateFilePath + '/freetype2'
 
@@ -310,7 +360,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'imgui-unity*.cpp'
 	}
 
-	Library('$ConfigName$-imgui')
+	Library('$ConfigName$-imgui-lib')
 	{
 		.IntermediateFilePath + '/imgui'
 
@@ -327,7 +377,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$imgui$LibSuffix$'
 	}
 
-	Library('$ConfigName$-gl3w')
+	Library('$ConfigName$-gl3w-lib')
 	{
 		.IntermediateFilePath + '/gl3w'
 
@@ -342,7 +392,40 @@ ForEach(.Config in .Clang_x64_Configs)
 		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$gl3w$LibSuffix$'
 	}
 
-	ObjectList('$ConfigName$-tracy-client')
+	Library('$ConfigName$-nativefiledialog-lib')
+	{
+		.IntermediateFilePath + '/nativefiledialog'
+
+	#if __WINDOWS__
+		.CompilerOptions + ' -I$ProjectPath$/external/nativefiledialog/src/include'
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/nativefiledialog/src/nfd_common.c',
+			'$ProjectPath$/external/nativefiledialog/src/nfd_win.cpp',
+		}
+	#endif
+	#if __OSX__
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/nativefiledialog/src/include'
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/nativefiledialog/src/nfd_common.c',
+			'$ProjectPath$/external/nativefiledialog/src/nfd_cocoa.m',
+		}
+	#endif
+	#if __LINUX__
+		.CompilerOptions + .CompilerOptionsC
+			+ ' -I$ProjectPath$/external/nativefiledialog/src/include'
+		.CompilerInputFiles = {
+			'$ProjectPath$/external/nativefiledialog/src/nfd_common.c',
+			'$ProjectPath$/external/nativefiledialog/src/nfd_gtk.c',
+		}
+	#endif
+		
+		.CompilerOutputPath = '$IntermediateFilePath$'
+
+		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$nativefiledialog$LibSuffix$'
+	}
+
+	ObjectList('$ConfigName$-tracy-client-obj')
 	{
 		.IntermediateFilePath + '/tracy-client'
 
@@ -359,45 +442,6 @@ ForEach(.Config in .Clang_x64_Configs)
 			'$ProjectPath$/external/tracy/TracyClient.cpp',
 		}
 		.CompilerOutputPath = '$IntermediateFilePath$'
-	}
-
-	// todo: replace with code directly under external
-	Library('$ConfigName$-tracy-nfd')
-	{
-		.IntermediateFilePath + '/tracy-nfd'
-
-		.CompilerInputFiles = {
-			'$ProjectPath$/external/tracy/nfd/nfd_common.c'
-		}
-
-	#if __WINDOWS__
-		.CompilerOptions + .CompilerOptionsCpp
-			+ ' -I$ProjectPath$/external/tracy'
-
-		.CompilerInputFiles = {
-			'$ProjectPath$/external/tracy/nfd/nfd_win.cpp'
-		}
-	#endif
-	#if __OSX__
-		.CompilerOptions + .CompilerOptionsC
-			+ ' -I$ProjectPath$/external/tracy'
-
-		.CompilerInputFiles + {
-			'$ProjectPath$/external/tracy/nfd/nfd_cocoa.m'
-		}
-	#endif //__OSX__
-	#if __LINUX__
-		.CompilerOptions + .CompilerOptionsC
-			+ ' -I$ProjectPath$/external/tracy'
-
-		.CompilerInputFiles + {
-			'$ProjectPath$/external/tracy/nfd/nfd_gtk.c'
-		}
-	#endif //__LINUX__
-
-		.CompilerOutputPath = '$IntermediateFilePath$'
-
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$nfd$LibSuffix$'
 	}
 
 	Unity('$ConfigName$-tracy-unity')
@@ -426,7 +470,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'tracy-unity*.cpp'
 	}
 
-	ObjectList('$ConfigName$-tracy')
+	ObjectList('$ConfigName$-tracy-obj')
 	{
 		.IntermediateFilePath + '/tracy'
 
@@ -435,6 +479,7 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$/external/gl3w/include'
 			+ ' -I$ProjectPath$/external/glfw/include'
 			+ ' -I$ProjectPath$/external/freetype2/include'
+			+ ' -I$ProjectPath$/external/nativefiledialog/src/include'
 			+ ' -I$ProjectPath$/external/imgui'
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
@@ -448,12 +493,12 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.IntermediateFilePath + '/tracy'
 		.Libraries = {
-			'$ConfigName$-gl3w',
-			'$ConfigName$-glfw',
-			'$ConfigName$-imgui',
-			'$ConfigName$-freetype2',
-			'$ConfigName$-tracy-nfd',
-			'$ConfigName$-tracy',
+			'$ConfigName$-gl3w-lib',
+			'$ConfigName$-glfw-lib',
+			'$ConfigName$-imgui-lib',
+			'$ConfigName$-freetype2-lib',
+			'$ConfigName$-nativefiledialog-lib'
+			'$ConfigName$-tracy-obj',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/tracy$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
@@ -477,22 +522,7 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif
 	}
 
-	// Library('$ConfigName$-ISPCTextureCompressor')
-	// {
-	// 	.IntermediateFilePath + '/ISPCTextureCompressor'
-
-	// 	.CompilerOptions + .CompilerOptionsCpp
-		
-	// 	.CompilerInputFiles = {
-	// 		'$ProjectPath$/external/ISPCTextureCompressor/ispc_texcomp/ispc_texcomp.cpp',
-	// 		'$ProjectPath$/external/ISPCTextureCompressor/ispc_texcomp/ispc_texcomp_astc.cpp',
-	// 	}
-	// 	.CompilerOutputPath = '$IntermediateFilePath$'
-
-	// 	.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$ISPCTextureCompressor$LibSuffix$'
-	// }
-
-	ObjectList('$ConfigName$-glslang-OGLCompilersDLL')
+	ObjectList('$ConfigName$-glslang-OGLCompilersDLL-obj')
 	{
 		.IntermediateFilePath + '/glslang-OGLCompilersDLL'
 
@@ -516,7 +546,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
 	}
 
-	ObjectList('$ConfigName$-glslang-glslang')
+	ObjectList('$ConfigName$-glslang-glslang-obj')
 	{
 		.IntermediateFilePath + '/glslang-glslang'
 
@@ -545,7 +575,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'glslang-hlsl-unity*.cpp'
 	}
 
-	ObjectList('$ConfigName$-glslang-hlsl')
+	ObjectList('$ConfigName$-glslang-hlsl-obj')
 	{
 		.IntermediateFilePath + '/glslang-hlsl'
 
@@ -568,7 +598,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'glslang-SPIRV-unity*.cpp'
 	}
 
-	ObjectList('$ConfigName$-glslang-SPIRV')
+	ObjectList('$ConfigName$-glslang-SPIRV-obj')
 	{
 		.IntermediateFilePath + '/glslang-SPIRV'
 
@@ -591,7 +621,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'slang-glslang-unity*.cpp'
 	}
 
-	ObjectList('$ConfigName$-slang-glslang')
+	ObjectList('$ConfigName$-slang-glslang-obj')
 	{
 		.IntermediateFilePath + '/slang-glslang'
 
@@ -600,7 +630,7 @@ ForEach(.Config in .Clang_x64_Configs)
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=0'
 				+ ' -DAMD_EXTENSIONS'
-				+ ' -DNV_EXTENSIONS'	
+				+ ' -DNV_EXTENSIONS'
 
 		.CompilerInputUnity = '$ConfigName$-slang-glslang-unity'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -611,53 +641,27 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.IntermediateFilePath + '/slang-glslang'
 		.Libraries = {
-			'$ConfigName$-core',
-			'$ConfigName$-slang',
-			'$ConfigName$-slang-glslang',
-			'$ConfigName$-glslang-glslang',
-			'$ConfigName$-glslang-hlsl',
-			'$ConfigName$-glslang-OGLCompilersDLL',
-			'$ConfigName$-glslang-SPIRV',
+			'$ConfigName$-slang-glslang-obj',
+			'$ConfigName$-glslang-glslang-obj',
+			'$ConfigName$-glslang-hlsl-obj',
+			'$ConfigName$-glslang-OGLCompilersDLL-obj',
+			'$ConfigName$-glslang-SPIRV-obj',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/$DllPrefix$slang-glslang$DllSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 			+ ' -shared'
+
+	#if __WINDOWS__
+		.LinkerOptions + ' -ladvapi32'
+			+ ' -lshell32'
+			+ ' -lopengl32.lib'
+			+ ' -lglu32.lib'
+	#endif //__WINDOWS__
 	}
 
 #if !__OSX__
 
-	Unity('$ConfigName$-gfx-unity')
-	{
-		.UnityInputPath = '$ProjectPath$/tools/gfx'
-		.UnityInputPattern = "*.cpp"
-		.UnityOutputPath = '$IntermediateFilePath$/tools/gfx'
-		.UnityOutputPattern = 'gfx-unity*.cpp'
-	}
-
-	Library('$ConfigName$-gfx')
-	{
-		.IntermediateFilePath + '/gfx'
-
-		.CompilerOptions + .CompilerOptionsCpp
-			+ ' -I$ProjectPath$'
-			+ ' -I$ProjectPath$/source'
-			+ ' -I$ProjectPath$/tools'
-			+ ' -I$ProjectPath$/external/imgui'
-			+ ' -I$VulkanSDKPath$/include'
-			+ ' -Wno-unused-local-typedef'
-			+ ' -Wno-int-to-pointer-cast'
-			+ ' -Wno-macro-redefined'
-			+ ' -Wno-reorder'
-			+ ' -Wno-unused-function'
-			+ ' -Wno-missing-braces'
-			+ ' -Wno-inconsistent-missing-override'
-		
-		.CompilerInputUnity = '$ConfigName$-gfx-unity'
-		.CompilerOutputPath = '$IntermediateFilePath$'
-		.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$gfx$LibSuffix$'
-	}
-
-	ObjectList('$ConfigName$-hello-world')
+	ObjectList('$ConfigName$-hello-world-obj')
 	{
 		.IntermediateFilePath + '/hello-world'
 
@@ -665,7 +669,6 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
 			+ ' -I$ProjectPath$/tools'
-			+ ' -DSLANG_STATIC'
 
 		.CompilerInputPath = '$ProjectPath$/examples/hello-world'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -675,22 +678,18 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.IntermediateFilePath + '/hello-world'
 		.Libraries = {
-			'$ConfigName$-core',
-			'$ConfigName$-gfx',
-			'$ConfigName$-slang',
-			'$ConfigName$-hello-world',
+			'$ConfigName$-gfx-obj',
+			'$ConfigName$-slang-dll',
+			'$ConfigName$-hello-world-obj',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/hello-world$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
-		.LinkerOptions + ' -luser32'
-			+ ' -lgdi32'
-			+ ' -lopengl32.lib'
-			+ ' -lglu32.lib'
+		.LinkerOptions + ' -lgdi32'
 	#endif //__WINDOWS__
 	}
 
-	ObjectList('$ConfigName$-model-viewer')
+	ObjectList('$ConfigName$-model-viewer-obj')
 	{
 		.IntermediateFilePath + '/model-viewer'
 
@@ -698,7 +697,6 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$'
 			+ ' -I$ProjectPath$/source'
 			+ ' -I$ProjectPath$/tools'
-			+ ' -DSLANG_STATIC'
 
 		.CompilerInputPath = '$ProjectPath$/examples/model-viewer'
 		.CompilerOutputPath = '$IntermediateFilePath$'
@@ -708,17 +706,14 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.IntermediateFilePath + '/model-viewer'
 		.Libraries = {
-			'$ConfigName$-core',
-			'$ConfigName$-gfx',
-			'$ConfigName$-slang',
-			'$ConfigName$-model-viewer',
+			'$ConfigName$-gfx-obj',
+			'$ConfigName$-slang-dll',
+			'$ConfigName$-model-viewer-obj',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/model-viewer$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 	#if __WINDOWS__
 		.LinkerOptions + ' -lgdi32'
-			+ ' -lopengl32.lib'
-			+ ' -lglu32.lib'
 	#endif //__WINDOWS__
 	}
 #endif //!__OSX__
@@ -742,7 +737,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		.UnityOutputPattern = 'volcano-unity*.cpp'
 	}
 
-	ObjectList('$ConfigName$-volcano')
+	ObjectList('$ConfigName$-volcano-obj')
 	{
 		.IntermediateFilePath + '/volcano'
 
@@ -759,10 +754,10 @@ ForEach(.Config in .Clang_x64_Configs)
 			+ ' -I$ProjectPath$/external/cereal/include'
 			+ ' -I$ProjectPath$/external/picosha2'
 			+ ' -I$ProjectPath$/external/mio/include'
+			+ ' -I$ProjectPath$/external/nativefiledialog/src/include'
 			+ ' -I$ProjectPath$/external/tracy/nfd'
 			+ ' -I$ProjectPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
-			+ ' -DSLANG_STATIC'
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 			+ ' -DTRACY_ENABLE'
 
@@ -786,27 +781,25 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.IntermediateFilePath + '/volcano'
 		.Libraries = {
-			'$ConfigName$-core',
-			'$ConfigName$-slang',
-			'$ConfigName$-gl3w',
-			'$ConfigName$-glfw',
-			'$ConfigName$-xxhash',
-			'$ConfigName$-imgui',
-			'$ConfigName$-freetype2',
-			'$ConfigName$-tracy-nfd',
-			'$ConfigName$-tracy-client',
-			'$ConfigName$-volcano',
+			'$ConfigName$-slang-dll',
+			'$ConfigName$-gl3w-lib',
+			'$ConfigName$-glfw-lib',
+			'$ConfigName$-xxhash-lib',
+			'$ConfigName$-imgui-lib',
+			'$ConfigName$-freetype2-lib',
+			'$ConfigName$-nativefiledialog-lib'
+			'$ConfigName$-tracy-client-obj',
+			'$ConfigName$-volcano-obj',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/volcano$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
 	#if __WINDOWS__
-		.LinkerOptions + ' -luser32'
+		.LinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'
 			+ ' -lshell32'
-			+ ' -ladvapi32'
-			+ ' -lole32.lib'
 			+ ' -lvulkan-1'
+			+ ' -lole32.lib'
 	#endif //__WINDOWS__
 	#if __OSX__
 		.LinkerOptions + ' -lc++fs'
@@ -818,7 +811,7 @@ ForEach(.Config in .Clang_x64_Configs)
 	#endif
 	}
 
-	ObjectList('$ConfigName$-mio-test')
+	ObjectList('$ConfigName$-mio-test-obj')
 	{
 		.IntermediateFilePath + '/mio'
 
@@ -835,7 +828,7 @@ ForEach(.Config in .Clang_x64_Configs)
 	{
 		.IntermediateFilePath + '/mio'
 		.Libraries = {
-			'$ConfigName$-mio-test',
+			'$ConfigName$-mio-test-obj',
 		}
 		.LinkerOutput = '$BuildOutputPath$/$ConfigName$/mio-test$ExeSuffix$'
 		.LinkerOptions + .LinkerOptionsCpp

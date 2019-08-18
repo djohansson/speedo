@@ -282,7 +282,7 @@ namespace Slang
         {}
     };
 
-    struct StringSlice
+    struct SLANG_API StringSlice
     {
     public:
         StringSlice();
@@ -321,7 +321,7 @@ namespace Slang
     };
 
     /// String as expected by underlying platform APIs
-    class OSString
+    class SLANG_API OSString
     {
     public:
             /// Default
@@ -382,7 +382,7 @@ namespace Slang
 	@brief Represents a UTF-8 encoded string.
 	*/
 
-	class String
+	class SLANG_API String
 	{
         friend struct StringSlice;
 		friend class StringBuilder;

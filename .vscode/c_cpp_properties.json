@@ -20,7 +20,6 @@
                 "ENABLE_OPT=0",
                 "AMD_EXTENSIONS",
                 "NV_EXTENSIONS",
-                "SLANG_STATIC"
             ],
             "intelliSenseMode": "msvc-x64",
             "windowsSdkVersion": "10.0.18362.0",

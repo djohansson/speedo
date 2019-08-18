@@ -11,7 +11,7 @@
 namespace Slang
 {
 
-class WriterHelper
+class SLANG_API WriterHelper
 {
 public:
     SlangResult print(const char* format, ...);

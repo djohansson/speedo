@@ -45,7 +45,7 @@ struct TestToolUtil
     static ToolReturnCode getReturnCodeFromInt(int code);
 
         /// Given a slang result, returns a return code that can be returned from an executable
-    static ToolReturnCode getReturnCode(SlangResult res);
+    SLANG_API static ToolReturnCode getReturnCode(SlangResult res);
 };
 
 } // namespace Slang

@@ -36,7 +36,7 @@ Compiler('Compiler-Clang')
 	.PlatformInfo = 'Linux'
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
-	.BaseCompilerOptions = '-o "%2" "%1" -c -g -fms-extensions'
+	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -fuse-ld=lld -Wall'
 		+ .BaseIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
@@ -62,9 +62,7 @@ Compiler('Compiler-Clang')
 #if !__WINDOWS__
 		+ ' -stdlib=libc++'
 #endif
-	.CompilerOptions = .BaseCompilerOptions
-		+ ' -Wall -fuse-ld=lld'
-	.BaseLinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
+	.LinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
 		+ .BaseLibPaths
 	.LinkerOptionsCpp = ''
 #if !__WINDOWS__
@@ -73,14 +71,13 @@ Compiler('Compiler-Clang')
 //#if __OSX__
 //	+ ' -rpath @executable_path/(something)'
 //#endif
-	.LinkerOptions = .BaseLinkerOptions
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.CompilerDebugOptimizations = ' -O0'
-	.CompilerReleaseOptimizations = ' -O3 -flto'
+	.CompilerReleaseOptimizations = ' -O3 -flto=thin'
 	.LibrarianDebugOptimizations = ''
 	.LibrarianReleaseOptimizations = ''
 	.LinkerDebugOptimizations = ''
-	.LinkerReleaseOptimizations = ' -flto'
+	.LinkerReleaseOptimizations = ' -flto=thin'
 ]
 .Clang_x64_BaseConfig = [
 	Using(.Clang_BaseConfig)

@@ -8,7 +8,7 @@ namespace Slang
 {
 
 /* Holds standard writers for the channels */
-class StdWriters: public RefObject
+class SLANG_API StdWriters: public RefObject
 {
 public:
 
