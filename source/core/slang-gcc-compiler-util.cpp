@@ -92,9 +92,9 @@ SlangResult GCCCompilerUtil::calcVersion(const String& exeName, CPPCompiler::Des
     return SLANG_FAIL;
 }
 
-static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::OutputMessage::Type& outType)
+static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::Diagnostic::Type& outType)
 {
-    typedef CPPCompiler::OutputMessage::Type Type;
+    typedef CPPCompiler::Diagnostic::Type Type;
 
     if (in == "error" || in == "fatal error")
     {
@@ -127,10 +127,10 @@ enum class LineParseResult
     
 } // anonymous
     
-static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParseResult& outLineParseResult, CPPCompiler::OutputMessage& outMsg)
+static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParseResult& outLineParseResult, CPPCompiler::Diagnostic& outDiagnostic)
 {
-    typedef CPPCompiler::OutputMessage OutputMessage;
-    typedef OutputMessage::Type Type;
+    typedef CPPCompiler::Diagnostic Diagnostic;
+    typedef Diagnostic::Type Type;
     
     // Set to default case
     outLineParseResult = LineParseResult::Ignore;
@@ -167,7 +167,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         /home/travis/build/shader-slang/slang/tests/cpp-compiler/c-compile-link-error.c:10: undefined reference to `thing'
         clang-7: error: linker command failed with exit code 1 (use -v to see invocation)*/
 
-    outMsg.stage = OutputMessage::Stage::Compile;
+    outDiagnostic.stage = Diagnostic::Stage::Compile;
 
     List<UnownedStringSlice> split;
     StringUtil::split(line, ':', split);
@@ -178,12 +178,22 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         if (split0 == UnownedStringSlice::fromLiteral("ld"))
         {
             // We'll ignore for now
-            outMsg.stage = OutputMessage::Stage::Link;
-            outMsg.type = Type::Info;
-            outMsg.text = split[1].trim();
+            outDiagnostic.stage = Diagnostic::Stage::Link;
+            outDiagnostic.type = Type::Info;
+            outDiagnostic.text = split[1].trim();
             outLineParseResult = LineParseResult::Start;
             return SLANG_OK;
         }
+
+        if (SLANG_SUCCEEDED(_parseErrorType(split0, outDiagnostic.type)))
+        {
+            // Command line errors can be just contain 'error:' etc. Can be seen on apple/clang
+            outDiagnostic.stage = Diagnostic::Stage::Compile;
+            outDiagnostic.text = split[1].trim();
+            outLineParseResult = LineParseResult::Single;
+            return SLANG_OK;
+        }
+
         outLineParseResult = LineParseResult::Ignore;
         return SLANG_OK;
     }
@@ -193,36 +203,37 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         const auto split1 = split[1].trim();
         const auto text = split[2].trim();
 
-        // Check for special handling for clang
-        if (split0.startsWith(UnownedStringSlice::fromLiteral("clang")))
+        // Check for special handling for clang (Can be Clang or clang apparently)
+        if (split0.startsWith(UnownedStringSlice::fromLiteral("clang")) ||
+            split0.startsWith(UnownedStringSlice::fromLiteral("Clang")) )
         {
             // Extract the type
-            SLANG_RETURN_ON_FAIL(_parseErrorType(split[1].trim(), outMsg.type));
+            SLANG_RETURN_ON_FAIL(_parseErrorType(split[1].trim(), outDiagnostic.type));
 
             if (text.startsWith("linker command failed"))
             {
-                outMsg.stage = OutputMessage::Stage::Link;
+                outDiagnostic.stage = Diagnostic::Stage::Link;
             }
 
-            outMsg.text = text;
+            outDiagnostic.text = text;
             outLineParseResult = LineParseResult::Start;
             return SLANG_OK;
         }
         else if (split1.startsWith("(.text"))
         {
             // This is a little weak... but looks like it's a link error
-            outMsg.filePath = split[0];
-            outMsg.type = Type::Error;
-            outMsg.stage = OutputMessage::Stage::Link;
-            outMsg.text = text;
+            outDiagnostic.filePath = split[0];
+            outDiagnostic.type = Type::Error;
+            outDiagnostic.stage = Diagnostic::Stage::Link;
+            outDiagnostic.text = text;
             outLineParseResult = LineParseResult::Single;
             return SLANG_OK;
         }
         else if (text.startsWith("ld returned"))
         {
-            outMsg.stage = CPPCompiler::OutputMessage::Stage::Link;
-            SLANG_RETURN_ON_FAIL(_parseErrorType(split[1].trim(), outMsg.type));
-            outMsg.text = line;
+            outDiagnostic.stage = CPPCompiler::Diagnostic::Stage::Link;
+            SLANG_RETURN_ON_FAIL(_parseErrorType(split[1].trim(), outDiagnostic.type));
+            outDiagnostic.text = line;
             outLineParseResult = LineParseResult::Single;
             return SLANG_OK;
         }
@@ -246,11 +257,11 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         }
         else
         {
-            outMsg.filePath = split[1];
-            outMsg.fileLine = 0;
-            outMsg.type = OutputMessage::Type::Error;
-            outMsg.stage = OutputMessage::Stage::Link;
-            outMsg.text = split[3];
+            outDiagnostic.filePath = split[1];
+            outDiagnostic.fileLine = 0;
+            outDiagnostic.type = Diagnostic::Type::Error;
+            outDiagnostic.stage = Diagnostic::Stage::Link;
+            outDiagnostic.text = split[3];
             
             outLineParseResult = LineParseResult::Start;
             return SLANG_OK;
@@ -259,11 +270,11 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     else if (split.getCount() == 5)
     {
         // Probably a regular error line
-        SLANG_RETURN_ON_FAIL(_parseErrorType(split[3].trim(), outMsg.type));
+        SLANG_RETURN_ON_FAIL(_parseErrorType(split[3].trim(), outDiagnostic.type));
 
-        outMsg.filePath = split[0];
-        SLANG_RETURN_ON_FAIL(StringUtil::parseInt(split[1], outMsg.fileLine));
-        outMsg.text = split[4];
+        outDiagnostic.filePath = split[0];
+        SLANG_RETURN_ON_FAIL(StringUtil::parseInt(split[1], outDiagnostic.fileLine));
+        outDiagnostic.text = split[4];
 
         outLineParseResult = LineParseResult::Start;
         return SLANG_OK;
@@ -279,27 +290,30 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     LineParseResult prevLineResult = LineParseResult::Ignore;
     
     outOutput.reset();
+    outOutput.rawDiagnostics = exeRes.standardError;
 
     for (auto line : LineParser(exeRes.standardError.getUnownedSlice()))
     {
-        CPPCompiler::OutputMessage msg;
+        CPPCompiler::Diagnostic diagnostic;
+        diagnostic.reset();
+
         LineParseResult lineRes;
         
-        SLANG_RETURN_ON_FAIL(_parseGCCFamilyLine(line, lineRes, msg));
+        SLANG_RETURN_ON_FAIL(_parseGCCFamilyLine(line, lineRes, diagnostic));
         
         switch (lineRes)
         {
             case LineParseResult::Start:
             {
                 // It's start of a new message
-                outOutput.messages.add(msg);
+                outOutput.diagnostics.add(diagnostic);
                 prevLineResult = LineParseResult::Start;
                 break;
             }
             case LineParseResult::Single:
             {
                 // It's a single message, without anything following
-                outOutput.messages.add(msg);
+                outOutput.diagnostics.add(diagnostic);
                 prevLineResult = LineParseResult::Ignore;
                 break;
             }
@@ -307,10 +321,10 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
             {
                 if (prevLineResult == LineParseResult::Start || prevLineResult == LineParseResult::Continuation)
                 {
-                    if (outOutput.messages.getCount() > 0)
+                    if (outOutput.diagnostics.getCount() > 0)
                     {
                         // We are now in a continuation, add to the last
-                        auto& text = outOutput.messages.getLast().text;
+                        auto& text = outOutput.diagnostics.getLast().text;
                         text.append("\n");
                         text.append(line);
                     }
@@ -327,7 +341,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         }
     }
 
-    if (outOutput.has(CPPCompiler::OutputMessage::Type::Error) || exeRes.resultCode != 0)
+    if (outOutput.has(CPPCompiler::Diagnostic::Type::Error) || exeRes.resultCode != 0)
     {
         outOutput.result = SLANG_FAIL;
     }
@@ -354,8 +368,12 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         }
         case TargetType::Object:
         {
+#if __CYGWIN__
+            outPath << options.modulePath << ".obj";
+#else
             // Will be .o for typical gcc targets
             outPath << options.modulePath << ".o";
+#endif
             return SLANG_OK;
         }
     }
@@ -363,18 +381,31 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     return SLANG_FAIL;
 }
 
-/* static */void GCCCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
+/* static */SlangResult GCCCompilerUtil::calcCompileProducts(const CompileOptions& options, ProductFlags flags, List<String>& outPaths)
 {
-    cmdLine.addArg("-fvisibility=hidden");
+    outPaths.clear();
 
+    if (flags & ProductFlag::Execution)
+    {
+        StringBuilder builder;
+        SLANG_RETURN_ON_FAIL(calcModuleFilePath(options, builder));
+        outPaths.add(builder);
+    }
+
+    return SLANG_OK;
+}
+
+/* static */SlangResult GCCCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
+{
+    PlatformKind platformKind = (options.platform == PlatformKind::Unknown) ? PlatformUtil::getPlatformKind() : options.platform;
+        
     if (options.sourceType == SourceType::CPP)
     {
+        cmdLine.addArg("-fvisibility=hidden");
+
         // Need C++14 for partial specialization
         cmdLine.addArg("-std=c++14");
     }
-
-    // Use shared libraries
-    //cmdLine.addArg("-shared");
 
     switch (options.optimizationLevel)
     {
@@ -407,6 +438,11 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         cmdLine.addArg("-g");
     }
 
+    if (options.flags & CompileOptions::Flag::Verbose)
+    {
+        cmdLine.addArg("-v");
+    }
+
     switch (options.floatingPointMode)
     {
         case FloatingPointMode::Default: break;
@@ -436,8 +472,12 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         {
             // Shared library
             cmdLine.addArg("-shared");
-            // Position independent
-            cmdLine.addArg("-fPIC");
+
+            if (PlatformUtil::isFamily(PlatformFamily::Unix, platformKind))
+            {
+                // Position independent
+                cmdLine.addArg("-fPIC");
+            }
             break;
         }
         case TargetType::Executable:
@@ -482,13 +522,14 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
 
     if (options.targetType == TargetType::SharedLibrary)
     {
-#if !SLANG_APPLE_FAMILY
-        // On MacOS, this linker option is not supported. That's ok though in
-        // so far as on MacOS it does report any unfound symbols without the option.
+        if (!PlatformUtil::isFamily(PlatformFamily::Apple, platformKind))
+        {
+            // On MacOS, this linker option is not supported. That's ok though in
+            // so far as on MacOS it does report any unfound symbols without the option.
 
-        // Linker flag to report any undefined symbols as a link error
-        cmdLine.addArg("-Wl,--no-undefined");
-#endif
+            // Linker flag to report any undefined symbols as a link error
+            cmdLine.addArg("-Wl,--no-undefined");
+        }
     }
 
     // Files to compile
@@ -506,13 +547,15 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         cmdLine.addArg(libPath);
     }
 
-    if (options.sourceType == SourceType::CPP)
+    if (options.sourceType == SourceType::CPP && !PlatformUtil::isFamily(PlatformFamily::Windows, platformKind))
     {
         // Make STD libs available
         cmdLine.addArg("-lstdc++");
-	// Make maths lib available
+	    // Make maths lib available
         cmdLine.addArg("-lm");
     }
+
+    return SLANG_OK;
 }
 
 }

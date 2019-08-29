@@ -146,6 +146,51 @@ SLANG_NO_THROW SlangProfileID SLANG_MCALL Session::findProfile(
     return Slang::Profile::LookUp(name).raw;
 }
 
+SLANG_NO_THROW void SLANG_MCALL Session::setPassThroughPath(
+    SlangPassThrough inPassThrough,
+    char const* path)
+{
+    PassThroughMode passThrough = PassThroughMode(inPassThrough);
+    SLANG_ASSERT(int(passThrough) > int(PassThroughMode::None) && int(passThrough) < int(PassThroughMode::CountOf));
+    
+    if (m_passThroughPaths[int(passThrough)] != path)
+    {
+        // If it's changed we should unload any shared libraries that use it
+        switch (passThrough)
+        {
+            case PassThroughMode::Dxc:
+            {
+                setSharedLibrary(SharedLibraryType::Dxc, nullptr);
+                setSharedLibrary(SharedLibraryType::Dxil, nullptr);
+                break;
+            }
+            case PassThroughMode::Fxc:
+            {
+                setSharedLibrary(SharedLibraryType::Fxc, nullptr);
+                break;
+            }
+            case PassThroughMode::Glslang:
+            {
+                setSharedLibrary(SharedLibraryType::Glslang, nullptr);
+                break;
+            }
+            case PassThroughMode::VisualStudio:
+            case PassThroughMode::Gcc:
+            case PassThroughMode::Clang:
+            case PassThroughMode::GenericCCpp:
+            {
+                // If any compiler path set changed, require all to be refreshed
+                cppCompilerSet.setNull();
+                break;
+            }
+            default: break;
+        }
+
+        // Set the path
+        m_passThroughPaths[int(passThrough)] = path;
+    }
+}
+
 struct IncludeHandlerImpl : IncludeHandler
 {
     Linkage*    linkage;
@@ -1716,7 +1761,9 @@ SLANG_NO_THROW SlangResult SLANG_MCALL ComponentType::getEntryPointCode(
     if(entryPointResult.format == ResultFormat::None )
         return SLANG_FAIL;
 
-    *outCode = entryPointResult.getBlob().detach();
+    ComPtr<ISlangBlob> blob;
+    SLANG_RETURN_ON_FAIL(entryPointResult.getBlob(blob));
+    *outCode = blob.detach();
     return SLANG_OK;
 }
 
@@ -2318,17 +2365,17 @@ void Linkage::setFileSystem(ISlangFileSystem* inFileSystem)
     // Set the fileSystem
     fileSystem = inFileSystem;
 
-    // Set up fileSystemExt appropriately
+    // If nullptr passed in set up default 
     if (inFileSystem == nullptr)
     {
-        fileSystemExt = new Slang::CacheFileSystem(Slang::OSFileSystem::getSingleton());
+        fileSystemExt = new Slang::CacheFileSystem(Slang::OSFileSystemExt::getSingleton());
     }
     else
     {
-        // See if we have the interface 
+        // See if we have the full ISlangFileSystemExt interface, if we do just use it
         inFileSystem->queryInterface(IID_ISlangFileSystemExt, (void**)fileSystemExt.writeRef());
 
-        // If not wrap with WrapFileSytem that keeps the old behavior
+        // If not wrap with CacheFileSystem that emulates ISlangFileSystemExt from the ISlangFileSystem interface
         if (!fileSystemExt)
         {
             // Construct a wrapper to emulate the extended interface behavior
@@ -2444,7 +2491,9 @@ Session::~Session()
 
 SLANG_API SlangSession* spCreateSession(const char*)
 {
-    return asExternal(new Slang::Session());
+    Slang::RefPtr<Slang::Session> session(new Slang::Session());
+    // Will be returned with a refcount of 1
+    return asExternal(session.detach());
 }
 
 SLANG_API SlangResult slang_createGlobalSession(
@@ -2461,10 +2510,16 @@ SLANG_API SlangResult slang_createGlobalSession(
 }
 
 SLANG_API void spDestroySession(
-    SlangSession*   session)
+    SlangSession*   inSession)
 {
-    if(!session) return;
-    delete Slang::asInternal(session);
+    if(!inSession) return;
+
+    Slang::Session* session = Slang::asInternal(inSession);
+    // It is assumed there is only a single reference on the session (the one placed
+    // with spCreateSession) if this function is called
+    SLANG_ASSERT(session->debugGetReferenceCount() == 1);
+    // Release
+    session->release();
 }
 
 SLANG_API void spAddBuiltins(
@@ -3140,29 +3195,28 @@ SLANG_API void const* spGetEntryPointCode(
     return data;
 }
 
-SLANG_API SlangResult spGetEntryPointCodeBlob(
-        SlangCompileRequest*    request,
-        int                     entryPointIndex,
-        int                     targetIndex,
-        ISlangBlob**            outBlob)
+static SlangResult _getEntryPointResult(
+    SlangCompileRequest*    request,
+    int                     entryPointIndex,
+    int                     targetIndex,
+    Slang::CompileResult**  outCompileResult)
 {
     using namespace Slang;
-    if(!request) return SLANG_ERROR_INVALID_PARAMETER;
-    if(!outBlob) return SLANG_ERROR_INVALID_PARAMETER;
-
+    if (!request) return SLANG_ERROR_INVALID_PARAMETER;
+    
     auto req = Slang::asInternal(request);
     auto linkage = req->getLinkage();
     auto program = req->getSpecializedGlobalAndEntryPointsComponentType();
 
     Index targetCount = linkage->targets.getCount();
-    if((targetIndex < 0) || (targetIndex >= targetCount))
+    if ((targetIndex < 0) || (targetIndex >= targetCount))
     {
         return SLANG_ERROR_INVALID_PARAMETER;
     }
     auto targetReq = linkage->targets[targetIndex];
 
     Index entryPointCount = req->entryPoints.getCount();
-    if((entryPointIndex < 0) || (entryPointIndex >= entryPointCount))
+    if ((entryPointIndex < 0) || (entryPointIndex >= entryPointCount))
     {
         return SLANG_ERROR_INVALID_PARAMETER;
     }
@@ -3170,12 +3224,44 @@ SLANG_API SlangResult spGetEntryPointCodeBlob(
 
 
     auto targetProgram = program->getTargetProgram(targetReq);
-    if(!targetProgram)
+    if (!targetProgram)
         return SLANG_FAIL;
-    Slang::CompileResult& result = targetProgram->getExistingEntryPointResult(entryPointIndex);
+    *outCompileResult = &targetProgram->getExistingEntryPointResult(entryPointIndex);
+    return SLANG_OK;
+}
 
-    auto blob = result.getBlob();
+SLANG_API SlangResult spGetEntryPointCodeBlob(
+        SlangCompileRequest*    request,
+        int                     entryPointIndex,
+        int                     targetIndex,
+        ISlangBlob**            outBlob)
+{
+    using namespace Slang;
+    if(!outBlob) return SLANG_ERROR_INVALID_PARAMETER;
+    Slang::CompileResult* compileResult = nullptr;
+    SLANG_RETURN_ON_FAIL(_getEntryPointResult(request, entryPointIndex, targetIndex, &compileResult));
+
+    ComPtr<ISlangBlob> blob;
+    SLANG_RETURN_ON_FAIL(compileResult->getBlob(blob));
     *outBlob = blob.detach();
+    return SLANG_OK;
+}
+
+SLANG_API SlangResult spGetEntryPointHostCallable(
+    SlangCompileRequest*    request,
+    int                     entryPointIndex,
+    int                     targetIndex,
+    ISlangSharedLibrary**   outSharedLibrary)
+{
+    using namespace Slang;
+    if (!outSharedLibrary) return SLANG_ERROR_INVALID_PARAMETER;
+
+    Slang::CompileResult* compileResult = nullptr;
+    SLANG_RETURN_ON_FAIL(_getEntryPointResult(request, entryPointIndex, targetIndex, &compileResult));
+
+    ComPtr<ISlangSharedLibrary> sharedLibrary;
+    SLANG_RETURN_ON_FAIL(compileResult->getSharedLibrary(sharedLibrary));
+    *outSharedLibrary = sharedLibrary.detach();
     return SLANG_OK;
 }
 

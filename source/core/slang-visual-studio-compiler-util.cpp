@@ -37,7 +37,40 @@ namespace Slang
     return SLANG_FAIL;
 }
 
-/* static */void VisualStudioCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
+/* static */SlangResult VisualStudioCompilerUtil::calcCompileProducts(const CompileOptions& options, ProductFlags flags, List<String>& outPaths)
+{
+    outPaths.clear();
+
+    if (flags & ProductFlag::Execution)
+    {
+        StringBuilder builder;
+        SLANG_RETURN_ON_FAIL(calcModuleFilePath(options, builder));
+        outPaths.add(builder);
+    }
+    if (flags & ProductFlag::Miscellaneous)
+    {
+        outPaths.add(options.modulePath + ".ilk");
+
+        if (options.targetType == TargetType::SharedLibrary)
+        {
+            outPaths.add(options.modulePath + ".exp");
+            outPaths.add(options.modulePath + ".lib");
+        }
+    }
+    if (flags & ProductFlag::Compile)
+    {
+        outPaths.add(options.modulePath + ".obj");
+    }
+    if (flags & ProductFlag::Debug)
+    {
+        // TODO(JS): Could try and determine based on debug information
+        outPaths.add(options.modulePath + ".pdb");
+    }
+
+    return SLANG_OK;
+}
+
+/* static */SlangResult VisualStudioCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
 {
     // https://docs.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-alphabetically?view=vs-2019
 
@@ -55,6 +88,11 @@ namespace Slang
             // Assumes c functions cannot throw
             cmdLine.addArg("/EHsc");
         }
+    }
+
+    if (options.flags & CompileOptions::Flag::Verbose)
+    {
+        // Doesn't appear to be a VS equivalent
     }
 
     switch (options.debugInfoType)
@@ -190,14 +228,16 @@ namespace Slang
         // Note that any escaping of the path is handled in the ProcessUtil::
         cmdLine.addPrefixPathArg("/LIBPATH:", libPath);
     }
+
+    return SLANG_OK;
 }
 
 namespace SlangVisualStudioCompilerUtil
 {
 
-static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::OutputMessage::Type& outType)
+static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::Diagnostic::Type& outType)
 {
-    typedef CPPCompiler::OutputMessage::Type Type;
+    typedef CPPCompiler::Diagnostic::Type Type;
 
     if (in == "error" || in == "fatal error")
     {
@@ -218,22 +258,22 @@ static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::Ou
     return SLANG_OK;
 }
 
-static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCompiler::OutputMessage& outMsg)
+static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCompiler::Diagnostic& outDiagnostic)
 {
-    typedef CPPCompiler::OutputMessage OutputMessage;
+    typedef CPPCompiler::Diagnostic Diagnostic;
 
     UnownedStringSlice linkPrefix = UnownedStringSlice::fromLiteral("LINK :");
     if (line.startsWith(linkPrefix))
     {
-        outMsg.stage = OutputMessage::Stage::Link;
-        outMsg.type = OutputMessage::Type::Info;
+        outDiagnostic.stage = Diagnostic::Stage::Link;
+        outDiagnostic.type = Diagnostic::Type::Info;
 
-        outMsg.text = UnownedStringSlice(line.begin() + linkPrefix.size(), line.end());
+        outDiagnostic.text = UnownedStringSlice(line.begin() + linkPrefix.size(), line.end());
 
         return SLANG_OK;
     }
 
-    outMsg.stage = OutputMessage::Stage::Compile;
+    outDiagnostic.stage = Diagnostic::Stage::Compile;
 
     const char*const start = line.begin();
     const char*const end = line.end();
@@ -292,13 +332,13 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
                 return SLANG_FAIL;
             }
 
-            outMsg.filePath = UnownedStringSlice(start, lineNoStart);
-            outMsg.fileLine = lineNo;
+            outDiagnostic.filePath = UnownedStringSlice(start, lineNoStart);
+            outDiagnostic.fileLine = lineNo;
         }
         else
         {
-            outMsg.filePath = UnownedStringSlice(start, cur + colonIndex);
-            outMsg.fileLine = 0;
+            outDiagnostic.filePath = UnownedStringSlice(start, cur + colonIndex);
+            outDiagnostic.fileLine = 0;
         }
 
         // Save the remaining text in 'postPath'
@@ -324,29 +364,31 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
         }
 
         // Extract the code
-        outMsg.code = UnownedStringSlice(errorSection.begin() + errorCodeIndex + 1, errorSection.end());
-        if (outMsg.code.startsWith(UnownedStringSlice::fromLiteral("LNK")))
+        outDiagnostic.code = UnownedStringSlice(errorSection.begin() + errorCodeIndex + 1, errorSection.end());
+        if (outDiagnostic.code.startsWith(UnownedStringSlice::fromLiteral("LNK")))
         {
-            outMsg.stage = OutputMessage::Stage::Link;
+            outDiagnostic.stage = Diagnostic::Stage::Link;
         }
 
         // Extract the bit before the code
-        SLANG_RETURN_ON_FAIL(SlangVisualStudioCompilerUtil::_parseErrorType(UnownedStringSlice(errorSection.begin(), errorSection.begin() + errorCodeIndex).trim(), outMsg.type));
+        SLANG_RETURN_ON_FAIL(SlangVisualStudioCompilerUtil::_parseErrorType(UnownedStringSlice(errorSection.begin(), errorSection.begin() + errorCodeIndex).trim(), outDiagnostic.type));
 
         // Link codes start with LNK prefix
         postError = UnownedStringSlice(postPath.begin() + errorColonIndex + 1, end); 
     }
 
-    outMsg.text = postError;
+    outDiagnostic.text = postError;
 
     return SLANG_OK;
 }
 
-}
+} // namespace SlangVisualStudioCompilerUtil
 
 /* static */SlangResult VisualStudioCompilerUtil::parseOutput(const ExecuteResult& exeRes, CPPCompiler::Output& outOutput)
 {
     outOutput.reset();
+
+    outOutput.rawDiagnostics = exeRes.standardOutput;
 
     for (auto line : LineParser(exeRes.standardOutput.getUnownedSlice()))
     {
@@ -355,15 +397,15 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
         fprintf(stdout, "\n");
 #endif
 
-        OutputMessage msg;
-        if (SLANG_SUCCEEDED(SlangVisualStudioCompilerUtil::_parseVisualStudioLine(line, msg)))
+        CPPCompiler::Diagnostic diagnostic;
+        if (SLANG_SUCCEEDED(SlangVisualStudioCompilerUtil::_parseVisualStudioLine(line, diagnostic)))
         {
-            outOutput.messages.add(msg);
+            outOutput.diagnostics.add(diagnostic);
         }
     }
 
     // if it has a compilation error.. set on output
-    if (outOutput.has(OutputMessage::Type::Error))
+    if (outOutput.has(CPPCompiler::Diagnostic::Type::Error))
     {
         outOutput.result = SLANG_FAIL;
     }

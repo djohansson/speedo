@@ -6,6 +6,8 @@
 
 #include "slang-process-util.h"
 
+#include "slang-platform.h"
+
 namespace Slang
 {
 
@@ -93,6 +95,7 @@ public:
             enum Enum : Flags
             {
                 EnableExceptionHandling = 0x01,
+                Verbose                 = 0x02, 
             };
         };
 
@@ -104,6 +107,8 @@ public:
 
         Flags flags = Flag::EnableExceptionHandling;
 
+        PlatformKind platform = PlatformKind::Unknown;
+
         String modulePath;      ///< The path/name of the output module. Should not have the extension, as that will be added for each of the target types
 
         List<Define> defines;
@@ -114,7 +119,7 @@ public:
         List<String> libraryPaths;
     };
 
-    struct OutputMessage
+    struct Diagnostic
     {
         enum class Type
         {
@@ -136,7 +141,7 @@ public:
             stage = Stage::Compile;
             fileLine = 0;
         }
-        static UnownedStringSlice getTypeText(OutputMessage::Type type);
+        static UnownedStringSlice getTypeText(Diagnostic::Type type);
 
 
         Type type;                      ///< The type of error
@@ -147,29 +152,55 @@ public:
         Int fileLine;                   ///< The line number the error came from
     };
 
+    typedef uint32_t ProductFlags;
+    struct ProductFlag
+    {
+        enum Enum : ProductFlags
+        {
+            Debug               = 0x1,                ///< Used by debugger during execution
+            Execution           = 0x2,                ///< Required for execution
+            Compile             = 0x4,                ///< A product *required* for compilation
+            Miscellaneous       = 0x8,                ///< Anything else    
+        };
+        enum Mask : ProductFlags
+        {
+            All                 = 0xf,                ///< All the flags
+        };
+    };
+
+    enum class Product
+    {
+        DebugRun,
+        Run,
+        CompileTemporary,
+        All,
+    };
+
     struct Output
     {
             /// Reset to an initial empty state
-        void reset() { messages.clear(); result = SLANG_OK; }
+        void reset() { diagnostics.clear(); rawDiagnostics = String(); result = SLANG_OK; }
         
-            /// Get the number of messages by type
-        Index getCountByType(OutputMessage::Type type) const;
-            /// True if there are any messages of the type
-        bool has(OutputMessage::Type type) const { return getCountByType(type) > 0; }
+            /// Get the number of diagnostics by type
+        Index getCountByType(Diagnostic::Type type) const;
+            /// True if there are any diagnostics  of the type
+        bool has(Diagnostic::Type type) const { return getCountByType(type) > 0; }
 
-            /// Stores in outCounts, the amount of messages for the stage of each type
-        Int countByStage(OutputMessage::Stage stage, Index outCounts[Int(OutputMessage::Type::CountOf)]) const;
+            /// Stores in outCounts, the amount of diagnostics for the stage of each type
+        Int countByStage(Diagnostic::Stage stage, Index outCounts[Int(Diagnostic::Type::CountOf)]) const;
 
             /// Append a summary to out
         void appendSummary(StringBuilder& out) const;
             /// Appends a summary that just identifies if there is an error of a type (not a count)
         void appendSimplifiedSummary(StringBuilder& out) const;
         
-            /// Remove all messages of the type
-        void removeByType(OutputMessage::Type type);
+            /// Remove all diagnostics of the type
+        void removeByType(Diagnostic::Type type);
+
+        String rawDiagnostics;
 
         SlangResult result;
-        List<OutputMessage> messages;
+        List<Diagnostic> diagnostics;
     };
 
         /// Get the desc of this compiler
@@ -178,6 +209,10 @@ public:
     virtual SlangResult compile(const CompileOptions& options, Output& outOutput) = 0;
         /// Given the compilation options and the module name, determines the actual file name used for output
     virtual SlangResult calcModuleFilePath(const CompileOptions& options, StringBuilder& outPath) = 0;
+        /// Given options determines the paths to products produced (including the 'moduleFilePath').
+        /// Note that does *not* guarentee all products were or should be produced. Just aims to include all that could
+        /// be produced, such that can be removed on completion.
+    virtual SlangResult calcCompileProducts(const CompileOptions& options, ProductFlags flags, List<String>& outPaths) = 0;
 
         /// Return the compiler type as name
     static UnownedStringSlice getCompilerTypeAsText(CompilerType type);
@@ -191,38 +226,31 @@ protected:
     Desc m_desc;
 };
 
-class GenericCPPCompiler : public CPPCompiler
+class CommandLineCPPCompiler : public CPPCompiler
 {
 public:
     typedef CPPCompiler Super;
 
-    typedef void(*CalcArgsFunc)(const CPPCompiler::CompileOptions& options, CommandLine& cmdLine);
-    typedef SlangResult(*ParseOutputFunc)(const ExecuteResult& exeResult, Output& output);
-    typedef SlangResult(*CalcModuleFilePathFunc)(const CPPCompiler::CompileOptions& options, StringBuilder& outPath);
-
+    // CPPCompiler
     virtual SlangResult compile(const CompileOptions& options, Output& outOutput) SLANG_OVERRIDE;
-    virtual SlangResult calcModuleFilePath(const CompileOptions& options, StringBuilder& outPath) SLANG_OVERRIDE;
+    
+    // Functions to be implemented for a specific CommandLine    
+    virtual SlangResult calcArgs(const CompileOptions& options, CommandLine& cmdLine) = 0;
+    virtual SlangResult parseOutput(const ExecuteResult& exeResult, Output& output) = 0;
 
-    GenericCPPCompiler(const Desc& desc, const String& exeName, CalcArgsFunc calcArgsFunc, ParseOutputFunc parseOutputFunc, CalcModuleFilePathFunc calcModuleFilePathFunc) :
-        Super(desc),
-        m_calcArgsFunc(calcArgsFunc),
-        m_parseOutputFunc(parseOutputFunc),
-        m_calcModuleFilePathFunc(calcModuleFilePathFunc)
+    CommandLineCPPCompiler(const Desc& desc, const String& exeName) :
+        Super(desc)
     {
         m_cmdLine.setExecutableFilename(exeName);
     }
 
-    GenericCPPCompiler(const Desc& desc, const CommandLine& cmdLine, CalcArgsFunc calcArgsFunc, ParseOutputFunc parseOutputFunc, CalcModuleFilePathFunc calcModuleFilePathFunc) :
+    CommandLineCPPCompiler(const Desc& desc, const CommandLine& cmdLine) :
         Super(desc),
-        m_cmdLine(cmdLine),
-        m_calcArgsFunc(calcArgsFunc),
-        m_parseOutputFunc(parseOutputFunc),
-        m_calcModuleFilePathFunc(calcModuleFilePathFunc)
+        m_cmdLine(cmdLine)
     {}
 
-    CalcArgsFunc m_calcArgsFunc;
-    ParseOutputFunc m_parseOutputFunc;
-    CalcModuleFilePathFunc m_calcModuleFilePathFunc;
+    CommandLineCPPCompiler(const Desc& desc):Super(desc) {}
+
     CommandLine m_cmdLine;
 };
 
@@ -261,19 +289,37 @@ protected:
     List<RefPtr<CPPCompiler>> m_compilers;
 };
 
-struct CPPCompilerUtil
+/* Only purpose of having base-class here is to make all the CPPCompiler types available directly in derived Utils */
+struct CPPCompilerBaseUtil
 {
     typedef CPPCompiler::CompileOptions CompileOptions;
     typedef CPPCompiler::OptimizationLevel OptimizationLevel;
     typedef CPPCompiler::TargetType TargetType;
     typedef CPPCompiler::DebugInfoType DebugInfoType;
     typedef CPPCompiler::SourceType SourceType;
+    typedef CPPCompiler::CompilerType CompilerType;
 
+    typedef CPPCompiler::Diagnostic Diagnostic;
+    typedef CPPCompiler::FloatingPointMode FloatingPointMode;
+    typedef CPPCompiler::ProductFlag ProductFlag;
+    typedef CPPCompiler::ProductFlags ProductFlags;
+};
+
+struct CPPCompilerUtil: public CPPCompilerBaseUtil
+{
     enum class MatchType
     {
         MinGreaterEqual,
         MinAbsolute,
         Newest,
+    };
+
+    struct InitializeSetDesc
+    {
+        const String& getPath(CompilerType type) const { return paths[int(type)]; }
+        void setPath(CompilerType type, const String& path) { paths[int(type)] = path; }
+
+        String paths[int(CPPCompiler::CompilerType::CountOf)];
     };
 
         /// Find a compiler
@@ -288,12 +334,8 @@ struct CPPCompilerUtil
     static const CPPCompiler::Desc& getCompiledWithDesc();
 
         /// Given a set, registers compilers found through standard means and determines a reasonable default compiler if possible
-    static SlangResult initializeSet(CPPCompilerSet* set);
-
-    
-    
+    static SlangResult initializeSet(const InitializeSetDesc& desc, CPPCompilerSet* set);    
 };
-
 
 }
 

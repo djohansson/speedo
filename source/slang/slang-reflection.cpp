@@ -1469,7 +1469,7 @@ SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
 SLANG_API char const* spReflectionTypeParameter_GetName(SlangReflectionTypeParameter * inTypeParam)
 {
     using namespace Reflection;
-
+    
     auto specializationParam = convert(inTypeParam);
     if( auto genericParamLayout = as<GenericSpecializationParamLayout>(specializationParam) )
     {
@@ -1660,7 +1660,7 @@ SLANG_API  SlangReflectionType* spReflection_specializeType(
     ISlangBlob**                outDiagnostics)
 {
     using namespace Reflection;
-
+    
     auto programLayout = convert(inProgramLayout);
     if(!programLayout) return nullptr;
 

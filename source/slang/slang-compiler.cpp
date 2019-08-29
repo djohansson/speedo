@@ -87,7 +87,8 @@ namespace Slang
     x("c", CSource) \
     x("cpp", CPPSource) \
     x("exe,executable", Executable) \
-    x("sharedlib,sharedlibrary,dll", SharedLibrary) 
+    x("sharedlib,sharedlibrary,dll", SharedLibrary) \
+    x("callable,host-callable", HostCallable)
 
 #define SLANG_CODE_GEN_INFO(names, e) \
     { CodeGenTarget::e, UnownedStringSlice::fromLiteral(names) },
@@ -149,28 +150,64 @@ namespace Slang
         {
             outputBinary.addRange(result.outputBinary.getBuffer(), result.outputBinary.getCount());
         }
+        else if (appendTo == ResultFormat::SharedLibrary)
+        {
+            SLANG_ASSERT(!"Trying to append to a shared library");
+        }
     }
 
-    ComPtr<ISlangBlob> CompileResult::getBlob()
+    SlangResult CompileResult::getSharedLibrary(ComPtr<ISlangSharedLibrary>& outSharedLibrary)
+    {
+        if (format == ResultFormat::SharedLibrary && sharedLibrary)
+        {
+            outSharedLibrary = sharedLibrary;
+            return SLANG_OK;
+        }
+        return SLANG_FAIL;
+    }
+
+    SlangResult CompileResult::getBlob(ComPtr<ISlangBlob>& outBlob)
     {
         if(!blob)
         {
             switch(format)
             {
-            case ResultFormat::None:
-            default:
-                break;
+                case ResultFormat::None:
+                default:
+                    break;
 
-            case ResultFormat::Text:
-                blob = StringUtil::createStringBlob(outputString);
-                break;
+                case ResultFormat::Text:
+                    blob = StringUtil::createStringBlob(outputString);
+                    break;
 
-            case ResultFormat::Binary:
-                blob = createRawBlob(outputBinary.getBuffer(), outputBinary.getCount());
-                break;
+                case ResultFormat::Binary:
+                    blob = createRawBlob(outputBinary.getBuffer(), outputBinary.getCount());
+                    break;
+                case ResultFormat::SharedLibrary:
+                {
+                    // TODO(JS): Could do something more sophisticated to check this cast is safe (like have an interface to get the path), but this
+                    // is simple and works with current impl
+                    TemporarySharedLibrary* tempLibrary = static_cast<TemporarySharedLibrary*>(sharedLibrary.get());
+
+                    SLANG_ASSERT(sharedLibrary);
+                    List<uint8_t> contents;
+                    try
+                    {
+                        // We can read it from the shared library...
+                        contents = File::readAllBytes(tempLibrary->getPath());
+                    }
+                    catch (const Slang::IOException&)
+                    {
+                        return SLANG_E_CANNOT_OPEN; 
+                    }
+                    blob = createRawBlob(contents.getBuffer(), contents.getCount());
+                    break;
+                }
             }
         }
-        return blob;
+
+        outBlob = blob;
+        return SLANG_OK;
     }
 
     //
@@ -478,6 +515,7 @@ namespace Slang
                 // Don't need an external compiler to output C and C++ code
                 return PassThroughMode::None;
             }
+            case CodeGenTarget::HostCallable:
             case CodeGenTarget::SharedLibrary:
             case CodeGenTarget::Executable:
             {
@@ -730,7 +768,7 @@ namespace Slang
         return result;
     }
 
-    void reportExternalCompileError(const char* compilerName, SlangResult res, const UnownedStringSlice& diagnostic, DiagnosticSink* sink)
+    void reportExternalCompileError(const char* compilerName, Severity severity, SlangResult res, const UnownedStringSlice& diagnostic, DiagnosticSink* sink)
     {
         StringBuilder builder;
         if (compilerName)
@@ -754,10 +792,15 @@ namespace Slang
             PlatformUtil::appendResult(res, builder);
         }
 
+        sink->diagnoseRaw(severity, builder.getUnownedSlice());
+    }
+
+    void reportExternalCompileError(const char* compilerName, SlangResult res, const UnownedStringSlice& diagnostic, DiagnosticSink* sink)
+    {
         // TODO(tfoley): need a better policy for how we translate diagnostics
         // back into the Slang world (although we should always try to generate
         // HLSL that doesn't produce any diagnostics...)
-        sink->diagnoseRaw(SLANG_FAILED(res) ? Severity::Error : Severity::Warning, builder.getUnownedSlice());
+        reportExternalCompileError(compilerName, SLANG_FAILED(res) ? Severity::Error : Severity::Warning, res, diagnostic, sink);
     }
 
     static String _getDisplayPath(DiagnosticSink* sink, SourceFile* sourceFile)
@@ -1103,13 +1146,15 @@ SlangResult dissassembleDXILUsingDXC(
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
-        List<uint8_t>&          binOut)
+        ComPtr<ISlangSharedLibrary>& outSharedLib,
+        List<uint8_t>&          outBin)
     {
         auto sink = slangRequest->getSink();
 
         const String originalSourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
 
-        binOut.clear();
+        outBin.clear();
+        outSharedLib.setNull();
       
         CPPCompilerSet* compilerSet = slangRequest->getSession()->requireCPPCompilerSet();
 
@@ -1301,9 +1346,15 @@ SlangResult dissassembleDXILUsingDXC(
 
         CPPCompiler::CompileOptions options;
 
+        // Set the source type
+        options.sourceType = (rawSourceLanguage == SourceLanguage::C) ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
+
         // Generate a path a temporary filename for output module
         String modulePath;
         SLANG_RETURN_ON_FAIL(File::generateTemporary(UnownedStringSlice::fromLiteral("slang-generated"), modulePath));
+
+        // Remove the temporary path/file when done
+        temporaryFileSet.add(modulePath);
 
         options.modulePath = modulePath;
         options.sourceFiles.add(compileSourcePath);
@@ -1311,6 +1362,7 @@ SlangResult dissassembleDXILUsingDXC(
         // Set what kind of target we should build
         switch (targetReq->target)
         {
+            case CodeGenTarget::HostCallable:
             case CodeGenTarget::SharedLibrary:
             {
                 options.targetType = CPPCompiler::TargetType::SharedLibrary;
@@ -1332,8 +1384,13 @@ SlangResult dissassembleDXILUsingDXC(
             moduleFilePath = builder.ProduceString();
         }
 
-        // Add so it's deleted at the end
-        temporaryFileSet.add(moduleFilePath);
+        // Find all the files that will be produced
+        TemporaryFileSet productFileSet;
+        {
+            List<String> paths;
+            SLANG_RETURN_ON_FAIL(compiler->calcCompileProducts(options, CPPCompiler::ProductFlag::All, paths));
+            productFileSet.add(paths);
+        }
 
         // Need to configure for the compilation
 
@@ -1424,49 +1481,102 @@ SlangResult dissassembleDXILUsingDXC(
 
             StringBuilder builder;
 
-            typedef CPPCompiler::OutputMessage OutputMessage;
+            typedef CPPCompiler::Diagnostic Diagnostic;
 
-            for (const auto& msg : output.messages)
+            for (const auto& diagnostic : output.diagnostics)
             {
                 builder.Clear();
 
-                builder << msg.filePath << "(" << msg.fileLine <<"): ";
+                builder << diagnostic.filePath << "(" << diagnostic.fileLine <<"): ";
 
-                if (msg.stage == OutputMessage::Stage::Link)
+                if (diagnostic.stage == Diagnostic::Stage::Link)
                 {
                     builder << "link ";
                 }
 
-                switch (msg.type)
+                // 
+                Severity severity = Severity::Error;
+                
+                switch (diagnostic.type)
                 {
-                    case OutputMessage::Type::Error:    builder << "error"; break;
-                    case OutputMessage::Type::Unknown:  builder << "warning"; break;
-                    case OutputMessage::Type::Info:     builder << "info"; break;
+                    case Diagnostic::Type::Unknown:
+                    case Diagnostic::Type::Error:
+                    {
+                        severity = Severity::Error;
+                        builder << "error";
+                        break;
+                    }
+                    case Diagnostic::Type::Warning:
+                    {
+                        severity = Severity::Warning;
+                        builder << "warning";
+                        break;
+                    }
+                    case Diagnostic::Type::Info:
+                    {
+                        severity = Severity::Note;
+                        builder << "info";
+                        break;
+                    }
                     default: break;
                 }
 
-                builder << " " << msg.code << ": " << msg.text;
+                builder << " " << diagnostic.code << ": " << diagnostic.text;
 
-                reportExternalCompileError(compilerText.getBuffer(), SLANG_OK, builder.getUnownedSlice(), sink);
+                reportExternalCompileError(compilerText.getBuffer(), severity, SLANG_OK, builder.getUnownedSlice(), sink);
             }
         }
 
         // If any errors are emitted, then we are done
-        if (output.has(CPPCompiler::OutputMessage::Type::Error))
+        if (output.has(CPPCompiler::Diagnostic::Type::Error))
         {
             return SLANG_FAIL;
         }
 
-        // Read the binary
-        try
+        // If callable we need to load the shared library
+        if (targetReq->target == CodeGenTarget::HostCallable)
         {
-            // Read the contents of the binary
-            binOut = File::readAllBytes(moduleFilePath);
+            // Try loading the shared library
+            SharedLibrary::Handle handle;
+            if (SLANG_FAILED(SharedLibrary::loadWithPlatformPath(moduleFilePath.getBuffer(), handle)))
+            {
+                sink->diagnose(SourceLoc(), Diagnostics::unableToReadFile, moduleFilePath);
+                return SLANG_FAIL;
+            }
+            RefPtr<TemporarySharedLibrary> sharedLib(new TemporarySharedLibrary(handle, moduleFilePath));
+            sharedLib->m_temporaryFileSet = productFileSet;
+            productFileSet.clear();
+
+            outSharedLib = sharedLib;
         }
-        catch (const Slang::IOException&)
+        else
         {
-            sink->diagnose(SourceLoc(), Diagnostics::unableToReadFile, moduleFilePath);
-            return SLANG_FAIL;
+            // Read the binary
+            try
+            {
+                // TODO(JS): We have a problem here.. productFileSet will clear up all temporaries
+                // and although we return the binary here (through outBin), we don't return debug info
+                // which is separate (say with a pdb). To work around this we reevaluate productFileSet,
+                // so we don't include debug info. The executable will presumably be reconstructed from
+                // outBin
+                // The problem is that these files have no specific lifetime (unlike with HostCallable).
+
+                CPPCompiler::ProductFlags flags = CPPCompiler::ProductFlag::All;
+                flags &= ~CPPCompiler::ProductFlag::Debug;
+
+                List<String> paths;
+                SLANG_RETURN_ON_FAIL(compiler->calcCompileProducts(options, flags, paths));
+                productFileSet.clear();
+                productFileSet.add(paths);
+
+                // Read the contents of the binary
+                outBin = File::readAllBytes(moduleFilePath);
+            }
+            catch (const Slang::IOException&)
+            {
+                sink->diagnose(SourceLoc(), Diagnostics::unableToReadFile, moduleFilePath);
+                return SLANG_FAIL;
+            }
         }
 
         return SLANG_OK;
@@ -1550,9 +1660,12 @@ SlangResult dissassembleDXILUsingDXC(
 
         switch (target)
         {
+        case CodeGenTarget::HostCallable:
         case CodeGenTarget::SharedLibrary:
         case CodeGenTarget::Executable:
             {
+                ComPtr<ISlangSharedLibrary> sharedLibrary;
+
                 List<uint8_t> code;
                 if (SLANG_SUCCEEDED(emitCPUBinaryForEntryPoint(
                     compileRequest,
@@ -1560,10 +1673,18 @@ SlangResult dissassembleDXILUsingDXC(
                     entryPointIndex,
                     targetReq,
                     endToEndReq,
+                    sharedLibrary,
                     code)))
                 {
-                    maybeDumpIntermediate(compileRequest, code.getBuffer(), code.getCount(), target);
-                    result = CompileResult(code);
+                    if (target == CodeGenTarget::HostCallable)
+                    {
+                        result = CompileResult(sharedLibrary);
+                    }
+                    else
+                    {
+                        maybeDumpIntermediate(compileRequest, code.getBuffer(), code.getCount(), target);
+                        result = CompileResult(code);
+                    }
                 }
             }
             break;
@@ -1858,6 +1979,9 @@ SlangResult dissassembleDXILUsingDXC(
         {
         case ResultFormat::Text:
             writeOutputToConsole(writer, result.outputString);
+            break;
+
+        case ResultFormat::SharedLibrary:
             break;
 
         case ResultFormat::Binary:
@@ -2232,6 +2356,7 @@ SlangResult dissassembleDXILUsingDXC(
             // for now
             dumpIntermediateBinary(compileRequest, data, size, ".exe");
             break;
+        case CodeGenTarget::HostCallable:
         case CodeGenTarget::SharedLibrary:
             dumpIntermediateBinary(compileRequest, data, size, ".shared-lib");
             break;

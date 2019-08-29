@@ -516,6 +516,7 @@ extern "C"
         SLANG_CPP_SOURCE,           ///< The C++ language
         SLANG_EXECUTABLE,           ///< Executable (for hosting CPU/OS)
         SLANG_SHARED_LIBRARY,       ///< A shared library/Dll (for hosting CPU/OS)
+        SLANG_HOST_CALLABLE,        ///< A CPU target that makes the compiled code available to be run immediately
     };
 
     /* A "container format" describes the way that the outputs
@@ -1071,6 +1072,10 @@ extern "C"
     */
     typedef struct SlangCompileRequest SlangCompileRequest;
 
+    namespace slang {
+    struct IGlobalSession;
+    } // namespace slang
+
     /*!
     @brief Initialize an instance of the Slang library.
     */
@@ -1209,6 +1214,8 @@ extern "C"
         SlangCompileRequest*    request,
         int                     targetIndex,
         SlangTargetFlags        flags);
+
+
 
     /*!
     @brief Set the floating point mode (e.g., precise or fast) to use a target.
@@ -1547,6 +1554,7 @@ extern "C"
 
     /** Get the output code associated with a specific entry point.
 
+    @param request   The request 
     @param entryPointIndex The index of the entry point to get code for.
     @param targetIndex The index of the target to get code for (default: zero).
     @param outBlob A pointer that will receive the blob of code
@@ -1560,13 +1568,35 @@ extern "C"
         int                     targetIndex,
         ISlangBlob**            outBlob);
 
+    /** Get entry point 'callable' functions accessible through the ISlangSharedLibrary interface.
+
+    That the functions remain in scope as long as the ISlangSharedLibrary interface is in scope.
+
+    NOTE! Requires a compilation target of SLANG_HOST_CALLABLE.
+    
+    @param request          The request 
+    @param entryPointIndex  The index of the entry point to get code for.
+    @param targetIndex      The index of the target to get code for (default: zero).
+    @param outSharedLibrary A pointer to a ISharedLibrary interface which functions can be queried on.
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spGetEntryPointHostCallable(
+        SlangCompileRequest*    request,
+        int                     entryPointIndex,
+        int                     targetIndex,
+        ISlangSharedLibrary**   outSharedLibrary);
+
     /** Get the output bytecode associated with an entire compile request.
 
     The lifetime of the output pointer is the same as `request`.
+
+    DEPRECIATED: No longer outputs anything. 
     */
     SLANG_API void const* spGetCompileRequestCode(
         SlangCompileRequest*    request,
         size_t*                 outSize);
+
+
 
     /*
     Forward declarations of types used in the reflection interface;
@@ -2616,6 +2646,14 @@ namespace slang
             */
         virtual SLANG_NO_THROW SlangProfileID SLANG_MCALL findProfile(
             char const*     name) = 0;
+
+            /** Set the path that pass through (aka back end compilers) will
+            be looked from. For back ends that are dlls/shared libraries, it will mean the path will
+            be prefixed with the path when calls are made out to ISlangSharedLibraryLoader.
+            For executables - it will look for executables along the path */
+        virtual void SLANG_MCALL setPassThroughPath(
+            SlangPassThrough passThrough,
+            char const* path) = 0;
     };
 
     #define SLANG_UUID_IGlobalSession { 0xc140b5fd, 0xc78, 0x452e, { 0xba, 0x7c, 0x1a, 0x1e, 0x70, 0xc7, 0xf7, 0x1c } };

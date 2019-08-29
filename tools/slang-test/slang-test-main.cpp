@@ -556,6 +556,7 @@ static PassThroughFlags _getPassThroughFlagsForTarget(SlangCompileTarget target)
             return PassThroughFlag::Dxc;
         }
 
+        case SLANG_HOST_CALLABLE:
         case SLANG_EXECUTABLE:
         case SLANG_SHARED_LIBRARY:
         {
@@ -590,6 +591,8 @@ static SlangCompileTarget _getCompileTarget(const UnownedStringSlice& name)
         CASE("exe", EXECUTABLE)
         CASE("sharedlib", SHARED_LIBRARY)
         CASE("dll", SHARED_LIBRARY)
+        CASE("callable", HOST_CALLABLE)
+        CASE("host-callable", HOST_CALLABLE)
 #undef CASE
 
         return SLANG_TARGET_UNKNOWN;
@@ -1314,8 +1317,8 @@ static String _calcSummary(const CPPCompiler::Output& inOutput)
     CPPCompiler::Output output(inOutput);
 
     // We only want to analyse errors for now
-    output.removeByType(CPPCompiler::OutputMessage::Type::Info);
-    output.removeByType(CPPCompiler::OutputMessage::Type::Warning);
+    output.removeByType(CPPCompiler::Diagnostic::Type::Info);
+    output.removeByType(CPPCompiler::Diagnostic::Type::Warning);
 
     StringBuilder builder;
 
@@ -1323,11 +1326,18 @@ static String _calcSummary(const CPPCompiler::Output& inOutput)
     return builder;
 }
 
+static String _calcModulePath(const TestInput& input)
+{
+    // Make the module name the same as the source file
+    auto filePath = input.filePath;
+    String directory = Path::getParentDirectory(input.outputStem);
+    String moduleName = Path::getFileNameWithoutExt(filePath);
+    return Path::combine(directory, moduleName);
+}
+
 static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
 {
-    CPPCompilerSet* compilerSet = context->getCPPCompilerSet();
-    CPPCompiler* compiler = compilerSet ? compilerSet->getDefaultCompiler() : nullptr;
-
+    CPPCompiler* compiler = context->getDefaultCPPCompiler();   
     if (!compiler)
     {
         return TestResult::Ignored;
@@ -1341,7 +1351,6 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
     _initSlangCompiler(context, cmdLine);
 
     cmdLine.addArg(input.filePath);
-
     for (auto arg : input.testOptions->args)
     {
         cmdLine.addArg(arg);
@@ -1349,10 +1358,15 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
 
     ExecuteResult exeRes;
     TEST_RETURN_ON_DONE(spawnAndWait(context, outputStem, input.spawnType, cmdLine, exeRes));
-
     if (context->isCollectingRequirements())
     {
         return TestResult::Pass;
+    }
+
+    // Dump out what happened
+    {
+        String actualOutputPath = outputStem + ".actual";
+        Slang::File::writeAllText(actualOutputPath, getOutput(exeRes));
     }
 
     if (exeRes.resultCode != 0)
@@ -1360,15 +1374,8 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
         return TestResult::Fail;
     }
 
-    String actualOutput = exeRes.standardOutput;
+    String modulePath = _calcModulePath(input);
     
-    // Make the module name the same as the source file
-    auto filePath = input.filePath;
-    String directory = Path::getParentDirectory(input.outputStem);
-    String moduleName = Path::getFileNameWithoutExt(filePath);
-    String ext = Path::getFileExt(filePath);
-    String modulePath = Path::combine(directory, moduleName);
-
     // Find the target
     UnownedStringSlice targetExt = UnownedStringSlice::fromLiteral("c");
     Index index = cmdLine.findArgIndex(UnownedStringSlice::fromLiteral("-target"));
@@ -1377,21 +1384,88 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
         targetExt = cmdLine.m_args[index + 1].value.getUnownedSlice();
     }
 
+    // If output was C/C++ we should try compiling
+    if (targetExt == "c" || targetExt == "cpp")
+    {
+        CPPCompiler::CompileOptions options;
+        options.sourceType = (targetExt == "c") ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
+
+        options.includePaths.add("tests/cross-compile");
+
+        String actualOutput = exeRes.standardOutput;
+
+        // Create a filename to write this out to
+        String cppSource = modulePath + "." + targetExt;
+        Slang::File::writeAllText(cppSource, actualOutput);
+
+        // Okay we can now try compiling
+
+        // Compile this source
+        options.sourceFiles.add(cppSource);
+        options.modulePath = modulePath;
+        options.targetType = CPPCompiler::TargetType::SharedLibrary;
+
+        CPPCompiler::Output output;
+        if (SLANG_FAILED(compiler->compile(options, output)))
+        {
+            return TestResult::Fail;
+        }
+
+        if (output.getCountByType(CPPCompiler::Diagnostic::Type::Error) > 0)
+        {
+            return TestResult::Fail;
+        }
+    }
+    else
+    {
+        // Can only be callable
+        SLANG_ASSERT(targetExt == "callable" || targetExt == "host-callable");
+    }
+
+    return TestResult::Pass;
+}
+
+static TestResult runCPPCompilerSharedLibrary(TestContext* context, TestInput& input)
+{
+    CPPCompiler* compiler = context->getDefaultCPPCompiler();
+    if (!compiler)
+    {
+        return TestResult::Ignored;
+    }
+
+    // If we are just collecting requirements, say it passed
+    if (context->isCollectingRequirements())
+    {
+        return TestResult::Pass;
+    }
+
+    auto outputStem = input.outputStem;
+    auto filePath = input.filePath;
+
+    String actualOutputPath = outputStem + ".actual";
+    File::remove(actualOutputPath);
+
+    // Make the module name the same as the source file
+    String modulePath = _calcModulePath(input);
+    String ext = Path::getFileExt(filePath);
+
+    // Remove the binary..
+    String sharedLibraryPath = SharedLibrary::calcPlatformPath(modulePath.getUnownedSlice());
+    File::remove(sharedLibraryPath);
+
+    // Set up the compilation options
     CPPCompiler::CompileOptions options;
-    options.sourceType = (targetExt == "c") ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
 
-    options.includePaths.add("tests/cross-compile");
+    options.sourceType = (ext == "c") ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
 
-    // Create a filename to write this out to
-    String cppSource = modulePath + "." + targetExt;
-    Slang::File::writeAllText(cppSource, actualOutput);
-
-    // Okay we can now try compiling
+    // Build a shared library
+    options.targetType = CPPCompiler::TargetType::SharedLibrary;
 
     // Compile this source
-    options.sourceFiles.add(cppSource);
+    options.sourceFiles.add(filePath);
     options.modulePath = modulePath;
-    options.targetType = CPPCompiler::TargetType::SharedLibrary;
+
+    options.includePaths.add(".");
 
     CPPCompiler::Output output;
     if (SLANG_FAILED(compiler->compile(options, output)))
@@ -1399,9 +1473,68 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
         return TestResult::Fail;
     }
 
-    if (output.getCountByType(CPPCompiler::OutputMessage::Type::Error) > 0)
+    if (SLANG_FAILED(output.result))
     {
-        return TestResult::Fail;
+        // Compilation failed
+        String actualOutput = _calcSummary(output);
+
+        // Write the output
+        Slang::File::writeAllText(actualOutputPath, actualOutput);
+
+        // Check that they are the same
+        {
+            // Read the expected
+            String expectedOutput;
+            try
+            {
+                String expectedOutputPath = outputStem + ".expected";
+                expectedOutput = Slang::File::readAllText(expectedOutputPath);
+            }
+            catch (Slang::IOException)
+            {
+            }
+
+            // Compare if they are the same 
+            if (!StringUtil::areLinesEqual(actualOutput.getUnownedSlice(), expectedOutput.getUnownedSlice()))
+            {
+                context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
+                return TestResult::Fail;
+            }
+        }
+    }
+    else
+    {
+        SharedLibrary::Handle handle;
+        if (SLANG_FAILED(SharedLibrary::loadWithPlatformPath(sharedLibraryPath.getBuffer(), handle)))
+        {
+            return TestResult::Fail;
+        }
+
+        const int inValue = 10;
+        const char inBuffer[] = "Hello World!";
+
+        char buffer[128] = "";
+        int value = 0;
+
+        typedef int(*TestFunc)(int intValue, const char* textValue, char* outTextValue);
+
+        // We could capture output if we passed in a ISlangWriter - but for that to work we'd need a 
+        TestFunc testFunc = (TestFunc)SharedLibrary::findFuncByName(handle, "test");
+        if (testFunc)
+        {
+            value = testFunc(inValue, inBuffer, buffer);
+        }
+        else
+        {
+            printf("Unable to access 'test' function\n");
+        }
+
+        SharedLibrary::unload(handle);
+
+        if (!(inValue == value && strcmp(inBuffer, buffer) == 0))
+        {
+            return TestResult::Fail;
+        }
     }
 
     return TestResult::Pass;
@@ -1409,9 +1542,7 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
 
 static TestResult runCPPCompilerExecute(TestContext* context, TestInput& input)
 {
-    CPPCompilerSet* compilerSet = context->getCPPCompilerSet();
-    CPPCompiler* compiler = compilerSet ? compilerSet->getDefaultCompiler() : nullptr;
-
+    CPPCompiler* compiler = context->getDefaultCPPCompiler();
     if (!compiler)
     {
         return TestResult::Ignored;
@@ -1430,11 +1561,9 @@ static TestResult runCPPCompilerExecute(TestContext* context, TestInput& input)
     File::remove(actualOutputPath);
 
     // Make the module name the same as the source file
-    String directory = Path::getParentDirectory(input.outputStem);
-    String moduleName = Path::getFileNameWithoutExt(filePath);
     String ext = Path::getFileExt(filePath);
-    String modulePath = Path::combine(directory, moduleName);
-
+    String modulePath = _calcModulePath(input);
+    
     // Remove the binary..
     {
         StringBuilder moduleExePath;
@@ -1510,126 +1639,6 @@ static TestResult runCPPCompilerExecute(TestContext* context, TestInput& input)
         }
     }
     
-    return TestResult::Pass;
-}
-
-static TestResult runCPPCompilerSharedLibrary(TestContext* context, TestInput& input)
-{
-    CPPCompilerSet* compilerSet = context->getCPPCompilerSet();
-    CPPCompiler* compiler = compilerSet ? compilerSet->getDefaultCompiler() : nullptr;
-
-    if (!compiler)
-    {
-        return TestResult::Ignored;
-    }
-
-    // If we are just collecting requirements, say it passed
-    if (context->isCollectingRequirements())
-    {
-        return TestResult::Pass;
-    }
-
-    auto filePath = input.filePath;
-    auto outputStem = input.outputStem;
-
-    String actualOutputPath = outputStem + ".actual";
-    File::remove(actualOutputPath);
-
-    // Make the module name the same as the source file
-    String directory = Path::getParentDirectory(input.outputStem);
-    String moduleName = Path::getFileNameWithoutExt(filePath);
-    String ext = Path::getFileExt(filePath);
-
-    String modulePath = Path::combine(directory, moduleName);
-
-    // Remove the binary..
-    String sharedLibraryPath = SharedLibrary::calcPlatformPath(modulePath.getUnownedSlice());
-    File::remove(sharedLibraryPath);
-    
-    // Set up the compilation options
-    CPPCompiler::CompileOptions options;
-
-    options.sourceType = (ext == "c") ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
-    
-    // Build a shared library
-    options.targetType = CPPCompiler::TargetType::SharedLibrary;
-
-    // Compile this source
-    options.sourceFiles.add(filePath);
-    options.modulePath = modulePath;
-
-    options.includePaths.add(".");
-
-    CPPCompiler::Output output;
-    if (SLANG_FAILED(compiler->compile(options, output)))
-    {
-        return TestResult::Fail;
-    }
-
-    if (SLANG_FAILED(output.result))
-    {
-        // Compilation failed
-        String actualOutput = _calcSummary(output);
-
-        // Write the output
-        Slang::File::writeAllText(actualOutputPath, actualOutput);
-
-        // Check that they are the same
-        {
-            // Read the expected
-            String expectedOutput;
-            try
-            {
-                String expectedOutputPath = outputStem + ".expected";
-                expectedOutput = Slang::File::readAllText(expectedOutputPath);
-            }
-            catch (Slang::IOException)
-            {
-            }
-
-            // Compare if they are the same 
-            if (!StringUtil::areLinesEqual(actualOutput.getUnownedSlice(), expectedOutput.getUnownedSlice()))
-            {
-                context->reporter->dumpOutputDifference(expectedOutput, actualOutput);
-                return TestResult::Fail;
-            }
-        }
-    }
-    else
-    {
-        SharedLibrary::Handle handle;
-        if (SLANG_FAILED(SharedLibrary::loadWithPlatformPath(sharedLibraryPath.getBuffer(), handle)))
-        {
-            return TestResult::Fail;
-        }
-
-        const int inValue = 10;
-        const char inBuffer[] = "Hello World!";
-
-        char buffer[128] = "";
-        int value = 0;
-
-        typedef int (*TestFunc)(int intValue, const char* textValue, char* outTextValue);
-
-        // We could capture output if we passed in a ISlangWriter - but for that to work we'd need a 
-        TestFunc testFunc = (TestFunc)SharedLibrary::findFuncByName(handle, "test");
-        if (testFunc)
-        {
-            value = testFunc(inValue, inBuffer, buffer);
-        }
-        else
-        {
-            printf("Unable to access 'test' function\n");
-        }
-
-        SharedLibrary::unload(handle);
-
-        if (!(inValue == value && strcmp(inBuffer, buffer) == 0))
-        {
-            return TestResult::Fail;
-        }
-    }
-
     return TestResult::Pass;
 }
 

@@ -96,7 +96,16 @@ CPPCompilerSet* TestContext::getCPPCompilerSet()
     if (!cppCompilerSet)
     {
         cppCompilerSet = new CPPCompilerSet;
-        CPPCompilerUtil::initializeSet(cppCompilerSet);
+
+        CPPCompilerUtil::InitializeSetDesc desc;
+        CPPCompilerUtil::initializeSet(desc, cppCompilerSet);
     }
     return cppCompilerSet;
 }
+
+Slang::CPPCompiler* TestContext::getDefaultCPPCompiler()
+{
+    CPPCompilerSet* set = getCPPCompilerSet();
+    return set ? set->getDefaultCompiler() : nullptr;
+}
+
