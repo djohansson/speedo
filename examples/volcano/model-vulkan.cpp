@@ -77,7 +77,9 @@ calculateInputBindingDescriptions(
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-ModelCreateDesc<GraphicsBackend::Vulkan> load(VmaAllocator allocator, const std::filesystem::path& modelFile)
+ModelCreateDesc<GraphicsBackend::Vulkan> load(
+	AllocatorHandle<GraphicsBackend::Vulkan> allocator,
+	const std::filesystem::path& modelFile)
 {
 	ModelCreateDesc<GraphicsBackend::Vulkan> desc = {};
 	desc.debugName = modelFile.u8string();
@@ -275,7 +277,10 @@ ModelCreateDesc<GraphicsBackend::Vulkan> load(VmaAllocator allocator, const std:
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
-    VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
+    DeviceHandle<GraphicsBackend::Vulkan> device,
+	CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
+	QueueHandle<GraphicsBackend::Vulkan> queue,
+	AllocatorHandle<GraphicsBackend::Vulkan> allocator,
     ModelCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDevice(device)
 , myAllocator(allocator)
@@ -288,7 +293,10 @@ Model<GraphicsBackend::Vulkan>::Model(
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
+	DeviceHandle<GraphicsBackend::Vulkan> device,
+	CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
+	QueueHandle<GraphicsBackend::Vulkan> queue,
+	AllocatorHandle<GraphicsBackend::Vulkan> allocator,
 	const std::filesystem::path& modelFile)
 	: Model(device, commandPool, queue, allocator, model::load(allocator, modelFile))
 {

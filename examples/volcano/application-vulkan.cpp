@@ -157,7 +157,7 @@ template <>
 SwapchainContext<GraphicsBackend::Vulkan> Application<GraphicsBackend::Vulkan>::createSwapchainContext(
     DeviceHandle<GraphicsBackend::Vulkan> device,
     PhysicalDeviceHandle<GraphicsBackend::Vulkan> physicalDevice,
-    VmaAllocator allocator,
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
     uint32_t frameCount,
     const WindowData<GraphicsBackend::Vulkan>& window) const
 {
