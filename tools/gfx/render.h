@@ -305,7 +305,7 @@ class BufferResource: public Resource
             format = Format::Unknown;
         }
             /// Set up default parameters based on usage
-        void setDefaults(Usage initialUsage);
+        SLANG_API void setDefaults(Usage initialUsage);
 
         size_t sizeInBytes;     ///< Total size in bytes
         int elementSize;        ///< Get the element stride. If > 0, this is a structured buffer
@@ -355,9 +355,9 @@ class TextureResource: public Resource
             depth = depthIn;
         }
             /// Given the type works out the maximum dimension size
-        int calcMaxDimension(Type type) const;
+        SLANG_API int calcMaxDimension(Type type) const;
             /// Given a size, calculates the size at a mip level
-        Size calcMipSize(int mipLevel) const;
+        SLANG_API Size calcMipSize(int mipLevel) const;
 
         int width;              ///< Width in pixels
         int height;             ///< Height in pixels (if 2d or 3d)
@@ -367,28 +367,28 @@ class TextureResource: public Resource
     struct Desc: public DescBase
     {
             /// Initialize with default values
-        void init(Type typeIn);
+        SLANG_API void init(Type typeIn);
             /// Initialize different dimensions. For cubemap, use init2D
-        void init1D(Format format, int width, int numMipMaps = 0);
-        void init2D(Type typeIn, Format format, int width, int height, int numMipMaps = 0);
-        void init3D(Format format, int width, int height, int depth, int numMipMaps = 0);
+        SLANG_API void init1D(Format format, int width, int numMipMaps = 0);
+        SLANG_API void init2D(Type typeIn, Format format, int width, int height, int numMipMaps = 0);
+        SLANG_API void init3D(Format format, int width, int height, int depth, int numMipMaps = 0);
 
             /// Given the type, calculates the number of mip maps. 0 on error
-        int calcNumMipLevels() const;
+        SLANG_API int calcNumMipLevels() const;
             /// Calculate the total number of sub resources. 0 on error.
-        int calcNumSubResources() const;
+        SLANG_API int calcNumSubResources() const;
 
             /// Calculate the effective array size - in essence the amount if mip map sets needed.
             /// In practice takes into account if the arraySize is 0 (it's not an array, but it will still have at least one mip set)
             /// and if the type is a cubemap (multiplies the amount of mip sets by 6)
-        int calcEffectiveArraySize() const;
+        SLANG_API int calcEffectiveArraySize() const;
 
             /// Use type to fix the size values (and array size).
             /// For example a 1d texture, should have height and depth set to 1.
-        void fixSize();
+        SLANG_API void fixSize();
 
             /// Set up default parameters based on type and usage
-        void setDefaults(Usage initialUsage);
+        SLANG_API void setDefaults(Usage initialUsage);
 
         Size size;
 

@@ -1,6 +1,7 @@
 // model.h
 #pragma once
 
+#include <slang.h>
 #include "render.h"
 #include "vector-math.h"
 
@@ -9,7 +10,7 @@
 
 namespace gfx {
 
-struct ModelLoader
+struct SLANG_API ModelLoader
 {
     struct MaterialData
     {

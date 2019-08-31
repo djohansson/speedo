@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include <slang.h>
+
 namespace gfx {
 
 struct Window;
@@ -56,11 +58,11 @@ struct WindowDesc
     EventHandler eventHandler = nullptr;
 };
 
-Window* createWindow(WindowDesc const& desc);
-void showWindow(Window* window);
+SLANG_API Window* createWindow(WindowDesc const& desc);
+SLANG_API void showWindow(Window* window);
 
-void* getPlatformWindowHandle(Window* window);
-void* getUserData(Window* window);
+SLANG_API void* getPlatformWindowHandle(Window* window);
+SLANG_API void* getUserData(Window* window);
 
 /// Opaque state provided by platform for a running application.
 typedef struct ApplicationContext ApplicationContext;
@@ -71,23 +73,23 @@ typedef void(*ApplicationFunc)(ApplicationContext* context);
 /// Dispatch any pending events for application.
 ///
 /// @returns `true` if application should keep running.
-bool dispatchEvents(ApplicationContext* context);
+SLANG_API bool dispatchEvents(ApplicationContext* context);
 
 /// Exit the application with a given result code
-void exitApplication(ApplicationContext* context, int resultCode);
+SLANG_API void exitApplication(ApplicationContext* context, int resultCode);
 
 /// Log a message to an appropriate logging destination.
-void log(char const* message, ...);
+SLANG_API void log(char const* message, ...);
 
 /// Report an error to an appropriate logging destination.
-int reportError(char const* message, ...);
+SLANG_API int reportError(char const* message, ...);
 
-uint64_t getCurrentTime();
+SLANG_API uint64_t getCurrentTime();
 
-uint64_t getTimerFrequency();
+SLANG_API uint64_t getTimerFrequency();
 
 /// Run an application given the specified callback and command-line arguments.
-int runApplication(
+SLANG_API int runApplication(
     ApplicationFunc     func,
     int                 argc,
     char const* const*  argv);
@@ -99,7 +101,7 @@ int runApplication(
 
 #ifdef _WIN32
 
-int runWindowsApplication(
+SLANG_API int runWindowsApplication(
     ApplicationFunc     func,
     void*               instance,
     int                 showCommand);
