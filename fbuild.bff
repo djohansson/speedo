@@ -8,6 +8,25 @@
 .BuildOutputPath = '$RootPath$/build.output'
 
 .AllUnities = { }
+
+.RootObjectLists = { }
+.AllObjectLists = { }
+
+.RootLibraries = { }
+.AllLibraries = { }
+
+.RootDLLs = { }
+.AllDLLs = { }
+
+.RootExecutables = { }
+.AllExecutables = { }
+
+.AllBuildConfigs = { }
+.AllBuildTargets = { }
+.AllProjectConfigs = { }
+.AllSolutionConfigs = { }
+
+// Unities
 {
 	.CoreUnity = 
 	[
@@ -261,28 +280,7 @@
 	^AllUnities + .VolcanoUnity
 }
 
-ForEach(.Unity in .AllUnities)
-{
-	Using(.Unity)
-	Unity('$UnityName$') {}
-}
-
-.AllBuildTargets = { }
-.AllProjectConfigs = { }
-.AllSolutionConfigs = { }
-
-.RootObjectLists = { }
-.AllObjectLists = { }
-
-.RootLibraries = { }
-.AllLibraries = { }
-
-.RootDLLs = { }
-.AllDLLs = { }
-
-.RootExecutables = { }
-.AllExecutables = { }
-
+// ObjectLists
 {
 	Using(.Clang_BaseConfig)
 
@@ -543,6 +541,7 @@ ForEach(.Unity in .AllUnities)
 	^RootObjectLists + .MioTestObjectList
 }
 
+// Libraries
 {
 	Using(.Clang_BaseConfig)
 
@@ -645,6 +644,7 @@ ForEach(.Unity in .AllUnities)
 	^RootLibraries + .NFDLibrary
 }
 
+// DLLs
 {
 	Using(.Clang_BaseConfig)
 
@@ -689,6 +689,7 @@ ForEach(.Unity in .AllUnities)
 	^RootDLLs + .SlangGlslangDLL
 }
 
+// Executables
 {
 	Using(.Clang_BaseConfig)
 
@@ -825,7 +826,7 @@ ForEach(.Unity in .AllUnities)
 	// }
 }
 
-.AllBuildConfigs = { }
+// Process all compiler configs
 ForEach(.CompilerConfig in .Clang_x64_Configs)
 {
 	.Clang_x64_ProjectConfig =
@@ -958,10 +959,17 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	^AllBuildConfigs + .LocalBuildConfigs
 }
 
+ForEach(.Unity in .AllUnities)
+{
+	Using(.Unity)
+	//Print(.UnityName)
+	Unity('$UnityName$') {}
+}
+
 ForEach(.ObjectList in .AllObjectLists)
 {
 	Using(.ObjectList)
-	Print(.ObjectListName)
+	//Print(.ObjectListName)
 	//Print(.CompilerOptions)
 	ObjectList('$ObjectListName$') {}
 }
@@ -969,7 +977,7 @@ ForEach(.ObjectList in .AllObjectLists)
 ForEach(.Library in .AllLibraries)
 {
 	Using(.Library)
-	Print(.LibraryName)
+	//Print(.LibraryName)
 	//Print(.CompilerOptions)
 	ObjectList('$LibraryName$') {}
 }
@@ -977,7 +985,7 @@ ForEach(.Library in .AllLibraries)
 ForEach(.DLL in .AllDLLs)
 {
 	Using(.DLL)
-	Print(.DLLName)
+	//Print(.DLLName)
 	//Print(.LinkerOptions)
 	DLL('$DLLName$') {}
 }
@@ -985,7 +993,7 @@ ForEach(.DLL in .AllDLLs)
 ForEach(.Executable in .AllExecutables)
 {
 	Using(.Executable)
-	Print(.ExecutableName)
+	//Print(.ExecutableName)
 	//Print(.LinkerOptions)
 	DLL('$ExecutableName$') {}
 }
@@ -993,7 +1001,7 @@ ForEach(.Executable in .AllExecutables)
 ForEach(.BuildConfig in .AllBuildConfigs)
 {
 	Using(.BuildConfig)
-	Print(.BuildConfigName)
+	//Print(.BuildConfigName)
 	Alias('$BuildConfigName$') {}
 	^AllBuildTargets + .BuildConfigName
 }
