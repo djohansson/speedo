@@ -21,6 +21,9 @@
 .RootExecutables = { }
 .AllExecutables = { }
 
+.RootTests = { }
+.AllTests = { }
+
 .AllBuildConfigs = { }
 .AllBuildTargets = { }
 .AllProjectConfigs = { }
@@ -817,13 +820,15 @@
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 	]
 	^RootExecutables + .MioTestExecutable
+}
 
-	// Test('$ConfigName$-mio-test-exe-run')
-	// {
-	// 	.TestExecutable = '$ConfigName$-mio-test-exe'
-	// 	.TestOutput = '$IntermediateFilePath$/$ConfigName$-mio-test-exe-run'
-	// 	.TestWorkingDir = '$IntermediateFilePath$'
-	// }
+// Tests
+{
+	.MioTest =
+	[
+		.BaseName = 'mio'
+	]
+	^RootTests + .MioTest
 }
 
 // Process all compiler configs
@@ -929,6 +934,24 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	}
 	^AllExecutables + .LocalExecutables
 
+	.LocalTests = { }
+	ForEach(.RootTest in .RootTests)
+	{
+		.Test = 
+		[
+			Using(.RootTest)
+			Using(.CompilerConfig)
+
+			.TestName = '$BaseName$-test-$ConfigName$'
+
+			.TestExecutable = '$BaseName$-exe-$ConfigName$'
+		 	.TestOutput = '$IntermediateFilePath$/$TestName$-output'
+		 	.TestWorkingDir = '$IntermediateFilePath$'
+		]
+		^LocalTests + .Test
+	}
+	^AllTests + .LocalTests
+
 	.LocalBuildConfigs = { }
 	{
 		.BuildConfig = 
@@ -952,6 +975,11 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			{
 				Using (.Executable)
 				^Targets + '$ExecutableName$'
+			}
+			ForEach(.Test in .LocalTests)
+			{
+				Using (.Test)
+				^Targets + '$TestName$'
 			}
 		]
 		^LocalBuildConfigs + .BuildConfig
@@ -995,7 +1023,14 @@ ForEach(.Executable in .AllExecutables)
 	Using(.Executable)
 	//Print(.ExecutableName)
 	//Print(.LinkerOptions)
-	DLL('$ExecutableName$') {}
+	Executable('$ExecutableName$') {}
+}
+
+ForEach(.Test in .AllTests)
+{
+	Using(.Test)
+	//Print(.TestName)
+	Test('$TestName$') {}
 }
 
 ForEach(.BuildConfig in .AllBuildConfigs)
