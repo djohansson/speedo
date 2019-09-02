@@ -67,7 +67,7 @@
 .ExecutableCommon = 
 [
 	.ProjectType = 'exe'
-	.ProjectTypePrefix = .ExePrefix
+	.ProjectTypePrefix = ''
 	.ProjectTypeSuffix = .ExeSuffix
 ]
 
