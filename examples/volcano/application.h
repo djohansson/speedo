@@ -16,6 +16,8 @@
 // 		 members where possible
 // done: instrumentation and timing information
 
+#pragma once
+
 #include "buffer.h"
 #include "file.h"
 #include "gfx.h"
