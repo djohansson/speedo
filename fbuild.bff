@@ -39,36 +39,67 @@
 	.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(ProjectName)-^$(Configuration)'
 	.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(ProjectName)-^$(Configuration)'
 	.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide Clean-^$(ProjectName)-^$(Configuration)'
+	.ProjectBasePath  = '$RootPath$'
 	.OutputDirectory = '$BuildOutputPath$'
 	.IntermediateDirectory = '$IntermediateFilePath$'
 	.Platform = 'x64'
-	.PlatformToolset = 'llvm'				  
-]
+	.PlatformToolset = 'llvm'
+]	
 
 .UnityCommon = 
 [
 	.UnityOutputPath = '$IntermediateFilePath$'
 ]
 
+.ObjectListCommon = 
+[
+	Using(.UnityCommon)
+
+	.ProjectType = 'obj'
+	.OutputFilePrefix = ''
+	.OutputFileSuffix = ''
+	.CompilerInputFiles = { }
+	.CompilerInputUnity = { }
+	.Dependencies = { 'none-vcxproj' }
+]
+
 .LibraryCommon = 
 [
+	Using(.UnityCommon)
+	Using(.ProjectCommon)
+
 	.ProjectType = 'lib'
-	.ProjectTypePrefix = .LibPrefix
-	.ProjectTypeSuffix = .LibSuffix
+	.OutputFilePrefix = .LibPrefix
+	.OutputFileSuffix = .LibSuffix
+	.CompilerInputFiles = { }
+	.CompilerInputUnity = { }
+	.Dependencies = { 'none-vcxproj' }
 ]
 
 .DllCommon = 
 [
+	Using(.UnityCommon)
+	Using(.ProjectCommon)
+
 	.ProjectType = 'dll'
-	.ProjectTypePrefix = .DllPrefix
-	.ProjectTypeSuffix = .DllSuffix
+	.OutputFilePrefix = .DllPrefix
+	.OutputFileSuffix = .DllSuffix
+	.CompilerInputFiles = { }
+	.CompilerInputUnity = { }
+	.Dependencies = { 'none-vcxproj' }
 ]
 
 .ExecutableCommon = 
 [
+	Using(.UnityCommon)
+	Using(.ProjectCommon)
+	
 	.ProjectType = 'exe'
-	.ProjectTypePrefix = ''
-	.ProjectTypeSuffix = .ExeSuffix
+	.OutputFilePrefix = ''
+	.OutputFileSuffix = .ExeSuffix
+	.CompilerInputFiles = { }
+	.CompilerInputUnity = { }
+	.Dependencies = { 'none-vcxproj' }
 ]
 
 // Configs
@@ -111,6 +142,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.CoreObjectList = 
 	[
+		Using(.ObjectListCommon)
 		Using(.CoreUnity)
 
 		.Name = 'core'
@@ -135,6 +167,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.SlangObjectList = 
 	[
+		Using(.ObjectListCommon)
 		Using(.SlangUnity)
 
 		.Name = 'slang'
@@ -168,6 +201,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.GfxObjectList = 
 	[
+		Using(.ObjectListCommon)
 		Using(.GfxUnity)
 
 		.Name = 'gfx'
@@ -191,7 +225,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 	.SlangCObjectList = 
 	[
-		Using(.UnityCommon)
+		Using(.ObjectListCommon)
 
 		.Name = 'slangc'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp 
@@ -218,7 +252,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 	.TracyClientObjectList =
 	[
-		Using(.UnityCommon)
+		Using(.ObjectListCommon)
 		
 		.Name = 'tracy-client'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -258,6 +292,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.TracyObjectList = 
 	[
+		Using(.ObjectListCommon)
 		Using(.TracyUnity)
 		
 		.Name = 'tracy'
@@ -277,7 +312,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 	.GlslangOGLCompilersDLLObjectList = 
 	[
-		Using(.UnityCommon)
+		Using(.ObjectListCommon)
 
 		.Name = 'glslang-OGLCompilersDLL'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -300,6 +335,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.GlslangGlslangObjectList =
 	[
+		Using(.ObjectListCommon)
 		Using(.GlslangGlslangUnity)
 
 		.Name = 'glslang-glslang'
@@ -328,6 +364,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.GlslangHlslObjectList =
 	[
+		Using(.ObjectListCommon)
 		Using(.GlslangHlslUnity)
 
 		.Name = 'glslang-hlsl'
@@ -350,6 +387,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.GlslangSPIRVObjectList =
 	[
+		Using(.ObjectListCommon)
 		Using(.GlslangSPIRVUnity)
 
 		.Name = 'glslang-SPIRV'
@@ -372,6 +410,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.SlangGlslangObjectList =
 	[
+		Using(.ObjectListCommon)
 		Using(.SlangGlslangUnity)
 
 		.Name = 'slang-glslang'
@@ -387,7 +426,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 	.HelloWorldObjectList =
 	[
-		Using(.UnityCommon)
+		Using(.ObjectListCommon)
 
 		.Name = 'hello-world'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -400,7 +439,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 	.ModelViewerObjectList =
 	[
-		Using(.UnityCommon)
+		Using(.ObjectListCommon)
 
 		.Name = 'model-viewer'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -432,6 +471,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	.VolcanoObjectList =
 	[
+		Using(.ObjectListCommon)
 		Using(.VolcanoUnity)
 
 		.Name = 'volcano'
@@ -471,7 +511,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 	.MioTestObjectList =
 	[
-		Using(.UnityCommon)
+		Using(.ObjectListCommon)
 
 		.Name = 'mio-test'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -731,7 +771,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.DllCommon)
 
 		.Name = 'slang'
-		.Dependencies = {
+		.RootDependencies = {
 			'core-obj',
 			'slang-obj',
 			'gfx-obj',
@@ -752,7 +792,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.DllCommon)
 
 		.Name = 'slang-glslang'
-		.Dependencies = {
+		.RootDependencies = {
 			'slang-glslang-obj',
 			'glslang-glslang-obj',
 			'glslang-hlsl-obj',
@@ -766,6 +806,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -lshell32'
 			+ ' -lopengl32'
 			+ ' -lglu32'
+		.LinkerType = 'msvc'
 	#endif //__WINDOWS__
 	]
 	^RootDLLs + .SlangGlslangDLL
@@ -782,9 +823,10 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.ExecutableCommon)
 
 		.Name = 'slangc'
-		.Dependencies = {
+		.RootDependencies = {
 			'slangc-obj',
 			'slang-dll',
+			'slang-glslang-dll',
 		}
 
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
@@ -796,7 +838,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.ExecutableCommon)
 
 		.Name = 'tracy'
-		.Dependencies = {
+		.RootDependencies = {
 			'gl3w-lib',
 			'glfw-lib',
 			'imgui-lib',
@@ -831,7 +873,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.ExecutableCommon)
 
 		.Name = 'hello-world'
-		.Dependencies = {
+		.RootDependencies = {
 			'slang-dll',
 			'hello-world-obj',
 		}
@@ -847,7 +889,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.ExecutableCommon)
 
 		.Name = 'model-viewer'
-		.Dependencies = {
+		.RootDependencies = {
 			'slang-dll',
 			'gl3w-lib',
 			'glfw-lib',
@@ -871,8 +913,9 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.ExecutableCommon)
 
 		.Name = 'volcano'
-		.Dependencies = {
+		.RootDependencies = {
 			'slang-dll',
+			'slang-glslang-dll',
 			'gl3w-lib',
 			'glfw-lib',
 			'xxhash-lib',
@@ -907,7 +950,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.ExecutableCommon)
 
 		.Name = 'mio'
-		.Dependencies = {
+		.RootDependencies = {
 			'mio-test-obj',
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
@@ -924,56 +967,6 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.Name = 'mio'
 	]
 	^RootTests + .MioTest
-}
-
-// Generate projects
-ForEach(.RootProject in .RootProjects)
-{
-	.LocalProjects = { }
-	.LocalProjectNames = { }
-	.LocalSolutionDependencies = { }
-	.LocalSolutionFolders = { }
-
-	{
-		.Project = 
-		[
-			Using(.ProjectCommon)
-			Using(.RootProject)
-
-			.ProjectName = '$Name$-$ProjectType$'
-			.ProjectOutput = '$RootPath$/$ProjectName$.vcxproj'
-			//.ProjectInputFiles = .CompilerInputFiles + .CompilerInputUnity
-			.Output = '$BuildOutputPath$/^$(Configuration)/$ProjectTypePrefix$$Name$$ProjectTypePrefix$'
-			.ProjectConfigs = .AllProjectConfigs
-		]
-		^LocalProjects + .Project
-		{
-			Using(.Project)
-			^LocalProjectNames + .ProjectName
-		}
-
-		.SolutionDependency = 
-		[
-			Using(.Project)
-
-			.Projects = { .ProjectName }
-		]
-		^LocalSolutionDependencies + .SolutionDependency
-
-		.SolutionFolder = 
-		[
-			Using(.Project)
-
-			.Path = '/$Name$'
-			.Projects = { .ProjectName }
-		]
-		^LocalSolutionFolders + .SolutionFolder
-	}
-
-	^AllProjects + .LocalProjects
-	^AllProjectNames + .LocalProjectNames
-	^AllSolutionDependencies + .LocalSolutionDependencies
-	^AllSolutionFolders + .LocalSolutionFolders
 }
 
 // Process all compiler configs
@@ -1026,9 +1019,10 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			.DLLName = '$Name$-dll-$ConfigName$'
 
 			.Libraries = { }
-			ForEach(.Dependency in .Dependencies)
+			ForEach(.RootDependency in .RootDependencies)
 			{
-				^Libraries + '$Dependency$-$ConfigName$'
+				^Libraries + '$RootDependency$-$ConfigName$'
+				^Dependencies + '$RootDependency$-$ConfigName$'
 			}
 
 			.LinkerOptions + .DLLLinkerOptions
@@ -1049,9 +1043,10 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			.ExecutableName = '$Name$-exe-$ConfigName$'
 
 			.Libraries = { }
-			ForEach(.Dependency in .Dependencies)
+			ForEach(.RootDependency in .RootDependencies)
 			{
-				^Libraries + '$Dependency$-$ConfigName$'
+				^Libraries + '$RootDependency$-$ConfigName$'
+				^Dependencies + '$RootDependency$-$ConfigName$'
 			}
 
 			.LinkerOptions + .ExecutableLinkerOptions
@@ -1114,6 +1109,110 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	^AllBuildConfigs + .LocalBuildConfigs
 }
 
+// Projects
+ForEach(.RootProject in .RootProjects)
+{
+	.LocalProjects = { }
+	.LocalSolutionDependencies = { }
+	.LocalSolutionFolders = { }
+
+	{
+		.Project = 
+		[
+			Using(.RootProject)
+
+			.ProjectName = '$Name$-$ProjectType$'
+			.ProjectOutput = '$RootPath$/$ProjectName$.vcxproj'
+			.ProjectInputFiles = .CompilerInputFiles + .CompilerInputUnity
+			.Output = '$BuildOutputPath$/^$(Configuration)/$OutputFilePrefix$$Name$$OutputFilePrefix$'
+			.ProjectConfigs = .AllProjectConfigs
+		]
+		^LocalProjects + .Project
+
+		.SolutionDependency = 
+		[
+			Using(.Project)
+
+			.Projects = { .ProjectName }
+		]
+		^LocalSolutionDependencies + .SolutionDependency
+
+		.SolutionFolder = 
+		[
+			Using(.Project)
+
+			.Path = '$Name$'
+			.Projects = { .ProjectName }
+		]
+		^LocalSolutionFolders + .SolutionFolder
+	}
+
+	^AllProjects + .LocalProjects
+	^AllSolutionDependencies + .LocalSolutionDependencies
+	^AllSolutionFolders + .LocalSolutionFolders
+}
+
+{
+	// "Build all" project
+	{
+		.Project =
+		[
+			Using(.ProjectCommon)
+			
+			.ProjectName = 'all-vcxproj'
+			.ProjectFiles = { '$RootPath$/fbuild.bff' }
+			.ProjectOutput = '$RootPath$/$ProjectName$.vcxproj'
+			.ProjectConfigs = .AllProjectConfigs
+			.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(Configuration)'
+			.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(Configuration)'
+			.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide clean-all-^$(Configuration)'
+		]
+		^AllProjects + .Project
+	}
+
+	// "Build none" project
+	{
+		.Project =
+		[
+			Using(.ProjectCommon)
+			
+			.ProjectName = 'none-vcxproj'
+			.ProjectFiles = { '$RootPath$/fbuild.bff' }
+			.ProjectOutput = '$RootPath$/$ProjectName$.vcxproj'
+			.ProjectConfigs = .AllProjectConfigs
+		]
+		^AllProjects + .Project
+	}
+
+	ForEach(.Project in .AllProjects)
+	{
+		Using(.Project)
+		^AllProjectNames + .ProjectName
+		Print('$ProjectName$')
+		VCXProject('$ProjectName$') {}
+	}
+
+	.Solution = 
+	[
+		.SolutionName = '$RootName$'
+		.SolutionOutput = '$RootPath$/$RootName$.sln'
+		.SolutionProjects = .AllProjectNames
+		.SolutionConfigs = .AllSolutionConfigs
+		.SolutionFolders = .AllSolutionFolders
+		.SolutionDependencies = .AllSolutionDependencies
+		//.SolutionVisualStudioVersion        // (optional) Version of Solution (default "14.0.22823.1" VS2015 RC)
+		//.SolutionMinimumVisualStudioVersion // (optional) Min version of Solution (default "10.0.40219.1" VS2010 Express)
+		.SolutionBuildProject = 'all-vcxproj'
+		//.SolutionDeployProjects             // (optional) Project(s) set deploy
+	]
+	{
+		Using(.Solution)
+		Print('$SolutionName$-sln')
+		VSSolution('$SolutionName$-sln') {}
+		^AllBuildTargets + '$SolutionName$-sln'
+	}
+}
+
 ForEach(.ObjectList in .RootObjectLists)
 {
 	Using(.ObjectList)
@@ -1126,29 +1225,6 @@ ForEach(.Library in .RootLibraries)
 	Using(.Library)
 	Print('$Name$-unity')
 	Unity('$Name$-unity') {}
-}
-
-ForEach(.Project in .AllProjects)
-{
-	Using(.Project)
-	Print('$ProjectName$')
-	VCXProject('$ProjectName$') {}
-}
-
-{
-	VSSolution('vssolution')
-	{
-		.SolutionOutput = '$RootPath$/$RootName$.sln'
-		.SolutionProjects = .AllProjectNames
-		.SolutionConfigs = .AllSolutionConfigs
-		//.SolutionFolders = .AllSolutionFolders
-		//.SolutionDependencies = .AllSolutionDependencies
-		//.SolutionVisualStudioVersion        // (optional) Version of Solution (default "14.0.22823.1" VS2015 RC)
-		//.SolutionMinimumVisualStudioVersion // (optional) Min version of Solution (default "10.0.40219.1" VS2010 Express)
-		//.SolutionBuildProject               // (optional) Project(s) set to build when "Build Solution" is selected
-		//.SolutionDeployProjects             // (optional) Project(s) set deploy
-	}
-	^AllBuildTargets + 'vssolution'
 }
 
 ForEach(.ObjectList in .AllObjectLists)
