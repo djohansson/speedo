@@ -4,7 +4,10 @@
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
-    VkDevice device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<GraphicsBackend::Vulkan> allocator,
+    DeviceHandle<GraphicsBackend::Vulkan> device, 
+    CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
+    QueueHandle<GraphicsBackend::Vulkan> queue, 
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
     BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : myDevice(device)
     , myAllocator(allocator)
@@ -24,7 +27,9 @@ Buffer<GraphicsBackend::Vulkan>::~Buffer()
 
 template <>
 BufferViewHandle<GraphicsBackend::Vulkan> Buffer<GraphicsBackend::Vulkan>::createView(
-    Format<GraphicsBackend::Vulkan> format, DeviceSize<GraphicsBackend::Vulkan> offset, DeviceSize<GraphicsBackend::Vulkan> range) const
+    Format<GraphicsBackend::Vulkan> format,
+    DeviceSize<GraphicsBackend::Vulkan> offset,
+    DeviceSize<GraphicsBackend::Vulkan> range) const
 {
     return createBufferView(myDevice, myBuffer, 0, format, offset, range);
 }

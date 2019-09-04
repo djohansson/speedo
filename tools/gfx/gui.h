@@ -1,15 +1,16 @@
 // gui.h
 #pragma once
 
+#include <slang.h>
 #include "render.h"
 #include "vector-math.h"
 #include "window.h"
 
-#include "external/imgui/imgui.h"
+#include <imgui.h>
 
 namespace gfx {
 
-struct GUI : RefObject
+struct SLANG_API GUI : RefObject
 {
     GUI(Window* window, Renderer* renderer);
     ~GUI();

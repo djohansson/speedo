@@ -46,7 +46,9 @@ int eof(void* user)
 namespace texture
 {
 
-TextureCreateDesc<GraphicsBackend::Vulkan> load(AllocatorHandle<GraphicsBackend::Vulkan> allocator, const std::filesystem::path& textureFile)
+TextureCreateDesc<GraphicsBackend::Vulkan> load(
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
+    const std::filesystem::path& textureFile)
 {
     TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
     desc.debugName = textureFile.u8string();
@@ -149,7 +151,10 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(AllocatorHandle<GraphicsBackend:
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
-    VkDevice device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<GraphicsBackend::Vulkan> allocator,
+    DeviceHandle<GraphicsBackend::Vulkan> device,
+    CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
+    QueueHandle<GraphicsBackend::Vulkan> queue,
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
     TextureCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : myDevice(device)
     , myAllocator(allocator)
@@ -175,7 +180,10 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
-    VkDevice device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<GraphicsBackend::Vulkan> allocator,
+    DeviceHandle<GraphicsBackend::Vulkan> device,
+    CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
+    QueueHandle<GraphicsBackend::Vulkan> queue,
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
     const std::filesystem::path& textureFile)
     : Texture(device, commandPool, queue, allocator, texture::load(allocator, textureFile))
 {

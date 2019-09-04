@@ -30,7 +30,7 @@ In a freelist all elements are the same size, and elements can be allocated and 
 matches every allocation. Both allocation and deallocation are O(1), and generally just a few instructions. The underlying
 memory allocator will allocate in large blocks, with multiple elements amortizing a more costly large allocation against lots
 of fast small element allocations. */
-class FreeList
+class SLANG_API FreeList
 {
 	public:
 	typedef FreeList ThisType;

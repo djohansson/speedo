@@ -2033,7 +2033,7 @@ Result D3D12Renderer::createTextureResource(Resource::Usage initialUsage, const 
 
                 assert(footprint.Width == mipSize.width && footprint.Height == mipSize.height && footprint.Depth == mipSize.depth);
 
-                const ptrdiff_t dstMipRowPitch = ptrdiff_t(footprint.Footprint.RowPitch);
+                const ptrdiff_t dstMipRowPitch = ptrdiff_t(footprint.RowPitch);
                 const ptrdiff_t srcMipRowPitch = ptrdiff_t(initData->mipRowStrides[j]);
 
                 assert(dstMipRowPitch >= srcMipRowPitch);

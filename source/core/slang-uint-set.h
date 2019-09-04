@@ -11,7 +11,7 @@ namespace Slang
 {
 
 /* Hold a set of UInt values. Implementation works by storing as a bit per value */
-class UIntSet
+class SLANG_API UIntSet
 {
 public:
     typedef uint32_t Element;                                   ///< Type that holds the bits to say if value is present
