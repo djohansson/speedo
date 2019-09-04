@@ -356,6 +356,7 @@ ForEach(.Config in .Clang_x64_Configs)
 		// .ReleaseString = 'release'
 		// If(.ConfigName != .ReleaseString) {
 			.CompilerOptions + ' -DTRACY_ENABLE'
+				+ ' -DTRACY_HAS_SYSTEM_TRACING'
 		//}
 
 		.CompilerInputFiles = {
