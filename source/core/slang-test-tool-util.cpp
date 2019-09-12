@@ -9,7 +9,7 @@
 namespace Slang
 {
 
-SLANG_API/* static */ToolReturnCode TestToolUtil::getReturnCode(SlangResult res)
+/* static */ToolReturnCode TestToolUtil::getReturnCode(SlangResult res)
 {
     switch (res)
     {

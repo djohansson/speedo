@@ -42,7 +42,14 @@ namespace Slang
         return (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\v');
     }
 
-    void ParseOperators(const String & str, List<Token> & tokens, TokenFlags& tokenFlags, int line, int col, int startPos, String fileName)
+    void ParseOperators(
+		const String& str,
+		List<TokenReader::Token>& tokens,
+		TokenReader::TokenFlags& tokenFlags,
+		int line,
+		int col,
+		int startPos,
+		String fileName)
     {
         Index pos = 0;
         while (pos < str.getLength())
@@ -52,7 +59,8 @@ namespace Slang
             wchar_t nextNextChar = (pos < str.getLength() - 2) ? str[pos + 2] : '\0';
             auto InsertToken = [&](TokenType type, const String & ct)
             {
-                tokens.add(Token(type, ct, line, int(col + pos), int(pos + startPos), fileName, tokenFlags));
+				tokens.add(TokenReader::Token(
+					type, ct, line, int(col + pos), int(pos + startPos), fileName, tokenFlags));
                 tokenFlags = 0;
             };
             switch (curChar)
@@ -321,7 +329,7 @@ namespace Slang
         }
     }
 
-    List<Token> TokenizeText(const String & fileName, const String & text)
+    List<TokenReader::Token> TokenizeText(const String& fileName, const String& text)
     {
         Index lastPos = 0, pos = 0;
         int line = 1, col = 0;
@@ -329,13 +337,14 @@ namespace Slang
         State state = State::Start;
         StringBuilder tokenBuilder;
         int tokenLine, tokenCol;
-        List<Token> tokenList;
+		List<TokenReader::Token> tokenList;
         LexDerivative derivative = LexDerivative::None;
-        TokenFlags tokenFlags = TokenFlag::AtStartOfLine;
+		TokenReader::TokenFlags tokenFlags = TokenReader::TokenFlag::AtStartOfLine;
         auto InsertToken = [&](TokenType type)
         {
             derivative = LexDerivative::None;
-            tokenList.add(Token(type, tokenBuilder.ToString(), tokenLine, tokenCol, int(pos), file, tokenFlags));
+			tokenList.add(TokenReader::Token(
+				type, tokenBuilder.ToString(), tokenLine, tokenCol, int(pos), file, tokenFlags));
             tokenFlags = 0;
             tokenBuilder.Clear();
         };
@@ -412,12 +421,13 @@ namespace Slang
                 }
                 else if (curChar == '\r' || curChar == '\n')
                 {
-                    tokenFlags |= TokenFlag::AtStartOfLine | TokenFlag::AfterWhitespace;
+					tokenFlags |= TokenReader::TokenFlag::AtStartOfLine |
+								  TokenReader::TokenFlag::AfterWhitespace;
                     pos++;
                 }
                 else if (curChar == ' ' || curChar == '\t' || curChar == -62 || curChar == -96) // -62/-96:non-break space
                 {
-                    tokenFlags |= TokenFlag::AfterWhitespace;
+					tokenFlags |= TokenReader::TokenFlag::AfterWhitespace;
                     pos++;
                 }
                 else if (curChar == '/' && nextChar == '/')
@@ -647,7 +657,8 @@ namespace Slang
                 if (curChar == '\n')
                 {
                     state = State::Start;
-                    tokenFlags |= TokenFlag::AtStartOfLine | TokenFlag::AfterWhitespace;
+					tokenFlags |= TokenReader::TokenFlag::AtStartOfLine |
+								  TokenReader::TokenFlag::AfterWhitespace;
                 }
                 pos++;
                 break;
@@ -655,7 +666,7 @@ namespace Slang
                 if (curChar == '*' && nextChar == '/')
                 {
                     state = State::Start;
-                    tokenFlags |= TokenFlag::AfterWhitespace;
+					tokenFlags |= TokenReader::TokenFlag::AfterWhitespace;
                     pos += 2;
                 }
                 else
@@ -665,7 +676,7 @@ namespace Slang
         }
         return tokenList;
     }
-    List<Token> TokenizeText(const String & text)
+	List<TokenReader::Token> TokenizeText(const String& text)
     {
         return TokenizeText("", text);
     }
