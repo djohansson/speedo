@@ -13,11 +13,21 @@
 
 #include "shader-renderer-util.h"
 
+#include "../source/core/slang-io.h"
+
+#include "core/slang-token-reader.h"
+
 #include "shader-input-layout.h"
 #include <stdio.h>
 #include <stdlib.h>
 
+#define SLANG_PRELUDE_NAMESPACE CPPPrelude
+#include "../../prelude/slang-cpp-types.h"
+
 #include "../../source/core/slang-test-tool-util.h"
+#include "../../source/core/slang-memory-arena.h"
+
+#include "cpu-memory-binding.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -200,7 +210,7 @@ class RenderTestApp
 
 		// At initialization time, we are going to load and compile our Slang shader
 		// code, and then create the API objects we need for rendering.
-	Result initialize(Renderer* renderer, ShaderCompiler* shaderCompiler);
+	Result initialize(SlangSession* session, Renderer* renderer, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input);
 	void runCompute();
 	void renderFrame();
 	void finalize();
@@ -213,7 +223,7 @@ class RenderTestApp
 
 	protected:
 		/// Called in initialize
-	Result initializeShaders(ShaderCompiler* shaderCompiler);
+	Result _initializeShaders(SlangSession* session, Renderer* renderer, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input);
 
 	// variables for state to be used for rendering...
 	uintptr_t m_constantBufferSize, m_computeResultBufferSize;
@@ -236,48 +246,469 @@ static const char vertexEntryPointName[]    = "vertexMain";
 static const char fragmentEntryPointName[]  = "fragmentMain";
 static const char computeEntryPointName[]	= "computeMain";
 
-SlangResult RenderTestApp::initialize(Renderer* renderer, ShaderCompiler* shaderCompiler)
+static SlangResult _readSource(const String& inSourcePath, List<char>& outSourceText)
 {
-    SLANG_RETURN_ON_FAIL(initializeShaders(shaderCompiler));
+    // Read in the source code
+    FILE* sourceFile = fopen(inSourcePath.getBuffer(), "rb");
+    if (!sourceFile)
+    {
+        fprintf(stderr, "error: failed to open '%s' for reading\n", inSourcePath.getBuffer());
+        return SLANG_FAIL;
+    }
+    fseek(sourceFile, 0, SEEK_END);
+    size_t sourceSize = ftell(sourceFile);
+    fseek(sourceFile, 0, SEEK_SET);
+
+    outSourceText.setCount(sourceSize + 1);
+    fread(outSourceText.getBuffer(), sourceSize, 1, sourceFile);
+    fclose(sourceFile);
+    outSourceText[sourceSize] = 0;
+
+    return SLANG_OK;
+}
+
+struct CompileOutput
+{
+    ShaderCompilerUtil::Output compileOutput;
+    ShaderInputLayout layout;
+};
+
+static SlangResult _compile(SlangSession* session, const String& sourcePath, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input, CompileOutput& output)
+{
+    List<char> sourceText;
+    SLANG_RETURN_ON_FAIL(_readSource(sourcePath, sourceText));
+
+    auto& layout = output.layout;
+
+    // Default the amount of renderTargets based on shader type
+    switch (shaderType)
+    {
+        default:
+            layout.numRenderTargets = 1;
+            break;
+
+        case Options::ShaderProgramType::Compute:
+            layout.numRenderTargets = 0;
+            break;
+    }
+
+    // Parse the layout
+    layout.parse(sourceText.getBuffer());
+    layout.updateForTarget(input.target);
+
+    // Setup SourceInfo
+    ShaderCompileRequest::SourceInfo sourceInfo;
+    sourceInfo.path = sourcePath.getBuffer();
+    sourceInfo.dataBegin = sourceText.getBuffer();
+    // Subtract 1 because it's zero terminated
+    sourceInfo.dataEnd = sourceText.getBuffer() + sourceText.getCount() - 1;
+
+    ShaderCompileRequest compileRequest;
+    compileRequest.source = sourceInfo;
+    if (shaderType == Options::ShaderProgramType::Graphics || shaderType == Options::ShaderProgramType::GraphicsCompute)
+    {
+        compileRequest.vertexShader.source = sourceInfo;
+        compileRequest.vertexShader.name = vertexEntryPointName;
+        compileRequest.fragmentShader.source = sourceInfo;
+        compileRequest.fragmentShader.name = fragmentEntryPointName;
+    }
+    else
+    {
+        compileRequest.computeShader.source = sourceInfo;
+        compileRequest.computeShader.name = computeEntryPointName;
+    }
+    compileRequest.globalGenericTypeArguments = layout.globalGenericTypeArguments;
+    compileRequest.entryPointGenericTypeArguments = layout.entryPointGenericTypeArguments;
+    compileRequest.globalExistentialTypeArguments = layout.globalExistentialTypeArguments;
+    compileRequest.entryPointExistentialTypeArguments = layout.entryPointExistentialTypeArguments;
+
+    return ShaderCompilerUtil::compileProgram(session, input, compileRequest, output.compileOutput);
+}
+
+static SlangResult _writeBindings(const ShaderInputLayout& layout, const List<CPUMemoryBinding::Buffer>& buffers, const String& fileName)
+{
+    FILE * f = fopen(fileName.getBuffer(), "wb");
+    if (!f)
+    {
+        return SLANG_FAIL;
+    }
+
+    const auto& entries = layout.entries;
+
+    for (int i = 0; i < entries.getCount(); ++i)
+    {
+        const auto& entry = entries[i];
+        if (entry.isOutput)
+        {
+            const auto& buffer = buffers[i];
+
+            unsigned int* ptr = (unsigned int*)buffer.m_data;
+
+            const int size = int(entry.bufferData.getCount());
+            // Must be the same size or less thatn allocated buffer
+            SLANG_ASSERT(size * sizeof(unsigned int) <= buffer.m_sizeInBytes);
+
+            for (int i = 0; i < size; ++i)
+            {
+                unsigned int v = ptr[i];
+
+                fprintf(f, "%X\n", v);
+            }
+        }
+    }
+    fclose(f);
+    return SLANG_OK;
+}
+
+struct CPUResource: public RefObject
+{
+    void* getInterface() const { return m_interface; }
+    void* m_interface;
+};
+
+template <int COUNT>
+struct OneTexture2D: public CPUResource, public CPPPrelude::ITexture2D
+{
+    void setOne(void* out)
+    {
+        float* dst = (float*)out;
+        for (int i = 0; i < COUNT; ++i)
+        {
+            dst[i] = 1.0f;
+        }
+    }
+
+    virtual void Load(const CPPPrelude::int3& v, void* out) SLANG_OVERRIDE
+    {
+        setOne(out);
+    }
+    virtual void Sample(CPPPrelude::SamplerState samplerState, const CPPPrelude::float2& loc, void* out) SLANG_OVERRIDE
+    {
+        setOne(out);
+    }
+    virtual void SampleLevel(CPPPrelude::SamplerState samplerState, const CPPPrelude::float2& loc, float level, void* out) SLANG_OVERRIDE
+    {
+        setOne(out);
+    }
+
+    OneTexture2D()
+    {
+        m_interface = static_cast<CPPPrelude::ITexture2D*>(this);
+    }
+};
+
+static CPUResource* _newOneTexture2D(int elemCount)
+{
+    switch (elemCount)
+    {
+    case 1: return new OneTexture2D<1>();
+    case 2: return new OneTexture2D<2>();
+    case 3: return new OneTexture2D<3>();
+    case 4: return new OneTexture2D<4>();
+    default: return nullptr;
+    }
+}
+
+static SlangResult _doCPUCompute(SlangSession* session, const String& sourcePath, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input)
+{
+    CompileOutput output;
+    SLANG_RETURN_ON_FAIL(_compile(session, sourcePath, shaderType, input, output));
+
+    ComPtr<ISlangSharedLibrary> sharedLibrary;
+    SLANG_RETURN_ON_FAIL(spGetEntryPointHostCallable(output.compileOutput.request, 0, 0, sharedLibrary.writeRef()));
+
+    // Use reflection to find the entry point name
+    auto request = output.compileOutput.request;
+
+    struct UniformState;
+    typedef void(*Func)(CPPPrelude::ComputeVaryingInput* varyingInput, CPPPrelude::UniformEntryPointParams* params, UniformState* uniformState);
+
+    auto reflection = (slang::ShaderReflection*) spGetReflection(request);
+
+    slang::EntryPointReflection* entryPoint = nullptr;
+    Func func = nullptr;
+    {
+        auto entryPointCount = reflection->getEntryPointCount();
+        SLANG_ASSERT(entryPointCount == 1);
+
+        entryPoint = reflection->getEntryPointByIndex(0);
+
+        const char* entryPointName = entryPoint->getName();
+        func = (Func) sharedLibrary->findFuncByName(entryPointName);
+
+        if (!func)
+        {
+            return SLANG_FAIL;
+        }
+    }
+
+    CPUMemoryBinding binding;
+    SLANG_RETURN_ON_FAIL(binding.init(reflection, 0));
+
+    List<CPUMemoryBinding::Buffer> buffers;
+
+    // Okay we need to find all of the bindings and match up to those in the layout
+    ShaderInputLayout& layout = output.layout;
+
+    List<RefPtr<CPUResource> > resources;
+
+    {
+        auto& outStream = StdWriters::getOut();       
+        auto& entries = layout.entries;
+        buffers.setCount(entries.getCount());
+
+        for (int entryIndex = 0; entryIndex < entries.getCount(); ++entryIndex)
+        {
+            auto& entry = entries[entryIndex];
+
+            if (entry.name.getLength() == 0)
+            {
+                outStream.print("No 'name' specified for resources in '%s'\n", sourcePath.getBuffer());
+                return SLANG_FAIL;
+            }
+
+            // We will parse the 'name' as may be path to a resource
+            TokenReader parser(entry.name);
+
+            CPUMemoryBinding::Location location;
+
+            {
+                Token nameToken = parser.ReadToken();
+                if (nameToken.Type != TokenType::Identifier)
+                {
+                    outStream.print("Invalid input syntax at line %d", int(parser.NextToken().Position.Line));
+                    return SLANG_FAIL;
+                }
+                location = binding.find(nameToken.Content.getBuffer());
+                if (location.isInvalid())
+                {
+                    outStream.print("Unable to find entry in '%s' for '%s' (for CPU name must be specified) \n", sourcePath.getBuffer(), entry.name.getBuffer());
+                    return SLANG_FAIL;
+                }
+            }
+
+            while (!parser.IsEnd())
+            {
+                Token token = parser.NextToken(0);
+
+                if (token.Type == TokenType::LBracket)
+                {
+                    parser.ReadToken();
+                    int index = parser.ReadInt();
+                    SLANG_ASSERT(index >= 0);
+
+                    location = location.toIndex(index);
+                    if (location.isInvalid())
+                    {
+                        outStream.print("Unable to find entry in '%d' in '%s'\n", index, entry.name.getBuffer());
+                        return SLANG_FAIL;
+                    }
+                    parser.ReadMatchingToken(TokenType::RBracket);
+                }
+                else if (token.Type == TokenType::Dot)
+                {
+                    parser.ReadToken();
+                    Token identifierToken = parser.ReadMatchingToken(TokenType::Identifier);
+
+                    location = location.toField(identifierToken.Content.getBuffer());
+                    if (location.isInvalid())
+                    {
+                        outStream.print("Unable to find field '%s' in '%s'\n", identifierToken.Content.getBuffer(), entry.name.getBuffer());
+                        return SLANG_FAIL;
+                    }
+                }
+                else if (token.Type == TokenType::Comma)
+                {
+                    // Break out
+                    break;
+                }
+                else
+                {
+                    throw TextFormatException("Invalid input syntax at line " + parser.NextToken().Position.Line);
+                }
+            }
+
+            auto& srcEntry = layout.entries[entryIndex];
+
+            auto typeLayout = location.getTypeLayout();
+            const auto kind = typeLayout->getKind();
+            switch (kind)
+            {
+                case slang::TypeReflection::Kind::Vector:
+                case slang::TypeReflection::Kind::Matrix:
+                case slang::TypeReflection::Kind::Array:
+                case slang::TypeReflection::Kind::Scalar:
+                case slang::TypeReflection::Kind::Struct:
+                {
+                    SLANG_RETURN_ON_FAIL(binding.setInplace(location, srcEntry.bufferData.getBuffer(), srcEntry.bufferData.getCount() * sizeof(unsigned int)));
+                    break;
+                }
+                default:
+                    break;
+                case slang::TypeReflection::Kind::ConstantBuffer:
+                {
+                    SLANG_RETURN_ON_FAIL(binding.setBufferContents(location, srcEntry.bufferData.getBuffer(),srcEntry.bufferData.getCount() * sizeof(unsigned int) ));
+                    break;
+                }
+                case slang::TypeReflection::Kind::ParameterBlock:
+                {
+                    auto elementTypeLayout = typeLayout->getElementTypeLayout();
+                    SLANG_UNUSED(elementTypeLayout);
+                    break;
+                }
+                case slang::TypeReflection::Kind::TextureBuffer:
+                {
+                    auto elementTypeLayout = typeLayout->getElementTypeLayout();
+                    SLANG_UNUSED(elementTypeLayout);
+                    break;
+                }
+                case slang::TypeReflection::Kind::ShaderStorageBuffer:
+                {
+                    auto elementTypeLayout = typeLayout->getElementTypeLayout();
+                    SLANG_UNUSED(elementTypeLayout);
+                    break;
+                }
+                case slang::TypeReflection::Kind::GenericTypeParameter:
+                {
+                    const char* name = typeLayout->getName();
+                    SLANG_UNUSED(name);
+                    break;
+                }
+                case slang::TypeReflection::Kind::Interface:
+                {
+                    const char* name = typeLayout->getName();
+                    SLANG_UNUSED(name);
+                    break;
+                } 
+                case slang::TypeReflection::Kind::Resource:
+                {
+                    auto type = typeLayout->getType();
+                    auto shape = type->getResourceShape();
+
+                    //auto access = type->getResourceAccess();
+
+                    switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK)
+                    {
+                        default:
+                            assert(!"unhandled case");
+                            break;
+                        case SLANG_TEXTURE_2D:
+                        {
+                            slang::TypeReflection* typeReflection = location.getTypeLayout()->getResourceResultType();
+
+                            int count = 1;
+                            if (typeReflection->getKind() == slang::TypeReflection::Kind::Vector)
+                            {
+                                count = int(typeReflection->getElementCount());
+                            }
+
+                            RefPtr<CPUResource> resource = _newOneTexture2D(count);   
+                            resources.add(resource);
+
+                            SLANG_RETURN_ON_FAIL(binding.setObject(location, resource->getInterface()));
+                            break;
+                        }
+                        case SLANG_TEXTURE_1D:
+                        case SLANG_TEXTURE_3D:
+                        case SLANG_TEXTURE_CUBE:
+                        case SLANG_TEXTURE_BUFFER:
+                        {
+                            // Just set to null for now
+                            SLANG_RETURN_ON_FAIL(binding.setObject(location, nullptr));
+                            break;
+                        }
+                        case SLANG_BYTE_ADDRESS_BUFFER:
+                        case SLANG_STRUCTURED_BUFFER:
+                        {
+                            CPUMemoryBinding::Buffer buffer;
+                            SLANG_RETURN_ON_FAIL(binding.setNewBuffer(location, srcEntry.bufferData.getBuffer(), srcEntry.bufferData.getCount() * sizeof(unsigned int), buffer ));
+                            buffers[entryIndex] = buffer;
+                            break;
+                        }
+                    }
+                    if (shape & SLANG_TEXTURE_ARRAY_FLAG)
+                    {
+
+                    }
+                    if (shape & SLANG_TEXTURE_MULTISAMPLE_FLAG)
+                    {
+
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
+    SlangUInt numThreadsPerAxis[3];
+    entryPoint->getComputeThreadGroupSize(3, numThreadsPerAxis);
+
+    {
+        UniformState* uniformState = (UniformState*)binding.m_rootBuffer.m_data;
+        CPPPrelude::UniformEntryPointParams* params = (CPPPrelude::UniformEntryPointParams*)binding.m_entryPointBuffer.m_data;
+
+        CPPPrelude::ComputeVaryingInput varying;
+        varying.groupID = {};
+
+        for (int z = 0; z < int(numThreadsPerAxis[2]); ++z)
+        {
+            varying.groupThreadID.z = z;
+            for (int y = 0; y < int(numThreadsPerAxis[1]); ++y)
+            {
+                varying.groupThreadID.y = y;
+                for (int x = 0; x < int(numThreadsPerAxis[0]); ++x)
+                {
+                    varying.groupThreadID.x = x;
+
+                    func(&varying, params, uniformState);
+                }
+            }
+        }
+    }
+
+    // Dump everything out that was write (we wrote in place!)
+    return _writeBindings(layout, buffers, gOptions.outputPath);
+}
+
+SlangResult RenderTestApp::initialize(SlangSession* session, Renderer* renderer, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input)
+{
+    SLANG_RETURN_ON_FAIL(_initializeShaders(session, renderer, shaderType, input));
 
     m_numAddedConstantBuffers = 0;
 	m_renderer = renderer;
 
     // TODO(tfoley): use each API's reflection interface to query the constant-buffer size needed
+    m_constantBufferSize = 16 * sizeof(float);
+
+    BufferResource::Desc constantBufferDesc;
+    constantBufferDesc.init(m_constantBufferSize);
+    constantBufferDesc.cpuAccessFlags = Resource::AccessFlag::Write;
+
+    m_constantBuffer = renderer->createBufferResource(Resource::Usage::ConstantBuffer, constantBufferDesc);
+    if (!m_constantBuffer)
+        return SLANG_FAIL;
+
+    //! Hack -> if doing a graphics test, add an extra binding for our dynamic constant buffer
+    //
+    // TODO: Should probably be more sophisticated than this - with 'dynamic' constant buffer/s binding always being specified
+    // in the test file
+    RefPtr<BufferResource> addedConstantBuffer;
+    switch(shaderType)
     {
-        m_constantBufferSize = 16 * sizeof(float);
+    default:
+        break;
 
-        BufferResource::Desc constantBufferDesc;
-        constantBufferDesc.init(m_constantBufferSize);
-        constantBufferDesc.cpuAccessFlags = Resource::AccessFlag::Write;
-
-        m_constantBuffer = renderer->createBufferResource(Resource::Usage::ConstantBuffer, constantBufferDesc);
-        if (!m_constantBuffer)
-            return SLANG_FAIL;
+    case Options::ShaderProgramType::Graphics:
+    case Options::ShaderProgramType::GraphicsCompute:
+        addedConstantBuffer = m_constantBuffer;
+        m_numAddedConstantBuffers++;
+        break;
     }
 
-    {
-        //! Hack -> if doing a graphics test, add an extra binding for our dynamic constant buffer
-        //
-        // TODO: Should probably be more sophisticated than this - with 'dynamic' constant buffer/s binding always being specified
-        // in the test file
-        RefPtr<BufferResource> addedConstantBuffer;
-        switch(gOptions.shaderType)
-        {
-        default:
-            break;
-
-        case Options::ShaderProgramType::Graphics:
-        case Options::ShaderProgramType::GraphicsCompute:
-            addedConstantBuffer = m_constantBuffer;
-            m_numAddedConstantBuffers++;
-            break;
-        }
-
-        BindingStateImpl* bindingState = nullptr;
-        SLANG_RETURN_ON_FAIL(ShaderRendererUtil::createBindingState(m_shaderInputLayout, m_renderer, addedConstantBuffer, &bindingState));
-        m_bindingState = bindingState;
-    }
+    BindingStateImpl* bindingState = nullptr;
+    SLANG_RETURN_ON_FAIL(ShaderRendererUtil::createBindingState(m_shaderInputLayout, m_renderer, addedConstantBuffer, &bindingState));
+    m_bindingState = bindingState;
 
     // Do other initialization that doesn't depend on the source language.
 
@@ -301,7 +732,7 @@ SlangResult RenderTestApp::initialize(Renderer* renderer, ShaderCompiler* shader
         return SLANG_FAIL;
 
     {
-        switch(gOptions.shaderType)
+        switch(shaderType)
         {
         default:
             assert(!"unexpected test shader type");
@@ -336,63 +767,12 @@ SlangResult RenderTestApp::initialize(Renderer* renderer, ShaderCompiler* shader
     return m_pipelineState ? SLANG_OK : SLANG_FAIL;
 }
 
-Result RenderTestApp::initializeShaders(ShaderCompiler* shaderCompiler)
+Result RenderTestApp::_initializeShaders(SlangSession* session, Renderer* renderer, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input)
 {
-	// Read in the source code
-	char const* sourcePath = gOptions.sourcePath;
-	FILE* sourceFile = fopen(sourcePath, "rb");
-	if (!sourceFile)
-	{
-		fprintf(stderr, "error: failed to open '%s' for reading\n", sourcePath);
-		return SLANG_FAIL;
-	}
-	fseek(sourceFile, 0, SEEK_END);
-	size_t sourceSize = ftell(sourceFile);
-	fseek(sourceFile, 0, SEEK_SET);
-
-    List<char> sourceText;
-    sourceText.setCount(sourceSize + 1);
-	fread(sourceText.getBuffer(), sourceSize, 1, sourceFile);
-	fclose(sourceFile);
-	sourceText[sourceSize] = 0;
-
-    switch( gOptions.shaderType )
-    {
-    default:
-        m_shaderInputLayout.numRenderTargets = 1;
-        break;
-
-    case Options::ShaderProgramType::Compute:
-        m_shaderInputLayout.numRenderTargets = 0;
-        break;
-    }
-	m_shaderInputLayout.Parse(sourceText.getBuffer());
-
-	ShaderCompileRequest::SourceInfo sourceInfo;
-	sourceInfo.path = sourcePath;
-	sourceInfo.dataBegin = sourceText.getBuffer();
-	sourceInfo.dataEnd = sourceText.getBuffer() + sourceSize;
-
-	ShaderCompileRequest compileRequest;
-	compileRequest.source = sourceInfo;
-	if (gOptions.shaderType == Options::ShaderProgramType::Graphics || gOptions.shaderType == Options::ShaderProgramType::GraphicsCompute)
-	{
-		compileRequest.vertexShader.source = sourceInfo;
-		compileRequest.vertexShader.name = vertexEntryPointName;
-		compileRequest.fragmentShader.source = sourceInfo;
-		compileRequest.fragmentShader.name = fragmentEntryPointName;
-	}
-	else
-	{
-		compileRequest.computeShader.source = sourceInfo;
-		compileRequest.computeShader.name = computeEntryPointName;
-	}
-	compileRequest.globalGenericTypeArguments = m_shaderInputLayout.globalGenericTypeArguments;
-	compileRequest.entryPointGenericTypeArguments = m_shaderInputLayout.entryPointGenericTypeArguments;
-	compileRequest.globalExistentialTypeArguments = m_shaderInputLayout.globalExistentialTypeArguments;
-	compileRequest.entryPointExistentialTypeArguments = m_shaderInputLayout.entryPointExistentialTypeArguments;
-	m_shaderProgram = shaderCompiler->compileProgram(compileRequest);
-
+    CompileOutput output;
+    SLANG_RETURN_ON_FAIL(_compile(session, gOptions.sourcePath, shaderType, input,  output));
+    m_shaderInputLayout = output.layout;
+    m_shaderProgram = renderer->createProgram(output.compileOutput.desc);
     return m_shaderProgram ? SLANG_OK : SLANG_FAIL;
 }
 
@@ -501,61 +881,92 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
 	// Parse command-line options
 	SLANG_RETURN_ON_FAIL(parseOptions(argcIn, argvIn, StdWriters::getError()));
 
-    RefPtr<renderer_test::Window> window(new renderer_test::Window);
-    SLANG_RETURN_ON_FAIL(window->initialize(gWindowWidth, gWindowHeight));
-
+    // Declare window pointer before renderer, such that window is released after renderer
+    RefPtr<renderer_test::Window> window;
+    // Renderer is constructed (later) using the window
 	Slang::RefPtr<Renderer> renderer;
 
+    ShaderCompilerUtil::Input input;
+    
+    input.profile = "";
+    input.target = SLANG_TARGET_NONE;
+    input.args = &gOptions.slangArgs[0];
+    input.argCount = gOptions.slangArgCount;
+
 	SlangSourceLanguage nativeLanguage = SLANG_SOURCE_LANGUAGE_UNKNOWN;
-	SlangCompileTarget slangTarget = SLANG_TARGET_NONE;
-    SlangPassThrough slangPassThrough = SLANG_PASS_THROUGH_NONE;
+	SlangPassThrough slangPassThrough = SLANG_PASS_THROUGH_NONE;
     char const* profileName = "";
 	switch (gOptions.rendererType)
 	{
 		case RendererType::DirectX11:
 			renderer = dx11::createD3D11Renderer();
-			slangTarget = SLANG_DXBC;
+			input.target = SLANG_DXBC;
+            input.profile = "sm_5_0";
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
             slangPassThrough = SLANG_PASS_THROUGH_FXC;
-            profileName = "sm_5_0";
+            
 			break;
 
 		case RendererType::DirectX12:
 			renderer = dx12::createD3D12Renderer();
-			slangTarget = SLANG_DXBC;
+			input.target = SLANG_DXBC;
+            input.profile = "sm_5_0";
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
             slangPassThrough = SLANG_PASS_THROUGH_FXC;
-            profileName = "sm_5_0";
+            
             if( gOptions.useDXIL )
             {
-                slangTarget = SLANG_DXIL;
+                input.target = SLANG_DXIL;
+                input.profile = "sm_6_0";
                 slangPassThrough = SLANG_PASS_THROUGH_DXC;
-                profileName = "sm_6_0";
             }
 			break;
 
 		case RendererType::OpenGl:
 			renderer = createGLRenderer();
-			slangTarget = SLANG_GLSL;
+			input.target = SLANG_GLSL;
+            input.profile = "glsl_430";
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
             slangPassThrough = SLANG_PASS_THROUGH_GLSLANG;
-            profileName = "glsl_430";
 			break;
 
 		case RendererType::Vulkan:
 			renderer = createVKRenderer();
-			slangTarget = SLANG_SPIRV;
+			input.target = SLANG_SPIRV;
+            input.profile = "glsl_430";
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
             slangPassThrough = SLANG_PASS_THROUGH_GLSLANG;
-            profileName = "glsl_430";
 			break;
-
+        case RendererType::CPU:
+            input.target = SLANG_HOST_CALLABLE;
+            input.profile = "";
+            nativeLanguage = SLANG_SOURCE_LANGUAGE_CPP;
+            slangPassThrough = SLANG_PASS_THROUGH_GENERIC_C_CPP;
+            break;
 		default:
 			fprintf(stderr, "error: unexpected\n");
 			return SLANG_FAIL;
 	}
 
-    
+    switch (gOptions.inputLanguageID)
+    {
+        case Options::InputLanguageID::Slang:
+            input.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG;
+            input.passThrough = SLANG_PASS_THROUGH_NONE;
+            break;
+
+        case Options::InputLanguageID::Native:
+            input.sourceLanguage = nativeLanguage;
+            input.passThrough = slangPassThrough;
+            break;
+
+        default:
+            break;
+    }
+
+    // Use the profile name set on options if set
+    input.profile = gOptions.profileName ? gOptions.profileName : input.profile;
+
     StringBuilder rendererName;
     rendererName << "[" << RendererUtil::toText(gOptions.rendererType) << "] ";
     if (gOptions.adapter.getLength())
@@ -563,22 +974,17 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
         rendererName << "'" << gOptions.adapter << "'";
     }
 
-
-    if (!renderer)
+    
+    if (renderer)
     {
-        if (!gOptions.onlyStartup)
-        {
-            fprintf(stderr, "Unable to create renderer %s\n", rendererName.getBuffer());
-        }
-        return SLANG_FAIL;
-    }
+        Renderer::Desc desc;
+        desc.width = gWindowWidth;
+        desc.height = gWindowHeight;
+        desc.adapter = gOptions.adapter;
 
-    Renderer::Desc desc;
-    desc.width = gWindowWidth;
-    desc.height = gWindowHeight;
-    desc.adapter = gOptions.adapter;
+        window = new renderer_test::Window;
+        SLANG_RETURN_ON_FAIL(window->initialize(gWindowWidth, gWindowHeight));
 
-    {
         SlangResult res = renderer->initialize(desc, (HWND)window->getHandle());
         if (SLANG_FAILED(res))
         {
@@ -588,15 +994,7 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
             }
             return res;
         }
-    }
 
-    // If the only test is we can startup, then we are done
-    if (gOptions.onlyStartup)
-    {
-        return SLANG_OK;
-    }
-
-    {
         for (const auto& feature : gOptions.renderFeatures)
         {
             // If doesn't have required feature... we have to give up
@@ -606,36 +1004,33 @@ SLANG_TEST_TOOL_API SlangResult innerMain(Slang::StdWriters* stdWriters, SlangSe
             }
         }
     }
+    else
+    {
+        if (gOptions.rendererType != RendererType::CPU)
+        {
+            if (!gOptions.onlyStartup)
+            {
+                fprintf(stderr, "Unable to create renderer %s\n", rendererName.getBuffer());
+            }
+            return SLANG_FAIL;
+        }
+    }
 
-    // Use the profile name set on options if set
-    profileName = gOptions.profileName ? gOptions.profileName : profileName;
+    // If the only test is we can startup, then we are done
+    if (gOptions.onlyStartup)
+    {
+        return SLANG_OK;
+    }
 
-    ShaderCompiler shaderCompiler;
-    shaderCompiler.renderer = renderer;
-    shaderCompiler.target = slangTarget;
-    shaderCompiler.profile = profileName;
-    shaderCompiler.slangSession = session;
-
-	switch (gOptions.inputLanguageID)
-	{
-		case Options::InputLanguageID::Slang:
-            shaderCompiler.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG;
-            shaderCompiler.passThrough = SLANG_PASS_THROUGH_NONE;
-			break;
-
-        case Options::InputLanguageID::Native:
-            shaderCompiler.sourceLanguage = nativeLanguage;
-            shaderCompiler.passThrough = slangPassThrough;
-			break;
-
-		default:
-			break;
-	}
+    if (!renderer)
+    {
+        SLANG_RETURN_ON_FAIL(_doCPUCompute(session, gOptions.sourcePath, gOptions.shaderType, input));
+        return SLANG_OK;
+    }
 
 	{
 		RenderTestApp app;
-
-		SLANG_RETURN_ON_FAIL(app.initialize(renderer, &shaderCompiler));
+		SLANG_RETURN_ON_FAIL(app.initialize(session, renderer, gOptions.shaderType, input));
 
         window->show();
 
@@ -708,6 +1103,8 @@ int main(int argc, char**  argv)
     using namespace Slang;
     SlangSession* session = spCreateSession(nullptr);
 
+    TestToolUtil::setSessionDefaultPrelude(argv[0], session);
+    
     auto stdWriters = StdWriters::initDefaultSingleton();
     
     SlangResult res = innerMain(stdWriters, session, argc, argv);

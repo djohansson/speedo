@@ -474,7 +474,7 @@ namespace Slang
         return SLANG_E_NOT_IMPLEMENTED;
     }
 
-    static PassThroughMode _getExternalCompilerRequiredForTarget(CodeGenTarget target)
+    PassThroughMode getDownstreamCompilerRequiredForTarget(CodeGenTarget target)
     {
         switch (target)
         {
@@ -530,9 +530,22 @@ namespace Slang
         return PassThroughMode::None;
     }
 
+    PassThroughMode getPassThroughModeForCPPCompiler(CPPCompiler::CompilerType type)
+    {
+        typedef CPPCompiler::CompilerType CompilerType;
+
+        switch (type)
+        {
+            case CompilerType::VisualStudio:        return PassThroughMode::VisualStudio;
+            case CompilerType::GCC:                 return PassThroughMode::Gcc;
+            case CompilerType::Clang:               return PassThroughMode::Clang;
+            default:                                return PassThroughMode::None;
+        }
+    }
+
     SlangResult checkCompileTargetSupport(Session* session, CodeGenTarget target)
     {
-        const PassThroughMode mode = _getExternalCompilerRequiredForTarget(target);
+        const PassThroughMode mode = getDownstreamCompilerRequiredForTarget(target);
         return (mode != PassThroughMode::None) ?
             checkExternalCompilerSupport(session, mode) :
             SLANG_OK;
@@ -1440,37 +1453,6 @@ SlangResult dissassembleDXILUsingDXC(
             }
         }
 
-        // TODO(JS): HACK! We need to include the prelude from somewhere, but where? The generated output
-        // is sitting in some temp directory.
-        // So here, we search all the 'sourceFiles', and try their paths for plausibility, and take the first
-        {
-            auto frontEndReq = endToEndReq->getFrontEndReq();
-            auto entryPointReq = frontEndReq->getEntryPointReq(entryPointIndex);
-            auto translationUnit = entryPointReq->getTranslationUnit();
-
-            for (SourceFile* sourceFile : translationUnit->m_sourceFiles)
-            {
-                const auto& pathInfo = sourceFile->getPathInfo();
-
-                if (pathInfo.type == PathInfo::Type::FoundPath ||
-                    pathInfo.type == PathInfo::Type::Normal)
-                {
-                    String originalSourceDirectory = Path::getParentDirectory(pathInfo.foundPath);
-
-                    if (originalSourceDirectory.getLength() && File::exists(originalSourceDirectory))
-                    {
-                        // We can't use this path directly, so make canonical so it is absolute
-                        StringBuilder canonicalPath;
-                        if (SLANG_SUCCEEDED(Path::getCanonical(originalSourceDirectory, canonicalPath)))
-                        {
-                            options.includePaths.add(canonicalPath.ProduceString());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
         // Compile
         CPPCompiler::Output output;
         SLANG_RETURN_ON_FAIL(compiler->compile(options, output));
@@ -1547,6 +1529,12 @@ SlangResult dissassembleDXILUsingDXC(
             sharedLib->m_temporaryFileSet = productFileSet;
             productFileSet.clear();
 
+            // Copy the paths in the temporary file set
+            // We particularly want to do this to keep the source
+            sharedLib->m_temporaryFileSet.add(temporaryFileSet.m_paths);
+            temporaryFileSet.clear();
+
+            // Output the shared library
             outSharedLib = sharedLib;
         }
         else

@@ -6,7 +6,57 @@
 namespace renderer_test
 {
     using namespace Slang;
-    void ShaderInputLayout::Parse(const char * source)
+
+
+    Index ShaderInputLayout::findEntryIndexByName(const String& name) const
+    {
+        const Index count = Index(entries.getCount());
+        for (Index i = 0; i < count; ++i)
+        {
+            const auto& entry = entries[i];
+            if (entry.name == name)
+            {
+                return Index(i);
+            }
+        }
+        return -1;
+    }
+
+    static bool _isCPUTarget(SlangCompileTarget target)
+    {
+        switch (target)
+        {
+            case SLANG_C_SOURCE:
+            case SLANG_CPP_SOURCE:
+            case SLANG_EXECUTABLE:
+            case SLANG_SHARED_LIBRARY:
+            case SLANG_HOST_CALLABLE:
+            {
+                return true;
+            }
+            default: return false;
+        }
+    }
+
+    void ShaderInputLayout::updateForTarget(SlangCompileTarget target)
+    {
+        if (!_isCPUTarget(target))
+        {
+            int count = int(entries.getCount());
+            for (int i = 0; i < count; ++i)
+            {
+                auto& entry = entries[i];
+                if (entry.isCPUOnly)
+                {
+                    entries.removeAt(i);
+                    i--;
+                    count--;
+                }
+            }
+        }
+    }
+
+    void ShaderInputLayout::parse(const char * source)
     {
         entries.clear();
         globalGenericTypeArguments.clear();
@@ -241,7 +291,12 @@ namespace renderer_test
                             parser.Read(":");
                             while (!parser.IsEnd())
                             {
-                                if (parser.LookAhead("dxbinding"))
+                                if (parser.LookAhead("isCPUOnly"))
+                                {
+                                    entry.isCPUOnly = true;
+                                    parser.ReadToken();
+                                }
+                                else if (parser.LookAhead("dxbinding"))
                                 {
                                     parser.ReadToken();
                                     parser.Read("(");
@@ -267,6 +322,59 @@ namespace renderer_test
                                     parser.ReadToken();
                                     entry.isOutput = true;
                                 }
+                                else if (parser.LookAhead("name"))
+                                {
+                                    parser.ReadToken();
+
+                                    // Optionally consume '=' 
+                                    if (parser.NextToken().Type == TokenType::OpAssign)
+                                    {
+                                        parser.ReadToken();
+                                    }
+
+                                    StringBuilder builder;
+
+                                    Token nameToken = parser.ReadToken();
+                                    if (nameToken.Type != TokenType::Identifier)
+                                    {
+                                        throw TextFormatException("Invalid input syntax at line " + parser.NextToken().Position.Line);
+                                    }
+                                    builder << nameToken.Content;
+
+                                    while (!parser.IsEnd())
+                                    {
+                                        Token token = parser.NextToken(0);
+
+                                        if (token.Type == TokenType::LBracket)
+                                        {
+                                            parser.ReadToken();
+                                            int index = parser.ReadInt();
+                                            SLANG_ASSERT(index >= 0);
+                                            parser.ReadMatchingToken(TokenType::RBracket);
+
+                                            builder << "[" << index << "]";
+                                        }
+                                        else if (token.Type == TokenType::Dot)
+                                        {
+                                            parser.ReadToken();
+                                            Token identifierToken = parser.ReadMatchingToken(TokenType::Identifier);
+
+                                            builder << "." << identifierToken.Content; 
+                                        }
+                                        else if (token.Type == TokenType::Comma)
+                                        {
+                                            // Break out
+                                            break;
+                                        }
+                                        else
+                                        {
+                                            throw TextFormatException("Invalid input syntax at line " + parser.NextToken().Position.Line);
+                                        }
+                                    }
+
+                                    entry.name = builder;
+                                }
+
                                 if (parser.LookAhead(","))
                                     parser.Read(",");
                             }

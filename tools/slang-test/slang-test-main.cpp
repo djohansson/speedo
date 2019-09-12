@@ -32,7 +32,7 @@ using namespace Slang;
 #include <stdarg.h>
 
 #define SLANG_PRELUDE_NAMESPACE CPPPrelude
-#include "../../tests/cross-compile/slang-cpp-prelude.h"
+#include "../../prelude/slang-cpp-types.h"
 
 // Options for a particular test
 struct TestOptions
@@ -690,6 +690,11 @@ static SlangResult _extractRenderTestRequirements(const CommandLine& cmdLine, Te
             nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
             passThru = SLANG_PASS_THROUGH_GLSLANG;
             break;
+        case RenderApiType::CPU:
+            target = SLANG_HOST_CALLABLE;
+            nativeLanguage = SLANG_SOURCE_LANGUAGE_CPP;
+            passThru = SLANG_PASS_THROUGH_GENERIC_C_CPP;
+            break;
     }
 
     SlangSourceLanguage sourceLanguage = nativeLanguage;
@@ -779,6 +784,15 @@ static RenderApiFlags _getAvailableRenderApiFlags(TestContext* context)
         for (int i = 0; i < int(RenderApiType::CountOf); ++i)
         {
             const RenderApiType apiType = RenderApiType(i);
+
+            if (apiType == RenderApiType::CPU)
+            {
+                // TODO(JS): Only enable CPU on Windows for now
+#if SLANG_WINDOWS_FAMILY
+                availableRenderApiFlags |= RenderApiFlags(1) << int(apiType);
+#endif
+                continue;
+            }
 
             // See if it's possible the api is available
             if (RenderApiUtil::calcHasApi(apiType))
@@ -1148,7 +1162,7 @@ TestResult runCPUExecuteTest(TestContext* context, TestInput& input)
             CPPPrelude::RWStructuredBuffer<int> buffer;
         };
         
-        typedef void (*Func)(CPPPrelude::ComputeVaryingInput* varyingInput, UniformState* uniformState);
+        typedef void (*Func)(CPPPrelude::ComputeVaryingInput* varyingInput, CPPPrelude::UniformEntryPointParams* params, UniformState* uniformState);
 
         Func runFunc = Func(func);
         int32_t data[4] = { 0, 0, 0, 0};
@@ -1161,7 +1175,7 @@ TestResult runCPUExecuteTest(TestContext* context, TestInput& input)
         for (Int i = 0; i < 4; ++i)
         {
             varyingInput.groupThreadID.x = uint32_t(i);
-            runFunc(&varyingInput, &state);
+            runFunc(&varyingInput, nullptr, &state);
         }
 
         SharedLibrary::unload(sharedLibrary);
@@ -1372,54 +1386,6 @@ static TestResult runCPPCompilerCompile(TestContext* context, TestInput& input)
     if (exeRes.resultCode != 0)
     {
         return TestResult::Fail;
-    }
-
-    String modulePath = _calcModulePath(input);
-    
-    // Find the target
-    UnownedStringSlice targetExt = UnownedStringSlice::fromLiteral("c");
-    Index index = cmdLine.findArgIndex(UnownedStringSlice::fromLiteral("-target"));
-    if (index >= 0 && index + 1 < cmdLine.getArgCount())
-    {
-        targetExt = cmdLine.m_args[index + 1].value.getUnownedSlice();
-    }
-
-    // If output was C/C++ we should try compiling
-    if (targetExt == "c" || targetExt == "cpp")
-    {
-        CPPCompiler::CompileOptions options;
-        options.sourceType = (targetExt == "c") ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
-
-        options.includePaths.add("tests/cross-compile");
-
-        String actualOutput = exeRes.standardOutput;
-
-        // Create a filename to write this out to
-        String cppSource = modulePath + "." + targetExt;
-        Slang::File::writeAllText(cppSource, actualOutput);
-
-        // Okay we can now try compiling
-
-        // Compile this source
-        options.sourceFiles.add(cppSource);
-        options.modulePath = modulePath;
-        options.targetType = CPPCompiler::TargetType::SharedLibrary;
-
-        CPPCompiler::Output output;
-        if (SLANG_FAILED(compiler->compile(options, output)))
-        {
-            return TestResult::Fail;
-        }
-
-        if (output.getCountByType(CPPCompiler::Diagnostic::Type::Error) > 0)
-        {
-            return TestResult::Fail;
-        }
-    }
-    else
-    {
-        // Can only be callable
-        SLANG_ASSERT(targetExt == "callable" || targetExt == "host-callable");
     }
 
     return TestResult::Pass;
@@ -2656,7 +2622,7 @@ void runTestsOnFile(
     const RenderApiFlags availableRenderApiFlags = apiUsedFlags ? _getAvailableRenderApiFlags(context) : 0;
 
     // If synthesized tests are wanted look into adding them
-    if (context->options.synthesizedTestApis  && availableRenderApiFlags)
+    if (context->options.synthesizedTestApis && availableRenderApiFlags)
     {
         List<TestDetails> synthesizedTests;
 
@@ -2838,6 +2804,8 @@ SlangResult innerMain(int argc, char** argv)
     // The context holds useful things used during testing
     TestContext context;
     SLANG_RETURN_ON_FAIL(SLANG_FAILED(context.init()))
+
+    TestToolUtil::setSessionDefaultPrelude(argv[0], context.getSession());
 
     auto& categorySet = context.categorySet;
 

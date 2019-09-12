@@ -45,7 +45,10 @@ struct TestToolUtil
     static ToolReturnCode getReturnCodeFromInt(int code);
 
         /// Given a slang result, returns a return code that can be returned from an executable
-    SLANG_API static ToolReturnCode getReturnCode(SlangResult res);
+    static ToolReturnCode getReturnCode(SlangResult res);
+
+        /// Sets the default preludes on the session based on the executable path
+    static SlangResult setSessionDefaultPrelude(const char* exePath, slang::IGlobalSession* session);
 };
 
 } // namespace Slang
