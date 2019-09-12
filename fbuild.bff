@@ -258,6 +258,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$RootPath$/external/tracy'
 			+ ' -DTRACY_ENABLE'
+			+ ' -DTRACY_HAS_SYSTEM_TRACING'
 		.CompilerInputFiles = {
 			'$RootPath$/external/tracy/TracyClient.cpp',
 		}
