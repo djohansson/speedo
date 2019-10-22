@@ -277,6 +277,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/server/TracyPrint.cpp'
 			'$RootPath$/external/tracy/server/TracyStorage.cpp'
 			'$RootPath$/external/tracy/server/TracyTexture.cpp'
+			'$RootPath$/external/tracy/server/TracyTaskDispatch.cpp'
 			'$RootPath$/external/tracy/server/TracyThreadCompress.cpp'
 			'$RootPath$/external/tracy/server/TracyUserData.cpp'
 			'$RootPath$/external/tracy/server/TracyView.cpp'
@@ -304,6 +305,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -I$RootPath$/external/freetype2/include'
 			+ ' -I$RootPath$/external/nativefiledialog/src/include'
 			+ ' -I$RootPath$/external/imgui'
+			+ ' -I$RootPath$/external/stb'
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
@@ -326,18 +328,20 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	^RootObjectLists + .GlslangOGLCompilersDLLObjectList
 
-	.GlslangGlslangUnity = 
-	[
-		.UnityInputPath = '$RootPath$/external/glslang/glslang'
-		.UnityInputPattern = "*.cpp"
-		.UnityInputExcludePath = '$RootPath$/external/glslang/glslang/OSDependent'
-		.UnityOutputPath = '$IntermediateFilePath$/external/glslang/glslang'
-		.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
-	]
+	// right now the glslang unity has problems.
+	// - it likely links the wrong symbols during parsing of builtins somehow. and perhaps more.
+	// .GlslangGlslangUnity = 
+	// [
+	// 	.UnityInputPath = '$RootPath$/external/glslang/glslang'
+	// 	.UnityInputPattern = "*.cpp"
+	// 	.UnityInputExcludePath = '$RootPath$/external/glslang/glslang/OSDependent'
+	// 	.UnityOutputPath = '$IntermediateFilePath$/external/glslang/glslang'
+	// 	.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
+	// ]
 	.GlslangGlslangObjectList =
 	[
 		Using(.ObjectListCommon)
-		Using(.GlslangGlslangUnity)
+		//Using(.GlslangGlslangUnity)
 
 		.Name = 'glslang-glslang'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -347,11 +351,12 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 				+ ' -DENABLE_OPT=0'
 				+ ' -DAMD_EXTENSIONS'
 				+ ' -DNV_EXTENSIONS'
-		.CompilerInputUnity = '$Name$-unity'
-	#if __WINDOWS__
-		.CompilerInputPath = '$RootPath$/external/glslang/glslang/OSDependent/Windows'
+		//.CompilerInputUnity = '$Name$-unity'
+		.CompilerInputPath = { '$RootPath$/external/glslang/glslang' }
+	#if !__WINDOWS__
+	 	.CompilerInputExcludePath = '$RootPath$/external/glslang/glslang/OSDependent/Windows'
 	#else
-		.CompilerInputPath = '$RootPath$/external/glslang/glslang/OSDependent/Unix'
+	 	.CompilerInputExcludePath = '$RootPath$/external/glslang/glslang/OSDependent/Unix'
 	#endif
 	]
 	^RootObjectLists + .GlslangGlslangObjectList

@@ -87,7 +87,7 @@ void Application<B>::drawIMGUI(WindowData<B>& window)
         ShowFontSelector("Fonts");
         if (Button("Show User Guide"))
         {
-            SetNextWindowPosCenter(0);
+            SetNextWindowPos(ImVec2(0.5f, 0.5f));
             OpenPopup("UserGuide");
         }
         if (BeginPopup(
