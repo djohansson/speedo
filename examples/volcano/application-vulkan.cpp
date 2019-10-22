@@ -1071,9 +1071,9 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
             std::array<uint32_t, 128> seq;
             std::iota(seq.begin(), seq.begin() + segmentCount, 0);
             std::for_each_n(
-// #if defined(__WINDOWS__)
-// 				std::execution::par,
-// #endif
+#if defined(__WINDOWS__)
+				std::execution::par,
+#endif
                 seq.begin(), segmentCount,
                 [&config, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt) {
                     ZoneScopedN("drawSegment");

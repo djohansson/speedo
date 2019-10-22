@@ -219,7 +219,7 @@ private:
 	//
 
 	static constexpr uint32_t NX = 2;
-	static constexpr uint32_t NY = 1;
+	static constexpr uint32_t NY = 2;
 
 	// todo: figure out best way of organizing these
 	std::shared_ptr<GraphicsPipelineResourceView<B>> myDefaultResources;
