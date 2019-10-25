@@ -105,7 +105,7 @@ void Application<B>::drawIMGUI(WindowData<B>& window)
         if (Button("Open OBJ file"))
         {
             nfdchar_t* pathStr;
-            auto res = NFD_OpenDialog("obj", myResourcePath.u8string().c_str(), &pathStr);
+            auto res = NFD_OpenDialog("obj", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
             if (res == NFD_OKAY)
             {
                 myDefaultResources->model = std::make_shared<Model<B>>(
@@ -119,7 +119,7 @@ void Application<B>::drawIMGUI(WindowData<B>& window)
         if (Button("Open JPG file"))
         {
             nfdchar_t* pathStr;
-            auto res = NFD_OpenDialog("jpg", myResourcePath.u8string().c_str(), &pathStr);
+            auto res = NFD_OpenDialog("jpg", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
             if (res == NFD_OKAY)
             {
                 myDefaultResources->texture = std::make_shared<Texture<B>>(
