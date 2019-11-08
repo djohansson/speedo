@@ -1,28 +1,22 @@
 #once
-#include "platform.bff"
-
-#if __WINDOWS__
-.LLVMBasePath = 'C:\Program Files\LLVM\bin'
-#endif //__WINDOWS__
-#if __OSX__
-.LLVMBasePath = '/usr/local/opt/llvm/bin'
-.BaseIncludePaths + '-I/usr/local/opt/llvm/include'
-	+ ' -I/usr/local/opt/llvm/include/c++/v1'
-.BaseLibPaths + ' -L/usr/local/opt/llvm/lib'
-	+ ' -Wl,-rpath,/usr/local/opt/llvm/lib'
-#endif //__OSX__
-#if __LINUX__
-.LLVMBasePath = '/usr/bin'
-#endif //__LINUX__
-
-.ClangPath = '$LLVMBasePath$'
-
-Compiler('Compiler-Clang')
-{
-	.Executable = '$ClangPath$/clang$ExeSuffix$'
-}
+#include "platform-config.bff"
 
 .Clang_BaseConfig = [
+#if __WINDOWS__
+	.LLVMBasePath = 'C:\Program Files\LLVM\bin'
+#endif //__WINDOWS__
+#if __OSX__
+	.LLVMBasePath = '/usr/local/opt/llvm/bin'
+	.BaseIncludePaths + '-I/usr/local/opt/llvm/include'
+		+ ' -I/usr/local/opt/llvm/include/c++/v1'
+	.BaseLibPaths + ' -L/usr/local/opt/llvm/lib'
+		+ ' -Wl,-rpath,/usr/local/opt/llvm/lib'
+#endif //__OSX__
+#if __LINUX__
+	.LLVMBasePath = '/usr/bin'
+#endif //__LINUX__
+	.ClangPath = '$LLVMBasePath$'
+	.Executable = '$ClangPath$/clang$ExeSuffix$'
 	.CompilerInfo  = 'Clang'
     .Librarian = '$LLVMBasePath$/llvm-ar$ExeSuffix$'
 	.Linker = '$ClangPath$/clang$ExeSuffix$'
@@ -86,7 +80,7 @@ Compiler('Compiler-Clang')
 .Clang_x64_BaseConfig = [
 	Using(.Clang_BaseConfig)
 	.ArchInfo = 'x64'
-	.CompilerOptions + ' -m64'
+	.CompilerOptions + ' -m64 -march=native'
 ]
 .Clang_x64_DebugConfig = [
 	Using(.Clang_x64_BaseConfig)
@@ -123,3 +117,7 @@ Compiler('Compiler-Clang')
 	.Clang_x64_DebugConfig, .Clang_x64_ProfileConfig, .Clang_x64_ReleaseConfig
 }
 
+Compiler('Compiler-Clang')
+{
+	Using(.Clang_BaseConfig)
+}
