@@ -146,7 +146,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		Using(.CoreUnity)
 
 		.Name = 'core'
-		.ObjectListCompilerOptions = .CompilerOptionsCpp 
+		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$RootPath$'
 			+ ' -I$RootPath$/source'
 			+ ' -Wno-reorder'
@@ -274,6 +274,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/common/tracy_lz4hc.cpp'
 			'$RootPath$/external/tracy/server/TracyBadVersion.cpp'
 			'$RootPath$/external/tracy/server/TracyMemory.cpp'
+			'$RootPath$/external/tracy/server/TracyMmap.cpp'
 			'$RootPath$/external/tracy/server/TracyPrint.cpp'
 			'$RootPath$/external/tracy/server/TracyStorage.cpp'
 			'$RootPath$/external/tracy/server/TracyTexture.cpp'
@@ -306,6 +307,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -I$RootPath$/external/nativefiledialog/src/include'
 			+ ' -I$RootPath$/external/imgui'
 			+ ' -I$RootPath$/external/stb'
+			+ ' -I$RootPath$/external/xxhash'
+			+ ' -I$RootPath$/external/zstd/lib'
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
@@ -352,7 +355,10 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 				+ ' -DAMD_EXTENSIONS'
 				+ ' -DNV_EXTENSIONS'
 		//.CompilerInputUnity = '$Name$-unity'
-		.CompilerInputPath = { '$RootPath$/external/glslang/glslang' }
+		.CompilerInputPath = '$RootPath$/external/glslang/glslang'
+		.CompilerInputFiles = {
+			'$RootPath$/external/glslang/StandAlone/ResourceLimits.cpp',
+		}
 	#if !__WINDOWS__
 	 	.CompilerInputExcludePath = '$RootPath$/external/glslang/glslang/OSDependent/Windows'
 	#else
@@ -606,10 +612,26 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	^RootLibraries + .GlfwLibrary
 
+	.ZStdLibrary = 
+	[
+		Using(.LibraryCommon)
+
+		.Name = 'zstd'
+		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -I$RootPath$/external/zstd/lib'
+			+ ' -I$RootPath$/external/zstd/lib/common'
+			+ ' -Wno-unused-function'
+		.CompilerInputPath = '$RootPath$/external/zstd/lib'
+		.CompilerInputExcludedFiles = {
+			'common/xxhash.c'
+		}
+		.CompilerInputPattern = '*.c'
+	]
+	^RootLibraries + .ZStdLibrary
+
 	.XXHashLibrary = 
 	[
 		Using(.LibraryCommon)
-		Using(.UnityCommon)
 
 		.Name = 'xxhash'
 		.LibraryCompilerOptions = .CompilerOptionsC
@@ -723,7 +745,6 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	.Gl3wLibrary =
 	[
 		Using(.LibraryCommon)
-		Using(.UnityCommon)
 
 		.Name = 'gl3w'
 		.LibraryCompilerOptions = .CompilerOptionsC
@@ -737,12 +758,10 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	.NFDLibrary = 
 	[
 		Using(.LibraryCommon)
-		Using(.UnityCommon)
 
 		.Name = 'nativefiledialog'
 		.LibraryCompilerOptions = ' -I$RootPath$/external/nativefiledialog/src/include'
 	#if __WINDOWS__
-		//.LibraryCompilerOptions + .CompilerOptionsCpp
 		.CompilerInputFiles = {
 			'$RootPath$/external/nativefiledialog/src/nfd_common.c',
 			'$RootPath$/external/nativefiledialog/src/nfd_win.cpp',
@@ -845,6 +864,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 		.Name = 'tracy'
 		.RootDependencies = {
+			'xxhash-lib'
+			'zstd-lib'
 			'gl3w-lib',
 			'glfw-lib',
 			'imgui-lib',

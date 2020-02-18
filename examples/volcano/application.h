@@ -80,7 +80,7 @@ struct WindowData
 
 	SurfaceHandle<B> surface = 0;
 	SurfaceFormat<B> surfaceFormat = {};
-	PresentMode<B> presentMode;
+	PresentMode<B> presentMode = {};
 
 	SwapchainContext<B> swapchain = {};
 
