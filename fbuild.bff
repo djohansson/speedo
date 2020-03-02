@@ -278,6 +278,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/server/TracyPrint.cpp'
 			'$RootPath$/external/tracy/server/TracyStorage.cpp'
 			'$RootPath$/external/tracy/server/TracyTexture.cpp'
+			'$RootPath$/external/tracy/server/TracyTextureCompression.cpp'
 			'$RootPath$/external/tracy/server/TracyTaskDispatch.cpp'
 			'$RootPath$/external/tracy/server/TracyThreadCompress.cpp'
 			'$RootPath$/external/tracy/server/TracyUserData.cpp'

@@ -114,7 +114,11 @@
 			"__errc": "cpp",
 			"__node_handle": "cpp",
 			"resumable": "cpp",
-			"xxatomic": "cpp"
+			"xxatomic": "cpp",
+			"charconv": "cpp",
+			"cinttypes": "cpp",
+			"csignal": "cpp",
+			"*.idl": "cpp"
 		}
 	}
 }

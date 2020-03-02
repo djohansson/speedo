@@ -579,6 +579,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(WindowData<GraphicsBackend:
     {
         auto commandBuffer = beginSingleTimeCommands(myDevice, myTransferCommandPool);
 
+        ZoneScopedN("uploadFontTexture");
         //TracyVkZone(myTracyContext, commandBuffer, "uploadFontTexture");
 
         ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
@@ -827,8 +828,8 @@ Application<GraphicsBackend::Vulkan>::Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 		const char* resourcePath)
 		: myResourcePath(resourcePath)
-		, myCommandBufferThreadCount(2)
-		, myRequestedCommandBufferThreadCount(2)
+		, myCommandBufferThreadCount(NX * NY + 1)
+		, myRequestedCommandBufferThreadCount(NX * NY + 1)
 {
     ZoneScoped;
 
@@ -1021,45 +1022,60 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
         frame.graphicsDeltaTime = frame.graphicsFrameTimestamp - lastFrame.graphicsFrameTimestamp;
     }
 
+    std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this, &window]
+    {
+        if (window.imguiEnable)
+        {
+            ImGui_ImplVulkan_NewFrame();
+            drawIMGUI(window);
+        }
+    }));
+
     std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, &window]
     {
         updateViewBuffer(window);
     }));
+    
+    std::future<void> beginCommandsFuture(std::async(std::launch::async, [this, &frame]
+    {
+        // begin primary command buffer
+        {
+            ZoneScopedN("beginCommands");
 
-    std::future<void> secondaryCommandsFuture(std::async(std::launch::async, [this, &window, &frame]
+            CHECK_VK(vkResetCommandBuffer(frame.commandBuffers[0], 0));
+            VkCommandBufferBeginInfo info = {};
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            CHECK_VK(vkBeginCommandBuffer(frame.commandBuffers[0], &info));
+
+        }
+
+        // collect timing scopes
+        {
+            ZoneScopedN("tracyVkCollect");
+            TracyVkZone(myTracyContext, frame.commandBuffers[0], "tracyVkCollect");
+            
+            TracyVkCollect(myTracyContext, frame.commandBuffers[0]);
+        }
+    }));
+
+    std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
+    clearValues[0] = window.clearValue;
+    clearValues[1].depthStencil = {1.0f, 0};
+
+    // create secondary command buffers
     {
         // setup draw parameters
         constexpr uint32_t drawCount = NX * NY;
-        uint32_t segmentCount = std::max(myCommandBufferThreadCount - 1u, 1u);
+        uint32_t segmentCount = std::max(myCommandBufferThreadCount - 1, 1u);
 
         assert(myGraphicsPipelineConfig);
         auto& config = *myGraphicsPipelineConfig;
         assert(config.resources);
 
-        // begin secondary command buffers
-        for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
-        {
-            ZoneScopedN("beginSecondaryCommands");
-
-            VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
-
-            VkCommandBufferInheritanceInfo inherit = {
-                VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
-            inherit.renderPass = config.renderPass;
-            inherit.framebuffer = frame.frameBuffer;
-
-            CHECK_VK(vkResetCommandBuffer(cmd, 0));
-            VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
-                                VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT |
-                                VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-            secBeginInfo.pInheritanceInfo = &inherit;
-            CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
-        }
-
         // draw geometry using secondary command buffers
         {
-            ZoneScopedN("draw");
+            ZoneScopedN("waitDraw");
 
             uint32_t segmentDrawCount = drawCount / segmentCount;
             if (drawCount % segmentCount)
@@ -1075,130 +1091,119 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
 				std::execution::par,
 #endif
                 seq.begin(), segmentCount,
-                [&config, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt) {
-                    ZoneScopedN("drawSegment");
+                [/*this, */&config, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt)
+                {
 
                     VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
 
-                    //TracyVkZone(myTracyContext, cmd, "draw");
-
-                    // bind pipeline and inputs
                     {
-                        // bind pipeline and vertex/index buffers
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
+                        ZoneScopedN("beginSecondaryCommands");
 
-                        VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
-                        VkDeviceSize vertexOffsets[] = {0};
+                        VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
 
-                        vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                        vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        VkCommandBufferInheritanceInfo inherit = {
+                            VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+                        inherit.renderPass = config.renderPass;
+                        inherit.framebuffer = frame.frameBuffer;
+
+                        CHECK_VK(vkResetCommandBuffer(cmd, 0));
+                        VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+                        secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
+                                            VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT |
+                                            VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+                        secBeginInfo.pInheritanceInfo = &inherit;
+                        CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
                     }
 
-                    for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
                     {
-                        //TracyVkZone(myTracyContext, cmd, "drawModel");
-                        
-                        uint32_t n = segmentIt * segmentDrawCount + drawIt;
+                        ZoneScopedN("drawSegment");
+                        //TracyVkZone(myTracyContext, cmd, "drawSegment");
 
-                        if (n >= drawCount)
-                            break;
+                        // bind pipeline and inputs
+                        {
+                            ZoneScopedN("bind");
 
-                        uint32_t i = n % NX;
-                        uint32_t j = n / NX;
+                            // bind pipeline and vertex/index buffers
+                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
-                                                        int32_t width, int32_t height) {
-                            VkViewport viewport = {};
-                            viewport.x = static_cast<float>(x);
-                            viewport.y = static_cast<float>(y);
-                            viewport.width = static_cast<float>(width);
-                            viewport.height = static_cast<float>(height);
-                            viewport.minDepth = 0.0f;
-                            viewport.maxDepth = 1.0f;
+                            VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
+                            VkDeviceSize vertexOffsets[] = {0};
 
-                            VkRect2D scissor = {};
-                            scissor.offset = {x, y};
-                            scissor.extent = {static_cast<uint32_t>(width),
-                                            static_cast<uint32_t>(height)};
+                            vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
+                            vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        }
 
-                            vkCmdSetViewport(cmd, 0, 1, &viewport);
-                            vkCmdSetScissor(cmd, 0, 1, &scissor);
-                        };
+                        for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
+                        {
+                            ZoneScopedN("draw");
+                            //TracyVkZone(myTracyContext, cmd, "draw");
+                            
+                            uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
-                        auto drawModel = [&n, &frame](
-                                            VkCommandBuffer cmd, uint32_t indexCount,
-                                            uint32_t descriptorSetCount,
-                                            const VkDescriptorSet* descriptorSets,
-                                            VkPipelineLayout pipelineLayout) {
-                            uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(View::BufferData);
-                            vkCmdBindDescriptorSets(
-                                cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                                descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
-                            vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
-                        };
+                            if (n >= drawCount)
+                                break;
 
-                        setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+                            uint32_t i = n % NX;
+                            uint32_t j = n / NX;
 
-                        drawModel(
-                            cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
-                            config.descriptorSets.data(), config.layout->layout);
+                            auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
+                                                            int32_t width, int32_t height) {
+                                VkViewport viewport = {};
+                                viewport.x = static_cast<float>(x);
+                                viewport.y = static_cast<float>(y);
+                                viewport.width = static_cast<float>(width);
+                                viewport.height = static_cast<float>(height);
+                                viewport.minDepth = 0.0f;
+                                viewport.maxDepth = 1.0f;
+
+                                VkRect2D scissor = {};
+                                scissor.offset = {x, y};
+                                scissor.extent = {static_cast<uint32_t>(width),
+                                                static_cast<uint32_t>(height)};
+
+                                vkCmdSetViewport(cmd, 0, 1, &viewport);
+                                vkCmdSetScissor(cmd, 0, 1, &scissor);
+                            };
+
+                            auto drawModel = [&n, &frame](
+                                                VkCommandBuffer cmd, uint32_t indexCount,
+                                                uint32_t descriptorSetCount,
+                                                const VkDescriptorSet* descriptorSets,
+                                                VkPipelineLayout pipelineLayout) {
+                                uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(View::BufferData);
+                                vkCmdBindDescriptorSets(
+                                    cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
+                                    descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
+                                vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+                            };
+
+                            setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+
+                            drawModel(
+                                cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
+                                config.descriptorSets.data(), config.layout->layout);
+                        }
+                    }
+
+                    {
+                        ZoneScopedN("endSecondaryCommands");
+
+                        CHECK_VK(vkEndCommandBuffer(cmd));
                     }
                 });
         }
-
-        // end secondary command buffers
-        for (uint32_t segmentIt = 0; segmentIt < segmentCount; segmentIt++)
-        {
-            VkCommandBuffer cmd = frame.commandBuffers
-                    [segmentIt + 1];
-            {
-                ZoneScopedN("endSecondaryCommands");
-
-                CHECK_VK(vkEndCommandBuffer(cmd));
-            }
-        }
-    }));
-
-    if (window.imguiEnable)
-    {
-        ImGui_ImplVulkan_NewFrame();
-        drawIMGUI(window);
-    }
-    
-    // begin primary command buffer
-    {
-        ZoneScopedN("beginCommands");
-
-        CHECK_VK(vkResetCommandBuffer(frame.commandBuffers[0], 0));
-        VkCommandBufferBeginInfo info = {};
-        info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        CHECK_VK(vkBeginCommandBuffer(frame.commandBuffers[0], &info));
     }
 
-    // collect timing scopes
+    // wait for primary command buffer to be ready to accept commands
     {
-        ZoneScopedN("tracyVkCollect");
+        ZoneScopedN("waitBeginCommands");
 
-        TracyVkZone(myTracyContext, frame.commandBuffers[0], "tracyVkCollect");
-
-        TracyVkCollect(myTracyContext, frame.commandBuffers[0]);
+        beginCommandsFuture.get();
     }
-
-    std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
-    clearValues[0] = window.clearValue;
-    clearValues[1].depthStencil = {1.0f, 0};
 
     // call secondary command buffers
     {
-        {
-            ZoneScopedN("waitSecondaryCommands");
-
-            secondaryCommandsFuture.get();
-        }
-
         ZoneScopedN("executeCommands");
-
         TracyVkZone(myTracyContext, frame.commandBuffers[0], "executeCommands");
 
         VkRenderPassBeginInfo beginInfo = {};
@@ -1218,11 +1223,17 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
         vkCmdEndRenderPass(frame.commandBuffers[0]);
     }
 
+    // wait for imgui draw job
+    {
+        ZoneScopedN("waitDrawIMGUI");
+
+        drawIMGUIFuture.get();
+    }
+
     // Record Imgui Draw Data and draw funcs into primary command buffer
     if (window.imguiEnable)
     {
         ZoneScopedN("drawIMGUI");
-
         TracyVkZone(myTracyContext, frame.commandBuffers[0], "drawIMGUI");
 
         VkRenderPassBeginInfo beginInfo = {};
@@ -1244,10 +1255,9 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(WindowData<GraphicsBacken
     // Submit primary command buffer
     {
         {
-            ZoneScopedN("waitFramePrepare");
+            ZoneScopedN("waitViewBuffer");
 
             updateViewBufferFuture.get();
-            
         }
 
         ZoneScopedN("submitCommands");
@@ -1289,7 +1299,6 @@ template <>
 void Application<GraphicsBackend::Vulkan>::draw()
 {
     FrameMark;
-    ZoneScoped;
 
     auto& window = *myDefaultResources->window;
 
@@ -1306,7 +1315,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
 
         cleanupFrameResources();
 
-        myCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY);
+        myCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY + 1);
 
         createFrameResources(window);
     }
