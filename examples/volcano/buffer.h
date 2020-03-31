@@ -22,9 +22,8 @@ class Buffer
 {
 public:
 
-    Buffer(
-        DeviceHandle<B> device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator,
-        BufferCreateDesc<B>&& desc);
+    Buffer(BufferCreateDesc<B>&& desc,
+        DeviceHandle<B> device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator);
 
     ~Buffer();
 
@@ -37,10 +36,10 @@ public:
 
 private:
 
+    const BufferCreateDesc<B> myDesc = {};
+
     DeviceHandle<B> myDevice = 0; 
     AllocatorHandle<B> myAllocator = 0;
-
-    BufferCreateDesc<B> myDesc = {};
 
 	BufferHandle<B> myBuffer = 0;
 	AllocationHandle<B> myBufferMemory = 0;

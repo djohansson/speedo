@@ -18,9 +18,10 @@
 			"args": [
 			//	"-showcmds",
 				"-cache",
-			//	"-cacheverbose",
+				"-cacheverbose",
 				"-summary",
-				"all"
+			//	"all"
+				"debug"
 			],
 			"group": {
                 "kind": "build",

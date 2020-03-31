@@ -17,7 +17,7 @@ void Application<B>::resizeWindow(const window_state& state)
 
 // todo: encapsulate
 template <GraphicsBackend B>
-PipelineConfiguration<B> Application<B>::createPipelineConfig(DeviceHandle<B> device, RenderPassHandle<B> renderPass,
+auto Application<B>::createPipelineConfig(DeviceHandle<B> device, RenderPassHandle<B> renderPass,
     DescriptorPoolHandle<B> descriptorPool, PipelineCacheHandle<B> pipelineCache,
     std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceView<B>> resources) const
 {
@@ -49,7 +49,7 @@ void Application<B>::updateViewMatrix(View& view) const
 template <GraphicsBackend B>
 void Application<B>::updateProjectionMatrix(View& view) const
 {
-    constexpr glm::mat4 clip = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f,
+    static const glm::mat4 clip = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f,
                                 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f,  0.5f, 1.0f};
 
     constexpr auto fov = 75.0f;
@@ -62,7 +62,7 @@ void Application<B>::updateProjectionMatrix(View& view) const
 }
 
 template <GraphicsBackend B>
-void Application<B>::drawIMGUI(WindowData<B>& window)
+void Application<B>::drawIMGUI(Window<B>& window) const
 {
     ZoneScoped;
 
@@ -73,8 +73,8 @@ void Application<B>::drawIMGUI(WindowData<B>& window)
 
     {
         Begin("Render Options");
-        DragInt(
-            "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
+        // DragInt(
+        //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
         ColorEdit3(
             "Clear Color", &window.clearValue.color.float32[0]);
         End();
@@ -99,39 +99,39 @@ void Application<B>::drawIMGUI(WindowData<B>& window)
         End();
     }
 
-    {
-        Begin("File");
+    // {
+    //     Begin("File");
 
-        if (Button("Open OBJ file"))
-        {
-            nfdchar_t* pathStr;
-            auto res = NFD_OpenDialog("obj", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
-            if (res == NFD_OKAY)
-            {
-                myDefaultResources->model = std::make_shared<Model<B>>(
-                    myDevice, myTransferCommandPool, myQueue, myAllocator,
-                    std::filesystem::absolute(pathStr));
+    //     if (Button("Open OBJ file"))
+    //     {
+    //         nfdchar_t* pathStr;
+    //         auto res = NFD_OpenDialog("obj", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
+    //         if (res == NFD_OKAY)
+    //         {
+    //             myDefaultResources->model = std::make_shared<Model<B>>(
+    //                 myDevice, myTransferCommandPool, myQueue, myAllocator,
+    //                 std::filesystem::absolute(pathStr));
 
-                updateDescriptorSets(window, *myGraphicsPipelineConfig);
-            }
-        }
+    //             updateDescriptorSets(window, *myGraphicsPipelineConfig);
+    //         }
+    //     }
 
-        if (Button("Open JPG file"))
-        {
-            nfdchar_t* pathStr;
-            auto res = NFD_OpenDialog("jpg", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
-            if (res == NFD_OKAY)
-            {
-                myDefaultResources->texture = std::make_shared<Texture<B>>(
-                    myDevice, myTransferCommandPool, myQueue, myAllocator,
-                    std::filesystem::absolute(pathStr));
+    //     if (Button("Open JPG file"))
+    //     {
+    //         nfdchar_t* pathStr;
+    //         auto res = NFD_OpenDialog("jpg", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
+    //         if (res == NFD_OKAY)
+    //         {
+    //             myDefaultResources->texture = std::make_shared<Texture<B>>(
+    //                 myDevice, myTransferCommandPool, myQueue, myAllocator,
+    //                 std::filesystem::absolute(pathStr));
 
-                updateDescriptorSets(window, *myGraphicsPipelineConfig);
-            }
-        }
+    //             updateDescriptorSets(window, *myGraphicsPipelineConfig);
+    //         }
+    //     }
 
-        End();
-    }
+    //     End();
+    // }
 
     {
         ShowMetricsWindow();

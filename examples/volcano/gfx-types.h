@@ -13,6 +13,9 @@ enum class GraphicsBackend
 };
 
 template <GraphicsBackend B>
+using InstanceCreateDesc = std::conditional_t<B == GraphicsBackend::Vulkan, VkApplicationInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using Result = std::conditional_t<B == GraphicsBackend::Vulkan, VkResult, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -62,10 +65,6 @@ using PresentMode =
 template <GraphicsBackend B>
 using SurfaceCapabilities =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceCapabilitiesKHR, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using SurfaceFormat =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using PresentMode =

@@ -1,11 +1,29 @@
 #pragma once
 
+#include "gfx-types.h"
 #include "utils.h"
 
 #include <stack>
 #include <vector>
 
 #include <xxhash.h>
+
+template <GraphicsBackend B>
+struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>
+{
+	using BaseType = VertexInputAttributeDescription<B>;
+
+	template <class Archive, GraphicsBackend B = B>
+	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
+	{
+		static_assert(sizeof(*this) == sizeof(BaseType));
+
+		ar(BaseType::location);
+		ar(BaseType::binding);
+		ar(BaseType::format);
+		ar(BaseType::offset);
+	}
+};
 
 // todo: make sure that it will work between multiple ScopedVertexAllocation scopes
 // 		 create some sort of nested data structure holding both stride and byte vector, and make sure that the scope refers to the correct one.

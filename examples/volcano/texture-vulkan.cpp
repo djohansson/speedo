@@ -46,9 +46,10 @@ int eof(void* user)
 namespace texture
 {
 
-TextureCreateDesc<GraphicsBackend::Vulkan> load(
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-    const std::filesystem::path& textureFile)
+TextureCreateDesc<GraphicsBackend::Vulkan>
+load(
+    const std::filesystem::path& textureFile,
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
 {
     TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
     desc.debugName = textureFile.u8string();
@@ -151,14 +152,14 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
+    TextureCreateDesc<GraphicsBackend::Vulkan>&& desc,
     DeviceHandle<GraphicsBackend::Vulkan> device,
     CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
     QueueHandle<GraphicsBackend::Vulkan> queue,
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-    TextureCreateDesc<GraphicsBackend::Vulkan>&& desc)
-    : myDevice(device)
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+    : myDesc(std::move(desc))
+    , myDevice(device)
     , myAllocator(allocator)
-    , myDesc(std::move(desc))
 {
     std::tie(myImage, myImageMemory) = createImage2D(
         myDevice,
@@ -180,12 +181,12 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
+    const std::filesystem::path& textureFile,
     DeviceHandle<GraphicsBackend::Vulkan> device,
     CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
     QueueHandle<GraphicsBackend::Vulkan> queue,
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-    const std::filesystem::path& textureFile)
-    : Texture(device, commandPool, queue, allocator, texture::load(allocator, textureFile))
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+    : Texture(texture::load(textureFile, allocator), device, commandPool, queue, allocator)
 {
 }
 
@@ -196,7 +197,8 @@ Texture<GraphicsBackend::Vulkan>::~Texture()
 }
 
 template <>
-ImageViewHandle<GraphicsBackend::Vulkan> Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
+ImageViewHandle<GraphicsBackend::Vulkan>
+Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
 {
     return createImageView2D(myDevice, myImage, myDesc.format, aspectFlags);
 }

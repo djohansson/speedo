@@ -1,13 +1,18 @@
 #pragma once
 
+#include "buffer.h"
+#include "device.h"
+#include "file.h"
 #include "gfx-types.h"
 #include "glm.h"
-#include "view.h"
+#include "model.h"
+#include "swapchain.h"
+#include "texture.h"
+#include "utils.h"
+#include "window.h"
 
-#include <chrono>
 #include <filesystem>
 #include <memory>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -19,24 +24,6 @@ struct PipelineLayoutContext
 		descriptorSetLayouts;
 
 	PipelineLayoutHandle<B> layout = 0;
-};
-
-template <GraphicsBackend B>
-struct SwapchainInfo
-{
-	SurfaceCapabilities<B> capabilities = {};
-	std::vector<SurfaceFormat<B>> formats;
-	std::vector<PresentMode<B>> presentModes;
-};
-
-template <GraphicsBackend B>
-struct SwapchainContext
-{
-	SwapchainInfo<B> info = {};
-	SwapchainHandle<B> swapchain = 0;
-
-	std::vector<ImageHandle<B>> colorImages;
-	std::vector<ImageViewHandle<B>> colorImageViews;
 };
 
 using EntryPoint = std::pair<std::string, uint32_t>;
@@ -81,41 +68,31 @@ struct SerializableShaderReflectionModule
 };
 
 template <GraphicsBackend B>
-struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>
-{
-	using BaseType = VertexInputAttributeDescription<B>;
-
-	template <class Archive, GraphicsBackend B = B>
-	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
-	{
-		static_assert(sizeof(*this) == sizeof(BaseType));
-
-		ar(BaseType::location);
-		ar(BaseType::binding);
-		ar(BaseType::format);
-		ar(BaseType::offset);
-	}
-};
-
-template <GraphicsBackend B>
 struct PipelineCacheHeader
 {
 };
 
 template <GraphicsBackend B>
-struct FrameData
+struct GraphicsPipelineResourceView
 {
-	uint32_t index = 0;
-	
-	FramebufferHandle<B> frameBuffer = 0;
-	std::vector<CommandBufferHandle<B>> commandBuffers; // count = [threadCount]
-	
-	FenceHandle<B> fence = 0;
-	SemaphoreHandle<B> renderCompleteSemaphore = 0;
-	SemaphoreHandle<B> newImageAcquiredSemaphore = 0;
+	std::shared_ptr<Model<B>> model; // temp
+	std::shared_ptr<Texture<B>> texture; // temp
+	ImageViewHandle<B> textureView = 0;
+	SamplerHandle<B> sampler = 0;
 
-	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
-	std::chrono::duration<double> graphicsDeltaTime;
+	std::shared_ptr<Window<B>> window; // temp - replace with generic render target structure
+};
+
+template <GraphicsBackend B>
+struct PipelineConfiguration
+{
+	std::shared_ptr<GraphicsPipelineResourceView<B>> resources;
+	std::shared_ptr<PipelineLayoutContext<B>> layout;
+
+	RenderPassHandle<B> renderPass = 0; // should perhaps not be stored here...
+	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"
+
+	std::vector<DescriptorSetHandle<B>> descriptorSets;
 };
 
 template <GraphicsBackend B>
@@ -132,14 +109,46 @@ template <GraphicsBackend B>
 PipelineLayoutContext<B> createPipelineLayoutContext(DeviceHandle<B> device, const SerializableShaderReflectionModule<B>& slangModule);
 
 template <GraphicsBackend B>
-PipelineCacheHandle<B> loadPipelineCache(DeviceHandle<B> device, PhysicalDeviceProperties<B> physicalDeviceProperties,
-	const std::filesystem::path& cacheFilePath);
+PipelineCacheHandle<B> loadPipelineCache(
+	const std::filesystem::path& cacheFilePath,
+	DeviceHandle<B> device,
+	PhysicalDeviceProperties<B> physicalDeviceProperties);
 
 template <GraphicsBackend B>
-void savePipelineCache(DeviceHandle<B> device, PipelineCacheHandle<B> pipelineCache, PhysicalDeviceProperties<B> physicalDeviceProperties,
-	const std::filesystem::path& cacheFilePath);
+void savePipelineCache(
+	const std::filesystem::path& cacheFilePath,
+	DeviceHandle<B> device,
+	PhysicalDeviceProperties<B> physicalDeviceProperties,
+	PipelineCacheHandle<B> pipelineCache);
 
 template <GraphicsBackend B>
-InstanceHandle<B> createInstance();
+InstanceHandle<B> createInstance(InstanceCreateDesc<B>&& createDesc);
+
+template <GraphicsBackend B>
+PipelineCacheHandle<B> createPipelineCache(DeviceHandle<B> device, const std::vector<std::byte>& cacheData);
+
+template <GraphicsBackend B>
+std::vector<std::byte> getPipelineCacheData(DeviceHandle<B> device,	PipelineCacheHandle<B> pipelineCache);
+
+template <GraphicsBackend B>
+SurfaceHandle<B> createSurface(InstanceHandle<B> instance, void* view);
+
+template <GraphicsBackend B>
+AllocatorHandle<B> createAllocator(
+	InstanceHandle<B> instance,
+	DeviceHandle<B> device,
+	PhysicalDeviceHandle<B> physicalDevice);
+
+template <GraphicsBackend B>
+DescriptorPoolHandle<B> createDescriptorPool(DeviceHandle<B> device);
+
+template <GraphicsBackend B>
+RenderPassHandle<B> createRenderPass(DeviceHandle<B> device, const Window<B>& window);
+
+template <GraphicsBackend B>
+PipelineHandle<B> createGraphicsPipeline(
+	DeviceHandle<B> device,
+	PipelineCacheHandle<B> pipelineCache,
+	const PipelineConfiguration<B>& pipelineConfig);
 
 #include "gfx.inl"

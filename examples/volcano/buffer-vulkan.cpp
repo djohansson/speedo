@@ -4,14 +4,14 @@
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
+    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc,
     DeviceHandle<GraphicsBackend::Vulkan> device, 
     CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
     QueueHandle<GraphicsBackend::Vulkan> queue, 
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
-    : myDevice(device)
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+    : myDesc(std::move(desc))
+    , myDevice(device)
     , myAllocator(allocator)
-    , myDesc(std::move(desc))
 {
     std::tie(myBuffer, myBufferMemory) = createBuffer(
 		myDevice, commandPool, queue, myAllocator, myDesc.initialData, myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
@@ -26,7 +26,8 @@ Buffer<GraphicsBackend::Vulkan>::~Buffer()
 }
 
 template <>
-BufferViewHandle<GraphicsBackend::Vulkan> Buffer<GraphicsBackend::Vulkan>::createView(
+BufferViewHandle<GraphicsBackend::Vulkan>
+Buffer<GraphicsBackend::Vulkan>::createView(
     Format<GraphicsBackend::Vulkan> format,
     DeviceSize<GraphicsBackend::Vulkan> offset,
     DeviceSize<GraphicsBackend::Vulkan> range) const

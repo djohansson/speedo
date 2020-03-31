@@ -11,7 +11,8 @@
 #include <slang.h>
 
 template <GraphicsBackend B>
-std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile)
+std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
+	const std::filesystem::path& slangFile)
 {
 	auto slangModule = std::make_shared<SerializableShaderReflectionModule<B>>();
 
@@ -290,13 +291,14 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const st
 
 template <GraphicsBackend B>
 PipelineCacheHandle<B> loadPipelineCache(
+	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<B> device,
-	PhysicalDeviceProperties<B> physicalDeviceProperties,
-	const std::filesystem::path& cacheFilePath)
+	PhysicalDeviceProperties<B> physicalDeviceProperties)
 {
 	std::vector<std::byte> cacheData;
 
-	auto loadCache = [&physicalDeviceProperties, &cacheData](std::istream& stream) {
+	auto loadCacheOp = [&physicalDeviceProperties, &cacheData](std::istream& stream)
+	{
 		cereal::BinaryInputArchive bin(stream);
 		bin(cacheData);
 
@@ -313,41 +315,24 @@ PipelineCacheHandle<B> loadPipelineCache(
 
 	FileInfo sourceFileInfo;
 	if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
-		loadBinaryFile(cacheFilePath, sourceFileInfo, loadCache, false);
+		loadBinaryFile(cacheFilePath, sourceFileInfo, loadCacheOp, false);
 
-	auto createPipelineCache = [](DeviceHandle<B> device, const std::vector<std::byte>& cacheData)
-	{
-		PipelineCacheHandle<B> cache;
-
-		VkPipelineCacheCreateInfo createInfo = {};
-		createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-		createInfo.flags = 0;
-		createInfo.initialDataSize = cacheData.size();
-		createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
-	
-		CHECK_VK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
-	
-		return cache;
-	};
-
-	return createPipelineCache(device, cacheData);
+	return createPipelineCache<B>(device, cacheData);
 }
 
 template <GraphicsBackend B>
 void savePipelineCache(
+	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<B> device,
-	PipelineCacheHandle<B> pipelineCache,
 	PhysicalDeviceProperties<B> physicalDeviceProperties,
-	const std::filesystem::path& cacheFilePath)
+	PipelineCacheHandle<B> pipelineCache)
 {
-	auto savePipelineCacheData = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream& stream) {
-		size_t cacheDataSize = 0;
-		CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
-		if (cacheDataSize)
+	// todo: move to gfx-vulkan.cpp
+	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream& stream)
+	{
+		auto cacheData = getPipelineCacheData<B>(device, pipelineCache);
+		if (!cacheData.empty())
 		{
-			std::vector<std::byte> cacheData(cacheDataSize);
-			CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
-
 			const PipelineCacheHeader<B>* header =
 				reinterpret_cast<const PipelineCacheHeader<B>*>(cacheData.data());
 
@@ -365,95 +350,5 @@ void savePipelineCache(
 	};
 
 	FileInfo cacheFileInfo;
-	saveBinaryFile(cacheFilePath, cacheFileInfo, savePipelineCacheData, false);
-}
-
-template <GraphicsBackend B>
-InstanceHandle<B> createInstance()
-{
-    VkApplicationInfo appInfo = {};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_1;
-
-    uint32_t instanceLayerCount;
-    CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
-    std::cout << instanceLayerCount << " layers found!\n";
-    if (instanceLayerCount > 0)
-    {
-        std::unique_ptr<VkLayerProperties[]> instanceLayers(
-            new VkLayerProperties[instanceLayerCount]);
-        CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
-        for (uint32_t i = 0; i < instanceLayerCount; ++i)
-            std::cout << instanceLayers[i].layerName << "\n";
-    }
-
-    const char* enabledLayerNames[] =
-    {
-    #ifdef PROFILING_ENABLED
-        "VK_LAYER_LUNARG_standard_validation",
-    #endif
-    };
-
-    uint32_t instanceExtensionCount;
-    vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
-
-    std::vector<VkExtensionProperties> availableInstanceExtensions(instanceExtensionCount);
-    vkEnumerateInstanceExtensionProperties(
-        nullptr, &instanceExtensionCount, availableInstanceExtensions.data());
-
-    std::vector<const char*> instanceExtensions(instanceExtensionCount);
-    for (uint32_t i = 0; i < instanceExtensionCount; i++)
-    {
-        instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
-        std::cout << instanceExtensions[i] << "\n";
-    }
-
-    std::sort(
-        instanceExtensions.begin(), instanceExtensions.end(),
-        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
-
-    std::vector<const char*> requiredExtensions = {
-        // must be sorted lexicographically for std::includes to work!
-        "VK_EXT_debug_report",
-        "VK_KHR_surface",
-#if defined(__WINDOWS__)
-        "VK_KHR_win32_surface",
-#elif defined(__APPLE__)
-        "VK_MVK_macos_surface",
-#elif defined(__linux__)
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-        "VK_KHR_xcb_surface",
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-        "VK_KHR_xlib_surface",
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
-        "VK_KHR_wayland_surface",
-#	else // default to xcb
-        "VK_KHR_xcb_surface",
-#	endif
-#endif
-    };
-
-    assert(std::includes(
-        instanceExtensions.begin(), instanceExtensions.end(), requiredExtensions.begin(),
-        requiredExtensions.end(),
-        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
-
-    // if (std::find(instanceExtensions.begin(), instanceExtensions.end(), "VK_KHR_display") ==
-    // instanceExtensions.end()) 	instanceExtensions.push_back("VK_KHR_display");
-
-    VkInstanceCreateInfo info = {};
-    info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    info.pApplicationInfo = &appInfo;
-    info.enabledLayerCount = sizeof_array(enabledLayerNames);
-    info.ppEnabledLayerNames = info.enabledLayerCount ? enabledLayerNames : nullptr;
-    info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
-    info.ppEnabledExtensionNames = requiredExtensions.data();
-
-    InstanceHandle<B> instance = 0;
-    CHECK_VK(vkCreateInstance(&info, NULL, &instance));
-
-    return instance;
+	saveBinaryFile(cacheFilePath, cacheFileInfo, saveCacheOp, false);
 }

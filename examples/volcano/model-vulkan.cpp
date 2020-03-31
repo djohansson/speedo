@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -78,8 +79,8 @@ calculateInputBindingDescriptions(
 }
 
 ModelCreateDesc<GraphicsBackend::Vulkan> load(
-	AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-	const std::filesystem::path& modelFile)
+	const std::filesystem::path& modelFile,
+	AllocatorHandle<GraphicsBackend::Vulkan> allocator)
 {
 	ModelCreateDesc<GraphicsBackend::Vulkan> desc = {};
 	desc.debugName = modelFile.u8string();
@@ -277,32 +278,25 @@ ModelCreateDesc<GraphicsBackend::Vulkan> load(
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
+	ModelCreateDesc<GraphicsBackend::Vulkan>&& desc,
     DeviceHandle<GraphicsBackend::Vulkan> device,
 	CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
 	QueueHandle<GraphicsBackend::Vulkan> queue,
-	AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-    ModelCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: myDevice(device)
-, myAllocator(allocator)
-, myDesc(std::move(desc))
+	AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+: myDesc(std::move(desc))
 , myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
-, myVertexBuffer(device, commandPool, queue, allocator, {myDesc.vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myDesc.initialVertices, myDesc.initialVerticesMemory, myDesc.debugName + "_vertices"})
-, myIndexBuffer(device, commandPool, queue, allocator, {myDesc.indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myDesc.initialIndices, myDesc.initialIndicesMemory, myDesc.debugName + "_indices"})
+, myVertexBuffer({myDesc.vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myDesc.initialVertices, myDesc.initialVerticesMemory, myDesc.debugName + "_vertices"}, device, commandPool, queue, allocator)
+, myIndexBuffer({myDesc.indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myDesc.initialIndices, myDesc.initialIndicesMemory, myDesc.debugName + "_indices"}, device, commandPool, queue, allocator)
 {
 }
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
+	const std::filesystem::path& modelFile,
 	DeviceHandle<GraphicsBackend::Vulkan> device,
 	CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
 	QueueHandle<GraphicsBackend::Vulkan> queue,
-	AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-	const std::filesystem::path& modelFile)
-	: Model(device, commandPool, queue, allocator, model::load(allocator, modelFile))
-{
-}
-
-template <>
-Model<GraphicsBackend::Vulkan>::~Model()
+	AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+	: Model(model::load(modelFile, allocator), device, commandPool, queue, allocator)
 {
 }

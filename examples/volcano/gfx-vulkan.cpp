@@ -4,6 +4,10 @@
 #include <tuple>
 #include <vector>
 
+#define GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 #pragma pack(push, 1)
 template <>
 struct PipelineCacheHeader<GraphicsBackend::Vulkan>
@@ -17,7 +21,10 @@ struct PipelineCacheHeader<GraphicsBackend::Vulkan>
 #pragma pack(pop)
 
 template <>
-bool isCacheValid(const PipelineCacheHeader<GraphicsBackend::Vulkan>& header, const PhysicalDeviceProperties<GraphicsBackend::Vulkan>& physicalDeviceProperties)
+bool
+isCacheValid<GraphicsBackend::Vulkan>(
+	const PipelineCacheHeader<GraphicsBackend::Vulkan>& header,
+	const PhysicalDeviceProperties<GraphicsBackend::Vulkan>& physicalDeviceProperties)
 {
 	return (header.headerLength > 0 &&
 		header.cacheHeaderVersion == VK_PIPELINE_CACHE_HEADER_VERSION_ONE &&
@@ -28,8 +35,9 @@ bool isCacheValid(const PipelineCacheHeader<GraphicsBackend::Vulkan>& header, co
 
 template <>
 std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, PhysicalDeviceProperties<GraphicsBackend::Vulkan>>
-getSuitableSwapchainAndQueueFamilyIndex(
-	SurfaceHandle<GraphicsBackend::Vulkan> surface, PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(
+	SurfaceHandle<GraphicsBackend::Vulkan> surface,
+	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
 	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
 
@@ -93,7 +101,8 @@ getSuitableSwapchainAndQueueFamilyIndex(
 }
 
 template <>
-PipelineLayoutContext<GraphicsBackend::Vulkan> createPipelineLayoutContext(
+PipelineLayoutContext<GraphicsBackend::Vulkan>
+createPipelineLayoutContext<GraphicsBackend::Vulkan>(
 	DeviceHandle<GraphicsBackend::Vulkan> device,
 	const SerializableShaderReflectionModule<GraphicsBackend::Vulkan>& slangModule)
 {
@@ -155,4 +164,450 @@ PipelineLayoutContext<GraphicsBackend::Vulkan> createPipelineLayoutContext(
 		device, &pipelineLayoutInfo, nullptr, &pipelineLayout.layout));
 
 	return pipelineLayout;
+}
+
+template <>
+InstanceHandle<GraphicsBackend::Vulkan>
+createInstance<GraphicsBackend::Vulkan>(
+	InstanceCreateDesc<GraphicsBackend::Vulkan>&& createDesc)
+{
+    uint32_t instanceLayerCount;
+    CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
+    std::cout << instanceLayerCount << " layers found!\n";
+    if (instanceLayerCount > 0)
+    {
+        std::unique_ptr<VkLayerProperties[]> instanceLayers(
+            new VkLayerProperties[instanceLayerCount]);
+        CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
+        for (uint32_t i = 0; i < instanceLayerCount; ++i)
+            std::cout << instanceLayers[i].layerName << "\n";
+    }
+
+    const char* enabledLayerNames[] =
+    {
+    #ifdef PROFILING_ENABLED
+        "VK_LAYER_LUNARG_standard_validation",
+    #endif
+    };
+
+    uint32_t instanceExtensionCount;
+    vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
+
+    std::vector<VkExtensionProperties> availableInstanceExtensions(instanceExtensionCount);
+    vkEnumerateInstanceExtensionProperties(
+        nullptr, &instanceExtensionCount, availableInstanceExtensions.data());
+
+    std::vector<const char*> instanceExtensions(instanceExtensionCount);
+    for (uint32_t i = 0; i < instanceExtensionCount; i++)
+    {
+        instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
+        std::cout << instanceExtensions[i] << "\n";
+    }
+
+    std::sort(
+        instanceExtensions.begin(), instanceExtensions.end(),
+        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
+
+    std::vector<const char*> requiredExtensions = {
+        // must be sorted lexicographically for std::includes to work!
+        "VK_EXT_debug_report",
+        "VK_KHR_surface",
+#if defined(__WINDOWS__)
+        "VK_KHR_win32_surface",
+#elif defined(__APPLE__)
+        "VK_MVK_macos_surface",
+#elif defined(__linux__)
+#	if defined(VK_USE_PLATFORM_XCB_KHR)
+        "VK_KHR_xcb_surface",
+#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
+        "VK_KHR_xlib_surface",
+#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+        "VK_KHR_wayland_surface",
+#	else // default to xcb
+        "VK_KHR_xcb_surface",
+#	endif
+#endif
+    };
+
+    assert(std::includes(
+        instanceExtensions.begin(), instanceExtensions.end(), requiredExtensions.begin(),
+        requiredExtensions.end(),
+        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
+
+    // if (std::find(instanceExtensions.begin(), instanceExtensions.end(), "VK_KHR_display") ==
+    // instanceExtensions.end()) 	instanceExtensions.push_back("VK_KHR_display");
+
+    VkInstanceCreateInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    info.pApplicationInfo = &createDesc;
+    info.enabledLayerCount = sizeof_array(enabledLayerNames);
+    info.ppEnabledLayerNames = info.enabledLayerCount ? enabledLayerNames : nullptr;
+    info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
+    info.ppEnabledExtensionNames = requiredExtensions.data();
+
+    InstanceHandle<GraphicsBackend::Vulkan> instance = 0;
+    CHECK_VK(vkCreateInstance(&info, NULL, &instance));
+
+    return instance;
+}
+
+template <>
+PipelineCacheHandle<GraphicsBackend::Vulkan>
+createPipelineCache<GraphicsBackend::Vulkan>(
+	DeviceHandle<GraphicsBackend::Vulkan> device,
+	const std::vector<std::byte>& cacheData)
+{
+	PipelineCacheHandle<GraphicsBackend::Vulkan> cache;
+
+	VkPipelineCacheCreateInfo createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+	createInfo.flags = 0;
+	createInfo.initialDataSize = cacheData.size();
+	createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
+
+	CHECK_VK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
+
+	return cache;
+};
+
+template <>
+std::vector<std::byte> getPipelineCacheData<GraphicsBackend::Vulkan>(
+	DeviceHandle<GraphicsBackend::Vulkan> device,
+	PipelineCacheHandle<GraphicsBackend::Vulkan> pipelineCache)
+{
+	std::vector<std::byte> cacheData;
+	size_t cacheDataSize = 0;
+	CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
+	if (cacheDataSize)
+	{
+		cacheData.resize(cacheDataSize);
+		CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
+	}
+
+	return cacheData;
+};
+
+template <>
+SurfaceHandle<GraphicsBackend::Vulkan>
+createSurface<GraphicsBackend::Vulkan>(
+	InstanceHandle<GraphicsBackend::Vulkan> instance,
+	void* view)
+{
+    SurfaceHandle<GraphicsBackend::Vulkan> surface;
+    CHECK_VK(glfwCreateWindowSurface(
+        instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
+
+    return surface;
+}
+
+template <>
+AllocatorHandle<GraphicsBackend::Vulkan>
+createAllocator<GraphicsBackend::Vulkan>(
+	InstanceHandle<GraphicsBackend::Vulkan> instance,
+    DeviceHandle<GraphicsBackend::Vulkan> device,
+    PhysicalDeviceHandle<GraphicsBackend::Vulkan> physicalDevice)
+{
+    auto vkGetBufferMemoryRequirements2KHR =
+        (PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
+            instance, "vkGetBufferMemoryRequirements2KHR");
+    assert(vkGetBufferMemoryRequirements2KHR != nullptr);
+
+    auto vkGetImageMemoryRequirements2KHR =
+        (PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(
+            instance, "vkGetImageMemoryRequirements2KHR");
+    assert(vkGetImageMemoryRequirements2KHR != nullptr);
+
+    VmaVulkanFunctions functions = {};
+    functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+    functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+    functions.vkAllocateMemory = vkAllocateMemory;
+    functions.vkFreeMemory = vkFreeMemory;
+    functions.vkMapMemory = vkMapMemory;
+    functions.vkUnmapMemory = vkUnmapMemory;
+    functions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+    functions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+    functions.vkBindBufferMemory = vkBindBufferMemory;
+    functions.vkBindImageMemory = vkBindImageMemory;
+    functions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+    functions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+    functions.vkCreateBuffer = vkCreateBuffer;
+    functions.vkDestroyBuffer = vkDestroyBuffer;
+    functions.vkCreateImage = vkCreateImage;
+    functions.vkDestroyImage = vkDestroyImage;
+    functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
+    functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
+
+    VmaAllocator allocator;
+    VmaAllocatorCreateInfo allocatorInfo = {};
+    allocatorInfo.instance = instance;
+    allocatorInfo.physicalDevice = physicalDevice;
+    allocatorInfo.device = device;
+    allocatorInfo.pVulkanFunctions = &functions;
+    vmaCreateAllocator(&allocatorInfo, &allocator);
+
+    return allocator;
+}
+
+template <>
+DescriptorPoolHandle<GraphicsBackend::Vulkan>
+createDescriptorPool<GraphicsBackend::Vulkan>(DeviceHandle<GraphicsBackend::Vulkan> device)
+{
+    constexpr uint32_t maxDescriptorCount = 1000;
+    VkDescriptorPoolSize poolSizes[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount}};
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(sizeof_array(poolSizes));
+    poolInfo.pPoolSizes = poolSizes;
+    poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(sizeof_array(poolSizes));
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+
+    DescriptorPoolHandle<GraphicsBackend::Vulkan> outDescriptorPool;
+    CHECK_VK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &outDescriptorPool));
+
+    return outDescriptorPool;
+}
+
+template <>
+RenderPassHandle<GraphicsBackend::Vulkan>
+createRenderPass<GraphicsBackend::Vulkan>(
+    DeviceHandle<GraphicsBackend::Vulkan> device,
+    const Window<GraphicsBackend::Vulkan>& window)
+{
+    VkAttachmentDescription colorAttachment = {};
+    colorAttachment.format = window.surfaceFormat.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentDescription depthAttachment = {};
+    depthAttachment.format = window.zBuffer->getDesc().format;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorAttachmentRef = {};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthAttachmentRef = {};
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+    subpass.pDepthStencilAttachment = &depthAttachmentRef;
+
+    VkSubpassDependency dependency = {};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+    VkRenderPassCreateInfo renderPassInfo = {};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    renderPassInfo.pAttachments = attachments.data();
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
+
+    RenderPassHandle<GraphicsBackend::Vulkan> outRenderPass;
+    CHECK_VK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
+
+    return outRenderPass;
+}
+
+template <>
+PipelineHandle<GraphicsBackend::Vulkan>
+createGraphicsPipeline<GraphicsBackend::Vulkan>(
+    DeviceHandle<GraphicsBackend::Vulkan> device,
+    PipelineCacheHandle<GraphicsBackend::Vulkan> pipelineCache,
+    const PipelineConfiguration<GraphicsBackend::Vulkan>& pipelineConfig)
+{
+    VkPipelineShaderStageCreateInfo vsStageInfo = {};
+    vsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vsStageInfo.module = pipelineConfig.layout->shaders[0];
+    vsStageInfo.pName = "main"; // todo: get from named VkShaderModule object
+
+    // struct AlphaTestSpecializationData
+    // {
+    // 	uint32_t alphaTestMethod = 0;
+    // 	float alphaTestRef = 0.5f;
+    // } alphaTestSpecializationData;
+
+    // std::array<VkSpecializationMapEntry, 2> alphaTestSpecializationMapEntries;
+    // alphaTestSpecializationMapEntries[0].constantID = 0;
+    // alphaTestSpecializationMapEntries[0].size =
+    // sizeof(alphaTestSpecializationData.alphaTestMethod);
+    // alphaTestSpecializationMapEntries[0].offset = 0;
+    // alphaTestSpecializationMapEntries[1].constantID = 1;
+    // alphaTestSpecializationMapEntries[1].size =
+    // sizeof(alphaTestSpecializationData.alphaTestRef);
+    // alphaTestSpecializationMapEntries[1].offset =
+    // offsetof(AlphaTestSpecializationData, alphaTestRef);
+
+    // VkSpecializationInfo specializationInfo = {};
+    // specializationInfo.dataSize = sizeof(alphaTestSpecializationData);
+    // specializationInfo.mapEntryCount =
+    // static_cast<uint32_t>(alphaTestSpecializationMapEntries.size());
+    // specializationInfo.pMapEntries = alphaTestSpecializationMapEntries.data();
+    // specializationInfo.pData = &alphaTestSpecializationData;
+
+    VkPipelineShaderStageCreateInfo fsStageInfo = {};
+    fsStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fsStageInfo.module = pipelineConfig.layout->shaders[1];
+    fsStageInfo.pName = "main";
+    fsStageInfo.pSpecializationInfo = nullptr; //&specializationInfo;
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vsStageInfo, fsStageInfo};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = pipelineConfig.resources->model->getBindings().size();
+    vertexInputInfo.pVertexBindingDescriptions = pipelineConfig.resources->model->getBindings().data();
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(pipelineConfig.resources->model->getDesc().attributes.size());
+    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getDesc().attributes.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkViewport viewport = {};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(pipelineConfig.resources->window->framebufferWidth);
+    viewport.height = static_cast<float>(pipelineConfig.resources->window->framebufferHeight);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor = {};
+    scissor.offset = {0, 0};
+    scissor.extent = {
+        static_cast<uint32_t>(pipelineConfig.resources->window->framebufferWidth),
+        static_cast<uint32_t>(pipelineConfig.resources->window->framebufferHeight)};
+
+    VkPipelineViewportStateCreateInfo viewportState = {};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports = &viewport;
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer = {};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+    rasterizer.depthBiasConstantFactor = 0.0f;
+    rasterizer.depthBiasClamp = 0.0f;
+    rasterizer.depthBiasSlopeFactor = 0.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling = {};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.minSampleShading = 1.0f;
+    multisampling.pSampleMask = nullptr;
+    multisampling.alphaToCoverageEnable = VK_FALSE;
+    multisampling.alphaToOneEnable = VK_FALSE;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.minDepthBounds = 0.0f;
+    depthStencil.maxDepthBounds = 1.0f;
+    depthStencil.stencilTestEnable = VK_FALSE;
+    depthStencil.front = {};
+    depthStencil.back = {};
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+        VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending = {};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.logicOp = VK_LOGIC_OP_COPY;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+    colorBlending.blendConstants[0] = 0.0f;
+    colorBlending.blendConstants[1] = 0.0f;
+    colorBlending.blendConstants[2] = 0.0f;
+    colorBlending.blendConstants[3] = 0.0f;
+
+    std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT,
+                                                    VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState = {};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkGraphicsPipelineCreateInfo pipelineInfo = {};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = sizeof_array(shaderStages);
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineConfig.layout->layout;
+    pipelineInfo.renderPass = pipelineConfig.renderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.basePipelineIndex = -1;
+
+    PipelineHandle<GraphicsBackend::Vulkan> outPipeline = 0;
+    CHECK_VK(vkCreateGraphicsPipelines(
+        device, pipelineCache, 1, &pipelineInfo, nullptr, &outPipeline));
+
+    return outPipeline;
 }

@@ -258,7 +258,6 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$RootPath$/external/tracy'
 			+ ' -DTRACY_ENABLE'
-			+ ' -DTRACY_HAS_SYSTEM_TRACING'
 		.CompilerInputFiles = {
 			'$RootPath$/external/tracy/TracyClient.cpp',
 		}
@@ -277,6 +276,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/server/TracyMmap.cpp'
 			'$RootPath$/external/tracy/server/TracyPrint.cpp'
 			'$RootPath$/external/tracy/server/TracyStorage.cpp'
+			'$RootPath$/external/tracy/server/TracySourceView.cpp'
 			'$RootPath$/external/tracy/server/TracyTexture.cpp'
 			'$RootPath$/external/tracy/server/TracyTextureCompression.cpp'
 			'$RootPath$/external/tracy/server/TracyTaskDispatch.cpp'
@@ -288,7 +288,6 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/profiler/src/ResolvService.cpp'
 			'$RootPath$/external/tracy/profiler/src/winmain.cpp'
 			'$RootPath$/external/tracy/profiler/src/winmainarchdiscovery.cpp'
-			'$RootPath$/external/tracy/imguicolortextedit/TextEditor.cpp'
 		}
 
 		.UnityOutputPath = '$IntermediateFilePath$/external/tracy'
@@ -469,7 +468,6 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.UnityInputPath = '$RootPath$/examples/volcano'
 		.UnityInputPattern = "*.cpp"
 		.UnityInputExcludedFiles = {
-			'$RootPath$/examples/volcano/application-glfw.cpp',
 			'$RootPath$/examples/volcano/application-vulkan.cpp',
 			'$RootPath$/examples/volcano/gfx-vulkan.cpp',
 			'$RootPath$/examples/volcano/buffer-vulkan.cpp',
@@ -507,9 +505,9 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 			+ ' -DTRACY_ENABLE'
+			+ ' -DGLM_FORCE_AVX2'
 		.CompilerInputUnity = 'volcano-unity'
 		.CompilerInputFiles = {
-			'$RootPath$/examples/volcano/application-glfw.cpp',
 			'$RootPath$/examples/volcano/application-vulkan.cpp',
 			'$RootPath$/examples/volcano/gfx-vulkan.cpp',
 			'$RootPath$/examples/volcano/buffer-vulkan.cpp',

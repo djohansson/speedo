@@ -18,14 +18,8 @@
 
 #pragma once
 
-#include "buffer.h"
-#include "file.h"
 #include "gfx.h"
-#include "math.h"
-#include "model.h"
 #include "state.h"
-#include "texture.h"
-#include "utils.h"
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
@@ -71,64 +65,6 @@
 
 
 template <GraphicsBackend B>
-struct WindowData
-{
-	uint32_t width = 0;
-	uint32_t height = 0;
-	uint32_t framebufferWidth = 0;
-	uint32_t framebufferHeight = 0;
-
-	SurfaceHandle<B> surface = 0;
-	SurfaceFormat<B> surfaceFormat = {};
-	PresentMode<B> presentMode = {};
-
-	SwapchainContext<B> swapchain = {};
-
-	std::shared_ptr<Texture<B>> zBuffer;
-	ImageViewHandle<B> zBufferView = 0;
-	
-	std::vector<View> views;
-	std::optional<size_t> activeView;
-
-	// buffer for all views.
-	std::shared_ptr<Buffer<B>> viewBuffer;
-	//
-
-	bool clearEnable = true;
-    ClearValue<B> clearValue = {};
-    
-	uint32_t frameIndex = 0; // Current frame being rendered to (0 <= frameIndex < frames.count())
-	uint32_t lastFrameIndex = 0; // Last frame being rendered to (0 <= frameIndex < frames.count())
-	std::vector<FrameData<B>> frames;
-
-	bool imguiEnable = true;
-	bool createFrameResourcesFlag = false;
-};
-
-template <GraphicsBackend B>
-struct GraphicsPipelineResourceView
-{
-	std::shared_ptr<Model<B>> model; // temp
-	std::shared_ptr<Texture<B>> texture; // temp
-	ImageViewHandle<B> textureView = 0;
-	SamplerHandle<B> sampler = 0;
-
-	std::shared_ptr<WindowData<B>> window; // temp - replace with generic render target structure
-};
-
-template <GraphicsBackend B>
-struct PipelineConfiguration
-{
-	std::shared_ptr<GraphicsPipelineResourceView<B>> resources;
-	std::shared_ptr<PipelineLayoutContext<B>> layout;
-
-	RenderPassHandle<B> renderPass = 0; // should perhaps not be stored here...
-	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"
-
-	std::vector<DescriptorSetHandle<B>> descriptorSets;
-};
-
-template <GraphicsBackend B>
 class Application
 {
 public:
@@ -149,49 +85,36 @@ public:
 
 private:
 
-	// todo: encapsulate in Window/WindowData
-	void createFrameResources(WindowData<B>& window);
-	void cleanupFrameResources();
-	void updateInput(WindowData<B>& window) const;
-	void updateViewBuffer(WindowData<B>& window) const;
-	void initIMGUI(WindowData<B>& window, float dpiScaleX, float dpiScaleY) const;
-	void drawIMGUI(WindowData<B>& window);
-	void checkFlipOrPresentResult(WindowData<B>& window, Result<B> result) const;
-	void submitFrame(WindowData<B>& window);
-	void presentFrame(WindowData<B>& window) const;
-
-	// todo: move to gfx
-	SurfaceHandle<B> createSurface(InstanceHandle<B> instance, void* view) const;
-	AllocatorHandle<B> createAllocator(DeviceHandle<B> device, PhysicalDeviceHandle<B> physicalDevice) const;
-	DescriptorPoolHandle<B> createDescriptorPool() const;
-	RenderPassHandle<B> createRenderPass(DeviceHandle<B> device, const WindowData<B>& window) const;
-	PipelineHandle<B> createGraphicsPipeline(
+	// todo: encapsulate in Window
+	void createState(DeviceHandle<B> device, Window<B>& window);
+	void cleanupState(Window<B>& window);
+	void updateInput(Window<B>& window) const;
+	void updateViewBuffer(Window<B>& window) const;
+	void initIMGUI(Window<B>& window, float dpiScaleX, float dpiScaleY) const;
+	void drawIMGUI(Window<B>& window) const;
+	void checkFlipOrPresentResult(Window<B>& window, Result<B> result) const;
+	void submitFrame(
 		DeviceHandle<B> device,
-		PipelineCacheHandle<B> pipelineCache,
-		const PipelineConfiguration<B>& pipelineConfig) const;
+		TracyVkCtx tracyContext,
+		uint32_t commandBufferThreadCount,
+		const PipelineConfiguration<B>& config,
+		QueueHandle<B> queue,
+		Window<B>& window) const;
+	void presentFrame(Window<B>& window) const;
 	//
 
-	// todo: encapsulate in DeviceContext
-	std::tuple<
-		DeviceHandle<B>, PhysicalDeviceHandle<B>, PhysicalDeviceProperties<B>, SwapchainInfo<B>,
-		SurfaceFormat<B>, PresentMode<B>, uint32_t, QueueHandle<B>, int>
-	createDevice(InstanceHandle<B> instance, SurfaceHandle<B> surface) const;
-	//
-
-	// todo: encapsulate in SwapchainContext
-	SwapchainContext<B> createSwapchainContext(
-		DeviceHandle<B> device,
-		PhysicalDeviceHandle<B> physicalDevice,
-		AllocatorHandle<B> allocator,
-		uint32_t frameCount,
-		const WindowData<B>& window) const;
+	// todo: encapsulate in SwapchainContext or Window
+	auto createSwapchainContext(
+		const DeviceContext<B>& deviceContext,
+		const Window<B>& window,
+		AllocatorHandle<B> allocator) const;
 	//
 
 	// todo: encapsulate in PipelineConfiguration
-	PipelineConfiguration<B> createPipelineConfig(DeviceHandle<B> device, RenderPassHandle<B> renderPass,
+	auto createPipelineConfig(DeviceHandle<B> device, RenderPassHandle<B> renderPass,
 		DescriptorPoolHandle<B> descriptorPool, PipelineCacheHandle<B> pipelineCache,
         std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceView<B>> resources) const;
-	void updateDescriptorSets(const WindowData<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
+	void updateDescriptorSets(const Window<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
 	//
 
 	// todo: encapsulate in View/View
@@ -201,16 +124,11 @@ private:
 
 	InstanceHandle<B> myInstance = 0;
 
-	// todo: encapsulate in DeviceContext
-	PhysicalDeviceHandle<B> myPhysicalDevice = 0;
-	PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
-	DeviceHandle<B> myDevice = 0;
+	std::unique_ptr<DeviceContext<B>> myDeviceContext;
 	// todo -> generic
 	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
 	TracyVkCtx myTracyContext;
 	// end todo
-	int myQueueFamilyIndex = -1;
-	QueueHandle<B> myQueue = 0;
 	AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
 	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [threadCount]

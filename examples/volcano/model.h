@@ -2,13 +2,12 @@
 
 #include "aabb.h"
 #include "buffer.h"
-#include "gfx.h"
 #include "vertex.h"
 
 #include <filesystem>
-#include <memory>
 #include <string>
 #include <vector>
+
 
 template <GraphicsBackend B>
 struct ModelCreateDesc
@@ -32,13 +31,11 @@ class Model
 {
 public:
 
-	Model(DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
-		ModelCreateDesc<B>&& modelData);
+	Model(ModelCreateDesc<B>&& desc,
+		DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator);
 
-	Model(DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator,
-		const std::filesystem::path& modelFile);
-
-	~Model();
+	Model(const std::filesystem::path& modelFile,
+		DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator);
 
 	const auto& getDesc() const { return myDesc; }
 
@@ -49,10 +46,7 @@ public:
 
 private:
 
-	DeviceHandle<B> myDevice = 0;
-	AllocatorHandle<B> myAllocator = 0;
-
-	ModelCreateDesc<B> myDesc = {};
+	const ModelCreateDesc<B> myDesc = {};
 
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 
