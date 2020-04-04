@@ -1,6 +1,6 @@
 // wip: create generic gfx structures and functions. long term goal is to move all functions from vk-utils.h into gfx.h.
 // wip: dynamic mesh layout, depending on input data structure.
-// wip: create constructors/destructors for composite structs, and use shared_ptrs when referencing them. done: Texture, Model.
+// wip: create constructors/destructors for composite structs, and use shared_ptrs or unique_ptrs when referencing them. done: Buffer, Texture, Model, DeviceContext.
 // wip: specialize on graphics backend
 // wip: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 // wip: move stuff from headers into compilation units
@@ -18,8 +18,13 @@
 
 #pragma once
 
-#include "gfx.h"
-#include "state.h"
+#include "device.h"
+#include "gfx.h" // replace with "gfx-types.h" once all types have been encapsulated
+#include "glm.h"
+#include "instance.h"
+#include "window.h"
+
+#include "state.h" // temp - remove & clean up
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
@@ -94,11 +99,9 @@ private:
 	void drawIMGUI(Window<B>& window) const;
 	void checkFlipOrPresentResult(Window<B>& window, Result<B> result) const;
 	void submitFrame(
-		DeviceHandle<B> device,
-		TracyVkCtx tracyContext,
+		const DeviceContext<B>& deviceContext,
 		uint32_t commandBufferThreadCount,
 		const PipelineConfiguration<B>& config,
-		QueueHandle<B> queue,
 		Window<B>& window) const;
 	void presentFrame(Window<B>& window) const;
 	//
@@ -122,13 +125,8 @@ private:
 	void updateProjectionMatrix(View& view) const;
 	//
 
-	InstanceHandle<B> myInstance = 0;
-
-	std::unique_ptr<DeviceContext<B>> myDeviceContext;
-	// todo -> generic
-	VkDebugReportCallbackEXT myDebugCallback = VK_NULL_HANDLE;
-	TracyVkCtx myTracyContext;
-	// end todo
+	std::unique_ptr<InstanceContext<B>> myInstance;
+	std::unique_ptr<DeviceContext<B>> myGraphicsDevice;
 	AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
 	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [threadCount]

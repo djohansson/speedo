@@ -184,43 +184,6 @@ void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer comma
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
-{
-	VkDebugReportCallbackCreateInfoEXT debugCallbackInfo = {};
-	debugCallbackInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
-	debugCallbackInfo.flags =
-		/* VK_DEBUG_REPORT_INFORMATION_BIT_EXT |*/ VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
-		VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |
-		VK_DEBUG_REPORT_WARNING_BIT_EXT;
-
-	debugCallbackInfo.pfnCallback = static_cast<PFN_vkDebugReportCallbackEXT>(
-		[](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT /*objectType*/, uint64_t /*object*/,
-		   size_t /*location*/, int32_t /*messageCode*/, const char* layerPrefix, const char* message,
-		   void* /*userData*/) -> VkBool32 {
-			std::cout << layerPrefix << ": " << message << std::endl;
-
-			// VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
-			// VK_DEBUG_REPORT_WARNING_BIT_EXT = 0x00000002,
-			// VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT = 0x00000004,
-			// VK_DEBUG_REPORT_ERROR_BIT_EXT = 0x00000008,
-			// VK_DEBUG_REPORT_DEBUG_BIT_EXT = 0x00000010,
-
-			if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-				return VK_TRUE;
-
-			return VK_FALSE;
-		});
-
-	auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
-		instance, "vkCreateDebugReportCallbackEXT");
-	assert(vkCreateDebugReportCallbackEXT != nullptr);
-
-	VkDebugReportCallbackEXT debugCallback = VK_NULL_HANDLE;
-	CHECK_VK(vkCreateDebugReportCallbackEXT(instance, &debugCallbackInfo, nullptr, &debugCallback));
-
-	return debugCallback;
-}
-
 void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	auto commandBuffer = beginSingleTimeCommands(device, commandPool);

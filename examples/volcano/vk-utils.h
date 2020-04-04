@@ -43,8 +43,6 @@ VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPo
 void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer,
 						   VkCommandPool commandPool);
 
-VkDebugReportCallbackEXT createDebugCallback(VkInstance instance);
-
 void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 std::tuple<VkBuffer, VmaAllocation> createBuffer(

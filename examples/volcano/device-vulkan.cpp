@@ -4,29 +4,28 @@
 #include <algorithm>
 #include <stdexcept>
 #include <tuple>
-#include <vector>
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     DeviceCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : myDesc(std::move(desc))
 {
-    uint32_t deviceCount = 0;
-    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instance, &deviceCount, nullptr));
-    if (deviceCount == 0)
+    uint32_t physicalDeviceCount = 0;
+    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instance, &physicalDeviceCount, nullptr));
+    if (physicalDeviceCount == 0)
         throw std::runtime_error("failed to find GPUs with Vulkan support!");
 
-    std::vector<PhysicalDeviceHandle<GraphicsBackend::Vulkan>> devices(deviceCount);
-    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instance, &deviceCount, devices.data()));
+    myPhysicalDevices.resize(physicalDeviceCount);
+    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instance, &physicalDeviceCount, myPhysicalDevices.data()));
 
-    for (const auto& device : devices)
+    for (const auto& physicalDevice : myPhysicalDevices)
     {
         std::tie(mySwapChainInfo, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
-            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDesc.surface, device);
+            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDesc.surface, physicalDevice);
 
         if (mySelectedQueueFamilyIndex >= 0)
         {
-            myPhysicalDevice = device;
+            myPhysicalDevice = physicalDevice;
 
             const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
                 VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
@@ -42,10 +41,14 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
             for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
                     request_i++)
             {
-                SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat = {requestSurfaceImageFormat[request_i],
-                                                        requestSurfaceColorSpace};
+                SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat =
+                {
+                    requestSurfaceImageFormat[request_i],
+                    requestSurfaceColorSpace
+                };
                 auto formatIt = std::find(
-                    mySwapChainInfo.formats.begin(), mySwapChainInfo.formats.end(),
+                    mySwapChainInfo.formats.begin(),
+                    mySwapChainInfo.formats.end(),
                     requestedFormat);
                 if (formatIt != mySwapChainInfo.formats.end())
                 {

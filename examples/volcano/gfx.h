@@ -122,9 +122,6 @@ void savePipelineCache(
 	PipelineCacheHandle<B> pipelineCache);
 
 template <GraphicsBackend B>
-InstanceHandle<B> createInstance(InstanceCreateDesc<B>&& createDesc);
-
-template <GraphicsBackend B>
 PipelineCacheHandle<B> createPipelineCache(DeviceHandle<B> device, const std::vector<std::byte>& cacheData);
 
 template <GraphicsBackend B>
