@@ -1,15 +1,16 @@
 #pragma once
 
 #include "gfx-types.h"
+#include "utils.h"
 
 #include <filesystem>
 
 template <GraphicsBackend B>
 struct TextureCreateDesc
 {
-    uint32_t nx = 0;
-    uint32_t ny = 0;
-    uint32_t nChannels = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t channelCount = 0;
     DeviceSize<B> size = 0;
     Format<B> format;
     Flags<B> usage = 0;
@@ -21,7 +22,7 @@ struct TextureCreateDesc
 };
 
 template <GraphicsBackend B>
-class Texture
+class Texture : Noncopyable
 {
 public:
 

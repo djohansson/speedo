@@ -9,28 +9,6 @@ int volcano_create(
 {
 	assert(view != nullptr);
 
-	static const char* DISABLE_VK_LAYER_VALVE_steam_overlay_1 =
-		"DISABLE_VK_LAYER_VALVE_steam_overlay_1=1";
-#if defined(__WINDOWS__)
-	_putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
-#else
-	putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
-#endif
-
-#ifdef _DEBUG
-	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
-	if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
-		std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << std::endl;
-
-	static const char* VK_LAYER_PATH_STR = "VK_LAYER_PATH";
-	if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
-		std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << std::endl;
-
-	static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
-	if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
-		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
-#endif
-
 	theApplication = std::make_unique<Application<GraphicsBackend::Vulkan>>(
 		view, width, height, framebufferWidth, framebufferHeight,
 		resourcePath ? resourcePath : "./");

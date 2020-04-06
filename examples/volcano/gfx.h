@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -99,7 +100,7 @@ template <GraphicsBackend B>
 bool isCacheValid(const PipelineCacheHeader<B>& header, const PhysicalDeviceProperties<B>& physicalDeviceProperties);
 
 template <GraphicsBackend B>
-std::tuple<SwapchainInfo<B>, int, PhysicalDeviceProperties<B>>
+std::tuple<SwapchainConfiguration<B>, std::optional<uint32_t>, PhysicalDeviceProperties<B>>
 getSuitableSwapchainAndQueueFamilyIndex(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
 
 template <GraphicsBackend B>

@@ -25,6 +25,9 @@ template <GraphicsBackend B>
 using DeviceSize = std::conditional_t<B == GraphicsBackend::Vulkan, VkDeviceSize, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using Extent2d = std::conditional_t<B == GraphicsBackend::Vulkan, VkExtent2D, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using InstanceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkInstance, std::nullptr_t>;
 
 template <GraphicsBackend B>

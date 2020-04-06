@@ -2,7 +2,9 @@
 
 #include "gfx-types.h"
 #include "swapchain.h"
+#include "utils.h"
 
+#include <optional>
 #include <vector>
 
 template <GraphicsBackend B>
@@ -13,45 +15,37 @@ struct DeviceCreateDesc
 };
 
 template <GraphicsBackend B>
-class DeviceContext
+class DeviceContext : Noncopyable
 {
 public:
 
 	DeviceContext(DeviceCreateDesc<B>&& desc);
-    
     ~DeviceContext();
 
     const auto& getDesc() const { return myDesc; }
 
     const auto getDevice() const { return myDevice; }
     const auto getPhysicalDevice() const { return myPhysicalDevice; }
-     const auto& getPhysicalDeviceProperties() const { return myPhysicalDeviceProperties; }
+    const auto& getPhysicalDeviceProperties() const { return myPhysicalDeviceProperties; }
 
     const auto getSelectedQueue() const { return mySelectedQueue; }
     const auto getSelectedQueueFamilyIndex() const { return mySelectedQueueFamilyIndex; }
 
-    const auto& getSwapchainInfo() const { return mySwapChainInfo; }
-    const auto getSelectedSurfaceFormat() const { return mySelectedSurfaceFormat; }
-    const auto getSelectedPresentMode() const { return mySelectedPresentMode; }
-    const auto getSelectedFrameCount() const { return mySelectedFrameCount; }
+    const auto& getSwapchainConfiguration() const { return mySwapchainConfiguration; }
 
 private:
 
     const DeviceCreateDesc<B> myDesc = {};
+    DeviceHandle<B> myDevice = 0;
 
     std::vector<PhysicalDeviceHandle<GraphicsBackend::Vulkan>> myPhysicalDevices;
     PhysicalDeviceHandle<B> myPhysicalDevice = 0;
     PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
-
-    DeviceHandle<B> myDevice = 0;
     
     QueueHandle<B> mySelectedQueue = 0;
-    int mySelectedQueueFamilyIndex = -1;
+    std::optional<uint32_t> mySelectedQueueFamilyIndex;
 
-    SwapchainInfo<B> mySwapChainInfo = {};
-    SurfaceFormat<GraphicsBackend::Vulkan> mySelectedSurfaceFormat = {};
-	PresentMode<GraphicsBackend::Vulkan> mySelectedPresentMode = {};
-    uint32_t mySelectedFrameCount = 0;
+    SwapchainConfiguration<B> mySwapchainConfiguration = {};
 
     // tmp. todo: make generic
     //TracyVkCtx myTracyContext;

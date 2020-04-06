@@ -55,6 +55,27 @@ template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDesc(std::move(desc))
 {
+// static const char* DISABLE_VK_LAYER_VALVE_steam_overlay_1 = "DISABLE_VK_LAYER_VALVE_steam_overlay_1=1";
+// #if defined(__WINDOWS__)
+// 	_putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
+// #else
+// 	putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
+// #endif
+
+#ifdef _DEBUG
+	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
+	if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
+		std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << std::endl;
+
+	static const char* VK_LAYER_PATH_STR = "VK_LAYER_PATH";
+	if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
+		std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << std::endl;
+
+	static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
+	if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
+		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
+#endif
+
     uint32_t instanceLayerCount;
     CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
     std::cout << instanceLayerCount << " layers found!\n";
@@ -66,13 +87,6 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
         for (uint32_t i = 0; i < instanceLayerCount; ++i)
             std::cout << instanceLayers[i].layerName << "\n";
     }
-
-    const char* enabledLayerNames[] =
-    {
-    #ifdef PROFILING_ENABLED
-        "VK_LAYER_LUNARG_standard_validation",
-    #endif
-    };
 
     uint32_t instanceExtensionCount;
     vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
@@ -91,6 +105,12 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
     std::sort(
         instanceExtensions.begin(), instanceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
+
+    std::vector<const char*> requiredLayers = {
+    #ifdef PROFILING_ENABLED
+        "VK_LAYER_KHRONOS_validation",
+    #endif
+    };
 
     std::vector<const char*> requiredExtensions = {
         // must be sorted lexicographically for std::includes to work!
@@ -118,16 +138,13 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
         requiredExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
-    // if (std::find(instanceExtensions.begin(), instanceExtensions.end(), "VK_KHR_display") ==
-    // instanceExtensions.end()) 	instanceExtensions.push_back("VK_KHR_display");
-
     VkInstanceCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     info.pApplicationInfo = &myDesc;
-    info.enabledLayerCount = sizeof_array(enabledLayerNames);
-    info.ppEnabledLayerNames = info.enabledLayerCount ? enabledLayerNames : nullptr;
+    info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
+    info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
     info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
-    info.ppEnabledExtensionNames = requiredExtensions.data();
+    info.ppEnabledExtensionNames = info.enabledExtensionCount ? requiredExtensions.data() : nullptr;
 
     CHECK_VK(vkCreateInstance(&info, nullptr, &myInstance));
 

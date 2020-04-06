@@ -2,6 +2,7 @@
 
 #include "aabb.h"
 #include "buffer.h"
+#include "utils.h"
 #include "vertex.h"
 
 #include <filesystem>
@@ -27,7 +28,7 @@ struct ModelCreateDesc
 };
 
 template <GraphicsBackend B>
-class Model
+class Model : Noncopyable
 {
 public:
 

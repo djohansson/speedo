@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx-types.h"
+#include "utils.h"
 
 #include <memory>
 
@@ -18,13 +19,12 @@ struct BufferCreateDesc
 };
 
 template <GraphicsBackend B>
-class Buffer
+class Buffer : Noncopyable
 {
 public:
 
     Buffer(BufferCreateDesc<B>&& desc,
-        DeviceHandle<B> device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator);
-
+        DeviceHandle<B> device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator); // todo: bake into create desc
     ~Buffer();
 
     const auto& getDesc() const { return myDesc; }

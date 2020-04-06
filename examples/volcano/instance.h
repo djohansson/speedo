@@ -1,11 +1,12 @@
 #pragma once
 
 #include "gfx-types.h"
+#include "utils.h"
 
 #include <any>
 
 template <GraphicsBackend B>
-class InstanceContext
+class InstanceContext : Noncopyable
 {
 public:
 

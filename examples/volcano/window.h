@@ -12,22 +12,28 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct Window
+struct RenderTargetBase
 {
-	uint32_t width = 0;
-	uint32_t height = 0;
-	uint32_t framebufferWidth = 0;
-	uint32_t framebufferHeight = 0;
+	uint32_t framebufferWidth = 0; // todo: rename
+	uint32_t framebufferHeight = 0; // todo: rename
+	
+	std::vector<ImageHandle<B>> colorImages;
+	std::vector<ImageViewHandle<B>> colorViews;
+	
+	ImageHandle<B> depthImage = 0;
+	ImageViewHandle<B> depthView = 0;
+};
+
+template <GraphicsBackend B>
+struct Window : RenderTargetBase<B>
+{
+	uint32_t width = 0; // todo: rename
+	uint32_t height = 0; // todo: rename
 
 	SurfaceHandle<B> surface = 0;
-	SurfaceFormat<B> surfaceFormat = {};
-	PresentMode<B> presentMode = {};
-	uint32_t frameCount = 0;
-
-	SwapchainContext<B> swapchain = {};
-
-	std::shared_ptr<Texture<B>> zBuffer;
-	ImageViewHandle<B> zBufferView = 0;
+	
+	std::unique_ptr<SwapchainContext<B>> swapchain;
+	std::unique_ptr<Texture<B>> zBuffer;
 	
 	std::vector<View> views;
 	std::optional<size_t> activeView;

@@ -56,7 +56,7 @@ load(
 
     auto loadPBin = [&desc, allocator](std::istream& stream) {
         cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(desc.nx, desc.ny, desc.nChannels, desc.size);
+        pbin(desc.width, desc.height, desc.channelCount, desc.size);
 
         std::string debugString;
         debugString.append(desc.debugName);
@@ -75,7 +75,7 @@ load(
 
     auto savePBin = [&desc, allocator](std::ostream& stream) {
         cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(desc.nx, desc.ny, desc.nChannels, desc.size);
+        pbin(desc.width, desc.height, desc.channelCount, desc.size);
 
         std::byte* data;
         CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
@@ -89,11 +89,11 @@ load(
         callbacks.skip = &stbi_istream_callbacks::skip;
         callbacks.eof = &stbi_istream_callbacks::eof;
         stbi_uc* stbiImageData =
-            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.nx, (int*)&desc.ny, (int*)&desc.nChannels, STBI_rgb_alpha);
+            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.width, (int*)&desc.height, (int*)&desc.channelCount, STBI_rgb_alpha);
 
-        bool hasAlpha = desc.nChannels == 4;
+        bool hasAlpha = desc.channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        desc.size = hasAlpha ? desc.nx * desc.ny : desc.nx * desc.ny / 2;
+        desc.size = hasAlpha ? desc.width * desc.height : desc.width * desc.height / 2;
 
         std::string debugString;
         debugString.append(desc.debugName);
@@ -119,12 +119,12 @@ load(
         stbi_uc block[64] = {0};
         const stbi_uc* src = stbiImageData;
         stbi_uc* dst = reinterpret_cast<stbi_uc*>(data);
-        for (uint32_t rowIt = 0; rowIt < desc.ny; rowIt += 4)
+        for (uint32_t rowIt = 0; rowIt < desc.height; rowIt += 4)
         {
-            for (uint32_t colIt = 0; colIt < desc.nx; colIt += 4)
+            for (uint32_t colIt = 0; colIt < desc.width; colIt += 4)
             {
-                uint32_t offset = (rowIt * desc.nx + colIt) * 4;
-                extractBlock(src + offset, desc.nx, 4, block);
+                uint32_t offset = (rowIt * desc.width + colIt) * 4;
+                extractBlock(src + offset, desc.width, 4, block);
                 stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
                 dst += compressedBlockSize;
             }
@@ -137,12 +137,12 @@ load(
     loadCachedSourceFile(
         textureFile, textureFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
-    desc.format = desc.nChannels == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
+    desc.format = desc.channelCount == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
     desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
     uint32_t pixelSizeBytesDivisor;
     if (desc.initialData == VK_NULL_HANDLE ||
-        desc.size != desc.nx * desc.ny * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
+        desc.size != desc.width * desc.height * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
         throw std::runtime_error("Failed to load image.");
 
     return desc;
@@ -167,8 +167,8 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         queue,
         myAllocator,
         myDesc.initialData,
-        myDesc.nx,
-        myDesc.ny,
+        myDesc.width,
+        myDesc.height,
         myDesc.format, 
         VK_IMAGE_TILING_OPTIMAL,
         hasDepthComponent(myDesc.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,

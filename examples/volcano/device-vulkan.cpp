@@ -20,10 +20,10 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     for (const auto& physicalDevice : myPhysicalDevices)
     {
-        std::tie(mySwapChainInfo, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
+        std::tie(mySwapchainConfiguration, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
             getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDesc.surface, physicalDevice);
 
-        if (mySelectedQueueFamilyIndex >= 0)
+        if (mySelectedQueueFamilyIndex)
         {
             myPhysicalDevice = physicalDevice;
 
@@ -37,7 +37,6 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
             // Request several formats, the first found will be used
             // If none of the requested image formats could be found, use the first available
-            mySelectedSurfaceFormat = mySwapChainInfo.formats[0];
             for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
                     request_i++)
             {
@@ -47,32 +46,30 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                     requestSurfaceColorSpace
                 };
                 auto formatIt = std::find(
-                    mySwapChainInfo.formats.begin(),
-                    mySwapChainInfo.formats.end(),
+                    mySwapchainConfiguration.formats.begin(),
+                    mySwapchainConfiguration.formats.end(),
                     requestedFormat);
-                if (formatIt != mySwapChainInfo.formats.end())
+                if (formatIt != mySwapchainConfiguration.formats.end())
                 {
-                    mySelectedSurfaceFormat = *formatIt;
+                    mySwapchainConfiguration.selectedFormatIndex = std::distance(mySwapchainConfiguration.formats.begin(), formatIt);
                     break;
                 }
             }
 
             // Request a certain mode and confirm that it is available. If not use
             // VK_PRESENT_MODE_FIFO_KHR which is mandatory
-            mySelectedPresentMode = VK_PRESENT_MODE_FIFO_KHR;
-            mySelectedFrameCount = 2;
             for (uint32_t request_i = 0; request_i < sizeof_array(requestPresentMode);
                     request_i++)
             {
                 auto modeIt = std::find(
-                    mySwapChainInfo.presentModes.begin(), mySwapChainInfo.presentModes.end(),
+                    mySwapchainConfiguration.presentModes.begin(), mySwapchainConfiguration.presentModes.end(),
                     requestPresentMode[request_i]);
-                if (modeIt != mySwapChainInfo.presentModes.end())
+                if (modeIt != mySwapchainConfiguration.presentModes.end())
                 {
-                    mySelectedPresentMode = *modeIt;
+                    mySwapchainConfiguration.selectedPresentModeIndex = std::distance(mySwapchainConfiguration.presentModes.begin(), modeIt);
 
-                    if (mySelectedPresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
-                        mySelectedFrameCount = 3;
+                    if (mySwapchainConfiguration.selectedPresentMode() == VK_PRESENT_MODE_MAILBOX_KHR)
+                        mySwapchainConfiguration.selectedImageCount = 3;
 
                     break;
                 }
@@ -89,7 +86,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     VkDeviceQueueCreateInfo queueCreateInfo = {};
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = mySelectedQueueFamilyIndex;
+    queueCreateInfo.queueFamilyIndex = *mySelectedQueueFamilyIndex;
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &graphicsQueuePriority;
 
@@ -142,7 +139,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     CHECK_VK(vkCreateDevice(myPhysicalDevice, &deviceCreateInfo, nullptr, &myDevice));
 
-    vkGetDeviceQueue(myDevice, mySelectedQueueFamilyIndex, 0, &mySelectedQueue);
+    vkGetDeviceQueue(myDevice, *mySelectedQueueFamilyIndex, 0, &mySelectedQueue);
 }
 
 template <>

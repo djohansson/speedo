@@ -34,12 +34,12 @@ isCacheValid<GraphicsBackend::Vulkan>(
 }
 
 template <>
-std::tuple<SwapchainInfo<GraphicsBackend::Vulkan>, int, PhysicalDeviceProperties<GraphicsBackend::Vulkan>>
+std::tuple<SwapchainConfiguration<GraphicsBackend::Vulkan>, std::optional<uint32_t>, PhysicalDeviceProperties<GraphicsBackend::Vulkan>>
 getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(
 	SurfaceHandle<GraphicsBackend::Vulkan> surface,
 	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
-	SwapchainInfo<GraphicsBackend::Vulkan> swapchainInfo;
+	SwapchainConfiguration<GraphicsBackend::Vulkan> swapchainConfig;
 
 	VkPhysicalDeviceProperties deviceProperties;
 	vkGetPhysicalDeviceProperties(device, &deviceProperties);
@@ -49,29 +49,29 @@ getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(
 
 	assert(deviceFeatures.inheritedQueries);
 
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainInfo.capabilities);
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainConfig.capabilities);
 
 	uint32_t formatCount;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
 	if (formatCount != 0)
 	{
-		swapchainInfo.formats.resize(formatCount);
+		swapchainConfig.formats.resize(formatCount);
 		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-											 swapchainInfo.formats.data());
+											 swapchainConfig.formats.data());
 	}
 
-	assert(!swapchainInfo.formats.empty());
+	assert(!swapchainConfig.formats.empty());
 
 	uint32_t presentModeCount;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
 	if (presentModeCount != 0)
 	{
-		swapchainInfo.presentModes.resize(presentModeCount);
+		swapchainConfig.presentModes.resize(presentModeCount);
 		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-												  swapchainInfo.presentModes.data());
+												  swapchainConfig.presentModes.data());
 	}
 
-	assert(!swapchainInfo.presentModes.empty());
+	assert(!swapchainConfig.presentModes.empty());
 
 	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
 	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
@@ -82,7 +82,7 @@ getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(
 		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
-		for (int i = 0; i < static_cast<int>(queueFamilies.size()); i++)
+		for (uint32_t i = 0; i < queueFamilies.size(); i++)
 		{
 			const auto& queueFamily = queueFamilies[i];
 
@@ -92,12 +92,12 @@ getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(
 			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
 				presentSupport)
 			{
-				return std::make_tuple(swapchainInfo, i, deviceProperties);
+				return std::make_tuple(swapchainConfig, i, deviceProperties);
 			}
 		}
 	}
 
-	return std::make_tuple(swapchainInfo, -1, deviceProperties);
+	return std::make_tuple(swapchainConfig, std::nullopt, deviceProperties);
 }
 
 template <>
@@ -301,7 +301,7 @@ createRenderPass<GraphicsBackend::Vulkan>(
     const Window<GraphicsBackend::Vulkan>& window)
 {
     VkAttachmentDescription colorAttachment = {};
-    colorAttachment.format = window.surfaceFormat.format;
+    colorAttachment.format = window.swapchain->getDesc().configuration.selectedFormat().format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

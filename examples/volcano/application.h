@@ -22,6 +22,7 @@
 #include "gfx.h" // replace with "gfx-types.h" once all types have been encapsulated
 #include "glm.h"
 #include "instance.h"
+#include "utils.h"
 #include "window.h"
 
 #include "state.h" // temp - remove & clean up
@@ -70,14 +71,13 @@
 
 
 template <GraphicsBackend B>
-class Application
+class Application : Noncopyable
 {
 public:
 
 	Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 		const char* resourcePath);
-
 	~Application();
 
 	void draw();
@@ -91,7 +91,7 @@ public:
 private:
 
 	// todo: encapsulate in Window
-	void createState(DeviceHandle<B> device, Window<B>& window);
+	void createState(Window<B>& window);
 	void cleanupState(Window<B>& window);
 	void updateInput(Window<B>& window) const;
 	void updateViewBuffer(Window<B>& window) const;
@@ -104,13 +104,6 @@ private:
 		const PipelineConfiguration<B>& config,
 		Window<B>& window) const;
 	void presentFrame(Window<B>& window) const;
-	//
-
-	// todo: encapsulate in SwapchainContext or Window
-	auto createSwapchainContext(
-		const DeviceContext<B>& deviceContext,
-		const Window<B>& window,
-		AllocatorHandle<B> allocator) const;
 	//
 
 	// todo: encapsulate in PipelineConfiguration
