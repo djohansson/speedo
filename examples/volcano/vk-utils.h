@@ -43,26 +43,24 @@ VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPo
 void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer,
 						   VkCommandPool commandPool);
 
-void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+void copyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
 	const char* debugName);
 
 std::tuple<VkBuffer, VmaAllocation> createBuffer(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	VkBuffer stagingBuffer, VkDeviceSize bufferSize, VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
+	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, VkDeviceSize bufferSize,
+	VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 	VkBufferViewCreateFlags flags, VkFormat format, VkDeviceSize offset, VkDeviceSize range);
 
 void transitionImageLayout(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, 
-	VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 
 void copyBufferToImage(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VmaAllocator allocator,
@@ -70,8 +68,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	VkBuffer stagingBuffer, 
+	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
 	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 

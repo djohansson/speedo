@@ -184,17 +184,13 @@ void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer comma
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-void copyBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+void copyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
-	auto commandBuffer = beginSingleTimeCommands(device, commandPool);
-
 	VkBufferCopy copyRegion = {};
 	copyRegion.srcOffset = 0;
 	copyRegion.dstOffset = 0;
 	copyRegion.size = size;
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-
-	endSingleTimeCommands(device, queue, commandBuffer, commandPool);
 }
 
 std::tuple<VkBuffer, VmaAllocation> createBuffer(
@@ -224,8 +220,8 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 }
 
 std::tuple<VkBuffer, VmaAllocation> createBuffer(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	VkBuffer stagingBuffer, VkDeviceSize bufferSize, VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
+	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, VkDeviceSize bufferSize,
+	VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
 	assert(bufferSize > 0);
 
@@ -238,7 +234,7 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 			allocator, bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			memoryFlags, debugName);
 
-		copyBuffer(device, commandPool, queue, stagingBuffer, outBuffer, bufferSize);
+		copyBuffer(commandBuffer, stagingBuffer, outBuffer, bufferSize);
 	}
 	else
 	{
@@ -267,12 +263,9 @@ VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 	return outBufferView;
 }
 
-void transitionImageLayout(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, 
-	VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
+	VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
-	auto commandBuffer = beginSingleTimeCommands(device, commandPool);
-	
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	barrier.oldLayout = oldLayout;
@@ -341,16 +334,11 @@ void transitionImageLayout(
 
 	vkCmdPipelineBarrier(
 		commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-	endSingleTimeCommands(device, queue, commandBuffer, commandPool);
 }
 
 void copyBufferToImage(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
 {
-	auto commandBuffer = beginSingleTimeCommands(device, commandPool);
-
 	VkBufferImageCopy region = {};
 	region.bufferOffset = 0;
 	region.bufferRowLength = 0;
@@ -364,8 +352,6 @@ void copyBufferToImage(
 
 	vkCmdCopyBufferToImage(
 		commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-	endSingleTimeCommands(device, queue, commandBuffer, commandPool);
 }
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
@@ -408,8 +394,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 }
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
-	VkDevice device, VkCommandPool commandPool, VkQueue queue, VmaAllocator allocator,
-	VkBuffer stagingBuffer, 
+	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
 	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
@@ -426,11 +411,11 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 			memoryFlags, debugName);
 
 		transitionImageLayout(
-			device, commandPool, queue, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
+			commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		copyBufferToImage(device, commandPool, queue, allocator, stagingBuffer, outImage, width, height);
+		copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height);
 		transitionImageLayout(
-			device, commandPool, queue, outImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			commandBuffer, outImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			layout);
 	}
 	else
@@ -440,7 +425,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 			memoryFlags, debugName);
 
 		transitionImageLayout(
-			device, commandPool, queue, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
+			commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
 			layout);
 	}
 

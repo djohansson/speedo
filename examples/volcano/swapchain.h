@@ -22,9 +22,9 @@ struct SwapchainConfiguration
 template <GraphicsBackend B>
 struct SwapchainCreateDesc
 {
-	SwapchainConfiguration<B> configuration = {};
 	DeviceHandle<B> device = 0;
 	AllocatorHandle<B> allocator = 0;
+	SwapchainConfiguration<B> configuration = {};
 	SurfaceHandle<B> surface = 0;
 	SwapchainHandle<B> previous = 0;
 	Extent2d<B> imageExtent = {};
@@ -40,6 +40,7 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
+
 	const std::vector<ImageHandle<B>> getColorImages() const;
 
 	auto detatch()

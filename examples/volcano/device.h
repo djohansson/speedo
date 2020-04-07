@@ -23,28 +23,22 @@ public:
     ~DeviceContext();
 
     const auto& getDesc() const { return myDesc; }
-
     const auto getDevice() const { return myDevice; }
     const auto getPhysicalDevice() const { return myPhysicalDevice; }
     const auto& getPhysicalDeviceProperties() const { return myPhysicalDeviceProperties; }
-
     const auto getSelectedQueue() const { return mySelectedQueue; }
     const auto getSelectedQueueFamilyIndex() const { return mySelectedQueueFamilyIndex; }
-
     const auto& getSwapchainConfiguration() const { return mySwapchainConfiguration; }
 
 private:
 
     const DeviceCreateDesc<B> myDesc = {};
     DeviceHandle<B> myDevice = 0;
-
     std::vector<PhysicalDeviceHandle<GraphicsBackend::Vulkan>> myPhysicalDevices;
     PhysicalDeviceHandle<B> myPhysicalDevice = 0;
     PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
-    
     QueueHandle<B> mySelectedQueue = 0;
     std::optional<uint32_t> mySelectedQueueFamilyIndex;
-
     SwapchainConfiguration<B> mySwapchainConfiguration = {};
 
     // tmp. todo: make generic

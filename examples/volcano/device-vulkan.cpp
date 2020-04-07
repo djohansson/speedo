@@ -121,7 +121,8 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     std::vector<const char*> requiredDeviceExtensions = {
         // must be sorted lexicographically for std::includes to work!
-        "VK_KHR_swapchain"};
+        "VK_KHR_swapchain",
+        "VK_KHR_timeline_semaphore"};
 
     assert(std::includes(
         deviceExtensions.begin(), deviceExtensions.end(), requiredDeviceExtensions.begin(),

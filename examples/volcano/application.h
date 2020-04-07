@@ -95,7 +95,7 @@ private:
 	void cleanupState(Window<B>& window);
 	void updateInput(Window<B>& window) const;
 	void updateViewBuffer(Window<B>& window) const;
-	void initIMGUI(Window<B>& window, float dpiScaleX, float dpiScaleY) const;
+	void initIMGUI(Window<B>& window, CommandBufferHandle<B> commandBuffer, float dpiScaleX, float dpiScaleY) const;
 	void drawIMGUI(Window<B>& window) const;
 	void checkFlipOrPresentResult(Window<B>& window, Result<B> result) const;
 	void submitFrame(

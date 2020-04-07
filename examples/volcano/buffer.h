@@ -8,10 +8,12 @@
 template <GraphicsBackend B>
 struct BufferCreateDesc
 {
-    DeviceSize<B> size = 0;
+    DeviceHandle<B> device = 0;
+    AllocatorHandle<B> allocator = 0;
+	DeviceSize<B> size = 0;
     Flags<B> usageFlags = 0;
     Flags<B> memoryFlags = 0;
-    // these will be destroyed in Buffer:s constructor
+    // these will be destroyed when calling deleteInitialData()
     BufferHandle<B> initialData = 0;
     AllocationHandle<B> initialDataMemory = 0;
     //
@@ -23,12 +25,12 @@ class Buffer : Noncopyable
 {
 public:
 
-    Buffer(BufferCreateDesc<B>&& desc,
-        DeviceHandle<B> device, VkCommandPool commandPool, VkQueue queue, AllocatorHandle<B> allocator); // todo: bake into create desc
+    Buffer(BufferCreateDesc<B>&& desc, CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer);
     ~Buffer();
 
+    void deleteInitialData();
+
     const auto& getDesc() const { return myDesc; }
-    
     const auto getBuffer() const { return myBuffer; }
     const auto getBufferMemory() const { return myBufferMemory; }
     
@@ -36,11 +38,9 @@ public:
 
 private:
 
-    const BufferCreateDesc<B> myDesc = {};
+    void waitForTransferComplete();
 
-    DeviceHandle<B> myDevice = 0; 
-    AllocatorHandle<B> myAllocator = 0;
-
+    BufferCreateDesc<B> myDesc = {};
 	BufferHandle<B> myBuffer = 0;
 	AllocationHandle<B> myBufferMemory = 0;
 };

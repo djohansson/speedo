@@ -98,6 +98,9 @@ template <GraphicsBackend B>
 using QueueHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkQueue, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using CommandBufferHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBuffer, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using ShaderModuleHandle =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkShaderModule, std::nullptr_t>;
 

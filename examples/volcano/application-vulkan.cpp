@@ -8,6 +8,7 @@
 template <>
 void Application<GraphicsBackend::Vulkan>::initIMGUI(
     Window<GraphicsBackend::Vulkan>& window,
+    CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer,
     float dpiScaleX,
     float dpiScaleY) const
 {
@@ -71,14 +72,10 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
 
     // Upload Fonts
     {
-        auto commandBuffer = beginSingleTimeCommands(myGraphicsDevice->getDevice(), myTransferCommandPool);
-
         ZoneScopedN("uploadFontTexture");
         //TracyVkZone(myTracyContext, commandBuffer, "uploadFontTexture");
 
         ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
-        endSingleTimeCommands(myGraphicsDevice->getDevice(), myGraphicsDevice->getSelectedQueue(), commandBuffer, myTransferCommandPool);
-        ImGui_ImplVulkan_DestroyFontUploadObjects();
     }
 }
 
@@ -348,7 +345,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         VK_MAKE_VERSION(1, 0, 0),
         "kiss",
         VK_MAKE_VERSION(1, 0, 0),
-            VK_API_VERSION_1_2});
+        VK_API_VERSION_1_2});
 
     myDefaultResources = std::make_shared<GraphicsPipelineResourceView<GraphicsBackend::Vulkan>>();
     
@@ -372,6 +369,8 @@ Application<GraphicsBackend::Vulkan>::Application(
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
         *myGraphicsDevice->getSelectedQueueFamilyIndex());
 
+    auto transferCommandBuffer = beginSingleTimeCommands(myGraphicsDevice->getDevice(), myTransferCommandPool);
+
     myDefaultResources->sampler = createTextureSampler(myGraphicsDevice->getDevice());
     myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myGraphicsDevice->getDevice());
 
@@ -382,10 +381,10 @@ Application<GraphicsBackend::Vulkan>::Application(
     
     myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
         std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"),
-        myGraphicsDevice->getDevice(), myTransferCommandPool, myGraphicsDevice->getSelectedQueue(), myAllocator);
+        myGraphicsDevice->getDevice(), myAllocator, transferCommandBuffer);
     myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"),
-        myGraphicsDevice->getDevice(), myTransferCommandPool, myGraphicsDevice->getSelectedQueue(), myAllocator);
+        myGraphicsDevice->getDevice(), myAllocator, transferCommandBuffer);
     myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
@@ -395,9 +394,9 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     window.swapchain = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
-            myGraphicsDevice->getSwapchainConfiguration(),
             myGraphicsDevice->getDevice(),
             myAllocator,
+            myGraphicsDevice->getSwapchainConfiguration(),
             window.surface,
             nullptr,
             Extent2d<GraphicsBackend::Vulkan>{
@@ -406,44 +405,52 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(
         BufferCreateDesc<GraphicsBackend::Vulkan>{
+            myGraphicsDevice->getDevice(),
+            myAllocator,
             window.swapchain->getDesc().configuration.selectedImageCount * (NX * NY) * sizeof(View::BufferData),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        VK_NULL_HANDLE,
-        VK_NULL_HANDLE,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            VK_NULL_HANDLE,
+            VK_NULL_HANDLE,
             "viewBuffer"},
-        myGraphicsDevice->getDevice(),
-        myTransferCommandPool,
-        myGraphicsDevice->getSelectedQueue(),
-        myAllocator);
+        transferCommandBuffer);
 
     // todo: append stencil bit for depthstencil composite formats
     
     window.zBuffer = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
         TextureCreateDesc<GraphicsBackend::Vulkan>{
-        window.framebufferWidth,
-        window.framebufferHeight,
-        1,
-        0,
-        findSupportedFormat(
-            myGraphicsDevice->getPhysicalDevice(),
-            {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-            VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_NULL_HANDLE,
-        VK_NULL_HANDLE, 
+            myGraphicsDevice->getDevice(),
+            myAllocator,
+            window.framebufferWidth,
+            window.framebufferHeight,
+            1,
+            0,
+            findSupportedFormat(
+                myGraphicsDevice->getPhysicalDevice(),
+                {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_NULL_HANDLE,
+            VK_NULL_HANDLE, 
             "zBuffer"},
-        myGraphicsDevice->getDevice(),
-        myTransferCommandPool,
-        myGraphicsDevice->getSelectedQueue(),
-        myAllocator);
+        transferCommandBuffer);
 
     createState(window);
 
     float dpiScaleX = static_cast<float>(framebufferWidth) / width;
     float dpiScaleY = static_cast<float>(framebufferHeight) / height;
 
-    initIMGUI(window, dpiScaleX, dpiScaleY);
+    initIMGUI(window, transferCommandBuffer, dpiScaleX, dpiScaleY);
+
+    endSingleTimeCommands(
+        myGraphicsDevice->getDevice(),
+        myGraphicsDevice->getSelectedQueue(),
+        transferCommandBuffer,
+        myTransferCommandPool);
+
+    myDefaultResources->model->deleteInitialData();
+    myDefaultResources->texture->deleteInitialData();
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
 template <>
@@ -1018,35 +1025,41 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(
 
     window.swapchain = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
-            myGraphicsDevice->getSwapchainConfiguration(),
             myGraphicsDevice->getDevice(),
             myAllocator,
+            myGraphicsDevice->getSwapchainConfiguration(),
             window.surface,
             window.swapchain->detatch(),
             Extent2d<GraphicsBackend::Vulkan>{
                 static_cast<uint32_t>(window.framebufferWidth),
                 static_cast<uint32_t>(window.framebufferHeight)}});
 
+    auto transferCommandBuffer = beginSingleTimeCommands(myGraphicsDevice->getDevice(), myTransferCommandPool);
+
     // todo: append stencil bit for depthstencil composite formats
     window.zBuffer = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
         TextureCreateDesc<GraphicsBackend::Vulkan>{
-        window.framebufferWidth,
-        window.framebufferHeight,
-        1,
-        0,
-        findSupportedFormat(
-            myGraphicsDevice->getPhysicalDevice(),
-            {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-            VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_NULL_HANDLE,
-        VK_NULL_HANDLE,
-        "zBuffer"
-        },
+            myGraphicsDevice->getDevice(),
+            myAllocator,
+            window.framebufferWidth,
+            window.framebufferHeight,
+            1,
+            0,
+            findSupportedFormat(
+                myGraphicsDevice->getPhysicalDevice(),
+                {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_NULL_HANDLE,
+            VK_NULL_HANDLE,
+            "zBuffer"},
+        transferCommandBuffer);
+
+    endSingleTimeCommands(
         myGraphicsDevice->getDevice(),
-        myTransferCommandPool,
         myGraphicsDevice->getSelectedQueue(),
-        myAllocator);
+        transferCommandBuffer,
+        myTransferCommandPool);
 
     createState(window);
 }

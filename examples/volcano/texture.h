@@ -8,13 +8,15 @@
 template <GraphicsBackend B>
 struct TextureCreateDesc
 {
+    DeviceHandle<B> device = 0;
+    AllocatorHandle<B> allocator = 0;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t channelCount = 0;
     DeviceSize<B> size = 0;
     Format<B> format;
     Flags<B> usage = 0;
-    // these will be destroyed in Texture:s constructor
+    // these will be destroyed when calling deleteInitialData()
     BufferHandle<B> initialData = 0;
     AllocationHandle<B> initialDataMemory = 0;
     //
@@ -26,16 +28,15 @@ class Texture : Noncopyable
 {
 public:
 
-    Texture(TextureCreateDesc<B>&& desc,
-        DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator);
-
+    Texture(TextureCreateDesc<B>&& desc, CommandBufferHandle<B> commandBuffer);
     Texture(const std::filesystem::path& textureFile,
-        DeviceHandle<B> device, CommandPoolHandle<B> commandPool, QueueHandle<B> queue, AllocatorHandle<B> allocator);
+        DeviceHandle<B> device, AllocatorHandle<B> allocator, CommandBufferHandle<B> commandBuffer);
 
     ~Texture();
 
+    void deleteInitialData();
+
     const auto& getDesc() const { return myDesc; }
-    
     const auto getImage() const { return myImage; }
     const auto getImageMemory() const { return myImageMemory; }
 
@@ -43,11 +44,9 @@ public:
     
 private:
 
-    const TextureCreateDesc<B> myDesc = {};
+    void waitForTransferComplete();
 
-    DeviceHandle<B> myDevice = 0;
-    AllocatorHandle<B> myAllocator = 0;
-
+    TextureCreateDesc<B> myDesc = {};
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
 };

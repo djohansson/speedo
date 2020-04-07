@@ -46,12 +46,14 @@ int eof(void* user)
 namespace texture
 {
 
-TextureCreateDesc<GraphicsBackend::Vulkan>
-load(
+TextureCreateDesc<GraphicsBackend::Vulkan> load(
     const std::filesystem::path& textureFile,
+    DeviceHandle<GraphicsBackend::Vulkan> device,
     AllocatorHandle<GraphicsBackend::Vulkan> allocator)
 {
     TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
+    desc.device = device;
+    desc.allocator = allocator;
     desc.debugName = textureFile.u8string();
 
     auto loadPBin = [&desc, allocator](std::istream& stream) {
@@ -151,21 +153,36 @@ load(
 }
 
 template <>
+void Texture<GraphicsBackend::Vulkan>::waitForTransferComplete()
+{
+}
+
+template <>
+void Texture<GraphicsBackend::Vulkan>::deleteInitialData()
+{
+    waitForTransferComplete();
+
+    vmaDestroyBuffer(myDesc.allocator, myDesc.initialData, myDesc.initialDataMemory);
+    myDesc.initialData = 0;
+    myDesc.initialDataMemory = 0;
+}
+
+template <>
+ImageViewHandle<GraphicsBackend::Vulkan>
+Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
+{
+    return createImageView2D(myDesc.device, myImage, myDesc.format, aspectFlags);
+}
+
+template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     TextureCreateDesc<GraphicsBackend::Vulkan>&& desc,
-    DeviceHandle<GraphicsBackend::Vulkan> device,
-    CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
-    QueueHandle<GraphicsBackend::Vulkan> queue,
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+    CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer)
     : myDesc(std::move(desc))
-    , myDevice(device)
-    , myAllocator(allocator)
 {
     std::tie(myImage, myImageMemory) = createImage2D(
-        myDevice,
-        commandPool,
-        queue,
-        myAllocator,
+        commandBuffer,
+        myDesc.allocator,
         myDesc.initialData,
         myDesc.width,
         myDesc.height,
@@ -175,30 +192,23 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         myDesc.usage,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         myDesc.debugName.c_str());
-
-    vmaDestroyBuffer(allocator, desc.initialData, desc.initialDataMemory);
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     const std::filesystem::path& textureFile,
     DeviceHandle<GraphicsBackend::Vulkan> device,
-    CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
-    QueueHandle<GraphicsBackend::Vulkan> queue,
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
-    : Texture(texture::load(textureFile, allocator), device, commandPool, queue, allocator)
+    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
+    CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer)
+    : Texture(texture::load(textureFile, device, allocator), commandBuffer)
 {
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
-    vmaDestroyImage(myAllocator, myImage, myImageMemory);
-}
-
-template <>
-ImageViewHandle<GraphicsBackend::Vulkan>
-Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
-{
-    return createImageView2D(myDevice, myImage, myDesc.format, aspectFlags);
+    if (myDesc.initialData != 0)
+        deleteInitialData();
+        
+    vmaDestroyImage(myDesc.allocator, myImage, myImageMemory);
 }

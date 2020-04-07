@@ -3,26 +3,18 @@
 #include <string>
 
 template <>
-Buffer<GraphicsBackend::Vulkan>::Buffer(
-    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc,
-    DeviceHandle<GraphicsBackend::Vulkan> device, 
-    CommandPoolHandle<GraphicsBackend::Vulkan> commandPool,
-    QueueHandle<GraphicsBackend::Vulkan> queue, 
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
-    : myDesc(std::move(desc))
-    , myDevice(device)
-    , myAllocator(allocator)
+void Buffer<GraphicsBackend::Vulkan>::waitForTransferComplete()
 {
-    std::tie(myBuffer, myBufferMemory) = createBuffer(
-		myDevice, commandPool, queue, myAllocator, myDesc.initialData, myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
-
-    vmaDestroyBuffer(myAllocator, myDesc.initialData, myDesc.initialDataMemory);
 }
 
 template <>
-Buffer<GraphicsBackend::Vulkan>::~Buffer()
+void Buffer<GraphicsBackend::Vulkan>::deleteInitialData()
 {
-    vmaDestroyBuffer(myAllocator, myBuffer, myBufferMemory);
+    waitForTransferComplete();
+
+    vmaDestroyBuffer(myDesc.allocator, myDesc.initialData, myDesc.initialDataMemory);
+    myDesc.initialData = 0;
+    myDesc.initialDataMemory = 0;
 }
 
 template <>
@@ -32,5 +24,24 @@ Buffer<GraphicsBackend::Vulkan>::createView(
     DeviceSize<GraphicsBackend::Vulkan> offset,
     DeviceSize<GraphicsBackend::Vulkan> range) const
 {
-    return createBufferView(myDevice, myBuffer, 0, format, offset, range);
+    return createBufferView(myDesc.device, myBuffer, 0, format, offset, range);
+}
+
+template <>
+Buffer<GraphicsBackend::Vulkan>::Buffer(
+    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc, CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer)
+    : myDesc(std::move(desc))
+{
+    std::tie(myBuffer, myBufferMemory) = createBuffer(
+		commandBuffer, myDesc.allocator, myDesc.initialData,
+        myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
+}
+
+template <>
+Buffer<GraphicsBackend::Vulkan>::~Buffer()
+{
+    if (myDesc.initialData != 0)
+        deleteInitialData();
+
+    vmaDestroyBuffer(myDesc.allocator, myBuffer, myBufferMemory);
 }
