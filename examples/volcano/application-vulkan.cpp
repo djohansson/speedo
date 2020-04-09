@@ -62,10 +62,10 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.QueueFamily = *myGraphicsDevice->getSelectedQueueFamilyIndex();
     initInfo.Queue = myGraphicsDevice->getSelectedQueue();
     initInfo.PipelineCache = myPipelineCache;
-    initInfo.DescriptorPool = myDescriptorPool;
+    initInfo.DescriptorPool = myGraphicsDevice->getDescriptorPool();
     initInfo.MinImageCount = window.swapchain->getDesc().configuration.selectedImageCount;
     initInfo.ImageCount = window.swapchain->getDesc().configuration.selectedImageCount;
-    initInfo.Allocator = nullptr; // myAllocator;
+    initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
     initInfo.CheckVkResultFn = CHECK_VK;
     ImGui_ImplVulkan_Init(&initInfo, myGraphicsPipelineConfig->renderPass);
@@ -99,21 +99,21 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
     imageInfo.sampler = pipelineConfig.resources->sampler;
 
     std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
-    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     descriptorWrites[0].dstSet = pipelineConfig.descriptorSets[0];
     descriptorWrites[0].dstBinding = 0;
     descriptorWrites[0].dstArrayElement = 0;
     descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     descriptorWrites[0].descriptorCount = 1;
     descriptorWrites[0].pBufferInfo = &bufferInfo;
-    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     descriptorWrites[1].dstSet = pipelineConfig.descriptorSets[0];
     descriptorWrites[1].dstBinding = 1;
     descriptorWrites[1].dstArrayElement = 0;
     descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptorWrites[1].descriptorCount = 1;
     descriptorWrites[1].pImageInfo = &imageInfo;
-    descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     descriptorWrites[2].dstSet = pipelineConfig.descriptorSets[0];
     descriptorWrites[2].dstBinding = 2;
     descriptorWrites[2].dstArrayElement = 0;
@@ -135,14 +135,13 @@ void Application<GraphicsBackend::Vulkan>::createState(
     window.views.resize(NX * NY);
     for (auto& view : window.views)
     {
-        if (!view.viewport.width)
-            view.viewport.width = window.framebufferWidth / NX;
+        if (!view.data().viewport.width)
+            view.data().viewport.width = window.framebufferWidth / NX;
 
-        if (!view.viewport.height)
-            view.viewport.height = window.framebufferHeight / NY;
+        if (!view.data().viewport.height)
+            view.data().viewport.height = window.framebufferHeight / NY;
 
-        updateViewMatrix(view);
-        updateProjectionMatrix(view);
+        view.updateAll();
     }
 
     assert(window.colorImages.empty());
@@ -165,7 +164,7 @@ void Application<GraphicsBackend::Vulkan>::createState(
         *myGraphicsPipelineConfig = createPipelineConfig(
             myGraphicsDevice->getDevice(),
             createRenderPass(myGraphicsDevice->getDevice(), window),
-            myDescriptorPool,
+            myGraphicsDevice->getDescriptorPool(),
             myPipelineCache,
             myGraphicsPipelineLayout,
             myDefaultResources);
@@ -177,21 +176,10 @@ void Application<GraphicsBackend::Vulkan>::createState(
     window.clearValue.color.float32[2] = 0.5f;
     window.clearValue.color.float32[3] = 1.0f;
 
-    myFrameCommandPools.resize(myCommandBufferThreadCount);
-    for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
-    {
-        myFrameCommandPools[threadIt] = createCommandPool(
-            myGraphicsDevice->getDevice(),
-            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT |
-                VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-            *myGraphicsDevice->getSelectedQueueFamilyIndex());
-    }
-
     auto createFramebuffer = [this, &window](uint32_t frameIndex)
     {
         std::array<VkImageView, 2> attachments = {window.colorViews[frameIndex], window.depthView};
-        VkFramebufferCreateInfo info = {};
-        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        VkFramebufferCreateInfo info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
         info.renderPass = myGraphicsPipelineConfig->renderPass;
         info.attachmentCount = attachments.size();
         info.pAttachments = attachments.data();
@@ -212,12 +200,12 @@ void Application<GraphicsBackend::Vulkan>::createState(
 
         frame.index = frameIt;
         frame.frameBuffer = createFramebuffer(frameIt);
-        frame.commandBuffers.resize(myCommandBufferThreadCount);
+        frame.commandBuffers.resize(myGraphicsDevice->getDesc().commandBufferThreadCount);
 
-        for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
+        for (uint32_t threadIt = 0; threadIt < myGraphicsDevice->getDesc().commandBufferThreadCount; threadIt++)
         {
             VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-            cmdInfo.commandPool = myFrameCommandPools[threadIt];
+            cmdInfo.commandPool = myGraphicsDevice->getFrameCommandPool(threadIt);
             cmdInfo.level = threadIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
             cmdInfo.commandBufferCount = 1;
             CHECK_VK(vkAllocateCommandBuffers(myGraphicsDevice->getDevice(), &cmdInfo, &frame.commandBuffers[threadIt]));
@@ -253,14 +241,11 @@ void Application<GraphicsBackend::Vulkan>::cleanupState(Window<GraphicsBackend::
         vkDestroySemaphore(myGraphicsDevice->getDevice(), frame.renderCompleteSemaphore, nullptr);
         vkDestroySemaphore(myGraphicsDevice->getDevice(), frame.newImageAcquiredSemaphore, nullptr);
 
-        for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
-            vkFreeCommandBuffers(myGraphicsDevice->getDevice(), myFrameCommandPools[threadIt], 1, &frame.commandBuffers[threadIt]);
+        for (uint32_t threadIt = 0; threadIt < myGraphicsDevice->getDesc().commandBufferThreadCount; threadIt++)
+            vkFreeCommandBuffers(myGraphicsDevice->getDevice(), myGraphicsDevice->getFrameCommandPool(threadIt), 1, &frame.commandBuffers[threadIt]);
 
         vkDestroyFramebuffer(myGraphicsDevice->getDevice(), frame.frameBuffer, nullptr);
     }
-
-    for (uint32_t threadIt = 0; threadIt < myCommandBufferThreadCount; threadIt++)
-        vkDestroyCommandPool(myGraphicsDevice->getDevice(), myFrameCommandPools[threadIt], nullptr);	
 
     for (uint32_t i = 0; i < window.colorViews.size(); i++)
         vkDestroyImageView(myGraphicsDevice->getDevice(), window.colorViews[i], nullptr);
@@ -283,22 +268,22 @@ void Application<GraphicsBackend::Vulkan>::updateViewBuffer(
     ZoneScoped;
 
     void* data;
-    CHECK_VK(vmaMapMemory(myAllocator, window.viewBuffer->getBufferMemory(), &data));
+    CHECK_VK(vmaMapMemory(myGraphicsDevice->getAllocator(), window.viewBuffer->getBufferMemory(), &data));
 
     for (uint32_t n = 0; n < (NX * NY); n++)
     {
-        View::BufferData& ubo = reinterpret_cast<View::BufferData*>(data)[window.frameIndex * (NX * NY) + n];
+        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[window.frameIndex * (NX * NY) + n];
 
-        ubo.viewProj = window.views[n].projection * glm::mat4(window.views[n].view);
+        ubo.viewProj = window.views[n].getProjectionMatrix() * glm::mat4(window.views[n].getViewMatrix());
     }
 
     vmaFlushAllocation(
-        myAllocator,
+        myGraphicsDevice->getAllocator(),
         window.viewBuffer->getBufferMemory(),
-        sizeof(View::BufferData) * window.frameIndex * (NX * NY),
-        sizeof(View::BufferData) * (NX * NY));
+        sizeof(ViewBufferData) * window.frameIndex * (NX * NY),
+        sizeof(ViewBufferData) * (NX * NY));
 
-    vmaUnmapMemory(myAllocator, window.viewBuffer->getBufferMemory());
+    vmaUnmapMemory(myGraphicsDevice->getAllocator(), window.viewBuffer->getBufferMemory());
 }
 
 template <>
@@ -314,7 +299,7 @@ void Application<GraphicsBackend::Vulkan>::checkFlipOrPresentResult(
         std::cout << "warning: flip/present returned VK_SUBOPTIMAL_KHR";
         break;
     case VK_ERROR_OUT_OF_DATE_KHR:
-        window.createStateFlag = true;
+        std::cout << "warning: flip/present returned VK_ERROR_OUT_OF_DATE_KHR";
         break;
     default:
         throw std::runtime_error("failed to flip swap chain image!");
@@ -330,8 +315,6 @@ Application<GraphicsBackend::Vulkan>::Application(
     int framebufferHeight,
     const char* resourcePath)
     : myResourcePath(resourcePath)
-    , myCommandBufferThreadCount(NX * NY + 1)
-    , myRequestedCommandBufferThreadCount(NX * NY + 1)
 {
     ZoneScoped;
 
@@ -362,30 +345,12 @@ Application<GraphicsBackend::Vulkan>::Application(
         myInstance->getInstance(),
             window.surface});
 
-    myAllocator = createAllocator<GraphicsBackend::Vulkan>(myInstance->getInstance(), myGraphicsDevice->getDevice(), myGraphicsDevice->getPhysicalDevice());
-
-    myTransferCommandPool = createCommandPool(
-        myGraphicsDevice->getDevice(),
-        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-        *myGraphicsDevice->getSelectedQueueFamilyIndex());
-
-    auto transferCommandBuffer = beginSingleTimeCommands(myGraphicsDevice->getDevice(), myTransferCommandPool);
-
     myDefaultResources->sampler = createTextureSampler(myGraphicsDevice->getDevice());
-    myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myGraphicsDevice->getDevice());
 
     auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang"));
 
     myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>();
     *myGraphicsPipelineLayout = createPipelineLayoutContext(myGraphicsDevice->getDevice(), *slangShaders);
-    
-    myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-        std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"),
-        myGraphicsDevice->getDevice(), myAllocator, transferCommandBuffer);
-    myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
-        std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"),
-        myGraphicsDevice->getDevice(), myAllocator, transferCommandBuffer);
-    myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
         std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"),
@@ -395,7 +360,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     window.swapchain = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
             myGraphicsDevice->getDevice(),
-            myAllocator,
+            myGraphicsDevice->getAllocator(),
             myGraphicsDevice->getSwapchainConfiguration(),
             window.surface,
             nullptr,
@@ -403,24 +368,39 @@ Application<GraphicsBackend::Vulkan>::Application(
                 static_cast<uint32_t>(framebufferWidth),
                 static_cast<uint32_t>(framebufferHeight)}});
 
+    auto transferContext = myGraphicsDevice->createTransferCommands();
+    transferContext.begin();
+    
+    myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+        std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"),
+        myGraphicsDevice->getDevice(),
+        myGraphicsDevice->getAllocator(),
+        transferContext.getCommandBuffer());
+    myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+        std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"),
+        myGraphicsDevice->getDevice(),
+        myGraphicsDevice->getAllocator(),
+        transferContext.getCommandBuffer());
+    myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+
     window.viewBuffer = std::make_shared<Buffer<GraphicsBackend::Vulkan>>(
         BufferCreateDesc<GraphicsBackend::Vulkan>{
             myGraphicsDevice->getDevice(),
-            myAllocator,
-            window.swapchain->getDesc().configuration.selectedImageCount * (NX * NY) * sizeof(View::BufferData),
+            myGraphicsDevice->getAllocator(),
+            window.swapchain->getDesc().configuration.selectedImageCount * (NX * NY) * sizeof(ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             VK_NULL_HANDLE,
             VK_NULL_HANDLE,
             "viewBuffer"},
-        transferCommandBuffer);
+        transferContext.getCommandBuffer());
 
     // todo: append stencil bit for depthstencil composite formats
     
     window.zBuffer = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
         TextureCreateDesc<GraphicsBackend::Vulkan>{
             myGraphicsDevice->getDevice(),
-            myAllocator,
+            myGraphicsDevice->getAllocator(),
             window.framebufferWidth,
             window.framebufferHeight,
             1,
@@ -433,20 +413,18 @@ Application<GraphicsBackend::Vulkan>::Application(
             VK_NULL_HANDLE,
             VK_NULL_HANDLE, 
             "zBuffer"},
-        transferCommandBuffer);
+        transferContext.getCommandBuffer());
 
     createState(window);
 
     float dpiScaleX = static_cast<float>(framebufferWidth) / width;
     float dpiScaleY = static_cast<float>(framebufferHeight) / height;
 
-    initIMGUI(window, transferCommandBuffer, dpiScaleX, dpiScaleY);
+    initIMGUI(window, transferContext.getCommandBuffer(), dpiScaleX, dpiScaleY);
 
-    endSingleTimeCommands(
-        myGraphicsDevice->getDevice(),
-        myGraphicsDevice->getSelectedQueue(),
-        transferCommandBuffer,
-        myTransferCommandPool);
+    transferContext.end();
+    transferContext.submit();
+    transferContext.sync();
 
     myDefaultResources->model->deleteInitialData();
     myDefaultResources->texture->deleteInitialData();
@@ -498,14 +476,10 @@ Application<GraphicsBackend::Vulkan>::~Application()
 
     vkDestroySampler(myGraphicsDevice->getDevice(), myDefaultResources->sampler, nullptr);
 
-    vkDestroyDescriptorPool(myGraphicsDevice->getDevice(), myDescriptorPool, nullptr);
-    vkDestroyCommandPool(myGraphicsDevice->getDevice(), myTransferCommandPool, nullptr);
-
     char* allocatorStatsJSON = nullptr;
-    vmaBuildStatsString(myAllocator, &allocatorStatsJSON, true);
+    vmaBuildStatsString(myGraphicsDevice->getAllocator(), &allocatorStatsJSON, true);
     std::cout << allocatorStatsJSON << std::endl;
-    vmaFreeStatsString(myAllocator, allocatorStatsJSON);
-    vmaDestroyAllocator(myAllocator);
+    vmaFreeStatsString(myGraphicsDevice->getAllocator(), allocatorStatsJSON);
 
     myGraphicsDevice.reset();
     
@@ -515,7 +489,6 @@ Application<GraphicsBackend::Vulkan>::~Application()
 template <>
 void Application<GraphicsBackend::Vulkan>::submitFrame(
     const DeviceContext<GraphicsBackend::Vulkan>& deviceContext,
-    uint32_t commandBufferThreadCount,
     const PipelineConfiguration<GraphicsBackend::Vulkan>& config,
     Window<GraphicsBackend::Vulkan>& window) const
 {
@@ -572,8 +545,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
             ZoneScopedN("beginCommands");
 
             CHECK_VK(vkResetCommandBuffer(frame.commandBuffers[0], 0));
-            VkCommandBufferBeginInfo info = {};
-            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            VkCommandBufferBeginInfo info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             CHECK_VK(vkBeginCommandBuffer(frame.commandBuffers[0], &info));
 
@@ -595,7 +567,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
     {
         // setup draw parameters
         constexpr uint32_t drawCount = NX * NY;
-        uint32_t segmentCount = std::max(commandBufferThreadCount - 1, 1u);
+        uint32_t segmentCount = std::max(static_cast<uint32_t>(deviceContext.getDesc().commandBufferThreadCount) - 1, 1u);
 
         assert(config.resources);
 
@@ -696,7 +668,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
                                                 uint32_t descriptorSetCount,
                                                 const VkDescriptorSet* descriptorSets,
                                                 VkPipelineLayout pipelineLayout) {
-                                uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(View::BufferData);
+                                uint32_t viewBufferOffset = (frame.index * drawCount + n) * sizeof(ViewBufferData);
                                 vkCmdBindDescriptorSets(
                                     cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                                     descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
@@ -732,8 +704,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         ZoneScopedN("executeCommands");
         //TracyVkZone(tracyContext, frame.commandBuffers[0], "executeCommands");
 
-        VkRenderPassBeginInfo beginInfo = {};
-        beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = config.renderPass;
         beginInfo.framebuffer = frame.frameBuffer;
         beginInfo.renderArea.offset = {0, 0};
@@ -744,7 +715,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         vkCmdBeginRenderPass(
             frame.commandBuffers[0], &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-        vkCmdExecuteCommands(frame.commandBuffers[0], (commandBufferThreadCount - 1), &frame.commandBuffers[1]);
+        vkCmdExecuteCommands(frame.commandBuffers[0], (deviceContext.getDesc().commandBufferThreadCount - 1), &frame.commandBuffers[1]);
 
         vkCmdEndRenderPass(frame.commandBuffers[0]);
     }
@@ -762,8 +733,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         ZoneScopedN("drawIMGUI");
         //TracyVkZone(tracyContext, frame.commandBuffers[0], "drawIMGUI");
 
-        VkRenderPassBeginInfo beginInfo = {};
-        beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = config.renderPass;
         beginInfo.framebuffer = frame.frameBuffer;
         beginInfo.renderArea.offset = {0, 0};
@@ -789,8 +759,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         ZoneScopedN("submitCommands");
 
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo = {};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = &lastFrame.newImageAcquiredSemaphore;
         submitInfo.pWaitDstStageMask = &waitStage;
@@ -812,8 +781,7 @@ void Application<GraphicsBackend::Vulkan>::presentFrame(
 
     auto& frame = window.frames[window.frameIndex];
 
-    VkPresentInfoKHR info = {};
-    info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    VkPresentInfoKHR info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     info.waitSemaphoreCount = 1;
     info.pWaitSemaphores = &frame.renderCompleteSemaphore;
     info.swapchainCount = 1;
@@ -840,9 +808,6 @@ void Application<GraphicsBackend::Vulkan>::updateInput(Window<GraphicsBackend::V
             window.imguiEnable = !window.imguiEnable;
         escBufferState = escState;
     }
-
-    if (myCommandBufferThreadCount != myRequestedCommandBufferThreadCount)
-        window.createStateFlag = true;
 
     if (window.activeView)
     {
@@ -881,12 +846,13 @@ void Application<GraphicsBackend::Vulkan>::updateInput(Window<GraphicsBackend::V
 
         if (dx != 0 || dz != 0)
         {
-            auto forward = glm::vec3(view.view[0][2], view.view[1][2], view.view[2][2]);
-            auto strafe = glm::vec3(view.view[0][0], view.view[1][0], view.view[2][0]);
+            const auto& viewMatrix = view.getViewMatrix();
+            auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
+            auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
             constexpr auto moveSpeed = 2.0f;
 
-            view.camPos += dt * (dz * forward + dx * strafe) * moveSpeed;
+            view.data().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
 
             // std::cout << *window.activeView << ":pos:[" << view.camPos.x << ", " <<
             // view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
@@ -900,8 +866,8 @@ void Application<GraphicsBackend::Vulkan>::updateInput(Window<GraphicsBackend::V
 
             auto dM = myMousePosition[0] - myMousePosition[1];
 
-            view.camRot +=
-                dt * glm::vec3(dM.y / view.viewport.height, dM.x / view.viewport.width, 0.0f) *
+            view.data().cameraRotation +=
+                dt * glm::vec3(dM.y / view.data().viewport.height, dM.x / view.data().viewport.width, 0.0f) *
                 rotSpeed;
 
             // std::cout << *window.activeView << ":rot:[" << view.camRot.x << ", " <<
@@ -912,7 +878,7 @@ void Application<GraphicsBackend::Vulkan>::updateInput(Window<GraphicsBackend::V
 
         if (doUpdateViewMatrix)
         {
-            updateViewMatrix(window.views[*window.activeView]);
+            window.views[*window.activeView].updateViewMatrix();
         }
     }
 }
@@ -974,28 +940,9 @@ void Application<GraphicsBackend::Vulkan>::draw()
 
     auto& window = *myDefaultResources->window;
 
-    // re-create frame resources if needed
-    if (window.createStateFlag)
-    {
-        ZoneScopedN("recreateState");
-
-        {
-            ZoneScopedN("queueWaitIdle");
-
-            CHECK_VK(vkQueueWaitIdle(myGraphicsDevice->getSelectedQueue()));
-        }
-
-        cleanupState(window);
-
-        myCommandBufferThreadCount = std::min(static_cast<uint32_t>(myRequestedCommandBufferThreadCount), NX * NY + 1);
-
-        createState(window);
-    }
-
     updateInput(window);
     submitFrame(
         *myGraphicsDevice,
-        myCommandBufferThreadCount,
         *myGraphicsPipelineConfig,
         window);
     presentFrame(window);
@@ -1026,7 +973,7 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(
     window.swapchain = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
             myGraphicsDevice->getDevice(),
-            myAllocator,
+            myGraphicsDevice->getAllocator(),
             myGraphicsDevice->getSwapchainConfiguration(),
             window.surface,
             window.swapchain->detatch(),
@@ -1034,13 +981,14 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(
                 static_cast<uint32_t>(window.framebufferWidth),
                 static_cast<uint32_t>(window.framebufferHeight)}});
 
-    auto transferCommandBuffer = beginSingleTimeCommands(myGraphicsDevice->getDevice(), myTransferCommandPool);
+    auto transferContext = myGraphicsDevice->createTransferCommands();
+    transferContext.begin();
 
     // todo: append stencil bit for depthstencil composite formats
     window.zBuffer = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
         TextureCreateDesc<GraphicsBackend::Vulkan>{
             myGraphicsDevice->getDevice(),
-            myAllocator,
+            myGraphicsDevice->getAllocator(),
             window.framebufferWidth,
             window.framebufferHeight,
             1,
@@ -1053,13 +1001,11 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(
             VK_NULL_HANDLE,
             VK_NULL_HANDLE,
             "zBuffer"},
-        transferCommandBuffer);
+        transferContext.getCommandBuffer());
 
-    endSingleTimeCommands(
-        myGraphicsDevice->getDevice(),
-        myGraphicsDevice->getSelectedQueue(),
-        transferCommandBuffer,
-        myTransferCommandPool);
+    transferContext.end();
+    transferContext.submit();
+    transferContext.sync();
 
     createState(window);
 }

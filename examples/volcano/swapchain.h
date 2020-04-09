@@ -15,8 +15,8 @@ struct SwapchainConfiguration
 	uint8_t selectedPresentModeIndex = 0;
     uint8_t selectedImageCount = 2;
 	
-	inline SurfaceFormat<B> selectedFormat() const { return formats[selectedFormatIndex]; };
-	inline PresentMode<B> selectedPresentMode() const { return presentModes[selectedPresentModeIndex]; };
+	const auto selectedFormat() const { return formats[selectedFormatIndex]; };
+	const auto selectedPresentMode() const { return presentModes[selectedPresentModeIndex]; };
 };
 
 template <GraphicsBackend B>

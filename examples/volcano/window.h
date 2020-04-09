@@ -50,5 +50,4 @@ struct Window : RenderTargetBase<B>
 	std::vector<Frame<B>> frames; // frames.count == frameCount
 
 	bool imguiEnable = true;
-	bool createStateFlag = false;
 };

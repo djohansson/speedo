@@ -100,7 +100,6 @@ private:
 	void checkFlipOrPresentResult(Window<B>& window, Result<B> result) const;
 	void submitFrame(
 		const DeviceContext<B>& deviceContext,
-		uint32_t commandBufferThreadCount,
 		const PipelineConfiguration<B>& config,
 		Window<B>& window) const;
 	void presentFrame(Window<B>& window) const;
@@ -113,24 +112,11 @@ private:
 	void updateDescriptorSets(const Window<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
 	//
 
-	// todo: encapsulate in View/View
-	void updateViewMatrix(View& view) const;
-	void updateProjectionMatrix(View& view) const;
-	//
-
 	std::unique_ptr<InstanceContext<B>> myInstance;
 	std::unique_ptr<DeviceContext<B>> myGraphicsDevice;
-	AllocatorHandle<B> myAllocator = 0;
-	DescriptorPoolHandle<B> myDescriptorPool = 0;
-	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [threadCount]
-	CommandPoolHandle<B> myTransferCommandPool = 0;
-	PipelineCacheHandle<B> myPipelineCache = 0;
-	//
-
-	static constexpr uint32_t NX = 2;
-	static constexpr uint32_t NY = 2;
 
 	// todo: figure out best way of organizing these
+	PipelineCacheHandle<B> myPipelineCache = 0;
 	std::shared_ptr<GraphicsPipelineResourceView<B>> myDefaultResources;
 	std::shared_ptr<PipelineLayoutContext<B>> myGraphicsPipelineLayout;
 	std::shared_ptr<PipelineConfiguration<B>> myGraphicsPipelineConfig;
@@ -138,12 +124,12 @@ private:
 
 	std::filesystem::path myResourcePath;
 
-	uint32_t myCommandBufferThreadCount = 0;
-	int myRequestedCommandBufferThreadCount = 0;
-
 	std::map<int, bool> myKeysPressed;
 	std::array<bool, 2> myMouseButtonsPressed;
 	std::array<glm::vec2, 2> myMousePosition;
+
+	static constexpr uint32_t NX = 2;
+	static constexpr uint32_t NY = 2;
 };
 
 #include "application.inl"

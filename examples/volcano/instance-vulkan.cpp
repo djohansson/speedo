@@ -7,15 +7,14 @@
 namespace instance_vulkan
 {
 
-struct InstanceData
+struct UserData
 {
     VkDebugReportCallbackEXT debugCallback = VK_NULL_HANDLE;
 };
 
 VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
 {
-    VkDebugReportCallbackCreateInfoEXT debugCallbackInfo = {};
-    debugCallbackInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+    VkDebugReportCallbackCreateInfoEXT debugCallbackInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
     debugCallbackInfo.flags =
         /* VK_DEBUG_REPORT_INFORMATION_BIT_EXT |*/ VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
         VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |
@@ -138,8 +137,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
         requiredExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
-    VkInstanceCreateInfo info = {};
-    info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     info.pApplicationInfo = &myDesc;
     info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
     info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
@@ -148,9 +146,9 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
 
     CHECK_VK(vkCreateInstance(&info, nullptr, &myInstance));
 
-    myData = instance_vulkan::InstanceData();
+    myUserData = instance_vulkan::UserData();
 
-    std::any_cast<instance_vulkan::InstanceData>(&myData)->debugCallback = instance_vulkan::createDebugCallback(myInstance);
+    std::any_cast<instance_vulkan::UserData>(&myUserData)->debugCallback = instance_vulkan::createDebugCallback(myInstance);
 }
 
 template <>
@@ -160,7 +158,7 @@ InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
         (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(
             myInstance, "vkDestroyDebugReportCallbackEXT");
     assert(vkDestroyDebugReportCallbackEXT != nullptr);
-    vkDestroyDebugReportCallbackEXT(myInstance, std::any_cast<instance_vulkan::InstanceData>(&myData)->debugCallback, nullptr);
+    vkDestroyDebugReportCallbackEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugCallback, nullptr);
 
     vkDestroyInstance(myInstance, nullptr);
 }

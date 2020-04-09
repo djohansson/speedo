@@ -40,8 +40,10 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescripto
 
 VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool);
 
-void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer,
-						   VkCommandPool commandPool);
+VkSemaphore endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer);
+
+void endWaitSingleTimeCommands(VkDevice device, VkQueue queue,
+	VkCommandBuffer commandBuffer, VkCommandPool commandPool);
 
 void copyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 

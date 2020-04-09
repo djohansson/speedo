@@ -5,8 +5,7 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
     SwapchainCreateDesc<GraphicsBackend::Vulkan>&& desc)
     : myDesc(std::move(desc))
 {
-    VkSwapchainCreateInfoKHR info = {};
-    info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
     info.surface = myDesc.surface;
     info.minImageCount = myDesc.configuration.selectedImageCount;
     info.imageFormat = myDesc.configuration.selectedFormat().format;

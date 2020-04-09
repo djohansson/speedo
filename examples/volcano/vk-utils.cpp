@@ -127,8 +127,7 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPo
 std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,
 													const VkDescriptorSetLayout* layouts, uint32_t layoutCount)
 {
-	VkDescriptorSetAllocateInfo allocInfo = {};
-	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
 	allocInfo.descriptorPool = pool;
 	allocInfo.descriptorSetCount = layoutCount;
 	allocInfo.pSetLayouts = layouts;
@@ -139,10 +138,10 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescripto
 	return outDescriptorSets;
 }
 
-VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount)
+VkDescriptorSetLayout createDescriptorSetLayout(
+	VkDevice device, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount)
 {
-	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
-	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 	layoutInfo.bindingCount = bindingCount;
 	layoutInfo.pBindings = bindings;
 
@@ -156,30 +155,108 @@ VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPo
 {
 	VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
 
-	VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+	VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 	cmdInfo.commandPool = commandPool;
 	cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	cmdInfo.commandBufferCount = 1;
 	CHECK_VK(vkAllocateCommandBuffers(device, &cmdInfo, &commandBuffer));
 
-	VkCommandBufferBeginInfo beginInfo = {};
-	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	CHECK_VK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
 	return commandBuffer;
 }
 
-void endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer,
-						   VkCommandPool commandPool)
+VkSemaphore endSingleTimeCommands(
+	VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer)
 {
-	VkSubmitInfo endInfo = {};
-	endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	CHECK_VK(vkEndCommandBuffer(commandBuffer));
+	
+	VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+	timelineCreateInfo.initialValue = 0;
+
+	VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	createInfo.pNext = &timelineCreateInfo;
+	createInfo.flags = 0;
+
+	VkSemaphore timelineSemaphore;
+	vkCreateSemaphore(device, &createInfo, nullptr, &timelineSemaphore);
+
+	VkSubmitInfo endInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	endInfo.commandBufferCount = 1;
 	endInfo.pCommandBuffers = &commandBuffer;
+
+	const uint64_t waitValue = 0;
+	const uint64_t signalValue = 1;
+
+	VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+	timelineInfo.waitSemaphoreValueCount = 1;
+	timelineInfo.pWaitSemaphoreValues = &waitValue;
+	timelineInfo.signalSemaphoreValueCount = 1;
+	timelineInfo.pSignalSemaphoreValues = &signalValue;
+
+	VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submitInfo.pNext = &timelineInfo;
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = &timelineSemaphore;
+	submitInfo.signalSemaphoreCount  = 1;
+	submitInfo.pSignalSemaphores = &timelineSemaphore;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	CHECK_VK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+	
+	// up to the caller to sync & clean up using the returned semaphore
+	return timelineSemaphore;
+}
+
+void endWaitSingleTimeCommands(
+	VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer, VkCommandPool commandPool)
+{
 	CHECK_VK(vkEndCommandBuffer(commandBuffer));
-	CHECK_VK(vkQueueSubmit(queue, 1, &endInfo, VK_NULL_HANDLE));
-	CHECK_VK(vkQueueWaitIdle(queue));
+
+	VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+	timelineCreateInfo.initialValue = 0;
+
+	VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	createInfo.pNext = &timelineCreateInfo;
+	createInfo.flags = 0;
+
+	VkSemaphore timelineSemaphore;
+	vkCreateSemaphore(device, &createInfo, NULL, &timelineSemaphore);
+
+	const uint64_t commandsBeginWaitValue = 0;
+	const uint64_t commandsCompleteSignalValue = 1;
+
+	VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+	timelineInfo.waitSemaphoreValueCount = 1;
+	timelineInfo.pWaitSemaphoreValues = &commandsBeginWaitValue;
+	timelineInfo.signalSemaphoreValueCount = 1;
+	timelineInfo.pSignalSemaphoreValues = &commandsCompleteSignalValue;
+
+	VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submitInfo.pNext = &timelineInfo;
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = &timelineSemaphore;
+	submitInfo.signalSemaphoreCount  = 1;
+	submitInfo.pSignalSemaphores = &timelineSemaphore;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	CHECK_VK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
+	const uint64_t commandsCompleteWaitValue = commandsCompleteSignalValue;
+
+	// VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+	// waitInfo.flags = 0;
+	// waitInfo.semaphoreCount = 1;
+	// waitInfo.pSemaphores = &timelineSemaphore;
+	// waitInfo.pValues = &commandsCompleteWaitValue;
+
+	// CHECK_VK(vkWaitSemaphores(device, &waitInfo, UINT64_MAX));
 
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
@@ -197,8 +274,7 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags flags,
 	const char* debugName)
 {
-	VkBufferCreateInfo bufferInfo = {};
-	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	bufferInfo.size = size;
 	bufferInfo.usage = usage;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -249,8 +325,7 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 	VkBufferViewCreateFlags flags, VkFormat format, VkDeviceSize offset, VkDeviceSize range)
 {
-	VkBufferViewCreateInfo viewInfo = {};
-	viewInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+	VkBufferViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO };
 	viewInfo.flags = flags;
     viewInfo.buffer = buffer;
     viewInfo.format = format;
@@ -266,8 +341,7 @@ VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 	VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
-	VkImageMemoryBarrier barrier = {};
-	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.oldLayout = oldLayout;
 	barrier.newLayout = newLayout;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -359,8 +433,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
-	VkImageCreateInfo imageInfo = {};
-	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
 	imageInfo.extent.width = width;
 	imageInfo.extent.height = height;
@@ -434,8 +507,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
 {	
-	VkImageViewCreateInfo viewInfo = {};
-	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	viewInfo.image = image;
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	viewInfo.format = format;
@@ -457,8 +529,7 @@ VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, V
 
 VkSampler createTextureSampler(VkDevice device)
 {
-	VkSamplerCreateInfo samplerInfo = {};
-	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
 	samplerInfo.minFilter = VK_FILTER_LINEAR;
 	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;

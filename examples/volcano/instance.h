@@ -20,5 +20,5 @@ private:
 
     const InstanceCreateDesc<B> myDesc;
     InstanceHandle<B> myInstance;
-    std::any myData;
+    std::any myUserData;
 };
