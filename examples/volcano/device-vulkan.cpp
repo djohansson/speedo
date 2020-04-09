@@ -219,14 +219,14 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     CHECK_VK(vkCreateSemaphore(myDevice, &createInfo, NULL, &myTimelineSemaphore));
 
-    myUserData = device_vulkan::UserData();
-
     CommandBufferHandle<GraphicsBackend::Vulkan> transferCommandBuffer;
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     cmdInfo.commandPool = myTransferCommandPool;
     cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cmdInfo.commandBufferCount = 1;
     CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, &transferCommandBuffer));
+
+    myUserData = device_vulkan::UserData();
 
     std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext =
         TracyVkContext(

@@ -471,8 +471,8 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
-	assert((width & 1) == 0);
-	assert((height & 1) == 0);
+	// assert((width & 1) == 0);
+	// assert((height & 1) == 0);
 
     VkImage outImage = VK_NULL_HANDLE;
     VmaAllocation outImageMemory = VK_NULL_HANDLE;

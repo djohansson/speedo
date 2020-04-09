@@ -9,43 +9,44 @@ namespace instance_vulkan
 
 struct UserData
 {
-    VkDebugReportCallbackEXT debugCallback = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT debugUtilsMessenger = VK_NULL_HANDLE;
 };
 
-VkDebugReportCallbackEXT createDebugCallback(VkInstance instance)
+VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 {
-    VkDebugReportCallbackCreateInfoEXT debugCallbackInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
-    debugCallbackInfo.flags =
-        /* VK_DEBUG_REPORT_INFORMATION_BIT_EXT |*/ VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
-        VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |
-        VK_DEBUG_REPORT_WARNING_BIT_EXT;
+    auto vkCreateDebugUtilsMessengerEXT =
+        (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+    assert(vkCreateDebugUtilsMessengerEXT != nullptr);
 
-    debugCallbackInfo.pfnCallback = static_cast<PFN_vkDebugReportCallbackEXT>(
-        [](VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT /*objectType*/, uint64_t /*object*/,
-        size_t /*location*/, int32_t /*messageCode*/, const char* layerPrefix, const char* message,
-        void* /*userData*/) -> VkBool32 {
-            std::cout << layerPrefix << ": " << message << std::endl;
+    PFN_vkDebugUtilsMessengerCallbackEXT callback = static_cast<PFN_vkDebugUtilsMessengerCallbackEXT>([](
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData) -> VkBool32
+    {
+        std::cout << pCallbackData->pMessageIdName << ": " << pCallbackData->pMessage << std::endl;
 
-            // VK_DEBUG_REPORT_INFORMATION_BIT_EXT = 0x00000001,
-            // VK_DEBUG_REPORT_WARNING_BIT_EXT = 0x00000002,
-            // VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT = 0x00000004,
-            // VK_DEBUG_REPORT_ERROR_BIT_EXT = 0x00000008,
-            // VK_DEBUG_REPORT_DEBUG_BIT_EXT = 0x00000010,
+        if (pCallbackData->flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || pCallbackData->flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+            return VK_TRUE;
 
-            if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
-                return VK_TRUE;
+        return VK_FALSE;
+    });
 
-            return VK_FALSE;
-        });
+    VkDebugUtilsMessengerCreateInfoEXT callbackCreateInfo =
+    {
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+        nullptr,
+        0,
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+        callback,
+        nullptr
+    };
 
-    auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(
-        instance, "vkCreateDebugReportCallbackEXT");
-    assert(vkCreateDebugReportCallbackEXT != nullptr);
+    VkDebugUtilsMessengerEXT messenger;
+    CHECK_VK(vkCreateDebugUtilsMessengerEXT(instance, &callbackCreateInfo, nullptr, &messenger));
 
-    VkDebugReportCallbackEXT debugCallback = VK_NULL_HANDLE;
-    CHECK_VK(vkCreateDebugReportCallbackEXT(instance, &debugCallbackInfo, nullptr, &debugCallback));
-
-    return debugCallback;
+    return messenger;
 }
 
 }
@@ -106,14 +107,16 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
     std::vector<const char*> requiredLayers = {
-    #ifdef PROFILING_ENABLED
+#ifdef PROFILING_ENABLED
         "VK_LAYER_KHRONOS_validation",
-    #endif
+#endif
     };
 
     std::vector<const char*> requiredExtensions = {
         // must be sorted lexicographically for std::includes to work!
-        "VK_EXT_debug_report",
+#ifdef PROFILING_ENABLED
+        "VK_EXT_debug_utils",
+#endif
         "VK_KHR_surface",
 #if defined(__WINDOWS__)
         "VK_KHR_win32_surface",
@@ -148,17 +151,16 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
 
     myUserData = instance_vulkan::UserData();
 
-    std::any_cast<instance_vulkan::UserData>(&myUserData)->debugCallback = instance_vulkan::createDebugCallback(myInstance);
+    std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger =
+        instance_vulkan::createDebugUtilsMessenger(myInstance);
 }
 
 template <>
 InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
 {
-    auto vkDestroyDebugReportCallbackEXT =
-        (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(
-            myInstance, "vkDestroyDebugReportCallbackEXT");
-    assert(vkDestroyDebugReportCallbackEXT != nullptr);
-    vkDestroyDebugReportCallbackEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugCallback, nullptr);
+    auto vkDestroyDebugUtilsMessengerEXT =
+        (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
+    vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
 
     vkDestroyInstance(myInstance, nullptr);
 }
