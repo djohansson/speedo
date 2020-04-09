@@ -463,28 +463,20 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	^RootObjectLists + .ModelViewerObjectList
 
-	.VolcanoUnity = 
-	[
-		.UnityInputPath = '$RootPath$/examples/volcano'
-		.UnityInputPattern = "*.cpp"
-		.UnityInputExcludedFiles = {
-			'$RootPath$/examples/volcano/application-vulkan.cpp',
-			'$RootPath$/examples/volcano/gfx-vulkan.cpp',
-			'$RootPath$/examples/volcano/buffer-vulkan.cpp',
-			'$RootPath$/examples/volcano/model-vulkan.cpp',
-			'$RootPath$/examples/volcano/texture-vulkan.cpp',
-			'$RootPath$/examples/volcano/vk-utils.cpp',
-			'$RootPath$/examples/volcano/volcano.cpp',
-			'$RootPath$/examples/volcano/main.cpp',
-		}
-		.UnityOutputPath = '$IntermediateFilePath$/examples/volcano'
-		.UnityOutputPattern = 'volcano-unity*.cpp'
-	]
+	// .VolcanoUnity = 
+	// [
+	// 	.UnityInputPath = '$RootPath$/examples/volcano'
+	// 	.UnityInputPattern = "*.cpp"
+	// 	.UnityInputExcludedFiles = {
+	// 	}
+	// 	.UnityOutputPath = '$IntermediateFilePath$/examples/volcano'
+	// 	.UnityOutputPattern = 'volcano-unity*.cpp'
+	// ]
 	.VolcanoObjectList =
 	[
 		Using(.ObjectListCommon)
-		Using(.VolcanoUnity)
-
+		//Using(.VolcanoUnity)
+		
 		.Name = 'volcano'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$RootPath$'
@@ -506,17 +498,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 			+ ' -DTRACY_ENABLE'
 			+ ' -DGLM_FORCE_AVX2'
-		.CompilerInputUnity = 'volcano-unity'
-		.CompilerInputFiles = {
-			'$RootPath$/examples/volcano/application-vulkan.cpp',
-			'$RootPath$/examples/volcano/gfx-vulkan.cpp',
-			'$RootPath$/examples/volcano/buffer-vulkan.cpp',
-			'$RootPath$/examples/volcano/model-vulkan.cpp',
-			'$RootPath$/examples/volcano/texture-vulkan.cpp',
-			'$RootPath$/examples/volcano/vk-utils.cpp',
-			'$RootPath$/examples/volcano/volcano.cpp',
-			'$RootPath$/examples/volcano/main.cpp',
-		}
+		// .CompilerInputUnity = 'volcano-unity'
+		.CompilerInputPath = '$RootPath$/examples/volcano'
 	]
 	^RootObjectLists + .VolcanoObjectList
 

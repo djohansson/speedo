@@ -565,6 +565,8 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
 
     // create secondary command buffers
     {
+        assert(deviceContext.getDesc().commandBufferThreadCount > 1);
+
         // setup draw parameters
         constexpr uint32_t drawCount = NX * NY;
         uint32_t segmentCount = std::max(static_cast<uint32_t>(deviceContext.getDesc().commandBufferThreadCount) - 1, 1u);

@@ -20,120 +20,31 @@ struct UserData
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::begin() const
-{
-    VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    CHECK_VK(vkBeginCommandBuffer(myCommandBuffer, &beginInfo));
-}
-
-template <>
-void CommandContext<GraphicsBackend::Vulkan>::submit()
-{
-    const uint64_t commandsBeginWaitValue = 0;
-    myTimelineValue++;
-    
-    VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-    timelineInfo.pNext = NULL;
-    timelineInfo.waitSemaphoreValueCount = 1;
-    timelineInfo.pWaitSemaphoreValues = &commandsBeginWaitValue;
-    timelineInfo.signalSemaphoreValueCount = 1;
-    timelineInfo.pSignalSemaphoreValues = &myTimelineValue;
-
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-    VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submitInfo.pNext = &timelineInfo;
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &myTimelineSemaphore;
-    submitInfo.pWaitDstStageMask = &waitStage;
-    submitInfo.signalSemaphoreCount  = 1;
-    submitInfo.pSignalSemaphores = &myTimelineSemaphore;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &myCommandBuffer;
-
-    CHECK_VK(vkQueueSubmit(myDesc.queue, 1, &submitInfo, VK_NULL_HANDLE));
-}
-
-template <>
-void CommandContext<GraphicsBackend::Vulkan>::end() const
-{
-    CHECK_VK(vkEndCommandBuffer(myCommandBuffer));
-}
-
-template <>
-bool CommandContext<GraphicsBackend::Vulkan>::isComplete() const
-{
-    uint64_t value;
-    CHECK_VK(vkGetSemaphoreCounterValue(myDesc.device, myTimelineSemaphore, &value));
-
-    return (value >= myTimelineValue);
-}
-
-template <>
-void CommandContext<GraphicsBackend::Vulkan>::sync() const
-{
-    if (!isComplete())
-    {
-        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-        waitInfo.flags = 0;
-        waitInfo.semaphoreCount = 1;
-        waitInfo.pSemaphores = &myTimelineSemaphore;
-        waitInfo.pValues = &myTimelineValue;
-
-        CHECK_VK(vkWaitSemaphores(myDesc.device, &waitInfo, UINT64_MAX));
-    }
-}
-
-template <>
-CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: myDesc(std::move(desc))
-{
-    VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    cmdInfo.commandPool = myDesc.commandPool;
-    cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdInfo.commandBufferCount = 1;
-    CHECK_VK(vkAllocateCommandBuffers(myDesc.device, &cmdInfo, &myCommandBuffer));
-
-    VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
-    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    timelineCreateInfo.initialValue = 0;
-
-    VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    createInfo.pNext = &timelineCreateInfo;
-    createInfo.flags = 0;
-
-    CHECK_VK(vkCreateSemaphore(myDesc.device, &createInfo, NULL, &myTimelineSemaphore));
-}
-
-template <>
-CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
-{
-    assert(isComplete());
-
-    vkDestroySemaphore(myDesc.device, myTimelineSemaphore, nullptr);
-    vkFreeCommandBuffers(myDesc.device, myDesc.commandPool, 1, &myCommandBuffer);
-}
-
-template <>
 CommandContext<GraphicsBackend::Vulkan>
-DeviceContext<GraphicsBackend::Vulkan>::createTransferCommands() const
+DeviceContext<GraphicsBackend::Vulkan>::createFrameCommands(uint16_t threadIndex, uint64_t waitValue, uint64_t signalValue) const
 {
     return CommandContext<GraphicsBackend::Vulkan>(
         CommandCreateDesc<GraphicsBackend::Vulkan>{
             myDevice,
             mySelectedQueue,
-            myTransferCommandPool});
+            myFrameCommandPools[threadIndex],
+            myTimelineSemaphore,
+            waitValue,
+            signalValue});
 }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>
-DeviceContext<GraphicsBackend::Vulkan>::createFrameCommands(uint16_t threadIndex) const
+DeviceContext<GraphicsBackend::Vulkan>::createTransferCommands(uint64_t waitValue, uint64_t signalValue) const
 {
     return CommandContext<GraphicsBackend::Vulkan>(
         CommandCreateDesc<GraphicsBackend::Vulkan>{
             myDevice,
             mySelectedQueue,
-            myFrameCommandPools[threadIndex]});
+            myTransferCommandPool,
+            myTimelineSemaphore,
+            waitValue,
+            signalValue});
 }
 
 template <>
@@ -298,22 +209,39 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     
     myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
 
+    VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timelineCreateInfo.initialValue = 0;
+
+    VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    createInfo.pNext = &timelineCreateInfo;
+    createInfo.flags = 0;
+
+    CHECK_VK(vkCreateSemaphore(myDevice, &createInfo, NULL, &myTimelineSemaphore));
+
     myUserData = device_vulkan::UserData();
 
-    auto transferCommands = createTransferCommands();
+    CommandBufferHandle<GraphicsBackend::Vulkan> transferCommandBuffer;
+    VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    cmdInfo.commandPool = myTransferCommandPool;
+    cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmdInfo.commandBufferCount = 1;
+    CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, &transferCommandBuffer));
 
     std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext =
         TracyVkContext(
             myPhysicalDevice,
             myDevice,
             mySelectedQueue,
-            transferCommands.getCommandBuffer());
+            transferCommandBuffer);
 }
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
     TracyVkDestroy(std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext);
+
+    vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
 
     vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 
