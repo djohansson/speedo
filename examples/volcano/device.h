@@ -6,6 +6,7 @@
 #include "utils.h"
 
 #include <any>
+#include <atomic>
 #include <cassert>
 #include <optional>
 #include <vector>
@@ -39,8 +40,9 @@ public:
     const auto getFrameCommandPool(uint16_t poolIndex) { return myFrameCommandPools[poolIndex]; }
     const auto getTransferCommandPool() { return myTransferCommandPool; }
 
-    CommandContext<B> createFrameCommands(uint16_t poolIndex, uint64_t waitValue = 0, uint64_t signalValue = 1) const;
-    CommandContext<B> createTransferCommands(uint64_t waitValue = 0, uint64_t signalValue = 1) const;
+    CommandContext<B> createFrameCommands(
+        uint16_t poolIndex, uint64_t commandBufferLevel = 0) const;
+    CommandContext<B> createTransferCommands() const;
 
 private:
 
@@ -57,5 +59,6 @@ private:
 	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [myCommandBufferThreadCount]
 	CommandPoolHandle<B> myTransferCommandPool = 0;
     SemaphoreHandle<B> myTimelineSemaphore = 0;
+    std::shared_ptr<std::atomic_uint64_t> myTimelineValue = 0;
     std::any myUserData;
 };

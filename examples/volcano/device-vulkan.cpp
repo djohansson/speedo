@@ -21,7 +21,8 @@ struct UserData
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>
-DeviceContext<GraphicsBackend::Vulkan>::createFrameCommands(uint16_t threadIndex, uint64_t waitValue, uint64_t signalValue) const
+DeviceContext<GraphicsBackend::Vulkan>::createFrameCommands(
+    uint16_t threadIndex, uint64_t commandBufferLevel) const
 {
     return CommandContext<GraphicsBackend::Vulkan>(
         CommandCreateDesc<GraphicsBackend::Vulkan>{
@@ -29,13 +30,13 @@ DeviceContext<GraphicsBackend::Vulkan>::createFrameCommands(uint16_t threadIndex
             mySelectedQueue,
             myFrameCommandPools[threadIndex],
             myTimelineSemaphore,
-            waitValue,
-            signalValue});
+            myTimelineValue,
+            commandBufferLevel});
 }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>
-DeviceContext<GraphicsBackend::Vulkan>::createTransferCommands(uint64_t waitValue, uint64_t signalValue) const
+DeviceContext<GraphicsBackend::Vulkan>::createTransferCommands() const
 {
     return CommandContext<GraphicsBackend::Vulkan>(
         CommandCreateDesc<GraphicsBackend::Vulkan>{
@@ -43,8 +44,8 @@ DeviceContext<GraphicsBackend::Vulkan>::createTransferCommands(uint64_t waitValu
             mySelectedQueue,
             myTransferCommandPool,
             myTimelineSemaphore,
-            waitValue,
-            signalValue});
+            myTimelineValue,
+            VK_COMMAND_BUFFER_LEVEL_PRIMARY});
 }
 
 template <>
@@ -218,6 +219,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     createInfo.flags = 0;
 
     CHECK_VK(vkCreateSemaphore(myDevice, &createInfo, NULL, &myTimelineSemaphore));
+    myTimelineValue = std::make_shared<std::atomic_uint64_t>();
 
     CommandBufferHandle<GraphicsBackend::Vulkan> transferCommandBuffer;
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };

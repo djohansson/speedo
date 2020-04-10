@@ -200,15 +200,12 @@ void Application<GraphicsBackend::Vulkan>::createState(
 
         frame.index = frameIt;
         frame.frameBuffer = createFramebuffer(frameIt);
-        frame.commandBuffers.resize(myGraphicsDevice->getDesc().commandBufferThreadCount);
-
+        assert(frame.commands.empty());
         for (uint32_t threadIt = 0; threadIt < myGraphicsDevice->getDesc().commandBufferThreadCount; threadIt++)
         {
-            VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-            cmdInfo.commandPool = myGraphicsDevice->getFrameCommandPool(threadIt);
-            cmdInfo.level = threadIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-            cmdInfo.commandBufferCount = 1;
-            CHECK_VK(vkAllocateCommandBuffers(myGraphicsDevice->getDevice(), &cmdInfo, &frame.commandBuffers[threadIt]));
+            frame.commands.emplace_back(myGraphicsDevice->createFrameCommands(
+                threadIt,
+                threadIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY));
         }
 
         VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -237,13 +234,14 @@ void Application<GraphicsBackend::Vulkan>::cleanupState(Window<GraphicsBackend::
 
     for (auto& frame : window.frames)
     {
+        for (auto& cmd : frame.commands)
+            cmd.sync();
+
+        frame.commands.clear();
+
         vkDestroyFence(myGraphicsDevice->getDevice(), frame.fence, nullptr);
         vkDestroySemaphore(myGraphicsDevice->getDevice(), frame.renderCompleteSemaphore, nullptr);
         vkDestroySemaphore(myGraphicsDevice->getDevice(), frame.newImageAcquiredSemaphore, nullptr);
-
-        for (uint32_t threadIt = 0; threadIt < myGraphicsDevice->getDesc().commandBufferThreadCount; threadIt++)
-            vkFreeCommandBuffers(myGraphicsDevice->getDevice(), myGraphicsDevice->getFrameCommandPool(threadIt), 1, &frame.commandBuffers[threadIt]);
-
         vkDestroyFramebuffer(myGraphicsDevice->getDevice(), frame.frameBuffer, nullptr);
     }
 
@@ -425,6 +423,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     transferContext.end();
     transferContext.submit();
     transferContext.sync();
+    transferContext.free();
 
     myDefaultResources->model->deleteInitialData();
     myDefaultResources->texture->deleteInitialData();
@@ -544,18 +543,14 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         {
             ZoneScopedN("beginCommands");
 
-            CHECK_VK(vkResetCommandBuffer(frame.commandBuffers[0], 0));
-            VkCommandBufferBeginInfo info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-            info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            CHECK_VK(vkBeginCommandBuffer(frame.commandBuffers[0], &info));
-
+            frame.commands[0].begin();
         }
 
         // collect timing scopes
         {
             ZoneScopedN("tracyVkCollect");
-            // TracyVkZone(tracyContext, frame.commandBuffers[0], "tracyVkCollect");
-            // TracyVkCollect(tracyContext, frame.commandBuffers[0]);
+            // TracyVkZone(tracyContext, frame.commands[0], "tracyVkCollect");
+            // TracyVkCollect(tracyContext, frame.commands[0]);
         }
     }));
 
@@ -593,27 +588,25 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
                 seq.begin(), segmentCount,
                 [/*this, */&config, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt)
                 {
-
-                    VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
+                    auto& cmd = frame.commands[segmentIt + 1];
 
                     {
                         ZoneScopedN("beginSecondaryCommands");
 
-                        VkCommandBuffer cmd = frame.commandBuffers[segmentIt + 1];
-
-                        VkCommandBufferInheritanceInfo inherit = {
-                            VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+                        CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                         inherit.renderPass = config.renderPass;
                         inherit.framebuffer = frame.frameBuffer;
 
-                        CHECK_VK(vkResetCommandBuffer(cmd, 0));
-                        VkCommandBufferBeginInfo secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+                        CommandBufferBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
                         secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
                                             VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT |
                                             VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
                         secBeginInfo.pInheritanceInfo = &inherit;
-                        CHECK_VK(vkBeginCommandBuffer(cmd, &secBeginInfo));
+                        
+                        cmd.begin(&secBeginInfo);
                     }
+
+                    
 
                     {
                         ZoneScopedN("drawSegment");
@@ -624,13 +617,13 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
                             ZoneScopedN("bind");
 
                             // bind pipeline and vertex/index buffers
-                            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
+                            vkCmdBindPipeline(cmd.getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
                             VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
                             VkDeviceSize vertexOffsets[] = {0};
 
-                            vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                            vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                            vkCmdBindVertexBuffers(cmd.getCommandBuffer(), 0, 1, vertexBuffers, vertexOffsets);
+                            vkCmdBindIndexBuffer(cmd.getCommandBuffer(), config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
                         }
 
                         for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -677,10 +670,10 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
                                 vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
                             };
 
-                            setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+                            setViewportAndScissor(cmd.getCommandBuffer(), i * dx, j * dy, dx, dy);
 
                             drawModel(
-                                cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
+                                cmd.getCommandBuffer(), config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
                                 config.descriptorSets.data(), config.layout->layout);
                         }
                     }
@@ -688,7 +681,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
                     {
                         ZoneScopedN("endSecondaryCommands");
 
-                        CHECK_VK(vkEndCommandBuffer(cmd));
+                        cmd.end();
                     }
                 });
         }
@@ -701,10 +694,18 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         beginCommandsFuture.get();
     }
 
+    auto& primaryCommands = frame.commands[0];
+
     // call secondary command buffers
     {
         ZoneScopedN("executeCommands");
-        //TracyVkZone(tracyContext, frame.commandBuffers[0], "executeCommands");
+        //TracyVkZone(tracyContext, frame.commands[0].getCommandBuffer(), "executeCommands");
+
+        // temp!!
+        std::vector<VkCommandBuffer> secondaryCommands(deviceContext.getDesc().commandBufferThreadCount - 1);
+        for (uint32_t i = 0; i < deviceContext.getDesc().commandBufferThreadCount - 1; i++)
+            secondaryCommands[i] = frame.commands[i+1].getCommandBuffer();
+        //
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = config.renderPass;
@@ -715,11 +716,14 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
         vkCmdBeginRenderPass(
-            frame.commandBuffers[0], &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+            primaryCommands.getCommandBuffer(), &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-        vkCmdExecuteCommands(frame.commandBuffers[0], (deviceContext.getDesc().commandBufferThreadCount - 1), &frame.commandBuffers[1]);
+        vkCmdExecuteCommands(
+            primaryCommands.getCommandBuffer(),
+            secondaryCommands.size(),
+            secondaryCommands.data());
 
-        vkCmdEndRenderPass(frame.commandBuffers[0]);
+        vkCmdEndRenderPass(primaryCommands.getCommandBuffer());
     }
 
     // wait for imgui draw job
@@ -733,7 +737,7 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
     if (window.imguiEnable)
     {
         ZoneScopedN("drawIMGUI");
-        //TracyVkZone(tracyContext, frame.commandBuffers[0], "drawIMGUI");
+        //TracyVkZone(tracyContext, primaryCommands, "drawIMGUI");
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = config.renderPass;
@@ -743,11 +747,11 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.renderArea.extent.height = window.framebufferHeight;
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
-        vkCmdBeginRenderPass(frame.commandBuffers[0], &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(primaryCommands.getCommandBuffer(), &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.commandBuffers[0]);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), primaryCommands.getCommandBuffer());
 
-        vkCmdEndRenderPass(frame.commandBuffers[0]);
+        vkCmdEndRenderPass(primaryCommands.getCommandBuffer());
     }
 
     // Submit primary command buffer
@@ -760,18 +764,16 @@ void Application<GraphicsBackend::Vulkan>::submitFrame(
 
         ZoneScopedN("submitCommands");
 
-        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = &lastFrame.newImageAcquiredSemaphore;
-        submitInfo.pWaitDstStageMask = &waitStage;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &frame.commandBuffers[0];
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &frame.renderCompleteSemaphore;
-
-        CHECK_VK(vkEndCommandBuffer(frame.commandBuffers[0]));
-        CHECK_VK(vkQueueSubmit(deviceContext.getSelectedQueue(), 1, &submitInfo, frame.fence));
+        primaryCommands.end();
+        Flags<GraphicsBackend::Vulkan> waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        primaryCommands.submit(CommandSubmitInfo<GraphicsBackend::Vulkan>{
+            1,
+            &lastFrame.newImageAcquiredSemaphore,
+            &waitStage,
+            1,
+            &frame.renderCompleteSemaphore,
+            frame.fence,
+        });
     }
 }
 

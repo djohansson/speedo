@@ -188,14 +188,14 @@ VkSemaphore endSingleTimeCommands(
 	endInfo.commandBufferCount = 1;
 	endInfo.pCommandBuffers = &commandBuffer;
 
-	const uint64_t waitValue = 0;
-	const uint64_t signalValue = 1;
+	const uint64_t commandsBeginWaitValue = 0;
+	const uint64_t commandsCompleteSignalValue = 1;
 
 	VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
 	timelineInfo.waitSemaphoreValueCount = 1;
-	timelineInfo.pWaitSemaphoreValues = &waitValue;
+	timelineInfo.pWaitSemaphoreValues = &commandsBeginWaitValue;
 	timelineInfo.signalSemaphoreValueCount = 1;
-	timelineInfo.pSignalSemaphoreValues = &signalValue;
+	timelineInfo.pSignalSemaphoreValues = &commandsCompleteSignalValue;
 
 	VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submitInfo.pNext = &timelineInfo;
@@ -250,13 +250,13 @@ void endWaitSingleTimeCommands(
 
 	const uint64_t commandsCompleteWaitValue = commandsCompleteSignalValue;
 
-	// VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-	// waitInfo.flags = 0;
-	// waitInfo.semaphoreCount = 1;
-	// waitInfo.pSemaphores = &timelineSemaphore;
-	// waitInfo.pValues = &commandsCompleteWaitValue;
+	VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+	waitInfo.flags = 0;
+	waitInfo.semaphoreCount = 1;
+	waitInfo.pSemaphores = &timelineSemaphore;
+	waitInfo.pValues = &commandsCompleteWaitValue;
 
-	// CHECK_VK(vkWaitSemaphores(device, &waitInfo, UINT64_MAX));
+	CHECK_VK(vkWaitSemaphores(device, &waitInfo, UINT64_MAX));
 
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }

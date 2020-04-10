@@ -157,3 +157,9 @@ using SemaphoreHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSemap
 
 template <GraphicsBackend B>
 using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using CommandBufferBeginInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBufferBeginInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using CommandBufferInheritanceInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBufferInheritanceInfo, std::nullptr_t>;

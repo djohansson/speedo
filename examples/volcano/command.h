@@ -2,6 +2,9 @@
 
 #include "gfx-types.h"
 
+#include <atomic>
+#include <vector>
+
 template <GraphicsBackend B>
 struct CommandCreateDesc
 {
@@ -9,8 +12,19 @@ struct CommandCreateDesc
     QueueHandle<B> queue = 0;
     CommandPoolHandle<B> commandPool = 0;
     SemaphoreHandle<B> timelineSemaphore = 0;
-    uint64_t commandsBeginWaitValue = 0;
-    uint64_t commandsEndSignalValue = 1;
+    std::shared_ptr<std::atomic_uint64_t> timelineValue;
+    uint64_t commandBufferLevel = 0;
+};
+
+template <GraphicsBackend B>
+struct CommandSubmitInfo
+{
+    uint32_t waitSemaphoreCount = 0;
+    const SemaphoreHandle<B>* waitSemaphores = nullptr;
+    const Flags<B>* waitDstStageMasks = 0;
+    uint32_t signalSemaphoreCount = 0;
+    const SemaphoreHandle<B>* signalSemaphores = nullptr;
+    FenceHandle<B> signalFence = 0;
 };
 
 template <GraphicsBackend B>
@@ -18,20 +32,32 @@ class CommandContext : Noncopyable
 {
 public:
 
-    CommandContext(CommandContext<B>&& context) = default;
+    CommandContext() = default;
+    CommandContext(CommandContext<B>&& context)
+    : myDesc(std::move(context.myDesc))
+    , myCommandBuffer(std::move(context.myCommandBuffer))
+    {
+        context.myDesc = {};
+        context.myCommandBuffer = 0;
+    }
     CommandContext(CommandCreateDesc<B>&& desc);
     ~CommandContext();
     
     const auto getCommandBuffer() const { return myCommandBuffer; }
 
-    void begin() const;
-    void submit() const;
-    void end() const;
     bool isComplete() const;
+
+    void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr) const;
+    void submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
+    void end() const;
     void sync() const;
+    void free();
 
 private:
 
-    const CommandCreateDesc<B> myDesc = {};
+    CommandCreateDesc<B> myDesc = {};
     CommandBufferHandle<B> myCommandBuffer = 0;
+    uint64_t myLastSubmitTimelineValue = 0;
+
+    static thread_local std::vector<std::byte> threadScratchMemory;
 };
