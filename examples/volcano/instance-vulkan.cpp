@@ -9,9 +9,12 @@ namespace instance_vulkan
 
 struct UserData
 {
+#ifdef PROFILING_ENABLED
     VkDebugUtilsMessengerEXT debugUtilsMessenger = VK_NULL_HANDLE;
+#endif
 };
 
+#ifdef PROFILING_ENABLED
 VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 {
     auto vkCreateDebugUtilsMessengerEXT =
@@ -48,6 +51,7 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 
     return messenger;
 }
+#endif
 
 }
 
@@ -55,13 +59,6 @@ template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDesc(std::move(desc))
 {
-// static const char* DISABLE_VK_LAYER_VALVE_steam_overlay_1 = "DISABLE_VK_LAYER_VALVE_steam_overlay_1=1";
-// #if defined(__WINDOWS__)
-// 	_putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
-// #else
-// 	putenv((char*)DISABLE_VK_LAYER_VALVE_steam_overlay_1);
-// #endif
-
 #ifdef _DEBUG
 	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
 	if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
@@ -151,16 +148,20 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<Gra
 
     myUserData = instance_vulkan::UserData();
 
+#ifdef PROFILING_ENABLED
     std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger =
         instance_vulkan::createDebugUtilsMessenger(myInstance);
+#endif
 }
 
 template <>
 InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
 {
+#ifdef PROFILING_ENABLED
     auto vkDestroyDebugUtilsMessengerEXT =
         (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
     vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
+#endif
 
     vkDestroyInstance(myInstance, nullptr);
 }

@@ -305,13 +305,8 @@ void Application<GraphicsBackend::Vulkan>::checkFlipOrPresentResult(
 }
 
 template <>
-Application<GraphicsBackend::Vulkan>::Application(
-    void* view,
-    int width,
-    int height,
-    int framebufferWidth,
-    int framebufferHeight,
-    const char* resourcePath)
+Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int height,
+    int framebufferWidth, int framebufferHeight, const char* resourcePath)
     : myResourcePath(resourcePath)
 {
     ZoneScoped;

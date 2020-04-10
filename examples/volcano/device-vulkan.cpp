@@ -14,7 +14,9 @@ namespace device_vulkan
 
 struct UserData
 {
+#ifdef PROFILING_ENABLED
     TracyVkCtx tracyContext;
+#endif
 };
 
 }
@@ -230,18 +232,22 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     myUserData = device_vulkan::UserData();
 
+#ifdef PROFILING_ENABLED
     std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext =
         TracyVkContext(
             myPhysicalDevice,
             myDevice,
             mySelectedQueue,
             transferCommandBuffer);
+#endif
 }
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
+#ifdef PROFILING_ENABLED
     TracyVkDestroy(std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext);
+#endif
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
 

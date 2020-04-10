@@ -121,7 +121,7 @@ void CommandContext<GraphicsBackend::Vulkan>::end() const
 template <>
 void CommandContext<GraphicsBackend::Vulkan>::sync() const
 {
-    //if (!isComplete())
+    if (!isComplete())
     {
         VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
         waitInfo.flags = 0;
