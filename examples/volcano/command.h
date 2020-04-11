@@ -33,12 +33,14 @@ class CommandContext : Noncopyable
 public:
 
     CommandContext() = default;
-    CommandContext(CommandContext<B>&& context)
-    : myDesc(std::move(context.myDesc))
-    , myCommandBuffer(std::move(context.myCommandBuffer))
+    CommandContext(CommandContext<B>&& other)
+    : myDesc(other.myDesc)
+    , myCommandBuffer(other.myCommandBuffer)
+    , myLastSubmitTimelineValue(other.myLastSubmitTimelineValue)
     {
-        context.myDesc = {};
-        context.myCommandBuffer = 0;
+        other.myDesc = {};
+        other.myCommandBuffer = 0;
+        other.myLastSubmitTimelineValue = 0;
     }
     CommandContext(CommandCreateDesc<B>&& desc);
     ~CommandContext();

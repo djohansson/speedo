@@ -193,32 +193,15 @@ void Application<GraphicsBackend::Vulkan>::createState(
         return outFramebuffer;
     };
 
-    window.frames.resize(window.colorImages.size());
-    for (uint32_t frameIt = 0; frameIt < window.frames.size(); frameIt++)
+    window.frames.reserve(window.colorImages.size());
+    for (uint32_t frameIt = 0; frameIt < window.colorImages.size(); frameIt++)
     {
-        auto& frame = window.frames[frameIt];
+        auto& frame = window.frames.emplace_back(FrameCreateDesc<GraphicsBackend::Vulkan>{myGraphicsDevice->getDevice()});
 
         frame.index = frameIt;
         frame.frameBuffer = createFramebuffer(frameIt);
         assert(frame.commands.empty());
-        for (uint32_t threadIt = 0; threadIt < myGraphicsDevice->getDesc().commandBufferThreadCount; threadIt++)
-        {
-            frame.commands.emplace_back(myGraphicsDevice->createFrameCommands(
-                threadIt,
-                threadIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY));
-        }
-
-        VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        CHECK_VK(vkCreateFence(myGraphicsDevice->getDevice(), &fenceInfo, nullptr, &frame.fence));
-
-        VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        CHECK_VK(vkCreateSemaphore(
-            myGraphicsDevice->getDevice(), &semaphoreInfo, nullptr, &frame.renderCompleteSemaphore));
-        CHECK_VK(vkCreateSemaphore(
-            myGraphicsDevice->getDevice(), &semaphoreInfo, nullptr, &frame.newImageAcquiredSemaphore));
-
-        frame.graphicsFrameTimestamp = std::chrono::high_resolution_clock::now();
+        myGraphicsDevice->createFrameCommands(frame);
     }
 
     updateDescriptorSets(window, *myGraphicsPipelineConfig);
@@ -232,18 +215,7 @@ void Application<GraphicsBackend::Vulkan>::cleanupState(Window<GraphicsBackend::
 {
     ZoneScoped;
 
-    for (auto& frame : window.frames)
-    {
-        for (auto& cmd : frame.commands)
-            cmd.sync();
-
-        frame.commands.clear();
-
-        vkDestroyFence(myGraphicsDevice->getDevice(), frame.fence, nullptr);
-        vkDestroySemaphore(myGraphicsDevice->getDevice(), frame.renderCompleteSemaphore, nullptr);
-        vkDestroySemaphore(myGraphicsDevice->getDevice(), frame.newImageAcquiredSemaphore, nullptr);
-        vkDestroyFramebuffer(myGraphicsDevice->getDevice(), frame.frameBuffer, nullptr);
-    }
+    window.frames.clear();
 
     for (uint32_t i = 0; i < window.colorViews.size(); i++)
         vkDestroyImageView(myGraphicsDevice->getDevice(), window.colorViews[i], nullptr);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "command.h"
+#include "frame.h"
 #include "gfx-types.h"
 #include "swapchain.h"
 #include "utils.h"
@@ -37,11 +38,10 @@ public:
     const auto& getSwapchainConfiguration() const { return mySwapchainConfiguration; }
     const auto getAllocator() const { return myAllocator; }
     const auto getDescriptorPool() const { return myDescriptorPool; }
-    const auto getFrameCommandPool(uint16_t poolIndex) { return myFrameCommandPools[poolIndex]; }
-    const auto getTransferCommandPool() { return myTransferCommandPool; }
+    const auto getFrameCommandPool(uint16_t poolIndex) const { return myFrameCommandPools[poolIndex]; }
+    const auto getTransferCommandPool() const { return myTransferCommandPool; }
 
-    CommandContext<B> createFrameCommands(
-        uint16_t poolIndex, uint64_t commandBufferLevel = 0) const;
+    void createFrameCommands(Frame<B>& frame) const;
     CommandContext<B> createTransferCommands() const;
 
 private:
@@ -56,9 +56,9 @@ private:
     SwapchainConfiguration<B> mySwapchainConfiguration = {};
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
-	std::vector<CommandPoolHandle<B>> myFrameCommandPools; // count = [myCommandBufferThreadCount]
+    std::vector<CommandPoolHandle<B>> myFrameCommandPools;
 	CommandPoolHandle<B> myTransferCommandPool = 0;
-    SemaphoreHandle<B> myTimelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> myTimelineValue = 0;
+    SemaphoreHandle<B> myTransferTimelineSemaphore = 0;
+    std::shared_ptr<std::atomic_uint64_t> myTransferTimelineValue = 0;
     std::any myUserData;
 };
