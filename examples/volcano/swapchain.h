@@ -1,31 +1,16 @@
 #pragma once
 
+#include "device.h"
 #include "gfx-types.h"
 #include "utils.h"
 
+#include <memory>
 #include <vector>
 
 template <GraphicsBackend B>
-struct SwapchainConfiguration
+struct SwapchainDesc
 {
-	SurfaceCapabilities<B> capabilities = {};
-	std::vector<SurfaceFormat<B>> formats;
-	std::vector<PresentMode<B>> presentModes;
-	uint8_t selectedFormatIndex = 0;
-	uint8_t selectedPresentModeIndex = 0;
-    uint8_t selectedImageCount = 2;
-	
-	const auto selectedFormat() const { return formats[selectedFormatIndex]; };
-	const auto selectedPresentMode() const { return presentModes[selectedPresentModeIndex]; };
-};
-
-template <GraphicsBackend B>
-struct SwapchainCreateDesc
-{
-	DeviceHandle<B> device = 0;
-	AllocatorHandle<B> allocator = 0;
-	SwapchainConfiguration<B> configuration = {};
-	SurfaceHandle<B> surface = 0;
+	std::shared_ptr<DeviceContext<B>> deviceContext;
 	SwapchainHandle<B> previous = 0;
 	Extent2d<B> imageExtent = {};
 };
@@ -35,13 +20,11 @@ class SwapchainContext : Noncopyable
 {
 public:
 
-	SwapchainContext(SwapchainCreateDesc<B>&& desc);
+	SwapchainContext(SwapchainDesc<B>&& desc);
     ~SwapchainContext();
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getSwapchainDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
-
-	const std::vector<ImageHandle<B>> getColorImages() const;
 
 	auto detatch()
 	{
@@ -52,6 +35,6 @@ public:
 
 private:
 
-	const SwapchainCreateDesc<B> myDesc = {};
+	const SwapchainDesc<B> myDesc = {};
 	SwapchainHandle<B> mySwapchain = 0;
 };

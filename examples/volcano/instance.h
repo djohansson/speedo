@@ -4,21 +4,31 @@
 #include "utils.h"
 
 #include <any>
+#include <vector>
+
+template <GraphicsBackend B>
+struct InstanceDesc
+{
+    InstanceCreateDesc<B> createDesc;
+    void* surfaceHandle = nullptr;
+};
 
 template <GraphicsBackend B>
 class InstanceContext : Noncopyable
 {
 public:
 
-    InstanceContext(InstanceCreateDesc<B>&& desc);
+    InstanceContext(InstanceDesc<B>&& desc);
     ~InstanceContext();
 
     const auto& getDesc() const { return myDesc; }
-    const auto getInstance() const { return myInstance; }
+    const auto& getInstance() const { return myInstance; }
+    const auto& getSurface() const { return mySurface; }
 
 private:
 
-    const InstanceCreateDesc<B> myDesc;
+    const InstanceDesc<B> myDesc;
     InstanceHandle<B> myInstance;
+    SurfaceHandle<B> mySurface;
     std::any myUserData;
 };

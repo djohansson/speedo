@@ -118,7 +118,9 @@
 			"charconv": "cpp",
 			"cinttypes": "cpp",
 			"csignal": "cpp",
-			"*.idl": "cpp"
+			"*.idl": "cpp",
+			"concepts": "cpp",
+			"*.rh": "cpp"
 		}
 	}
 }

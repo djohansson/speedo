@@ -23,7 +23,7 @@ void volcano_draw()
 	theApplication->draw();
 }
 
-void volcano_resizeWindow(const window_state* state)
+void volcano_resizeWindow(const WindowState* state)
 {
 	assert(theApplication);
 	assert(state != nullptr);
@@ -38,7 +38,7 @@ void volcano_resizeFramebuffer(int width, int height)
 	theApplication->resizeFramebuffer(width, height);
 }
 
-void volcano_mouse(const mouse_state* state)
+void volcano_mouse(const MouseState* state)
 {
 	assert(theApplication);
 	assert(state != nullptr);
@@ -46,7 +46,7 @@ void volcano_mouse(const mouse_state* state)
 	theApplication->onMouse(*state);
 }
 
-void volcano_keyboard(const keyboard_state* state)
+void volcano_keyboard(const KeyboardState* state)
 {
 	assert(theApplication);
 	assert(state != nullptr);

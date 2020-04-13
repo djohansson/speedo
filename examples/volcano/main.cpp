@@ -9,9 +9,9 @@
 
 #include "volcano.h"
 
-static mouse_state g_mouse = { -1.0, -1.0, 0, 0, 0, false };
-static keyboard_state g_keyboard = { 0, 0, 0, 0 };
-static window_state g_window = { 0, 0, 1920, 1080, -1, -1, -1, false };
+static MouseState g_mouse = { -1.0, -1.0, 0, 0, 0, false };
+static KeyboardState g_keyboard = { 0, 0, 0, 0 };
+static WindowState g_window = { 0, 0, 1920, 1080, 0, 0, 0, false };
 
 static void onError(int error, const char* description)
 {
@@ -20,7 +20,7 @@ static void onError(int error, const char* description)
 
 static void onMouseEnter(GLFWwindow* window, int entered)
 {
-    g_mouse.inside_window = entered;
+    g_mouse.insideWindow = entered;
 
 	volcano_mouse(&g_mouse);
 }
@@ -53,7 +53,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 
 			if (GLFWmonitor* monitor = glfwGetWindowMonitor(window))
 			{
-				g_window.fullscreen_enabled = false;
+				g_window.fullscreenEnabled = false;
 
 				glfwSetWindowMonitor(window, nullptr,
 					g_window.x, g_window.y, g_window.width, g_window.height, 0);
@@ -64,15 +64,22 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 				{
 					const GLFWvidmode* mode = glfwGetVideoMode(monitor);
 
-					g_window.fullscreen_width = mode->width;
-					g_window.fullscreen_height = mode->height;
-					g_window.fullscreen_refresh = mode->refreshRate;
-					g_window.fullscreen_enabled = true;
+					g_window.fullscreenWidth = mode->width;
+					g_window.fullscreenHeight = mode->height;
+					g_window.fullscreenRefresh = mode->refreshRate;
+					g_window.fullscreenEnabled = true;
 
-					glfwGetWindowPos(window, &g_window.x, &g_window.y);
-					glfwGetWindowSize(window, &g_window.width, &g_window.height);
+					int x, y, width, height;
+					glfwGetWindowPos(window, &x, &y);
+					glfwGetWindowSize(window, &width, &height);
+
+					g_window.x = x;
+					g_window.y = y;
+					g_window.width = width;
+					g_window.height = height;
+
 					glfwSetWindowMonitor(window, monitor, 0, 0,
-						g_window.fullscreen_width, g_window.fullscreen_height, g_window.fullscreen_refresh);
+						g_window.fullscreenWidth, g_window.fullscreenHeight, g_window.fullscreenRefresh);
 				}
 			}
 		}
@@ -97,7 +104,7 @@ static void onFramebufferResize(GLFWwindow*, int w, int h)
 
 static void onWindowResize(GLFWwindow*, int w, int h)
 {
-	if (!g_window.fullscreen_enabled)
+	if (!g_window.fullscreenEnabled)
 	{
 		g_window.width = w;
 		g_window.height = h;

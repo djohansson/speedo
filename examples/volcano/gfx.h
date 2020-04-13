@@ -6,10 +6,9 @@
 #include "gfx-types.h"
 #include "glm.h"
 #include "model.h"
-#include "swapchain.h"
+#include "rendertarget.h"
 #include "texture.h"
 #include "utils.h"
-#include "window.h"
 
 #include <filesystem>
 #include <memory>
@@ -75,13 +74,14 @@ struct PipelineCacheHeader
 
 template <GraphicsBackend B>
 struct GraphicsPipelineResourceView
-{
-	std::shared_ptr<Model<B>> model; // temp
-	std::shared_ptr<Texture<B>> texture; // temp
+{	
+	// begin temp
+	std::shared_ptr<Model<B>> model;
+	std::shared_ptr<Texture<B>> texture;
 	ImageViewHandle<B> textureView = 0;
 	SamplerHandle<B> sampler = 0;
-
-	std::shared_ptr<Window<B>> window; // temp - replace with generic render target structure
+	// end temp
+	const RenderTarget<B>* renderTarget = nullptr;
 };
 
 template <GraphicsBackend B>
@@ -90,7 +90,6 @@ struct PipelineConfiguration
 	std::shared_ptr<GraphicsPipelineResourceView<B>> resources;
 	std::shared_ptr<PipelineLayoutContext<B>> layout;
 
-	RenderPassHandle<B> renderPass = 0; // should perhaps not be stored here...
 	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"
 
 	std::vector<DescriptorSetHandle<B>> descriptorSets;
@@ -129,9 +128,6 @@ template <GraphicsBackend B>
 std::vector<std::byte> getPipelineCacheData(DeviceHandle<B> device,	PipelineCacheHandle<B> pipelineCache);
 
 template <GraphicsBackend B>
-SurfaceHandle<B> createSurface(InstanceHandle<B> instance, void* view);
-
-template <GraphicsBackend B>
 AllocatorHandle<B> createAllocator(
 	InstanceHandle<B> instance,
 	DeviceHandle<B> device,
@@ -139,9 +135,6 @@ AllocatorHandle<B> createAllocator(
 
 template <GraphicsBackend B>
 DescriptorPoolHandle<B> createDescriptorPool(DeviceHandle<B> device);
-
-template <GraphicsBackend B>
-RenderPassHandle<B> createRenderPass(DeviceHandle<B> device, const Window<B>& window);
 
 template <GraphicsBackend B>
 PipelineHandle<B> createGraphicsPipeline(

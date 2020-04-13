@@ -78,6 +78,18 @@ VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, V
 
 VkSampler createTextureSampler(VkDevice device);
 
+VkFramebuffer createFramebuffer(
+	VkDevice device, VkRenderPass renderPass,
+	uint32_t attachmentCount, const VkImageView* attachments,
+	uint32_t width, uint32_t height, uint32_t layers);
+
+VkRenderPass createRenderPass(VkDevice device, VkFormat colorFormat, VkFormat depthFormat);
+
+VkSurfaceKHR createSurface(VkInstance instance, void* view);
+
+void checkFlipOrPresentResult(VkResult result);
+
+
 static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
 {
 	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;

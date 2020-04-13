@@ -1,43 +1,43 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+#include <array>
+#include <map>
 
-typedef struct mouse_state_ mouse_state;
-struct mouse_state_
+#include "glm.h"
+
+struct MouseState
 {
-    double xpos;
-    double ypos;
-    int button;
-    int action;
-    int mods;
-    bool inside_window;
+    float xpos = 0.0f;
+    float ypos = 0.0f;
+    uint32_t button = 0;
+    uint32_t action = 0;
+    uint32_t mods = 0;
+    bool insideWindow = false;
 };
 
-typedef struct keyboard_state_ keyboard_state;
-struct keyboard_state_
+struct KeyboardState
 {
-    int key;
-    int scancode;
-    int action;
-    int mods;
+    uint32_t key = 0;
+    uint32_t scancode = 0;
+    uint32_t action = 0;
+    uint32_t mods = 0;
 };
 
-typedef struct window_state_ window_state;
-struct window_state_
+struct WindowState
 {
-    int x;
-    int y;
-    int width;
-    int height;
-    int fullscreen_width;
-    int fullscreen_height;
-    int fullscreen_refresh;
-    bool fullscreen_enabled;
+    uint32_t x = 0;
+    uint32_t y = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t fullscreenWidth = 0;
+    uint32_t fullscreenHeight = 0;
+    uint32_t fullscreenRefresh = 0;
+    bool fullscreenEnabled = false;
 };
 
-#ifdef __cplusplus
-}
-#endif
+struct InputState
+{
+    std::map<uint32_t, bool> keysPressed;
+	std::array<bool, 3> mouseButtonsPressed;
+	std::array<glm::vec2, 2> mousePosition;
+};

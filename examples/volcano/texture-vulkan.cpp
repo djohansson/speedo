@@ -46,68 +46,66 @@ int eof(void* user)
 namespace texture
 {
 
-TextureCreateDesc<GraphicsBackend::Vulkan> load(
+TextureDesc<GraphicsBackend::Vulkan> load(
     const std::filesystem::path& textureFile,
-    DeviceHandle<GraphicsBackend::Vulkan> device,
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator)
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
-    TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
-    desc.device = device;
-    desc.allocator = allocator;
+    TextureDesc<GraphicsBackend::Vulkan> desc = {};
+    desc.deviceContext = deviceContext;
     desc.debugName = textureFile.u8string();
 
-    auto loadPBin = [&desc, allocator](std::istream& stream) {
+    auto loadPBin = [&desc](std::istream& stream) {
         cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(desc.width, desc.height, desc.channelCount, desc.size);
+        pbin(desc.extent.width, desc.extent.height, desc.channelCount, desc.size);
 
         std::string debugString;
         debugString.append(desc.debugName);
         debugString.append("_staging");
         
         std::tie(desc.initialData, desc.initialDataMemory) = createBuffer(
-            allocator, desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            desc.deviceContext->getAllocator(), desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
         std::byte* data;
-        CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
+        CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory, (void**)&data));
         pbin(cereal::binary_data(data, desc.size));
-        vmaUnmapMemory(allocator, desc.initialDataMemory);
+        vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory);
     };
 
-    auto savePBin = [&desc, allocator](std::ostream& stream) {
+    auto savePBin = [&desc](std::ostream& stream) {
         cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(desc.width, desc.height, desc.channelCount, desc.size);
+        pbin(desc.extent.width, desc.extent.height, desc.channelCount, desc.size);
 
         std::byte* data;
-        CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
+        CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory, (void**)&data));
         pbin(cereal::binary_data(data, desc.size));
-        vmaUnmapMemory(allocator, desc.initialDataMemory);
+        vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory);
     };
 
-    auto loadImage = [&desc, allocator](std::istream& stream) {
+    auto loadImage = [&desc](std::istream& stream) {
         stbi_io_callbacks callbacks;
         callbacks.read = &stbi_istream_callbacks::read;
         callbacks.skip = &stbi_istream_callbacks::skip;
         callbacks.eof = &stbi_istream_callbacks::eof;
         stbi_uc* stbiImageData =
-            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.width, (int*)&desc.height, (int*)&desc.channelCount, STBI_rgb_alpha);
+            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.extent.width, (int*)&desc.extent.height, (int*)&desc.channelCount, STBI_rgb_alpha);
 
         bool hasAlpha = desc.channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        desc.size = hasAlpha ? desc.width * desc.height : desc.width * desc.height / 2;
+        desc.size = hasAlpha ? desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
 
         std::string debugString;
         debugString.append(desc.debugName);
         debugString.append("_staging");
         
         std::tie(desc.initialData, desc.initialDataMemory) = createBuffer(
-            allocator, desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            desc.deviceContext->getAllocator(), desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
         std::byte* data;
-        CHECK_VK(vmaMapMemory(allocator, desc.initialDataMemory, (void**)&data));
+        CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory, (void**)&data));
 
         auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride,
                                 stbi_uc* dst) {
@@ -121,18 +119,18 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
         stbi_uc block[64] = {0};
         const stbi_uc* src = stbiImageData;
         stbi_uc* dst = reinterpret_cast<stbi_uc*>(data);
-        for (uint32_t rowIt = 0; rowIt < desc.height; rowIt += 4)
+        for (uint32_t rowIt = 0; rowIt < desc.extent.height; rowIt += 4)
         {
-            for (uint32_t colIt = 0; colIt < desc.width; colIt += 4)
+            for (uint32_t colIt = 0; colIt < desc.extent.width; colIt += 4)
             {
-                uint32_t offset = (rowIt * desc.width + colIt) * 4;
-                extractBlock(src + offset, desc.width, 4, block);
+                uint32_t offset = (rowIt * desc.extent.width + colIt) * 4;
+                extractBlock(src + offset, desc.extent.width, 4, block);
                 stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
                 dst += compressedBlockSize;
             }
         }
 
-        vmaUnmapMemory(allocator, desc.initialDataMemory);
+        vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory);
         stbi_image_free(stbiImageData);
     };
 
@@ -144,7 +142,7 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
 
     uint32_t pixelSizeBytesDivisor;
     if (desc.initialData == VK_NULL_HANDLE ||
-        desc.size != desc.width * desc.height * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
+        desc.size != desc.extent.width * desc.extent.height * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
         throw std::runtime_error("Failed to load image.");
 
     return desc;
@@ -153,17 +151,9 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
 }
 
 template <>
-void Texture<GraphicsBackend::Vulkan>::waitForTransferComplete()
-{
-    // todo
-}
-
-template <>
 void Texture<GraphicsBackend::Vulkan>::deleteInitialData()
 {
-    waitForTransferComplete();
-
-    vmaDestroyBuffer(myDesc.allocator, myDesc.initialData, myDesc.initialDataMemory);
+    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myDesc.initialData, myDesc.initialDataMemory);
     myDesc.initialData = 0;
     myDesc.initialDataMemory = 0;
 }
@@ -172,21 +162,21 @@ template <>
 ImageViewHandle<GraphicsBackend::Vulkan>
 Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
 {
-    return createImageView2D(myDesc.device, myImage, myDesc.format, aspectFlags);
+    return createImageView2D(myDesc.deviceContext->getDevice(), myImage, myDesc.format, aspectFlags);
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
-    TextureCreateDesc<GraphicsBackend::Vulkan>&& desc,
-    CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer)
+    TextureDesc<GraphicsBackend::Vulkan>&& desc,
+    const CommandContext<GraphicsBackend::Vulkan>& commands)
     : myDesc(std::move(desc))
 {
     std::tie(myImage, myImageMemory) = createImage2D(
-        commandBuffer,
-        myDesc.allocator,
+        commands.getCommandBuffer(),
+        myDesc.deviceContext->getAllocator(),
         myDesc.initialData,
-        myDesc.width,
-        myDesc.height,
+        myDesc.extent.width,
+        myDesc.extent.height,
         myDesc.format, 
         VK_IMAGE_TILING_OPTIMAL,
         hasDepthComponent(myDesc.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -198,10 +188,8 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     const std::filesystem::path& textureFile,
-    DeviceHandle<GraphicsBackend::Vulkan> device,
-    AllocatorHandle<GraphicsBackend::Vulkan> allocator,
-    CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer)
-    : Texture(texture::load(textureFile, device, allocator), commandBuffer)
+    const CommandContext<GraphicsBackend::Vulkan>& commands)
+    : Texture(texture::load(textureFile, commands.getCommandDesc().deviceContext), commands)
 {
 }
 
@@ -211,5 +199,5 @@ Texture<GraphicsBackend::Vulkan>::~Texture()
     if (myDesc.initialData != 0)
         deleteInitialData();
         
-    vmaDestroyImage(myDesc.allocator, myImage, myImageMemory);
+    vmaDestroyImage(myDesc.deviceContext->getAllocator(), myImage, myImageMemory);
 }

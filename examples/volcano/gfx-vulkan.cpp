@@ -4,10 +4,6 @@
 #include <tuple>
 #include <vector>
 
-#define GLFW_INCLUDE_NONE
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #pragma pack(push, 1)
 template <>
 struct PipelineCacheHeader<GraphicsBackend::Vulkan>
@@ -199,19 +195,6 @@ std::vector<std::byte> getPipelineCacheData<GraphicsBackend::Vulkan>(
 };
 
 template <>
-SurfaceHandle<GraphicsBackend::Vulkan>
-createSurface<GraphicsBackend::Vulkan>(
-	InstanceHandle<GraphicsBackend::Vulkan> instance,
-	void* view)
-{
-    SurfaceHandle<GraphicsBackend::Vulkan> surface;
-    CHECK_VK(glfwCreateWindowSurface(
-        instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
-
-    return surface;
-}
-
-template <>
 AllocatorHandle<GraphicsBackend::Vulkan>
 createAllocator<GraphicsBackend::Vulkan>(
 	InstanceHandle<GraphicsBackend::Vulkan> instance,
@@ -290,69 +273,6 @@ createDescriptorPool<GraphicsBackend::Vulkan>(DeviceHandle<GraphicsBackend::Vulk
 }
 
 template <>
-RenderPassHandle<GraphicsBackend::Vulkan>
-createRenderPass<GraphicsBackend::Vulkan>(
-    DeviceHandle<GraphicsBackend::Vulkan> device,
-    const Window<GraphicsBackend::Vulkan>& window)
-{
-    VkAttachmentDescription colorAttachment = {};
-    colorAttachment.format = window.swapchain->getDesc().configuration.selectedFormat().format;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    VkAttachmentDescription depthAttachment = {};
-    depthAttachment.format = window.zBuffer->getDesc().format;
-    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference colorAttachmentRef = {};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference depthAttachmentRef = {};
-    depthAttachmentRef.attachment = 1;
-    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
-    subpass.pDepthStencilAttachment = &depthAttachmentRef;
-
-    VkSubpassDependency dependency = {};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
-    VkRenderPassCreateInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-    renderPassInfo.pAttachments = attachments.data();
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
-
-    RenderPassHandle<GraphicsBackend::Vulkan> outRenderPass;
-    CHECK_VK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
-
-    return outRenderPass;
-}
-
-template <>
 PipelineHandle<GraphicsBackend::Vulkan>
 createGraphicsPipeline<GraphicsBackend::Vulkan>(
     DeviceHandle<GraphicsBackend::Vulkan> device,
@@ -400,26 +320,26 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     vertexInputInfo.vertexBindingDescriptionCount = pipelineConfig.resources->model->getBindings().size();
     vertexInputInfo.pVertexBindingDescriptions = pipelineConfig.resources->model->getBindings().data();
     vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(pipelineConfig.resources->model->getDesc().attributes.size());
-    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getDesc().attributes.data();
+        static_cast<uint32_t>(pipelineConfig.resources->model->getModelDesc().attributes.size());
+    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getModelDesc().attributes.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
+    const auto& imageExtent = pipelineConfig.resources->renderTarget->getRenderTargetDesc().imageExtent;
+
     VkViewport viewport = {};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = static_cast<float>(pipelineConfig.resources->window->framebufferWidth);
-    viewport.height = static_cast<float>(pipelineConfig.resources->window->framebufferHeight);
+    viewport.width = static_cast<float>(imageExtent.width);
+    viewport.height = static_cast<float>(imageExtent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor = {};
     scissor.offset = {0, 0};
-    scissor.extent = {
-        static_cast<uint32_t>(pipelineConfig.resources->window->framebufferWidth),
-        static_cast<uint32_t>(pipelineConfig.resources->window->framebufferHeight)};
+    scissor.extent = imageExtent;
 
     VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
     viewportState.viewportCount = 1;
@@ -498,7 +418,7 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineConfig.layout->layout;
-    pipelineInfo.renderPass = pipelineConfig.renderPass;
+    pipelineInfo.renderPass = pipelineConfig.resources->renderTarget->getRenderTargetDesc().renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;

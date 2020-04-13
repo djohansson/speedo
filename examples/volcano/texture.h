@@ -1,17 +1,17 @@
 #pragma once
 
+#include "command.h"
+#include "device.h"
 #include "gfx-types.h"
 #include "utils.h"
 
 #include <filesystem>
 
 template <GraphicsBackend B>
-struct TextureCreateDesc
+struct TextureDesc
 {
-    DeviceHandle<B> device = 0;
-    AllocatorHandle<B> allocator = 0;
-    uint32_t width = 0;
-    uint32_t height = 0;
+    std::shared_ptr<DeviceContext<B>> deviceContext;
+    Extent2d<B> extent = {};
     uint32_t channelCount = 0;
     DeviceSize<B> size = 0;
     Format<B> format;
@@ -28,25 +28,24 @@ class Texture : Noncopyable
 {
 public:
 
-    Texture(TextureCreateDesc<B>&& desc, CommandBufferHandle<B> commandBuffer);
-    Texture(const std::filesystem::path& textureFile,
-        DeviceHandle<B> device, AllocatorHandle<B> allocator, CommandBufferHandle<B> commandBuffer);
+    Texture(TextureDesc<B>&& desc, const CommandContext<B>& commands);
+    Texture(const std::filesystem::path& textureFile, const CommandContext<B>& commands);
 
     ~Texture();
 
-    void deleteInitialData();
+    void deleteInitialData(); // todo: make priavte and automagic
 
-    const auto& getDesc() const { return myDesc; }
-    const auto getImage() const { return myImage; }
-    const auto getImageMemory() const { return myImageMemory; }
+    const auto& getTextureDesc() const { return myDesc; }
+    const auto& getImage() const { return myImage; }
+    const auto& getImageMemory() const { return myImageMemory; }
 
     ImageViewHandle<B> createView(Flags<B> aspectFlags) const;
     
 private:
 
-    void waitForTransferComplete();
-
-    TextureCreateDesc<B> myDesc = {};
+    // todo: mipmaps
+    TextureDesc<B> myDesc = {};
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
+    //
 };

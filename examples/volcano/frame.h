@@ -2,7 +2,7 @@
 
 #include "gfx-types.h"
 #include "command.h"
-#include "utils.h"
+#include "rendertarget.h"
 
 #include <atomic>
 #include <chrono>
@@ -10,52 +10,46 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct FrameCreateDesc
+class Frame : public RenderTarget<B>
 {
-	DeviceHandle<B> device = 0;
-};
+public:
 
-template <GraphicsBackend B>
-struct Frame : Noncopyable
-{
-	Frame() = default;
 	Frame(Frame<B>&& other)
-    : myDesc(other.myDesc)
-	, index(other.index)
-    , frameBuffer(other.frameBuffer)
-	, commands(std::move(other.commands))
-	, fence(other.fence)
-	, renderCompleteSemaphore(other.renderCompleteSemaphore)
-	, newImageAcquiredSemaphore(other.newImageAcquiredSemaphore)
-	, timelineSemaphore(other.timelineSemaphore)
-    , timelineValue(std::move(other.timelineValue))
-	, graphicsFrameTimestamp(other.graphicsFrameTimestamp)
-	, graphicsDeltaTime(other.graphicsDeltaTime)
+    : RenderTarget<B>(std::move(other))
+	, myCommands(std::move(other.myCommands))
+	, myFence(other.myFence)
+	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
+	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
+	, myTimelineSemaphore(other.myTimelineSemaphore)
+    , myTimelineValue(std::move(other.myTimelineValue))
+	, myTimestamp(other.myTimestamp)
     {
-		other.myDesc = {};
-		other.index = 0;
-		other.frameBuffer = 0;
-		other.fence = 0;
-		other.renderCompleteSemaphore = 0;
-		other.newImageAcquiredSemaphore = 0;
-		other.timelineSemaphore = 0;
+		other.myFence = 0;
+		other.myRenderCompleteSemaphore = 0;
+		other.myNewImageAcquiredSemaphore = 0;
+		other.myTimelineSemaphore = 0;
+		other.myTimelineValue.reset();
+		other.myTimestamp = std::chrono::high_resolution_clock::time_point();
     }
-	Frame(FrameCreateDesc<B>&& desc);
-	~Frame();
+	Frame(RenderTargetDesc<B>&& desc);
+	virtual ~Frame();
 
-	FrameCreateDesc<B> myDesc = {};
-	
-	uint64_t index = 0;
-	
-	FramebufferHandle<B> frameBuffer = 0;
-	std::vector<CommandContext<B>> commands; // count = [threadCount]
-	
-	FenceHandle<B> fence = 0;
-	SemaphoreHandle<B> renderCompleteSemaphore = 0;
-	SemaphoreHandle<B> newImageAcquiredSemaphore = 0;
-	SemaphoreHandle<B> timelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> timelineValue;
+	const auto& getFence() const { return myFence; }
+	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
+	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
+	const auto& getTimestamp() const { return myTimestamp; }
 
-	std::chrono::high_resolution_clock::time_point graphicsFrameTimestamp;
-	std::chrono::duration<double> graphicsDeltaTime;
+	auto& commands() { return myCommands; }
+
+	void waitForFence();
+
+private:
+
+	std::vector<CommandContext<B>> myCommands;
+	FenceHandle<B> myFence = 0;
+	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
+	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
+	SemaphoreHandle<B> myTimelineSemaphore = 0;
+    std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
+	std::chrono::high_resolution_clock::time_point myTimestamp;
 };

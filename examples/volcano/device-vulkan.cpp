@@ -23,53 +23,22 @@ struct UserData
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::createFrameCommands(Frame<GraphicsBackend::Vulkan>& frame) const
-{
-    for (uint32_t threadIt = 0; threadIt < myDesc.commandBufferThreadCount; threadIt++)
-    {
-        frame.commands.emplace_back(
-            CommandContext<GraphicsBackend::Vulkan>(
-                CommandCreateDesc<GraphicsBackend::Vulkan>{
-                    myDevice,
-                    mySelectedQueue,
-                    myFrameCommandPools[threadIt],
-                    frame.timelineSemaphore,
-                    frame.timelineValue,
-                    static_cast<uint64_t>(threadIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY)}));
-    }
-}
-
-template <>
-CommandContext<GraphicsBackend::Vulkan>
-DeviceContext<GraphicsBackend::Vulkan>::createTransferCommands() const
-{
-    return CommandContext<GraphicsBackend::Vulkan>(
-        CommandCreateDesc<GraphicsBackend::Vulkan>{
-            myDevice,
-            mySelectedQueue,
-            myTransferCommandPool,
-            myTransferTimelineSemaphore,
-            myTransferTimelineValue,
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY});
-}
-
-template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
-    DeviceCreateDesc<GraphicsBackend::Vulkan>&& desc)
+    DeviceDesc<GraphicsBackend::Vulkan>&& desc)
     : myDesc(std::move(desc))
 {
     uint32_t physicalDeviceCount = 0;
-    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instance, &physicalDeviceCount, nullptr));
+    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instanceContext->getInstance(), &physicalDeviceCount, nullptr));
     if (physicalDeviceCount == 0)
         throw std::runtime_error("failed to find GPUs with Vulkan support!");
 
     myPhysicalDevices.resize(physicalDeviceCount);
-    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instance, &physicalDeviceCount, myPhysicalDevices.data()));
+    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instanceContext->getInstance(), &physicalDeviceCount, myPhysicalDevices.data()));
 
     for (const auto& physicalDevice : myPhysicalDevices)
     {
         std::tie(mySwapchainConfiguration, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
-            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDesc.surface, physicalDevice);
+            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDesc.instanceContext->getSurface(), physicalDevice);
 
         if (mySelectedQueueFamilyIndex)
         {
@@ -197,7 +166,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     vkGetDeviceQueue(myDevice, *mySelectedQueueFamilyIndex, 0, &mySelectedQueue);
 
-    myAllocator = createAllocator<GraphicsBackend::Vulkan>(myDesc.instance, myDevice, myPhysicalDevice);
+    myAllocator = createAllocator<GraphicsBackend::Vulkan>(myDesc.instanceContext->getInstance(), myDevice, myPhysicalDevice);
 
     myTransferCommandPool = createCommandPool(
         myDevice,
