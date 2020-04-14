@@ -76,9 +76,9 @@ public:
 
 private:
 
-	void initIMGUI(CommandBufferHandle<B> commandBuffer, float dpiScaleX, float dpiScaleY) const;
+	void initIMGUI(CommandContext<GraphicsBackend::Vulkan>& commands, float dpiScaleX, float dpiScaleY) const;
 
-	void createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& transferCommands);
+	void createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commands);
 	void destroyFrameObjects();
 
 	// todo: encapsulate in PipelineConfiguration?

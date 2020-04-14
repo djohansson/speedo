@@ -119,7 +119,7 @@ void CommandContext<GraphicsBackend::Vulkan>::end() const
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::sync() const
+void CommandContext<GraphicsBackend::Vulkan>::sync()
 {
     if (!isComplete())
     {
@@ -131,6 +131,11 @@ void CommandContext<GraphicsBackend::Vulkan>::sync() const
 
         CHECK_VK(vkWaitSemaphores(myDesc.deviceContext->getDevice(), &waitInfo, UINT64_MAX));
     }
+
+    for (auto& callback : mySyncCallbacks)
+        callback();
+    
+    mySyncCallbacks.clear();
 }
 
 template <>

@@ -4,6 +4,7 @@
 #include "gfx-types.h"
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -49,10 +50,13 @@ public:
     const auto& getCommandBuffer() const { return myCommandBuffer; }
 
     void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr) const;
-    void submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
     void end() const;
-    void sync() const;
+    void submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
+    void sync();
     void free();
+
+    template <typename T>
+    void addSyncCallback(T callback) { mySyncCallbacks.emplace_back(callback); }
 
     static CommandContext<B> createTransferCommands(const std::shared_ptr<DeviceContext<B>>& deviceContext);
 
@@ -61,8 +65,9 @@ private:
     bool isComplete() const;
 
     CommandDesc<B> myDesc = {};
-    CommandBufferHandle<B> myCommandBuffer = 0;
+    CommandBufferHandle<B> myCommandBuffer = 0; // todo: 1 -> many?
     uint64_t myLastSubmitTimelineValue = 0;
+    std::vector<std::function<void()>> mySyncCallbacks;
 
     static thread_local std::vector<std::byte> threadScratchMemory;
 };

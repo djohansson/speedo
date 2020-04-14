@@ -23,14 +23,17 @@ struct BufferDesc
 };
 
 template <GraphicsBackend B>
+class Model;
+
+template <GraphicsBackend B>
 class Buffer : Noncopyable
 {
+    friend class Model<B>;
+
 public:
 
-    Buffer(BufferDesc<B>&& desc, const CommandContext<B>& commands);
+    Buffer(BufferDesc<B>&& desc, CommandContext<B>& commands);
     ~Buffer();
-
-    void deleteInitialData();
 
     const auto& getBufferDesc() const { return myDesc; }
     const auto& getBuffer() const { return myBuffer; }
@@ -39,6 +42,8 @@ public:
     BufferViewHandle<B> createView(Format<B> format, DeviceSize<B> offset, DeviceSize<B> range) const;
 
 private:
+
+    void deleteInitialData();
 
     BufferDesc<B> myDesc = {};
 	BufferHandle<B> myBuffer = 0;

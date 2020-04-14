@@ -16,7 +16,7 @@
 
 
 template <>
-void Window<GraphicsBackend::Vulkan>::createFrameObjects(const CommandContext<GraphicsBackend::Vulkan>& commands)
+void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commands)
 {
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainDesc<GraphicsBackend::Vulkan>{
@@ -439,11 +439,25 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
         escBufferState = escState;
     }
 
-    
+    if (input.mouseButtonsPressed[2])
+    {
+        // todo: generic view index calculation
+        size_t viewIdx = input.mousePosition[0].x / (myDesc.windowExtent.width / NX);
+        size_t viewIdy = input.mousePosition[0].y / (myDesc.windowExtent.height / NY);
+        myActiveView = std::min((viewIdy * NX) + viewIdx, myViews.size() - 1);
+
+        //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
+    }
+    else if (!input.mouseButtonsPressed[0])
+    {
+        myActiveView.reset();
+
+        //std::cout << "myActiveView.reset()" << std::endl;
+    }
 
     if (myActiveView)
     {
-        // std::cout << "window.myActiveView read/consume" << std::endl;
+        //std::cout << "window.myActiveView read/consume" << std::endl;
 
         float dx = 0;
         float dz = 0;
@@ -482,19 +496,19 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
             auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
             auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
-            constexpr auto moveSpeed = 2.0f;
+            constexpr auto moveSpeed = 0.000000002f;
 
             view.viewDesc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
 
-            // std::cout << *myActiveView << ":pos:[" << view.camPos.x << ", " <<
-            // view.camPos.y << ", " << view.camPos.z << "]" << std::endl;
+            // std::cout << *myActiveView << ":pos:[" << view.viewDesc().cameraPosition.x << ", " <<
+            //     view.viewDesc().cameraPosition.y << ", " << view.viewDesc().cameraPosition.z << "]" << std::endl;
 
             doUpdateViewMatrix = true;
         }
 
         if (input.mouseButtonsPressed[0])
         {
-            constexpr auto rotSpeed = 10.0f;
+            constexpr auto rotSpeed = 0.00000001f;
 
             auto dM = input.mousePosition[0] - input.mousePosition[1];
 
@@ -502,8 +516,8 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
                 dt * glm::vec3(dM.y / view.viewDesc().viewport.height, dM.x / view.viewDesc().viewport.width, 0.0f) *
                 rotSpeed;
 
-            // std::cout << *myActiveView << ":rot:[" << view.camRot.x << ", " <<
-            // view.camRot.y << ", " << view.camRot.z << "]" << std::endl;
+            // std::cout << *myActiveView << ":rot:[" << view.viewDesc().cameraRotation.x << ", " <<
+            //     view.viewDesc().cameraRotation.y << ", " << view.viewDesc().cameraRotation.z << "]" << std::endl;
 
             doUpdateViewMatrix = true;
         }
@@ -517,7 +531,7 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
 
 template <>
 Window<GraphicsBackend::Vulkan>::Window(
-    WindowDesc<GraphicsBackend::Vulkan>&& desc, const CommandContext<GraphicsBackend::Vulkan>& commands)
+    WindowDesc<GraphicsBackend::Vulkan>&& desc, CommandContext<GraphicsBackend::Vulkan>& commands)
 : myDesc(std::move(desc))
 {
     createFrameObjects(commands);

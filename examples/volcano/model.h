@@ -38,10 +38,8 @@ class Model : Noncopyable
 {
 public:
 
-	Model(ModelDesc<B>&& desc, const CommandContext<B>& commands);
-	Model(const std::filesystem::path& modelFile, const CommandContext<B>& commands);
-
-	void deleteInitialData(); // todo: make private and automagic
+	Model(ModelDesc<B>&& desc, CommandContext<B>& commands);
+	Model(const std::filesystem::path& modelFile, CommandContext<B>& commands);
 
 	const auto& getModelDesc() const { return myDesc; }
 	const auto& getVertexBuffer() const { return myVertexBuffer; }
@@ -49,6 +47,8 @@ public:
 	const auto& getBindings() const { return myBindings; }
 
 private:
+
+	void deleteInitialData();
 
 	ModelDesc<B> myDesc = {};
 	std::vector<VertexInputBindingDescription<B>> myBindings;

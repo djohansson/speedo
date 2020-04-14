@@ -9,11 +9,13 @@
 
 template <>
 void Application<GraphicsBackend::Vulkan>::initIMGUI(
-    CommandBufferHandle<GraphicsBackend::Vulkan> commandBuffer,
+    CommandContext<GraphicsBackend::Vulkan>& commands,
     float dpiScaleX,
     float dpiScaleY) const
 {
     using namespace ImGui;
+
+    auto commandBuffer = commands.getCommandBuffer();
 
     IMGUI_CHECKVERSION();
     CreateContext();
@@ -76,6 +78,8 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
 
         ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
     }
+
+    commands.addSyncCallback([]{ ImGui_ImplVulkan_DestroyFontUploadObjects(); });
 }
 
 template <>
@@ -124,9 +128,9 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& transferCommands)
+void Application<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commands)
 {
-    myWindow->createFrameObjects(transferCommands);
+    myWindow->createFrameObjects(commands);
 
     // for (all referenced resources/shaders)
     // {
@@ -202,7 +206,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             transferCommands);
 
         initIMGUI(
-            transferCommands.getCommandBuffer(),
+            transferCommands,
             static_cast<float>(framebufferWidth) / width,
             static_cast<float>(framebufferHeight) / height);
 
@@ -210,11 +214,6 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
         transferCommands.submit();
         transferCommands.sync();
     }
-
-    myDefaultResources->model->deleteInitialData();
-    myDefaultResources->texture->deleteInitialData();
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
-
 
     // temp temp temp
 

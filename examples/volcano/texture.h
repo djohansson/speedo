@@ -28,12 +28,9 @@ class Texture : Noncopyable
 {
 public:
 
-    Texture(TextureDesc<B>&& desc, const CommandContext<B>& commands);
-    Texture(const std::filesystem::path& textureFile, const CommandContext<B>& commands);
-
+    Texture(TextureDesc<B>&& desc, CommandContext<B>& commands);
+    Texture(const std::filesystem::path& textureFile, CommandContext<B>& commands);
     ~Texture();
-
-    void deleteInitialData(); // todo: make priavte and automagic
 
     const auto& getTextureDesc() const { return myDesc; }
     const auto& getImage() const { return myImage; }
@@ -42,6 +39,8 @@ public:
     ImageViewHandle<B> createView(Flags<B> aspectFlags) const;
     
 private:
+
+    void deleteInitialData();
 
     // todo: mipmaps
     TextureDesc<B> myDesc = {};

@@ -42,7 +42,7 @@ public:
 		glm::mat4 pad2;
 	};
 
-	Window(WindowDesc<B>&& desc, const CommandContext<B>& commands);
+	Window(WindowDesc<B>&& desc, CommandContext<B>& commands);
 	~Window();
 
 	const auto& getWindowDesc() const { return myDesc; }
@@ -56,7 +56,7 @@ public:
 	const auto& getFrames() const { return myFrames; }
 	const auto& getRenderPass() const { return myRenderPass; }
 
-	void createFrameObjects(const CommandContext<B>& commands);
+	void createFrameObjects(CommandContext<B>& commands);
 	void destroyFrameObjects();
 	
 	void updateInput(const InputState& input);

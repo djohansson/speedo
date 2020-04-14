@@ -280,7 +280,7 @@ ModelDesc<GraphicsBackend::Vulkan> load(
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
 	ModelDesc<GraphicsBackend::Vulkan>&& desc,
-	const CommandContext<GraphicsBackend::Vulkan>& commands)
+	CommandContext<GraphicsBackend::Vulkan>& commands)
 : myDesc(std::move(desc))
 , myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
 , myVertexBuffer({myDesc.deviceContext, myDesc.vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myDesc.initialVertices, myDesc.initialVerticesMemory, myDesc.debugName + "_vertices"}, commands)
@@ -291,7 +291,7 @@ Model<GraphicsBackend::Vulkan>::Model(
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
 	const std::filesystem::path& modelFile,
-	const CommandContext<GraphicsBackend::Vulkan>& commands)
+	CommandContext<GraphicsBackend::Vulkan>& commands)
 	: Model(model::load(modelFile, commands.getCommandDesc().deviceContext), commands)
 {
 }

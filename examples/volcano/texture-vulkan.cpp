@@ -168,7 +168,7 @@ Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspe
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     TextureDesc<GraphicsBackend::Vulkan>&& desc,
-    const CommandContext<GraphicsBackend::Vulkan>& commands)
+    CommandContext<GraphicsBackend::Vulkan>& commands)
     : myDesc(std::move(desc))
 {
     std::tie(myImage, myImageMemory) = createImage2D(
@@ -183,12 +183,14 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         myDesc.usage,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         myDesc.debugName.c_str());
+    
+    commands.addSyncCallback([this]{ deleteInitialData(); });
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     const std::filesystem::path& textureFile,
-    const CommandContext<GraphicsBackend::Vulkan>& commands)
+    CommandContext<GraphicsBackend::Vulkan>& commands)
     : Texture(texture::load(textureFile, commands.getCommandDesc().deviceContext), commands)
 {
 }
@@ -196,8 +198,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
-    if (myDesc.initialData != 0)
-        deleteInitialData();
+    assert(!myDesc.initialData);
         
     vmaDestroyImage(myDesc.deviceContext->getAllocator(), myImage, myImageMemory);
 }
