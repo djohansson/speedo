@@ -153,38 +153,39 @@ TextureDesc<GraphicsBackend::Vulkan> load(
 template <>
 void Texture<GraphicsBackend::Vulkan>::deleteInitialData()
 {
-    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myDesc.initialData, myDesc.initialDataMemory);
-    myDesc.initialData = 0;
-    myDesc.initialDataMemory = 0;
+    vmaDestroyBuffer(myTextureDesc.deviceContext->getAllocator(), myTextureDesc.initialData, myTextureDesc.initialDataMemory);
+    myTextureDesc.initialData = 0;
+    myTextureDesc.initialDataMemory = 0;
 }
 
 template <>
 ImageViewHandle<GraphicsBackend::Vulkan>
 Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
 {
-    return createImageView2D(myDesc.deviceContext->getDevice(), myImage, myDesc.format, aspectFlags);
+    return createImageView2D(myTextureDesc.deviceContext->getDevice(), myImage, myTextureDesc.format, aspectFlags);
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     TextureDesc<GraphicsBackend::Vulkan>&& desc,
     CommandContext<GraphicsBackend::Vulkan>& commands)
-    : myDesc(std::move(desc))
+    : myTextureDesc(std::move(desc))
 {
     std::tie(myImage, myImageMemory) = createImage2D(
         commands.getCommandBuffer(),
-        myDesc.deviceContext->getAllocator(),
-        myDesc.initialData,
-        myDesc.extent.width,
-        myDesc.extent.height,
-        myDesc.format, 
+        myTextureDesc.deviceContext->getAllocator(),
+        myTextureDesc.initialData,
+        myTextureDesc.extent.width,
+        myTextureDesc.extent.height,
+        myTextureDesc.format, 
         VK_IMAGE_TILING_OPTIMAL,
-        hasDepthComponent(myDesc.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        myDesc.usage,
+        hasDepthComponent(myTextureDesc.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        myTextureDesc.usage,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        myDesc.debugName.c_str());
+        myTextureDesc.debugName.c_str());
     
-    commands.addSyncCallback([this]{ deleteInitialData(); });
+    if (myTextureDesc.initialData)
+        commands.addSyncCallback([this]{ deleteInitialData(); });
 }
 
 template <>
@@ -198,7 +199,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
-    assert(!myDesc.initialData);
+    assert(!myTextureDesc.initialData);
         
-    vmaDestroyImage(myDesc.deviceContext->getAllocator(), myImage, myImageMemory);
+    vmaDestroyImage(myTextureDesc.deviceContext->getAllocator(), myImage, myImageMemory);
 }

@@ -23,7 +23,7 @@ public:
 	SwapchainContext(SwapchainDesc<B>&& desc);
     ~SwapchainContext();
 
-    const auto& getSwapchainDesc() const { return myDesc; }
+    const auto& getSwapchainDesc() const { return mySwapchainDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
 
 	auto detatch()
@@ -35,6 +35,6 @@ public:
 
 private:
 
-	const SwapchainDesc<B> myDesc = {};
+	const SwapchainDesc<B> mySwapchainDesc = {};
 	SwapchainHandle<B> mySwapchain = 0;
 };

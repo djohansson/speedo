@@ -32,7 +32,7 @@ public:
     Texture(const std::filesystem::path& textureFile, CommandContext<B>& commands);
     ~Texture();
 
-    const auto& getTextureDesc() const { return myDesc; }
+    const auto& getTextureDesc() const { return myTextureDesc; }
     const auto& getImage() const { return myImage; }
     const auto& getImageMemory() const { return myImageMemory; }
 
@@ -43,7 +43,7 @@ private:
     void deleteInitialData();
 
     // todo: mipmaps
-    TextureDesc<B> myDesc = {};
+    TextureDesc<B> myTextureDesc = {};
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
     //

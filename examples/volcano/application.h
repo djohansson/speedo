@@ -103,6 +103,9 @@ private:
 	std::filesystem::path myResourcePath;
 
 	InputState myInput = {};
+
+	SemaphoreHandle<B> myTimelineSemaphore = 0;
+    std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
 };
 
 #include "application.inl"

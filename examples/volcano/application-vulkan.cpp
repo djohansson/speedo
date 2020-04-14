@@ -15,8 +15,6 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
 {
     using namespace ImGui;
 
-    auto commandBuffer = commands.getCommandBuffer();
-
     IMGUI_CHECKVERSION();
     CreateContext();
     auto& io = GetIO();
@@ -76,7 +74,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
         //ZoneScopedN("uploadFontTexture");
         //TracyVkZone(myTracyContext, commandBuffer, "uploadFontTexture");
 
-        ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+        ImGui_ImplVulkan_CreateFontsTexture(commands.getCommandBuffer());
     }
 
     commands.addSyncCallback([]{ ImGui_ImplVulkan_DestroyFontUploadObjects(); });
@@ -182,9 +180,26 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>();
     *myGraphicsPipelineLayout = createPipelineLayoutContext(myGraphicsDevice->getDevice(), *slangShaders);
 
+    VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timelineCreateInfo.initialValue = 0;
+
+    VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semaphoreCreateInfo.pNext = &timelineCreateInfo;
+    semaphoreCreateInfo.flags = 0;
+
+    CHECK_VK(vkCreateSemaphore(myGraphicsDevice->getDevice(), &semaphoreCreateInfo, NULL, &myTimelineSemaphore));
+    myTimelineValue = std::make_shared<std::atomic_uint64_t>();
+
     {
-        auto transferCommands = CommandContext<GraphicsBackend::Vulkan>::createTransferCommands(myGraphicsDevice);
-    
+        auto transferCommands = CommandContext<GraphicsBackend::Vulkan>(
+            CommandDesc<GraphicsBackend::Vulkan>{
+                myGraphicsDevice,
+                myGraphicsDevice->getTransferCommandPool(),
+                VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                myTimelineSemaphore,
+                myTimelineValue});
+        
         transferCommands.begin();
         
         myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
@@ -198,6 +213,8 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
         myWindow = std::make_shared<Window<GraphicsBackend::Vulkan>>(
             WindowDesc<GraphicsBackend::Vulkan>{
                 myGraphicsDevice,
+                myTimelineSemaphore,
+                myTimelineValue,
                 {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
                 {static_cast<uint32_t>(framebufferWidth), static_cast<uint32_t>(framebufferHeight)},
                 true,
@@ -245,6 +262,8 @@ Application<GraphicsBackend::Vulkan>::~Application()
     }
 
     destroyFrameObjects();
+
+    vkDestroySemaphore(myGraphicsDevice->getDevice(), myTimelineSemaphore, nullptr);
 
     std::filesystem::path cacheFilePath = std::filesystem::absolute(myResourcePath / ".cache");
 
@@ -332,7 +351,13 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(
     destroyFrameObjects();
 
     {
-        auto transferCommands = CommandContext<GraphicsBackend::Vulkan>::createTransferCommands(myGraphicsDevice);
+        auto transferCommands = CommandContext<GraphicsBackend::Vulkan>(
+            CommandDesc<GraphicsBackend::Vulkan>{
+                myGraphicsDevice,
+                myGraphicsDevice->getTransferCommandPool(),
+                VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                myTimelineSemaphore,
+                myTimelineValue});
     
         transferCommands.begin();
 

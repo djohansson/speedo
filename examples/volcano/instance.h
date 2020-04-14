@@ -21,13 +21,13 @@ public:
     InstanceContext(InstanceDesc<B>&& desc);
     ~InstanceContext();
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getInstanceDesc() const { return myInstanceDesc; }
     const auto& getInstance() const { return myInstance; }
     const auto& getSurface() const { return mySurface; }
 
 private:
 
-    const InstanceDesc<B> myDesc;
+    const InstanceDesc<B> myInstanceDesc;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::any myUserData;

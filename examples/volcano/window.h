@@ -22,6 +22,8 @@ template <GraphicsBackend B>
 struct WindowDesc
 {
 	std::shared_ptr<DeviceContext<B>> deviceContext;
+    SemaphoreHandle<B> timelineSemaphore = 0;
+    std::shared_ptr<std::atomic_uint64_t> timelineValue;
 	Extent2d<B> windowExtent;
 	Extent2d<B> framebufferExtent;
 	bool clearEnable = true;
@@ -45,7 +47,7 @@ public:
 	Window(WindowDesc<B>&& desc, CommandContext<B>& commands);
 	~Window();
 
-	const auto& getWindowDesc() const { return myDesc; }
+	const auto& getWindowDesc() const { return myWindowDesc; }
 	const auto& getSwapchainContext() const { return *mySwapchainContext; }
 	const auto& getDepthTexture() const { return *myDepthTexture; }
 	const auto& getViews() const { return myViews; }
@@ -69,7 +71,7 @@ private:
 	void drawIMGUI();
 	void updateViewBuffer() const;
 
-	WindowDesc<B> myDesc = {};
+	WindowDesc<B> myWindowDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
 	std::unique_ptr<Texture<B>> myDepthTexture;
 	std::vector<View> myViews;
@@ -98,7 +100,7 @@ void Window<B>::drawIMGUI()
         // DragInt(
         //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
         ColorEdit3(
-            "Clear Color", &myDesc.clearValue.color.float32[0]);
+            "Clear Color", &myWindowDesc.clearValue.color.float32[0]);
         End();
     }
 

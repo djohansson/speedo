@@ -2,41 +2,41 @@
 
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(RenderTargetDesc<GraphicsBackend::Vulkan>&& desc)
-: myDesc(std::move(desc))
+: myRenderTargetDesc(std::move(desc))
 {
     std::vector<ImageViewHandle<GraphicsBackend::Vulkan>> attachments;
     
-    for (uint32_t i = 0; i < myDesc.colorImageCount; i++)
+    for (uint32_t i = 0; i < myRenderTargetDesc.colorImageCount; i++)
         myColorViews.emplace_back(createImageView2D(
-            myDesc.deviceContext->getDevice(),
-            myDesc.colorImages[i],
-            myDesc.colorImageFormat,
+            myRenderTargetDesc.deviceContext->getDevice(),
+            myRenderTargetDesc.colorImages[i],
+            myRenderTargetDesc.colorImageFormat,
             VK_IMAGE_ASPECT_COLOR_BIT));
 
     attachments.insert(std::end(attachments), std::begin(myColorViews), std::end(myColorViews));
 
-    if (myDesc.depthImage)
+    if (myRenderTargetDesc.depthImage)
     {
         VkImageAspectFlags depthAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (hasStencilComponent(myDesc.depthImageFormat))
+        if (hasStencilComponent(myRenderTargetDesc.depthImageFormat))
             depthAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
         myDepthView = createImageView2D(
-            myDesc.deviceContext->getDevice(),
-            myDesc.depthImage,
-            myDesc.depthImageFormat,
+            myRenderTargetDesc.deviceContext->getDevice(),
+            myRenderTargetDesc.depthImage,
+            myRenderTargetDesc.depthImageFormat,
             depthAspectFlags);
 
         attachments.push_back(myDepthView);
     }
 
     myFrameBuffer = createFramebuffer(
-        myDesc.deviceContext->getDevice(),
-        myDesc.renderPass,
+        myRenderTargetDesc.deviceContext->getDevice(),
+        myRenderTargetDesc.renderPass,
         attachments.size(),
         attachments.data(),
-        myDesc.imageExtent.width,
-        myDesc.imageExtent.height,
+        myRenderTargetDesc.imageExtent.width,
+        myRenderTargetDesc.imageExtent.height,
         1);
 }
 
@@ -44,10 +44,10 @@ template <>
 RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
 {
     for (const auto& colorView : myColorViews)
-        vkDestroyImageView(myDesc.deviceContext->getDevice(), colorView, nullptr);
+        vkDestroyImageView(myRenderTargetDesc.deviceContext->getDevice(), colorView, nullptr);
 
     if (myDepthView)
-        vkDestroyImageView(myDesc.deviceContext->getDevice(), myDepthView, nullptr);
+        vkDestroyImageView(myRenderTargetDesc.deviceContext->getDevice(), myDepthView, nullptr);
     
-    vkDestroyFramebuffer(myDesc.deviceContext->getDevice(), myFrameBuffer, nullptr);
+    vkDestroyFramebuffer(myRenderTargetDesc.deviceContext->getDevice(), myFrameBuffer, nullptr);
 }

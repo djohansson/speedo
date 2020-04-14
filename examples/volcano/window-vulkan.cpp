@@ -20,19 +20,19 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 {
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
+            myWindowDesc.deviceContext,
             nullptr,
-            myDesc.framebufferExtent});
+            myWindowDesc.framebufferExtent});
 
     // todo: append stencil bit for depthstencil composite formats
     myDepthTexture = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
         TextureDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
-            myDesc.framebufferExtent,
+            myWindowDesc.deviceContext,
+            myWindowDesc.framebufferExtent,
             1,
             0,
             findSupportedFormat(
-                myDesc.deviceContext->getPhysicalDevice(),
+                myWindowDesc.deviceContext->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -43,8 +43,8 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
         BufferDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
-            myDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (NX * NY) * sizeof(Window::ViewBufferData),
+            myWindowDesc.deviceContext,
+            myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (NX * NY) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             VK_NULL_HANDLE,
@@ -56,37 +56,41 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     for (auto& view : myViews)
     {
         if (!view.viewDesc().viewport.width)
-            view.viewDesc().viewport.width =  myDesc.framebufferExtent.width / NX;
+            view.viewDesc().viewport.width =  myWindowDesc.framebufferExtent.width / NX;
 
         if (!view.viewDesc().viewport.height)
-            view.viewDesc().viewport.height = myDesc.framebufferExtent.height / NY;
+            view.viewDesc().viewport.height = myWindowDesc.framebufferExtent.height / NY;
 
         view.updateAll();
     }
 
     myRenderPass = createRenderPass(
-        myDesc.deviceContext->getDevice(),
-        myDesc.deviceContext->getSwapchainConfiguration().selectedFormat().format,
+        myWindowDesc.deviceContext->getDevice(),
+        myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat().format,
         myDepthTexture->getTextureDesc().format);
 
     uint32_t imageCount;
-    CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
+    CHECK_VK(vkGetSwapchainImagesKHR(myWindowDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
     
     std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
-    CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
+    CHECK_VK(vkGetSwapchainImagesKHR(myWindowDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
 
-    uint32_t frameCount = myDesc.deviceContext->getSwapchainConfiguration().selectedImageCount;
+    uint32_t frameCount = myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount;
     myFrames.reserve(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
-        myFrames.emplace_back(RenderTargetDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
-            myRenderPass,
-            myDesc.framebufferExtent,
-            myDesc.deviceContext->getSwapchainConfiguration().selectedFormat().format,
-            1,
-            &colorImages[frameIt], 
-            myDepthTexture->getTextureDesc().format,
-            myDepthTexture->getImage()});
+        myFrames.emplace_back(
+            RenderTargetDesc<GraphicsBackend::Vulkan>{
+                myWindowDesc.deviceContext,
+                myRenderPass,
+                myWindowDesc.framebufferExtent,
+                myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat().format,
+                1,
+                &colorImages[frameIt], 
+                myDepthTexture->getTextureDesc().format,
+                myDepthTexture->getImage()},
+            FrameDesc<GraphicsBackend::Vulkan>{
+                myWindowDesc.timelineSemaphore,
+                myWindowDesc.timelineValue});
 
     // vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
     myFrameIndex = myFrames.size() - 1;
@@ -97,17 +101,22 @@ template <>
 void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
 {
     myFrames.clear();
-    vkDestroyRenderPass(myDesc.deviceContext->getDevice(), myRenderPass, nullptr);
     mySwapchainContext.reset();
     myDepthTexture.reset();
     myViewBuffer.reset();
+
+    if (myRenderPass)
+    {
+        vkDestroyRenderPass(myWindowDesc.deviceContext->getDevice(), myRenderPass, nullptr);
+        myRenderPass = 0;
+    }
 }
 
 template <>
 void Window<GraphicsBackend::Vulkan>::updateViewBuffer() const
 {
     void* data;
-    CHECK_VK(vmaMapMemory(myDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+    CHECK_VK(vmaMapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
     for (uint32_t n = 0; n < (NX * NY); n++)
     {
@@ -117,12 +126,12 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer() const
     }
 
     vmaFlushAllocation(
-        myDesc.deviceContext->getAllocator(),
+        myWindowDesc.deviceContext->getAllocator(),
         myViewBuffer->getBufferMemory(),
         sizeof(ViewBufferData) * myFrameIndex * (NX * NY),
         sizeof(ViewBufferData) * (NX * NY));
 
-    vmaUnmapMemory(myDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
+    vmaUnmapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
@@ -137,7 +146,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
 
         checkFlipOrPresentResult(
             vkAcquireNextImageKHR(
-                myDesc.deviceContext->getDevice(),
+                myWindowDesc.deviceContext->getDevice(),
                 mySwapchainContext->getSwapchain(),
                 UINT64_MAX,
                 lastFrame.getNewImageAcquiredSemaphore(),
@@ -156,7 +165,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
 
     std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this]
     {
-        if (myDesc.imguiEnable)
+        if (myWindowDesc.imguiEnable)
         {
             ImGui_ImplVulkan_NewFrame();
             drawIMGUI();
@@ -186,16 +195,16 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
     }));
 
     std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
-    clearValues[0] = myDesc.clearValue;
+    clearValues[0] = myWindowDesc.clearValue;
     clearValues[1].depthStencil = {1.0f, 0};
 
     // create secondary command buffers
     {
-        assert(myDesc.deviceContext->getDeviceDesc().commandBufferThreadCount > 1);
+        assert(myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount > 1);
 
         // setup draw parameters
         constexpr uint32_t drawCount = NX * NY;
-        uint32_t segmentCount = std::max(static_cast<uint32_t>(myDesc.deviceContext->getDeviceDesc().commandBufferThreadCount) - 1, 1u);
+        uint32_t segmentCount = std::max(static_cast<uint32_t>(myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount) - 1, 1u);
 
         assert(config.resources);
 
@@ -333,8 +342,8 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         //TracyVkZone(tracyContext, frame.commands[0].getCommandBuffer(), "executeCommands");
 
         // temp!!
-        std::vector<VkCommandBuffer> secondaryCommands(myDesc.deviceContext->getDeviceDesc().commandBufferThreadCount - 1);
-        for (uint32_t i = 0; i < myDesc.deviceContext->getDeviceDesc().commandBufferThreadCount - 1; i++)
+        std::vector<VkCommandBuffer> secondaryCommands(myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount - 1);
+        for (uint32_t i = 0; i < myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount - 1; i++)
             secondaryCommands[i] = frame.commands()[i+1].getCommandBuffer();
         //
 
@@ -364,7 +373,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
     }
 
     // Record Imgui Draw Data and draw funcs into primary command buffer
-    if (myDesc.imguiEnable)
+    if (myWindowDesc.imguiEnable)
     {
         //ZoneScopedN("drawIMGUI");
         //TracyVkZone(tracyContext, primaryCommands, "drawIMGUI");
@@ -417,7 +426,7 @@ void Window<GraphicsBackend::Vulkan>::presentFrame() const
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchainContext->getSwapchain();
     info.pImageIndices = &myFrameIndex;
-    checkFlipOrPresentResult(vkQueuePresentKHR(myDesc.deviceContext->getSelectedQueue(), &info));
+    checkFlipOrPresentResult(vkQueuePresentKHR(myWindowDesc.deviceContext->getSelectedQueue(), &info));
 }
 
 template <>
@@ -435,15 +444,15 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
         static bool escBufferState = false;
         bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
         if (escState && !escBufferState)
-            myDesc.imguiEnable = !myDesc.imguiEnable;
+            myWindowDesc.imguiEnable = !myWindowDesc.imguiEnable;
         escBufferState = escState;
     }
 
     if (input.mouseButtonsPressed[2])
     {
         // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myDesc.windowExtent.width / NX);
-        size_t viewIdy = input.mousePosition[0].y / (myDesc.windowExtent.height / NY);
+        size_t viewIdx = input.mousePosition[0].x / (myWindowDesc.windowExtent.width / NX);
+        size_t viewIdy = input.mousePosition[0].y / (myWindowDesc.windowExtent.height / NY);
         myActiveView = std::min((viewIdy * NX) + viewIdx, myViews.size() - 1);
 
         //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
@@ -532,7 +541,7 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
 template <>
 Window<GraphicsBackend::Vulkan>::Window(
     WindowDesc<GraphicsBackend::Vulkan>&& desc, CommandContext<GraphicsBackend::Vulkan>& commands)
-: myDesc(std::move(desc))
+: myWindowDesc(std::move(desc))
 {
     createFrameObjects(commands);
 }
@@ -540,4 +549,5 @@ Window<GraphicsBackend::Vulkan>::Window(
 template <>
 Window<GraphicsBackend::Vulkan>::~Window()
 {
+    destroyFrameObjects();
 }

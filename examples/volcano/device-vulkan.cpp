@@ -25,20 +25,20 @@ struct UserData
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     DeviceDesc<GraphicsBackend::Vulkan>&& desc)
-    : myDesc(std::move(desc))
+    : myDeviceDesc(std::move(desc))
 {
     uint32_t physicalDeviceCount = 0;
-    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instanceContext->getInstance(), &physicalDeviceCount, nullptr));
+    CHECK_VK(vkEnumeratePhysicalDevices(myDeviceDesc.instanceContext->getInstance(), &physicalDeviceCount, nullptr));
     if (physicalDeviceCount == 0)
         throw std::runtime_error("failed to find GPUs with Vulkan support!");
 
     myPhysicalDevices.resize(physicalDeviceCount);
-    CHECK_VK(vkEnumeratePhysicalDevices(myDesc.instanceContext->getInstance(), &physicalDeviceCount, myPhysicalDevices.data()));
+    CHECK_VK(vkEnumeratePhysicalDevices(myDeviceDesc.instanceContext->getInstance(), &physicalDeviceCount, myPhysicalDevices.data()));
 
     for (const auto& physicalDevice : myPhysicalDevices)
     {
         std::tie(mySwapchainConfiguration, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
-            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDesc.instanceContext->getSurface(), physicalDevice);
+            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDeviceDesc.instanceContext->getSurface(), physicalDevice);
 
         if (mySelectedQueueFamilyIndex)
         {
@@ -166,15 +166,15 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     vkGetDeviceQueue(myDevice, *mySelectedQueueFamilyIndex, 0, &mySelectedQueue);
 
-    myAllocator = createAllocator<GraphicsBackend::Vulkan>(myDesc.instanceContext->getInstance(), myDevice, myPhysicalDevice);
+    myAllocator = createAllocator<GraphicsBackend::Vulkan>(myDeviceDesc.instanceContext->getInstance(), myDevice, myPhysicalDevice);
 
     myTransferCommandPool = createCommandPool(
         myDevice,
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
         *mySelectedQueueFamilyIndex);
 
-    myFrameCommandPools.resize(myDesc.commandBufferThreadCount);
-    for (uint32_t threadIt = 0; threadIt < myDesc.commandBufferThreadCount; threadIt++)
+    myFrameCommandPools.resize(myDeviceDesc.commandBufferThreadCount);
+    for (uint32_t threadIt = 0; threadIt < myDeviceDesc.commandBufferThreadCount; threadIt++)
     {
         myFrameCommandPools[threadIt] = createCommandPool(
             myDevice,
@@ -183,17 +183,6 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     }
     
     myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
-
-    VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
-    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    timelineCreateInfo.initialValue = 0;
-
-    VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    createInfo.pNext = &timelineCreateInfo;
-    createInfo.flags = 0;
-
-    CHECK_VK(vkCreateSemaphore(myDevice, &createInfo, NULL, &myTransferTimelineSemaphore));
-    myTransferTimelineValue = std::make_shared<std::atomic_uint64_t>();
 
     CommandBufferHandle<GraphicsBackend::Vulkan> transferCommandBuffer;
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -220,8 +209,6 @@ DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 #ifdef PROFILING_ENABLED
     TracyVkDestroy(std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext);
 #endif
-
-    vkDestroySemaphore(myDevice, myTransferTimelineSemaphore, nullptr);
 
     vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 

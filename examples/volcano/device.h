@@ -40,7 +40,7 @@ public:
 	DeviceContext(DeviceDesc<B>&& desc);
     ~DeviceContext();
 
-    const auto& getDeviceDesc() const { return myDesc; }
+    const auto& getDeviceDesc() const { return myDeviceDesc; }
     const auto& getDevice() const { return myDevice; }
     const auto& getPhysicalDevice() const { return myPhysicalDevice; }
     const auto& getPhysicalDeviceProperties() const { return myPhysicalDeviceProperties; }
@@ -51,12 +51,10 @@ public:
     const auto& getDescriptorPool() const { return myDescriptorPool; }
     const auto& getFrameCommandPools() const { return myFrameCommandPools; }
     const auto& getTransferCommandPool() const { return myTransferCommandPool; }
-    const auto& getTransferTimelineSemaphore() const { return myTransferTimelineSemaphore; }
-    const auto& getTransferTimelineValue() const { return myTransferTimelineValue; }
 
 private:
 
-    const DeviceDesc<B> myDesc = {};
+    const DeviceDesc<B> myDeviceDesc = {};
     DeviceHandle<B> myDevice = 0;
     std::vector<PhysicalDeviceHandle<GraphicsBackend::Vulkan>> myPhysicalDevices;
     PhysicalDeviceHandle<B> myPhysicalDevice = 0;
@@ -68,7 +66,5 @@ private:
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
     std::vector<CommandPoolHandle<B>> myFrameCommandPools;
 	CommandPoolHandle<B> myTransferCommandPool = 0;
-    SemaphoreHandle<B> myTransferTimelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> myTransferTimelineValue = 0;
     std::any myUserData;
 };

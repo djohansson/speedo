@@ -30,7 +30,8 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 		commands.getCommandBuffer(), myDesc.deviceContext->getAllocator(), myDesc.initialData,
         myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
 
-    commands.addSyncCallback([this]{ deleteInitialData(); });
+    if (myDesc.initialData)
+        commands.addSyncCallback([this]{ deleteInitialData(); });
 }
 
 template <>

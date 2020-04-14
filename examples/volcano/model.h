@@ -41,7 +41,7 @@ public:
 	Model(ModelDesc<B>&& desc, CommandContext<B>& commands);
 	Model(const std::filesystem::path& modelFile, CommandContext<B>& commands);
 
-	const auto& getModelDesc() const { return myDesc; }
+	const auto& getModelDesc() const { return myModelDesc; }
 	const auto& getVertexBuffer() const { return myVertexBuffer; }
 	const auto& getIndexBuffer() const { return myIndexBuffer; }
 	const auto& getBindings() const { return myBindings; }
@@ -50,7 +50,7 @@ private:
 
 	void deleteInitialData();
 
-	ModelDesc<B> myDesc = {};
+	ModelDesc<B> myModelDesc = {};
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 	// todo: make one buffer + offsets for all model data
 	Buffer<B> myVertexBuffer = {};

@@ -57,7 +57,7 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 
 template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsBackend::Vulkan>&& desc)
-: myDesc(std::move(desc))
+: myInstanceDesc(std::move(desc))
 {
 #ifdef _DEBUG
 	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
@@ -138,7 +138,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.pApplicationInfo = &myDesc.createDesc;
+    info.pApplicationInfo = &myInstanceDesc.createDesc;
     info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
     info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
     info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
@@ -146,7 +146,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
 
     CHECK_VK(vkCreateInstance(&info, nullptr, &myInstance));
 
-    mySurface = createSurface(myInstance, myDesc.surfaceHandle);
+    mySurface = createSurface(myInstance, myInstanceDesc.surfaceHandle);
 
     myUserData = instance_vulkan::UserData();
 

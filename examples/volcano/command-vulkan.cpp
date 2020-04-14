@@ -4,12 +4,12 @@ template <>
 thread_local std::vector<std::byte> CommandContext<GraphicsBackend::Vulkan>::threadScratchMemory(1024);
 
 template <>
-bool CommandContext<GraphicsBackend::Vulkan>::isComplete() const
+bool CommandContext<GraphicsBackend::Vulkan>::hasReached(uint64_t timelineValue) const
 {
     uint64_t value;
-    CHECK_VK(vkGetSemaphoreCounterValue(myDesc.deviceContext->getDevice(), myDesc.timelineSemaphore, &value));
+    CHECK_VK(vkGetSemaphoreCounterValue(myCommandDesc.deviceContext->getDevice(), myCommandDesc.timelineSemaphore, &value));
 
-    return (value >= myLastSubmitTimelineValue);
+    return (value >= timelineValue);
 }
 
 template <>
@@ -23,7 +23,7 @@ void CommandContext<GraphicsBackend::Vulkan>::begin(const CommandBufferBeginInfo
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::submit(
+uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
 {
     const auto waitSemaphoreCount = submitInfo.waitSemaphoreCount + 1;
@@ -36,8 +36,6 @@ void CommandContext<GraphicsBackend::Vulkan>::submit(
         sizeof(uint64_t) * signalSemaphoreCount + 
         sizeof(SemaphoreHandle<GraphicsBackend::Vulkan>) * signalSemaphoreCount);
 
-    auto timelineValue = myDesc.timelineValue->fetch_add(signalSemaphoreCount, std::memory_order_relaxed);
-
     auto writePtr = threadScratchMemory.data();
     
     auto waitSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
@@ -45,7 +43,7 @@ void CommandContext<GraphicsBackend::Vulkan>::submit(
         auto waitSemaphoresPtr = waitSemaphoresBegin;
         for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
             *waitSemaphoresPtr++ = submitInfo.waitSemaphores[i];
-        *waitSemaphoresPtr++ = myDesc.timelineSemaphore;
+        *waitSemaphoresPtr++ = myCommandDesc.timelineSemaphore;
 
         writePtr = reinterpret_cast<std::byte*>(waitSemaphoresPtr);
     }
@@ -64,18 +62,20 @@ void CommandContext<GraphicsBackend::Vulkan>::submit(
     {
         auto waitSemaphoreValuesPtr = waitSemaphoreValuesBegin;
         for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
-            *waitSemaphoreValuesPtr++ = timelineValue;
-        *waitSemaphoreValuesPtr++ = timelineValue;
+            *waitSemaphoreValuesPtr++ = myLastSubmitTimelineValue;
+        *waitSemaphoreValuesPtr++ = myLastSubmitTimelineValue;
 
         writePtr = reinterpret_cast<std::byte*>(waitSemaphoreValuesPtr);
     }
+
+    auto timelineValue = myCommandDesc.timelineValue->fetch_add(signalSemaphoreCount, std::memory_order_relaxed);
     
     auto signalSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
     {
         auto signalSemaphoresPtr = signalSemaphoresBegin;
         for (uint32_t i = 0; i < submitInfo.signalSemaphoreCount; i++)
             *signalSemaphoresPtr++ = submitInfo.signalSemaphores[i];
-        *signalSemaphoresPtr++ = myDesc.timelineSemaphore;
+        *signalSemaphoresPtr++ = myCommandDesc.timelineSemaphore;
 
         writePtr = reinterpret_cast<std::byte*>(signalSemaphoresPtr);
     }
@@ -89,8 +89,6 @@ void CommandContext<GraphicsBackend::Vulkan>::submit(
 
         writePtr = reinterpret_cast<std::byte*>(signalSemaphoreValuesPtr);
     }
-
-    myLastSubmitTimelineValue = timelineValue;
 
     VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
     timelineInfo.pNext = nullptr;
@@ -109,7 +107,11 @@ void CommandContext<GraphicsBackend::Vulkan>::submit(
     vkSubmitInfo.commandBufferCount = 1;
     vkSubmitInfo.pCommandBuffers = &myCommandBuffer;
 
-    CHECK_VK(vkQueueSubmit(myDesc.deviceContext->getSelectedQueue(), 1, &vkSubmitInfo, submitInfo.signalFence));
+    CHECK_VK(vkQueueSubmit(myCommandDesc.deviceContext->getSelectedQueue(), 1, &vkSubmitInfo, submitInfo.signalFence));
+
+    myLastSubmitTimelineValue = timelineValue;
+
+    return timelineValue;
 }
 
 template <>
@@ -119,21 +121,23 @@ void CommandContext<GraphicsBackend::Vulkan>::end() const
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::sync()
+void CommandContext<GraphicsBackend::Vulkan>::sync(std::optional<uint64_t> timelineValue)
 {
-    if (!isComplete())
+    uint64_t value = timelineValue.value_or(myLastSubmitTimelineValue);
+
+    if (!hasReached(value))
     {
         VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
         waitInfo.flags = 0;
         waitInfo.semaphoreCount = 1;
-        waitInfo.pSemaphores = &myDesc.timelineSemaphore;
-        waitInfo.pValues = &myLastSubmitTimelineValue;
+        waitInfo.pSemaphores = &myCommandDesc.timelineSemaphore;
+        waitInfo.pValues = &value;
 
-        CHECK_VK(vkWaitSemaphores(myDesc.deviceContext->getDevice(), &waitInfo, UINT64_MAX));
+        CHECK_VK(vkWaitSemaphores(myCommandDesc.deviceContext->getDevice(), &waitInfo, UINT64_MAX));
     }
 
     for (auto& callback : mySyncCallbacks)
-        callback();
+        callback.first();
     
     mySyncCallbacks.clear();
 }
@@ -143,39 +147,26 @@ void CommandContext<GraphicsBackend::Vulkan>::free()
 {
     if (myCommandBuffer)
     {
-        assert(isComplete());
+        assert(hasReached(myLastSubmitTimelineValue));
 
-        vkFreeCommandBuffers(myDesc.deviceContext->getDevice(), myDesc.commandPool, 1, &myCommandBuffer);
+        vkFreeCommandBuffers(myCommandDesc.deviceContext->getDevice(), myCommandDesc.commandPool, 1, &myCommandBuffer);
         myCommandBuffer = 0;
     }
 }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandDesc<GraphicsBackend::Vulkan>&& desc)
-: myDesc(std::move(desc))
+: myCommandDesc(std::move(desc))
 {
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    cmdInfo.commandPool = myDesc.commandPool;
-    cmdInfo.level = static_cast<VkCommandBufferLevel>(myDesc.commandBufferLevel);
+    cmdInfo.commandPool = myCommandDesc.commandPool;
+    cmdInfo.level = static_cast<VkCommandBufferLevel>(myCommandDesc.commandBufferLevel);
     cmdInfo.commandBufferCount = 1;
-    CHECK_VK(vkAllocateCommandBuffers(myDesc.deviceContext->getDevice(), &cmdInfo, &myCommandBuffer));
+    CHECK_VK(vkAllocateCommandBuffers(myCommandDesc.deviceContext->getDevice(), &cmdInfo, &myCommandBuffer));
 }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 {
     free();
-}
-
-template <>
-CommandContext<GraphicsBackend::Vulkan>
-CommandContext<GraphicsBackend::Vulkan>::createTransferCommands(const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
-{
-    return CommandContext<GraphicsBackend::Vulkan>(
-        CommandDesc<GraphicsBackend::Vulkan>{
-            deviceContext,
-            deviceContext->getTransferCommandPool(),
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            deviceContext->getTransferTimelineSemaphore(),
-            deviceContext->getTransferTimelineValue()});
 }

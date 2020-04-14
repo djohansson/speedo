@@ -26,26 +26,26 @@ class RenderTarget : Noncopyable
 public:
 
 	RenderTarget(RenderTarget<B>&& other)
-    : myDesc(other.myDesc)
+    : myRenderTargetDesc(std::move(other.myRenderTargetDesc))
     , myColorViews(std::move(other.myColorViews))
     , myDepthView(other.myDepthView)
     , myFrameBuffer(other.myFrameBuffer)
     {
-		other.myDesc = {};
+		other.myRenderTargetDesc = {};
         other.myDepthView = 0;
         other.myFrameBuffer = 0;
 	}
 	RenderTarget(RenderTargetDesc<B>&& desc);
 	virtual ~RenderTarget();
 
-    const auto& getRenderTargetDesc() const { return myDesc; }
+    const auto& getRenderTargetDesc() const { return myRenderTargetDesc; }
     const auto& getColorViews() const { return myColorViews; }
     const auto& getDepthView() const { return myDepthView; }
     const auto& getFrameBuffer() const { return myFrameBuffer; }
 
 protected:
     
-    RenderTargetDesc<B> myDesc = {};
+    RenderTargetDesc<B> myRenderTargetDesc = {};
 
 private:
 
