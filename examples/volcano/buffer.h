@@ -32,7 +32,7 @@ class Buffer : Noncopyable
 
 public:
 
-    Buffer(BufferDesc<B>&& desc, CommandContext<B>& commands);
+    Buffer(BufferDesc<B>&& desc, CommandContext<B>& commandContext);
     ~Buffer();
 
     const auto& getBufferDesc() const { return myDesc; }

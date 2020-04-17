@@ -168,11 +168,11 @@ Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspe
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     TextureDesc<GraphicsBackend::Vulkan>&& desc,
-    CommandContext<GraphicsBackend::Vulkan>& commands)
+    CommandContext<GraphicsBackend::Vulkan>& commandContext)
     : myTextureDesc(std::move(desc))
 {
     std::tie(myImage, myImageMemory) = createImage2D(
-        commands.getCommandBuffer(),
+        commandContext.commands(),
         myTextureDesc.deviceContext->getAllocator(),
         myTextureDesc.initialData,
         myTextureDesc.extent.width,
@@ -185,14 +185,14 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         myTextureDesc.debugName.c_str());
     
     if (myTextureDesc.initialData)
-        commands.addSyncCallback([this]{ deleteInitialData(); });
+        commandContext.addSyncCallback([this]{ deleteInitialData(); });
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     const std::filesystem::path& textureFile,
-    CommandContext<GraphicsBackend::Vulkan>& commands)
-    : Texture(texture::load(textureFile, commands.getCommandDesc().deviceContext), commands)
+    CommandContext<GraphicsBackend::Vulkan>& commandContext)
+    : Texture(texture::load(textureFile, commandContext.getCommandContextDesc().deviceContext), commandContext)
 {
 }
 

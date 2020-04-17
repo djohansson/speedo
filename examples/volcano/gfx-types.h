@@ -163,3 +163,6 @@ using CommandBufferBeginInfo = std::conditional_t<B == GraphicsBackend::Vulkan, 
 
 template <GraphicsBackend B>
 using CommandBufferInheritanceInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBufferInheritanceInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using RenderPassBeginInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkRenderPassBeginInfo, std::nullptr_t>;

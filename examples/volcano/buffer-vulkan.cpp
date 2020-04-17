@@ -23,15 +23,15 @@ Buffer<GraphicsBackend::Vulkan>::createView(
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
     BufferDesc<GraphicsBackend::Vulkan>&& desc,
-    CommandContext<GraphicsBackend::Vulkan>& commands)
+    CommandContext<GraphicsBackend::Vulkan>& commandContext)
     : myDesc(std::move(desc))
 {
     std::tie(myBuffer, myBufferMemory) = createBuffer(
-		commands.getCommandBuffer(), myDesc.deviceContext->getAllocator(), myDesc.initialData,
+		commandContext.commands(), myDesc.deviceContext->getAllocator(), myDesc.initialData,
         myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
 
     if (myDesc.initialData)
-        commands.addSyncCallback([this]{ deleteInitialData(); });
+        commandContext.addSyncCallback([this]{ deleteInitialData(); });
 }
 
 template <>

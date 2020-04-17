@@ -33,7 +33,7 @@ struct SwapchainConfiguration
 };
 
 template <GraphicsBackend B>
-class DeviceContext : public std::enable_shared_from_this<DeviceContext<B>>, private Noncopyable
+class DeviceContext : private Noncopyable
 {
 public:
 

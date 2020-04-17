@@ -6,6 +6,9 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence()
     CHECK_VK(vkWaitForFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence, VK_TRUE, UINT64_MAX));
     CHECK_VK(vkResetFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence));
 
+    for (auto& commandContext : myCommandContexts)
+        commandContext->sync();
+        
     myTimestamp = std::chrono::high_resolution_clock::now();
 }
 
@@ -27,14 +30,13 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 
     for (uint32_t poolIt = 0; poolIt < myRenderTargetDesc.deviceContext->getFrameCommandPools().size(); poolIt++)
     {
-        myCommands.emplace_back(
-            CommandContext<GraphicsBackend::Vulkan>(
-                CommandDesc<GraphicsBackend::Vulkan>{
-                    myRenderTargetDesc.deviceContext,
-                    myRenderTargetDesc.deviceContext->getFrameCommandPools()[poolIt],
-                    static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
-                    myFrameDesc.timelineSemaphore,
-                    myFrameDesc.timelineValue}));
+        myCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
+            CommandContextDesc<GraphicsBackend::Vulkan>{
+                myRenderTargetDesc.deviceContext,
+                myRenderTargetDesc.deviceContext->getFrameCommandPools()[poolIt],
+                static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
+                myFrameDesc.timelineSemaphore,
+                myFrameDesc.timelineValue}));
     }
 
     myTimestamp = std::chrono::high_resolution_clock::now();
@@ -43,12 +45,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 template <>
 Frame<GraphicsBackend::Vulkan>::~Frame()
 {
-    for (auto& cmd : myCommands)
-    {
-        cmd.sync();
-        cmd.free();
-    }
-
+    myCommandContexts.clear();
+    
     vkDestroyFence(myRenderTargetDesc.deviceContext->getDevice(), myFence, nullptr);
     vkDestroySemaphore(myRenderTargetDesc.deviceContext->getDevice(), myRenderCompleteSemaphore, nullptr);
     vkDestroySemaphore(myRenderTargetDesc.deviceContext->getDevice(), myNewImageAcquiredSemaphore, nullptr);

@@ -28,8 +28,8 @@ class Texture : Noncopyable
 {
 public:
 
-    Texture(TextureDesc<B>&& desc, CommandContext<B>& commands);
-    Texture(const std::filesystem::path& textureFile, CommandContext<B>& commands);
+    Texture(TextureDesc<B>&& desc, CommandContext<B>& commandContext);
+    Texture(const std::filesystem::path& textureFile, CommandContext<B>& commandContext);
     ~Texture();
 
     const auto& getTextureDesc() const { return myTextureDesc; }

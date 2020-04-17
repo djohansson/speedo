@@ -76,9 +76,9 @@ public:
 
 private:
 
-	void initIMGUI(CommandContext<GraphicsBackend::Vulkan>& commands, float dpiScaleX, float dpiScaleY) const;
+	void initIMGUI(CommandContext<B>& commandContext, float dpiScaleX, float dpiScaleY) const;
 
-	void createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commands);
+	void createFrameObjects(CommandContext<B>& commandContext);
 	void destroyFrameObjects();
 
 	// todo: encapsulate in PipelineConfiguration?
@@ -106,6 +106,10 @@ private:
 
 	SemaphoreHandle<B> myTimelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
+
+	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
+	
+	uint64_t myAppInitTimelineValue = 0;
 };
 
 #include "application.inl"

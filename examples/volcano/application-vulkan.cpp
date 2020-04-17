@@ -9,7 +9,7 @@
 
 template <>
 void Application<GraphicsBackend::Vulkan>::initIMGUI(
-    CommandContext<GraphicsBackend::Vulkan>& commands,
+    CommandContext<GraphicsBackend::Vulkan>& commandContext,
     float dpiScaleX,
     float dpiScaleY) const
 {
@@ -74,10 +74,10 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
         //ZoneScopedN("uploadFontTexture");
         //TracyVkZone(myTracyContext, commandBuffer, "uploadFontTexture");
 
-        ImGui_ImplVulkan_CreateFontsTexture(commands.getCommandBuffer());
+        ImGui_ImplVulkan_CreateFontsTexture(commandContext.commands());
     }
 
-    commands.addSyncCallback([]{ ImGui_ImplVulkan_DestroyFontUploadObjects(); });
+    commandContext.addSyncCallback([]{ ImGui_ImplVulkan_DestroyFontUploadObjects(); });
 }
 
 template <>
@@ -126,9 +126,9 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commands)
+void Application<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commandContext)
 {
-    myWindow->createFrameObjects(commands);
+    myWindow->createFrameObjects(commandContext);
 
     // for (all referenced resources/shaders)
     // {
@@ -191,23 +191,23 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     CHECK_VK(vkCreateSemaphore(myGraphicsDevice->getDevice(), &semaphoreCreateInfo, NULL, &myTimelineSemaphore));
     myTimelineValue = std::make_shared<std::atomic_uint64_t>();
 
+    myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
+        CommandContextDesc<GraphicsBackend::Vulkan>{
+            myGraphicsDevice,
+            myGraphicsDevice->getTransferCommandPool(),
+            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            myTimelineSemaphore,
+            myTimelineValue});
+
     {
-        auto transferCommands = CommandContext<GraphicsBackend::Vulkan>(
-            CommandDesc<GraphicsBackend::Vulkan>{
-                myGraphicsDevice,
-                myGraphicsDevice->getTransferCommandPool(),
-                VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                myTimelineSemaphore,
-                myTimelineValue});
-        
-        transferCommands.begin();
-        
+        myTransferCommandContext->begin();
+
         myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
             std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"),
-            transferCommands);
+            *myTransferCommandContext);
         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
             std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"),
-            transferCommands);
+            *myTransferCommandContext);
         myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
         myWindow = std::make_shared<Window<GraphicsBackend::Vulkan>>(
@@ -220,17 +220,17 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
                 true,
                 {},
                 true},
-            transferCommands);
+            *myTransferCommandContext);
 
         initIMGUI(
-            transferCommands,
+            *myTransferCommandContext,
             static_cast<float>(framebufferWidth) / width,
             static_cast<float>(framebufferHeight) / height);
 
-        transferCommands.end();
-        transferCommands.submit();
-        transferCommands.sync();
+        myTransferCommandContext->end();
     }
+
+    myAppInitTimelineValue = myTransferCommandContext->submit();
 
     // temp temp temp
 
@@ -256,8 +256,8 @@ template <>
 Application<GraphicsBackend::Vulkan>::~Application()
 {
     {
-        //ZoneScopedN("deviceWaitIdle");
-
+        myTransferCommandContext->sync(myAppInitTimelineValue);
+        // todo: replace with frame sync
         CHECK_VK(vkDeviceWaitIdle(myGraphicsDevice->getDevice()));
     }
 
@@ -338,33 +338,16 @@ void Application<GraphicsBackend::Vulkan>::draw()
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(
-    int width,
-    int height)
+void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int height)
 {
     {
-        //ZoneScopedN("queueWaitIdle");
-
+        myTransferCommandContext->sync(myAppInitTimelineValue);
+        // todo: replace with frame sync
         CHECK_VK(vkQueueWaitIdle(myGraphicsDevice->getSelectedQueue()));
     }
 
     destroyFrameObjects();
+    createFrameObjects(*myTransferCommandContext);
 
-    {
-        auto transferCommands = CommandContext<GraphicsBackend::Vulkan>(
-            CommandDesc<GraphicsBackend::Vulkan>{
-                myGraphicsDevice,
-                myGraphicsDevice->getTransferCommandPool(),
-                VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                myTimelineSemaphore,
-                myTimelineValue});
-    
-        transferCommands.begin();
-
-        createFrameObjects(transferCommands);
-
-        transferCommands.end();
-        transferCommands.submit();
-        transferCommands.sync();
-    }
+    myAppInitTimelineValue = myTransferCommandContext->submit();
 }

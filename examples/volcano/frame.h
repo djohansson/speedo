@@ -23,8 +23,8 @@ public:
 
 	Frame(Frame<B>&& other)
     : RenderTarget<B>(std::move(other))
-	, myFrameDesc(std::move(other.myFrameDesc))
-	, myCommands(std::move(other.myCommands))
+	, myFrameDesc(other.myFrameDesc)
+	, myCommandContexts(std::move(other.myCommandContexts))
 	, myFence(other.myFence)
 	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
 	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
@@ -45,14 +45,14 @@ public:
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 	const auto& getTimestamp() const { return myTimestamp; }
 
-	auto& commands() { return myCommands; }
+	auto& commandContext(uint32_t poolIndex) { return myCommandContexts[poolIndex]; }
 
 	void waitForFence();
 
 private:
 
 	FrameDesc<B> myFrameDesc = {};
-	std::vector<CommandContext<B>> myCommands;
+	std::vector<std::shared_ptr<CommandContext<B>>> myCommandContexts;
 	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;

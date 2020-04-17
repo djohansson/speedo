@@ -58,7 +58,7 @@ public:
 	const auto& getFrames() const { return myFrames; }
 	const auto& getRenderPass() const { return myRenderPass; }
 
-	void createFrameObjects(CommandContext<B>& commands);
+	void createFrameObjects(CommandContext<B>& commandContext);
 	void destroyFrameObjects();
 	
 	void updateInput(const InputState& input);

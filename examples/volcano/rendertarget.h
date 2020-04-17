@@ -26,7 +26,7 @@ class RenderTarget : Noncopyable
 public:
 
 	RenderTarget(RenderTarget<B>&& other)
-    : myRenderTargetDesc(std::move(other.myRenderTargetDesc))
+    : myRenderTargetDesc(other.myRenderTargetDesc)
     , myColorViews(std::move(other.myColorViews))
     , myDepthView(other.myDepthView)
     , myFrameBuffer(other.myFrameBuffer)

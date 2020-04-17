@@ -280,19 +280,35 @@ ModelDesc<GraphicsBackend::Vulkan> load(
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
 	ModelDesc<GraphicsBackend::Vulkan>&& desc,
-	CommandContext<GraphicsBackend::Vulkan>& commands)
+	CommandContext<GraphicsBackend::Vulkan>& commandContext)
 : myModelDesc(std::move(desc))
 , myBindings(model::calculateInputBindingDescriptions(myModelDesc.attributes))
-, myVertexBuffer({myModelDesc.deviceContext, myModelDesc.vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myModelDesc.initialVertices, myModelDesc.initialVerticesMemory, myModelDesc.debugName + "_vertices"}, commands)
-, myIndexBuffer({myModelDesc.deviceContext, myModelDesc.indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, myModelDesc.initialIndices, myModelDesc.initialIndicesMemory, myModelDesc.debugName + "_indices"}, commands)
+, myVertexBuffer({
+		myModelDesc.deviceContext,
+		myModelDesc.vertexBufferSize,
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		myModelDesc.initialVertices,
+		myModelDesc.initialVerticesMemory,
+		myModelDesc.debugName + "_vertices"},
+	commandContext)
+, myIndexBuffer({
+		myModelDesc.deviceContext,
+		myModelDesc.indexBufferSize,
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		myModelDesc.initialIndices,
+		myModelDesc.initialIndicesMemory,
+		myModelDesc.debugName + "_indices"},
+	commandContext)
 {
 }
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
 	const std::filesystem::path& modelFile,
-	CommandContext<GraphicsBackend::Vulkan>& commands)
-	: Model(model::load(modelFile, commands.getCommandDesc().deviceContext), commands)
+	CommandContext<GraphicsBackend::Vulkan>& commandContext)
+	: Model(model::load(modelFile, commandContext.getCommandContextDesc().deviceContext), commandContext)
 {
 }
 

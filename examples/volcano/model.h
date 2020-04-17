@@ -38,8 +38,8 @@ class Model : Noncopyable
 {
 public:
 
-	Model(ModelDesc<B>&& desc, CommandContext<B>& commands);
-	Model(const std::filesystem::path& modelFile, CommandContext<B>& commands);
+	Model(ModelDesc<B>&& desc, CommandContext<B>& commandContext);
+	Model(const std::filesystem::path& modelFile, CommandContext<B>& commandContext);
 
 	const auto& getModelDesc() const { return myModelDesc; }
 	const auto& getVertexBuffer() const { return myVertexBuffer; }

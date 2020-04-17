@@ -39,8 +39,12 @@ public:
 		, myMax(other.myMax) {}
 	
 	AABB(Type&& other)
-		: myMin(std::move(other.myMin))
-		, myMax(std::move(other.myMax)) {}
+		: myMin(other.myMin)
+		, myMax(other.myMax)
+	{
+		other.myMin = VectorType();
+		other.myMax = VectorType();
+	}
 
 	template <typename U = ScalarType>
 	AABB(const OtherVectorType<U>& aMin, const OtherVectorType<U>& aMax)
@@ -146,7 +150,7 @@ public:
 			for (size_t j = 0; j < N; j++)
 				somePointsOut[i][j] = (i & (1 << j)) ? myMax[j] : myMin[j];
 
-        return std::move(somePointsOut);
+        return somePointsOut;
 	}
 
     template <class Archive>

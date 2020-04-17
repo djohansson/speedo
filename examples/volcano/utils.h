@@ -61,3 +61,14 @@ private:
 	Noncopyable(const Noncopyable&) = delete;
 	Noncopyable& operator=(const Noncopyable&) = delete;
 };
+
+class Nondynamic
+{
+public:
+	Nondynamic() = default;
+	~Nondynamic() = default;
+
+private:
+	void *operator new(size_t);
+    void *operator new[](size_t);
+};
