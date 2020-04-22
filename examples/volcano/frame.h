@@ -21,23 +21,11 @@ class Frame : public RenderTarget<B>
 {
 public:
 
-	Frame(Frame<B>&& other)
-    : RenderTarget<B>(std::move(other))
-	, myFrameDesc(other.myFrameDesc)
-	, myCommandContexts(std::move(other.myCommandContexts))
-	, myFence(other.myFence)
-	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
-	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
-	, myTimestamp(other.myTimestamp)
-    {
-		other.myFrameDesc = {};
-		other.myFence = 0;
-		other.myRenderCompleteSemaphore = 0;
-		other.myNewImageAcquiredSemaphore = 0;
-		other.myTimestamp = std::chrono::high_resolution_clock::time_point();
-    }
-	Frame(RenderTargetDesc<B>&& renderTargetDesc, FrameDesc<B>&& frameDesc);
+	Frame(Frame<B>&& other);
+    Frame(RenderTargetDesc<B>&& renderTargetDesc, FrameDesc<B>&& frameDesc);
 	virtual ~Frame();
+
+	static uint32_t ourDebugCount;
 
 	const auto& getFrameDesc() const { return myFrameDesc; }
 	const auto& getFence() const { return myFence; }
@@ -45,7 +33,7 @@ public:
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 	const auto& getTimestamp() const { return myTimestamp; }
 
-	auto& commandContext(uint32_t poolIndex) { return myCommandContexts[poolIndex]; }
+	auto& commandContexts() { return myCommandContexts; }
 
 	void waitForFence();
 

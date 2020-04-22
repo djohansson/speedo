@@ -4,7 +4,6 @@
 #include "instance.h"
 #include "utils.h"
 
-#include <any>
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -66,5 +65,4 @@ private:
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
     std::vector<CommandPoolHandle<B>> myFrameCommandPools;
 	CommandPoolHandle<B> myTransferCommandPool = 0;
-    std::any myUserData;
 };

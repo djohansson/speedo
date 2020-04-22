@@ -7,20 +7,6 @@
 #include <tuple>
 #include <utility>
 
-#include <Tracy.hpp>
-#include <TracyVulkan.hpp>
-
-namespace device_vulkan
-{
-
-struct UserData
-{
-#ifdef PROFILING_ENABLED
-    TracyVkCtx tracyContext;
-#endif
-};
-
-}
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
@@ -190,26 +176,11 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cmdInfo.commandBufferCount = 1;
     CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, &transferCommandBuffer));
-
-    myUserData = device_vulkan::UserData();
-
-#ifdef PROFILING_ENABLED
-    std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext =
-        TracyVkContext(
-            myPhysicalDevice,
-            myDevice,
-            mySelectedQueue,
-            transferCommandBuffer);
-#endif
 }
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
-#ifdef PROFILING_ENABLED
-    TracyVkDestroy(std::any_cast<device_vulkan::UserData>(&myUserData)->tracyContext);
-#endif
-
     vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 
     for (const auto frameCommandPool : myFrameCommandPools)

@@ -3,24 +3,25 @@
 #include "device.h"
 #include "gfx-types.h"
 
+#include <any>
 #include <atomic>
 #include <cassert>
 #include <functional>
 #include <list>
 #include <memory>
 #include <utility>
-//#include <vector>
+#include <vector>
 
 template <GraphicsBackend B>
 class CommandContext;
 
-template <GraphicsBackend B>
+template <GraphicsBackend B, bool EndOnDestruct>
 class CommandBufferAccessScope;
 
 template <GraphicsBackend B>
 struct CommandBufferArrayDesc
 {
-    std::shared_ptr<DeviceContext<B>> deviceContext;
+    std::shared_ptr<CommandContext<B>> commandContext;
     CommandPoolHandle<B> commandPool = 0;
     uint32_t commandBufferLevel = 0;
 };
@@ -30,53 +31,52 @@ class CommandBufferArray : Noncopyable
 {
 public:
 
-    CommandBufferArray(CommandBufferArray<B>&& other)
-    : myArrayDesc(other.myArrayDesc)
-    , myIndex(other.myIndex)
-    {
-        other.myArrayDesc = {};
-        std::copy(std::begin(other.myCommandBufferArray), std::end(other.myCommandBufferArray), std::begin(myCommandBufferArray));
-        std::fill(std::begin(other.myCommandBufferArray), std::end(other.myCommandBufferArray), static_cast<CommandBufferHandle<B>>(0));
-        other.myIndex = 0;
-    }
+    CommandBufferArray(CommandBufferArray<B>&& other);
     CommandBufferArray(CommandBufferArrayDesc<B>&& desc);
     ~CommandBufferArray();
+
+    static uint32_t ourDebugCount;
 
 private:
 
     friend class CommandContext<B>;
-    friend class CommandBufferAccessScope<B>;
+    friend class CommandBufferAccessScope<B, true>;
+    friend class CommandBufferAccessScope<B, false>;
 
     void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr) const;
     bool end();
+    void reset();
 
     const CommandBufferHandle<B>* data() const { return myCommandBufferArray; }
-    uint64_t& index() { return myIndex; }
-    const uint64_t& index() const { return myIndex; }
-    uint64_t& timelineValue() { return myTimelineValue; }
-    const uint64_t& timelineValue() const { return myTimelineValue; }
-
+    uint32_t index() const { return myIndex; }
+    constexpr auto capacity() const { return kCommandBufferCount; }
+    
     operator CommandBufferHandle<B>() const { return myCommandBufferArray[myIndex]; }
 
     static constexpr uint32_t kCommandBufferCount = 8;
 
     CommandBufferArrayDesc<B> myArrayDesc = {};
     CommandBufferHandle<B> myCommandBufferArray[kCommandBufferCount] = { static_cast<CommandBufferHandle<B>>(0) };
-    union 
-    {
-        uint64_t myIndex = 0;
-        uint64_t myTimelineValue;
-    };
+    uint32_t myIndex = 0;
 };
 
-template <GraphicsBackend B>
+template <GraphicsBackend B, bool CallBeginAndEnd>
 class CommandBufferAccessScope : Noncopyable, Nondynamic
 {
 public:
 
-    CommandBufferAccessScope(CommandBufferArray<B>& array)
+    CommandBufferAccessScope(CommandBufferArray<B>& array, const CommandBufferBeginInfo<B>* beginInfo = nullptr)
         : myArray(array)
-    { }
+    {
+        if constexpr (CallBeginAndEnd)
+            myArray.begin(beginInfo);
+    }
+
+    ~CommandBufferAccessScope()
+    {
+        if constexpr (CallBeginAndEnd)
+            myArray.end();
+    }
 
     operator CommandBufferHandle<B>() const { return myArray; }
 
@@ -99,43 +99,75 @@ template <GraphicsBackend B>
 struct CommandSubmitInfo
 {
     QueueHandle<B> queue = 0;
+    FenceHandle<B> signalFence = 0;
+    uint32_t signalSemaphoreCount = 0;
+    const SemaphoreHandle<B>* signalSemaphores = nullptr;
     uint32_t waitSemaphoreCount = 0;
     const SemaphoreHandle<B>* waitSemaphores = nullptr;
     const Flags<B>* waitDstStageMasks = 0;
-    uint32_t signalSemaphoreCount = 0;
-    const SemaphoreHandle<B>* signalSemaphores = nullptr;
-    FenceHandle<B> signalFence = 0;
+    const uint64_t* waitSemaphoreValues = 0;
 };
 
 template <GraphicsBackend B>
-class CommandContext : private Noncopyable
+class CommandContext : private Noncopyable, public std::enable_shared_from_this<CommandContext<B>>
 {
 public:
 
-    CommandContext(CommandContext<B>&& other)
-    : myCommandContextDesc(other.myCommandContextDesc)
-    , myPendingCommands(std::move(other.myPendingCommands))
-    , mySyncCallbacks(std::move(other.mySyncCallbacks))
-    , myLastSubmitTimelineValue(std::move(other.myLastSubmitTimelineValue))
-    {
-        other.myCommandContextDesc = {};
-    }
+    CommandContext(CommandContext<B>&& other);
     CommandContext(CommandContextDesc<B>&& desc);
     ~CommandContext();
+
+    static uint32_t ourDebugCount;
 
     const auto& getCommandContextDesc() const { return myCommandContextDesc; }
     const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
-    auto begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
+    auto beginEndScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
     {
-        if (myPendingCommands.empty())
+        if (myPendingCommands.empty() || ((myPendingCommands.back().index() + 1) == myPendingCommands.back().capacity()))
             enqueueOnePending();
 
-        myPendingCommands.back().begin(beginInfo);
-
-        return CommandBufferAccessScope<B>(myPendingCommands.back());
+        return CommandBufferAccessScope<B, true>(myPendingCommands.back(), beginInfo);
     }
-    auto commands() { return CommandBufferAccessScope<B>(myPendingCommands.back()); }
+    
+    auto commands()
+    {
+        if (myPendingCommands.empty() || ((myPendingCommands.back().index() + 1) == myPendingCommands.back().capacity()))
+            enqueueOnePending();
+
+        return CommandBufferAccessScope<B, false>(myPendingCommands.back());
+    }
+
+    uint64_t execute(CommandContext<B>& other, const RenderPassBeginInfo<B>* beginInfo);
+    uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
+
+    bool hasReached(uint64_t timelineValue) const;
+    void wait(uint64_t timelineValue) const;
+
+    void collectGarbage();
+
+    template <typename T>
+    uint64_t addGarbageCollectCallback(T callback, uint64_t timelineValue)
+    {
+        myGarbageCollectCallbacks.emplace_back(std::make_pair(callback, timelineValue));
+
+        return timelineValue;
+    }
+
+    template <typename T>
+    uint64_t addGarbageCollectCallback(T callback)
+    {
+        return addGarbageCollectCallback(callback,
+            myCommandContextDesc.timelineValue->fetch_add(1, std::memory_order_relaxed));
+    }
+
+    template <typename T>
+    T& userData();
+
+private:
+
+    friend class CommandBufferAccessScope<B, true>;
+
     void end()
     {
         assert(!myPendingCommands.empty());
@@ -143,30 +175,7 @@ public:
         if (myPendingCommands.back().end())
             enqueueOnePending();
     }
-
-    uint64_t execute(CommandContext<B>& other, const RenderPassBeginInfo<B>* beginInfo);
-    uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
-
-    bool hasReached(uint64_t timelineValue) const;
-    void sync(std::optional<uint64_t> timelineValue = std::nullopt);
-
-    template <typename T>
-    uint64_t addSyncCallback(T callback, uint64_t timelineValue)
-    {
-        mySyncCallbacks.emplace_back(std::make_pair(callback, timelineValue));
-        return timelineValue;
-    }
-
-    template <typename T>
-    uint64_t addSyncCallback(T callback)
-    {
-        return addSyncCallback(callback, myCommandContextDesc.timelineValue->fetch_add(1, std::memory_order_relaxed));
-    }
-
-private:
-
-    friend class CommandBufferArray<B>;
-
+    
     void enqueueOnePending();
     void enqueueAllPendingToSubmitted(uint64_t timelineValue);
 
@@ -174,8 +183,8 @@ private:
     std::list<CommandBufferArray<B>> myPendingCommands;
     std::list<CommandBufferArray<B>> mySubmittedCommands;
     std::list<CommandBufferArray<B>> myFreeCommands;
-    std::list<std::pair<std::function<void()>, uint64_t>> mySyncCallbacks;
+    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myGarbageCollectCallbacks;
     std::optional<uint64_t> myLastSubmitTimelineValue;
-
-    static thread_local std::vector<std::byte> threadScratchMemory;
+    std::vector<std::byte> myScratchMemory;
+    std::any myUserData;
 };

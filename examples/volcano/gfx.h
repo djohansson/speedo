@@ -11,6 +11,7 @@
 #include "utils.h"
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>

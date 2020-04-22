@@ -21,6 +21,8 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
+template <>
+uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
 namespace stbi_istream_callbacks
 {
@@ -185,7 +187,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         myTextureDesc.debugName.c_str());
     
     if (myTextureDesc.initialData)
-        commandContext.addSyncCallback([this]{ deleteInitialData(); });
+        commandContext.addGarbageCollectCallback([this](uint64_t){ deleteInitialData(); });
 }
 
 template <>

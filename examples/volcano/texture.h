@@ -32,6 +32,8 @@ public:
     Texture(const std::filesystem::path& textureFile, CommandContext<B>& commandContext);
     ~Texture();
 
+    static uint32_t ourDebugCount;
+
     const auto& getTextureDesc() const { return myTextureDesc; }
     const auto& getImage() const { return myImage; }
     const auto& getImageMemory() const { return myImageMemory; }

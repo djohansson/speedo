@@ -14,10 +14,6 @@
 #include <memory>
 #include <vector>
 
-#include <imgui.h>
-
-#include <nfd.h>
-
 template <GraphicsBackend B>
 struct WindowDesc
 {
@@ -63,6 +59,7 @@ public:
 	
 	void updateInput(const InputState& input);
 
+    std::tuple<bool, uint32_t> flipFrame();
 	void submitFrame(const PipelineConfiguration<B>& config);
 	void presentFrame() const;
 
@@ -82,84 +79,6 @@ private:
 	std::vector<Frame<B>> myFrames;
 	RenderPassHandle<B> myRenderPass = 0;
 
-	static constexpr uint32_t NX = 2;
-	static constexpr uint32_t NY = 2;
+	static constexpr uint32_t NX = 4;
+	static constexpr uint32_t NY = 4;
 };
-
-
-template <GraphicsBackend B>
-void Window<B>::drawIMGUI()
-{
-    using namespace ImGui;
-
-    NewFrame();
-    ShowDemoWindow();
-
-    {
-        Begin("Render Options");
-        // DragInt(
-        //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
-        ColorEdit3(
-            "Clear Color", &myWindowDesc.clearValue.color.float32[0]);
-        End();
-    }
-
-    {
-        Begin("GUI Options");
-        // static int styleIndex = 0;
-        ShowStyleSelector("Styles" /*, &styleIndex*/);
-        ShowFontSelector("Fonts");
-        if (Button("Show User Guide"))
-        {
-            SetNextWindowPos(ImVec2(0.5f, 0.5f));
-            OpenPopup("UserGuide");
-        }
-        if (BeginPopup(
-                "UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-        {
-            ShowUserGuide();
-            EndPopup();
-        }
-        End();
-    }
-
-    // {
-    //     Begin("File");
-
-    //     if (Button("Open OBJ file"))
-    //     {
-    //         nfdchar_t* pathStr;
-    //         auto res = NFD_OpenDialog("obj", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
-    //         if (res == NFD_OKAY)
-    //         {
-    //             myDefaultResources->model = std::make_shared<Model<B>>(
-    //                 myDevice, myTransferCommandPool, myQueue, myAllocator,
-    //                 std::filesystem::absolute(pathStr));
-
-    //             updateDescriptorSets(window, *myGraphicsPipelineConfig);
-    //         }
-    //     }
-
-    //     if (Button("Open JPG file"))
-    //     {
-    //         nfdchar_t* pathStr;
-    //         auto res = NFD_OpenDialog("jpg", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
-    //         if (res == NFD_OKAY)
-    //         {
-    //             myDefaultResources->texture = std::make_shared<Texture<B>>(
-    //                 myDevice, myTransferCommandPool, myQueue, myAllocator,
-    //                 std::filesystem::absolute(pathStr));
-
-    //             updateDescriptorSets(window, *myGraphicsPipelineConfig);
-    //         }
-    //     }
-
-    //     End();
-    // }
-
-    {
-        ShowMetricsWindow();
-    }
-
-    Render();
-}

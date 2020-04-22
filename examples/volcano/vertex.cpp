@@ -7,7 +7,7 @@ std::byte* VertexAllocator::allocate(size_t count)
     return (myData.data() + myData.size()) - bytes;
 }
 
-void VertexAllocator::free(std::byte* ptr, size_t count)
+void VertexAllocator::deallocate(std::byte* ptr, size_t count)
 {
     assert(ptr != nullptr);
 

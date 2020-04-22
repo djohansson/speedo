@@ -1,4 +1,8 @@
 #include "frame.h"
+#include "command-vulkan.h"
+
+template <>
+uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
 template <>
 void Frame<GraphicsBackend::Vulkan>::waitForFence()
@@ -7,10 +11,29 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence()
     CHECK_VK(vkResetFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence));
 
     for (auto& commandContext : myCommandContexts)
-        commandContext->sync();
+        commandContext->collectGarbage();
         
     myTimestamp = std::chrono::high_resolution_clock::now();
 }
+
+template <>
+Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
+    : RenderTarget<GraphicsBackend::Vulkan>(std::move(other))
+	, myFrameDesc(other.myFrameDesc)
+	, myCommandContexts(std::move(other.myCommandContexts))
+	, myFence(other.myFence)
+	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
+	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
+	, myTimestamp(other.myTimestamp)
+    {
+        ++ourDebugCount;
+
+		other.myFrameDesc = {};
+		other.myFence = 0;
+		other.myRenderCompleteSemaphore = 0;
+		other.myNewImageAcquiredSemaphore = 0;
+		other.myTimestamp = std::chrono::high_resolution_clock::time_point();
+    }
 
 template <>
 Frame<GraphicsBackend::Vulkan>::Frame(
@@ -18,6 +41,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 : RenderTarget<GraphicsBackend::Vulkan>(std::move(renderTargetDesc))
 , myFrameDesc(std::move(frameDesc))
 {
+    ++ourDebugCount;
+
     VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     CHECK_VK(vkCreateFence(myRenderTargetDesc.deviceContext->getDevice(), &fenceInfo, nullptr, &myFence));
@@ -39,12 +64,23 @@ Frame<GraphicsBackend::Vulkan>::Frame(
                 myFrameDesc.timelineValue}));
     }
 
+#ifdef PROFILING_ENABLED
+    myCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
+        TracyVkContext(
+            myRenderTargetDesc.deviceContext->getPhysicalDevice(),
+            myRenderTargetDesc.deviceContext->getDevice(),
+            myRenderTargetDesc.deviceContext->getSelectedQueue(),
+            myCommandContexts[0]->commands());        
+#endif
+
     myTimestamp = std::chrono::high_resolution_clock::now();
 }
 
 template <>
 Frame<GraphicsBackend::Vulkan>::~Frame()
 {
+    --ourDebugCount;
+
     myCommandContexts.clear();
     
     vkDestroyFence(myRenderTargetDesc.deviceContext->getDevice(), myFence, nullptr);

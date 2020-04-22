@@ -139,7 +139,7 @@ public:
         return SLANG_OK;
     }
 
-    void free(D3D12HostVisibleDescriptor descriptor)
+    void freeDescriptor(D3D12HostVisibleDescriptor descriptor)
     {
         m_freeList.add(descriptor);
     }

@@ -1,9 +1,6 @@
 #pragma once
+#include "utils.h"
 
-#include <cassert>
-#include <cstdint>
-#include <optional>
-#include <map>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -12,7 +9,7 @@
 static inline void CHECK_VK(VkResult err)
 {
 	(void)err;
-	assert(err == VK_SUCCESS);
+	assertf(err == VK_SUCCESS, "Vulkan call failed.");
 }
 
 uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor);
@@ -87,7 +84,7 @@ VkRenderPass createRenderPass(VkDevice device, VkFormat colorFormat, VkFormat de
 
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
 
-void checkFlipOrPresentResult(VkResult result);
+VkResult checkFlipOrPresentResult(VkResult result);
 
 
 static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)

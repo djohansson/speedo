@@ -35,6 +35,8 @@ public:
     Buffer(BufferDesc<B>&& desc, CommandContext<B>& commandContext);
     ~Buffer();
 
+    static uint32_t ourDebugCount;
+
     const auto& getBufferDesc() const { return myDesc; }
     const auto& getBuffer() const { return myBuffer; }
     const auto& getBufferMemory() const { return myBufferMemory; }

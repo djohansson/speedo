@@ -29,9 +29,9 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
     {
         std::cout << pCallbackData->pMessageIdName << ": " << pCallbackData->pMessage << std::endl;
 
-        if (pCallbackData->flags & VK_DEBUG_REPORT_ERROR_BIT_EXT || pCallbackData->flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+        if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
             return VK_TRUE;
-
+    
         return VK_FALSE;
     });
 

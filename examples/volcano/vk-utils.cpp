@@ -643,7 +643,7 @@ VkSurfaceKHR createSurface(VkInstance instance,	void* view)
     return surface;
 }
 
-void checkFlipOrPresentResult(VkResult result)
+VkResult checkFlipOrPresentResult(VkResult result)
 {
     switch (result)
     {
@@ -656,6 +656,8 @@ void checkFlipOrPresentResult(VkResult result)
         std::cout << "warning: flip/present returned VK_ERROR_OUT_OF_DATE_KHR";
         break;
     default:
-        throw std::runtime_error("failed to flip swap chain image!");
+        throw std::runtime_error("Invalid error code.");
     }
+
+	return result;
 }

@@ -120,7 +120,8 @@
 			"csignal": "cpp",
 			"*.idl": "cpp",
 			"concepts": "cpp",
-			"*.rh": "cpp"
+			"*.rh": "cpp",
+			"parentbad": "cpp"
 		}
 	}
 }

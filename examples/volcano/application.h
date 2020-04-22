@@ -108,8 +108,9 @@ private:
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
 
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
+	FenceHandle<B> myLastTransferSubmitFence = 0;
 	
-	uint64_t myAppInitTimelineValue = 0;
+	uint64_t myAppTransferTimelineValue = 0;
 };
 
 #include "application.inl"

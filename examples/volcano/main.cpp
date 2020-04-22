@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if defined(_DEBUG) && defined(__WINDOWS__)
+#include <crtdbg.h>
+#endif
+
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -133,8 +137,55 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
     }
 }
 
+#if defined(_DEBUG) && defined(__WINDOWS__)
+int __cdecl CrtReportHook(int nReportType, char* szMsg, int* pnRet)
+{
+	int nRet = 0;
+
+	printf("CRT report type is \"");
+	switch (nReportType)
+	{
+	case _CRT_ASSERT: {
+		printf("_CRT_ASSERT");
+		// nRet = TRUE;   // Always stop for this type of report
+		break;
+	}
+
+	case _CRT_WARN: {
+		printf("_CRT_WARN");
+		break;
+	}
+
+	case _CRT_ERROR: {
+		printf("_CRT_ERROR");
+		break;
+	}
+
+	default: {
+		printf("???Unknown???");
+		break;
+	}
+	}
+
+	printf("\".\nCRT report message is:\n\t");
+	printf_s(szMsg);
+
+	if (pnRet)
+		*pnRet = 0;
+
+	return nRet;
+}
+#endif
+
 int main(int, char**)
 {
+#if defined(_DEBUG) && defined(__WINDOWS__)
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+	int nRet = _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
+	printf("_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook) returned %d\n", nRet);
+#endif
+
 	// Setup window
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())

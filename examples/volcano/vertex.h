@@ -96,7 +96,7 @@ public:
 	std::byte* allocate(size_t count = 1);
 
 	// unless freeing the last item this is _very_ inefficient
-	void free(std::byte* ptr, size_t count = 1);
+	void deallocate(std::byte* ptr, size_t count = 1);
 
 	void clear();
 
@@ -183,7 +183,7 @@ public:
 
 	inline void freeVertices(Vertex* ptr, size_t count = 1)
 	{
-		return myAllocatorRef.free(reinterpret_cast<std::byte*>(ptr), count);
+		return myAllocatorRef.deallocate(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
 	inline VertexAllocator& allocator()
