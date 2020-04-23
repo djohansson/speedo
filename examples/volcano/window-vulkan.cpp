@@ -146,7 +146,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
         BufferDesc<GraphicsBackend::Vulkan>{
             myWindowDesc.deviceContext,
-            myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (NX * NY) * sizeof(Window::ViewBufferData),
+            myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (splitScreenColumnCount * splitScreenRowCount) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             VK_NULL_HANDLE,
@@ -154,14 +154,14 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
             "myViewBuffer"},
         commandContext);
 
-    myViews.resize(NX * NY);
+    myViews.resize(splitScreenColumnCount * splitScreenRowCount);
     for (auto& view : myViews)
     {
         if (!view.viewDesc().viewport.width)
-            view.viewDesc().viewport.width =  myWindowDesc.framebufferExtent.width / NX;
+            view.viewDesc().viewport.width =  myWindowDesc.framebufferExtent.width / splitScreenColumnCount;
 
         if (!view.viewDesc().viewport.height)
-            view.viewDesc().viewport.height = myWindowDesc.framebufferExtent.height / NY;
+            view.viewDesc().viewport.height = myWindowDesc.framebufferExtent.height / splitScreenRowCount;
 
         view.updateAll();
     }
@@ -193,9 +193,6 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
             FrameDesc<GraphicsBackend::Vulkan>{
                 myWindowDesc.timelineSemaphore,
                 myWindowDesc.timelineValue});
-
-    // vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
-    myFrameIndex = myFrames.size() - 1;
 }
 
 template <>
@@ -216,16 +213,18 @@ void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
 }
 
 template <>
-void Window<GraphicsBackend::Vulkan>::updateViewBuffer() const
+void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) const
 {
     ZoneScopedN("updateViewBuffer");
+
+    assert(frameIndex < myFrames.size());
 
     void* data;
     CHECK_VK(vmaMapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    for (uint32_t n = 0; n < (NX * NY); n++)
+    for (uint32_t n = 0; n < (splitScreenColumnCount * splitScreenRowCount); n++)
     {
-        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[myFrameIndex * (NX * NY) + n];
+        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[frameIndex * (splitScreenColumnCount * splitScreenRowCount) + n];
 
         ubo.viewProj = myViews[n].getProjectionMatrix() * glm::mat4(myViews[n].getViewMatrix());
     }
@@ -233,22 +232,22 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer() const
     vmaFlushAllocation(
         myWindowDesc.deviceContext->getAllocator(),
         myViewBuffer->getBufferMemory(),
-        sizeof(ViewBufferData) * myFrameIndex * (NX * NY),
-        sizeof(ViewBufferData) * (NX * NY));
+        sizeof(ViewBufferData) * frameIndex * (splitScreenColumnCount * splitScreenRowCount),
+        sizeof(ViewBufferData) * (splitScreenColumnCount * splitScreenRowCount));
 
     vmaUnmapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
-std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame()
+std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t lastFrameIndex) const
 {
     ZoneScoped;
 
     static constexpr std::string_view flipFrameStr = "flipFrame";
 
-    myLastFrameIndex = myFrameIndex;
-    auto& lastFrame = myFrames[myLastFrameIndex];
+    auto& lastFrame = myFrames[lastFrameIndex];
 
+    uint32_t frameIndex;
     auto flipResult = checkFlipOrPresentResult(
         vkAcquireNextImageKHR(
             myWindowDesc.deviceContext->getDevice(),
@@ -256,11 +255,11 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame()
             UINT64_MAX,
             lastFrame.getNewImageAcquiredSemaphore(),
             VK_NULL_HANDLE,
-            &myFrameIndex));
+            &frameIndex));
 
     if (flipResult != VK_SUCCESS)
     {
-        assert(myLastFrameIndex == myFrameIndex); // just check that vkAcquireNextImageKHR is not messing up things
+        assert(lastFrameIndex == frameIndex); // just check that vkAcquireNextImageKHR is not messing up things
 
         static constexpr std::string_view errorStr = " - ERROR: vkAcquireNextImageKHR failed";
 
@@ -274,26 +273,27 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame()
         // todo: print error code
         //ZoneText(failedStr, sizeof_array(failedStr));
 
-        return std::make_tuple(false, myFrameIndex);
+        return std::make_tuple(false, frameIndex);
     }
 
     char flipFrameWithNumberStr[flipFrameStr.size()+2];
     sprintf_s(flipFrameWithNumberStr, sizeof(flipFrameWithNumberStr), "%.*s%u",
-        static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), myFrameIndex);
+        static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), frameIndex);
 
     ZoneName(flipFrameWithNumberStr, sizeof_array(flipFrameWithNumberStr));
     
-    return std::make_tuple(true, myFrameIndex);
+    return std::make_tuple(true, frameIndex);
 }
 
 template <>
 void Window<GraphicsBackend::Vulkan>::submitFrame(
+    uint32_t frameIndex, uint32_t lastFrameIndex,
     const PipelineConfiguration<GraphicsBackend::Vulkan>& config)
 {
     ZoneScopedN("submitFrame");
 
-    auto& frame = myFrames[myFrameIndex];
-    auto& lastFrame = myFrames[myLastFrameIndex];
+    auto& frame = myFrames[frameIndex];
+    auto& lastFrame = myFrames[lastFrameIndex];
     
     // wait for frame to be completed before starting to use it
     {
@@ -308,12 +308,12 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
             drawIMGUI();
     }));
 
-    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this]
+    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
     {
-        updateViewBuffer();
+        updateViewBuffer(frameIndex);
     }));
 
-    // collect timing scopes
+#ifdef PROFILING_ENABLED
     {
         ZoneScopedN("tracyVkCollect");
 
@@ -331,6 +331,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
                 cmd);
         }
     }
+#endif
 
     std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
     clearValues[0] = myWindowDesc.clearValue;
@@ -341,7 +342,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         assert(myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount > 1);
 
         // setup draw parameters
-        constexpr uint32_t drawCount = NX * NY;
+        constexpr uint32_t drawCount = splitScreenColumnCount * splitScreenRowCount;
         uint32_t segmentCount = std::max(static_cast<uint32_t>(frame.commandContexts().size()) - 1, 1u);
 
         assert(config.resources);
@@ -354,8 +355,8 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
             if (drawCount % segmentCount)
                 segmentDrawCount += 1;
 
-            uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / NX;
-            uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / NY;
+            uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / splitScreenColumnCount;
+            uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / splitScreenRowCount;
 
             std::array<uint32_t, 128> seq;
             std::iota(seq.begin(), seq.begin() + segmentCount, 0);
@@ -364,7 +365,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
 				std::execution::par,
 #endif
                 seq.begin(), segmentCount,
-                [this, &config, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt)
+                [this, &config, frameIndex, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt)
                 {
                     ZoneScoped;
 
@@ -411,8 +412,8 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
                         if (n >= drawCount)
                             break;
 
-                        uint32_t i = n % NX;
-                        uint32_t j = n / NX;
+                        uint32_t i = n % splitScreenColumnCount;
+                        uint32_t j = n / splitScreenColumnCount;
 
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
                                                         int32_t width, int32_t height) {
@@ -433,12 +434,12 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
                         };
 
-                        auto drawModel = [this, &n](
+                        auto drawModel = [n, frameIndex](
                                             VkCommandBuffer cmd, uint32_t indexCount,
                                             uint32_t descriptorSetCount,
                                             const VkDescriptorSet* descriptorSets,
                                             VkPipelineLayout pipelineLayout) {
-                            uint32_t viewBufferOffset = (myFrameIndex * drawCount + n) * sizeof(Window::ViewBufferData);
+                            uint32_t viewBufferOffset = (frameIndex * drawCount + n) * sizeof(Window::ViewBufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                                 descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
@@ -460,10 +461,6 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
     {
         auto primaryCommands = primaryCommandContext.beginEndScope();
 
-        TracyVkZone(
-            primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
-            primaryCommands, "executeCommands");
-
         // call secondary command buffers
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myRenderPass;
@@ -474,7 +471,15 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.pClearValues = clearValues.data();
 
         for (uint32_t contextIt = 1; contextIt < frame.commandContexts().size(); contextIt++)
+        {
+#ifdef PROFILING_ENABLED
+            TracyVkZone(
+                primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
+                primaryCommands, "executeCommands");
+#endif
+
             primaryCommandContext.execute(*frame.commandContexts()[contextIt], &beginInfo);
+        }
     }
 
     // wait for imgui draw job
@@ -490,9 +495,12 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         auto primaryCommands = primaryCommandContext.beginEndScope();
         
         ZoneScopedN("drawIMGUI");
+
+#ifdef PROFILING_ENABLED
         TracyVkZone(
             primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
             primaryCommands, "drawIMGUI");
+#endif
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myRenderPass;
@@ -533,28 +541,31 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
 }
 
 template <>
-void Window<GraphicsBackend::Vulkan>::presentFrame() const
+void Window<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) const
 {
     ZoneScopedN("presentFrame");
 
-    auto& frame = myFrames[myFrameIndex];
+    auto& frame = myFrames[frameIndex];
 
     VkPresentInfoKHR info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     info.waitSemaphoreCount = 1;
     info.pWaitSemaphores = &frame.getRenderCompleteSemaphore();
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchainContext->getSwapchain();
-    info.pImageIndices = &myFrameIndex;
+    info.pImageIndices = &frameIndex;
     checkFlipOrPresentResult(vkQueuePresentKHR(myWindowDesc.deviceContext->getSelectedQueue(), &info));
 }
 
 template <>
-void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
+void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex)
 {
     ZoneScopedN("updateInput");
 
-    auto& frame = myFrames[myFrameIndex];
-    auto& lastFrame = myFrames[myLastFrameIndex];
+    assert(frameIndex < myFrames.size());
+    assert(lastFrameIndex < myFrames.size());
+
+    auto& frame = myFrames[frameIndex];
+    auto& lastFrame = myFrames[lastFrameIndex];
 
     float dt = (frame.getTimestamp() - lastFrame.getTimestamp()).count();
 
@@ -572,9 +583,9 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
     if (input.mouseButtonsPressed[2])
     {
         // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myWindowDesc.windowExtent.width / NX);
-        size_t viewIdy = input.mousePosition[0].y / (myWindowDesc.windowExtent.height / NY);
-        myActiveView = std::min((viewIdy * NX) + viewIdx, myViews.size() - 1);
+        size_t viewIdx = input.mousePosition[0].x / (myWindowDesc.windowExtent.width / splitScreenColumnCount);
+        size_t viewIdy = input.mousePosition[0].y / (myWindowDesc.windowExtent.height / splitScreenRowCount);
+        myActiveView = std::min((viewIdy * splitScreenColumnCount) + viewIdx, myViews.size() - 1);
 
         //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
     }
@@ -599,16 +610,16 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
                 switch (key)
                 {
                 case GLFW_KEY_W:
-                    dz = 1;
-                    break;
-                case GLFW_KEY_S:
                     dz = -1;
                     break;
+                case GLFW_KEY_S:
+                    dz = 1;
+                    break;
                 case GLFW_KEY_A:
-                    dx = 1;
+                    dx = -1;
                     break;
                 case GLFW_KEY_D:
-                    dx = -1;
+                    dx = 1;
                     break;
                 default:
                     break;
@@ -640,7 +651,7 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input)
         {
             constexpr auto rotSpeed = 0.00000001f;
 
-            auto dM = input.mousePosition[0] - input.mousePosition[1];
+            auto dM = input.mousePosition[1] - input.mousePosition[0];
 
             view.viewDesc().cameraRotation +=
                 dt * glm::vec3(dM.y / view.viewDesc().viewport.height, dM.x / view.viewDesc().viewport.width, 0.0f) *

@@ -49,24 +49,22 @@ public:
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
-	const auto& getFrameIndex() const { return myFrameIndex; }
-	const auto& getLastFrameIndex() const { return myLastFrameIndex; }
 	const auto& getFrames() const { return myFrames; }
 	const auto& getRenderPass() const { return myRenderPass; }
 
 	void createFrameObjects(CommandContext<B>& commandContext);
 	void destroyFrameObjects();
 	
-	void updateInput(const InputState& input);
+	void updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex);
 
-    std::tuple<bool, uint32_t> flipFrame();
-	void submitFrame(const PipelineConfiguration<B>& config);
-	void presentFrame() const;
+    std::tuple<bool, uint32_t> flipFrame(uint32_t lastFrameIndex) const;
+	void submitFrame(uint32_t frameIndex, uint32_t lastFrameIndex, const PipelineConfiguration<B>& config);
+	void presentFrame(uint32_t frameIndex) const;
 
 private:
 
 	void drawIMGUI();
-	void updateViewBuffer() const;
+	void updateViewBuffer(uint32_t frameIndex) const;
 
 	WindowDesc<B> myWindowDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
@@ -74,11 +72,9 @@ private:
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
-	uint32_t myFrameIndex = 0; // Current frame being rendered to (0 <= myFrameIndex < myFrames.size())
-	uint32_t myLastFrameIndex = 0; // Last frame being rendered to (0 <= myLastFrameIndex < myFrames.size())
 	std::vector<Frame<B>> myFrames;
 	RenderPassHandle<B> myRenderPass = 0;
 
-	static constexpr uint32_t NX = 4;
-	static constexpr uint32_t NY = 4;
+	static constexpr uint32_t splitScreenColumnCount = 4;
+	static constexpr uint32_t splitScreenRowCount = 4;
 };

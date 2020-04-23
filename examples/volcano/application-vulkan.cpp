@@ -212,9 +212,11 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     {
         auto transferCommands = myTransferCommandContext->beginEndScope();
 
+#ifdef PROFILING_ENABLED
         TracyVkZone(
             myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
             transferCommands, "transfer");
+#endif
 
         myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
             std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"),
@@ -241,6 +243,9 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             static_cast<float>(framebufferWidth) / width,
             static_cast<float>(framebufferHeight) / height);
     }
+
+    // vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
+    myLastFrameIndex = myWindow->getFrames().size() - 1;
 
     // temp temp temp
 
@@ -347,7 +352,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
 {
     FrameMark;
 
-    // collect timing scopes for transfer context
+#ifdef PROFILING_ENABLED
     {
         ZoneScopedN("tracyVkCollect (transfer)");
 
@@ -361,6 +366,8 @@ void Application<GraphicsBackend::Vulkan>::draw()
             myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
             cmd);
     }
+#endif
+
     {
         ZoneScopedN("submit (transfer)");
 
@@ -370,14 +377,18 @@ void Application<GraphicsBackend::Vulkan>::draw()
             myLastTransferSubmitFence});
     }
 
-    auto [flipSuccess, frameIndex] = myWindow->flipFrame();
+    auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
+    
+    myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
+    
     if (flipSuccess)
     {
         myDefaultResources->renderTarget = &myWindow->getFrames()[frameIndex];
 
-        myWindow->updateInput(myInput);
-        myWindow->submitFrame(*myGraphicsPipelineConfig);
-        myWindow->presentFrame();
+        myWindow->submitFrame(frameIndex, myLastFrameIndex, *myGraphicsPipelineConfig);
+        myWindow->presentFrame(frameIndex);
+
+        myLastFrameIndex = frameIndex;
     }
 
     // sync transfers. todo: pass in all fences to one frame sync location?
@@ -403,9 +414,11 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int heig
     {
         auto cmd = myTransferCommandContext->beginEndScope();
 
+#ifdef PROFILING_ENABLED
         TracyVkZone(
             myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
             cmd, "transfer");
+#endif
         
         createFrameObjects(*myTransferCommandContext);
     }

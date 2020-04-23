@@ -92,6 +92,7 @@ private:
 	std::shared_ptr<DeviceContext<B>> myGraphicsDevice;
 	
 	std::shared_ptr<Window<B>> myWindow;
+	uint32_t myLastFrameIndex = 0;
 
 	// todo: figure out best way of organizing these
 	PipelineCacheHandle<B> myPipelineCache = 0;
