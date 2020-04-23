@@ -298,6 +298,8 @@ template <>
 CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContext<GraphicsBackend::Vulkan>&& other)
 : myCommandContextDesc(other.myCommandContextDesc)
 , myPendingCommands(std::move(other.myPendingCommands))
+, mySubmittedCommands(std::move(other.mySubmittedCommands))
+, myFreeCommands(std::move(other.myFreeCommands))
 , myGarbageCollectCallbacks(std::move(other.myGarbageCollectCallbacks))
 , myLastSubmitTimelineValue(std::move(other.myLastSubmitTimelineValue))
 , myScratchMemory(std::move(other.myScratchMemory))

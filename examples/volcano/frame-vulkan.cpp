@@ -9,9 +9,6 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence()
 {
     CHECK_VK(vkWaitForFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence, VK_TRUE, UINT64_MAX));
     CHECK_VK(vkResetFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence));
-
-    for (auto& commandContext : myCommandContexts)
-        commandContext->collectGarbage();
         
     myTimestamp = std::chrono::high_resolution_clock::now();
 }

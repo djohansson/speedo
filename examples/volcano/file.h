@@ -18,25 +18,21 @@ enum class FileState
 
 struct FileInfo
 {
-    template <class Archive>
-    void serialize(Archive &archive)
-    {
-        archive(/*CEREAL_NVP(path), */CEREAL_NVP(size), CEREAL_NVP(timeStamp), CEREAL_NVP(sha2));
-    }
-
-    void clear()
-    {
-        path.clear();
-        size = 0;
-        timeStamp.clear();
-        sha2.clear();
-    }
-
-    std::filesystem::path path;
+    std::string path;
     int64_t size = 0;
     std::string timeStamp;
     std::vector<unsigned char> sha2;
 };
+
+template <class Archive>
+void serialize(Archive& archive, FileInfo& fi)
+{
+    archive(
+        cereal::make_nvp("path", fi.path),
+        cereal::make_nvp("size", fi.size),
+        cereal::make_nvp("timeStamp", fi.timeStamp),
+        cereal::make_nvp("sha2", fi.sha2));
+}
 
 struct SourceFileInfo : public FileInfo
 {
@@ -46,32 +42,28 @@ struct SourceFileInfo : public FileInfo
 
 std::string getFileTimeStamp(const std::filesystem::path &filePath);
 
-FileState getFileInfo(
+std::tuple<FileState, FileInfo> getFileInfo(
     const std::filesystem::path &filePath,
-    FileInfo &outFileInfo,
     bool sha2Enable);
 
 using LoadFileInfoFromJSONFn = std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)>;
 
-FileState getFileInfo(
+std::tuple<FileState, FileInfo> getFileInfo(
     const std::filesystem::path &filePath,
     const std::string &id,
     const std::string &loaderType,
     const std::string &loaderVersion,
     std::istream &jsonStream,
     LoadFileInfoFromJSONFn loadJSON,
-    FileInfo &outFileInfo,
     bool sha2Enable);
 
-void loadBinaryFile(
+std::tuple<FileState, FileInfo> loadBinaryFile(
     const std::filesystem::path &filePath,
-    FileInfo& outFileInfo,
     std::function<void(std::istream&)> loadOp,
     bool sha2Enable);
 
-void saveBinaryFile(
+std::tuple<FileState, FileInfo> saveBinaryFile(
     const std::filesystem::path &filePath,
-    FileInfo& outFileInfo,
     std::function<void(std::iostream&)> saveOp,
     bool sha2Enable);
 

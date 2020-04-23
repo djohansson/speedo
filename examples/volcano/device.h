@@ -55,7 +55,6 @@ private:
 
     const DeviceDesc<B> myDeviceDesc = {};
     DeviceHandle<B> myDevice = 0;
-    std::vector<PhysicalDeviceHandle<GraphicsBackend::Vulkan>> myPhysicalDevices;
     PhysicalDeviceHandle<B> myPhysicalDevice = 0;
     PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
     QueueHandle<B> mySelectedQueue = 0;

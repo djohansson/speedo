@@ -1,5 +1,7 @@
 #include "file.h"
 
+#include <tuple>
+
 #include <cereal/archives/json.hpp>
 #include <cereal/types/vector.hpp>
 
@@ -17,15 +19,15 @@ std::string getFileTimeStamp(const std::filesystem::path& filePath)
 	return std::string(std::asctime(std::localtime(&timestamp)));
 }
 
-FileState getFileInfo(const std::filesystem::path& filePath, FileInfo& outFileInfo, bool sha2Enable)
+std::tuple<FileState, FileInfo> getFileInfo(const std::filesystem::path& filePath, bool sha2Enable)
 {
 	ZoneScoped;
 
-	outFileInfo.clear();
-
 	auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return FileState::Missing;
+		return std::make_tuple(FileState::Missing, FileInfo{});
+
+	FileInfo outFileInfo;
 
 	if (sha2Enable)
 	{
@@ -37,36 +39,32 @@ FileState getFileInfo(const std::filesystem::path& filePath, FileInfo& outFileIn
 			file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 	}
 
-	outFileInfo.path = filePath;
+	outFileInfo.path = filePath.generic_string();
 	outFileInfo.size = std::filesystem::file_size(filePath);
 	outFileInfo.timeStamp = getFileTimeStamp(filePath);
 
-	return FileState::Valid;
+	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
 
-FileState getFileInfo(
+std::tuple<FileState, FileInfo> getFileInfo(
 	const std::filesystem::path& filePath,
 	const std::string& id,
 	const std::string& loaderType,
 	const std::string& loaderVersion,
 	std::istream& jsonStream,
-	std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)>
-		loadJSON,
-	FileInfo& outFileInfo,
+	std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)> loadJSON,
 	bool sha2Enable)
 {
 	ZoneScoped;
 
-	outFileInfo.clear();
-
 	auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return FileState::Missing;
+		return std::make_tuple(FileState::Missing, FileInfo{});
 
 	auto [_loaderType, _loaderVersion, _fileInfo] = loadJSON(jsonStream, id);
 
 	if (loaderType.compare(_loaderType) != 0 || loaderVersion.compare(_loaderVersion) != 0)
-		return FileState::Stale;
+		return std::make_tuple(FileState::Stale, FileInfo{});
 
 	int64_t fileSize = std::filesystem::file_size(filePath);
 	std::string fileTimeStamp = getFileTimeStamp(filePath);
@@ -81,32 +79,30 @@ FileState getFileInfo(
 
 	// perhaps add path check as well?
 	if (fileSize != _fileInfo.size || fileTimeStamp.compare(_fileInfo.timeStamp) != 0 || sha2Enable
-			? fileSha2 != _fileInfo.sha2
-			: false)
-		return FileState::Stale;
+			? fileSha2 != _fileInfo.sha2 : false)
+		return std::make_tuple(FileState::Stale, FileInfo{});
 
-	outFileInfo.path = filePath;
+	FileInfo outFileInfo;
+	outFileInfo.path = filePath.generic_string();
 	outFileInfo.size = fileSize;
 	outFileInfo.timeStamp = std::move(fileTimeStamp);
 	outFileInfo.sha2 = std::move(fileSha2);
 
-	return FileState::Valid;
+	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
 
-void loadBinaryFile(
+std::tuple<FileState, FileInfo> loadBinaryFile(
 	const std::filesystem::path& filePath,
-	FileInfo& outFileInfo,
-	std::function<void(std::istream&)>
-		loadOp,
+	std::function<void(std::istream&)> loadOp,
 	bool sha2Enable)
 {
 	ZoneScoped;
 
-	outFileInfo.clear();
-
 	auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		throw std::runtime_error("Failed to open file.");
+		return std::make_tuple(FileState::Missing, FileInfo{});
+
+	FileInfo outFileInfo;
 
 	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
 	{
@@ -134,19 +130,21 @@ void loadBinaryFile(
 		}
 	}
 
-	outFileInfo.path = filePath;
+	outFileInfo.path = filePath.generic_string();
 	outFileInfo.size = std::filesystem::file_size(filePath);
 	outFileInfo.timeStamp = getFileTimeStamp(filePath);
+
+	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
 
-void saveBinaryFile(
+std::tuple<FileState, FileInfo> saveBinaryFile(
 	const std::filesystem::path& filePath,
-	FileInfo& outFileInfo,
-	std::function<void(std::iostream&)>
-		saveOp,
+	std::function<void(std::iostream&)> saveOp,
 	bool sha2Enable)
 {
 	ZoneScoped;
+
+	FileInfo outFileInfo;
 
 	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
 	{
@@ -173,9 +171,11 @@ void saveBinaryFile(
 		}
 	}
 
-	outFileInfo.path = filePath;
+	outFileInfo.path = filePath.generic_string();
 	outFileInfo.size = std::filesystem::file_size(filePath);
 	outFileInfo.timeStamp = getFileTimeStamp(filePath);
+
+	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
 
 void loadCachedSourceFile(
@@ -196,8 +196,7 @@ void loadCachedSourceFile(
 	pbinFilePath += ".pbin";
 
 	bool doImport;
-	FileInfo sourceFileInfo, pbinFileInfo;
-	FileState sourceFileState, pbinFileState;
+	std::tuple<FileState, FileInfo> sourceFile, pbinFile;
 	auto jsonFileStatus = std::filesystem::status(jsonFilePath);
 	auto pbinFileStatus = std::filesystem::status(pbinFilePath);
 
@@ -235,33 +234,34 @@ void loadCachedSourceFile(
 		mio::mmap_istreambuf fileStreamBuf(jsonFilePath.string());
 		std::istream fileStream(&fileStreamBuf);
 
-		sourceFileState = getFileInfo(
+		sourceFile = getFileInfo(
 			sourceFilePath,
 			"sourceFileInfo",
 			loaderType,
 			loaderVersion,
 			fileStream,
 			loadJSONFn,
-			sourceFileInfo,
 			false);
 
 		fileStream.clear();
 		fileStream.seekg(0, std::ios_base::beg);
 
-		pbinFileState = getFileInfo(
+		pbinFile = getFileInfo(
 			pbinFilePath,
 			"pbinFileInfo",
 			loaderType,
 			loaderVersion,
 			fileStream,
 			loadJSONFn,
-			pbinFileInfo,
 			false);
 	}
 	else
 	{
 		doImport = true;
 	}
+
+	auto& [sourceFileState, sourceFileInfo] = sourceFile;
+	auto& [pbinFileState, pbinFileInfo] = pbinFile;
 
 	if (doImport || sourceFileState == FileState::Stale || pbinFileState != FileState::Valid)
 	{
@@ -274,16 +274,16 @@ void loadCachedSourceFile(
 		json(cereal::make_nvp("loaderType", loaderType));
 		json(cereal::make_nvp("loaderVersion", loaderVersion));
 
-		loadBinaryFile(sourceFilePath, sourceFileInfo, loadSourceFileFn, true);
+		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(sourceFilePath, loadSourceFileFn, true);
 		json(CEREAL_NVP(sourceFileInfo));
 
-		saveBinaryFile(pbinFilePath, pbinFileInfo, saveBinaryCacheFn, true);
+		auto [pbinFileState, pbinFileInfo] = saveBinaryFile(pbinFilePath, saveBinaryCacheFn, true);
 		json(CEREAL_NVP(pbinFileInfo));
 	}
 	else
 	{
 		ZoneScopedN("loadPbin");
 
-		loadBinaryFile(pbinFilePath, pbinFileInfo, loadBinaryCacheFn, false);
+		auto [pbinFileState, pbinFileInfo] = loadBinaryFile(pbinFilePath, loadBinaryCacheFn, false);
 	}
 }

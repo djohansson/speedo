@@ -116,7 +116,7 @@ PipelineCacheHandle<B> loadPipelineCache(
 	PhysicalDeviceProperties<B> physicalDeviceProperties);
 
 template <GraphicsBackend B>
-void savePipelineCache(
+std::tuple<FileState, FileInfo> savePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<B> device,
 	PhysicalDeviceProperties<B> physicalDeviceProperties,

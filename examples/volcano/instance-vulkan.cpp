@@ -148,6 +148,14 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
 
     mySurface = createSurface(myInstance, myInstanceDesc.surfaceHandle);
 
+    uint32_t physicalDeviceCount = 0;
+    CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
+    if (physicalDeviceCount == 0)
+        throw std::runtime_error("failed to find GPUs with Vulkan support!");
+
+    myPhysicalDevices.resize(physicalDeviceCount);
+    CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
+
     myUserData = instance_vulkan::UserData();
 
 #ifdef PROFILING_ENABLED

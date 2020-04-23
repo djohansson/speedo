@@ -24,11 +24,13 @@ public:
     const auto& getInstanceDesc() const { return myInstanceDesc; }
     const auto& getInstance() const { return myInstance; }
     const auto& getSurface() const { return mySurface; }
+    const auto& getPhysicalDevices() const { return myPhysicalDevices; }
 
 private:
 
     const InstanceDesc<B> myInstanceDesc;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
+    std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
     std::any myUserData;
 };

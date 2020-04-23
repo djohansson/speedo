@@ -13,15 +13,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     DeviceDesc<GraphicsBackend::Vulkan>&& desc)
     : myDeviceDesc(std::move(desc))
 {
-    uint32_t physicalDeviceCount = 0;
-    CHECK_VK(vkEnumeratePhysicalDevices(myDeviceDesc.instanceContext->getInstance(), &physicalDeviceCount, nullptr));
-    if (physicalDeviceCount == 0)
-        throw std::runtime_error("failed to find GPUs with Vulkan support!");
-
-    myPhysicalDevices.resize(physicalDeviceCount);
-    CHECK_VK(vkEnumeratePhysicalDevices(myDeviceDesc.instanceContext->getInstance(), &physicalDeviceCount, myPhysicalDevices.data()));
-
-    for (const auto& physicalDevice : myPhysicalDevices)
+    for (const auto& physicalDevice : myDeviceDesc.instanceContext->getPhysicalDevices())
     {
         std::tie(mySwapchainConfiguration, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
             getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDeviceDesc.instanceContext->getSurface(), physicalDevice);

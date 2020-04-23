@@ -300,6 +300,9 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         ZoneScopedN("waitForFrameFence");
 
         frame.waitForFence();
+
+        for (auto& commandContext : frame.commandContexts())
+            commandContext->collectGarbage();
     }
 
     std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this]

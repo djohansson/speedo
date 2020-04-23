@@ -313,15 +313,15 @@ PipelineCacheHandle<B> loadPipelineCache(
 		}
 	};
 
-	FileInfo sourceFileInfo;
-	if (getFileInfo(cacheFilePath, sourceFileInfo, false) != FileState::Missing)
-		loadBinaryFile(cacheFilePath, sourceFileInfo, loadCacheOp, false);
+	auto [sourceFileState, sourceFileInfo] = getFileInfo(cacheFilePath, false);
+	if (sourceFileState != FileState::Missing)
+		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
 
 	return createPipelineCache<B>(device, cacheData);
 }
 
 template <GraphicsBackend B>
-void savePipelineCache(
+std::tuple<FileState, FileInfo> savePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<B> device,
 	PhysicalDeviceProperties<B> physicalDeviceProperties,
@@ -349,6 +349,5 @@ void savePipelineCache(
 			assert(false && "Failed to get pipeline cache.");
 	};
 
-	FileInfo cacheFileInfo;
-	saveBinaryFile(cacheFilePath, cacheFileInfo, saveCacheOp, false);
+	return saveBinaryFile(cacheFilePath, saveCacheOp, false);
 }

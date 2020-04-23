@@ -63,7 +63,7 @@ public:
 
 	Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-		const char* resourcePath);
+		const char* resourcePath, const char* userProfilePath = nullptr);
 	~Application();
 
 	void draw();
@@ -102,6 +102,7 @@ private:
 	//
 
 	std::filesystem::path myResourcePath;
+	std::filesystem::path myUserProfilePath;
 
 	InputState myInput = {};
 

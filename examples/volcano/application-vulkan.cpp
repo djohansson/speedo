@@ -152,10 +152,12 @@ void Application<GraphicsBackend::Vulkan>::destroyFrameObjects()
 
 template <>
 Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int height,
-    int framebufferWidth, int framebufferHeight, const char* resourcePath)
+    int framebufferWidth, int framebufferHeight, const char* resourcePath, const char* userProfilePath)
     : myResourcePath(resourcePath)
+    , myUserProfilePath(userProfilePath ? userProfilePath : resourcePath)
 {
     assert(std::filesystem::is_directory(myResourcePath));
+    assert(std::filesystem::is_directory(myUserProfilePath));
 
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         InstanceDesc<GraphicsBackend::Vulkan>{
@@ -166,7 +168,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
         DeviceDesc<GraphicsBackend::Vulkan>{myInstance});
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
-        std::filesystem::absolute(myResourcePath / ".cache" / "pipeline.cache"),
+        std::filesystem::absolute(myUserProfilePath / ".profile" / "pipeline.cache"),
         myGraphicsDevice->getDevice(),
         myGraphicsDevice->getPhysicalDeviceProperties());
 
@@ -286,7 +288,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
 
     vkDestroySemaphore(myGraphicsDevice->getDevice(), myTimelineSemaphore, nullptr);
 
-    std::filesystem::path cacheFilePath = std::filesystem::absolute(myResourcePath / ".cache");
+    std::filesystem::path cacheFilePath = std::filesystem::absolute(myUserProfilePath / ".profile");
 
     if (!std::filesystem::exists(cacheFilePath))
         std::filesystem::create_directory(cacheFilePath);
