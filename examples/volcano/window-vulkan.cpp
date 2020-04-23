@@ -146,7 +146,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
         BufferDesc<GraphicsBackend::Vulkan>{
             myWindowDesc.deviceContext,
-            myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (splitScreenColumnCount * splitScreenRowCount) * sizeof(Window::ViewBufferData),
+            myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             VK_NULL_HANDLE,
@@ -154,14 +154,14 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
             "myViewBuffer"},
         commandContext);
 
-    myViews.resize(splitScreenColumnCount * splitScreenRowCount);
+    myViews.resize(myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height);
     for (auto& view : myViews)
     {
         if (!view.viewDesc().viewport.width)
-            view.viewDesc().viewport.width =  myWindowDesc.framebufferExtent.width / splitScreenColumnCount;
+            view.viewDesc().viewport.width =  myWindowDesc.framebufferExtent.width / myWindowDesc.splitScreenGrid.width;
 
         if (!view.viewDesc().viewport.height)
-            view.viewDesc().viewport.height = myWindowDesc.framebufferExtent.height / splitScreenRowCount;
+            view.viewDesc().viewport.height = myWindowDesc.framebufferExtent.height / myWindowDesc.splitScreenGrid.height;
 
         view.updateAll();
     }
@@ -222,9 +222,9 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) cons
     void* data;
     CHECK_VK(vmaMapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    for (uint32_t n = 0; n < (splitScreenColumnCount * splitScreenRowCount); n++)
+    for (uint32_t n = 0; n < (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height); n++)
     {
-        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[frameIndex * (splitScreenColumnCount * splitScreenRowCount) + n];
+        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[frameIndex * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height) + n];
 
         ubo.viewProj = myViews[n].getProjectionMatrix() * glm::mat4(myViews[n].getViewMatrix());
     }
@@ -232,8 +232,8 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) cons
     vmaFlushAllocation(
         myWindowDesc.deviceContext->getAllocator(),
         myViewBuffer->getBufferMemory(),
-        sizeof(ViewBufferData) * frameIndex * (splitScreenColumnCount * splitScreenRowCount),
-        sizeof(ViewBufferData) * (splitScreenColumnCount * splitScreenRowCount));
+        sizeof(ViewBufferData) * frameIndex * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height),
+        sizeof(ViewBufferData) * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height));
 
     vmaUnmapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
 }
@@ -342,7 +342,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         assert(myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount > 1);
 
         // setup draw parameters
-        constexpr uint32_t drawCount = splitScreenColumnCount * splitScreenRowCount;
+        uint32_t drawCount = myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height;
         uint32_t segmentCount = std::max(static_cast<uint32_t>(frame.commandContexts().size()) - 1, 1u);
 
         assert(config.resources);
@@ -355,8 +355,8 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
             if (drawCount % segmentCount)
                 segmentDrawCount += 1;
 
-            uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / splitScreenColumnCount;
-            uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / splitScreenRowCount;
+            uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / myWindowDesc.splitScreenGrid.width;
+            uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / myWindowDesc.splitScreenGrid.height;
 
             std::array<uint32_t, 128> seq;
             std::iota(seq.begin(), seq.begin() + segmentCount, 0);
@@ -365,7 +365,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
 				std::execution::par,
 #endif
                 seq.begin(), segmentCount,
-                [this, &config, frameIndex, &frame, &dx, &dy, &segmentDrawCount](uint32_t segmentIt)
+                [this, &config, frameIndex, &frame, &dx, &dy, &drawCount, &segmentDrawCount](uint32_t segmentIt)
                 {
                     ZoneScoped;
 
@@ -412,8 +412,8 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
                         if (n >= drawCount)
                             break;
 
-                        uint32_t i = n % splitScreenColumnCount;
-                        uint32_t j = n / splitScreenColumnCount;
+                        uint32_t i = n % myWindowDesc.splitScreenGrid.width;
+                        uint32_t j = n / myWindowDesc.splitScreenGrid.width;
 
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
                                                         int32_t width, int32_t height) {
@@ -434,7 +434,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
                         };
 
-                        auto drawModel = [n, frameIndex](
+                        auto drawModel = [n, drawCount, frameIndex](
                                             VkCommandBuffer cmd, uint32_t indexCount,
                                             uint32_t descriptorSetCount,
                                             const VkDescriptorSet* descriptorSets,
@@ -583,9 +583,9 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
     if (input.mouseButtonsPressed[2])
     {
         // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myWindowDesc.windowExtent.width / splitScreenColumnCount);
-        size_t viewIdy = input.mousePosition[0].y / (myWindowDesc.windowExtent.height / splitScreenRowCount);
-        myActiveView = std::min((viewIdy * splitScreenColumnCount) + viewIdx, myViews.size() - 1);
+        size_t viewIdx = input.mousePosition[0].x / (myWindowDesc.windowExtent.width / myWindowDesc.splitScreenGrid.width);
+        size_t viewIdy = input.mousePosition[0].y / (myWindowDesc.windowExtent.height / myWindowDesc.splitScreenGrid.height);
+        myActiveView = std::min((viewIdy * myWindowDesc.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
         //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
     }

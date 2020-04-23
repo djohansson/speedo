@@ -20,8 +20,9 @@ struct WindowDesc
 	std::shared_ptr<DeviceContext<B>> deviceContext;
     SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
-	Extent2d<B> windowExtent;
-	Extent2d<B> framebufferExtent;
+	Extent2d<B> windowExtent = {};
+	Extent2d<B> framebufferExtent = {};
+	Extent2d<B> splitScreenGrid = {};
 	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
 	bool imguiEnable = true;
@@ -74,7 +75,4 @@ private:
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<Frame<B>> myFrames;
 	RenderPassHandle<B> myRenderPass = 0;
-
-	static constexpr uint32_t splitScreenColumnCount = 4;
-	static constexpr uint32_t splitScreenRowCount = 4;
 };

@@ -233,6 +233,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
                 myTimelineValue,
                 {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
                 {static_cast<uint32_t>(framebufferWidth), static_cast<uint32_t>(framebufferHeight)},
+                {4, 4},
                 true,
                 {},
                 true},
