@@ -66,3 +66,6 @@ examples/volcano/test-file
 *.VC.opendb
 *.VC.db
 *.sdf
+
+# user profile files
+examples/volcano/.profile/*
