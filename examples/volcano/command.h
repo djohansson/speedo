@@ -164,6 +164,8 @@ public:
     template <typename T>
     T& userData();
 
+    void clear();
+
 private:
 
     friend class CommandBufferAccessScope<B, true>;

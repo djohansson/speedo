@@ -144,3 +144,4 @@ PipelineHandle<B> createGraphicsPipeline(
 	const PipelineConfiguration<B>& pipelineConfig);
 
 #include "gfx.inl"
+#include "gfx-vulkan.h"

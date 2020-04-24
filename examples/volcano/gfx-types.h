@@ -13,7 +13,7 @@ enum class GraphicsBackend
 };
 
 template <GraphicsBackend B>
-using InstanceCreateDesc = std::conditional_t<B == GraphicsBackend::Vulkan, VkApplicationInfo, std::nullptr_t>;
+using ApplicationInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkApplicationInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using Result = std::conditional_t<B == GraphicsBackend::Vulkan, VkResult, std::nullptr_t>;

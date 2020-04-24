@@ -1,15 +1,21 @@
 #pragma once
 
+#include "utils.h"
+
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <tuple>
 
 #include <cereal/cereal.hpp>
+#include <cereal/archives/json.hpp>
+
 #include <mio/mmap_streambuf.hpp>
+
 #include <picosha2.h>
 
-enum class FileState
+enum class FileState : uint8_t
 {
     Missing,
     Stale,
@@ -33,12 +39,6 @@ void serialize(Archive& archive, FileInfo& fi)
         cereal::make_nvp("timeStamp", fi.timeStamp),
         cereal::make_nvp("sha2", fi.sha2));
 }
-
-struct SourceFileInfo : public FileInfo
-{
-    std::string loaderType;
-    std::string loaderVersion;
-};
 
 std::string getFileTimeStamp(const std::filesystem::path &filePath);
 
@@ -78,4 +78,79 @@ void loadCachedSourceFile(
     LoadFileFn loadSourceFileFn,
     LoadFileFn loadBinaryCacheFn,
     SaveFileFn saveBinaryCacheFn);
-  
+
+template <typename T>
+std::optional<T> loadJSONObject(std::istream& stream, const std::string& name)
+{
+    cereal::JSONInputArchive json(stream);
+    T outValue = {};
+    json(cereal::make_nvp(name, outValue));
+    return std::move(outValue);
+};
+
+template <typename T>
+void saveJSONObject(T&& object, std::ostream& stream, const std::string& name)
+{
+    cereal::JSONOutputArchive json(stream);
+    json(cereal::make_nvp(name, std::move(object)));
+};
+
+template <typename T>
+std::tuple<std::optional<T>, FileState> loadJSONObject(const std::filesystem::path& filePath, const std::string& name)
+{
+    auto fileStatus = std::filesystem::status(filePath);
+	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
+		return std::make_tuple(std::nullopt, FileState::Missing);
+
+    mio::mmap_istreambuf fileStreamBuf(filePath.string());
+    std::istream fileStream(&fileStreamBuf);
+
+    return std::make_tuple(loadJSONObject<T>(fileStream, name), FileState::Valid);
+}
+
+template <typename T>
+void saveJSONObject(T&& object, const std::filesystem::path& filePath, const std::string& name)
+{
+    mio::mmap_ostreambuf fileStreamBuf(filePath.string());
+	std::ostream fileStream(&fileStreamBuf);
+    saveJSONObject(std::move(object), fileStream, name);
+}
+
+template <typename T>
+class ScopedJSONFileObject : Noncopyable
+{
+    // todo: use raw memory mapped file?
+
+public:
+
+    ScopedJSONFileObject(const std::filesystem::path& filePath, const std::string& name)
+    : myObject(std::get<0>(loadJSONObject<T>(filePath, name)).value_or(T{}))
+    , myFilePath(filePath)
+    , myName(name)
+    { }
+
+    ScopedJSONFileObject(ScopedJSONFileObject&& other)
+    : myObject(std::move(other.myObject))
+    , myFilePath(std::move(other.myFilePath))
+    , myName(std::move(other.myName))
+    {
+        other.myObject.reset();
+        other.myFilePath.clear();
+        other.myName.clear();
+    }
+
+    ~ScopedJSONFileObject()
+    {
+        if (myObject)
+            saveJSONObject(std::move(*myObject), myFilePath, myName);
+    }
+
+    T& object() { return *myObject; }
+    const T& object() const { return *myObject; }
+
+private:
+
+    std::optional<T> myObject;
+    std::filesystem::path myFilePath;
+    std::string myName;
+};

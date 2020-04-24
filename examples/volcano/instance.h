@@ -1,15 +1,50 @@
 #pragma once
 
+#include "file.h"
 #include "gfx-types.h"
 #include "utils.h"
 
 #include <any>
 #include <vector>
 
+
+template <GraphicsBackend B>
+struct InstanceCreateDesc : Noncopyable
+{
+    InstanceCreateDesc() = default;
+    InstanceCreateDesc(InstanceCreateDesc&& other)
+    : applicationName(std::move(other.applicationName))
+    , engineName(std::move(other.engineName))
+    , appInfo(std::move(other.appInfo))
+    {
+        other.applicationName.clear();
+        other.engineName.clear();
+        other.appInfo = {};
+    }
+
+    std::string applicationName = "volcano";
+    std::string engineName = "magma";
+    ApplicationInfo<B> appInfo = {
+        VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        nullptr,
+        nullptr,
+        VK_MAKE_VERSION(1, 0, 0),
+        nullptr,
+        VK_MAKE_VERSION(1, 0, 0),
+        VK_API_VERSION_1_2
+    };
+
+    template <class Archive>
+    void load(Archive& archive);
+
+    template <class Archive>
+    void save(Archive& archive) const;
+};
+
 template <GraphicsBackend B>
 struct InstanceDesc
 {
-    InstanceCreateDesc<B> createDesc;
+    ScopedJSONFileObject<InstanceCreateDesc<B>> createDesc = {};
     void* surfaceHandle = nullptr;
 };
 
@@ -34,3 +69,5 @@ private:
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
     std::any myUserData;
 };
+
+#include "instance-vulkan.h"

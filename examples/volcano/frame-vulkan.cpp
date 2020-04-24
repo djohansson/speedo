@@ -78,7 +78,8 @@ Frame<GraphicsBackend::Vulkan>::~Frame()
 {
     --ourDebugCount;
 
-    myCommandContexts.clear();
+    for (auto& commandContext : myCommandContexts)
+        commandContext->clear();
     
     vkDestroyFence(myRenderTargetDesc.deviceContext->getDevice(), myFence, nullptr);
     vkDestroySemaphore(myRenderTargetDesc.deviceContext->getDevice(), myRenderCompleteSemaphore, nullptr);

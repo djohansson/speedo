@@ -295,6 +295,20 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContextDesc<Graph
 }
 
 template <>
+void CommandContext<GraphicsBackend::Vulkan>::clear()
+{
+    wait(myLastSubmitTimelineValue.value_or(0));
+    collectGarbage();
+
+    myPendingCommands.clear();
+    mySubmittedCommands.clear();
+    myFreeCommands.clear();
+    myGarbageCollectCallbacks.clear();
+    myLastSubmitTimelineValue.reset();
+    myScratchMemory.clear();
+}
+
+template <>
 CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContext<GraphicsBackend::Vulkan>&& other)
 : myCommandContextDesc(other.myCommandContextDesc)
 , myPendingCommands(std::move(other.myPendingCommands))

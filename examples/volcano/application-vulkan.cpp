@@ -1,5 +1,7 @@
 #include "application.h"
 #include "command-vulkan.h"
+#include "gfx.h"
+#include "file.h"
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -159,9 +161,13 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     assert(std::filesystem::is_directory(myResourcePath));
     assert(std::filesystem::is_directory(myUserProfilePath));
 
+    std::filesystem::path graphicsConfigFile(std::filesystem::absolute(myUserProfilePath / ".profile" / "gfx-config.json"));
+    
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         InstanceDesc<GraphicsBackend::Vulkan>{
-            { VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "volcano-vk", VK_MAKE_VERSION(1, 0, 0), "kiss", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_2 },
+            ScopedJSONFileObject<InstanceCreateDesc<GraphicsBackend::Vulkan>>(
+                graphicsConfigFile,
+                "instanceCreateDesc"),
             view});
 
     myGraphicsDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
@@ -278,11 +284,10 @@ Application<GraphicsBackend::Vulkan>::~Application()
         CHECK_VK(vkDeviceWaitIdle(myGraphicsDevice->getDevice()));
     }
 
-    {
-        vkDestroyFence(myGraphicsDevice->getDevice(), myLastTransferSubmitFence, nullptr);
+    myTransferCommandContext->clear();
+    myTransferCommandContext.reset();
 
-        myTransferCommandContext.reset();
-    }
+    vkDestroyFence(myGraphicsDevice->getDevice(), myLastTransferSubmitFence, nullptr);
 
     destroyFrameObjects();
 
@@ -297,23 +302,26 @@ Application<GraphicsBackend::Vulkan>::~Application()
         cacheFilePath / "pipeline.cache",
         myGraphicsDevice->getDevice(), myGraphicsDevice->getPhysicalDeviceProperties(), myPipelineCache);
 
+    myGraphicsPipelineConfig.reset();
+
     ImGui_ImplVulkan_Shutdown();
     ImGui::DestroyContext();
 
-    {
-        myDefaultResources->model.reset();
-        vkDestroyImageView(myGraphicsDevice->getDevice(), myDefaultResources->textureView, nullptr);
-        myDefaultResources->texture.reset();
-    }
+    myWindow.reset();
 
+    myDefaultResources->model.reset();
+    vkDestroyImageView(myGraphicsDevice->getDevice(), myDefaultResources->textureView, nullptr);
+    myDefaultResources->texture.reset();
+    vkDestroySampler(myGraphicsDevice->getDevice(), myDefaultResources->sampler, nullptr);
+    myDefaultResources.reset();
+    
     vkDestroyPipelineCache(myGraphicsDevice->getDevice(), myPipelineCache, nullptr);
     vkDestroyPipelineLayout(myGraphicsDevice->getDevice(), myGraphicsPipelineLayout->layout, nullptr);
 
     // todo: wrap these in a deleter.
     myGraphicsPipelineLayout->shaders.reset();
     myGraphicsPipelineLayout->descriptorSetLayouts.reset();
-
-    vkDestroySampler(myGraphicsDevice->getDevice(), myDefaultResources->sampler, nullptr);
+    myGraphicsPipelineLayout.reset();
 
     char* allocatorStatsJSON = nullptr;
     vmaBuildStatsString(myGraphicsDevice->getAllocator(), &allocatorStatsJSON, true);
@@ -321,6 +329,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
     vmaFreeStatsString(myGraphicsDevice->getAllocator(), allocatorStatsJSON);
 
     myGraphicsDevice.reset();
+    myInstance.reset();
 }
 
 template <>

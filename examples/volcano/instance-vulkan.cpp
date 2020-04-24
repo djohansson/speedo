@@ -138,7 +138,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.pApplicationInfo = &myInstanceDesc.createDesc;
+    info.pApplicationInfo = &myInstanceDesc.createDesc.object().appInfo;
     info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
     info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
     info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
