@@ -8,9 +8,9 @@ uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 template <>
 void Buffer<GraphicsBackend::Vulkan>::deleteInitialData()
 {
-    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myDesc.initialData, myDesc.initialDataMemory);
-    myDesc.initialData = 0;
-    myDesc.initialDataMemory = 0;
+    vmaDestroyBuffer(myBufferDesc.deviceContext->getAllocator(), myBufferDesc.initialData, myBufferDesc.initialDataMemory);
+    myBufferDesc.initialData = 0;
+    myBufferDesc.initialDataMemory = 0;
 }
 
 template <>
@@ -20,22 +20,22 @@ Buffer<GraphicsBackend::Vulkan>::createView(
     DeviceSize<GraphicsBackend::Vulkan> offset,
     DeviceSize<GraphicsBackend::Vulkan> range) const
 {
-    return createBufferView(myDesc.deviceContext->getDevice(), myBuffer, 0, format, offset, range);
+    return createBufferView(myBufferDesc.deviceContext->getDevice(), myBuffer, 0, format, offset, range);
 }
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
     BufferDesc<GraphicsBackend::Vulkan>&& desc,
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
-    : myDesc(std::move(desc))
+    : myBufferDesc(std::move(desc))
 {
     ++ourDebugCount;
 
     std::tie(myBuffer, myBufferMemory) = createBuffer(
-		commandContext.commands(), myDesc.deviceContext->getAllocator(), myDesc.initialData,
-        myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
+		commandContext.commands(), myBufferDesc.deviceContext->getAllocator(), myBufferDesc.initialData,
+        myBufferDesc.size, myBufferDesc.usageFlags, myBufferDesc.memoryFlags, myBufferDesc.debugName.c_str());
 
-    if (myDesc.initialData)
+    if (myBufferDesc.initialData)
         commandContext.addGarbageCollectCallback([this](uint64_t){
             deleteInitialData(); });
 }
@@ -43,9 +43,9 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
-    assert(!myDesc.initialData);
+    assert(!myBufferDesc.initialData);
 
-    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myBuffer, myBufferMemory);
+    vmaDestroyBuffer(myBufferDesc.deviceContext->getAllocator(), myBuffer, myBufferMemory);
 
     --ourDebugCount;
 }

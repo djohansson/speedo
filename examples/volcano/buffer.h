@@ -37,7 +37,7 @@ public:
 
     static uint32_t ourDebugCount;
 
-    const auto& getBufferDesc() const { return myDesc; }
+    const auto& getBufferDesc() const { return myBufferDesc; }
     const auto& getBuffer() const { return myBuffer; }
     const auto& getBufferMemory() const { return myBufferMemory; }
     
@@ -47,7 +47,7 @@ private:
 
     void deleteInitialData();
 
-    BufferDesc<B> myDesc = {};
+    BufferDesc<B> myBufferDesc = {};
 	BufferHandle<B> myBuffer = 0;
 	AllocationHandle<B> myBufferMemory = 0;
 };

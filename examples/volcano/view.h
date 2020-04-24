@@ -31,7 +31,7 @@ public:
 
 	View() = default;
 	View(ViewDesc&& data)
-		: myDesc(std::move(data))
+		: myViewDesc(std::move(data))
 	{
 		updateAll();
 	}
@@ -39,7 +39,7 @@ public:
 	const auto& getViewMatrix() const { return myViewMatrix; }
 	const auto& getProjectionMatrix() const { return myProjectionMatrix; }
 
-	auto& viewDesc() { return myDesc; }
+	auto& viewDesc() { return myViewDesc; }
 
 	void updateViewMatrix();
 	void updateProjectionMatrix();
@@ -52,7 +52,7 @@ public:
 
 private:
 
-    ViewDesc myDesc = {};
+    ViewDesc myViewDesc = {};
 	glm::mat4x3 myViewMatrix = glm::mat4x3(1.0f);
 	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
 };
