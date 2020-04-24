@@ -2,7 +2,6 @@
 
 #include "device.h"
 #include "gfx-types.h"
-#include "utils.h"
 
 #include <memory>
 #include <vector>
@@ -21,20 +20,11 @@ struct RenderTargetDesc
 };
 
 template <GraphicsBackend B>
-class RenderTarget : Noncopyable
+class RenderTarget
 {
 public:
 
-	RenderTarget(RenderTarget<B>&& other)
-    : myRenderTargetDesc(other.myRenderTargetDesc)
-    , myColorViews(std::move(other.myColorViews))
-    , myDepthView(other.myDepthView)
-    , myFrameBuffer(other.myFrameBuffer)
-    {
-		other.myRenderTargetDesc = {};
-        other.myDepthView = 0;
-        other.myFrameBuffer = 0;
-	}
+	RenderTarget(RenderTarget<B>&& other) = default;
 	RenderTarget(RenderTargetDesc<B>&& desc);
 	virtual ~RenderTarget();
 

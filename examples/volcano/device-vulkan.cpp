@@ -1,6 +1,7 @@
 #include "device.h"
 #include "frame.h"
 #include "gfx.h"
+#include "vk-utils.h"
 
 #include <algorithm>
 #include <stdexcept>

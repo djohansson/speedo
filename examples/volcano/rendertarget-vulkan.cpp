@@ -1,4 +1,6 @@
 #include "rendertarget.h"
+#include "gfx.h"
+#include "vk-utils.h"
 
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(RenderTargetDesc<GraphicsBackend::Vulkan>&& desc)

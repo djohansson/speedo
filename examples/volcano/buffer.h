@@ -2,7 +2,6 @@
 
 #include "command.h"
 #include "gfx-types.h"
-#include "utils.h"
 
 #include <memory>
 
@@ -26,12 +25,13 @@ template <GraphicsBackend B>
 class Model;
 
 template <GraphicsBackend B>
-class Buffer : Noncopyable
+class Buffer
 {
     friend class Model<B>;
 
 public:
 
+    Buffer(Buffer&& other) = default;
     Buffer(BufferDesc<B>&& desc, CommandContext<B>& commandContext);
     ~Buffer();
 

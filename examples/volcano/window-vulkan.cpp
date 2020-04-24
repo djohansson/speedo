@@ -1,6 +1,7 @@
 #include "window.h"
 #include "command-vulkan.h"
 #include "gfx.h"
+#include "vk-utils.h"
 
 #if defined(__WINDOWS__)
 #include <execution>

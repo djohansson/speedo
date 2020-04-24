@@ -1,5 +1,6 @@
 #include "instance.h"
 #include "gfx.h"
+#include "vk-utils.h"
 
 #include <algorithm>
 #include <vector>

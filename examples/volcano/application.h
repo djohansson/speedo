@@ -23,7 +23,6 @@
 #include "gfx.h" // replace with "gfx-types.h" once all types have been encapsulated
 #include "glm.h"
 #include "instance.h"
-#include "utils.h"
 #include "window.h"
 
 #include "state.h" // temp - remove & clean up
@@ -57,10 +56,11 @@
 
 
 template <GraphicsBackend B>
-class Application : Noncopyable
+class Application
 {
 public:
 
+	Application(Application&& other) = default;
 	Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
 		const char* resourcePath, const char* userProfilePath = nullptr);

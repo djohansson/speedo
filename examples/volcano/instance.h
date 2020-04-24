@@ -2,25 +2,16 @@
 
 #include "file.h"
 #include "gfx-types.h"
-#include "utils.h"
 
 #include <any>
 #include <vector>
 
 
 template <GraphicsBackend B>
-struct InstanceCreateDesc : Noncopyable
+struct InstanceCreateDesc
 {
     InstanceCreateDesc() = default;
-    InstanceCreateDesc(InstanceCreateDesc&& other)
-    : applicationName(std::move(other.applicationName))
-    , engineName(std::move(other.engineName))
-    , appInfo(std::move(other.appInfo))
-    {
-        other.applicationName.clear();
-        other.engineName.clear();
-        other.appInfo = {};
-    }
+    InstanceCreateDesc(InstanceCreateDesc&& other) = default;
 
     std::string applicationName = "volcano";
     std::string engineName = "magma";
@@ -49,10 +40,11 @@ struct InstanceDesc
 };
 
 template <GraphicsBackend B>
-class InstanceContext : Noncopyable
+class InstanceContext
 {
 public:
 
+    InstanceContext(InstanceContext&& other) = default;
     InstanceContext(InstanceDesc<B>&& desc);
     ~InstanceContext();
 

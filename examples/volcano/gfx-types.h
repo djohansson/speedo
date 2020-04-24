@@ -1,7 +1,7 @@
 #pragma once
 
-#include "utils.h"
-#include "vk-utils.h"
+#include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 #include <cstdint>
 #include <type_traits>

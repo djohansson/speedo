@@ -2,7 +2,6 @@
 
 #include "device.h"
 #include "gfx-types.h"
-#include "utils.h"
 
 #include <memory>
 #include <vector>
@@ -16,10 +15,11 @@ struct SwapchainDesc
 };
 
 template <GraphicsBackend B>
-class SwapchainContext : Noncopyable
+class SwapchainContext
 {
 public:
 
+	SwapchainContext(SwapchainContext&& other) = default;
 	SwapchainContext(SwapchainDesc<B>&& desc);
     ~SwapchainContext();
 

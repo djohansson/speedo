@@ -1,4 +1,5 @@
 #include "swapchain.h"
+#include "vk-utils.h"
 
 template <>
 SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(

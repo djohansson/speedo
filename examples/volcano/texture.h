@@ -3,7 +3,6 @@
 #include "command.h"
 #include "device.h"
 #include "gfx-types.h"
-#include "utils.h"
 
 #include <filesystem>
 
@@ -24,10 +23,11 @@ struct TextureDesc
 };
 
 template <GraphicsBackend B>
-class Texture : Noncopyable
+class Texture
 {
 public:
 
+    Texture(Texture&& other) = default;
     Texture(TextureDesc<B>&& desc, CommandContext<B>& commandContext);
     Texture(const std::filesystem::path& textureFile, CommandContext<B>& commandContext);
     ~Texture();

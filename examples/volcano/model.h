@@ -3,7 +3,6 @@
 #include "aabb.h"
 #include "buffer.h"
 #include "device.h"
-#include "utils.h"
 #include "vertex.h"
 
 #include <filesystem>
@@ -34,10 +33,11 @@ struct ModelDesc
 };
 
 template <GraphicsBackend B>
-class Model : Noncopyable
+class Model
 {
 public:
 
+	Model(Model&& other) = default;
 	Model(ModelDesc<B>&& desc, CommandContext<B>& commandContext);
 	Model(const std::filesystem::path& modelFile, CommandContext<B>& commandContext);
 

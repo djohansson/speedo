@@ -1,5 +1,6 @@
 #include "frame.h"
 #include "command-vulkan.h"
+#include "vk-utils.h"
 
 template <>
 uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;

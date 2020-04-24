@@ -8,7 +8,6 @@
 #include "model.h"
 #include "rendertarget.h"
 #include "texture.h"
-#include "utils.h"
 
 #include <filesystem>
 #include <map>

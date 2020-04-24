@@ -170,7 +170,7 @@ private:
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
 
-class ScopedVertexAllocation : Noncopyable
+class ScopedVertexAllocation : Noncopyable, Nondynamic
 {
 public:
 	ScopedVertexAllocation(VertexAllocator& allocator);

@@ -2,7 +2,6 @@
 
 #include "gfx-types.h"
 #include "instance.h"
-#include "utils.h"
 
 #include <atomic>
 #include <memory>
@@ -32,10 +31,11 @@ struct SwapchainConfiguration
 };
 
 template <GraphicsBackend B>
-class DeviceContext : private Noncopyable
+class DeviceContext
 {
 public:
 
+    DeviceContext(DeviceContext<B>&& other) = default;
 	DeviceContext(DeviceDesc<B>&& desc);
     ~DeviceContext();
 

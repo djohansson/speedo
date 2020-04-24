@@ -27,11 +27,11 @@ struct CommandBufferArrayDesc
 };
 
 template <GraphicsBackend B>
-class CommandBufferArray : Noncopyable
+class CommandBufferArray
 {
 public:
 
-    CommandBufferArray(CommandBufferArray<B>&& other);
+    CommandBufferArray(CommandBufferArray<B>&& other) = default;
     CommandBufferArray(CommandBufferArrayDesc<B>&& desc);
     ~CommandBufferArray();
 
@@ -109,11 +109,11 @@ struct CommandSubmitInfo
 };
 
 template <GraphicsBackend B>
-class CommandContext : private Noncopyable, public std::enable_shared_from_this<CommandContext<B>>
+class CommandContext : public std::enable_shared_from_this<CommandContext<B>>
 {
 public:
 
-    CommandContext(CommandContext<B>&& other);
+    CommandContext(CommandContext<B>&& other) = default;
     CommandContext(CommandContextDesc<B>&& desc);
     ~CommandContext();
 

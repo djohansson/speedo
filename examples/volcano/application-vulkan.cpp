@@ -2,6 +2,7 @@
 #include "command-vulkan.h"
 #include "gfx.h"
 #include "file.h"
+#include "vk-utils.h"
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN

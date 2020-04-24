@@ -1,5 +1,6 @@
 #include "command.h"
 #include "command-vulkan.h"
+#include "vk-utils.h"
 
 
 template <>
@@ -36,7 +37,7 @@ CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(CommandBufferArr
 template <>
 CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
 {
-    if (myCommandBufferArray[0])
+    if (myArrayDesc.commandContext)
         vkFreeCommandBuffers(
             myArrayDesc.commandContext->getCommandContextDesc().deviceContext->getDevice(),
             myArrayDesc.commandPool,
@@ -251,19 +252,6 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(
 }
 
 template <>
-CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(CommandBufferArray<GraphicsBackend::Vulkan>&& other)
-: myArrayDesc(other.myArrayDesc)
-, myIndex(other.myIndex)
-{
-    ++ourDebugCount;
-
-    other.myArrayDesc = {};
-    std::copy(std::begin(other.myCommandBufferArray), std::end(other.myCommandBufferArray), std::begin(myCommandBufferArray));
-    std::fill(std::begin(other.myCommandBufferArray), std::end(other.myCommandBufferArray), static_cast<CommandBufferHandle<GraphicsBackend::Vulkan>>(0));
-    other.myIndex = 0;
-}
-
-template <>
 void CommandBufferArray<GraphicsBackend::Vulkan>::begin(
     const CommandBufferBeginInfo<GraphicsBackend::Vulkan>* beginInfo) const
 {
@@ -306,24 +294,6 @@ void CommandContext<GraphicsBackend::Vulkan>::clear()
     myGarbageCollectCallbacks.clear();
     myLastSubmitTimelineValue.reset();
     myScratchMemory.clear();
-}
-
-template <>
-CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContext<GraphicsBackend::Vulkan>&& other)
-: myCommandContextDesc(other.myCommandContextDesc)
-, myPendingCommands(std::move(other.myPendingCommands))
-, mySubmittedCommands(std::move(other.mySubmittedCommands))
-, myFreeCommands(std::move(other.myFreeCommands))
-, myGarbageCollectCallbacks(std::move(other.myGarbageCollectCallbacks))
-, myLastSubmitTimelineValue(std::move(other.myLastSubmitTimelineValue))
-, myScratchMemory(std::move(other.myScratchMemory))
-#ifdef PROFILING_ENABLED
-, myUserData(std::move(other.myUserData))
-#endif
-{
-    ++ourDebugCount;
-    
-    other.myCommandContextDesc = {};
 }
 
 template <>
