@@ -286,7 +286,6 @@ Application<GraphicsBackend::Vulkan>::~Application()
     }
 
     myTransferCommandContext->clear();
-    myTransferCommandContext.reset();
 
     vkDestroyFence(myGraphicsDevice->getDevice(), myLastTransferSubmitFence, nullptr);
 
@@ -294,43 +293,30 @@ Application<GraphicsBackend::Vulkan>::~Application()
 
     vkDestroySemaphore(myGraphicsDevice->getDevice(), myTimelineSemaphore, nullptr);
 
-    std::filesystem::path cacheFilePath = std::filesystem::absolute(myUserProfilePath / ".profile");
+    std::filesystem::path userProfilePath = std::filesystem::absolute(myUserProfilePath / ".profile");
 
-    if (!std::filesystem::exists(cacheFilePath))
-        std::filesystem::create_directory(cacheFilePath);
+    if (!std::filesystem::exists(userProfilePath))
+        std::filesystem::create_directory(userProfilePath);
 
     savePipelineCache<GraphicsBackend::Vulkan>(
-        cacheFilePath / "pipeline.cache",
+        userProfilePath / "pipeline.cache",
         myGraphicsDevice->getDevice(), myGraphicsDevice->getPhysicalDeviceProperties(), myPipelineCache);
-
-    myGraphicsPipelineConfig.reset();
 
     ImGui_ImplVulkan_Shutdown();
     ImGui::DestroyContext();
 
-    myWindow.reset();
-
-    myDefaultResources->model.reset();
     vkDestroyImageView(myGraphicsDevice->getDevice(), myDefaultResources->textureView, nullptr);
-    myDefaultResources->texture.reset();
     vkDestroySampler(myGraphicsDevice->getDevice(), myDefaultResources->sampler, nullptr);
-    myDefaultResources.reset();
     
     vkDestroyPipelineCache(myGraphicsDevice->getDevice(), myPipelineCache, nullptr);
     vkDestroyPipelineLayout(myGraphicsDevice->getDevice(), myGraphicsPipelineLayout->layout, nullptr);
 
-    // todo: wrap these in a deleter.
-    myGraphicsPipelineLayout->shaders.reset();
-    myGraphicsPipelineLayout->descriptorSetLayouts.reset();
-    myGraphicsPipelineLayout.reset();
-
+#ifdef PROFILING_ENABLE
     char* allocatorStatsJSON = nullptr;
     vmaBuildStatsString(myGraphicsDevice->getAllocator(), &allocatorStatsJSON, true);
     std::cout << allocatorStatsJSON << std::endl;
     vmaFreeStatsString(myGraphicsDevice->getAllocator(), allocatorStatsJSON);
-
-    myGraphicsDevice.reset();
-    myInstance.reset();
+#endif
 }
 
 template <>
