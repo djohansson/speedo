@@ -10,6 +10,7 @@
 #include "texture.h"
 #include "view.h"
 
+#include <chrono>
 #include <optional>
 #include <memory>
 #include <vector>
@@ -58,9 +59,13 @@ public:
 	
 	void updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex);
 
+	template <typename T>
+	void addIMGUIDrawCallback(T callback) { myIMGUIDrawCallbacks.emplace_back(callback); }
+
     std::tuple<bool, uint32_t> flipFrame(uint32_t lastFrameIndex) const;
 	void submitFrame(uint32_t frameIndex, uint32_t lastFrameIndex, const PipelineConfiguration<B>& config);
 	void presentFrame(uint32_t frameIndex) const;
+	void waitFrame(uint32_t frameIndex) const;
 
 private:
 
@@ -74,5 +79,7 @@ private:
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<Frame<B>> myFrames;
+	std::vector<std::chrono::high_resolution_clock::time_point> myFrameTimestamps;
 	RenderPassHandle<B> myRenderPass = 0;
+	std::vector<std::function<void()>> myIMGUIDrawCallbacks;
 };

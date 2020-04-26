@@ -19,8 +19,6 @@
 #include <imgui.h>
 #include <examples/imgui_impl_vulkan.h>
 
-#include <nfd.h>
-
 #include <Tracy.hpp>
 
 extern template uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount;
@@ -35,7 +33,10 @@ void Window<GraphicsBackend::Vulkan>::drawIMGUI()
     using namespace ImGui;
 
     NewFrame();
-    ShowDemoWindow();
+
+    {
+        ShowDemoWindow();
+    }
 
     {
         Begin("Render Options");
@@ -75,42 +76,15 @@ void Window<GraphicsBackend::Vulkan>::drawIMGUI()
         End();
     }
 
-    // {
-    //     Begin("File");
-
-    //     if (Button("Open OBJ file"))
-    //     {
-    //         nfdchar_t* pathStr;
-    //         auto res = NFD_OpenDialog("obj", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
-    //         if (res == NFD_OKAY)
-    //         {
-    //             myDefaultResources->model = std::make_shared<Model<B>>(
-    //                 myDevice, myTransferCommandPool, myQueue, myAllocator,
-    //                 std::filesystem::absolute(pathStr));
-
-    //             updateDescriptorSets(window, *myGraphicsPipelineConfig);
-    //         }
-    //     }
-
-    //     if (Button("Open JPG file"))
-    //     {
-    //         nfdchar_t* pathStr;
-    //         auto res = NFD_OpenDialog("jpg", std::filesystem::absolute(myResourcePath).u8string().c_str(), &pathStr);
-    //         if (res == NFD_OKAY)
-    //         {
-    //             myDefaultResources->texture = std::make_shared<Texture<B>>(
-    //                 myDevice, myTransferCommandPool, myQueue, myAllocator,
-    //                 std::filesystem::absolute(pathStr));
-
-    //             updateDescriptorSets(window, *myGraphicsPipelineConfig);
-    //         }
-    //     }
-
-    //     End();
-    // }
-
     {
         ShowMetricsWindow();
+    }
+
+    {
+        for (auto callback : myIMGUIDrawCallbacks)
+            callback();
+
+        myIMGUIDrawCallbacks.clear();
     }
 
     Render();
@@ -180,6 +154,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 
     uint32_t frameCount = myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount;
     myFrames.reserve(frameCount);
+    myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(
             RenderTargetDesc<GraphicsBackend::Vulkan>{
@@ -202,6 +177,7 @@ void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
     ZoneScopedN("destroyFrameObjects");
 
     myFrames.clear();
+    myFrameTimestamps.clear();
     mySwapchainContext.reset();
     myDepthTexture.reset();
     myViewBuffer.reset();
@@ -287,24 +263,27 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
 }
 
 template <>
+void Window<GraphicsBackend::Vulkan>::waitFrame(uint32_t frameIndex) const
+{
+    ZoneScopedN("waitFrame");
+
+    myFrames[frameIndex].waitForFence();
+}
+
+template <>
 void Window<GraphicsBackend::Vulkan>::submitFrame(
     uint32_t frameIndex, uint32_t lastFrameIndex,
     const PipelineConfiguration<GraphicsBackend::Vulkan>& config)
 {
     ZoneScopedN("submitFrame");
 
+    myFrameTimestamps[frameIndex] = std::chrono::high_resolution_clock::now();
+
     auto& frame = myFrames[frameIndex];
     auto& lastFrame = myFrames[lastFrameIndex];
-    
-    // wait for frame to be completed before starting to use it
-    {
-        ZoneScopedN("waitForFrameFence");
 
-        frame.waitForFence();
-
-        for (auto& commandContext : frame.commandContexts())
-            commandContext->collectGarbage();
-    }
+    for (auto& commandContext : frame.commandContexts())
+        commandContext->collectGarbage();
 
     std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this]
     {
@@ -565,13 +544,13 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
 {
     ZoneScopedN("updateInput");
 
-    assert(frameIndex < myFrames.size());
-    assert(lastFrameIndex < myFrames.size());
+    assert(frameIndex < myFrameTimestamps.size());
+    assert(lastFrameIndex < myFrameTimestamps.size());
 
-    auto& frame = myFrames[frameIndex];
-    auto& lastFrame = myFrames[lastFrameIndex];
+    auto& frameTimestamp = myFrameTimestamps[frameIndex];
+    auto& lastFrameTimestamp = myFrameTimestamps[lastFrameIndex];
 
-    float dt = (frame.getTimestamp() - lastFrame.getTimestamp()).count();
+    float dt = (frameTimestamp - lastFrameTimestamp).count();
 
     // update input dependent state
     {

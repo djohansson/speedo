@@ -30,6 +30,13 @@ struct SwapchainConfiguration
 	const auto selectedPresentMode() const { return presentModes[selectedPresentModeIndex]; };
 };
 
+enum class QueueType : uint8_t
+{
+    Graphics,
+    Compute,
+    Transfer
+};
+
 template <GraphicsBackend B>
 class DeviceContext
 {
@@ -43,12 +50,17 @@ public:
     const auto& getDevice() const { return myDevice; }
     const auto& getPhysicalDevice() const { return myPhysicalDevice; }
     const auto& getPhysicalDeviceProperties() const { return myPhysicalDeviceProperties; }
+
+    // temp
     const auto& getSelectedQueue() const { return mySelectedQueue; }
     const auto& getSelectedQueueFamilyIndex() const { return mySelectedQueueFamilyIndex; }
+    //
+
     const auto& getSwapchainConfiguration() const { return mySwapchainConfiguration; }
     const auto& getAllocator() const { return myAllocator; }
     const auto& getDescriptorPool() const { return myDescriptorPool; }
-    const auto& getFrameCommandPools() const { return myFrameCommandPools; }
+
+    const auto& getGraphicsCommandPools() const { return myGraphicsCommandPools; }
     const auto& getTransferCommandPool() const { return myTransferCommandPool; }
 
 private:
@@ -62,6 +74,6 @@ private:
     SwapchainConfiguration<B> mySwapchainConfiguration = {};
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
-    std::vector<CommandPoolHandle<B>> myFrameCommandPools;
+    std::vector<CommandPoolHandle<B>> myGraphicsCommandPools;
 	CommandPoolHandle<B> myTransferCommandPool = 0;
 };

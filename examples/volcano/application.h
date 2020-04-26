@@ -38,10 +38,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
+#include <functional>
 #include <iostream>
 #include <locale>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -53,6 +56,8 @@
 #include <cereal/types/string.hpp>
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
+
+#include <nfd.h>
 
 
 template <GraphicsBackend B>
@@ -113,6 +118,8 @@ private:
 	FenceHandle<B> myLastTransferSubmitFence = 0;
 	
 	uint64_t myAppTransferTimelineValue = 0;
+
+	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 };
 
 #include "application.inl"

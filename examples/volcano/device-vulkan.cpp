@@ -152,10 +152,10 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
         *mySelectedQueueFamilyIndex);
 
-    myFrameCommandPools.resize(myDeviceDesc.commandBufferThreadCount);
+    myGraphicsCommandPools.resize(myDeviceDesc.commandBufferThreadCount);
     for (uint32_t threadIt = 0; threadIt < myDeviceDesc.commandBufferThreadCount; threadIt++)
     {
-        myFrameCommandPools[threadIt] = createCommandPool(
+        myGraphicsCommandPools[threadIt] = createCommandPool(
             myDevice,
             VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
             *mySelectedQueueFamilyIndex);
@@ -176,8 +176,8 @@ DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
     vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 
-    for (const auto frameCommandPool : myFrameCommandPools)
-        vkDestroyCommandPool(myDevice, frameCommandPool, nullptr);
+    for (const auto commandPool : myGraphicsCommandPools)
+        vkDestroyCommandPool(myDevice, commandPool, nullptr);
 
     vkDestroyCommandPool(myDevice, myTransferCommandPool, nullptr);
     vmaDestroyAllocator(myAllocator);

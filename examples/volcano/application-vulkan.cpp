@@ -216,6 +216,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
 #endif
 
     VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    //fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     CHECK_VK(vkCreateFence(myGraphicsDevice->getDevice(), &fenceInfo, nullptr, &myLastTransferSubmitFence));
 
     {
@@ -252,6 +253,15 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             *myTransferCommandContext,
             static_cast<float>(framebufferWidth) / width,
             static_cast<float>(framebufferHeight) / height);
+    }
+
+    {
+        ZoneScopedN("submit (transfer)");
+
+        // submit transfers.
+        myAppTransferTimelineValue = myTransferCommandContext->submit({
+            myGraphicsDevice->getSelectedQueue(),
+            myLastTransferSubmitFence});
     }
 
     // vkAcquireNextImageKHR uses semaphore from last frame -> cant use index 0 for first frame
@@ -351,51 +361,114 @@ void Application<GraphicsBackend::Vulkan>::draw()
 {
     FrameMark;
 
-#ifdef PROFILING_ENABLED
-    {
-        ZoneScopedN("tracyVkCollect (transfer)");
-
-        auto cmd = myTransferCommandContext->beginEndScope();
-
-        TracyVkZone(
-            myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            cmd, "tracyVkCollect (transfer)");
-
-        TracyVkCollect(
-            myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            cmd);
-    }
-#endif
-
-    {
-        ZoneScopedN("submit (transfer)");
-
-        // submit transfers.
-        myAppTransferTimelineValue = myTransferCommandContext->submit({
-            myGraphicsDevice->getSelectedQueue(),
-            myLastTransferSubmitFence});
-    }
-
     auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
+
+     // sync transfers. todo: pass in all fences to one frame sync location?
+    CHECK_VK(vkWaitForFences(myGraphicsDevice->getDevice(), 1, &myLastTransferSubmitFence, VK_TRUE, UINT64_MAX));
+    CHECK_VK(vkResetFences(myGraphicsDevice->getDevice(), 1, &myLastTransferSubmitFence));
+    
+    // collect garbage
+    myTransferCommandContext->collectGarbage();
     
     myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
     
     if (flipSuccess)
     {
+        myWindow->waitFrame(frameIndex);
+
         myDefaultResources->renderTarget = &myWindow->getFrames()[frameIndex];
+
+        myWindow->addIMGUIDrawCallback([this]
+        {
+            auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
+            {
+                std::string resourcePath = std::filesystem::absolute(myResourcePath).u8string();
+                nfdchar_t* openFilePath;
+                return std::make_tuple(NFD_OpenDialog(filterList, resourcePath.c_str(), &openFilePath),
+                    openFilePath, std::move(onCompletionCallback));
+            };
+
+            auto loadModel = [this](nfdchar_t* openFilePath)
+            {
+                // todo: replace with frame & transfer sync
+                CHECK_VK(vkQueueWaitIdle(myGraphicsDevice->getSelectedQueue()));
+
+                auto beginEndScope(myTransferCommandContext->beginEndScope());
+
+                myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+                    std::filesystem::absolute(openFilePath),
+                    *myTransferCommandContext);
+
+                updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+            };
+
+            auto loadTexture = [this](nfdchar_t* openFilePath)
+            {
+                // todo: replace with frame & transfer sync
+                CHECK_VK(vkQueueWaitIdle(myGraphicsDevice->getSelectedQueue()));
+
+                auto beginEndScope(myTransferCommandContext->beginEndScope());
+
+                myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+                    std::filesystem::absolute(openFilePath),
+                    *myTransferCommandContext);
+                vkDestroyImageView(myGraphicsDevice->getDevice(), myDefaultResources->textureView, nullptr);
+                myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+
+                updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+            };
+
+            using namespace ImGui;
+
+            Begin("File");
+
+            if (Button("Open OBJ file") && !myOpenFileFuture.valid())
+                myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+
+            if (Button("Open JPG file") && !myOpenFileFuture.valid())
+                myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "jpg", loadTexture);
+
+            End();
+        });
+
+        // todo: launch async work on another queue
+        if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
+        {
+            const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
+            if (openFileResult == NFD_OKAY)
+                onCompletionCallback(openFilePath);
+        }
+
+#ifdef PROFILING_ENABLED
+        {
+            ZoneScopedN("tracyVkCollect (transfer)");
+
+            auto cmd = myTransferCommandContext->beginEndScope();
+
+            TracyVkZone(
+                myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
+                cmd, "tracyVkCollect (transfer)");
+
+            TracyVkCollect(
+                myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
+                cmd);
+        }
+#endif
+
+        {
+            ZoneScopedN("submit (transfer)");
+
+            // submit transfers.
+            myAppTransferTimelineValue = myTransferCommandContext->submit({
+                myGraphicsDevice->getSelectedQueue(),
+                myLastTransferSubmitFence});
+        }
 
         myWindow->submitFrame(frameIndex, myLastFrameIndex, *myGraphicsPipelineConfig);
         myWindow->presentFrame(frameIndex);
 
         myLastFrameIndex = frameIndex;
     }
-
-    // sync transfers. todo: pass in all fences to one frame sync location?
-    CHECK_VK(vkWaitForFences(myGraphicsDevice->getDevice(), 1, &myLastTransferSubmitFence, VK_TRUE, UINT64_MAX));
-    CHECK_VK(vkResetFences(myGraphicsDevice->getDevice(), 1, &myLastTransferSubmitFence));
-    
-    // collect garbage
-    myTransferCommandContext->collectGarbage();
 }
 
 template <>

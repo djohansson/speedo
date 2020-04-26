@@ -2,12 +2,14 @@
 
 #include <cassert>
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-
 #include <functional>
+#include <future>
+#include <tuple>
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
 #define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
@@ -17,6 +19,12 @@ template <typename T>
 inline constexpr auto sizeof_array(const T& array)
 {
 	return (sizeof(array) / sizeof(array[0]));
+}
+
+template <typename T>
+bool is_ready(std::future<T> const& f)
+{
+	return f.wait_for(std::chrono::nanoseconds(0)) == std::future_status::ready;
 }
 
 inline uint32_t roundUp(uint32_t numToRound, uint32_t multiple)

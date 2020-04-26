@@ -6,12 +6,10 @@ template <>
 uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
 template <>
-void Frame<GraphicsBackend::Vulkan>::waitForFence()
+void Frame<GraphicsBackend::Vulkan>::waitForFence() const
 {
     CHECK_VK(vkWaitForFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence, VK_TRUE, UINT64_MAX));
     CHECK_VK(vkResetFences(myRenderTargetDesc.deviceContext->getDevice(), 1, &myFence));
-        
-    myTimestamp = std::chrono::high_resolution_clock::now();
 }
 
 template <>
@@ -22,7 +20,6 @@ Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
 	, myFence(other.myFence)
 	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
 	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
-	, myTimestamp(other.myTimestamp)
     {
         ++ourDebugCount;
 
@@ -30,7 +27,6 @@ Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
 		other.myFence = 0;
 		other.myRenderCompleteSemaphore = 0;
 		other.myNewImageAcquiredSemaphore = 0;
-		other.myTimestamp = std::chrono::high_resolution_clock::time_point();
     }
 
 template <>
@@ -51,12 +47,12 @@ Frame<GraphicsBackend::Vulkan>::Frame(
     CHECK_VK(vkCreateSemaphore(
         myRenderTargetDesc.deviceContext->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 
-    for (uint32_t poolIt = 0; poolIt < myRenderTargetDesc.deviceContext->getFrameCommandPools().size(); poolIt++)
+    for (uint32_t poolIt = 0; poolIt < myRenderTargetDesc.deviceContext->getGraphicsCommandPools().size(); poolIt++)
     {
         myCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
             CommandContextDesc<GraphicsBackend::Vulkan>{
                 myRenderTargetDesc.deviceContext,
-                myRenderTargetDesc.deviceContext->getFrameCommandPools()[poolIt],
+                myRenderTargetDesc.deviceContext->getGraphicsCommandPools()[poolIt],
                 static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
                 myFrameDesc.timelineSemaphore,
                 myFrameDesc.timelineValue}));
@@ -70,8 +66,6 @@ Frame<GraphicsBackend::Vulkan>::Frame(
             myRenderTargetDesc.deviceContext->getSelectedQueue(),
             myCommandContexts[0]->commands());        
 #endif
-
-    myTimestamp = std::chrono::high_resolution_clock::now();
 }
 
 template <>

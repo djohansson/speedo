@@ -119,8 +119,6 @@ void saveJSONObject(T&& object, const std::filesystem::path& filePath, const std
 template <typename T>
 class ScopedJSONFileObject : Noncopyable
 {
-    // todo: use raw memory mapped file?
-
 public:
 
     ScopedJSONFileObject(const std::filesystem::path& filePath, const std::string& name)

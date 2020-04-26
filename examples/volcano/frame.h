@@ -5,7 +5,6 @@
 #include "rendertarget.h"
 
 #include <atomic>
-#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -31,11 +30,10 @@ public:
 	const auto& getFence() const { return myFence; }
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
-	const auto& getTimestamp() const { return myTimestamp; }
 
 	auto& commandContexts() { return myCommandContexts; }
 
-	void waitForFence();
+	void waitForFence() const;
 
 private:
 
@@ -44,5 +42,4 @@ private:
 	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
-	std::chrono::high_resolution_clock::time_point myTimestamp;
 };
