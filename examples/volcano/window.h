@@ -64,7 +64,11 @@ public:
 	void addIMGUIDrawCallback(T callback) { myIMGUIDrawCallbacks.emplace_back(callback); }
 
     std::tuple<bool, uint32_t> flipFrame(uint32_t lastFrameIndex) const;
-	void submitFrame(uint32_t frameIndex, uint32_t lastFrameIndex, const PipelineConfiguration<B>& config);
+	uint64_t submitFrame(
+		uint32_t frameIndex,
+		uint32_t lastFrameIndex,
+		const PipelineConfiguration<B>& config,
+		uint64_t waitTimelineValue);
 	void presentFrame(uint32_t frameIndex) const;
 	void waitFrame(uint32_t frameIndex) const;
 

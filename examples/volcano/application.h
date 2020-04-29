@@ -99,6 +99,7 @@ private:
 	
 	std::shared_ptr<Window<B>> myWindow;
 	uint32_t myLastFrameIndex = 0;
+	uint64_t myLastFrameTimelineValue = 0;
 
 	// todo: figure out best way of organizing these
 	PipelineCacheHandle<B> myPipelineCache = 0;
@@ -116,9 +117,8 @@ private:
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
 
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
-	std::queue<FenceHandle<B>> myTransferSubmitFences;
-	
-	uint64_t myAppTransferTimelineValue = 0;
+	FenceHandle<B> myTransferFence = 0;
+	uint64_t myLastTransferTimelineValue = 0;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 };

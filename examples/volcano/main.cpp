@@ -11,6 +11,8 @@
 #include <imgui.h>
 #include <examples/imgui_impl_glfw.h>
 
+#include <Tracy.hpp>
+
 #include "volcano.h"
 
 static MouseState g_mouse = { -1.0, -1.0, 0, 0, 0, false };
@@ -234,9 +236,15 @@ int main(int, char**)
 
 	while (!glfwWindowShouldClose(window))
 	{
-		glfwPollEvents();
+		FrameMark;
+		ZoneScopedN("gameLoop");
 
-		ImGui_ImplGlfw_NewFrame();
+		{
+			ZoneScopedN("glfw");
+
+			glfwPollEvents();
+			ImGui_ImplGlfw_NewFrame();
+		}
 
 		volcano_draw();
 	}

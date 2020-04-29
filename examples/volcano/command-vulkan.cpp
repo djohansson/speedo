@@ -120,9 +120,26 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::collectGarbage()
+void CommandContext<GraphicsBackend::Vulkan>::collectGarbage(
+    std::optional<uint64_t> waitTimelineValue,
+    std::optional<FenceHandle<GraphicsBackend::Vulkan>> waitFence)
 {
     ZoneScopedN("collectGarbage");
+
+    if (waitTimelineValue)
+        wait(*waitTimelineValue);
+
+    if (waitFence)
+    {
+        CHECK_VK(vkWaitForFences(
+            myCommandContextDesc.deviceContext->getDevice(),
+            1, &(*waitFence),
+            VK_TRUE,
+            UINT64_MAX));
+        CHECK_VK(vkResetFences(
+            myCommandContextDesc.deviceContext->getDevice(),
+            1, &(*waitFence)));
+    }
 
     while (!myGarbageCollectCallbacks.empty() && hasReached(myGarbageCollectCallbacks.begin()->second))
     {
@@ -136,10 +153,10 @@ void CommandContext<GraphicsBackend::Vulkan>::collectGarbage()
     {
         ZoneScopedN("poolReset");
 
-        vkResetCommandPool(
+        CHECK_VK(vkResetCommandPool(
             myCommandContextDesc.deviceContext->getDevice(),
             myCommandContextDesc.commandPool,
-            VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+            VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
     }
 }
 
@@ -339,13 +356,7 @@ void CommandContext<GraphicsBackend::Vulkan>::clear()
 {
     ZoneScopedN("commandContextClear");
 
-    {
-        ZoneScopedN("wait");
-
-        wait(myLastSubmitTimelineValue.value_or(0));
-    }
-
-    collectGarbage();
+    collectGarbage(myLastSubmitTimelineValue);
 
     {
         ZoneScopedN("pending");

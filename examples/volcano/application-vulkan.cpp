@@ -214,6 +214,9 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
 
     myTimelineValue = std::make_shared<std::atomic_uint64_t>();
 
+    VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &myTransferFence));
+
     myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         CommandContextDesc<GraphicsBackend::Vulkan>{
             myDevice,
@@ -247,16 +250,10 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
                 *myTransferCommandContext);
         }
 
-        FenceHandle<GraphicsBackend::Vulkan> transferFence;
-        VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-        CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &transferFence));
-
         // submit transfers.
-        myAppTransferTimelineValue = myTransferCommandContext->submit({
+        myLastTransferTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
-            transferFence});
-
-        myTransferSubmitFences.push(transferFence);
+            myTransferFence});
     }
 
     myLastFrameIndex = myDevice->getSwapchainConfiguration().selectedImageCount - 1;
@@ -285,7 +282,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
 #endif
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        primaryCommandContext->submit({
+        myLastFrameTimelineValue = primaryCommandContext->submit({
             myDevice->getPrimaryGraphicsQueue(),
             frame.getFence(),
             0,
@@ -293,7 +290,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             1,
             &myTimelineSemaphore,
             &waitDstStageMask,
-            &myAppTransferTimelineValue,
+            &myLastTransferTimelineValue,
         });
     }
 
@@ -335,16 +332,10 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
 
             updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
-            FenceHandle<GraphicsBackend::Vulkan> transferFence;
-            VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-            CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &transferFence));
-
             // submit transfers.
-            myAppTransferTimelineValue = myTransferCommandContext->submit({
+            myLastTransferTimelineValue = myTransferCommandContext->submit({
                 myDevice->getPrimaryTransferQueue(),
-                transferFence});
-
-            myTransferSubmitFences.push(transferFence);
+                myTransferFence});
 
             // todo: resource transition
         };
@@ -367,16 +358,10 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
 
             updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
-            FenceHandle<GraphicsBackend::Vulkan> transferFence;
-            VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-            CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &transferFence));
-
             // submit transfers.
-            myAppTransferTimelineValue = myTransferCommandContext->submit({
+            myLastTransferTimelineValue = myTransferCommandContext->submit({
                 myDevice->getPrimaryTransferQueue(),
-                transferFence});
-
-            myTransferSubmitFences.push(transferFence);
+                myTransferFence});
 
             // todo: resource transition
         };
@@ -407,21 +392,9 @@ Application<GraphicsBackend::Vulkan>::~Application()
         CHECK_VK(vkDeviceWaitIdle(myDevice->getDevice()));
     }
 
-    while (!myTransferSubmitFences.empty())
-    {
-        ZoneScopedN("waitTransferFence");
-
-        // sync transfers.
-        // todo: pass in all fences to one frame sync location?
-        // todo: use a fence pool?
-        CHECK_VK(vkWaitForFences(myDevice->getDevice(), 1, &myTransferSubmitFences.front(), VK_TRUE, UINT64_MAX));
-        //CHECK_VK(vkResetFences(myDevice->getDevice(), 1, &myTransferSubmitFences.front()));
-
-        vkDestroyFence(myDevice->getDevice(), myTransferSubmitFences.front(), nullptr);
-        myTransferSubmitFences.pop();
-    }
-
     myTransferCommandContext->clear();
+
+    vkDestroyFence(myDevice->getDevice(), myTransferFence, nullptr);
 
     destroyFrameObjects();
 
@@ -485,40 +458,9 @@ void Application<GraphicsBackend::Vulkan>::onKeyboard(const KeyboardState& state
 template <>
 void Application<GraphicsBackend::Vulkan>::draw()
 {
-    FrameMark;
-
     ZoneScopedN("draw");
 
     auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
-
-    while (!myTransferSubmitFences.empty())
-    {
-        // sync transfers.
-        // todo: pass in all fences to one frame sync location?
-        // todo: use a fence pool?
-        CHECK_VK(vkWaitForFences(myDevice->getDevice(), 1, &myTransferSubmitFences.front(), VK_TRUE, UINT64_MAX));
-        //CHECK_VK(vkResetFences(myDevice->getDevice(), 1, &myTransferSubmitFences.front()));
-
-        vkDestroyFence(myDevice->getDevice(), myTransferSubmitFences.front(), nullptr);
-        myTransferSubmitFences.pop();
-    }
-
-    // collect garbage
-    myTransferCommandContext->collectGarbage();
-
-    if (!myTransferCommandContext->empty())
-    {
-        FenceHandle<GraphicsBackend::Vulkan> transferFence;
-        VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-        CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &transferFence));
-
-        // submit transfers.
-        myAppTransferTimelineValue = myTransferCommandContext->submit({
-            myDevice->getPrimaryTransferQueue(),
-            transferFence});
-
-        myTransferSubmitFences.push(transferFence);
-    }
     
     myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
     
@@ -530,10 +472,20 @@ void Application<GraphicsBackend::Vulkan>::draw()
 
         myDefaultResources->renderTarget = &frame;
 
-        myWindow->submitFrame(frameIndex, myLastFrameIndex, *myGraphicsPipelineConfig);
-        myWindow->presentFrame(frameIndex);
+        myLastFrameTimelineValue = myWindow->submitFrame(frameIndex,
+            myLastFrameIndex,
+            *myGraphicsPipelineConfig,
+            myLastTransferTimelineValue);
 
         myLastFrameIndex = frameIndex;
+    }
+
+    if (!myTransferCommandContext->isSubmittedEmpty())
+    {
+        // collect garbage
+        myTransferCommandContext->collectGarbage(
+            myLastTransferTimelineValue,
+            myTransferFence);
     }
 
 #ifdef PROFILING_ENABLED
@@ -563,6 +515,23 @@ void Application<GraphicsBackend::Vulkan>::draw()
         if (openFileResult == NFD_OKAY)
             onCompletionCallback(openFilePath);
     }
+
+    if (!myTransferCommandContext->isPendingEmpty())
+    {
+        // submit transfers.
+        VkPipelineStageFlags waitDstStageMasks = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        myLastTransferTimelineValue = myTransferCommandContext->submit({
+            myDevice->getPrimaryTransferQueue(),
+            myTransferFence,
+            0,
+            nullptr,
+            1,
+            &myTimelineSemaphore,
+            &waitDstStageMasks,
+            &myLastFrameTimelineValue});
+    }
+
+    myWindow->presentFrame(frameIndex);
 }
 
 template <>
@@ -591,14 +560,8 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int heig
         createFrameObjects(*myTransferCommandContext);
     }
 
-    FenceHandle<GraphicsBackend::Vulkan> transferFence;
-    VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &transferFence));
-
     // submit transfers.
-    myAppTransferTimelineValue = myTransferCommandContext->submit({
+    myLastTransferTimelineValue = myTransferCommandContext->submit({
         myDevice->getPrimaryTransferQueue(),
-        transferFence});
-
-    myTransferSubmitFences.push(transferFence);
+        myTransferFence});
 }

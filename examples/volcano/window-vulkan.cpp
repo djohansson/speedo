@@ -276,9 +276,11 @@ void Window<GraphicsBackend::Vulkan>::waitFrame(uint32_t frameIndex) const
 }
 
 template <>
-void Window<GraphicsBackend::Vulkan>::submitFrame(
-    uint32_t frameIndex, uint32_t lastFrameIndex,
-    const PipelineConfiguration<GraphicsBackend::Vulkan>& config)
+uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
+    uint32_t frameIndex,
+    uint32_t lastFrameIndex,
+    const PipelineConfiguration<GraphicsBackend::Vulkan>& config,
+    uint64_t waitTimelineValue)
 {
     ZoneScopedN("submitFrame");
 
@@ -462,7 +464,8 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
                 primaryCommands, "executeCommands");
 #endif
 
-            primaryCommandContext.execute(*frame.commandContexts()[contextIt], &beginInfo);
+            primaryCommandContext.execute(
+                *frame.commandContexts()[contextIt], &beginInfo);
         }
     }
 
@@ -507,21 +510,29 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         updateViewBufferFuture.get();
     }
 
+    uint64_t submitResult = 0;
     {
         ZoneScopedN("submitCommands");
 
-        Flags<GraphicsBackend::Vulkan> waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        primaryCommandContext.submit({
+        SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[2] = {
+            lastFrame.getNewImageAcquiredSemaphore(), myWindowDesc.timelineSemaphore };
+        Flags<GraphicsBackend::Vulkan> waitStages[2] = {
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
+        uint64_t waitTimelineValues[2] = {
+            waitTimelineValue, waitTimelineValue};
+        submitResult = primaryCommandContext.submit({
             myWindowDesc.deviceContext->getPrimaryGraphicsQueue(),
             frame.getFence(),
             1,
             &frame.getRenderCompleteSemaphore(),
-            1,
-            &lastFrame.getNewImageAcquiredSemaphore(),
-            &waitStage,
-            nullptr, 
+            2,
+            waitSemaphores,
+            waitStages,
+            waitTimelineValues, 
         });
     }
+    
+    return submitResult;
 }
 
 template <>

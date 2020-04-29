@@ -143,7 +143,8 @@ public:
         return CommandBufferAccessScope<B, false>(myPendingCommands.back());
     }
 
-    bool empty() const { return myPendingCommands.empty(); }
+    bool isPendingEmpty() const { return myPendingCommands.empty(); }
+    bool isSubmittedEmpty() const { return mySubmittedCommands.empty(); }
 
     uint64_t execute(CommandContext<B>& other, const RenderPassBeginInfo<B>* beginInfo);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
@@ -151,7 +152,9 @@ public:
     bool hasReached(uint64_t timelineValue) const;
     void wait(uint64_t timelineValue) const;
 
-    void collectGarbage();
+    void collectGarbage(
+        std::optional<uint64_t> waitTimelineValue = std::nullopt,
+        std::optional<FenceHandle<B>> waitFence = std::nullopt);
 
     template <typename T>
     uint64_t addGarbageCollectCallback(T callback, uint64_t timelineValue)
