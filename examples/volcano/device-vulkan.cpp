@@ -8,20 +8,42 @@
 #include <tuple>
 #include <utility>
 
+#include <Tracy.hpp>
+
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     DeviceDesc<GraphicsBackend::Vulkan>&& desc)
     : myDeviceDesc(std::move(desc))
 {
-    for (const auto& physicalDevice : myDeviceDesc.instanceContext->getPhysicalDevices())
-    {
-        std::tie(mySwapchainConfiguration, mySelectedQueueFamilyIndex, myPhysicalDeviceProperties) =
-            getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(myDeviceDesc.instanceContext->getSurface(), physicalDevice);
+    ZoneScopedN("DeviceContext()");
 
-        if (mySelectedQueueFamilyIndex)
+    auto surface = myDeviceDesc.instanceContext->getSurface();
+    const auto& physicalDevices = myDeviceDesc.instanceContext->getPhysicalDevices();
+    uint32_t physicalDeviceCount = physicalDevices.size();
+    myPhysicalDeviceInfos.reserve(physicalDeviceCount);
+    for (uint32_t deviceIt = 0; deviceIt < physicalDeviceCount; deviceIt++)
+    {
+        auto physicalDevice = physicalDevices[deviceIt];
+
+        myPhysicalDeviceInfos.emplace_back(getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(surface, physicalDevice));
+
+        std::optional<uint32_t> swapchainQueueFamilyIndex;
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < myPhysicalDeviceInfos.back().queueFamilyProperties.size(); queueFamilyIt++)
         {
-            myPhysicalDevice = physicalDevice;
+            const auto& queueFamilyProperties = myPhysicalDeviceInfos.back().queueFamilyProperties[queueFamilyIt];
+            const auto& queueFamilyPresentSupport = myPhysicalDeviceInfos.back().queueFamilyPresentSupport[queueFamilyIt];
+
+            if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
+            {
+                myPhysicalDeviceIndex = deviceIt;
+                swapchainQueueFamilyIndex = queueFamilyIt;
+            }
+        }
+
+        if (swapchainQueueFamilyIndex && mySwapchainConfiguration.selectedImageCount == 0)
+        {
+            const auto& swapchainInfo = myPhysicalDeviceInfos.back().swapchainInfo;
 
             const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
                 VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
@@ -42,12 +64,12 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                     requestSurfaceColorSpace
                 };
                 auto formatIt = std::find(
-                    mySwapchainConfiguration.formats.begin(),
-                    mySwapchainConfiguration.formats.end(),
+                    swapchainInfo.formats.begin(),
+                    swapchainInfo.formats.end(),
                     requestedFormat);
-                if (formatIt != mySwapchainConfiguration.formats.end())
+                if (formatIt != swapchainInfo.formats.end())
                 {
-                    mySwapchainConfiguration.selectedFormatIndex = std::distance(mySwapchainConfiguration.formats.begin(), formatIt);
+                    mySwapchainConfiguration.selectedFormat = *formatIt;
                     break;
                 }
             }
@@ -58,40 +80,61 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                     request_i++)
             {
                 auto modeIt = std::find(
-                    mySwapchainConfiguration.presentModes.begin(), mySwapchainConfiguration.presentModes.end(),
+                    swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(),
                     requestPresentMode[request_i]);
-                if (modeIt != mySwapchainConfiguration.presentModes.end())
+                if (modeIt != swapchainInfo.presentModes.end())
                 {
-                    mySwapchainConfiguration.selectedPresentModeIndex = std::distance(mySwapchainConfiguration.presentModes.begin(), modeIt);
+                    mySwapchainConfiguration.selectedPresentMode = *modeIt;
 
-                    if (mySwapchainConfiguration.selectedPresentMode() == VK_PRESENT_MODE_MAILBOX_KHR)
+                    switch (mySwapchainConfiguration.selectedPresentMode)
+                    {
+                    case VK_PRESENT_MODE_MAILBOX_KHR:
                         mySwapchainConfiguration.selectedImageCount = 3;
+                        break;
+                    default:
+                        mySwapchainConfiguration.selectedImageCount = 2;
+                        break;
+                    }
 
                     break;
                 }
             }
-
-            break;
         }
     }
 
-    if (!myPhysicalDevice)
+    if (mySwapchainConfiguration.selectedImageCount == 0)
         throw std::runtime_error("failed to find a suitable GPU!");
 
-    const float graphicsQueuePriority = 1.0f;
+    const auto& physicalDeviceInfo = myPhysicalDeviceInfos[myPhysicalDeviceIndex];
 
-    VkDeviceQueueCreateInfo queueCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
-    queueCreateInfo.queueFamilyIndex = *mySelectedQueueFamilyIndex;
-    queueCreateInfo.queueCount = 1;
-    queueCreateInfo.pQueuePriorities = &graphicsQueuePriority;
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
+
+    std::list<std::vector<float>> queuePriorityList;
+    for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
+    {
+        auto& queuePriorities = queuePriorityList.emplace_back();
+        const auto& queueFamilyProperty = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
+        queuePriorities.resize(queueFamilyProperty.queueCount);
+        std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0f);
+
+        queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
+            VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            nullptr,
+            0,//queueFamilyProperty.queueFlags,
+            queueFamilyIt,
+            queueFamilyProperty.queueCount,
+            queuePriorities.data()
+        });
+    }
 
     uint32_t deviceExtensionCount;
     vkEnumerateDeviceExtensionProperties(
-        myPhysicalDevice, nullptr, &deviceExtensionCount, nullptr);
+        getPhysicalDevice(), nullptr, &deviceExtensionCount, nullptr);
 
     std::vector<VkExtensionProperties> availableDeviceExtensions(deviceExtensionCount);
     vkEnumerateDeviceExtensionProperties(
-        myPhysicalDevice, nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
+        getPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
 
     std::vector<const char*> deviceExtensions;
     deviceExtensions.reserve(deviceExtensionCount);
@@ -134,53 +177,71 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     deviceCreateInfo.pNext = &physicalDeviceFeatures2;
-    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-    deviceCreateInfo.queueCreateInfoCount = 1;
+    deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
+    deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
     //deviceCreateInfo.pEnabledFeatures = &physicalDeviceFeatures;
     deviceCreateInfo.enabledExtensionCount =
         static_cast<uint32_t>(requiredDeviceExtensions.size());
     deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
-    CHECK_VK(vkCreateDevice(myPhysicalDevice, &deviceCreateInfo, nullptr, &myDevice));
+    CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
-    vkGetDeviceQueue(myDevice, *mySelectedQueueFamilyIndex, 0, &mySelectedQueue);
+    VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    if (!myDeviceDesc.useCommandPoolReset)
+        cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-    myAllocator = createAllocator<GraphicsBackend::Vulkan>(myDeviceDesc.instanceContext->getInstance(), myDevice, myPhysicalDevice);
-
-    myTransferCommandPool = createCommandPool(
-        myDevice,
-        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-        *mySelectedQueueFamilyIndex);
-
-    myGraphicsCommandPools.resize(myDeviceDesc.commandBufferThreadCount);
-    for (uint32_t threadIt = 0; threadIt < myDeviceDesc.commandBufferThreadCount; threadIt++)
+    myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
+    for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
     {
-        myGraphicsCommandPools[threadIt] = createCommandPool(
-            myDevice,
-            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-            *mySelectedQueueFamilyIndex);
-    }
-    
-    myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
+        const auto& queueFamilyProperty = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
+        const auto& queueFamilyPresentSupport = physicalDeviceInfo.queueFamilyPresentSupport[queueFamilyIt];
+        
+        auto& queueFamilyDesc = myQueueFamilyDescs[queueFamilyIt];
+        queueFamilyDesc.queues.resize(queueFamilyProperty.queueCount);
+        queueFamilyDesc.flags = queueFamilyProperty.queueFlags;
+        if (queueFamilyPresentSupport)
+            queueFamilyDesc.flags |= QueueFamilyFlags::Present;
 
-    CommandBufferHandle<GraphicsBackend::Vulkan> transferCommandBuffer;
-    VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    cmdInfo.commandPool = myTransferCommandPool;
-    cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cmdInfo.commandBufferCount = 1;
-    CHECK_VK(vkAllocateCommandBuffers(myDevice, &cmdInfo, &transferCommandBuffer));
+        for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
+            vkGetDeviceQueue(myDevice, queueFamilyIt, queueIt, &queueFamilyDesc.queues[queueIt]);
+
+        uint32_t frameCount = queueFamilyPresentSupport ? mySwapchainConfiguration.selectedImageCount : 1;
+
+        queueFamilyDesc.commandPools.resize(frameCount);
+
+        for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
+        {
+            auto& frameCommandPools = queueFamilyDesc.commandPools[frameIt];
+            frameCommandPools.resize(queueFamilyProperty.queueCount);
+            for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
+                frameCommandPools[queueIt] = createCommandPool(
+                    myDevice,
+                    cmdPoolCreateFlags,
+                    queueFamilyIt);
+        }
+    }
+
+    myAllocator = createAllocator<GraphicsBackend::Vulkan>(
+        myDeviceDesc.instanceContext->getInstance(),
+        myDevice,
+        getPhysicalDevice());
+
+    myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
 }
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
+    ZoneScopedN("DeviceContext()");
+    
     vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 
-    for (const auto commandPool : myGraphicsCommandPools)
-        vkDestroyCommandPool(myDevice, commandPool, nullptr);
-
-    vkDestroyCommandPool(myDevice, myTransferCommandPool, nullptr);
     vmaDestroyAllocator(myAllocator);
+
+    for (const auto& queueFamily : myQueueFamilyDescs)
+        for (auto commandPoolVector : queueFamily.commandPools)
+            for (auto commandPool : commandPoolVector)
+                vkDestroyCommandPool(myDevice, commandPool, nullptr);
 
     vkDestroyDevice(myDevice, nullptr);
 }

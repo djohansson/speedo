@@ -2,6 +2,7 @@
 #include "command-vulkan.h"
 #include "vk-utils.h"
 
+#include <Tracy.hpp>
 
 template <>
 uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount = 0;
@@ -13,9 +14,27 @@ template <>
 bool CommandContext<GraphicsBackend::Vulkan>::hasReached(uint64_t timelineValue) const
 {
     uint64_t value;
-    CHECK_VK(vkGetSemaphoreCounterValue(myCommandContextDesc.deviceContext->getDevice(), myCommandContextDesc.timelineSemaphore, &value));
+    CHECK_VK(vkGetSemaphoreCounterValue(
+        myCommandContextDesc.deviceContext->getDevice(),
+        myCommandContextDesc.timelineSemaphore,
+        &value));
 
     return (value >= timelineValue);
+}
+
+template <>
+void CommandContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
+{
+    if (!hasReached(timelineValue))
+    {
+        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+        waitInfo.flags = 0;
+        waitInfo.semaphoreCount = 1;
+        waitInfo.pSemaphores = &myCommandContextDesc.timelineSemaphore;
+        waitInfo.pValues = &timelineValue;
+
+        CHECK_VK(vkWaitSemaphores(myCommandContextDesc.deviceContext->getDevice(), &waitInfo, UINT64_MAX));
+    }
 }
 
 template <>
@@ -50,12 +69,13 @@ CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
 template <>
 void CommandBufferArray<GraphicsBackend::Vulkan>::reset()
 {
-    assert(myIndex < kCommandBufferCount);
+    assert(!myBits.myIsInScope);
+    assert(myBits.myIndex < kCommandBufferCount);
     
-    for (uint32_t i = 0; i <= myIndex; i++)
+    for (uint32_t i = 0; i <= myBits.myIndex; i++)
         CHECK_VK(vkResetCommandBuffer(myCommandBufferArray[i], 0));
 
-    myIndex = 0;
+    myBits.myIndex = 0;
 }
 
 
@@ -79,10 +99,20 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
 
     addGarbageCollectCallback([this](uint64_t timelineValue)
     {
+        ZoneScopedN("freeCmd");
+
         auto freeBeginIt = mySubmittedCommands.begin();
         auto freeEndIt = freeBeginIt;
-        while (freeEndIt != mySubmittedCommands.end() && hasReached(timelineValue))
-            (freeEndIt++)->reset();
+
+        if (!myCommandContextDesc.deviceContext->getDeviceDesc().useCommandPoolReset)
+        {
+            ZoneScopedN("reset");
+
+            while (freeEndIt != mySubmittedCommands.end() && hasReached(timelineValue))
+                (freeEndIt++)->reset();
+        }
+
+        assert(mySubmittedCommands.size() < 100);
         
         myFreeCommands.splice(myFreeCommands.end(), std::move(mySubmittedCommands), freeBeginIt, freeEndIt);
 
@@ -90,9 +120,37 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
 }
 
 template <>
+void CommandContext<GraphicsBackend::Vulkan>::collectGarbage()
+{
+    ZoneScopedN("collectGarbage");
+
+    while (!myGarbageCollectCallbacks.empty() && hasReached(myGarbageCollectCallbacks.begin()->second))
+    {
+        ZoneScopedN("callback");
+
+        myGarbageCollectCallbacks.begin()->first(myGarbageCollectCallbacks.begin()->second);
+        myGarbageCollectCallbacks.pop_front();
+    }
+
+    if (myCommandContextDesc.deviceContext->getDeviceDesc().useCommandPoolReset)
+    {
+        ZoneScopedN("poolReset");
+
+        vkResetCommandPool(
+            myCommandContextDesc.deviceContext->getDevice(),
+            myCommandContextDesc.commandPool,
+            VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+    }
+}
+
+template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
 {
+    ZoneScopedN("submit");
+
+    assert(!myPendingCommands.empty());
+
     const auto waitSemaphoreCount = submitInfo.waitSemaphoreCount + 1;
     const auto signalSemaphoreCount = submitInfo.signalSemaphoreCount + 1;
 
@@ -167,6 +225,8 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     for (auto& cmd : myPendingCommands)
     {
+        assert(!cmd.isInScope());
+
         VkTimelineSemaphoreSubmitInfo& timelineInfo = *timelineSemaphoreSubmitInfoPtr++;
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         timelineInfo.pNext = nullptr;
@@ -189,11 +249,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     writePtr = reinterpret_cast<std::byte*>(submitInfoPtr);
 
-    CHECK_VK(vkQueueSubmit(
-        submitInfo.queue ? submitInfo.queue : myCommandContextDesc.deviceContext->getSelectedQueue(),
-        myPendingCommands.size(),
-        submitInfoBegin,
-        submitInfo.signalFence));
+    CHECK_VK(vkQueueSubmit(submitInfo.queue, myPendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
 
     enqueueAllPendingToSubmitted(timelineValue);
 
@@ -203,36 +259,13 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::collectGarbage()
-{
-    while (!myGarbageCollectCallbacks.empty() && hasReached(myGarbageCollectCallbacks.begin()->second))
-    {
-        myGarbageCollectCallbacks.begin()->first(myGarbageCollectCallbacks.begin()->second);
-        myGarbageCollectCallbacks.pop_front();
-    }
-}
-
-template <>
-void CommandContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
-{
-    if (!hasReached(timelineValue))
-    {
-        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-        waitInfo.flags = 0;
-        waitInfo.semaphoreCount = 1;
-        waitInfo.pSemaphores = &myCommandContextDesc.timelineSemaphore;
-        waitInfo.pValues = &timelineValue;
-
-        CHECK_VK(vkWaitSemaphores(myCommandContextDesc.deviceContext->getDevice(), &waitInfo, UINT64_MAX));
-    }
-}
-
-template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(
     CommandContext<GraphicsBackend::Vulkan>& other,
     const RenderPassBeginInfo<GraphicsBackend::Vulkan>* beginInfo)
 {
-	{
+    ZoneScopedN("execute");
+
+    {
 		auto cmd = commands();
 
 		vkCmdBeginRenderPass(cmd, beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
@@ -253,45 +286,84 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(
 
 template <>
 void CommandBufferArray<GraphicsBackend::Vulkan>::begin(
-    const CommandBufferBeginInfo<GraphicsBackend::Vulkan>* beginInfo) const
+    const CommandBufferBeginInfo<GraphicsBackend::Vulkan>* beginInfo)
 {
+    assert(!myBits.myIsInScope);
+    assert(myBits.myIndex < kCommandBufferCount);
+
     VkCommandBufferBeginInfo defaultBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     defaultBeginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    
+    CHECK_VK(vkBeginCommandBuffer(myCommandBufferArray[myBits.myIndex], beginInfo ? beginInfo : &defaultBeginInfo));
 
-    assert(myIndex < kCommandBufferCount);
-
-    CHECK_VK(vkBeginCommandBuffer(myCommandBufferArray[myIndex], beginInfo ? beginInfo : &defaultBeginInfo));
+    myBits.myIsInScope = true;
 }
 
 template <>
 bool CommandBufferArray<GraphicsBackend::Vulkan>::end()
 {
-    assert(myIndex < kCommandBufferCount);
+    assert(myBits.myIsInScope);
+    assert(myBits.myIndex < kCommandBufferCount);
 
-    CHECK_VK(vkEndCommandBuffer(myCommandBufferArray[myIndex]));
+    myBits.myIsInScope = false;
 
-    return (++myIndex == kCommandBufferCount);
+    CHECK_VK(vkEndCommandBuffer(myCommandBufferArray[myBits.myIndex]));
+
+    return (++myBits.myIndex == kCommandBufferCount);
 }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContextDesc<GraphicsBackend::Vulkan>&& desc)
 : myCommandContextDesc(std::move(desc))
 {
+    ZoneScopedN("CommandContext()");
+
     ++ourDebugCount;
 
     myUserData = command_vulkan::UserData();
+
+// disabled as shared_from_this() throws exception. called from the outside for now
+// #ifdef PROFILING_ENABLED 
+//     if (myCommandContextDesc.commandBufferLevel == 0)
+//         std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
+//             TracyVkContext(
+//                 myCommandContextDesc.deviceContext->getPhysicalDevice(),
+//                 myCommandContextDesc.deviceContext->getDevice(),
+//                 myCommandContextDesc.deviceContext->getPrimaryGraphicsQueue(),
+//                 commands());
+// #endif
 }
 
 template <>
 void CommandContext<GraphicsBackend::Vulkan>::clear()
 {
-    wait(myLastSubmitTimelineValue.value_or(0));
+    ZoneScopedN("commandContextClear");
+
+    {
+        ZoneScopedN("wait");
+
+        wait(myLastSubmitTimelineValue.value_or(0));
+    }
+
     collectGarbage();
 
-    myPendingCommands.clear();
-    mySubmittedCommands.clear();
-    myFreeCommands.clear();
-    myGarbageCollectCallbacks.clear();
+    {
+        ZoneScopedN("pending");
+        myPendingCommands.clear();
+    }
+    {
+        ZoneScopedN("submitted");
+        mySubmittedCommands.clear();
+    }
+    {
+        ZoneScopedN("free");
+        myFreeCommands.clear();        
+    }
+    {
+        ZoneScopedN("gbCallback");
+        myGarbageCollectCallbacks.clear();
+    }
+
     myLastSubmitTimelineValue.reset();
     myScratchMemory.clear();
 }
@@ -299,10 +371,13 @@ void CommandContext<GraphicsBackend::Vulkan>::clear()
 template <>
 CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 {
+    ZoneScopedN("~CommandContext()");
+
 #ifdef PROFILING_ENABLED
     if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
         TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
 #endif
+
     --ourDebugCount;
 }
 

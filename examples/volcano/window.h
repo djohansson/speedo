@@ -19,7 +19,7 @@ template <GraphicsBackend B>
 struct WindowDesc
 {
 	std::shared_ptr<DeviceContext<B>> deviceContext;
-    SemaphoreHandle<B> timelineSemaphore = 0;
+	SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
 	Extent2d<B> windowExtent = {};
 	Extent2d<B> framebufferExtent = {};
@@ -47,12 +47,13 @@ public:
 
 	const auto& getWindowDesc() const { return myWindowDesc; }
 	const auto& getSwapchainContext() const { return *mySwapchainContext; }
-	const auto& getDepthTexture() const { return *myDepthTexture; }
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
-	const auto& getFrames() const { return myFrames; }
 	const auto& getRenderPass() const { return myRenderPass; }
+
+	auto& depthTexture() { return *myDepthTexture; }
+	auto& frames() { return myFrames; }
 
 	void createFrameObjects(CommandContext<B>& commandContext);
 	void destroyFrameObjects();
@@ -69,7 +70,7 @@ public:
 
 private:
 
-	void drawIMGUI();
+	void renderIMGUI();
 	void updateViewBuffer(uint32_t frameIndex) const;
 
 	WindowDesc<B> myWindowDesc = {};

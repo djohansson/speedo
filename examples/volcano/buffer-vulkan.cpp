@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include <Tracy.hpp>
+
 template <>
 uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
@@ -30,6 +32,8 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
     : myBufferDesc(std::move(desc))
 {
+    ZoneScopedN("Buffer()");
+
     ++ourDebugCount;
 
     std::tie(myBuffer, myBufferMemory) = createBuffer(
@@ -44,8 +48,11 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
+    ZoneScopedN("~Buffer()");
+
     assert(!myBufferDesc.initialData);
 
+    // todo: put on command context delete queue?
     vmaDestroyBuffer(myBufferDesc.deviceContext->getAllocator(), myBuffer, myBufferMemory);
 
     --ourDebugCount;

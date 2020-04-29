@@ -31,6 +31,9 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
+#include <Tracy.hpp>
+
+
 namespace model
 {
 
@@ -302,6 +305,7 @@ Model<GraphicsBackend::Vulkan>::Model(
 		myModelDesc.debugName + "_indices"},
 	commandContext)
 {
+	ZoneScopedN("Model()");
 }
 
 template <>
@@ -310,11 +314,14 @@ Model<GraphicsBackend::Vulkan>::Model(
 	CommandContext<GraphicsBackend::Vulkan>& commandContext)
 	: Model(model::load(modelFile, commandContext.getCommandContextDesc().deviceContext), commandContext)
 {
+	ZoneScopedN("Model()");
 }
 
 template <>
 void Model<GraphicsBackend::Vulkan>::deleteInitialData()
 {
+	ZoneScopedN("deleteInitialData");
+
 	myVertexBuffer.deleteInitialData();
 	myIndexBuffer.deleteInitialData();
 }

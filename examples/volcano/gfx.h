@@ -99,8 +99,7 @@ template <GraphicsBackend B>
 bool isCacheValid(const PipelineCacheHeader<B>& header, const PhysicalDeviceProperties<B>& physicalDeviceProperties);
 
 template <GraphicsBackend B>
-std::tuple<SwapchainConfiguration<B>, std::optional<uint32_t>, PhysicalDeviceProperties<B>>
-getSuitableSwapchainAndQueueFamilyIndex(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
+PhysicalDeviceInfo<B> getPhysicalDeviceInfo(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
 
 template <GraphicsBackend B>
 std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile);

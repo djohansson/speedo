@@ -13,28 +13,50 @@ template <GraphicsBackend B>
 struct DeviceDesc
 {
     std::shared_ptr<InstanceContext<B>> instanceContext;
-    uint16_t commandBufferThreadCount = 2;
+    bool useCommandPoolReset = false;
+};
+
+template <GraphicsBackend B>
+struct SwapchainInfo
+{
+	SurfaceCapabilities<B> capabilities = {};
+	std::vector<SurfaceFormat<B>> formats;
+	std::vector<PresentMode<B>> presentModes;
 };
 
 template <GraphicsBackend B>
 struct SwapchainConfiguration
 {
-	SurfaceCapabilities<B> capabilities = {};
-	std::vector<SurfaceFormat<B>> formats;
-	std::vector<PresentMode<B>> presentModes;
-	uint8_t selectedFormatIndex = 0;
-	uint8_t selectedPresentModeIndex = 0;
-    uint8_t selectedImageCount = 2;
-	
-	const auto selectedFormat() const { return formats[selectedFormatIndex]; };
-	const auto selectedPresentMode() const { return presentModes[selectedPresentModeIndex]; };
+    SurfaceFormat<B> selectedFormat = {};
+	PresentMode<B> selectedPresentMode;
+	uint8_t selectedImageCount = 0;	
 };
 
-enum class QueueType : uint8_t
+template <GraphicsBackend B>
+struct PhysicalDeviceInfo
 {
-    Graphics,
-    Compute,
-    Transfer
+    SwapchainInfo<B> swapchainInfo = {};
+    PhysicalDeviceProperties<B> deviceProperties = {};
+    PhysicalDeviceFeautures<B> deviceFeatures = {};
+    std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
+    std::vector<uint32_t> queueFamilyPresentSupport;
+};
+
+enum QueueFamilyFlags : uint8_t
+{
+    Graphics = 1 << 0,
+    Compute = 1 << 1,
+    Transfer = 1 << 2,
+    Sparse = 1 << 3,
+    Present = 1 << 7,
+};
+
+template <GraphicsBackend B>
+struct QueueFamilyDesc
+{
+    std::vector<QueueHandle<B>> queues;
+    std::vector<std::vector<CommandPoolHandle<B>>> commandPools; // frameCount * queueCount
+    uint8_t flags = 0;
 };
 
 template <GraphicsBackend B>
@@ -48,32 +70,44 @@ public:
 
     const auto& getDeviceDesc() const { return myDeviceDesc; }
     const auto& getDevice() const { return myDevice; }
-    const auto& getPhysicalDevice() const { return myPhysicalDevice; }
-    const auto& getPhysicalDeviceProperties() const { return myPhysicalDeviceProperties; }
+    const auto& getPhysicalDevice() const { return myDeviceDesc.instanceContext->getPhysicalDevices()[myPhysicalDeviceIndex]; }
+    const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
+    auto getSelectedPhysicalDeviceIndex() const { return myPhysicalDeviceIndex; }
+
+    const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
+    uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
+    uint32_t getTransferQueueFamilyIndex() const { return myTransferQueueFamilyIndex; }
+    uint32_t getComputeQueueFamilyIndex() const { return myComputeQueueFamilyIndex; }
 
     // temp
-    const auto& getSelectedQueue() const { return mySelectedQueue; }
-    const auto& getSelectedQueueFamilyIndex() const { return mySelectedQueueFamilyIndex; }
+    QueueHandle<B> getPrimaryGraphicsQueue() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].queues[0]; }
+    QueueHandle<B> getPrimaryTransferQueue() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].queues[0]; }
+    QueueHandle<B> getPrimaryComputeQueue() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].queues[0]; }
+    const auto& getGraphicsCommandPools() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].commandPools; }
+    const auto& getTransferCommandPools() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].commandPools; }
+    const auto& getComputeCommandPools() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].commandPools; }
     //
 
     const auto& getSwapchainConfiguration() const { return mySwapchainConfiguration; }
+
     const auto& getAllocator() const { return myAllocator; }
     const auto& getDescriptorPool() const { return myDescriptorPool; }
-
-    const auto& getGraphicsCommandPools() const { return myGraphicsCommandPools; }
-    const auto& getTransferCommandPool() const { return myTransferCommandPool; }
 
 private:
 
     const DeviceDesc<B> myDeviceDesc = {};
+    std::vector<PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
+
     DeviceHandle<B> myDevice = 0;
-    PhysicalDeviceHandle<B> myPhysicalDevice = 0;
-    PhysicalDeviceProperties<B> myPhysicalDeviceProperties = {};
-    QueueHandle<B> mySelectedQueue = 0;
-    std::optional<uint32_t> mySelectedQueueFamilyIndex;
+    uint32_t myPhysicalDeviceIndex = 0;
+
+    std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
+    uint32_t myGraphicsQueueFamilyIndex = 0;
+    uint32_t myTransferQueueFamilyIndex = 1;
+    uint32_t myComputeQueueFamilyIndex = 2;
+
     SwapchainConfiguration<B> mySwapchainConfiguration = {};
+    
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
-    std::vector<CommandPoolHandle<B>> myGraphicsCommandPools;
-	CommandPoolHandle<B> myTransferCommandPool = 0;
 };

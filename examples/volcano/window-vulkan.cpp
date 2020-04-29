@@ -21,6 +21,7 @@
 
 #include <Tracy.hpp>
 
+
 extern template uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount;
 extern template uint32_t CommandContext<GraphicsBackend::Vulkan>::ourDebugCount;
 extern template uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount;
@@ -28,8 +29,10 @@ extern template uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount;
 extern template uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount;
 
 template <>
-void Window<GraphicsBackend::Vulkan>::drawIMGUI()
+void Window<GraphicsBackend::Vulkan>::renderIMGUI()
 {
+    ZoneScopedN("renderIMGUI");
+    
     using namespace ImGui;
 
     NewFrame();
@@ -143,7 +146,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 
     myRenderPass = createRenderPass(
         myWindowDesc.deviceContext->getDevice(),
-        myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat().format,
+        myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
         myDepthTexture->getTextureDesc().format);
 
     uint32_t imageCount;
@@ -161,20 +164,22 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
                 myWindowDesc.deviceContext,
                 myRenderPass,
                 myWindowDesc.framebufferExtent,
-                myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat().format,
+                myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
                 1,
                 &colorImages[frameIt], 
                 myDepthTexture->getTextureDesc().format,
                 myDepthTexture->getImage()},
             FrameDesc<GraphicsBackend::Vulkan>{
-                myWindowDesc.timelineSemaphore,
+                frameIt,
+                4,
+                myWindowDesc.timelineSemaphore, 
                 myWindowDesc.timelineValue});
 }
 
 template <>
 void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
 {
-    ZoneScopedN("destroyFrameObjects");
+    ZoneScopedN("windowDestroyFrameObjects");
 
     myFrames.clear();
     myFrameTimestamps.clear();
@@ -285,10 +290,10 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
     for (auto& commandContext : frame.commandContexts())
         commandContext->collectGarbage();
 
-    std::future<void> drawIMGUIFuture(std::async(std::launch::async, [this]
+    std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
     {
         if (myWindowDesc.imguiEnable)
-            drawIMGUI();
+            renderIMGUI();
     }));
 
     std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
@@ -320,128 +325,124 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
     clearValues[0] = myWindowDesc.clearValue;
     clearValues[1].depthStencil = {1.0f, 0};
 
-    // create secondary command buffers
+    // setup draw parameters
+    uint32_t drawCount = myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height;
+    uint32_t commandContextCount = static_cast<uint32_t>(frame.commandContexts().size());
+    uint32_t segmentCount = std::max<uint32_t>(std::min<int32_t>(drawCount, commandContextCount - 1), 0);
+
+    // draw geometry using secondary command buffers
     {
-        assert(myWindowDesc.deviceContext->getDeviceDesc().commandBufferThreadCount > 1);
+        ZoneScopedN("drawGeometry");
 
-        // setup draw parameters
-        uint32_t drawCount = myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height;
-        uint32_t segmentCount = std::max(static_cast<uint32_t>(frame.commandContexts().size()) - 1, 1u);
+        uint32_t segmentDrawCount = drawCount / segmentCount;
+        if (drawCount % segmentCount)
+            segmentDrawCount += 1;
 
-        assert(config.resources);
+        uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / myWindowDesc.splitScreenGrid.width;
+        uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / myWindowDesc.splitScreenGrid.height;
 
-        // draw geometry using secondary command buffers
-        {
-            ZoneScopedN("draw");
-
-            uint32_t segmentDrawCount = drawCount / segmentCount;
-            if (drawCount % segmentCount)
-                segmentDrawCount += 1;
-
-            uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / myWindowDesc.splitScreenGrid.width;
-            uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / myWindowDesc.splitScreenGrid.height;
-
-            std::array<uint32_t, 128> seq;
-            std::iota(seq.begin(), seq.begin() + segmentCount, 0);
-            std::for_each_n(
+        std::array<uint32_t, 128> seq;
+        std::iota(seq.begin(), seq.begin() + segmentCount, 0);
+        std::for_each_n(
 #if defined(__WINDOWS__)
-				std::execution::par,
+            std::execution::par,
 #endif
-                seq.begin(), segmentCount,
-                [this, &config, frameIndex, &frame, &dx, &dy, &drawCount, &segmentDrawCount](uint32_t segmentIt)
-                {
-                    ZoneScoped;
+            seq.begin(), segmentCount,
+            [this, &config, &frame, &dx, &dy, &drawCount, &segmentDrawCount](uint32_t segmentIt)
+            {
+                ZoneScoped;
 
-                    static constexpr std::string_view drawSegmentStr = "drawSegment";
-                    char drawSegmentWithNumberStr[drawSegmentStr.size()+2];
-                    sprintf_s(drawSegmentWithNumberStr, sizeof(drawSegmentWithNumberStr), "%.*s%u",
-                        static_cast<int>(drawSegmentStr.size()), drawSegmentStr.data(), segmentIt);
+                static constexpr std::string_view drawSegmentStr = "drawSegment";
+                char drawSegmentWithNumberStr[drawSegmentStr.size()+3];
+                sprintf_s(drawSegmentWithNumberStr, sizeof(drawSegmentWithNumberStr), "%.*s%u",
+                    static_cast<int>(drawSegmentStr.size()), drawSegmentStr.data(), segmentIt);
 
-                    ZoneName(drawSegmentWithNumberStr, sizeof_array(drawSegmentWithNumberStr));
-                    
-                    CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-                    inherit.renderPass = myRenderPass;
-                    inherit.framebuffer = frame.getFrameBuffer();
-
-                    CommandBufferBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-                    secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
-                                        VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-                    secBeginInfo.pInheritanceInfo = &inherit;
-                        
-                    auto& commandContext = *frame.commandContexts()[segmentIt + 1];
-                    auto cmd = commandContext.beginEndScope(&secBeginInfo);
-
-                    // TracyVkZone(
-                    //     commandContext.userData<command_vulkan::UserData>().tracyContext,
-                    //     cmd, drawSegmentStr.data());
+                ZoneName(drawSegmentWithNumberStr, sizeof_array(drawSegmentWithNumberStr));
                 
-                    // bind pipeline and inputs
-                    {
-                        
-                        // bind pipeline and vertex/index buffers
-                        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
+                CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+                inherit.renderPass = myRenderPass;
+                inherit.framebuffer = frame.getFrameBuffer();
 
-                        VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
-                        VkDeviceSize vertexOffsets[] = {0};
+                CommandBufferBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+                secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
+                                    VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+                secBeginInfo.pInheritanceInfo = &inherit;
+                    
+                auto& commandContext = *frame.commandContexts()[segmentIt + 1];
+                auto cmd = commandContext.beginEndScope(&secBeginInfo);
 
-                        vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                        vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                    }
+                // TracyVkZone(
+                //     commandContext.userData<command_vulkan::UserData>().tracyContext,
+                //     cmd, drawSegmentStr.data());
+            
+                // bind pipeline and inputs
+                {
+                    
+                    // bind pipeline and vertex/index buffers
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                    for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
-                    {
-                        uint32_t n = segmentIt * segmentDrawCount + drawIt;
+                    VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
+                    VkDeviceSize vertexOffsets[] = {0};
 
-                        if (n >= drawCount)
-                            break;
+                    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
+                    vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                }
 
-                        uint32_t i = n % myWindowDesc.splitScreenGrid.width;
-                        uint32_t j = n / myWindowDesc.splitScreenGrid.width;
+                for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
+                {
+                    uint32_t n = segmentIt * segmentDrawCount + drawIt;
 
-                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
-                                                        int32_t width, int32_t height) {
-                            VkViewport viewport = {};
-                            viewport.x = static_cast<float>(x);
-                            viewport.y = static_cast<float>(y);
-                            viewport.width = static_cast<float>(width);
-                            viewport.height = static_cast<float>(height);
-                            viewport.minDepth = 0.0f;
-                            viewport.maxDepth = 1.0f;
+                    if (n >= drawCount)
+                        break;
 
-                            VkRect2D scissor = {};
-                            scissor.offset = {x, y};
-                            scissor.extent = {static_cast<uint32_t>(width),
-                                            static_cast<uint32_t>(height)};
+                    uint32_t i = n % myWindowDesc.splitScreenGrid.width;
+                    uint32_t j = n / myWindowDesc.splitScreenGrid.width;
 
-                            vkCmdSetViewport(cmd, 0, 1, &viewport);
-                            vkCmdSetScissor(cmd, 0, 1, &scissor);
-                        };
+                    auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
+                                                    int32_t width, int32_t height) {
+                        VkViewport viewport = {};
+                        viewport.x = static_cast<float>(x);
+                        viewport.y = static_cast<float>(y);
+                        viewport.width = static_cast<float>(width);
+                        viewport.height = static_cast<float>(height);
+                        viewport.minDepth = 0.0f;
+                        viewport.maxDepth = 1.0f;
 
-                        auto drawModel = [n, drawCount, frameIndex](
-                                            VkCommandBuffer cmd, uint32_t indexCount,
-                                            uint32_t descriptorSetCount,
-                                            const VkDescriptorSet* descriptorSets,
-                                            VkPipelineLayout pipelineLayout) {
-                            uint32_t viewBufferOffset = (frameIndex * drawCount + n) * sizeof(Window::ViewBufferData);
-                            vkCmdBindDescriptorSets(
-                                cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                                descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
-                            vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
-                        };
+                        VkRect2D scissor = {};
+                        scissor.offset = {x, y};
+                        scissor.extent = {static_cast<uint32_t>(width),
+                                        static_cast<uint32_t>(height)};
 
-                        setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+                        vkCmdSetViewport(cmd, 0, 1, &viewport);
+                        vkCmdSetScissor(cmd, 0, 1, &scissor);
+                    };
 
-                        drawModel(
-                            cmd, config.resources->model->getModelDesc().indexCount, config.descriptorSets.size(),
-                            config.descriptorSets.data(), config.layout->layout);
-                    }
-                });
-        }
+                    auto drawModel = [n, drawCount, &frame](
+                                        VkCommandBuffer cmd, uint32_t indexCount,
+                                        uint32_t descriptorSetCount,
+                                        const VkDescriptorSet* descriptorSets,
+                                        VkPipelineLayout pipelineLayout) {
+                        uint32_t viewBufferOffset = (frame.getFrameDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
+                        vkCmdBindDescriptorSets(
+                            cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
+                            descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
+                        vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+                    };
+
+                    setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+
+                    drawModel(
+                        cmd, config.resources->model->getModelDesc().indexCount, config.descriptorSets.size(),
+                        config.descriptorSets.data(), config.layout->layout);
+                }
+            });
     }
 
     auto& primaryCommandContext = *frame.commandContexts()[0];
 
     {
+        ZoneScopedN("executeCommands");
+
         auto primaryCommands = primaryCommandContext.beginEndScope();
 
         // call secondary command buffers
@@ -453,7 +454,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
 
-        for (uint32_t contextIt = 1; contextIt < frame.commandContexts().size(); contextIt++)
+        for (uint32_t contextIt = 1; contextIt <= segmentCount; contextIt++)
         {
 #ifdef PROFILING_ENABLED
             TracyVkZone(
@@ -469,7 +470,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
     {
         ZoneScopedN("waitIMGUI");
 
-        drawIMGUIFuture.get();
+        renderIMGUIFuture.get();
     }
 
     // Record Imgui Draw Data and draw funcs into primary command buffer
@@ -511,7 +512,7 @@ void Window<GraphicsBackend::Vulkan>::submitFrame(
 
         Flags<GraphicsBackend::Vulkan> waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         primaryCommandContext.submit({
-            myWindowDesc.deviceContext->getSelectedQueue(),
+            myWindowDesc.deviceContext->getPrimaryGraphicsQueue(),
             frame.getFence(),
             1,
             &frame.getRenderCompleteSemaphore(),
@@ -536,7 +537,7 @@ void Window<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) const
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchainContext->getSwapchain();
     info.pImageIndices = &frameIndex;
-    checkFlipOrPresentResult(vkQueuePresentKHR(myWindowDesc.deviceContext->getSelectedQueue(), &info));
+    checkFlipOrPresentResult(vkQueuePresentKHR(myWindowDesc.deviceContext->getPrimaryGraphicsQueue(), &info));
 }
 
 template <>
@@ -658,11 +659,15 @@ Window<GraphicsBackend::Vulkan>::Window(
     WindowDesc<GraphicsBackend::Vulkan>&& desc, CommandContext<GraphicsBackend::Vulkan>& commands)
 : myWindowDesc(std::move(desc))
 {
+    ZoneScopedN("Window()");
+
     createFrameObjects(commands);
 }
 
 template <>
 Window<GraphicsBackend::Vulkan>::~Window()
 {
+    ZoneScopedN("~Window()");
+
     destroyFrameObjects();
 }

@@ -43,21 +43,26 @@ private:
     friend class CommandBufferAccessScope<B, true>;
     friend class CommandBufferAccessScope<B, false>;
 
-    void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr) const;
+    void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr);
     bool end();
     void reset();
 
     const CommandBufferHandle<B>* data() const { return myCommandBufferArray; }
-    uint32_t index() const { return myIndex; }
+    uint8_t index() const { static_assert(kCommandBufferCount < 128); return myBits.myIndex; }
+    bool isInScope() const { static_assert(kCommandBufferCount < 128); return myBits.myIsInScope; }
     constexpr auto capacity() const { return kCommandBufferCount; }
     
-    operator CommandBufferHandle<B>() const { return myCommandBufferArray[myIndex]; }
+    operator CommandBufferHandle<B>() const { return myCommandBufferArray[myBits.myIndex]; }
 
     static constexpr uint32_t kCommandBufferCount = 8;
 
     CommandBufferArrayDesc<B> myArrayDesc = {};
     CommandBufferHandle<B> myCommandBufferArray[kCommandBufferCount] = { static_cast<CommandBufferHandle<B>>(0) };
-    uint32_t myIndex = 0;
+    struct Bits
+    {
+        uint8_t myIndex : 7;
+        uint8_t myIsInScope : 1;
+    } myBits = {};
 };
 
 template <GraphicsBackend B, bool CallBeginAndEnd>
@@ -137,6 +142,8 @@ public:
 
         return CommandBufferAccessScope<B, false>(myPendingCommands.back());
     }
+
+    bool empty() const { return myPendingCommands.empty(); }
 
     uint64_t execute(CommandContext<B>& other, const RenderPassBeginInfo<B>* beginInfo);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());

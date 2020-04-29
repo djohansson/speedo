@@ -2,10 +2,14 @@
 #include "gfx.h"
 #include "vk-utils.h"
 
+#include <Tracy.hpp>
+
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(RenderTargetDesc<GraphicsBackend::Vulkan>&& desc)
 : myRenderTargetDesc(std::move(desc))
 {
+    ZoneScopedN("RenderTarget()");
+
     std::vector<ImageViewHandle<GraphicsBackend::Vulkan>> attachments;
     
     for (uint32_t i = 0; i < myRenderTargetDesc.colorImageCount; i++)
@@ -45,6 +49,8 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(RenderTargetDesc<GraphicsBac
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
 {
+    ZoneScopedN("~RenderTarget()");
+
     for (const auto& colorView : myColorViews)
         vkDestroyImageView(myRenderTargetDesc.deviceContext->getDevice(), colorView, nullptr);
 

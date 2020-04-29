@@ -31,70 +31,47 @@ isCacheValid<GraphicsBackend::Vulkan>(
 }
 
 template <>
-std::tuple<SwapchainConfiguration<GraphicsBackend::Vulkan>, std::optional<uint32_t>, PhysicalDeviceProperties<GraphicsBackend::Vulkan>>
-getSuitableSwapchainAndQueueFamilyIndex<GraphicsBackend::Vulkan>(
+PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
 	SurfaceHandle<GraphicsBackend::Vulkan> surface,
 	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
-	SwapchainConfiguration<GraphicsBackend::Vulkan> swapchainConfig;
-
-	VkPhysicalDeviceProperties deviceProperties;
-	vkGetPhysicalDeviceProperties(device, &deviceProperties);
-
-	VkPhysicalDeviceFeatures deviceFeatures;
-	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-	assert(deviceFeatures.inheritedQueries);
-
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainConfig.capabilities);
+    PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
+	
+	vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties);
+	vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures);
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &deviceInfo.swapchainInfo.capabilities);
 
 	uint32_t formatCount;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
 	if (formatCount != 0)
 	{
-		swapchainConfig.formats.resize(formatCount);
+		deviceInfo.swapchainInfo.formats.resize(formatCount);
 		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-											 swapchainConfig.formats.data());
+											 deviceInfo.swapchainInfo.formats.data());
 	}
-
-	assert(!swapchainConfig.formats.empty());
 
 	uint32_t presentModeCount;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
 	if (presentModeCount != 0)
 	{
-		swapchainConfig.presentModes.resize(presentModeCount);
+		deviceInfo.swapchainInfo.presentModes.resize(presentModeCount);
 		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-												  swapchainConfig.presentModes.data());
+												  deviceInfo.swapchainInfo.presentModes.data());
 	}
 
-	assert(!swapchainConfig.presentModes.empty());
-
-	// if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-	if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+    if (queueFamilyCount != 0)
 	{
-		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        deviceInfo.queueFamilyProperties.resize(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, deviceInfo.queueFamilyProperties.data());
 
-		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
-
-		for (uint32_t i = 0; i < queueFamilies.size(); i++)
-		{
-			const auto& queueFamily = queueFamilies[i];
-
-			VkBool32 presentSupport = false;
-			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-
-			if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-				presentSupport)
-			{
-				return std::make_tuple(swapchainConfig, i, deviceProperties);
-			}
-		}
-	}
-
-	return std::make_tuple(swapchainConfig, std::nullopt, deviceProperties);
+        deviceInfo.queueFamilyPresentSupport.resize(queueFamilyCount);
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < queueFamilyCount; queueFamilyIt++)
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, queueFamilyIt, surface, &deviceInfo.queueFamilyPresentSupport[queueFamilyIt]);
+    }
+    
+	return deviceInfo;
 }
 
 template <>

@@ -156,116 +156,6 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	return layout;
 }
 
-VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool)
-{
-	VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-
-	VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-	cmdInfo.commandPool = commandPool;
-	cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	cmdInfo.commandBufferCount = 1;
-	CHECK_VK(vkAllocateCommandBuffers(device, &cmdInfo, &commandBuffer));
-
-	VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-	beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	CHECK_VK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
-
-	return commandBuffer;
-}
-
-VkSemaphore endSingleTimeCommands(
-	VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer)
-{
-	CHECK_VK(vkEndCommandBuffer(commandBuffer));
-	
-	VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
-	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-	timelineCreateInfo.initialValue = 0;
-
-	VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-	createInfo.pNext = &timelineCreateInfo;
-	createInfo.flags = 0;
-
-	VkSemaphore timelineSemaphore;
-	vkCreateSemaphore(device, &createInfo, nullptr, &timelineSemaphore);
-
-	VkSubmitInfo endInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-	endInfo.commandBufferCount = 1;
-	endInfo.pCommandBuffers = &commandBuffer;
-
-	const uint64_t commandsBeginWaitValue = 0;
-	const uint64_t commandsCompleteSignalValue = 1;
-
-	VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-	timelineInfo.waitSemaphoreValueCount = 1;
-	timelineInfo.pWaitSemaphoreValues = &commandsBeginWaitValue;
-	timelineInfo.signalSemaphoreValueCount = 1;
-	timelineInfo.pSignalSemaphoreValues = &commandsCompleteSignalValue;
-
-	VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-	submitInfo.pNext = &timelineInfo;
-	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &timelineSemaphore;
-	submitInfo.signalSemaphoreCount  = 1;
-	submitInfo.pSignalSemaphores = &timelineSemaphore;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer;
-
-	CHECK_VK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-	
-	// up to the caller to sync & clean up using the returned semaphore
-	return timelineSemaphore;
-}
-
-void endWaitSingleTimeCommands(
-	VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer, VkCommandPool commandPool)
-{
-	CHECK_VK(vkEndCommandBuffer(commandBuffer));
-
-	VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
-	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-	timelineCreateInfo.initialValue = 0;
-
-	VkSemaphoreCreateInfo createInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-	createInfo.pNext = &timelineCreateInfo;
-	createInfo.flags = 0;
-
-	VkSemaphore timelineSemaphore;
-	vkCreateSemaphore(device, &createInfo, NULL, &timelineSemaphore);
-
-	const uint64_t commandsBeginWaitValue = 0;
-	const uint64_t commandsCompleteSignalValue = 1;
-
-	VkTimelineSemaphoreSubmitInfo timelineInfo = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-	timelineInfo.waitSemaphoreValueCount = 1;
-	timelineInfo.pWaitSemaphoreValues = &commandsBeginWaitValue;
-	timelineInfo.signalSemaphoreValueCount = 1;
-	timelineInfo.pSignalSemaphoreValues = &commandsCompleteSignalValue;
-
-	VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-	submitInfo.pNext = &timelineInfo;
-	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &timelineSemaphore;
-	submitInfo.signalSemaphoreCount  = 1;
-	submitInfo.pSignalSemaphores = &timelineSemaphore;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer;
-
-	CHECK_VK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-
-	const uint64_t commandsCompleteWaitValue = commandsCompleteSignalValue;
-
-	VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-	waitInfo.flags = 0;
-	waitInfo.semaphoreCount = 1;
-	waitInfo.pSemaphores = &timelineSemaphore;
-	waitInfo.pValues = &commandsCompleteWaitValue;
-
-	CHECK_VK(vkWaitSemaphores(device, &waitInfo, UINT64_MAX));
-
-	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
-}
-
 void copyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	VkBufferCopy copyRegion = {};
@@ -353,7 +243,7 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
 
-	if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+	if (hasDepthComponent(format))
 	{
 		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
@@ -390,19 +280,149 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
 		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage =
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT; // wrong of accessed by another shader type
+		destinationStage = 
+		    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+			// VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+			// VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+			// VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	}
 	else if (
 		oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
 		newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
 	{
 		barrier.srcAccessMask = 0;
-		barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-								VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		barrier.dstAccessMask =
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_GENERAL &&
+		newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+	{
+		barrier.srcAccessMask = 
+			VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+			VK_ACCESS_INDEX_READ_BIT |
+			VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+			VK_ACCESS_UNIFORM_READ_BIT |
+			VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+			VK_ACCESS_SHADER_READ_BIT |
+			VK_ACCESS_SHADER_WRITE_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_TRANSFER_READ_BIT |
+			VK_ACCESS_TRANSFER_WRITE_BIT |
+			VK_ACCESS_HOST_READ_BIT |
+			VK_ACCESS_HOST_WRITE_BIT;
+		barrier.dstAccessMask =
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+		newLayout == VK_IMAGE_LAYOUT_GENERAL)
+	{
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = 
+			VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+			VK_ACCESS_INDEX_READ_BIT |
+			VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+			VK_ACCESS_UNIFORM_READ_BIT |
+			VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+			VK_ACCESS_SHADER_READ_BIT |
+			VK_ACCESS_SHADER_WRITE_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_TRANSFER_READ_BIT |
+			VK_ACCESS_TRANSFER_WRITE_BIT |
+			VK_ACCESS_HOST_READ_BIT |
+			VK_ACCESS_HOST_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+		newLayout == VK_IMAGE_LAYOUT_GENERAL)
+	{
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = 
+			VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+			VK_ACCESS_INDEX_READ_BIT |
+			VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+			VK_ACCESS_UNIFORM_READ_BIT |
+			VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+			VK_ACCESS_SHADER_READ_BIT |
+			VK_ACCESS_SHADER_WRITE_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_TRANSFER_READ_BIT |
+			VK_ACCESS_TRANSFER_WRITE_BIT |
+			VK_ACCESS_HOST_READ_BIT |
+			VK_ACCESS_HOST_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+		newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	{
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = 
+		    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+			// VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+			// VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+			// VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_GENERAL &&
+		newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+	{
+		barrier.srcAccessMask = 
+			VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+			VK_ACCESS_INDEX_READ_BIT |
+			VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+			VK_ACCESS_UNIFORM_READ_BIT |
+			VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+			VK_ACCESS_SHADER_READ_BIT |
+			VK_ACCESS_SHADER_WRITE_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_TRANSFER_READ_BIT |
+			VK_ACCESS_TRANSFER_WRITE_BIT |
+			VK_ACCESS_HOST_READ_BIT |
+			VK_ACCESS_HOST_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		destinationStage = 
+		    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+			// VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+			// VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+			// VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	}
 	else
 	{
@@ -434,8 +454,7 @@ void copyBufferToImage(
 }
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
-	VmaAllocator allocator,
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
+	VmaAllocator allocator, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
 	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
@@ -448,7 +467,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	imageInfo.format = format;
 	imageInfo.tiling = tiling;
 	imageInfo.usage = usage;
-	imageInfo.initialLayout = layout;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.flags = 0;
@@ -476,16 +495,13 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
-	// assert((width & 1) == 0);
-	// assert((height & 1) == 0);
-
     VkImage outImage = VK_NULL_HANDLE;
     VmaAllocation outImageMemory = VK_NULL_HANDLE;
 
 	if (stagingBuffer != VK_NULL_HANDLE)
 	{
 		std::tie(outImage, outImageMemory) = createImage2D(
-			allocator, width, height, format, tiling, VK_IMAGE_LAYOUT_UNDEFINED, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			allocator, width, height, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			memoryFlags, debugName);
 
 		transitionImageLayout(
@@ -499,7 +515,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	else
 	{
 		std::tie(outImage, outImageMemory) = createImage2D(
-			allocator, width, height, format, tiling, VK_IMAGE_LAYOUT_UNDEFINED, usage,
+			allocator, width, height, format, tiling, usage,
 			memoryFlags, debugName);
 
 		transitionImageLayout(

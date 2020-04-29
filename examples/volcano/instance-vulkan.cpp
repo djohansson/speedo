@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <vector>
 
+#include <Tracy.hpp>
+
 namespace instance_vulkan
 {
 
@@ -60,6 +62,8 @@ template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsBackend::Vulkan>&& desc)
 : myInstanceDesc(std::move(desc))
 {
+    ZoneScopedN("Instance()");
+
 #ifdef _DEBUG
 	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
 	if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
@@ -168,6 +172,8 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
 template <>
 InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
 {
+    ZoneScopedN("~Instance()");
+
 #ifdef PROFILING_ENABLED
     auto vkDestroyDebugUtilsMessengerEXT =
         (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");

@@ -35,13 +35,6 @@ VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const VkDescrip
 std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,
 													const VkDescriptorSetLayout* layouts, uint32_t layoutCount);
 
-VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool);
-
-VkSemaphore endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandBuffer commandBuffer);
-
-void endWaitSingleTimeCommands(VkDevice device, VkQueue queue,
-	VkCommandBuffer commandBuffer, VkCommandPool commandPool);
-
 void copyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
 std::tuple<VkBuffer, VmaAllocation> createBuffer(
@@ -62,8 +55,7 @@ void copyBufferToImage(
 	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
-	VmaAllocator allocator,
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
+	VmaAllocator allocator, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 std::tuple<VkImage, VmaAllocation> createImage2D(

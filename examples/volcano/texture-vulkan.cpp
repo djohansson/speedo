@@ -21,6 +21,9 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
+#include <Tracy.hpp>
+
+
 template <>
 uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
@@ -155,6 +158,8 @@ TextureDesc<GraphicsBackend::Vulkan> load(
 template <>
 void Texture<GraphicsBackend::Vulkan>::deleteInitialData()
 {
+    ZoneScopedN("deleteInitialData");
+
     vmaDestroyBuffer(myTextureDesc.deviceContext->getAllocator(), myTextureDesc.initialData, myTextureDesc.initialDataMemory);
     myTextureDesc.initialData = 0;
     myTextureDesc.initialDataMemory = 0;
@@ -168,11 +173,28 @@ Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspe
 }
 
 template <>
+void Texture<GraphicsBackend::Vulkan>::transition(
+    CommandBufferHandle<GraphicsBackend::Vulkan> commands,
+    ImageLayout<GraphicsBackend::Vulkan> layout)
+{
+    if (myImageLayout != layout)
+    {
+        transitionImageLayout(commands, myImage, myTextureDesc.format, myImageLayout, layout);
+        myImageLayout = layout;
+    }
+}
+
+template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     TextureDesc<GraphicsBackend::Vulkan>&& desc,
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
     : myTextureDesc(std::move(desc))
+    , myImageLayout(VK_IMAGE_LAYOUT_GENERAL)
 {
+    ZoneScopedN("Texture()");
+
+    ++ourDebugCount;
+
     std::tie(myImage, myImageMemory) = createImage2D(
         commandContext.commands(),
         myTextureDesc.deviceContext->getAllocator(),
@@ -181,7 +203,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         myTextureDesc.extent.height,
         myTextureDesc.format, 
         VK_IMAGE_TILING_OPTIMAL,
-        hasDepthComponent(myTextureDesc.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        myImageLayout,
         myTextureDesc.usage,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         myTextureDesc.debugName.c_str());
@@ -196,12 +218,18 @@ Texture<GraphicsBackend::Vulkan>::Texture(
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
     : Texture(texture::load(textureFile, commandContext.getCommandContextDesc().deviceContext), commandContext)
 {
+    ZoneScopedN("Texture()");
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
+    ZoneScopedN("~Texture()");
+
     assert(!myTextureDesc.initialData);
-        
+    
+    // todo: put on command context delete queue?
     vmaDestroyImage(myTextureDesc.deviceContext->getAllocator(), myImage, myImageMemory);
+
+    --ourDebugCount;
 }

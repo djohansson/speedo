@@ -2,6 +2,8 @@
 #include "command-vulkan.h"
 #include "vk-utils.h"
 
+#include <Tracy.hpp>
+
 template <>
 uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
@@ -35,6 +37,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 : RenderTarget<GraphicsBackend::Vulkan>(std::move(renderTargetDesc))
 , myFrameDesc(std::move(frameDesc))
 {
+    ZoneScopedN("Frame()");
+
     ++ourDebugCount;
 
     VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
@@ -47,12 +51,16 @@ Frame<GraphicsBackend::Vulkan>::Frame(
     CHECK_VK(vkCreateSemaphore(
         myRenderTargetDesc.deviceContext->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 
-    for (uint32_t poolIt = 0; poolIt < myRenderTargetDesc.deviceContext->getGraphicsCommandPools().size(); poolIt++)
+    const auto& frameCommandPools = myRenderTargetDesc.deviceContext->getGraphicsCommandPools()[myFrameDesc.index];
+
+    uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myFrameDesc.maxCommandContextCount);
+    myCommandContexts.reserve(commandContextCount);
+    for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
     {
         myCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
             CommandContextDesc<GraphicsBackend::Vulkan>{
                 myRenderTargetDesc.deviceContext,
-                myRenderTargetDesc.deviceContext->getGraphicsCommandPools()[poolIt],
+                frameCommandPools[poolIt],
                 static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
                 myFrameDesc.timelineSemaphore,
                 myFrameDesc.timelineValue}));
@@ -63,7 +71,7 @@ Frame<GraphicsBackend::Vulkan>::Frame(
         TracyVkContext(
             myRenderTargetDesc.deviceContext->getPhysicalDevice(),
             myRenderTargetDesc.deviceContext->getDevice(),
-            myRenderTargetDesc.deviceContext->getSelectedQueue(),
+            myRenderTargetDesc.deviceContext->getPrimaryGraphicsQueue(),
             myCommandContexts[0]->commands());        
 #endif
 }
@@ -71,6 +79,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 template <>
 Frame<GraphicsBackend::Vulkan>::~Frame()
 {
+    ZoneScopedN("~Frame()");
+
     --ourDebugCount;
 
     for (auto& commandContext : myCommandContexts)

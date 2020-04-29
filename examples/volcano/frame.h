@@ -11,6 +11,8 @@
 template <GraphicsBackend B>
 struct FrameDesc
 {
+	uint32_t index = 0;
+	uint32_t maxCommandContextCount = 4;
 	SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
 };

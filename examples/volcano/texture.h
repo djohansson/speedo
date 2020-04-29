@@ -37,8 +37,11 @@ public:
     const auto& getTextureDesc() const { return myTextureDesc; }
     const auto& getImage() const { return myImage; }
     const auto& getImageMemory() const { return myImageMemory; }
+    const auto& getImageLayout() const { return myImageLayout; }
 
     ImageViewHandle<B> createView(Flags<B> aspectFlags) const;
+
+    void transition(CommandBufferHandle<GraphicsBackend::Vulkan> commands, ImageLayout<B> layout);
     
 private:
 
@@ -48,5 +51,6 @@ private:
     TextureDesc<B> myTextureDesc = {};
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
+    ImageLayout<B> myImageLayout = {};
     //
 };

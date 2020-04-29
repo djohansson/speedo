@@ -37,6 +37,9 @@ template <GraphicsBackend B>
 using ImageHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkImage, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using ImageLayout = std::conditional_t<B == GraphicsBackend::Vulkan, VkImageLayout, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using AllocatorHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VmaAllocator, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -52,8 +55,7 @@ template <GraphicsBackend B>
 using SurfaceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using SurfaceFormat =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
+using SurfaceFormat = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceFormatKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using Format = std::conditional_t<B == GraphicsBackend::Vulkan, VkFormat, std::nullptr_t>;
@@ -62,16 +64,13 @@ template <GraphicsBackend B>
 using ColorSpace = std::conditional_t<B == GraphicsBackend::Vulkan, VkColorSpaceKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using PresentMode =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
+using PresentMode = std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using SurfaceCapabilities =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceCapabilitiesKHR, std::nullptr_t>;
+using SurfaceCapabilities = std::conditional_t<B == GraphicsBackend::Vulkan, VkSurfaceCapabilitiesKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using PresentMode =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkPresentModeKHR, std::nullptr_t>;
+using QueueFamilyProperties = std::conditional_t<B == GraphicsBackend::Vulkan, VkQueueFamilyProperties, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using SwapchainHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSwapchainKHR, std::nullptr_t>;
@@ -87,12 +86,13 @@ template <GraphicsBackend B>
 using DeviceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkDevice, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using PhysicalDeviceHandle =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDevice, std::nullptr_t>;
+using PhysicalDeviceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDevice, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using PhysicalDeviceProperties =
-	std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDeviceProperties, std::nullptr_t>;
+using PhysicalDeviceProperties = std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDeviceProperties, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PhysicalDeviceFeautures = std::conditional_t<B == GraphicsBackend::Vulkan, VkPhysicalDeviceFeatures, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using QueueHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkQueue, std::nullptr_t>;

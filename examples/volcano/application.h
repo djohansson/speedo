@@ -42,6 +42,7 @@
 #include <functional>
 #include <iostream>
 #include <locale>
+#include <queue>
 #include <stdexcept>
 #include <thread>
 #include <tuple>
@@ -81,7 +82,7 @@ public:
 
 private:
 
-	void initIMGUI(CommandContext<B>& commandContext, float dpiScaleX, float dpiScaleY) const;
+	void initIMGUI(CommandContext<B>& commandContext) const;
 
 	void createFrameObjects(CommandContext<B>& commandContext);
 	void destroyFrameObjects();
@@ -94,7 +95,7 @@ private:
 	//
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
-	std::shared_ptr<DeviceContext<B>> myGraphicsDevice;
+	std::shared_ptr<DeviceContext<B>> myDevice;
 	
 	std::shared_ptr<Window<B>> myWindow;
 	uint32_t myLastFrameIndex = 0;
@@ -115,7 +116,7 @@ private:
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
 
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
-	FenceHandle<B> myLastTransferSubmitFence = 0;
+	std::queue<FenceHandle<B>> myTransferSubmitFences;
 	
 	uint64_t myAppTransferTimelineValue = 0;
 
