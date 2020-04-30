@@ -50,8 +50,8 @@ namespace Slang
 
 #ifdef _MSC_VER
 #   define SLANG_RETURN_NEVER __declspec(noreturn)
-//#elif SLANG_CLANG
-//#   define SLANG_RETURN_NEVER [[noreturn]]
+#elif SLANG_CLANG
+#   define SLANG_RETURN_NEVER
 #else
 #   define SLANG_RETURN_NEVER [[noreturn]]
 //#   define SLANG_RETURN_NEVER /* empty */

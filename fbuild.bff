@@ -192,6 +192,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	^RootObjectLists + .SlangObjectList
 
+#if __WINDOWS__
 	.GfxUnity = 
 	[
 		.UnityInputPath = '$RootPath$/tools/gfx'
@@ -222,6 +223,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.CompilerInputUnity = '$Name$-unity'
 	]
 	^RootObjectLists + .GfxObjectList
+#endif
 
 	.SlangCObjectList = 
 	[
@@ -272,6 +274,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/common/tracy_lz4.cpp'
 			'$RootPath$/external/tracy/common/tracy_lz4hc.cpp'
 			'$RootPath$/external/tracy/server/TracyBadVersion.cpp'
+			'$RootPath$/external/tracy/server/TracyColor.cpp'
+			'$RootPath$/external/tracy/server/TracyFilesystem.cpp'
 			'$RootPath$/external/tracy/server/TracyMemory.cpp'
 			'$RootPath$/external/tracy/server/TracyMmap.cpp'
 			'$RootPath$/external/tracy/server/TracyPrint.cpp'
@@ -313,6 +317,9 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
 		.CompilerInputUnity = '$Name$-unity'
+		.CompilerInputFiles = {
+			'$RootPath$/external/tracy/server/TracyMicroArchitecture.cpp'
+		}
 	]
 	^RootObjectLists + .TracyObjectList
 
@@ -781,11 +788,11 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.RootDependencies = {
 			'core-obj',
 			'slang-obj',
-			'gfx-obj',
 		}
 		.DLLLinkerOptions = .LinkerOptionsCpp 
 			+ ' -shared'
 	#if __WINDOWS__
+		.RootDependencies +	'gfx-obj'
 		.DLLLinkerOptions + ' -lshell32'
 			+ ' -lgdi32'
 			+ ' -ladvapi32'
@@ -869,6 +876,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	#endif //__WINDOWS__
 	#if __OSX__
 		 .ExecutableLinkerOptions + ' -lvulkan'
+		 	+ ' -lcapstone'
 			+ ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
@@ -877,6 +885,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 	]
 	^RootExecutables + .TracyExecutable
 
+#if __WINDOWS__
 	.HelloWorldExecutable = 
 	[
 		Using(.ExecutableCommon)
@@ -887,9 +896,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'hello-world-obj',
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
-	#if __WINDOWS__
 		.ExecutableLinkerOptions + ' -lgdi32'
-	#endif //__WINDOWS__
 	]
 	^RootExecutables + .HelloWorldExecutable
 
@@ -908,14 +915,13 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
-	#if __WINDOWS__
 		.ExecutableLinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'
 			+ ' -lshell32'
 			+ ' -lvulkan-1'
-	#endif //__WINDOWS__
 	]
 	^RootExecutables + .ModelViewerExecutable
+#endif
 
 	.VolcanoExecutable = 
 	[
@@ -944,8 +950,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -lole32'
 	#endif //__WINDOWS__
 	#if __OSX__
-		.ExecutableLinkerOptions + ' -lc++fs'
-			+ ' -lvulkan'
+		.ExecutableLinkerOptions + ' -lvulkan'
 			+ ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'

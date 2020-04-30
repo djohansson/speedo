@@ -3,6 +3,8 @@
 #include "gfx.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 #if defined(__WINDOWS__)
 #include <execution>
 #endif
