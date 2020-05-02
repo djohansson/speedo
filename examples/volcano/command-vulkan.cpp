@@ -69,13 +69,13 @@ CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
 template <>
 void CommandBufferArray<GraphicsBackend::Vulkan>::reset()
 {
-    assert(!myBits.myIsInScope);
-    assert(myBits.myIndex < kCommandBufferCount);
+    assert(!myBits.myRecording);
+    assert(myBits.myHead < kCommandBufferCount);
     
-    for (uint32_t i = 0; i <= myBits.myIndex; i++)
+    for (uint32_t i = 0; i <= myBits.myHead; i++)
         CHECK_VK(vkResetCommandBuffer(myCommandBufferArray[i], 0));
 
-    myBits.myIndex = 0;
+    myBits.myHead = 0;
 }
 
 
@@ -104,7 +104,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
         auto freeBeginIt = mySubmittedCommands.begin();
         auto freeEndIt = freeBeginIt;
 
-        if (!myCommandContextDesc.deviceContext->getDeviceDesc().useCommandPoolReset)
+        if (!myCommandContextDesc.deviceContext->getDeviceDesc().useCommandPoolReset.value_or(false))
         {
             ZoneScopedN("reset");
 
@@ -149,7 +149,7 @@ void CommandContext<GraphicsBackend::Vulkan>::collectGarbage(
         myGarbageCollectCallbacks.pop_front();
     }
 
-    if (myCommandContextDesc.deviceContext->getDeviceDesc().useCommandPoolReset)
+    if (myCommandContextDesc.deviceContext->getDeviceDesc().useCommandPoolReset.value_or(false))
     {
         ZoneScopedN("poolReset");
 
@@ -242,7 +242,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     for (auto& cmd : myPendingCommands)
     {
-        assert(!cmd.isInScope());
+        assert(!cmd.recording());
 
         VkTimelineSemaphoreSubmitInfo& timelineInfo = *timelineSemaphoreSubmitInfoPtr++;
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -260,7 +260,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         vkSubmitInfo.pWaitDstStageMask = waitDstStageMasksBegin;
         vkSubmitInfo.signalSemaphoreCount  = signalSemaphoreCount;
         vkSubmitInfo.pSignalSemaphores = signalSemaphoresBegin;
-        vkSubmitInfo.commandBufferCount = cmd.index();
+        vkSubmitInfo.commandBufferCount = cmd.size();
         vkSubmitInfo.pCommandBuffers = cmd.data();
     }
 
@@ -288,7 +288,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(
 		vkCmdBeginRenderPass(cmd, beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 		for (const auto& secPendingCommands : other.myPendingCommands)
-			vkCmdExecuteCommands(cmd, secPendingCommands.index(), secPendingCommands.data());
+			vkCmdExecuteCommands(cmd, secPendingCommands.size(), secPendingCommands.data());
 
 		vkCmdEndRenderPass(cmd);
 	}
@@ -305,28 +305,28 @@ template <>
 void CommandBufferArray<GraphicsBackend::Vulkan>::begin(
     const CommandBufferBeginInfo<GraphicsBackend::Vulkan>* beginInfo)
 {
-    assert(!myBits.myIsInScope);
-    assert(myBits.myIndex < kCommandBufferCount);
+    assert(!myBits.myRecording);
+    assert(myBits.myHead < kCommandBufferCount);
 
     VkCommandBufferBeginInfo defaultBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     defaultBeginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     
-    CHECK_VK(vkBeginCommandBuffer(myCommandBufferArray[myBits.myIndex], beginInfo ? beginInfo : &defaultBeginInfo));
+    CHECK_VK(vkBeginCommandBuffer(myCommandBufferArray[myBits.myHead], beginInfo ? beginInfo : &defaultBeginInfo));
 
-    myBits.myIsInScope = true;
+    myBits.myRecording = true;
 }
 
 template <>
 bool CommandBufferArray<GraphicsBackend::Vulkan>::end()
 {
-    assert(myBits.myIsInScope);
-    assert(myBits.myIndex < kCommandBufferCount);
+    assert(myBits.myRecording);
+    assert(myBits.myHead < kCommandBufferCount);
 
-    myBits.myIsInScope = false;
+    myBits.myRecording = false;
 
-    CHECK_VK(vkEndCommandBuffer(myCommandBufferArray[myBits.myIndex]));
+    CHECK_VK(vkEndCommandBuffer(myCommandBufferArray[myBits.myHead]));
 
-    return (++myBits.myIndex == kCommandBufferCount);
+    return (++myBits.myHead == kCommandBufferCount);
 }
 
 template <>

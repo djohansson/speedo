@@ -47,12 +47,13 @@ private:
     bool end();
     void reset();
 
-    const CommandBufferHandle<B>* data() const { return myCommandBufferArray; }
-    uint8_t index() const { static_assert(kCommandBufferCount < 128); return myBits.myIndex; }
-    bool isInScope() const { static_assert(kCommandBufferCount < 128); return myBits.myIsInScope; }
+    const CommandBufferHandle<B>* data() const { assert(!recording()); return myCommandBufferArray; }
+    uint8_t size() const { static_assert(kCommandBufferCount < 128); assert(!recording()); return myBits.myHead; }
+    bool recording() const { return myBits.myRecording; }
+    bool full() const { return (size() + 1) >= capacity(); }
     constexpr auto capacity() const { return kCommandBufferCount; }
     
-    operator CommandBufferHandle<B>() const { return myCommandBufferArray[myBits.myIndex]; }
+    operator CommandBufferHandle<B>() const { return myCommandBufferArray[myBits.myHead]; }
 
     static constexpr uint32_t kCommandBufferCount = 8;
 
@@ -60,8 +61,8 @@ private:
     CommandBufferHandle<B> myCommandBufferArray[kCommandBufferCount] = { static_cast<CommandBufferHandle<B>>(0) };
     struct Bits
     {
-        uint8_t myIndex : 7;
-        uint8_t myIsInScope : 1;
+        uint8_t myHead : 7;
+        uint8_t myRecording : 1;
     } myBits = {};
 };
 
@@ -129,7 +130,7 @@ public:
 
     auto beginEndScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
     {
-        if (myPendingCommands.empty() || ((myPendingCommands.back().index() + 1) == myPendingCommands.back().capacity()))
+        if (myPendingCommands.empty() || myPendingCommands.back().full())
             enqueueOnePending();
 
         return CommandBufferAccessScope<B, true>(myPendingCommands.back(), beginInfo);
@@ -137,7 +138,7 @@ public:
     
     auto commands()
     {
-        if (myPendingCommands.empty() || ((myPendingCommands.back().index() + 1) == myPendingCommands.back().capacity()))
+        if (myPendingCommands.empty())
             enqueueOnePending();
 
         return CommandBufferAccessScope<B, false>(myPendingCommands.back());

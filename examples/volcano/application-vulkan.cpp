@@ -176,22 +176,33 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     assert(std::filesystem::is_directory(myResourcePath));
     assert(std::filesystem::is_directory(myUserProfilePath));
 
-    std::filesystem::path graphicsConfigFile(std::filesystem::absolute(myUserProfilePath / ".profile" / "gfx-config.json"));
+    std::filesystem::path instanceConfigFile(std::filesystem::absolute(myUserProfilePath / ".profile" / "instance.json"));
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         InstanceDesc<GraphicsBackend::Vulkan>{
             ScopedJSONFileObject<InstanceCreateDesc<GraphicsBackend::Vulkan>>(
-                graphicsConfigFile,
-                "instanceCreateDesc"),
+                instanceConfigFile,
+                "InstanceCreateDesc"),
             view});
 
+    const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
+    if (graphicsDeviceCandidates.empty())
+        throw std::runtime_error("failed to find a suitable GPU!");
+
+    std::filesystem::path deviceConfigFile(std::filesystem::absolute(myUserProfilePath / ".profile" / "device .json"));
+
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
-        DeviceDesc<GraphicsBackend::Vulkan>{myInstance, false});
+        DeviceDesc<GraphicsBackend::Vulkan>{
+            ScopedJSONFileObject<DeviceCreateDesc<GraphicsBackend::Vulkan>>(
+                deviceConfigFile,
+                "DeviceCreateDesc",
+                graphicsDeviceCandidates.front().first),
+            myInstance});
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
         std::filesystem::absolute(myUserProfilePath / ".profile" / "pipeline.cache"),
         myDevice->getDevice(),
-        myDevice->getPhysicalDeviceInfos()[myDevice->getSelectedPhysicalDeviceIndex()].deviceProperties);
+        myInstance->getPhysicalDeviceInfos()[myDevice->getDeviceDesc().physicalDeviceIndex.value_or(0)].deviceProperties);
 
     myDefaultResources = std::make_shared<GraphicsPipelineResourceView<GraphicsBackend::Vulkan>>();
     myDefaultResources->sampler = createTextureSampler(myDevice->getDevice());
@@ -205,8 +216,10 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     timelineCreateInfo.initialValue = 0;
 
+    bool useTimelineSemaphores = myDevice->getDeviceDesc().useTimelineSemaphores.value_or(false);
+
     VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    semaphoreCreateInfo.pNext = &timelineCreateInfo;
+    semaphoreCreateInfo.pNext = useTimelineSemaphores ? &timelineCreateInfo : nullptr;
     semaphoreCreateInfo.flags = 0;
 
     CHECK_VK(vkCreateSemaphore(
@@ -222,8 +235,8 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             myDevice,
             myDevice->getTransferCommandPools()[0][0],
             VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            myTimelineSemaphore,
-            myTimelineValue});
+            useTimelineSemaphores ? myTimelineSemaphore : 0,
+            useTimelineSemaphores ? myTimelineValue : nullptr});
     {
         {
             auto transferCommands = myTransferCommandContext->beginEndScope();
@@ -408,7 +421,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
     savePipelineCache<GraphicsBackend::Vulkan>(
         userProfilePath / "pipeline.cache",
         myDevice->getDevice(),
-        myDevice->getPhysicalDeviceInfos()[myDevice->getSelectedPhysicalDeviceIndex()].deviceProperties,
+        myInstance->getPhysicalDeviceInfos()[myDevice->getDeviceDesc().physicalDeviceIndex.value_or(0)].deviceProperties,
         myPipelineCache);
 
     ImGui_ImplVulkan_Shutdown();
