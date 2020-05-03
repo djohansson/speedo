@@ -81,11 +81,11 @@ calculateInputBindingDescriptions(
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-ModelDesc<GraphicsBackend::Vulkan> load(
+ModelCreateDesc<GraphicsBackend::Vulkan> load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
-	ModelDesc<GraphicsBackend::Vulkan> desc = {};
+	ModelCreateDesc<GraphicsBackend::Vulkan> desc = {};
 	desc.deviceContext = deviceContext;
 	desc.debugName = modelFile.u8string();
 	
@@ -282,27 +282,27 @@ ModelDesc<GraphicsBackend::Vulkan> load(
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
-	ModelDesc<GraphicsBackend::Vulkan>&& desc,
+	ModelCreateDesc<GraphicsBackend::Vulkan>&& desc,
 	CommandContext<GraphicsBackend::Vulkan>& commandContext)
-: myModelDesc(std::move(desc))
-, myBindings(model::calculateInputBindingDescriptions(myModelDesc.attributes))
+: myDesc(std::move(desc))
+, myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
 , myVertexBuffer({
-		myModelDesc.deviceContext,
-		myModelDesc.vertexBufferSize,
+		myDesc.deviceContext,
+		myDesc.vertexBufferSize,
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		myModelDesc.initialVertices,
-		myModelDesc.initialVerticesMemory,
-		myModelDesc.debugName + "_vertices"},
+		myDesc.initialVertices,
+		myDesc.initialVerticesMemory,
+		myDesc.debugName + "_vertices"},
 	commandContext)
 , myIndexBuffer({
-		myModelDesc.deviceContext,
-		myModelDesc.indexBufferSize,
+		myDesc.deviceContext,
+		myDesc.indexBufferSize,
 		VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		myModelDesc.initialIndices,
-		myModelDesc.initialIndicesMemory,
-		myModelDesc.debugName + "_indices"},
+		myDesc.initialIndices,
+		myDesc.initialIndicesMemory,
+		myDesc.debugName + "_indices"},
 	commandContext)
 {
 	ZoneScopedN("Model()");
@@ -312,7 +312,7 @@ template <>
 Model<GraphicsBackend::Vulkan>::Model(
 	const std::filesystem::path& modelFile,
 	CommandContext<GraphicsBackend::Vulkan>& commandContext)
-	: Model(model::load(modelFile, commandContext.getCommandContextDesc().deviceContext), commandContext)
+	: Model(model::load(modelFile, commandContext.getDesc().deviceContext), commandContext)
 {
 	ZoneScopedN("Model()");
 }

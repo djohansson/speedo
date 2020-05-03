@@ -13,13 +13,13 @@
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
-    DeviceDesc<GraphicsBackend::Vulkan>&& desc)
-    : myDeviceDesc(std::move(desc))
+    DeviceCreateDesc<GraphicsBackend::Vulkan>&& desc)
+    : myDesc(std::move(desc))
 {
     ZoneScopedN("DeviceContext()");
-    
+
     const auto& physicalDeviceInfo =
-        myDeviceDesc.instanceContext->getPhysicalDeviceInfos()[myDeviceDesc.physicalDeviceIndex.value_or(0)];
+        myDesc.instanceContext->getPhysicalDeviceInfos()[myDesc.physicalDeviceIndex];
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
     const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
@@ -122,7 +122,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     };
 
-    if (myDeviceDesc.useTimelineSemaphores.value_or(false))
+    if (myDesc.useTimelineSemaphores.value_or(false))
         requiredDeviceExtensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
 
     assert(std::includes(
@@ -137,7 +137,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     timelineFeatures.timelineSemaphore = VK_TRUE;
 
     VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    physicalDeviceFeatures2.pNext = myDeviceDesc.useTimelineSemaphores.value_or(false) ? &timelineFeatures : nullptr;
+    physicalDeviceFeatures2.pNext = myDesc.useTimelineSemaphores.value_or(false) ? &timelineFeatures : nullptr;
     physicalDeviceFeatures2.features = physicalDeviceFeatures;
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -151,7 +151,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
     VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    if (!myDeviceDesc.useCommandPoolReset.value_or(false))
+    if (!myDesc.useCommandPoolReset.value_or(false))
         cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
@@ -186,7 +186,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     }
 
     myAllocator = createAllocator<GraphicsBackend::Vulkan>(
-        myDeviceDesc.instanceContext->getInstance(),
+        myDesc.instanceContext->getInstance(),
         myDevice,
         getPhysicalDevice());
 

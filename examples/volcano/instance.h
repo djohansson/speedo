@@ -8,10 +8,10 @@
 
 
 template <GraphicsBackend B>
-struct InstanceCreateDesc
+struct InstanceConfiguration
 {
-    InstanceCreateDesc() = default;
-    InstanceCreateDesc(InstanceCreateDesc&& other)
+    InstanceConfiguration() = default;
+    InstanceConfiguration(InstanceConfiguration&& other)
     : applicationName(std::move(other.applicationName))
     , engineName(std::move(other.engineName))
     , appInfo(std::move(other.appInfo))
@@ -37,7 +37,7 @@ struct InstanceCreateDesc
 };
 
 template <GraphicsBackend B>
-struct InstanceDesc : ScopedJSONFileObject<InstanceCreateDesc<B>>
+struct InstanceCreateDesc : ScopedJSONFileObject<InstanceConfiguration<B>>
 {
     void* surfaceHandle = nullptr;
 };
@@ -66,10 +66,10 @@ class InstanceContext
 public:
 
     InstanceContext(InstanceContext&& other) = default;
-    InstanceContext(InstanceDesc<B>&& desc);
+    InstanceContext(InstanceCreateDesc<B>&& desc);
     ~InstanceContext();
 
-    const auto& getInstanceDesc() const { return myInstanceDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getInstance() const { return myInstance; }
     const auto& getSurface() const { return mySurface; }
     const auto& getPhysicalDevices() const { return myPhysicalDevices; }
@@ -78,7 +78,7 @@ public:
 
 private:
 
-    const InstanceDesc<B> myInstanceDesc;
+    const InstanceCreateDesc<B> myDesc;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;

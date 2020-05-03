@@ -10,20 +10,28 @@
 
 
 template <GraphicsBackend B>
-struct DeviceCreateDesc
+struct SwapchainConfiguration
 {
-    DeviceCreateDesc() = default;
-    DeviceCreateDesc(
+    SurfaceFormat<B> selectedFormat = {};
+	PresentMode<B> selectedPresentMode;
+	uint8_t selectedImageCount = 0;	
+};
+
+template <GraphicsBackend B>
+struct DeviceConfiguration
+{
+    DeviceConfiguration() = default;
+    DeviceConfiguration(
         uint32_t physicalDeviceIndex_)
     : physicalDeviceIndex(physicalDeviceIndex_)
     { }
-    DeviceCreateDesc(DeviceCreateDesc&& other)
+    DeviceConfiguration(DeviceConfiguration&& other)
     : physicalDeviceIndex(std::move(other.physicalDeviceIndex))
     , useCommandPoolReset(std::move(other.useCommandPoolReset))
     , useTimelineSemaphores(std::move(other.useTimelineSemaphores))
     { }
 
-    std::optional<uint32_t> physicalDeviceIndex;
+    uint32_t physicalDeviceIndex = 0;
     std::optional<bool> useCommandPoolReset;
     std::optional<bool> useTimelineSemaphores;
 
@@ -32,17 +40,9 @@ struct DeviceCreateDesc
 };
 
 template <GraphicsBackend B>
-struct DeviceDesc : ScopedJSONFileObject<DeviceCreateDesc<B>>
+struct DeviceCreateDesc : ScopedJSONFileObject<DeviceConfiguration<B>>
 {
     std::shared_ptr<InstanceContext<B>> instanceContext;
-};
-
-template <GraphicsBackend B>
-struct SwapchainConfiguration
-{
-    SurfaceFormat<B> selectedFormat = {};
-	PresentMode<B> selectedPresentMode;
-	uint8_t selectedImageCount = 0;	
 };
 
 enum QueueFamilyFlags : uint8_t
@@ -68,13 +68,13 @@ class DeviceContext
 public:
 
     DeviceContext(DeviceContext<B>&& other) = default;
-	DeviceContext(DeviceDesc<B>&& desc);
+	DeviceContext(DeviceCreateDesc<B>&& desc);
     ~DeviceContext();
 
-    const auto& getDeviceDesc() const { return myDeviceDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getDevice() const { return myDevice; }
     const auto& getPhysicalDevice() const
-    { return myDeviceDesc.instanceContext->getPhysicalDevices()[myDeviceDesc.physicalDeviceIndex.value_or(0)]; }
+    { return myDesc.instanceContext->getPhysicalDevices()[myDesc.physicalDeviceIndex]; }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
@@ -97,7 +97,7 @@ public:
 
 private:
 
-    const DeviceDesc<B> myDeviceDesc = {};
+    const DeviceCreateDesc<B> myDesc = {};
     SwapchainConfiguration<B> mySwapchainConfiguration = {};
 
     DeviceHandle<B> myDevice = 0;

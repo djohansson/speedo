@@ -7,7 +7,7 @@
 
 enum class ViewType : uint8_t { Perspective };
 
-struct ViewportDesc
+struct ViewportCreateDesc
 {
 	uint16_t x = 0;
 	uint16_t y = 0;
@@ -17,10 +17,10 @@ struct ViewportDesc
 	float maxDepth = 1.0f;
 };
 
-struct ViewDesc
+struct ViewCreateDesc
 {
 	ViewType type = ViewType::Perspective;
-	ViewportDesc viewport = {};
+	ViewportCreateDesc viewport = {};
 	glm::vec3 cameraPosition = glm::vec3(0.0f, -2.0f, 0.0f);
 	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0);
 };
@@ -30,8 +30,8 @@ class View
 public:
 
 	View() = default;
-	View(ViewDesc&& data)
-		: myViewDesc(std::move(data))
+	View(ViewCreateDesc&& data)
+		: myDesc(std::move(data))
 	{
 		updateAll();
 	}
@@ -39,7 +39,7 @@ public:
 	const auto& getViewMatrix() const { return myViewMatrix; }
 	const auto& getProjectionMatrix() const { return myProjectionMatrix; }
 
-	auto& viewDesc() { return myViewDesc; }
+	auto& desc() { return myDesc; }
 
 	void updateViewMatrix();
 	void updateProjectionMatrix();
@@ -52,7 +52,7 @@ public:
 
 private:
 
-    ViewDesc myViewDesc = {};
+    ViewCreateDesc myDesc = {};
 	glm::mat4x3 myViewMatrix = glm::mat4x3(1.0f);
 	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
 };

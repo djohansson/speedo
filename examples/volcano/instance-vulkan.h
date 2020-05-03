@@ -2,7 +2,7 @@
 
 template <>
 template <class Archive>
-void InstanceCreateDesc<GraphicsBackend::Vulkan>::load(Archive& archive)
+void InstanceConfiguration<GraphicsBackend::Vulkan>::load(Archive& archive)
 {
     archive(
         CEREAL_NVP(applicationName),
@@ -16,7 +16,7 @@ void InstanceCreateDesc<GraphicsBackend::Vulkan>::load(Archive& archive)
 
 template <>
 template <class Archive>
-void InstanceCreateDesc<GraphicsBackend::Vulkan>::save(Archive& archive) const
+void InstanceConfiguration<GraphicsBackend::Vulkan>::save(Archive& archive) const
 {
     archive(
         CEREAL_NVP(applicationName),

@@ -62,8 +62,8 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 }
 
 template <>
-InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsBackend::Vulkan>&& desc)
-: myInstanceDesc(std::move(desc))
+InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: myDesc(std::move(desc))
 {
     ZoneScopedN("Instance()");
 
@@ -146,7 +146,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.pApplicationInfo = &myInstanceDesc.appInfo;
+    info.pApplicationInfo = &myDesc.appInfo;
     info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
     info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
     info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
@@ -154,7 +154,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
 
     CHECK_VK(vkCreateInstance(&info, nullptr, &myInstance));
 
-    mySurface = createSurface(myInstance, myInstanceDesc.surfaceHandle);
+    mySurface = createSurface(myInstance, myDesc.surfaceHandle);
 
     uint32_t physicalDeviceCount = 0;
     CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));

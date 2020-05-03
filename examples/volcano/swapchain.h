@@ -7,7 +7,7 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct SwapchainDesc
+struct SwapchainCreateDesc
 {
 	std::shared_ptr<DeviceContext<B>> deviceContext;
 	SwapchainHandle<B> previous = 0;
@@ -20,10 +20,10 @@ class SwapchainContext
 public:
 
 	SwapchainContext(SwapchainContext&& other) = default;
-	SwapchainContext(SwapchainDesc<B>&& desc);
+	SwapchainContext(SwapchainCreateDesc<B>&& desc);
     ~SwapchainContext();
 
-    const auto& getSwapchainDesc() const { return mySwapchainDesc; }
+    const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
 
 	auto detatch()
@@ -35,6 +35,6 @@ public:
 
 private:
 
-	const SwapchainDesc<B> mySwapchainDesc = {};
+	const SwapchainCreateDesc<B> myDesc = {};
 	SwapchainHandle<B> mySwapchain = 0;
 };

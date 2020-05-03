@@ -19,7 +19,7 @@ template <GraphicsBackend B, bool EndOnDestruct>
 class CommandBufferAccessScope;
 
 template <GraphicsBackend B>
-struct CommandBufferArrayDesc
+struct CommandBufferArrayCreateDesc
 {
     std::shared_ptr<CommandContext<B>> commandContext;
     CommandPoolHandle<B> commandPool = 0;
@@ -32,7 +32,7 @@ class CommandBufferArray
 public:
 
     CommandBufferArray(CommandBufferArray<B>&& other) = default;
-    CommandBufferArray(CommandBufferArrayDesc<B>&& desc);
+    CommandBufferArray(CommandBufferArrayCreateDesc<B>&& desc);
     ~CommandBufferArray();
 
     static uint32_t ourDebugCount;
@@ -57,7 +57,7 @@ private:
 
     static constexpr uint32_t kCommandBufferCount = 8;
 
-    CommandBufferArrayDesc<B> myArrayDesc = {};
+    CommandBufferArrayCreateDesc<B> myDesc = {};
     CommandBufferHandle<B> myCommandBufferArray[kCommandBufferCount] = { static_cast<CommandBufferHandle<B>>(0) };
     struct Bits
     {
@@ -92,7 +92,7 @@ private:
 };
 
 template <GraphicsBackend B>
-struct CommandContextDesc
+struct CommandContextCreateDesc
 {
     std::shared_ptr<DeviceContext<B>> deviceContext;
     CommandPoolHandle<B> commandPool = 0;
@@ -120,12 +120,12 @@ class CommandContext : public std::enable_shared_from_this<CommandContext<B>>
 public:
 
     CommandContext(CommandContext<B>&& other) = default;
-    CommandContext(CommandContextDesc<B>&& desc);
+    CommandContext(CommandContextCreateDesc<B>&& desc);
     ~CommandContext();
 
     static uint32_t ourDebugCount;
 
-    const auto& getCommandContextDesc() const { return myCommandContextDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
     auto beginEndScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
@@ -169,7 +169,7 @@ public:
     uint64_t addGarbageCollectCallback(T callback)
     {
         return addGarbageCollectCallback(callback,
-            myCommandContextDesc.timelineValue->fetch_add(1, std::memory_order_relaxed));
+            myDesc.timelineValue->fetch_add(1, std::memory_order_relaxed));
     }
 
     template <typename T>
@@ -192,7 +192,7 @@ private:
     void enqueueOnePending();
     void enqueueAllPendingToSubmitted(uint64_t timelineValue);
 
-    CommandContextDesc<B> myCommandContextDesc = {};
+    CommandContextCreateDesc<B> myDesc = {};
     std::list<CommandBufferArray<B>> myPendingCommands;
     std::list<CommandBufferArray<B>> mySubmittedCommands;
     std::list<CommandBufferArray<B>> myFreeCommands;

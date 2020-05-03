@@ -298,14 +298,14 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     vertexInputInfo.vertexBindingDescriptionCount = pipelineConfig.resources->model->getBindings().size();
     vertexInputInfo.pVertexBindingDescriptions = pipelineConfig.resources->model->getBindings().data();
     vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(pipelineConfig.resources->model->getModelDesc().attributes.size());
-    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getModelDesc().attributes.data();
+        static_cast<uint32_t>(pipelineConfig.resources->model->getDesc().attributes.size());
+    vertexInputInfo.pVertexAttributeDescriptions = pipelineConfig.resources->model->getDesc().attributes.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    const auto& imageExtent = pipelineConfig.resources->renderTarget->getRenderTargetDesc().imageExtent;
+    const auto& imageExtent = pipelineConfig.resources->renderTarget->getDesc().imageExtent;
 
     VkViewport viewport = {};
     viewport.x = 0.0f;
@@ -396,7 +396,7 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineConfig.layout->layout;
-    pipelineInfo.renderPass = pipelineConfig.resources->renderTarget->getRenderTargetDesc().renderPass;
+    pipelineInfo.renderPass = pipelineConfig.resources->renderTarget->getDesc().renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;

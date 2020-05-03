@@ -2,7 +2,7 @@
 
 template <>
 template <class Archive>
-void DeviceCreateDesc<GraphicsBackend::Vulkan>::serialize(Archive& archive)
+void DeviceConfiguration<GraphicsBackend::Vulkan>::serialize(Archive& archive)
 {
     archive(
         CEREAL_NVP(physicalDeviceIndex),
