@@ -122,13 +122,19 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     };
 
-    if (myDesc.useTimelineSemaphores.value_or(false))
-        requiredDeviceExtensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
-
     assert(std::includes(
         deviceExtensions.begin(), deviceExtensions.end(), requiredDeviceExtensions.begin(),
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
+
+    if (!myDesc.useTimelineSemaphores.has_value())
+        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
+            [](const char* extension) { return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0; });
+            it != deviceExtensions.end())
+            myDesc.useTimelineSemaphores = std::make_optional(true);
+
+    if (!myDesc.useCommandPoolReset.has_value())
+        myDesc.useCommandPoolReset = std::make_optional(false);
 
     VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
     physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
@@ -137,7 +143,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     timelineFeatures.timelineSemaphore = VK_TRUE;
 
     VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    physicalDeviceFeatures2.pNext = myDesc.useTimelineSemaphores.value_or(false) ? &timelineFeatures : nullptr;
+    physicalDeviceFeatures2.pNext = myDesc.useTimelineSemaphores.value() ? &timelineFeatures : nullptr;
     physicalDeviceFeatures2.features = physicalDeviceFeatures;
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -151,7 +157,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
     VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    if (!myDesc.useCommandPoolReset.value_or(false))
+    if (!myDesc.useCommandPoolReset.value())
         cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());

@@ -30,10 +30,27 @@ struct InstanceConfiguration
     };
 
     template <class Archive>
-    void load(Archive& archive);
+    void load(Archive& archive)
+    {
+        archive(
+            CEREAL_NVP(applicationName),
+            CEREAL_NVP(engineName),
+            CEREAL_NVP(appInfo)
+        );
+
+        appInfo.pApplicationName = applicationName.c_str();
+        appInfo.pEngineName = engineName.c_str();
+    }
 
     template <class Archive>
-    void save(Archive& archive) const;
+    void save(Archive& archive) const
+    {
+        archive(
+            CEREAL_NVP(applicationName),
+            CEREAL_NVP(engineName),
+            CEREAL_NVP(appInfo)
+        );
+    }
 };
 
 template <GraphicsBackend B>
@@ -87,4 +104,3 @@ private:
     std::any myUserData;
 };
 
-#include "instance-vulkan.h"

@@ -22,26 +22,20 @@ struct RenderTargetCreateDesc
 template <GraphicsBackend B>
 class RenderTarget
 {
-    using DescType = RenderTargetCreateDesc<B>;
-
 public:
 
 	RenderTarget(RenderTarget<B>&& other) = default;
-	RenderTarget(DescType&& desc);
+	RenderTarget(RenderTargetCreateDesc<B>&& desc);
 	virtual ~RenderTarget();
 
-    template <typename T = DescType>
-    const T& getDesc() const { return static_cast<const T&>(myDesc); }
+    const auto& getDesc() const { return myDesc; }
     const auto& getColorViews() const { return myColorViews; }
     const auto& getDepthView() const { return myDepthView; }
-    const auto& getFrameBuffer() const { return myFrameBuffer; }
-
-protected:
-    
-    RenderTargetCreateDesc<B> myDesc = {};
+    const auto& getFrameBuffer() const { return myFrameBuffer; }    
 
 private:
 
+    RenderTargetCreateDesc<B> myDesc = {};
 	std::vector<ImageViewHandle<B>> myColorViews;
 	ImageViewHandle<B> myDepthView = 0;
     FramebufferHandle<B> myFrameBuffer = 0;

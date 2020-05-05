@@ -163,18 +163,19 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(
             FrameCreateDesc<GraphicsBackend::Vulkan>{
-                {myDesc.deviceContext,
+                myDesc.timelineSemaphore, 
+                myDesc.timelineValue,
+                frameIt,
+                4},
+            RenderTargetCreateDesc<GraphicsBackend::Vulkan>{
+                myDesc.deviceContext,
                 myRenderPass,
                 myDesc.framebufferExtent,
                 myDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
                 1,
                 &colorImages[frameIt], 
                 myDepthTexture->getDesc().format,
-                myDepthTexture->getImage()},
-                myDesc.timelineSemaphore, 
-                myDesc.timelineValue,
-                frameIt,
-                4});
+                myDepthTexture->getImage()});
 }
 
 template <>
@@ -425,7 +426,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                                         uint32_t descriptorSetCount,
                                         const VkDescriptorSet* descriptorSets,
                                         VkPipelineLayout pipelineLayout) {
-                        uint32_t viewBufferOffset = (frame.getDesc<FrameCreateDesc<GraphicsBackend::Vulkan>>().index * drawCount + n) * sizeof(Window::ViewBufferData);
+                        uint32_t viewBufferOffset = (frame.getFrameDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
                         vkCmdBindDescriptorSets(
                             cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                             descriptorSetCount, descriptorSets, 1, &viewBufferOffset);

@@ -189,7 +189,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     if (graphicsDeviceCandidates.empty())
         throw std::runtime_error("failed to find a suitable GPU!");
 
-    std::filesystem::path deviceConfigFile(std::filesystem::absolute(myUserProfilePath / ".profile" / "device .json"));
+    std::filesystem::path deviceConfigFile(std::filesystem::absolute(myUserProfilePath / ".profile" / "device.json"));
 
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         DeviceCreateDesc<GraphicsBackend::Vulkan>{

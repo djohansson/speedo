@@ -36,7 +36,14 @@ struct DeviceConfiguration
     std::optional<bool> useTimelineSemaphores;
 
     template <class Archive>
-    void serialize(Archive& archive);
+    void serialize(Archive& archive)
+    {
+        archive(
+            CEREAL_NVP(physicalDeviceIndex),
+            CEREAL_NVP(useCommandPoolReset),
+            CEREAL_NVP(useTimelineSemaphores)
+        );
+    }
 };
 
 template <GraphicsBackend B>
@@ -97,7 +104,7 @@ public:
 
 private:
 
-    const DeviceCreateDesc<B> myDesc = {};
+    DeviceCreateDesc<B> myDesc = {};
     SwapchainConfiguration<B> mySwapchainConfiguration = {};
 
     DeviceHandle<B> myDevice = 0;
@@ -110,5 +117,3 @@ private:
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
 };
-
-#include "device-vulkan.h"

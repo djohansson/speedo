@@ -90,10 +90,10 @@ std::optional<T> loadJSONObject(std::istream& stream, const std::string& name)
 };
 
 template <typename T>
-void saveJSONObject(T&& object, std::ostream& stream, const std::string& name)
+void saveJSONObject(const T& object, std::ostream& stream, const std::string& name)
 {
     cereal::JSONOutputArchive json(stream);
-    json(cereal::make_nvp(name, std::move(object)));
+    json(cereal::make_nvp(name, object));
 };
 
 template <typename T>
@@ -110,11 +110,11 @@ std::tuple<std::optional<T>, FileState> loadJSONObject(const std::filesystem::pa
 }
 
 template <typename T>
-void saveJSONObject(T&& object, const std::filesystem::path& filePath, const std::string& name)
+void saveJSONObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
 {
     mio::mmap_ostreambuf fileStreamBuf(filePath.string());
 	std::ostream fileStream(&fileStreamBuf);
-    saveJSONObject(std::move(object), fileStream, name);
+    saveJSONObject(object, fileStream, name);
 }
 
 template <typename T>
@@ -133,15 +133,13 @@ public:
     , myFilePath(std::move(other.myFilePath))
     , myName(std::move(other.myName))
     { 
-        other.myFilePath.clear();
-        other.myName.clear();
         other.myIsMoved = true;
     }
 
     ~ScopedJSONFileObject()
     {
         if (!myIsMoved)
-            saveJSONObject(*this, myFilePath, myName);
+            saveJSONObject(static_cast<const T&>(*this), myFilePath, myName);
     }
 
 private:
