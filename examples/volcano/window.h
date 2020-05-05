@@ -16,7 +16,7 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct WindowDesc
+struct WindowCreateDesc
 {
 	std::shared_ptr<DeviceContext<B>> deviceContext;
 	SemaphoreHandle<B> timelineSemaphore = 0;
@@ -42,10 +42,10 @@ public:
 		glm::mat4 pad2;
 	};
 
-	Window(WindowDesc<B>&& desc, CommandContext<B>& commands);
+	Window(WindowCreateDesc<B>&& desc, CommandContext<B>& commands);
 	~Window();
 
-	const auto& getWindowDesc() const { return myWindowDesc; }
+	const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchainContext() const { return *mySwapchainContext; }
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
@@ -77,7 +77,7 @@ private:
 	void renderIMGUI();
 	void updateViewBuffer(uint32_t frameIndex) const;
 
-	WindowDesc<B> myWindowDesc = {};
+	WindowCreateDesc<B> myDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
 	std::unique_ptr<Texture<B>> myDepthTexture;
 	std::vector<View> myViews;

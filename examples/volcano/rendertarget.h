@@ -7,7 +7,7 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct RenderTargetDesc
+struct RenderTargetCreateDesc
 {
     std::shared_ptr<DeviceContext<B>> deviceContext;
     RenderPassHandle<B> renderPass = 0;
@@ -22,20 +22,23 @@ struct RenderTargetDesc
 template <GraphicsBackend B>
 class RenderTarget
 {
+    using DescType = RenderTargetCreateDesc<B>;
+
 public:
 
 	RenderTarget(RenderTarget<B>&& other) = default;
-	RenderTarget(RenderTargetDesc<B>&& desc);
+	RenderTarget(DescType&& desc);
 	virtual ~RenderTarget();
 
-    const auto& getRenderTargetDesc() const { return myRenderTargetDesc; }
+    template <typename T = DescType>
+    const T& getDesc() const { return static_cast<const T&>(myDesc); }
     const auto& getColorViews() const { return myColorViews; }
     const auto& getDepthView() const { return myDepthView; }
     const auto& getFrameBuffer() const { return myFrameBuffer; }
 
 protected:
     
-    RenderTargetDesc<B> myRenderTargetDesc = {};
+    RenderTargetCreateDesc<B> myDesc = {};
 
 private:
 

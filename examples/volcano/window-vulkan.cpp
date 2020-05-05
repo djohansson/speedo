@@ -3,6 +3,8 @@
 #include "gfx.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 #if defined(__WINDOWS__)
 #include <execution>
 #endif
@@ -46,7 +48,7 @@ void Window<GraphicsBackend::Vulkan>::renderIMGUI()
         // DragInt(
         //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
         ColorEdit3(
-            "Clear Color", &myWindowDesc.clearValue.color.float32[0]);
+            "Clear Color", &myDesc.clearValue.color.float32[0]);
         End();
     }
 
@@ -99,20 +101,20 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     ZoneScopedN("createFrameObjects");
 
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
-        SwapchainDesc<GraphicsBackend::Vulkan>{
-            myWindowDesc.deviceContext,
+        SwapchainCreateDesc<GraphicsBackend::Vulkan>{
+            myDesc.deviceContext,
             mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr,
-            myWindowDesc.framebufferExtent});
+            myDesc.framebufferExtent});
 
     // todo: append stencil bit for depthstencil composite formats
     myDepthTexture = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
-        TextureDesc<GraphicsBackend::Vulkan>{
-            myWindowDesc.deviceContext,
-            myWindowDesc.framebufferExtent,
+        TextureCreateDesc<GraphicsBackend::Vulkan>{
+            myDesc.deviceContext,
+            myDesc.framebufferExtent,
             1,
             0,
             findSupportedFormat(
-                myWindowDesc.deviceContext->getPhysicalDevice(),
+                myDesc.deviceContext->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -122,9 +124,9 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
         commandContext);
 
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
-        BufferDesc<GraphicsBackend::Vulkan>{
-            myWindowDesc.deviceContext,
-            myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
+        BufferCreateDesc<GraphicsBackend::Vulkan>{
+            myDesc.deviceContext,
+            myDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             VK_NULL_HANDLE,
@@ -132,48 +134,47 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
             "myViewBuffer"},
         commandContext);
 
-    myViews.resize(myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height);
+    myViews.resize(myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
     for (auto& view : myViews)
     {
-        if (!view.viewDesc().viewport.width)
-            view.viewDesc().viewport.width =  myWindowDesc.framebufferExtent.width / myWindowDesc.splitScreenGrid.width;
+        if (!view.desc().viewport.width)
+            view.desc().viewport.width =  myDesc.framebufferExtent.width / myDesc.splitScreenGrid.width;
 
-        if (!view.viewDesc().viewport.height)
-            view.viewDesc().viewport.height = myWindowDesc.framebufferExtent.height / myWindowDesc.splitScreenGrid.height;
+        if (!view.desc().viewport.height)
+            view.desc().viewport.height = myDesc.framebufferExtent.height / myDesc.splitScreenGrid.height;
 
         view.updateAll();
     }
 
     myRenderPass = createRenderPass(
-        myWindowDesc.deviceContext->getDevice(),
-        myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
-        myDepthTexture->getTextureDesc().format);
+        myDesc.deviceContext->getDevice(),
+        myDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
+        myDepthTexture->getDesc().format);
 
     uint32_t imageCount;
-    CHECK_VK(vkGetSwapchainImagesKHR(myWindowDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
+    CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
     
     std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
-    CHECK_VK(vkGetSwapchainImagesKHR(myWindowDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
+    CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
 
-    uint32_t frameCount = myWindowDesc.deviceContext->getSwapchainConfiguration().selectedImageCount;
+    uint32_t frameCount = myDesc.deviceContext->getSwapchainConfiguration().selectedImageCount;
     myFrames.reserve(frameCount);
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(
-            RenderTargetDesc<GraphicsBackend::Vulkan>{
-                myWindowDesc.deviceContext,
+            FrameCreateDesc<GraphicsBackend::Vulkan>{
+                {myDesc.deviceContext,
                 myRenderPass,
-                myWindowDesc.framebufferExtent,
-                myWindowDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
+                myDesc.framebufferExtent,
+                myDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
                 1,
                 &colorImages[frameIt], 
-                myDepthTexture->getTextureDesc().format,
+                myDepthTexture->getDesc().format,
                 myDepthTexture->getImage()},
-            FrameDesc<GraphicsBackend::Vulkan>{
+                myDesc.timelineSemaphore, 
+                myDesc.timelineValue,
                 frameIt,
-                4,
-                myWindowDesc.timelineSemaphore, 
-                myWindowDesc.timelineValue});
+                4});
 }
 
 template <>
@@ -189,7 +190,7 @@ void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
 
     if (myRenderPass)
     {
-        vkDestroyRenderPass(myWindowDesc.deviceContext->getDevice(), myRenderPass, nullptr);
+        vkDestroyRenderPass(myDesc.deviceContext->getDevice(), myRenderPass, nullptr);
         myRenderPass = 0;
     }
 }
@@ -202,22 +203,22 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) cons
     assert(frameIndex < myFrames.size());
 
     void* data;
-    CHECK_VK(vmaMapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+    CHECK_VK(vmaMapMemory(myDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    for (uint32_t n = 0; n < (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height); n++)
+    for (uint32_t n = 0; n < (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height); n++)
     {
-        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[frameIndex * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height) + n];
+        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[frameIndex * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) + n];
 
         ubo.viewProj = myViews[n].getProjectionMatrix() * glm::mat4(myViews[n].getViewMatrix());
     }
 
     vmaFlushAllocation(
-        myWindowDesc.deviceContext->getAllocator(),
+        myDesc.deviceContext->getAllocator(),
         myViewBuffer->getBufferMemory(),
-        sizeof(ViewBufferData) * frameIndex * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height),
-        sizeof(ViewBufferData) * (myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height));
+        sizeof(ViewBufferData) * frameIndex * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height),
+        sizeof(ViewBufferData) * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height));
 
-    vmaUnmapMemory(myWindowDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
+    vmaUnmapMemory(myDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
@@ -232,7 +233,7 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
     uint32_t frameIndex;
     auto flipResult = checkFlipOrPresentResult(
         vkAcquireNextImageKHR(
-            myWindowDesc.deviceContext->getDevice(),
+            myDesc.deviceContext->getDevice(),
             mySwapchainContext->getSwapchain(),
             UINT64_MAX,
             lastFrame.getNewImageAcquiredSemaphore(),
@@ -294,7 +295,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
     std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
     {
-        if (myWindowDesc.imguiEnable)
+        if (myDesc.imguiEnable)
             renderIMGUI();
     }));
 
@@ -324,11 +325,11 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 #endif
 
     std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
-    clearValues[0] = myWindowDesc.clearValue;
+    clearValues[0] = myDesc.clearValue;
     clearValues[1].depthStencil = {1.0f, 0};
 
     // setup draw parameters
-    uint32_t drawCount = myWindowDesc.splitScreenGrid.width * myWindowDesc.splitScreenGrid.height;
+    uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
     uint32_t commandContextCount = static_cast<uint32_t>(frame.commandContexts().size());
     uint32_t segmentCount = std::max<uint32_t>(std::min<int32_t>(drawCount, commandContextCount - 1), 0);
 
@@ -340,8 +341,8 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         if (drawCount % segmentCount)
             segmentDrawCount += 1;
 
-        uint32_t dx = frame.getRenderTargetDesc().imageExtent.width / myWindowDesc.splitScreenGrid.width;
-        uint32_t dy = frame.getRenderTargetDesc().imageExtent.height / myWindowDesc.splitScreenGrid.height;
+        uint32_t dx = frame.getDesc().imageExtent.width / myDesc.splitScreenGrid.width;
+        uint32_t dy = frame.getDesc().imageExtent.height / myDesc.splitScreenGrid.height;
 
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + segmentCount, 0);
@@ -397,8 +398,8 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                     if (n >= drawCount)
                         break;
 
-                    uint32_t i = n % myWindowDesc.splitScreenGrid.width;
-                    uint32_t j = n / myWindowDesc.splitScreenGrid.width;
+                    uint32_t i = n % myDesc.splitScreenGrid.width;
+                    uint32_t j = n / myDesc.splitScreenGrid.width;
 
                     auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
                                                     int32_t width, int32_t height) {
@@ -424,7 +425,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                                         uint32_t descriptorSetCount,
                                         const VkDescriptorSet* descriptorSets,
                                         VkPipelineLayout pipelineLayout) {
-                        uint32_t viewBufferOffset = (frame.getFrameDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
+                        uint32_t viewBufferOffset = (frame.getDesc<FrameCreateDesc<GraphicsBackend::Vulkan>>().index * drawCount + n) * sizeof(Window::ViewBufferData);
                         vkCmdBindDescriptorSets(
                             cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                             descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
@@ -434,7 +435,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                     setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
                     drawModel(
-                        cmd, config.resources->model->getModelDesc().indexCount, config.descriptorSets.size(),
+                        cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
                         config.descriptorSets.data(), config.layout->layout);
                 }
             });
@@ -452,7 +453,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.renderPass = myRenderPass;
         beginInfo.framebuffer = frame.getFrameBuffer();
         beginInfo.renderArea.offset = {0, 0};
-        beginInfo.renderArea.extent = {frame.getRenderTargetDesc().imageExtent.width, frame.getRenderTargetDesc().imageExtent.height};
+        beginInfo.renderArea.extent = {frame.getDesc().imageExtent.width, frame.getDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
 
@@ -477,7 +478,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     }
 
     // Record Imgui Draw Data and draw funcs into primary command buffer
-    if (myWindowDesc.imguiEnable)
+    if (myDesc.imguiEnable)
     {
         auto primaryCommands = primaryCommandContext.beginEndScope();
         
@@ -493,7 +494,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.renderPass = myRenderPass;
         beginInfo.framebuffer = frame.getFrameBuffer();
         beginInfo.renderArea.offset = {0, 0};
-        beginInfo.renderArea.extent = {frame.getRenderTargetDesc().imageExtent.width, frame.getRenderTargetDesc().imageExtent.height};
+        beginInfo.renderArea.extent = {frame.getDesc().imageExtent.width, frame.getDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
         vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -515,13 +516,13 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         ZoneScopedN("submitCommands");
 
         SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[2] = {
-            lastFrame.getNewImageAcquiredSemaphore(), myWindowDesc.timelineSemaphore };
+            lastFrame.getNewImageAcquiredSemaphore(), myDesc.timelineSemaphore };
         Flags<GraphicsBackend::Vulkan> waitStages[2] = {
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
         uint64_t waitTimelineValues[2] = {
             waitTimelineValue, waitTimelineValue};
         submitResult = primaryCommandContext.submit({
-            myWindowDesc.deviceContext->getPrimaryGraphicsQueue(),
+            myDesc.deviceContext->getPrimaryGraphicsQueue(),
             frame.getFence(),
             1,
             &frame.getRenderCompleteSemaphore(),
@@ -548,7 +549,7 @@ void Window<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) const
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchainContext->getSwapchain();
     info.pImageIndices = &frameIndex;
-    checkFlipOrPresentResult(vkQueuePresentKHR(myWindowDesc.deviceContext->getPrimaryGraphicsQueue(), &info));
+    checkFlipOrPresentResult(vkQueuePresentKHR(myDesc.deviceContext->getPrimaryGraphicsQueue(), &info));
 }
 
 template <>
@@ -571,16 +572,16 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
         static bool escBufferState = false;
         bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
         if (escState && !escBufferState)
-            myWindowDesc.imguiEnable = !myWindowDesc.imguiEnable;
+            myDesc.imguiEnable = !myDesc.imguiEnable;
         escBufferState = escState;
     }
 
     if (input.mouseButtonsPressed[2])
     {
         // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myWindowDesc.windowExtent.width / myWindowDesc.splitScreenGrid.width);
-        size_t viewIdy = input.mousePosition[0].y / (myWindowDesc.windowExtent.height / myWindowDesc.splitScreenGrid.height);
-        myActiveView = std::min((viewIdy * myWindowDesc.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+        size_t viewIdx = input.mousePosition[0].x / (myDesc.windowExtent.width / myDesc.splitScreenGrid.width);
+        size_t viewIdy = input.mousePosition[0].y / (myDesc.windowExtent.height / myDesc.splitScreenGrid.height);
+        myActiveView = std::min((viewIdy * myDesc.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
         //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
     }
@@ -634,10 +635,10 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
 
             constexpr auto moveSpeed = 0.000000002f;
 
-            view.viewDesc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
+            view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
 
-            // std::cout << *myActiveView << ":pos:[" << view.viewDesc().cameraPosition.x << ", " <<
-            //     view.viewDesc().cameraPosition.y << ", " << view.viewDesc().cameraPosition.z << "]" << std::endl;
+            // std::cout << *myActiveView << ":pos:[" << view.desc().cameraPosition.x << ", " <<
+            //     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << std::endl;
 
             doUpdateViewMatrix = true;
         }
@@ -648,12 +649,12 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
 
             auto dM = input.mousePosition[1] - input.mousePosition[0];
 
-            view.viewDesc().cameraRotation +=
-                dt * glm::vec3(dM.y / view.viewDesc().viewport.height, dM.x / view.viewDesc().viewport.width, 0.0f) *
+            view.desc().cameraRotation +=
+                dt * glm::vec3(dM.y / view.desc().viewport.height, dM.x / view.desc().viewport.width, 0.0f) *
                 rotSpeed;
 
-            // std::cout << *myActiveView << ":rot:[" << view.viewDesc().cameraRotation.x << ", " <<
-            //     view.viewDesc().cameraRotation.y << ", " << view.viewDesc().cameraRotation.z << "]" << std::endl;
+            // std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
+            //     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << std::endl;
 
             doUpdateViewMatrix = true;
         }
@@ -667,8 +668,8 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
 
 template <>
 Window<GraphicsBackend::Vulkan>::Window(
-    WindowDesc<GraphicsBackend::Vulkan>&& desc, CommandContext<GraphicsBackend::Vulkan>& commands)
-: myWindowDesc(std::move(desc))
+    WindowCreateDesc<GraphicsBackend::Vulkan>&& desc, CommandContext<GraphicsBackend::Vulkan>& commands)
+: myDesc(std::move(desc))
 {
     ZoneScopedN("Window()");
 

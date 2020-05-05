@@ -7,7 +7,7 @@
 #include <filesystem>
 
 template <GraphicsBackend B>
-struct TextureDesc
+struct TextureCreateDesc
 {
     std::shared_ptr<DeviceContext<B>> deviceContext;
     Extent2d<B> extent = {};
@@ -28,13 +28,13 @@ class Texture
 public:
 
     Texture(Texture&& other) = default;
-    Texture(TextureDesc<B>&& desc, CommandContext<B>& commandContext);
+    Texture(TextureCreateDesc<B>&& desc, CommandContext<B>& commandContext);
     Texture(const std::filesystem::path& textureFile, CommandContext<B>& commandContext);
     ~Texture();
 
     static uint32_t ourDebugCount;
 
-    const auto& getTextureDesc() const { return myTextureDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getImage() const { return myImage; }
     const auto& getImageMemory() const { return myImageMemory; }
     const auto& getImageLayout() const { return myImageLayout; }
@@ -48,7 +48,7 @@ private:
     void deleteInitialData();
 
     // todo: mipmaps
-    TextureDesc<B> myTextureDesc = {};
+    TextureCreateDesc<B> myDesc = {};
 	ImageHandle<B> myImage = 0;
 	AllocationHandle<B> myImageMemory = 0;
     ImageLayout<B> myImageLayout = {};

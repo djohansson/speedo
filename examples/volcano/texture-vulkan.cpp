@@ -51,11 +51,11 @@ int eof(void* user)
 namespace texture
 {
 
-TextureDesc<GraphicsBackend::Vulkan> load(
+TextureCreateDesc<GraphicsBackend::Vulkan> load(
     const std::filesystem::path& textureFile,
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
-    TextureDesc<GraphicsBackend::Vulkan> desc = {};
+    TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
     desc.deviceContext = deviceContext;
     desc.debugName = textureFile.u8string();
 
@@ -160,16 +160,16 @@ void Texture<GraphicsBackend::Vulkan>::deleteInitialData()
 {
     ZoneScopedN("deleteInitialData");
 
-    vmaDestroyBuffer(myTextureDesc.deviceContext->getAllocator(), myTextureDesc.initialData, myTextureDesc.initialDataMemory);
-    myTextureDesc.initialData = 0;
-    myTextureDesc.initialDataMemory = 0;
+    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myDesc.initialData, myDesc.initialDataMemory);
+    myDesc.initialData = 0;
+    myDesc.initialDataMemory = 0;
 }
 
 template <>
 ImageViewHandle<GraphicsBackend::Vulkan>
 Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
 {
-    return createImageView2D(myTextureDesc.deviceContext->getDevice(), myImage, myTextureDesc.format, aspectFlags);
+    return createImageView2D(myDesc.deviceContext->getDevice(), myImage, myDesc.format, aspectFlags);
 }
 
 template <>
@@ -179,16 +179,16 @@ void Texture<GraphicsBackend::Vulkan>::transition(
 {
     if (myImageLayout != layout)
     {
-        transitionImageLayout(commands, myImage, myTextureDesc.format, myImageLayout, layout);
+        transitionImageLayout(commands, myImage, myDesc.format, myImageLayout, layout);
         myImageLayout = layout;
     }
 }
 
 template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
-    TextureDesc<GraphicsBackend::Vulkan>&& desc,
+    TextureCreateDesc<GraphicsBackend::Vulkan>&& desc,
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
-    : myTextureDesc(std::move(desc))
+    : myDesc(std::move(desc))
     , myImageLayout(VK_IMAGE_LAYOUT_GENERAL)
 {
     ZoneScopedN("Texture()");
@@ -197,18 +197,18 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 
     std::tie(myImage, myImageMemory) = createImage2D(
         commandContext.commands(),
-        myTextureDesc.deviceContext->getAllocator(),
-        myTextureDesc.initialData,
-        myTextureDesc.extent.width,
-        myTextureDesc.extent.height,
-        myTextureDesc.format, 
+        myDesc.deviceContext->getAllocator(),
+        myDesc.initialData,
+        myDesc.extent.width,
+        myDesc.extent.height,
+        myDesc.format, 
         VK_IMAGE_TILING_OPTIMAL,
         myImageLayout,
-        myTextureDesc.usage,
+        myDesc.usage,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        myTextureDesc.debugName.c_str());
+        myDesc.debugName.c_str());
     
-    if (myTextureDesc.initialData)
+    if (myDesc.initialData)
         commandContext.addGarbageCollectCallback([this](uint64_t){ deleteInitialData(); });
 }
 
@@ -216,7 +216,7 @@ template <>
 Texture<GraphicsBackend::Vulkan>::Texture(
     const std::filesystem::path& textureFile,
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
-    : Texture(texture::load(textureFile, commandContext.getCommandContextDesc().deviceContext), commandContext)
+    : Texture(texture::load(textureFile, commandContext.getDesc().deviceContext), commandContext)
 {
     ZoneScopedN("Texture()");
 }
@@ -226,10 +226,10 @@ Texture<GraphicsBackend::Vulkan>::~Texture()
 {
     ZoneScopedN("~Texture()");
 
-    assert(!myTextureDesc.initialData);
+    assert(!myDesc.initialData);
     
     // todo: put on command context delete queue?
-    vmaDestroyImage(myTextureDesc.deviceContext->getAllocator(), myImage, myImageMemory);
+    vmaDestroyImage(myDesc.deviceContext->getAllocator(), myImage, myImageMemory);
 
     --ourDebugCount;
 }

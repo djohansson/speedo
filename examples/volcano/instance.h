@@ -8,10 +8,14 @@
 
 
 template <GraphicsBackend B>
-struct InstanceCreateDesc
+struct InstanceConfiguration
 {
-    InstanceCreateDesc() = default;
-    InstanceCreateDesc(InstanceCreateDesc&& other) = default;
+    InstanceConfiguration() = default;
+    InstanceConfiguration(InstanceConfiguration&& other)
+    : applicationName(std::move(other.applicationName))
+    , engineName(std::move(other.engineName))
+    , appInfo(std::move(other.appInfo))
+    {}
 
     std::string applicationName = "volcano";
     std::string engineName = "magma";
@@ -33,10 +37,27 @@ struct InstanceCreateDesc
 };
 
 template <GraphicsBackend B>
-struct InstanceDesc
+struct InstanceCreateDesc : ScopedJSONFileObject<InstanceConfiguration<B>>
 {
-    ScopedJSONFileObject<InstanceCreateDesc<B>> createDesc = {};
     void* surfaceHandle = nullptr;
+};
+
+template <GraphicsBackend B>
+struct SwapchainInfo
+{
+	SurfaceCapabilities<B> capabilities = {};
+	std::vector<SurfaceFormat<B>> formats;
+	std::vector<PresentMode<B>> presentModes;
+};
+
+template <GraphicsBackend B>
+struct PhysicalDeviceInfo
+{
+    SwapchainInfo<B> swapchainInfo = {};
+    PhysicalDeviceProperties<B> deviceProperties = {};
+    PhysicalDeviceFeautures<B> deviceFeatures = {};
+    std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
+    std::vector<uint32_t> queueFamilyPresentSupport;
 };
 
 template <GraphicsBackend B>
@@ -45,20 +66,24 @@ class InstanceContext
 public:
 
     InstanceContext(InstanceContext&& other) = default;
-    InstanceContext(InstanceDesc<B>&& desc);
+    InstanceContext(InstanceCreateDesc<B>&& desc);
     ~InstanceContext();
 
-    const auto& getInstanceDesc() const { return myInstanceDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getInstance() const { return myInstance; }
     const auto& getSurface() const { return mySurface; }
     const auto& getPhysicalDevices() const { return myPhysicalDevices; }
+    const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
+    const auto& getGraphicsDeviceCandidates() const { return myGraphicsDeviceCandidates; }
 
 private:
 
-    const InstanceDesc<B> myInstanceDesc;
+    const InstanceCreateDesc<B> myDesc;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
+    std::vector<PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
+    std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };
 

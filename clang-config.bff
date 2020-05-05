@@ -6,11 +6,7 @@
 	.LLVMBasePath = 'C:\Program Files\LLVM\bin'
 #endif //__WINDOWS__
 #if __OSX__
-	.LLVMBasePath = '/usr/local/opt/llvm/bin'
-	.BaseIncludePaths + '-I/usr/local/opt/llvm/include'
-		+ ' -I/usr/local/opt/llvm/include/c++/v1'
-	.BaseLibPaths + ' -L/usr/local/opt/llvm/lib'
-		+ ' -Wl,-rpath,/usr/local/opt/llvm/lib'
+	.LLVMBasePath = '/usr/bin'
 #endif //__OSX__
 #if __LINUX__
 	.LLVMBasePath = '/usr/bin'

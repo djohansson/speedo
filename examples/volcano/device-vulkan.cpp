@@ -13,103 +13,72 @@
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
-    DeviceDesc<GraphicsBackend::Vulkan>&& desc)
-    : myDeviceDesc(std::move(desc))
+    DeviceCreateDesc<GraphicsBackend::Vulkan>&& desc)
+    : myDesc(std::move(desc))
 {
     ZoneScopedN("DeviceContext()");
 
-    auto surface = myDeviceDesc.instanceContext->getSurface();
-    const auto& physicalDevices = myDeviceDesc.instanceContext->getPhysicalDevices();
-    uint32_t physicalDeviceCount = physicalDevices.size();
-    myPhysicalDeviceInfos.reserve(physicalDeviceCount);
-    for (uint32_t deviceIt = 0; deviceIt < physicalDeviceCount; deviceIt++)
+    const auto& physicalDeviceInfo =
+        myDesc.instanceContext->getPhysicalDeviceInfos()[myDesc.physicalDeviceIndex];
+    const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
+
+    const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
+        VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
+        VK_FORMAT_R8G8B8_UNORM};
+    const ColorSpace<GraphicsBackend::Vulkan> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    const PresentMode<GraphicsBackend::Vulkan> requestPresentMode[] = {
+        VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+        VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
+
+    // Request several formats, the first found will be used
+    // If none of the requested image formats could be found, use the first available
+    for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
+            request_i++)
     {
-        auto physicalDevice = physicalDevices[deviceIt];
-
-        myPhysicalDeviceInfos.emplace_back(getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(surface, physicalDevice));
-
-        std::optional<uint32_t> swapchainQueueFamilyIndex;
-        for (uint32_t queueFamilyIt = 0; queueFamilyIt < myPhysicalDeviceInfos.back().queueFamilyProperties.size(); queueFamilyIt++)
+        SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat =
         {
-            const auto& queueFamilyProperties = myPhysicalDeviceInfos.back().queueFamilyProperties[queueFamilyIt];
-            const auto& queueFamilyPresentSupport = myPhysicalDeviceInfos.back().queueFamilyPresentSupport[queueFamilyIt];
-
-            if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
-            {
-                myPhysicalDeviceIndex = deviceIt;
-                swapchainQueueFamilyIndex = queueFamilyIt;
-            }
-        }
-
-        if (swapchainQueueFamilyIndex && mySwapchainConfiguration.selectedImageCount == 0)
+            requestSurfaceImageFormat[request_i],
+            requestSurfaceColorSpace
+        };
+        auto formatIt = std::find(
+            swapchainInfo.formats.begin(),
+            swapchainInfo.formats.end(),
+            requestedFormat);
+        if (formatIt != swapchainInfo.formats.end())
         {
-            const auto& swapchainInfo = myPhysicalDeviceInfos.back().swapchainInfo;
-
-            const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
-                VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
-                VK_FORMAT_R8G8B8_UNORM};
-            const ColorSpace<GraphicsBackend::Vulkan> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-            const PresentMode<GraphicsBackend::Vulkan> requestPresentMode[] = {
-                VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-                VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
-
-            // Request several formats, the first found will be used
-            // If none of the requested image formats could be found, use the first available
-            for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
-                    request_i++)
-            {
-                SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat =
-                {
-                    requestSurfaceImageFormat[request_i],
-                    requestSurfaceColorSpace
-                };
-                auto formatIt = std::find(
-                    swapchainInfo.formats.begin(),
-                    swapchainInfo.formats.end(),
-                    requestedFormat);
-                if (formatIt != swapchainInfo.formats.end())
-                {
-                    mySwapchainConfiguration.selectedFormat = *formatIt;
-                    break;
-                }
-            }
-
-            // Request a certain mode and confirm that it is available. If not use
-            // VK_PRESENT_MODE_FIFO_KHR which is mandatory
-            for (uint32_t request_i = 0; request_i < sizeof_array(requestPresentMode);
-                    request_i++)
-            {
-                auto modeIt = std::find(
-                    swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(),
-                    requestPresentMode[request_i]);
-                if (modeIt != swapchainInfo.presentModes.end())
-                {
-                    mySwapchainConfiguration.selectedPresentMode = *modeIt;
-
-                    switch (mySwapchainConfiguration.selectedPresentMode)
-                    {
-                    case VK_PRESENT_MODE_MAILBOX_KHR:
-                        mySwapchainConfiguration.selectedImageCount = 3;
-                        break;
-                    default:
-                        mySwapchainConfiguration.selectedImageCount = 2;
-                        break;
-                    }
-
-                    break;
-                }
-            }
+            mySwapchainConfiguration.selectedFormat = *formatIt;
+            break;
         }
     }
 
-    if (mySwapchainConfiguration.selectedImageCount == 0)
-        throw std::runtime_error("failed to find a suitable GPU!");
+    // Request a certain mode and confirm that it is available. If not use
+    // VK_PRESENT_MODE_FIFO_KHR which is mandatory
+    for (uint32_t request_i = 0; request_i < sizeof_array(requestPresentMode);
+            request_i++)
+    {
+        auto modeIt = std::find(
+            swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(),
+            requestPresentMode[request_i]);
+        if (modeIt != swapchainInfo.presentModes.end())
+        {
+            mySwapchainConfiguration.selectedPresentMode = *modeIt;
 
-    const auto& physicalDeviceInfo = myPhysicalDeviceInfos[myPhysicalDeviceIndex];
+            switch (mySwapchainConfiguration.selectedPresentMode)
+            {
+            case VK_PRESENT_MODE_MAILBOX_KHR:
+                mySwapchainConfiguration.selectedImageCount = 3;
+                break;
+            default:
+                mySwapchainConfiguration.selectedImageCount = 2;
+                break;
+            }
 
+            break;
+        }
+    }
+ 
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
     queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
-
     std::list<std::vector<float>> queuePriorityList;
     for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
     {
@@ -123,7 +92,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
             nullptr,
             0,//queueFamilyProperty.queueFlags,
             queueFamilyIt,
-            queueFamilyProperty.queueCount,
+            queuePriorities.size(),
             queuePriorities.data()
         });
     }
@@ -140,12 +109,6 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     deviceExtensions.reserve(deviceExtensionCount);
     for (uint32_t i = 0; i < deviceExtensionCount; i++)
     {
-#if defined(__APPLE__)
-        if (strcmp(availableDeviceExtensions[i].extensionName, "VK_MVK_moltenvk") == 0 ||
-            strcmp(availableDeviceExtensions[i].extensionName, "VK_KHR_surface") == 0 ||
-            strcmp(availableDeviceExtensions[i].extensionName, "VK_MVK_macos_surface") == 0)
-            continue;
-#endif
         deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
         std::cout << deviceExtensions.back() << "\n";
     }
@@ -157,8 +120,10 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     std::vector<const char*> requiredDeviceExtensions = {
         // must be sorted lexicographically for std::includes to work!
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
     };
+
+    if (myDesc.useTimelineSemaphores.value_or(false))
+        requiredDeviceExtensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
 
     assert(std::includes(
         deviceExtensions.begin(), deviceExtensions.end(), requiredDeviceExtensions.begin(),
@@ -172,14 +137,13 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     timelineFeatures.timelineSemaphore = VK_TRUE;
 
     VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    physicalDeviceFeatures2.pNext = &timelineFeatures;
+    physicalDeviceFeatures2.pNext = myDesc.useTimelineSemaphores.value_or(false) ? &timelineFeatures : nullptr;
     physicalDeviceFeatures2.features = physicalDeviceFeatures;
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     deviceCreateInfo.pNext = &physicalDeviceFeatures2;
     deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
     deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
-    //deviceCreateInfo.pEnabledFeatures = &physicalDeviceFeatures;
     deviceCreateInfo.enabledExtensionCount =
         static_cast<uint32_t>(requiredDeviceExtensions.size());
     deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
@@ -187,7 +151,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
     VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    if (!myDeviceDesc.useCommandPoolReset)
+    if (!myDesc.useCommandPoolReset.value_or(false))
         cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
@@ -222,7 +186,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     }
 
     myAllocator = createAllocator<GraphicsBackend::Vulkan>(
-        myDeviceDesc.instanceContext->getInstance(),
+        myDesc.instanceContext->getInstance(),
         myDevice,
         getPhysicalDevice());
 

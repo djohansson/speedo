@@ -11,9 +11,9 @@ uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 template <>
 void Buffer<GraphicsBackend::Vulkan>::deleteInitialData()
 {
-    vmaDestroyBuffer(myBufferDesc.deviceContext->getAllocator(), myBufferDesc.initialData, myBufferDesc.initialDataMemory);
-    myBufferDesc.initialData = 0;
-    myBufferDesc.initialDataMemory = 0;
+    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myDesc.initialData, myDesc.initialDataMemory);
+    myDesc.initialData = 0;
+    myDesc.initialDataMemory = 0;
 }
 
 template <>
@@ -23,24 +23,24 @@ Buffer<GraphicsBackend::Vulkan>::createView(
     DeviceSize<GraphicsBackend::Vulkan> offset,
     DeviceSize<GraphicsBackend::Vulkan> range) const
 {
-    return createBufferView(myBufferDesc.deviceContext->getDevice(), myBuffer, 0, format, offset, range);
+    return createBufferView(myDesc.deviceContext->getDevice(), myBuffer, 0, format, offset, range);
 }
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
-    BufferDesc<GraphicsBackend::Vulkan>&& desc,
+    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc,
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
-    : myBufferDesc(std::move(desc))
+    : myDesc(std::move(desc))
 {
     ZoneScopedN("Buffer()");
 
     ++ourDebugCount;
 
     std::tie(myBuffer, myBufferMemory) = createBuffer(
-		commandContext.commands(), myBufferDesc.deviceContext->getAllocator(), myBufferDesc.initialData,
-        myBufferDesc.size, myBufferDesc.usageFlags, myBufferDesc.memoryFlags, myBufferDesc.debugName.c_str());
+		commandContext.commands(), myDesc.deviceContext->getAllocator(), myDesc.initialData,
+        myDesc.size, myDesc.usageFlags, myDesc.memoryFlags, myDesc.debugName.c_str());
 
-    if (myBufferDesc.initialData)
+    if (myDesc.initialData)
         commandContext.addGarbageCollectCallback([this](uint64_t){
             deleteInitialData(); });
 }
@@ -50,10 +50,10 @@ Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
     ZoneScopedN("~Buffer()");
 
-    assert(!myBufferDesc.initialData);
+    assert(!myDesc.initialData);
 
     // todo: put on command context delete queue?
-    vmaDestroyBuffer(myBufferDesc.deviceContext->getAllocator(), myBuffer, myBufferMemory);
+    vmaDestroyBuffer(myDesc.deviceContext->getAllocator(), myBuffer, myBufferMemory);
 
     --ourDebugCount;
 }

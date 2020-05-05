@@ -10,6 +10,7 @@
 
 #include <cereal/cereal.hpp>
 #include <cereal/archives/json.hpp>
+#include <cereal/types/optional.hpp>
 
 #include <mio/mmap_streambuf.hpp>
 
@@ -117,38 +118,35 @@ void saveJSONObject(T&& object, const std::filesystem::path& filePath, const std
 }
 
 template <typename T>
-class ScopedJSONFileObject : Noncopyable
+class ScopedJSONFileObject : public Noncopyable, public T
 {
 public:
 
-    ScopedJSONFileObject(const std::filesystem::path& filePath, const std::string& name)
-    : myObject(std::get<0>(loadJSONObject<T>(filePath, name)).value_or(T{}))
+    ScopedJSONFileObject(const std::filesystem::path& filePath, const std::string& name, T&& defaultObject = T{})
+    : T(std::get<0>(loadJSONObject<T>(filePath, name)).value_or(std::move(defaultObject)))
     , myFilePath(filePath)
     , myName(name)
     { }
 
     ScopedJSONFileObject(ScopedJSONFileObject&& other)
-    : myObject(std::move(other.myObject))
+    : T(std::move(other))
     , myFilePath(std::move(other.myFilePath))
     , myName(std::move(other.myName))
-    {
-        other.myObject.reset();
+    { 
         other.myFilePath.clear();
         other.myName.clear();
+        other.myIsMoved = true;
     }
 
     ~ScopedJSONFileObject()
     {
-        if (myObject)
-            saveJSONObject(std::move(*myObject), myFilePath, myName);
+        if (!myIsMoved)
+            saveJSONObject(*this, myFilePath, myName);
     }
-
-    T& object() { return *myObject; }
-    const T& object() const { return *myObject; }
 
 private:
 
-    std::optional<T> myObject;
     std::filesystem::path myFilePath;
     std::string myName;
+    bool myIsMoved = false;
 };

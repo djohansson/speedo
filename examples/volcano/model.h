@@ -11,7 +11,7 @@
 
 
 template <GraphicsBackend B>
-struct ModelDesc
+struct ModelCreateDesc
 {
 	std::shared_ptr<DeviceContext<B>> deviceContext;
 	AABB3f aabb = {};
@@ -38,10 +38,10 @@ class Model
 public:
 
 	Model(Model&& other) = default;
-	Model(ModelDesc<B>&& desc, CommandContext<B>& commandContext);
+	Model(ModelCreateDesc<B>&& desc, CommandContext<B>& commandContext);
 	Model(const std::filesystem::path& modelFile, CommandContext<B>& commandContext);
 
-	const auto& getModelDesc() const { return myModelDesc; }
+	const auto& getDesc() const { return myDesc; }
 	const auto& getVertexBuffer() const { return myVertexBuffer; }
 	const auto& getIndexBuffer() const { return myIndexBuffer; }
 	const auto& getBindings() const { return myBindings; }
@@ -50,7 +50,7 @@ private:
 
 	void deleteInitialData();
 
-	ModelDesc<B> myModelDesc = {};
+	ModelCreateDesc<B> myDesc = {};
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 	// todo: make one buffer + offsets for all model data
 	Buffer<B> myVertexBuffer = {};

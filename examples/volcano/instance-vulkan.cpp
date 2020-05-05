@@ -30,7 +30,10 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData) -> VkBool32
     {
-        std::cout << pCallbackData->pMessageIdName << ": " << pCallbackData->pMessage << std::endl;
+        if (pCallbackData->pMessageIdName)
+            std::cout << pCallbackData->pMessageIdName << ": ";
+        
+        std::cout << pCallbackData->pMessage << std::endl;
 
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
             return VK_TRUE;
@@ -59,8 +62,8 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 }
 
 template <>
-InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsBackend::Vulkan>&& desc)
-: myInstanceDesc(std::move(desc))
+InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: myDesc(std::move(desc))
 {
     ZoneScopedN("Instance()");
 
@@ -143,7 +146,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    info.pApplicationInfo = &myInstanceDesc.createDesc.object().appInfo;
+    info.pApplicationInfo = &myDesc.appInfo;
     info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
     info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
     info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
@@ -151,7 +154,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
 
     CHECK_VK(vkCreateInstance(&info, nullptr, &myInstance));
 
-    mySurface = createSurface(myInstance, myInstanceDesc.surfaceHandle);
+    mySurface = createSurface(myInstance, myDesc.surfaceHandle);
 
     uint32_t physicalDeviceCount = 0;
     CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
@@ -160,6 +163,37 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceDesc<GraphicsB
 
     myPhysicalDevices.resize(physicalDeviceCount);
     CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
+
+    myPhysicalDeviceInfos.reserve(myPhysicalDevices.size());
+    myGraphicsDeviceCandidates.reserve(myPhysicalDevices.size());
+    
+    for (uint32_t deviceIt = 0; deviceIt < myPhysicalDevices.size(); deviceIt++)
+    {
+        myPhysicalDeviceInfos.emplace_back(getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(mySurface, myPhysicalDevices[deviceIt]));
+
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < myPhysicalDeviceInfos.back().queueFamilyProperties.size(); queueFamilyIt++)
+        {
+            const auto& queueFamilyProperties = myPhysicalDeviceInfos.back().queueFamilyProperties[queueFamilyIt];
+            const auto& queueFamilyPresentSupport = myPhysicalDeviceInfos.back().queueFamilyPresentSupport[queueFamilyIt];
+
+            if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
+                myGraphicsDeviceCandidates.emplace_back(std::make_pair(deviceIt, queueFamilyIt));
+        }
+    }
+
+    std::sort(myGraphicsDeviceCandidates.begin(), myGraphicsDeviceCandidates.end(), [this](const auto& lhs, const auto& rhs){
+        constexpr uint32_t deviceTypePriority[] =
+        {
+            4,//VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
+            1,//VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
+            0,//VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
+            2,//VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
+            3,//VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
+            0x7FFFFFFF//VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
+        };
+        return deviceTypePriority[myPhysicalDeviceInfos[lhs.first].deviceProperties.deviceType] < 
+            deviceTypePriority[myPhysicalDeviceInfos[rhs.first].deviceProperties.deviceType];
+    });
 
     myUserData = instance_vulkan::UserData();
 

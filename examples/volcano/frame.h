@@ -9,26 +9,27 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct FrameDesc
+struct FrameCreateDesc : RenderTargetCreateDesc<B>
 {
-	uint32_t index = 0;
-	uint32_t maxCommandContextCount = 4;
 	SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
+	uint32_t index = 0;
+	uint32_t maxCommandContextCount = 4;
 };
 
 template <GraphicsBackend B>
 class Frame : public RenderTarget<B>
 {
+	using DescType = FrameCreateDesc<B>;
+
 public:
 
 	Frame(Frame<B>&& other);
-    Frame(RenderTargetDesc<B>&& renderTargetDesc, FrameDesc<B>&& frameDesc);
+    Frame(DescType&& desc);
 	virtual ~Frame();
 
 	static uint32_t ourDebugCount;
 
-	const auto& getFrameDesc() const { return myFrameDesc; }
 	const auto& getFence() const { return myFence; }
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
@@ -39,7 +40,6 @@ public:
 
 private:
 
-	FrameDesc<B> myFrameDesc = {};
 	std::vector<std::shared_ptr<CommandContext<B>>> myCommandContexts;
 	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;

@@ -10,21 +10,6 @@
 
 
 template <GraphicsBackend B>
-struct DeviceDesc
-{
-    std::shared_ptr<InstanceContext<B>> instanceContext;
-    bool useCommandPoolReset = false;
-};
-
-template <GraphicsBackend B>
-struct SwapchainInfo
-{
-	SurfaceCapabilities<B> capabilities = {};
-	std::vector<SurfaceFormat<B>> formats;
-	std::vector<PresentMode<B>> presentModes;
-};
-
-template <GraphicsBackend B>
 struct SwapchainConfiguration
 {
     SurfaceFormat<B> selectedFormat = {};
@@ -33,13 +18,31 @@ struct SwapchainConfiguration
 };
 
 template <GraphicsBackend B>
-struct PhysicalDeviceInfo
+struct DeviceConfiguration
 {
-    SwapchainInfo<B> swapchainInfo = {};
-    PhysicalDeviceProperties<B> deviceProperties = {};
-    PhysicalDeviceFeautures<B> deviceFeatures = {};
-    std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
-    std::vector<uint32_t> queueFamilyPresentSupport;
+    DeviceConfiguration() = default;
+    DeviceConfiguration(
+        uint32_t physicalDeviceIndex_)
+    : physicalDeviceIndex(physicalDeviceIndex_)
+    { }
+    DeviceConfiguration(DeviceConfiguration&& other)
+    : physicalDeviceIndex(std::move(other.physicalDeviceIndex))
+    , useCommandPoolReset(std::move(other.useCommandPoolReset))
+    , useTimelineSemaphores(std::move(other.useTimelineSemaphores))
+    { }
+
+    uint32_t physicalDeviceIndex = 0;
+    std::optional<bool> useCommandPoolReset;
+    std::optional<bool> useTimelineSemaphores;
+
+    template <class Archive>
+    void serialize(Archive& archive);
+};
+
+template <GraphicsBackend B>
+struct DeviceCreateDesc : ScopedJSONFileObject<DeviceConfiguration<B>>
+{
+    std::shared_ptr<InstanceContext<B>> instanceContext;
 };
 
 enum QueueFamilyFlags : uint8_t
@@ -65,14 +68,13 @@ class DeviceContext
 public:
 
     DeviceContext(DeviceContext<B>&& other) = default;
-	DeviceContext(DeviceDesc<B>&& desc);
+	DeviceContext(DeviceCreateDesc<B>&& desc);
     ~DeviceContext();
 
-    const auto& getDeviceDesc() const { return myDeviceDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getDevice() const { return myDevice; }
-    const auto& getPhysicalDevice() const { return myDeviceDesc.instanceContext->getPhysicalDevices()[myPhysicalDeviceIndex]; }
-    const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
-    auto getSelectedPhysicalDeviceIndex() const { return myPhysicalDeviceIndex; }
+    const auto& getPhysicalDevice() const
+    { return myDesc.instanceContext->getPhysicalDevices()[myDesc.physicalDeviceIndex]; }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
@@ -95,19 +97,18 @@ public:
 
 private:
 
-    const DeviceDesc<B> myDeviceDesc = {};
-    std::vector<PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
+    const DeviceCreateDesc<B> myDesc = {};
+    SwapchainConfiguration<B> mySwapchainConfiguration = {};
 
     DeviceHandle<B> myDevice = 0;
-    uint32_t myPhysicalDeviceIndex = 0;
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
-    uint32_t myGraphicsQueueFamilyIndex = 0;
-    uint32_t myTransferQueueFamilyIndex = 1;
-    uint32_t myComputeQueueFamilyIndex = 2;
-
-    SwapchainConfiguration<B> mySwapchainConfiguration = {};
+    uint32_t myGraphicsQueueFamilyIndex = 0; // todo: configure
+    uint32_t myTransferQueueFamilyIndex = 1; // todo: configure
+    uint32_t myComputeQueueFamilyIndex = 2; // todo: configure
     
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
 };
+
+#include "device-vulkan.h"

@@ -6,7 +6,7 @@
 #include <memory>
 
 template <GraphicsBackend B>
-struct BufferDesc
+struct BufferCreateDesc
 {
     std::shared_ptr<DeviceContext<B>> deviceContext;
     DeviceSize<B> size = 0;
@@ -32,12 +32,12 @@ class Buffer
 public:
 
     Buffer(Buffer&& other) = default;
-    Buffer(BufferDesc<B>&& desc, CommandContext<B>& commandContext);
+    Buffer(BufferCreateDesc<B>&& desc, CommandContext<B>& commandContext);
     ~Buffer();
 
     static uint32_t ourDebugCount;
 
-    const auto& getBufferDesc() const { return myBufferDesc; }
+    const auto& getDesc() const { return myDesc; }
     const auto& getBuffer() const { return myBuffer; }
     const auto& getBufferMemory() const { return myBufferMemory; }
     
@@ -47,7 +47,7 @@ private:
 
     void deleteInitialData();
 
-    BufferDesc<B> myBufferDesc = {};
+    BufferCreateDesc<B> myDesc = {};
 	BufferHandle<B> myBuffer = 0;
 	AllocationHandle<B> myBufferMemory = 0;
 };

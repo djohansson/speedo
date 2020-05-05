@@ -5,44 +5,44 @@
 #include <Tracy.hpp>
 
 template <>
-RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(RenderTargetDesc<GraphicsBackend::Vulkan>&& desc)
-: myRenderTargetDesc(std::move(desc))
+RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: myDesc(std::move(desc))
 {
     ZoneScopedN("RenderTarget()");
 
     std::vector<ImageViewHandle<GraphicsBackend::Vulkan>> attachments;
     
-    for (uint32_t i = 0; i < myRenderTargetDesc.colorImageCount; i++)
+    for (uint32_t i = 0; i < myDesc.colorImageCount; i++)
         myColorViews.emplace_back(createImageView2D(
-            myRenderTargetDesc.deviceContext->getDevice(),
-            myRenderTargetDesc.colorImages[i],
-            myRenderTargetDesc.colorImageFormat,
+            myDesc.deviceContext->getDevice(),
+            myDesc.colorImages[i],
+            myDesc.colorImageFormat,
             VK_IMAGE_ASPECT_COLOR_BIT));
 
     attachments.insert(std::end(attachments), std::begin(myColorViews), std::end(myColorViews));
 
-    if (myRenderTargetDesc.depthImage)
+    if (myDesc.depthImage)
     {
         VkImageAspectFlags depthAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (hasStencilComponent(myRenderTargetDesc.depthImageFormat))
+        if (hasStencilComponent(myDesc.depthImageFormat))
             depthAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
         myDepthView = createImageView2D(
-            myRenderTargetDesc.deviceContext->getDevice(),
-            myRenderTargetDesc.depthImage,
-            myRenderTargetDesc.depthImageFormat,
+            myDesc.deviceContext->getDevice(),
+            myDesc.depthImage,
+            myDesc.depthImageFormat,
             depthAspectFlags);
 
         attachments.push_back(myDepthView);
     }
 
     myFrameBuffer = createFramebuffer(
-        myRenderTargetDesc.deviceContext->getDevice(),
-        myRenderTargetDesc.renderPass,
+        myDesc.deviceContext->getDevice(),
+        myDesc.renderPass,
         attachments.size(),
         attachments.data(),
-        myRenderTargetDesc.imageExtent.width,
-        myRenderTargetDesc.imageExtent.height,
+        myDesc.imageExtent.width,
+        myDesc.imageExtent.height,
         1);
 }
 
@@ -52,10 +52,10 @@ RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
     ZoneScopedN("~RenderTarget()");
 
     for (const auto& colorView : myColorViews)
-        vkDestroyImageView(myRenderTargetDesc.deviceContext->getDevice(), colorView, nullptr);
+        vkDestroyImageView(myDesc.deviceContext->getDevice(), colorView, nullptr);
 
     if (myDepthView)
-        vkDestroyImageView(myRenderTargetDesc.deviceContext->getDevice(), myDepthView, nullptr);
+        vkDestroyImageView(myDesc.deviceContext->getDevice(), myDepthView, nullptr);
     
-    vkDestroyFramebuffer(myRenderTargetDesc.deviceContext->getDevice(), myFrameBuffer, nullptr);
+    vkDestroyFramebuffer(myDesc.deviceContext->getDevice(), myFrameBuffer, nullptr);
 }
