@@ -61,7 +61,7 @@ public:
 	Application(Application&& other) = default;
 	Application(
 		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-		const char* resourcePath, const char* userProfilePath = nullptr);
+		const char* resourcePath, const char* userProfilePath);
 	~Application();
 
 	void draw();
@@ -71,6 +71,8 @@ public:
 
 	void onMouse(const MouseState& state);
 	void onKeyboard(const KeyboardState& state);
+
+	const char* getName() const;
 
 private:
 

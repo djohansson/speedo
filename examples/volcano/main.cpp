@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <algorithm>
+#include <string>
+#include <tuple>
+
 #if defined(_DEBUG) && defined(__WINDOWS__)
 #include <crtdbg.h>
 #endif
@@ -179,7 +183,18 @@ int __cdecl CrtReportHook(int nReportType, char* szMsg, int* pnRet)
 }
 #endif
 
-int main(int, char**)
+std::tuple<bool, char*> getCmdOption(char** begin, char** end, const char* option)
+{
+    char** it = std::find(begin, end, option);
+	char* next = nullptr;
+	bool exist = it != end;
+    if (exist && ++it != end)
+        next = *it;
+    
+    return std::make_tuple(exist, next);
+}
+
+int main(int argc, char** argv)
 {
 #if defined(_DEBUG) && defined(__WINDOWS__)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
@@ -208,7 +223,7 @@ int main(int, char**)
 	//const GLFWvidmode* selectedVideoMode = glfwGetVideoMode(selectedMonitor);
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "volcano", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "", NULL, NULL);
 
 	// Setup Vulkan
 	if (!glfwVulkanSupported())
@@ -230,7 +245,16 @@ int main(int, char**)
 	int framebufferWidth, framebufferHeight;
 	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
 
-	volcano_create(window, g_window.width, g_window.height, framebufferWidth, framebufferHeight, "./resources/");
+	volcano_create(
+		window,
+		g_window.width,
+		g_window.height,
+		framebufferWidth,
+		framebufferHeight,
+		std::get<1>(getCmdOption(argv, argv + argc, "-r")),
+		std::get<1>(getCmdOption(argv, argv + argc, "-u")));
+
+	glfwSetWindowTitle(window, volcano_getAppName());
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 

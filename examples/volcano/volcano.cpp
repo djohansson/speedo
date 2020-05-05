@@ -5,13 +5,12 @@ static std::unique_ptr<Application<GraphicsBackend::Vulkan>> theApplication;
 
 int volcano_create(
 	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-	const char* resourcePath)
+	const char* resourcePath, const char* userProfilePath)
 {
 	assert(view != nullptr);
 
 	theApplication = std::make_unique<Application<GraphicsBackend::Vulkan>>(
-		view, width, height, framebufferWidth, framebufferHeight,
-		resourcePath ? resourcePath : "./");
+		view, width, height, framebufferWidth, framebufferHeight, resourcePath, userProfilePath);
 
 	return EXIT_SUCCESS;
 }
@@ -59,4 +58,11 @@ void volcano_destroy()
 	assert(theApplication);
 
 	theApplication.reset();
+}
+
+const char* volcano_getAppName(void)
+{
+	assert(theApplication);
+
+	return theApplication->getName();
 }

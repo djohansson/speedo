@@ -104,7 +104,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
         auto freeBeginIt = mySubmittedCommands.begin();
         auto freeEndIt = freeBeginIt;
 
-        if (!myDesc.deviceContext->getDesc().useCommandPoolReset.value_or(false))
+        if (!myDesc.deviceContext->getDesc().useCommandPoolReset.value())
         {
             ZoneScopedN("reset");
 
@@ -149,7 +149,7 @@ void CommandContext<GraphicsBackend::Vulkan>::collectGarbage(
         myGarbageCollectCallbacks.pop_front();
     }
 
-    if (myDesc.deviceContext->getDesc().useCommandPoolReset.value_or(false))
+    if (myDesc.deviceContext->getDesc().useCommandPoolReset.value())
     {
         ZoneScopedN("poolReset");
 
