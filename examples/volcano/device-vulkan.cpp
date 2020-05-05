@@ -92,7 +92,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
             nullptr,
             0,//queueFamilyProperty.queueFlags,
             queueFamilyIt,
-            queuePriorities.size(),
+            static_cast<uint32_t>(queuePriorities.size()),
             queuePriorities.data()
         });
     }
