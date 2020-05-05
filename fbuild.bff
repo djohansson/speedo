@@ -272,6 +272,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/tracy/common/tracy_lz4.cpp'
 			'$RootPath$/external/tracy/common/tracy_lz4hc.cpp'
 			'$RootPath$/external/tracy/server/TracyBadVersion.cpp'
+			'$RootPath$/external/tracy/server/TracyColor.cpp'
+			'$RootPath$/external/tracy/server/TracyFileSystem.cpp'
 			'$RootPath$/external/tracy/server/TracyMemory.cpp'
 			'$RootPath$/external/tracy/server/TracyMmap.cpp'
 			'$RootPath$/external/tracy/server/TracyPrint.cpp'
@@ -313,6 +315,9 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
 		.CompilerInputUnity = '$Name$-unity'
+		.CompilerInputFiles = {
+			'$RootPath$/external/tracy/server/TracyMicroArchitecture.cpp'
+		}
 	]
 	^RootObjectLists + .TracyObjectList
 

@@ -416,6 +416,9 @@ Application<GraphicsBackend::Vulkan>::~Application()
 
     vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
     vkDestroySampler(myDevice->getDevice(), myDefaultResources->sampler, nullptr);
+
+    myDefaultResources->texture.reset();
+    myDefaultResources->model.reset();
     
     vkDestroyPipelineCache(myDevice->getDevice(), myPipelineCache, nullptr);
     vkDestroyPipelineLayout(myDevice->getDevice(), myGraphicsPipelineLayout->layout, nullptr);
