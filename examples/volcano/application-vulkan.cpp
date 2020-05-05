@@ -74,8 +74,8 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.Queue = myDevice->getPrimaryGraphicsQueue();
     initInfo.PipelineCache = myPipelineCache;
     initInfo.DescriptorPool = myDevice->getDescriptorPool();
-    initInfo.MinImageCount = myDevice->getSwapchainConfiguration().selectedImageCount;
-    initInfo.ImageCount = myDevice->getSwapchainConfiguration().selectedImageCount;
+    initInfo.MinImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
+    initInfo.ImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
     initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
     initInfo.CheckVkResultFn = CHECK_VK;
@@ -183,7 +183,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         InstanceCreateDesc<GraphicsBackend::Vulkan>{
-            ScopedJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
+            ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
                 instanceConfigFile,
                 "instanceConfiguration"),
             view});
@@ -196,7 +196,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
 
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         DeviceCreateDesc<GraphicsBackend::Vulkan>{
-            ScopedJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
+            ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
                 deviceConfigFile,
                 "deviceConfiguration",
                 graphicsDeviceCandidates.front().first),
@@ -272,7 +272,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             myTransferFence});
     }
 
-    myLastFrameIndex = myDevice->getSwapchainConfiguration().selectedImageCount - 1;
+    myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
     myWindow->waitFrame(myLastFrameIndex);
     auto& frame = myWindow->frames()[myLastFrameIndex];
     myDefaultResources->renderTarget = &frame;

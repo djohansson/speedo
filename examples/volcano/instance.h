@@ -54,7 +54,7 @@ struct InstanceConfiguration
 };
 
 template <GraphicsBackend B>
-struct InstanceCreateDesc : ScopedJSONFileObject<InstanceConfiguration<B>>
+struct InstanceCreateDesc : ScopedFileObject<InstanceConfiguration<B>>
 {
     void* surfaceHandle = nullptr;
 };

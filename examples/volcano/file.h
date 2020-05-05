@@ -80,24 +80,24 @@ void loadCachedSourceFile(
     LoadFileFn loadBinaryCacheFn,
     SaveFileFn saveBinaryCacheFn);
 
-template <typename T>
-std::optional<T> loadJSONObject(std::istream& stream, const std::string& name)
+template <typename T, typename Archive = cereal::JSONInputArchive>
+std::optional<T> loadObject(std::istream& stream, const std::string& name)
 {
-    cereal::JSONInputArchive json(stream);
+    Archive archive(stream);
     T outValue = {};
-    json(cereal::make_nvp(name, outValue));
+    archive(cereal::make_nvp(name, outValue));
     return std::move(outValue);
 };
 
-template <typename T>
-void saveJSONObject(const T& object, std::ostream& stream, const std::string& name)
+template <typename T, typename Archive = cereal::JSONOutputArchive>
+void saveObject(const T& object, std::ostream& stream, const std::string& name)
 {
-    cereal::JSONOutputArchive json(stream);
+    Archive json(stream);
     json(cereal::make_nvp(name, object));
 };
 
-template <typename T>
-std::tuple<std::optional<T>, FileState> loadJSONObject(const std::filesystem::path& filePath, const std::string& name)
+template <typename T, typename Archive = cereal::JSONInputArchive>
+std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name)
 {
     auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
@@ -106,45 +106,47 @@ std::tuple<std::optional<T>, FileState> loadJSONObject(const std::filesystem::pa
     mio::mmap_istreambuf fileStreamBuf(filePath.string());
     std::istream fileStream(&fileStreamBuf);
 
-    return std::make_tuple(loadJSONObject<T>(fileStream, name), FileState::Valid);
+    return std::make_tuple(loadObject<T, Archive>(fileStream, name), FileState::Valid);
 }
 
-template <typename T>
-void saveJSONObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
+template <typename T, typename Archive = cereal::JSONOutputArchive>
+void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
 {
     mio::mmap_ostreambuf fileStreamBuf(filePath.string());
 	std::ostream fileStream(&fileStreamBuf);
-    saveJSONObject(object, fileStream, name);
+    saveObject<T, Archive>(object, fileStream, name);
 }
 
-template <typename T>
-class ScopedJSONFileObject : public Noncopyable, public T
+template <typename T, typename InputArchive = cereal::JSONInputArchive, typename OutputArchive = cereal::JSONOutputArchive>
+class ScopedFileObject : public Noncopyable, public T
 {
+    // todo: implement mechanism to only write changes when contents have changed.
+
 public:
 
-    ScopedJSONFileObject(const std::filesystem::path& filePath, const std::string& name, T&& defaultObject = T{})
-    : T(std::get<0>(loadJSONObject<T>(filePath, name)).value_or(std::move(defaultObject)))
+    ScopedFileObject(const std::filesystem::path& filePath, const std::string& name, T&& defaultObject = T{})
+    : T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
     , myFilePath(filePath)
     , myName(name)
     { }
 
-    ScopedJSONFileObject(ScopedJSONFileObject&& other)
+    ScopedFileObject(ScopedFileObject&& other)
     : T(std::move(other))
     , myFilePath(std::move(other.myFilePath))
     , myName(std::move(other.myName))
     { 
-        other.myIsMoved = true;
+        other.myFilePath.clear();
+        other.myName.clear();
     }
 
-    ~ScopedJSONFileObject()
+    ~ScopedFileObject()
     {
-        if (!myIsMoved)
-            saveJSONObject(static_cast<const T&>(*this), myFilePath, myName);
+        if (!myFilePath.empty())
+            saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName);
     }
 
 private:
 
     std::filesystem::path myFilePath;
     std::string myName;
-    bool myIsMoved = false;
 };

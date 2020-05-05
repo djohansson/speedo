@@ -126,7 +126,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
         BufferCreateDesc<GraphicsBackend::Vulkan>{
             myDesc.deviceContext,
-            myDesc.deviceContext->getSwapchainConfiguration().selectedImageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
+            myDesc.deviceContext->getDesc().swapchainConfiguration->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             VK_NULL_HANDLE,
@@ -148,7 +148,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 
     myRenderPass = createRenderPass(
         myDesc.deviceContext->getDevice(),
-        myDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
+        myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
         myDepthTexture->getDesc().format);
 
     uint32_t imageCount;
@@ -157,7 +157,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
     CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
 
-    uint32_t frameCount = myDesc.deviceContext->getSwapchainConfiguration().selectedImageCount;
+    uint32_t frameCount = myDesc.deviceContext->getDesc().swapchainConfiguration->imageCount;
     myFrames.reserve(frameCount);
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
@@ -171,7 +171,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
                 myDesc.deviceContext,
                 myRenderPass,
                 myDesc.framebufferExtent,
-                myDesc.deviceContext->getSwapchainConfiguration().selectedFormat.format,
+                myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
                 1,
                 &colorImages[frameIt], 
                 myDepthTexture->getDesc().format,

@@ -12,9 +12,20 @@
 template <GraphicsBackend B>
 struct SwapchainConfiguration
 {
-    SurfaceFormat<B> selectedFormat = {};
-	PresentMode<B> selectedPresentMode;
-	uint8_t selectedImageCount = 0;	
+    SurfaceFormat<B> surfaceFormat = {};
+	PresentMode<B> presentMode;
+	uint8_t imageCount = 0;
+
+    template <class Archive>
+    void serialize(Archive& archive)
+    {
+        archive(
+            CEREAL_NVP(surfaceFormat.format),
+            CEREAL_NVP(surfaceFormat.colorSpace),
+            CEREAL_NVP(presentMode),
+            CEREAL_NVP(imageCount)
+        );
+    }
 };
 
 template <GraphicsBackend B>
@@ -27,11 +38,13 @@ struct DeviceConfiguration
     { }
     DeviceConfiguration(DeviceConfiguration&& other)
     : physicalDeviceIndex(std::move(other.physicalDeviceIndex))
+    , swapchainConfiguration(std::move(other.swapchainConfiguration))
     , useCommandPoolReset(std::move(other.useCommandPoolReset))
     , useTimelineSemaphores(std::move(other.useTimelineSemaphores))
     { }
 
     uint32_t physicalDeviceIndex = 0;
+    std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
     std::optional<bool> useCommandPoolReset;
     std::optional<bool> useTimelineSemaphores;
 
@@ -40,6 +53,7 @@ struct DeviceConfiguration
     {
         archive(
             CEREAL_NVP(physicalDeviceIndex),
+            CEREAL_NVP(swapchainConfiguration),
             CEREAL_NVP(useCommandPoolReset),
             CEREAL_NVP(useTimelineSemaphores)
         );
@@ -47,7 +61,7 @@ struct DeviceConfiguration
 };
 
 template <GraphicsBackend B>
-struct DeviceCreateDesc : ScopedJSONFileObject<DeviceConfiguration<B>>
+struct DeviceCreateDesc : ScopedFileObject<DeviceConfiguration<B>>
 {
     std::shared_ptr<InstanceContext<B>> instanceContext;
 };
@@ -97,16 +111,12 @@ public:
     const auto& getComputeCommandPools() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].commandPools; }
     //
 
-    const auto& getSwapchainConfiguration() const { return mySwapchainConfiguration; }
-
     const auto& getAllocator() const { return myAllocator; }
     const auto& getDescriptorPool() const { return myDescriptorPool; }
 
 private:
 
     DeviceCreateDesc<B> myDesc = {};
-    SwapchainConfiguration<B> mySwapchainConfiguration = {};
-
     DeviceHandle<B> myDevice = 0;
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;

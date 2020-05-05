@@ -22,58 +22,63 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         myDesc.instanceContext->getPhysicalDeviceInfos()[myDesc.physicalDeviceIndex];
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
-    const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
-        VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
-        VK_FORMAT_R8G8B8_UNORM};
-    const ColorSpace<GraphicsBackend::Vulkan> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-    const PresentMode<GraphicsBackend::Vulkan> requestPresentMode[] = {
-        VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-        VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
-
-    // Request several formats, the first found will be used
-    // If none of the requested image formats could be found, use the first available
-    for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
-            request_i++)
+    if (!myDesc.swapchainConfiguration.has_value())
     {
-        SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat =
-        {
-            requestSurfaceImageFormat[request_i],
-            requestSurfaceColorSpace
-        };
-        auto formatIt = std::find(
-            swapchainInfo.formats.begin(),
-            swapchainInfo.formats.end(),
-            requestedFormat);
-        if (formatIt != swapchainInfo.formats.end())
-        {
-            mySwapchainConfiguration.selectedFormat = *formatIt;
-            break;
-        }
-    }
+        myDesc.swapchainConfiguration = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
 
-    // Request a certain mode and confirm that it is available. If not use
-    // VK_PRESENT_MODE_FIFO_KHR which is mandatory
-    for (uint32_t request_i = 0; request_i < sizeof_array(requestPresentMode);
-            request_i++)
-    {
-        auto modeIt = std::find(
-            swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(),
-            requestPresentMode[request_i]);
-        if (modeIt != swapchainInfo.presentModes.end())
-        {
-            mySwapchainConfiguration.selectedPresentMode = *modeIt;
+        const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
+            VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
+            VK_FORMAT_R8G8B8_UNORM};
+        const ColorSpace<GraphicsBackend::Vulkan> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        const PresentMode<GraphicsBackend::Vulkan> requestPresentMode[] = {
+            VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+            VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
 
-            switch (mySwapchainConfiguration.selectedPresentMode)
+        // Request several formats, the first found will be used
+        // If none of the requested image formats could be found, use the first available
+        for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
+                request_i++)
+        {
+            SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat =
             {
-            case VK_PRESENT_MODE_MAILBOX_KHR:
-                mySwapchainConfiguration.selectedImageCount = 3;
-                break;
-            default:
-                mySwapchainConfiguration.selectedImageCount = 2;
+                requestSurfaceImageFormat[request_i],
+                requestSurfaceColorSpace
+            };
+            auto formatIt = std::find(
+                swapchainInfo.formats.begin(),
+                swapchainInfo.formats.end(),
+                requestedFormat);
+            if (formatIt != swapchainInfo.formats.end())
+            {
+                myDesc.swapchainConfiguration->surfaceFormat = *formatIt;
                 break;
             }
+        }
 
-            break;
+        // Request a certain mode and confirm that it is available. If not use
+        // VK_PRESENT_MODE_FIFO_KHR which is mandatory
+        for (uint32_t request_i = 0; request_i < sizeof_array(requestPresentMode);
+                request_i++)
+        {
+            auto modeIt = std::find(
+                swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(),
+                requestPresentMode[request_i]);
+            if (modeIt != swapchainInfo.presentModes.end())
+            {
+                myDesc.swapchainConfiguration->presentMode = *modeIt;
+
+                switch (myDesc.swapchainConfiguration->presentMode)
+                {
+                case VK_PRESENT_MODE_MAILBOX_KHR:
+                    myDesc.swapchainConfiguration->imageCount = 3;
+                    break;
+                default:
+                    myDesc.swapchainConfiguration->imageCount = 2;
+                    break;
+                }
+
+                break;
+            }
         }
     }
  
@@ -175,7 +180,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
             vkGetDeviceQueue(myDevice, queueFamilyIt, queueIt, &queueFamilyDesc.queues[queueIt]);
 
-        uint32_t frameCount = queueFamilyPresentSupport ? mySwapchainConfiguration.selectedImageCount : 1;
+        uint32_t frameCount = queueFamilyPresentSupport ? myDesc.swapchainConfiguration->imageCount : 1;
 
         queueFamilyDesc.commandPools.resize(frameCount);
 
