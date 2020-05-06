@@ -83,7 +83,7 @@ private:
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
-	std::vector<Frame<B>> myFrames;
+	std::vector<std::shared_ptr<Frame<B>>> myFrames;
 	std::vector<std::chrono::high_resolution_clock::time_point> myFrameTimestamps;
 	RenderPassHandle<B> myRenderPass = 0;
 	std::vector<std::function<void()>> myIMGUIDrawCallbacks;

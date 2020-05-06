@@ -29,17 +29,18 @@ struct FileInfo
     int64_t size = 0;
     std::string timeStamp;
     std::vector<unsigned char> sha2;
-};
 
-template <class Archive>
-void serialize(Archive& archive, FileInfo& fi)
-{
-    archive(
-        cereal::make_nvp("path", fi.path),
-        cereal::make_nvp("size", fi.size),
-        cereal::make_nvp("timeStamp", fi.timeStamp),
-        cereal::make_nvp("sha2", fi.sha2));
-}
+    template <class Archive>
+    void serialize(Archive& archive)
+    {
+        archive(
+            CEREAL_NVP(path),
+            CEREAL_NVP(size),
+            CEREAL_NVP(timeStamp),
+            CEREAL_NVP(sha2));
+    }
+
+};
 
 std::string getFileTimeStamp(const std::filesystem::path &filePath);
 
@@ -81,7 +82,7 @@ void loadCachedSourceFile(
     SaveFileFn saveBinaryCacheFn);
 
 template <typename T, typename Archive = cereal::JSONInputArchive>
-std::optional<T> loadObject(std::istream& stream, const std::string& name)
+T loadObject(std::istream& stream, const std::string& name)
 {
     Archive archive(stream);
     T outValue = {};
@@ -106,7 +107,7 @@ std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& 
     mio::mmap_istreambuf fileStreamBuf(filePath.string());
     std::istream fileStream(&fileStreamBuf);
 
-    return std::make_tuple(loadObject<T, Archive>(fileStream, name), FileState::Valid);
+    return std::make_tuple(std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
 }
 
 template <typename T, typename Archive = cereal::JSONOutputArchive>

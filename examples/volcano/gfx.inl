@@ -346,7 +346,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 			bin(cacheData);
 		}
 		else
-			assert(false && "Failed to get pipeline cache.");
+			assertf(false, "Failed to get pipeline cache.");
 	};
 
 	return saveBinaryFile(cacheFilePath, saveCacheOp, false);

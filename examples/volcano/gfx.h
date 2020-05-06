@@ -34,18 +34,6 @@ template <GraphicsBackend B>
 struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<B>
 {
 	using BaseType = DescriptorSetLayoutBinding<B>;
-
-	template <class Archive, GraphicsBackend B = B>
-	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
-	{
-		static_assert(sizeof(*this) == sizeof(BaseType));
-
-		ar(BaseType::binding);
-		ar(BaseType::descriptorType);
-		ar(BaseType::descriptorCount);
-		ar(BaseType::stageFlags);
-		// ar(pImmutableSamplers); // todo
-	}
 };
 
 // this is a temporary object only used during loading.
@@ -81,7 +69,7 @@ struct GraphicsPipelineResourceView
 	ImageViewHandle<B> textureView = 0;
 	SamplerHandle<B> sampler = 0;
 	// end temp
-	const RenderTarget<B>* renderTarget = nullptr;
+	std::shared_ptr<RenderTarget<B>> renderTarget;
 };
 
 template <GraphicsBackend B>

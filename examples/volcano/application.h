@@ -1,9 +1,7 @@
 // wip: dynamic mesh layout, depending on input data structure.
-// wip: create constructors/destructors for composite structs, and use shared_ptrs or unique_ptrs when referencing them.
 // wip: specialize on graphics backend
 // wip: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 // wip: move stuff from headers into compilation units
-// todo: simplify descriptor structs, consider passing contexts instead of handles
 // todo: extract descriptor sets
 // todo: resource loading / manager
 // todo: graph based GUI

@@ -31,18 +31,6 @@ struct SwapchainConfiguration
 template <GraphicsBackend B>
 struct DeviceConfiguration
 {
-    DeviceConfiguration() = default;
-    DeviceConfiguration(
-        uint32_t physicalDeviceIndex_)
-    : physicalDeviceIndex(physicalDeviceIndex_)
-    { }
-    DeviceConfiguration(DeviceConfiguration&& other)
-    : physicalDeviceIndex(std::move(other.physicalDeviceIndex))
-    , swapchainConfiguration(std::move(other.swapchainConfiguration))
-    , useCommandPoolReset(std::move(other.useCommandPoolReset))
-    , useTimelineSemaphores(std::move(other.useTimelineSemaphores))
-    { }
-
     uint32_t physicalDeviceIndex = 0;
     std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
     std::optional<bool> useCommandPoolReset;

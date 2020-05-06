@@ -199,7 +199,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
                 deviceConfigFile,
                 "deviceConfiguration",
-                graphicsDeviceCandidates.front().first),
+                {graphicsDeviceCandidates.front().first}),
             myInstance});
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
@@ -275,11 +275,11 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
     myWindow->waitFrame(myLastFrameIndex);
     auto& frame = myWindow->frames()[myLastFrameIndex];
-    myDefaultResources->renderTarget = &frame;
+    myDefaultResources->renderTarget = frame;
 
     // resource transitions, etc
     {
-        auto& primaryCommandContext = frame.commandContexts()[0];
+        auto& primaryCommandContext = frame->commandContexts()[0];
         {
             auto primaryCommands = primaryCommandContext->beginEndScope();
             myWindow->depthTexture().transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
@@ -300,7 +300,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         myLastFrameTimelineValue = primaryCommandContext->submit({
             myDevice->getPrimaryGraphicsQueue(),
-            frame.getFence(),
+            frame->getFence(),
             0,
             nullptr,
             1,
@@ -409,27 +409,28 @@ Application<GraphicsBackend::Vulkan>::~Application()
     }
 
     myTransferCommandContext->clear();
-
     vkDestroyFence(myDevice->getDevice(), myTransferFence, nullptr);
 
     destroyFrameObjects();
 
+    {
+        myDefaultResources->texture.reset();
+        myDefaultResources->model.reset();
+        myDefaultResources->renderTarget.reset();
+        vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
+        vkDestroySampler(myDevice->getDevice(), myDefaultResources->sampler, nullptr);
+    }
+
     vkDestroySemaphore(myDevice->getDevice(), myTimelineSemaphore, nullptr);
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui::DestroyContext();
 
     savePipelineCache<GraphicsBackend::Vulkan>(
         myUserProfilePath / "pipeline.cache",
         myDevice->getDevice(),
         myInstance->getPhysicalDeviceInfos()[myDevice->getDesc().physicalDeviceIndex].deviceProperties,
         myPipelineCache);
-
-    ImGui_ImplVulkan_Shutdown();
-    ImGui::DestroyContext();
-
-    vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
-    vkDestroySampler(myDevice->getDevice(), myDefaultResources->sampler, nullptr);
-
-    myDefaultResources->texture.reset();
-    myDefaultResources->model.reset();
     
     vkDestroyPipelineCache(myDevice->getDevice(), myPipelineCache, nullptr);
     vkDestroyPipelineLayout(myDevice->getDevice(), myGraphicsPipelineLayout->layout, nullptr);
@@ -482,9 +483,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
     {
         myWindow->waitFrame(frameIndex);
 
-        auto& frame = myWindow->frames()[frameIndex];
-
-        myDefaultResources->renderTarget = &frame;
+        myDefaultResources->renderTarget = myWindow->frames()[frameIndex];
 
         myLastFrameTimelineValue = myWindow->submitFrame(frameIndex,
             myLastFrameIndex,
@@ -507,7 +506,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
         ZoneScopedN("tracyVkCollectTransfer");
 
         auto& frame = myWindow->frames()[frameIndex];
-        auto& primaryCommandContext = frame.commandContexts()[0];
+        auto& primaryCommandContext = frame->commandContexts()[0];
         auto primaryCommands = primaryCommandContext->beginEndScope();
 
         TracyVkZone(
