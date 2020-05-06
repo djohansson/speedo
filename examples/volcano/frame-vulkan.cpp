@@ -1,11 +1,19 @@
 #include "frame.h"
-#include "command-vulkan.h"
+#include "command.h"
+#include "rendertarget.h"
 #include "vk-utils.h"
 
 #include <Tracy.hpp>
 
 template <>
 uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
+
+template RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTarget(
+    RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
+
+template RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTarget(CreateDescType&& desc);
+
+template RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTarget();
 
 template <>
 void Frame<GraphicsBackend::Vulkan>::waitForFence() const
@@ -16,9 +24,8 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence() const
 
 template <>
 Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
-    : RenderTarget<GraphicsBackend::Vulkan>(std::move(other))
-    , myDesc(std::move(other.myDesc))
-	, myCommandContexts(std::move(other.myCommandContexts))
+: BaseType(std::move(other))
+    , myCommandContexts(std::move(other.myCommandContexts))
 	, myFence(other.myFence)
 	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
 	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
@@ -31,11 +38,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
     }
 
 template <>
-Frame<GraphicsBackend::Vulkan>::Frame(
-    FrameCreateDesc<GraphicsBackend::Vulkan>&& frameDesc,
-    RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& renderTargetDesc)
-: RenderTarget<GraphicsBackend::Vulkan>(std::move(renderTargetDesc))
-, myDesc(std::move(frameDesc))
+Frame<GraphicsBackend::Vulkan>::Frame(CreateDescType&& desc)
+: BaseType(std::move(desc))
 {
     ZoneScopedN("Frame()");
 

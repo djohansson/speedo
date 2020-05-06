@@ -18,14 +18,12 @@ struct ModelCreateDesc
 	// todo: reconsider.
 	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
 	//
-	DeviceSize<B> vertexBufferSize = 0;
 	DeviceSize<B> indexBufferSize = 0;
+	DeviceSize<B> vertexBufferSize = 0;
 	uint32_t indexCount = 0;
 	// temp: these will be destroyed when calling deleteInitialData()
-	BufferHandle<B> initialVertices = 0;
-	AllocationHandle<B> initialVerticesMemory = 0;
-	BufferHandle<B> initialIndices = 0;
-	AllocationHandle<B> initialIndicesMemory = 0;
+	BufferHandle<B> initialData = 0;
+	AllocationHandle<B> initialMemory = 0;
     //
 	// todo: reconsider.
 	std::string debugName;
@@ -42,18 +40,16 @@ public:
 	Model(const std::filesystem::path& modelFile, CommandContext<B>& commandContext);
 
 	const auto& getDesc() const { return myDesc; }
-	const auto& getVertexBuffer() const { return myVertexBuffer; }
-	const auto& getIndexBuffer() const { return myIndexBuffer; }
+	const auto& getBuffer() const { return myBuffer; }
 	const auto& getBindings() const { return myBindings; }
+	constexpr auto getIndexOffset() const { return 0; }
+	const auto& getVertexOffset() const { return myDesc.indexBufferSize; }
 
 private:
 
 	void deleteInitialData();
 
 	ModelCreateDesc<B> myDesc = {};
+	Buffer<B> myBuffer = {};
 	std::vector<VertexInputBindingDescription<B>> myBindings;
-	// todo: make one buffer + offsets for all model data
-	Buffer<B> myVertexBuffer = {};
-	Buffer<B> myIndexBuffer = {};
-	//
 };

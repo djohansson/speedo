@@ -88,7 +88,6 @@ private:
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
-	
 	std::shared_ptr<Window<B>> myWindow;
 	uint32_t myLastFrameIndex = 0;
 	uint64_t myLastFrameTimelineValue = 0;

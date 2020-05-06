@@ -9,7 +9,7 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct FrameCreateDesc
+struct FrameCreateDesc : RenderTargetCreateDesc<B>
 {
 	SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
@@ -18,17 +18,19 @@ struct FrameCreateDesc
 };
 
 template <GraphicsBackend B>
-class Frame : public RenderTarget<B>
+class Frame : public RenderTarget<FrameCreateDesc<B>, B>
 {
 public:
 
+	using BaseType = RenderTarget<FrameCreateDesc<B>, B>;
+	using CreateDescType = typename BaseType::CreateDescType;
+
 	Frame(Frame<B>&& other);
-    Frame(FrameCreateDesc<B>&& frameDesc, RenderTargetCreateDesc<B>&& renderTargetDesc);
+    Frame(CreateDescType&& desc);
 	virtual ~Frame();
 
 	static uint32_t ourDebugCount;
 
-	const auto& getFrameDesc() const { return myDesc; }
 	const auto& getFence() const { return myFence; }
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
@@ -39,9 +41,10 @@ public:
 
 private:
 
-	FrameCreateDesc<B> myDesc = {};
 	std::vector<std::shared_ptr<CommandContext<B>>> myCommandContexts;
 	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
 };
+
+#include "frame-vulkan.h"

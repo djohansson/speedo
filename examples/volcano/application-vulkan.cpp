@@ -1,5 +1,5 @@
 #include "application.h"
-#include "command-vulkan.h"
+#include "command.h"
 #include "gfx.h"
 #include "file.h"
 #include "vk-utils.h"
@@ -275,7 +275,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
     myWindow->waitFrame(myLastFrameIndex);
     auto& frame = myWindow->frames()[myLastFrameIndex];
-    myDefaultResources->renderTarget = frame;
+    myDefaultResources->renderTarget = std::static_pointer_cast<RenderTargetBase<GraphicsBackend::Vulkan>>(frame);
 
     // resource transitions, etc
     {

@@ -201,3 +201,5 @@ private:
     std::vector<std::byte> myScratchMemory;
     std::any myUserData;
 };
+
+#include "command-vulkan.h"

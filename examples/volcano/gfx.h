@@ -69,7 +69,7 @@ struct GraphicsPipelineResourceView
 	ImageViewHandle<B> textureView = 0;
 	SamplerHandle<B> sampler = 0;
 	// end temp
-	std::shared_ptr<RenderTarget<B>> renderTarget;
+	std::shared_ptr<RenderTargetBase<B>> renderTarget;
 };
 
 template <GraphicsBackend B>

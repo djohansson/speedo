@@ -1,5 +1,6 @@
 #include "window.h"
-#include "command-vulkan.h"
+#include "command.h"
+#include "rendertarget.h"
 #include "gfx.h"
 #include "vk-utils.h"
 
@@ -162,20 +163,19 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
-            FrameCreateDesc<GraphicsBackend::Vulkan>{
-                myDesc.timelineSemaphore, 
-                myDesc.timelineValue,
-                frameIt,
-                4},
-            RenderTargetCreateDesc<GraphicsBackend::Vulkan>{
+            FrameCreateDesc<GraphicsBackend::Vulkan>{{
                 myDesc.deviceContext,
-                myRenderPass,
                 myDesc.framebufferExtent,
                 myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
                 1,
                 &colorImages[frameIt], 
                 myDepthTexture->getDesc().format,
-                myDepthTexture->getImage()}));
+                myDepthTexture->getImage(),
+                myRenderPass},
+                myDesc.timelineSemaphore, 
+                myDesc.timelineValue,
+                frameIt,
+                4}));
 }
 
 template <>
@@ -385,11 +385,12 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                     // bind pipeline and vertex/index buffers
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                    VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
-                    VkDeviceSize vertexOffsets[] = {0};
+                    VkBuffer vertexBuffers[] = {config.resources->model->getBuffer().getBuffer()};
+                    VkDeviceSize vertexOffsets[] = {config.resources->model->getVertexOffset()};
 
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(cmd, config.resources->model->getBuffer().getBuffer(),
+                        config.resources->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
                 for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -426,7 +427,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                                         uint32_t descriptorSetCount,
                                         const VkDescriptorSet* descriptorSets,
                                         VkPipelineLayout pipelineLayout) {
-                        uint32_t viewBufferOffset = (frame->getFrameDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
+                        uint32_t viewBufferOffset = (frame->getDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
                         vkCmdBindDescriptorSets(
                             cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                             descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
