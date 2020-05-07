@@ -58,3 +58,6 @@
 [submodule "external/zstd"]
 	path = external/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "external/capstone"]
+	path = external/capstone
+	url = https://github.com/aquynh/capstone
