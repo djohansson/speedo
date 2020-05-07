@@ -26,7 +26,7 @@ struct WindowCreateDesc
 	Extent2d<B> splitScreenGrid = {};
 	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
-	bool imguiEnable = true;
+	bool imguiEnable = false;
 };
 
 template <GraphicsBackend B>

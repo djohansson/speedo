@@ -259,10 +259,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
                     myTimelineValue,
                     {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
                     {static_cast<uint32_t>(framebufferWidth), static_cast<uint32_t>(framebufferHeight)},
-                    {1, 1},
-                    true,
-                    {},
-                    true},
+                    {2, 1}},
                 *myTransferCommandContext);
         }
 
@@ -275,7 +272,7 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
     myWindow->waitFrame(myLastFrameIndex);
     auto& frame = myWindow->frames()[myLastFrameIndex];
-    myDefaultResources->renderTarget = std::static_pointer_cast<RenderTargetBase<GraphicsBackend::Vulkan>>(frame);
+    myDefaultResources->renderTarget = std::static_pointer_cast<RenderTarget<GraphicsBackend::Vulkan>>(frame);
 
     // resource transitions, etc
     {
@@ -287,15 +284,12 @@ Application<GraphicsBackend::Vulkan>::Application(void* view, int width, int hei
             initIMGUI(*primaryCommandContext);
         }
 
-#ifdef PROFILING_ENABLED
         myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext =
             TracyVkContext(
                 myDevice->getPhysicalDevice(),
                 myDevice->getDevice(),
-                myDevice->getPrimaryGraphicsQueue(),//myDevice->getPrimaryTransferQueue(),
-                primaryCommandContext->commands()//myTransferCommandContext->commands()
-            );
-#endif
+                myDevice->getPrimaryGraphicsQueue(),
+                primaryCommandContext->commands());
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         myLastFrameTimelineValue = primaryCommandContext->submit({
@@ -501,7 +495,6 @@ void Application<GraphicsBackend::Vulkan>::draw()
             myTransferFence);
     }
 
-#ifdef PROFILING_ENABLED
     {
         ZoneScopedN("tracyVkCollectTransfer");
 
@@ -517,7 +510,6 @@ void Application<GraphicsBackend::Vulkan>::draw()
             myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
             primaryCommands);
     }
-#endif
 
     // todo: launch async work on another queue
     if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
@@ -564,11 +556,9 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int width, int heig
     {
         auto cmd = myTransferCommandContext->beginEndScope();
 
-#ifdef PROFILING_ENABLED
         TracyVkZone(
             myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
             cmd, "transfer");
-#endif
         
         createFrameObjects(*myTransferCommandContext);
     }

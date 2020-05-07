@@ -7,9 +7,7 @@ namespace command_vulkan
 
 struct UserData
 {
-#ifdef PROFILING_ENABLED
     TracyVkCtx tracyContext = nullptr;
-#endif
 };
 
 }

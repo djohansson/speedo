@@ -12,8 +12,7 @@ struct TextureCreateDesc
     std::shared_ptr<DeviceContext<B>> deviceContext;
     Extent2d<B> extent = {};
     uint32_t channelCount = 0;
-    DeviceSize<B> size = 0;
-    Format<B> format;
+    Format<B> format = {};
     Flags<B> usage = 0;
     // these will be destroyed when calling deleteInitialData()
     BufferHandle<B> initialData = 0;

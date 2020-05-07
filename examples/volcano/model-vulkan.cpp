@@ -85,6 +85,8 @@ ModelCreateDesc<GraphicsBackend::Vulkan> load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
+	ZoneScopedN("model::load()");
+
 	ModelCreateDesc<GraphicsBackend::Vulkan> desc = {};
 	desc.deviceContext = deviceContext;
 	desc.debugName = modelFile.u8string();
@@ -275,7 +277,6 @@ Model<GraphicsBackend::Vulkan>::Model(
 	CommandContext<GraphicsBackend::Vulkan>& commandContext)
 	: Model(model::load(modelFile, commandContext.getDesc().deviceContext), commandContext)
 {
-	ZoneScopedN("Model()");
 }
 
 template <>

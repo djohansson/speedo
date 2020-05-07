@@ -8,12 +8,12 @@
 template <>
 uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
 
-template RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTarget(
-    RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
+template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
+    RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
 
-template RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTarget(CreateDescType&& desc);
+template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc);
 
-template RenderTarget<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTarget();
+template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
 
 template <>
 void Frame<GraphicsBackend::Vulkan>::waitForFence() const
@@ -38,7 +38,7 @@ Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
     }
 
 template <>
-Frame<GraphicsBackend::Vulkan>::Frame(CreateDescType&& desc)
+Frame<GraphicsBackend::Vulkan>::Frame(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : BaseType(std::move(desc))
 {
     ZoneScopedN("Frame()");
@@ -70,14 +70,12 @@ Frame<GraphicsBackend::Vulkan>::Frame(CreateDescType&& desc)
                 myDesc.timelineValue}));
     }
 
-#ifdef PROFILING_ENABLED
     myCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
         TracyVkContext(
             getDesc().deviceContext->getPhysicalDevice(),
             getDesc().deviceContext->getDevice(),
             getDesc().deviceContext->getPrimaryGraphicsQueue(),
-            myCommandContexts[0]->commands());        
-#endif
+            myCommandContexts[0]->commands());
 }
 
 template <>

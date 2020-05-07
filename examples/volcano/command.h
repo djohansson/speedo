@@ -147,7 +147,7 @@ public:
     bool isPendingEmpty() const { return myPendingCommands.empty(); }
     bool isSubmittedEmpty() const { return mySubmittedCommands.empty(); }
 
-    uint64_t execute(CommandContext<B>& other, const RenderPassBeginInfo<B>* beginInfo);
+    uint64_t execute(CommandContext<B>& other);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
 
     bool hasReached(uint64_t timelineValue) const;

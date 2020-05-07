@@ -21,6 +21,7 @@
 #include "gfx.h" // replace with "gfx-types.h" once all types have been encapsulated
 #include "glm.h"
 #include "instance.h"
+#include "rendertexture.h"
 #include "window.h"
 
 #include "state.h" // temp - remove & clean up
@@ -110,6 +111,8 @@ private:
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
 	FenceHandle<B> myTransferFence = 0;
 	uint64_t myLastTransferTimelineValue = 0;
+
+	std::shared_ptr<RenderTexture<B>> myRenderTexture;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 };

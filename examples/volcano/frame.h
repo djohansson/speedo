@@ -18,15 +18,14 @@ struct FrameCreateDesc : RenderTargetCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class Frame : public RenderTarget<FrameCreateDesc<B>, B>
+class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
 {
+	using BaseType = RenderTargetImpl<FrameCreateDesc<B>, B>;
+
 public:
 
-	using BaseType = RenderTarget<FrameCreateDesc<B>, B>;
-	using CreateDescType = typename BaseType::CreateDescType;
-
 	Frame(Frame<B>&& other);
-    Frame(CreateDescType&& desc);
+    Frame(FrameCreateDesc<B>&& desc);
 	virtual ~Frame();
 
 	static uint32_t ourDebugCount;

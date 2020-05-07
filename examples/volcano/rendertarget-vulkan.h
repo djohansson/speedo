@@ -1,6 +1,5 @@
 #pragma once
 
-#include "gfx.h"
 #include "vk-utils.h"
 
 #include <optional>
@@ -9,16 +8,16 @@
 
 #include <Tracy.hpp>
 
-template <typename T>
-class RenderTarget<T, GraphicsBackend::Vulkan> : public RenderTargetBase<GraphicsBackend::Vulkan>
+template <typename CreateDescType>
+class RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan> : public RenderTarget<GraphicsBackend::Vulkan>
 {
+    using BaseType = RenderTarget<GraphicsBackend::Vulkan>;
+
 public:
 
-    using CreateDescType = T;
-
-	RenderTarget(RenderTarget<CreateDescType, GraphicsBackend::Vulkan>&& other);
-	RenderTarget(CreateDescType&& desc);
-	virtual ~RenderTarget();
+	RenderTargetImpl(RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>&& other);
+	RenderTargetImpl(CreateDescType&& desc);
+	virtual ~RenderTargetImpl();
 
     const auto& getDesc() const { return myDesc; }
 
@@ -27,33 +26,32 @@ protected:
     CreateDescType myDesc = {};
 };
 
-template <typename T>
-RenderTarget<T, GraphicsBackend::Vulkan>::RenderTarget(RenderTarget<T, GraphicsBackend::Vulkan>&& other)
-: RenderTargetBase(std::move(other))
+template <typename CreateDescType>
+RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::RenderTargetImpl(RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>&& other)
+: BaseType(std::move(other))
 , myDesc(std::move(other.myDesc))
 {
-    other.myDesc = {};
 }
 
-template <typename T>
-RenderTarget<T, GraphicsBackend::Vulkan>::RenderTarget(CreateDescType&& desc)
-: RenderTargetBase{desc.imageExtent, desc.renderPass}
+template <typename CreateDescType>
+RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::RenderTargetImpl(CreateDescType&& desc)
+: BaseType{desc.imageExtent, desc.renderPass}
 , myDesc(std::move(desc))
 {
     ZoneScopedN("RenderTarget()");
 
     std::vector<ImageViewHandle<GraphicsBackend::Vulkan>> attachments;
 
-    myRenderPass = myDesc.renderPass;
+    renderPass = myDesc.renderPass;
     
-    for (uint32_t i = 0; i < myDesc.colorImageCount; i++)
-        myColorViews.emplace_back(createImageView2D(
+    for (uint32_t i = 0; i < myDesc.colorImages.size(); i++)
+        colorViews.emplace_back(createImageView2D(
             myDesc.deviceContext->getDevice(),
             myDesc.colorImages[i],
             myDesc.colorImageFormat,
             VK_IMAGE_ASPECT_COLOR_BIT));
 
-    attachments.insert(std::end(attachments), std::begin(myColorViews), std::end(myColorViews));
+    attachments.insert(std::end(attachments), std::begin(colorViews), std::end(colorViews));
 
     if (myDesc.depthImage)
     {
@@ -61,16 +59,16 @@ RenderTarget<T, GraphicsBackend::Vulkan>::RenderTarget(CreateDescType&& desc)
         if (hasStencilComponent(myDesc.depthImageFormat))
             depthAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
-        myDepthView = std::make_optional(createImageView2D(
+        depthView = std::make_optional(createImageView2D(
             myDesc.deviceContext->getDevice(),
             myDesc.depthImage,
             myDesc.depthImageFormat,
             depthAspectFlags));
 
-        attachments.push_back(myDepthView.value());
+        attachments.push_back(depthView.value());
     }
 
-    myFrameBuffer = createFramebuffer(
+    frameBuffer = createFramebuffer(
         myDesc.deviceContext->getDevice(),
         myDesc.renderPass,
         attachments.size(),
@@ -80,23 +78,23 @@ RenderTarget<T, GraphicsBackend::Vulkan>::RenderTarget(CreateDescType&& desc)
         1);
 }
 
-template <typename T>
-RenderTarget<T, GraphicsBackend::Vulkan>::~RenderTarget()
+template <typename CreateDescType>
+RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::~RenderTargetImpl()
 {
     ZoneScopedN("~RenderTarget()");
 
-    for (const auto& colorView : myColorViews)
+    for (const auto& colorView : colorViews)
         vkDestroyImageView(myDesc.deviceContext->getDevice(), colorView, nullptr);
 
-    if (myDepthView)
-        vkDestroyImageView(myDesc.deviceContext->getDevice(), myDepthView.value(), nullptr);
+    if (depthView)
+        vkDestroyImageView(myDesc.deviceContext->getDevice(), depthView.value(), nullptr);
     
-    vkDestroyFramebuffer(myDesc.deviceContext->getDevice(), myFrameBuffer, nullptr);
+    vkDestroyFramebuffer(myDesc.deviceContext->getDevice(), frameBuffer, nullptr);
 }
 
-extern template RenderTarget<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTarget(
-    RenderTarget<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
+extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
+    RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
 
-extern template RenderTarget<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTarget(CreateDescType&& desc);
+extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc);
 
-extern template RenderTarget<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTarget();
+extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
