@@ -133,12 +133,18 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
     if (!myDesc.useTimelineSemaphores)
+    {
         if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
             [](const char* extension) { return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0; });
             it != deviceExtensions.end())
+        {
             myDesc.useTimelineSemaphores = std::make_optional(true);
+        }
         else
+        {
             myDesc.useTimelineSemaphores = std::make_optional(false);
+        }
+    }
 
     if (!myDesc.useCommandPoolReset)
         myDesc.useCommandPoolReset = std::make_optional(false);
