@@ -18,22 +18,22 @@ struct RenderTextureCreateDesc : RenderTargetCreateDesc<B>
     {
         assertf(colorTextures.size(), "colorTextures cannot be empty");
 
-        imageExtent = colorTextures.front()->getDesc().extent;
-        colorImageFormat = colorTextures.front()->getDesc().format;
-
-        colorImages.reserve(colorTextures.size());
+        this->imageExtent = colorTextures.front()->getDesc().extent;
+        this->colorImageFormat = colorTextures.front()->getDesc().format;
+        this->colorImages.reserve(colorTextures.size());
+        
         for (const auto& texture : colorTextures)
         {
-            assertf(imageExtent == texture->getDesc().extent, "all colorTextures needs to have same extent");
-            assertf(colorImageFormat == texture->getDesc().format, "all colorTextures needs to have same format");
+            assertf(this->imageExtent == texture->getDesc().extent, "all colorTextures needs to have same extent");
+            assertf(this->colorImageFormat == texture->getDesc().format, "all colorTextures needs to have same format");
 
-            colorImages.emplace_back(texture->getImage());
+            this->colorImages.emplace_back(texture->getImage());
         }
 
         if (depthTexture)
         {
-            depthImageFormat = depthTexture->getDesc().format;
-            depthImage = depthTexture->getImage();
+            this->depthImageFormat = depthTexture->getDesc().format;
+            this->depthImage = depthTexture->getImage();
         }
     }
 
