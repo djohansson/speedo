@@ -11,8 +11,6 @@ int volcano_create(
     void* view,
     int windowWidth,
     int windowHeight,
-    int framebufferWidth,
-    int framebufferHeight,
     const char* resourcePath,
     const char* userProfilePath);
 void volcano_draw();

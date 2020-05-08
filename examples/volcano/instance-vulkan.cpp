@@ -62,6 +62,13 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 }
 
 template <>
+void InstanceContext<GraphicsBackend::Vulkan>::updateSurfaceCapabilities(uint32_t physicalDeviceIndex)
+{
+    myPhysicalDeviceInfos[physicalDeviceIndex].swapchainInfo.capabilities = 
+        getSurfaceCapabilities<GraphicsBackend::Vulkan>(mySurface, myPhysicalDevices[physicalDeviceIndex]);
+}
+
+template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(InstanceCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDesc(std::move(desc))
 {

@@ -40,7 +40,7 @@ public:
 
 private:
 
-	std::vector<std::shared_ptr<CommandContext<B>>> myCommandContexts;
+	std::vector<std::shared_ptr<CommandContext<B>>> myCommandContexts; // todo: move to window so that we dont have to recreate these on frame recreate?
 	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;

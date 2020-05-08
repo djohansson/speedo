@@ -1,19 +1,14 @@
 template <GraphicsBackend B>
 void Application<B>::resizeWindow(const WindowState& state)
 {
-    // todo:
-    // auto& window = *myDefaultResources->window;
-    // if (state.fullscreen_enabled)
-    // {
-    //     window.width = state.fullscreen_width;
-    //     window.height = state.fullscreen_height;
-    // }
-    // else
-    // {
-    //     window.width = state.width;
-    //     window.height = state.height;
-    // }
-    //
+    if (state.fullscreenEnabled)
+    {
+        myWindow->onResize({state.fullscreenWidth, state.fullscreenHeight});
+    }
+    else
+    {
+        myWindow->onResize({state.width, state.height});
+    }
 }
 
 // todo: encapsulate

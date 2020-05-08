@@ -59,8 +59,7 @@ public:
 
 	Application(Application&& other) = default;
 	Application(
-		void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-		const char* resourcePath, const char* userProfilePath);
+		void* view, int width, int height, const char* resourcePath, const char* userProfilePath);
 	~Application();
 
 	void draw();
@@ -75,9 +74,11 @@ public:
 
 private:
 
-	void initIMGUI(CommandContext<B>& commandContext) const;
+	void initIMGUI(
+		const std::filesystem::path& userProfilePath,
+		CommandContext<B>& commandContext) const;
 
-	void createFrameObjects(CommandContext<B>& commandContext);
+	void createFrameObjects();
 	void destroyFrameObjects();
 
 	// todo: encapsulate in PipelineConfiguration?

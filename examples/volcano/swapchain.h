@@ -10,8 +10,8 @@ template <GraphicsBackend B>
 struct SwapchainCreateDesc
 {
 	std::shared_ptr<DeviceContext<B>> deviceContext;
-	SwapchainHandle<B> previous = 0;
 	Extent2d<B> imageExtent = {};
+	SwapchainHandle<B> previous = 0;
 };
 
 template <GraphicsBackend B>

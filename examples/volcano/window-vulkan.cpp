@@ -101,17 +101,22 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 {
     ZoneScopedN("createFrameObjects");
 
+    uint32_t physicalDeviceIndex = myDesc.deviceContext->getDesc().physicalDeviceIndex;
+    myDesc.instanceContext->updateSurfaceCapabilities(physicalDeviceIndex);
+    auto frameBufferExtent = 
+        myDesc.instanceContext->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
+
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
             myDesc.deviceContext,
-            mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr,
-            myDesc.framebufferExtent});
+            frameBufferExtent,
+            mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr});
 
     // todo: append stencil bit for depthstencil composite formats
     myDepthTexture = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
         TextureCreateDesc<GraphicsBackend::Vulkan>{
             myDesc.deviceContext,
-            myDesc.framebufferExtent,
+            frameBufferExtent,
             1,
             findSupportedFormat(
                 myDesc.deviceContext->getPhysicalDevice(),
@@ -138,10 +143,10 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     for (auto& view : myViews)
     {
         if (!view.desc().viewport.width)
-            view.desc().viewport.width =  myDesc.framebufferExtent.width / myDesc.splitScreenGrid.width;
+            view.desc().viewport.width =  frameBufferExtent.width / myDesc.splitScreenGrid.width;
 
         if (!view.desc().viewport.height)
-            view.desc().viewport.height = myDesc.framebufferExtent.height / myDesc.splitScreenGrid.height;
+            view.desc().viewport.height = frameBufferExtent.height / myDesc.splitScreenGrid.height;
 
         view.updateAll();
     }
@@ -165,7 +170,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
             FrameCreateDesc<GraphicsBackend::Vulkan>{{
                 myDesc.deviceContext,
                 myRenderPass,
-                myDesc.framebufferExtent,
+                frameBufferExtent,
                 myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
                 {colorImages[frameIt]},
                 myDepthTexture->getDesc().format,

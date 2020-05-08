@@ -30,6 +30,15 @@ isCacheValid<GraphicsBackend::Vulkan>(
 		memcmp(header.pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header.pipelineCacheUUID)) == 0);
 }
 
+template <GraphicsBackend B>
+SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device)
+{
+    SurfaceCapabilities<B> capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
+
+    return capabilities;
+}
+
 template <>
 PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
 	SurfaceHandle<GraphicsBackend::Vulkan> surface,
@@ -39,7 +48,7 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
 	
 	vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties);
 	vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures);
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &deviceInfo.swapchainInfo.capabilities);
+	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);
 
 	uint32_t formatCount;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);

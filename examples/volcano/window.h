@@ -18,11 +18,11 @@
 template <GraphicsBackend B>
 struct WindowCreateDesc
 {
+	std::shared_ptr<InstanceContext<B>> instanceContext;
 	std::shared_ptr<DeviceContext<B>> deviceContext;
 	SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
 	Extent2d<B> windowExtent = {};
-	Extent2d<B> framebufferExtent = {};
 	Extent2d<B> splitScreenGrid = {};
 	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
@@ -51,6 +51,8 @@ public:
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
 	const auto& getRenderPass() const { return myRenderPass; }
+
+	void onResize(Extent2d<B> extent) { myDesc.windowExtent = extent; }
 
 	auto& depthTexture() { return *myDepthTexture; }
 	auto& frames() { return myFrames; }

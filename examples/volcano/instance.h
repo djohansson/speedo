@@ -93,6 +93,8 @@ public:
     const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
     const auto& getGraphicsDeviceCandidates() const { return myGraphicsDeviceCandidates; }
 
+    void updateSurfaceCapabilities(uint32_t physicalDeviceIndex);
+
 private:
 
     const InstanceCreateDesc<B> myDesc;

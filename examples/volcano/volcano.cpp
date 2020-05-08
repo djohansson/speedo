@@ -4,13 +4,12 @@
 static std::unique_ptr<Application<GraphicsBackend::Vulkan>> theApplication;
 
 int volcano_create(
-	void* view, int width, int height, int framebufferWidth, int framebufferHeight,
-	const char* resourcePath, const char* userProfilePath)
+	void* view, int width, int height, const char* resourcePath, const char* userProfilePath)
 {
 	assert(view != nullptr);
 
 	theApplication = std::make_unique<Application<GraphicsBackend::Vulkan>>(
-		view, width, height, framebufferWidth, framebufferHeight, resourcePath, userProfilePath);
+		view, width, height, resourcePath, userProfilePath);
 
 	return EXIT_SUCCESS;
 }

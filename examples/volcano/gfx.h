@@ -87,6 +87,9 @@ template <GraphicsBackend B>
 bool isCacheValid(const PipelineCacheHeader<B>& header, const PhysicalDeviceProperties<B>& physicalDeviceProperties);
 
 template <GraphicsBackend B>
+SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
+
+template <GraphicsBackend B>
 PhysicalDeviceInfo<B> getPhysicalDeviceInfo(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
 
 template <GraphicsBackend B>

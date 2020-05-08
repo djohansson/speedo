@@ -242,15 +242,10 @@ int main(int argc, char** argv)
 	glfwSetWindowRefreshCallback(window, onWindowRefresh);
 	glfwSetMonitorCallback(onMonitorChanged);
 
-	int framebufferWidth, framebufferHeight;
-	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
-
 	volcano_create(
 		window,
 		g_window.width,
 		g_window.height,
-		framebufferWidth,
-		framebufferHeight,
 		std::get<1>(getCmdOption(argv, argv + argc, "-r")),
 		std::get<1>(getCmdOption(argv, argv + argc, "-u")));
 
