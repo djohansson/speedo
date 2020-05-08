@@ -137,6 +137,8 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
             [](const char* extension) { return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0; });
             it != deviceExtensions.end())
             myDesc.useTimelineSemaphores = std::make_optional(true);
+        else
+            myDesc.useTimelineSemaphores = std::make_optional(false);
 
     if (!myDesc.useCommandPoolReset.has_value())
         myDesc.useCommandPoolReset = std::make_optional(false);
