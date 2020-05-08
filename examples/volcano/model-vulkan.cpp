@@ -85,56 +85,41 @@ ModelCreateDesc<GraphicsBackend::Vulkan> load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
+	ZoneScopedN("model::load()");
+
 	ModelCreateDesc<GraphicsBackend::Vulkan> desc = {};
 	desc.deviceContext = deviceContext;
 	desc.debugName = modelFile.u8string();
 	
 	auto loadPBin = [&desc](std::istream& stream) {
 		cereal::PortableBinaryInputArchive pbin(stream);
-		pbin(desc.aabb, desc.attributes, desc.vertexBufferSize, desc.indexBufferSize, desc.indexCount);
+		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
-		std::string vertexDebugString;
-		vertexDebugString.append(desc.debugName);
-		vertexDebugString.append("_vertex_staging");
+		std::string debugString;
+		debugString.append(desc.debugName);
+		debugString.append("_staging");
 		
-		std::tie(desc.initialVertices, desc.initialVerticesMemory) = createBuffer(
-			desc.deviceContext->getAllocator(), desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		std::tie(desc.initialData, desc.initialMemory) = createBuffer(
+			desc.deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			vertexDebugString.c_str());
+			debugString.c_str());
 
-		std::byte* vertexData;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialVerticesMemory, (void**)&vertexData));
-		pbin(cereal::binary_data(vertexData, desc.vertexBufferSize));
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialVerticesMemory);
-		
-		std::string indexDebugString;
-		indexDebugString.append(desc.debugName);
-		indexDebugString.append("_index_staging");
-		
-		std::tie(desc.initialIndices, desc.initialIndicesMemory) = createBuffer(
-			desc.deviceContext->getAllocator(), desc.indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			indexDebugString.c_str());
-
-		std::byte* indexData;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialIndicesMemory, (void**)&indexData));
-		pbin(cereal::binary_data(indexData, desc.indexBufferSize));
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialIndicesMemory);
+		std::byte* data;
+		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialMemory, (void**)&data));
+		pbin(cereal::binary_data(data, desc.indexBufferSize));
+		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
+		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialMemory);
 	};
 
 	auto savePBin = [&desc](std::ostream& stream) {
 		cereal::PortableBinaryOutputArchive pbin(stream);
-		pbin(desc.aabb, desc.attributes, desc.vertexBufferSize, desc.indexBufferSize, desc.indexCount);
+		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
-		std::byte* vertexData;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialVerticesMemory, (void**)&vertexData));
-		pbin(cereal::binary_data(vertexData, desc.vertexBufferSize));
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialVerticesMemory);
-
-		std::byte* indexData;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialIndicesMemory, (void**)&indexData));
-		pbin(cereal::binary_data(indexData, desc.indexBufferSize));
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialIndicesMemory);
+		std::byte* data;
+		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialMemory, (void**)&data));
+		pbin(cereal::binary_data(data, desc.indexBufferSize));
+		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
+		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialMemory);
 	};
 
 	auto loadOBJ = [&desc](std::istream& stream) {
@@ -236,43 +221,30 @@ ModelCreateDesc<GraphicsBackend::Vulkan> load(
 			}
 		}
 
-		desc.vertexBufferSize = vertices.sizeBytes();
 		desc.indexBufferSize = indices.size() * sizeof(uint32_t);
+		desc.vertexBufferSize = vertices.sizeBytes();
 		desc.indexCount = indices.size();
 
-		std::string vertexDebugString;
-		vertexDebugString.append(desc.debugName);
-		vertexDebugString.append("_vertex_staging");
+		std::string debugString;
+		debugString.append(desc.debugName);
+		debugString.append("_staging");
 		
-		std::tie(desc.initialVertices, desc.initialVerticesMemory) = createBuffer(
-			desc.deviceContext->getAllocator(), desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		std::tie(desc.initialData, desc.initialMemory) = createBuffer(
+			desc.deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			vertexDebugString.c_str());
+			debugString.c_str());
 
-		std::byte* vertexData;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialVerticesMemory, (void**)&vertexData));
-		memcpy(vertexData, vertices.data(), desc.vertexBufferSize);
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialVerticesMemory);
-		
-		std::string indexDebugString;
-		indexDebugString.append(desc.debugName);
-		indexDebugString.append("_index_staging");
-		
-		std::tie(desc.initialIndices, desc.initialIndicesMemory) = createBuffer(
-			desc.deviceContext->getAllocator(), desc.indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			indexDebugString.c_str());
-
-		std::byte* indexData;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialIndicesMemory, (void**)&indexData));
-		memcpy(indexData, indices.data(), desc.indexBufferSize);
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialIndicesMemory);
+		std::byte* data;
+		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialMemory, (void**)&data));
+		memcpy(data, indices.data(), desc.indexBufferSize);
+		memcpy(data + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
+		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialMemory);
 	};
 
 	loadCachedSourceFile(
 		modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
 
-	if (desc.initialVertices == VK_NULL_HANDLE || desc.initialIndices == VK_NULL_HANDLE)
+	if (desc.initialData == VK_NULL_HANDLE)
 		throw std::runtime_error("Failed to load model.");
 
 	return desc;
@@ -285,25 +257,16 @@ Model<GraphicsBackend::Vulkan>::Model(
 	ModelCreateDesc<GraphicsBackend::Vulkan>&& desc,
 	CommandContext<GraphicsBackend::Vulkan>& commandContext)
 : myDesc(std::move(desc))
+, myBuffer({
+		myDesc.deviceContext,
+		myDesc.indexBufferSize + myDesc.vertexBufferSize,
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		myDesc.initialData,
+		myDesc.initialMemory,
+		myDesc.debugName},
+	commandContext)
 , myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
-, myVertexBuffer({
-		myDesc.deviceContext,
-		myDesc.vertexBufferSize,
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		myDesc.initialVertices,
-		myDesc.initialVerticesMemory,
-		myDesc.debugName + "_vertices"},
-	commandContext)
-, myIndexBuffer({
-		myDesc.deviceContext,
-		myDesc.indexBufferSize,
-		VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		myDesc.initialIndices,
-		myDesc.initialIndicesMemory,
-		myDesc.debugName + "_indices"},
-	commandContext)
 {
 	ZoneScopedN("Model()");
 }
@@ -314,7 +277,6 @@ Model<GraphicsBackend::Vulkan>::Model(
 	CommandContext<GraphicsBackend::Vulkan>& commandContext)
 	: Model(model::load(modelFile, commandContext.getDesc().deviceContext), commandContext)
 {
-	ZoneScopedN("Model()");
 }
 
 template <>
@@ -322,6 +284,5 @@ void Model<GraphicsBackend::Vulkan>::deleteInitialData()
 {
 	ZoneScopedN("deleteInitialData");
 
-	myVertexBuffer.deleteInitialData();
-	myIndexBuffer.deleteInitialData();
+	myBuffer.deleteInitialData();
 }

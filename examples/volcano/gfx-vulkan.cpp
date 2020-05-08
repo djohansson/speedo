@@ -305,7 +305,7 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    const auto& imageExtent = pipelineConfig.resources->renderTarget->getDesc().imageExtent;
+    const auto& imageExtent = pipelineConfig.resources->renderTarget->imageExtent;
 
     VkViewport viewport = {};
     viewport.x = 0.0f;
@@ -396,7 +396,7 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineConfig.layout->layout;
-    pipelineInfo.renderPass = pipelineConfig.resources->renderTarget->getDesc().renderPass;
+    pipelineInfo.renderPass = pipelineConfig.resources->renderTarget->renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;

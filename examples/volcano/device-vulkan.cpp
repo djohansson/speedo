@@ -22,7 +22,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         myDesc.instanceContext->getPhysicalDeviceInfos()[myDesc.physicalDeviceIndex];
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
-    if (!myDesc.swapchainConfiguration.has_value())
+    if (!myDesc.swapchainConfiguration)
     {
         myDesc.swapchainConfiguration = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
 
@@ -132,7 +132,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
-    if (!myDesc.useTimelineSemaphores.has_value())
+    if (!myDesc.useTimelineSemaphores)
         if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
             [](const char* extension) { return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0; });
             it != deviceExtensions.end())
@@ -140,7 +140,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         else
             myDesc.useTimelineSemaphores = std::make_optional(false);
 
-    if (!myDesc.useCommandPoolReset.has_value())
+    if (!myDesc.useCommandPoolReset)
         myDesc.useCommandPoolReset = std::make_optional(false);
 
     VkPhysicalDeviceFeatures physicalDeviceFeatures = {};

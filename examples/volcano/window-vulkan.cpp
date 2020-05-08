@@ -1,5 +1,6 @@
 #include "window.h"
-#include "command-vulkan.h"
+#include "command.h"
+#include "rendertarget.h"
 #include "gfx.h"
 #include "vk-utils.h"
 
@@ -112,7 +113,6 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
             myDesc.deviceContext,
             myDesc.framebufferExtent,
             1,
-            0,
             findSupportedFormat(
                 myDesc.deviceContext->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -162,20 +162,18 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
-            FrameCreateDesc<GraphicsBackend::Vulkan>{
-                myDesc.timelineSemaphore, 
-                myDesc.timelineValue,
-                frameIt,
-                4},
-            RenderTargetCreateDesc<GraphicsBackend::Vulkan>{
+            FrameCreateDesc<GraphicsBackend::Vulkan>{{
                 myDesc.deviceContext,
                 myRenderPass,
                 myDesc.framebufferExtent,
                 myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
-                1,
-                &colorImages[frameIt], 
+                {colorImages[frameIt]},
                 myDepthTexture->getDesc().format,
-                myDepthTexture->getImage()}));
+                myDepthTexture->getImage()},
+                myDesc.timelineSemaphore, 
+                myDesc.timelineValue,
+                frameIt,
+                4}));
 }
 
 template <>
@@ -305,7 +303,6 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         updateViewBuffer(frameIndex);
     }));
 
-#ifdef PROFILING_ENABLED
     {
         ZoneScopedN("tracyVkCollect");
 
@@ -323,7 +320,6 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                 cmd);
         }
     }
-#endif
 
     std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
     clearValues[0] = myDesc.clearValue;
@@ -349,7 +345,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         std::iota(seq.begin(), seq.begin() + segmentCount, 0);
         std::for_each_n(
 #if defined(__WINDOWS__)
-            std::execution::par,
+             std::execution::par,
 #endif
             seq.begin(), segmentCount,
             [this, &config, &frame, &dx, &dy, &drawCount, &segmentDrawCount](uint32_t segmentIt)
@@ -365,7 +361,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                 
                 CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                 inherit.renderPass = myRenderPass;
-                inherit.framebuffer = frame->getFrameBuffer();
+                inherit.framebuffer = frame->frameBuffer;
 
                 CommandBufferBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
                 secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
@@ -385,11 +381,12 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                     // bind pipeline and vertex/index buffers
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                    VkBuffer vertexBuffers[] = {config.resources->model->getVertexBuffer().getBuffer()};
-                    VkDeviceSize vertexOffsets[] = {0};
+                    VkBuffer vertexBuffers[] = {config.resources->model->getBuffer().getBuffer()};
+                    VkDeviceSize vertexOffsets[] = {config.resources->model->getVertexOffset()};
 
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, config.resources->model->getIndexBuffer().getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(cmd, config.resources->model->getBuffer().getBuffer(),
+                        config.resources->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
                 for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
@@ -426,7 +423,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                                         uint32_t descriptorSetCount,
                                         const VkDescriptorSet* descriptorSets,
                                         VkPipelineLayout pipelineLayout) {
-                        uint32_t viewBufferOffset = (frame->getFrameDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
+                        uint32_t viewBufferOffset = (frame->getDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
                         vkCmdBindDescriptorSets(
                             cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                             descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
@@ -452,23 +449,25 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         // call secondary command buffers
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myRenderPass;
-        beginInfo.framebuffer = frame->getFrameBuffer();
+        beginInfo.framebuffer = frame->frameBuffer;
         beginInfo.renderArea.offset = {0, 0};
         beginInfo.renderArea.extent = {frame->getDesc().imageExtent.width, frame->getDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
 
+        TracyVkZone(
+            primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
+            primaryCommands, "executeCommands");
+
+        vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+
         for (uint32_t contextIt = 1; contextIt <= segmentCount; contextIt++)
         {
-#ifdef PROFILING_ENABLED
-            TracyVkZone(
-                primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
-                primaryCommands, "executeCommands");
-#endif
-
-            primaryCommandContext.execute(
-                *frame->commandContexts()[contextIt], &beginInfo);
+            primaryCommandContext.execute(*frame->commandContexts()[contextIt]);
+            //vkCmdNextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
         }
+
+        vkCmdEndRenderPass(primaryCommands);
     }
 
     // wait for imgui draw job
@@ -485,15 +484,13 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         
         ZoneScopedN("drawIMGUI");
 
-#ifdef PROFILING_ENABLED
         TracyVkZone(
             primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
             primaryCommands, "drawIMGUI");
-#endif
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myRenderPass;
-        beginInfo.framebuffer = frame->getFrameBuffer();
+        beginInfo.framebuffer = frame->frameBuffer;
         beginInfo.renderArea.offset = {0, 0};
         beginInfo.renderArea.extent = {frame->getDesc().imageExtent.width, frame->getDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());

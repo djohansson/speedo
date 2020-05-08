@@ -55,40 +55,44 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
     const std::filesystem::path& textureFile,
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
+    ZoneScopedN("texture::load()");
+
+    DeviceSize<GraphicsBackend::Vulkan> size = 0;
+
     TextureCreateDesc<GraphicsBackend::Vulkan> desc = {};
     desc.deviceContext = deviceContext;
     desc.debugName = textureFile.u8string();
 
-    auto loadPBin = [&desc](std::istream& stream) {
+    auto loadPBin = [&desc, &size](std::istream& stream) {
         cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(desc.extent.width, desc.extent.height, desc.channelCount, desc.size);
+        pbin(desc.extent.width, desc.extent.height, desc.channelCount, size);
 
         std::string debugString;
         debugString.append(desc.debugName);
         debugString.append("_staging");
         
         std::tie(desc.initialData, desc.initialDataMemory) = createBuffer(
-            desc.deviceContext->getAllocator(), desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            desc.deviceContext->getAllocator(), size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
         std::byte* data;
         CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory, (void**)&data));
-        pbin(cereal::binary_data(data, desc.size));
+        pbin(cereal::binary_data(data, size));
         vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory);
     };
 
-    auto savePBin = [&desc](std::ostream& stream) {
+    auto savePBin = [&desc, &size](std::ostream& stream) {
         cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(desc.extent.width, desc.extent.height, desc.channelCount, desc.size);
+        pbin(desc.extent.width, desc.extent.height, desc.channelCount, size);
 
         std::byte* data;
         CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory, (void**)&data));
-        pbin(cereal::binary_data(data, desc.size));
+        pbin(cereal::binary_data(data, size));
         vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialDataMemory);
     };
 
-    auto loadImage = [&desc](std::istream& stream) {
+    auto loadImage = [&desc, &size](std::istream& stream) {
         stbi_io_callbacks callbacks;
         callbacks.read = &stbi_istream_callbacks::read;
         callbacks.skip = &stbi_istream_callbacks::skip;
@@ -98,14 +102,14 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
 
         bool hasAlpha = desc.channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        desc.size = hasAlpha ? desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
+        size = hasAlpha ? desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
 
         std::string debugString;
         debugString.append(desc.debugName);
         debugString.append("_staging");
         
         std::tie(desc.initialData, desc.initialDataMemory) = createBuffer(
-            desc.deviceContext->getAllocator(), desc.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            desc.deviceContext->getAllocator(), size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
@@ -147,7 +151,7 @@ TextureCreateDesc<GraphicsBackend::Vulkan> load(
 
     uint32_t pixelSizeBytesDivisor;
     if (desc.initialData == VK_NULL_HANDLE ||
-        desc.size != desc.extent.width * desc.extent.height * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
+        size != desc.extent.width * desc.extent.height * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
         throw std::runtime_error("Failed to load image.");
 
     return desc;
@@ -218,7 +222,6 @@ Texture<GraphicsBackend::Vulkan>::Texture(
     CommandContext<GraphicsBackend::Vulkan>& commandContext)
     : Texture(texture::load(textureFile, commandContext.getDesc().deviceContext), commandContext)
 {
-    ZoneScopedN("Texture()");
 }
 
 template <>

@@ -305,6 +305,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.Name = 'tracy'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$RootPath$/external/tracy/profiler'
+			+ ' -I$RootPath$/external/capstone/include'
 			+ ' -I$RootPath$/external/gl3w/include'
 			+ ' -I$RootPath$/external/glfw/include'
 			+ ' -I$RootPath$/external/freetype2/include'
@@ -865,6 +866,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
 	#if __WINDOWS__
+			+ ' -L$RootPath$/external/capstone/build/Release'
 		.ExecutableLinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'
 			+ ' -lshell32'
@@ -873,6 +875,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -lvulkan-1'
 			+ ' -lopengl32'
 			+ ' -lglu32'
+			+ ' -lcapstone'
 	#endif //__WINDOWS__
 	#if __OSX__
 		 .ExecutableLinkerOptions + ' -lvulkan'

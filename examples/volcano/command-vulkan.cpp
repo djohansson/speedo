@@ -1,5 +1,4 @@
 #include "command.h"
-#include "command-vulkan.h"
 #include "vk-utils.h"
 
 #include <Tracy.hpp>
@@ -276,21 +275,15 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 }
 
 template <>
-uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(
-    CommandContext<GraphicsBackend::Vulkan>& other,
-    const RenderPassBeginInfo<GraphicsBackend::Vulkan>* beginInfo)
+uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<GraphicsBackend::Vulkan>& other)
 {
     ZoneScopedN("execute");
 
     {
 		auto cmd = commands();
 
-		vkCmdBeginRenderPass(cmd, beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
 		for (const auto& secPendingCommands : other.myPendingCommands)
 			vkCmdExecuteCommands(cmd, secPendingCommands.size(), secPendingCommands.data());
-
-		vkCmdEndRenderPass(cmd);
 	}
 
     auto timelineValue =
@@ -340,7 +333,7 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContextCreateDesc
     myUserData = command_vulkan::UserData();
 
 // disabled as shared_from_this() throws exception. called from the outside for now
-// #ifdef PROFILING_ENABLED 
+// {
 //     if (myDesc.commandBufferLevel == 0)
 //         std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
 //             TracyVkContext(
@@ -348,7 +341,7 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContextCreateDesc
 //                 myDesc.deviceContext->getDevice(),
 //                 myDesc.deviceContext->getPrimaryGraphicsQueue(),
 //                 commands());
-// #endif
+// }
 }
 
 template <>
@@ -384,10 +377,8 @@ CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 {
     ZoneScopedN("~CommandContext()");
 
-#ifdef PROFILING_ENABLED
     if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
         TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
-#endif
 
     --ourDebugCount;
 }

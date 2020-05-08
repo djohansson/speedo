@@ -1,11 +1,19 @@
 #include "frame.h"
-#include "command-vulkan.h"
+#include "command.h"
+#include "rendertarget.h"
 #include "vk-utils.h"
 
 #include <Tracy.hpp>
 
 template <>
 uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
+
+template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
+    RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
+
+template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc);
+
+template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
 
 template <>
 void Frame<GraphicsBackend::Vulkan>::waitForFence() const
@@ -16,9 +24,8 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence() const
 
 template <>
 Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
-    : RenderTarget<GraphicsBackend::Vulkan>(std::move(other))
-    , myDesc(std::move(other.myDesc))
-	, myCommandContexts(std::move(other.myCommandContexts))
+: BaseType(std::move(other))
+    , myCommandContexts(std::move(other.myCommandContexts))
 	, myFence(other.myFence)
 	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
 	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
@@ -31,11 +38,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
     }
 
 template <>
-Frame<GraphicsBackend::Vulkan>::Frame(
-    FrameCreateDesc<GraphicsBackend::Vulkan>&& frameDesc,
-    RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& renderTargetDesc)
-: RenderTarget<GraphicsBackend::Vulkan>(std::move(renderTargetDesc))
-, myDesc(std::move(frameDesc))
+Frame<GraphicsBackend::Vulkan>::Frame(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: BaseType(std::move(desc))
 {
     ZoneScopedN("Frame()");
 
@@ -66,14 +70,12 @@ Frame<GraphicsBackend::Vulkan>::Frame(
                 myDesc.timelineValue}));
     }
 
-#ifdef PROFILING_ENABLED
     myCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
         TracyVkContext(
             getDesc().deviceContext->getPhysicalDevice(),
             getDesc().deviceContext->getDevice(),
             getDesc().deviceContext->getPrimaryGraphicsQueue(),
-            myCommandContexts[0]->commands());        
-#endif
+            myCommandContexts[0]->commands());
 }
 
 template <>
