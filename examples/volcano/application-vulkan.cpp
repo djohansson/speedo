@@ -151,7 +151,7 @@ void Application<GraphicsBackend::Vulkan>::createFrameObjects()
 
     // resource transitions
     {
-        auto& primaryCommandContext = frame->commandContexts()[0];
+        auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
         {
             auto primaryCommands = primaryCommandContext->beginEndScope();
             myWindow->depthTexture().transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
@@ -287,7 +287,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     // stuff that needs to be initialized on graphics queue
     {
         auto& frame = myWindow->frames()[myLastFrameIndex];
-        auto& primaryCommandContext = frame->commandContexts()[0];
+        auto& primaryCommandContext = myWindow->commandContexts()[frame->getDesc().index][0];
         {
             auto primaryCommands = primaryCommandContext->beginEndScope();
             myDefaultResources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -499,8 +499,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
     {
         ZoneScopedN("tracyVkCollectTransfer");
 
-        auto& frame = myWindow->frames()[frameIndex];
-        auto& primaryCommandContext = frame->commandContexts()[0];
+        auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
         auto primaryCommands = primaryCommandContext->beginEndScope();
 
         TracyVkZone(
@@ -586,7 +585,7 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
     // submit primary
     {
         auto& frame = myWindow->frames()[myLastFrameIndex];
-        auto& primaryCommandContext = frame->commandContexts()[0];
+        auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         myLastFrameTimelineValue = primaryCommandContext->submit({

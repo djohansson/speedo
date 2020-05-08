@@ -177,8 +177,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
                 myDepthTexture->getImage()},
                 myDesc.timelineSemaphore, 
                 myDesc.timelineValue,
-                frameIt,
-                4}));
+                frameIt}));
 }
 
 template <>
@@ -294,7 +293,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     auto& frame = myFrames[frameIndex];
     auto& lastFrame = myFrames[lastFrameIndex];
 
-    for (auto& commandContext : frame->commandContexts())
+    for (auto& commandContext : commandContexts()[frameIndex])
         commandContext->collectGarbage();
 
     std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
@@ -313,15 +312,15 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
         for (uint32_t contextIt = 0; contextIt < 1/*frame->commandContexts().size()*/; contextIt++)
         {
-            auto& commandContext = *frame->commandContexts()[contextIt];
-            auto cmd = commandContext.beginEndScope();
+            auto& commandContext = commandContexts()[frameIndex][contextIt];
+            auto cmd = commandContext->beginEndScope();
 
             TracyVkZone(
-                commandContext.userData<command_vulkan::UserData>().tracyContext,
+                commandContext->userData<command_vulkan::UserData>().tracyContext,
                 cmd, "tracyVkCollect");
 
             TracyVkCollect(
-                commandContext.userData<command_vulkan::UserData>().tracyContext,
+                commandContext->userData<command_vulkan::UserData>().tracyContext,
                 cmd);
         }
     }
@@ -332,7 +331,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
     // setup draw parameters
     uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
-    uint32_t commandContextCount = static_cast<uint32_t>(frame->commandContexts().size());
+    uint32_t commandContextCount = static_cast<uint32_t>(commandContexts()[frameIndex].size());
     uint32_t segmentCount = std::max<uint32_t>(std::min<int32_t>(drawCount, commandContextCount - 1), 0);
 
     // draw geometry using secondary command buffers
@@ -373,11 +372,11 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                                     VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
                 secBeginInfo.pInheritanceInfo = &inherit;
                     
-                auto& commandContext = *frame->commandContexts()[segmentIt + 1];
-                auto cmd = commandContext.beginEndScope(&secBeginInfo);
+                auto& commandContext = commandContexts()[frame->getDesc().index][segmentIt + 1];
+                auto cmd = commandContext->beginEndScope(&secBeginInfo);
 
                 // TracyVkZone(
-                //     commandContext.userData<command_vulkan::UserData>().tracyContext,
+                //     commandContext->userData<command_vulkan::UserData>().tracyContext,
                 //     cmd, drawSegmentStr.data());
             
                 // bind pipeline and inputs
@@ -444,12 +443,12 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
             });
     }
 
-    auto& primaryCommandContext = *frame->commandContexts()[0];
+    auto& primaryCommandContext = commandContexts()[frameIndex][0];
 
     {
         ZoneScopedN("executeCommands");
 
-        auto primaryCommands = primaryCommandContext.beginEndScope();
+        auto primaryCommands = primaryCommandContext->beginEndScope();
 
         // call secondary command buffers
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
@@ -461,14 +460,14 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.pClearValues = clearValues.data();
 
         TracyVkZone(
-            primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
+            primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
             primaryCommands, "executeCommands");
 
         vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
         for (uint32_t contextIt = 1; contextIt <= segmentCount; contextIt++)
         {
-            primaryCommandContext.execute(*frame->commandContexts()[contextIt]);
+            primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
             //vkCmdNextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
         }
 
@@ -485,12 +484,12 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     // Record Imgui Draw Data and draw funcs into primary command buffer
     if (myDesc.imguiEnable)
     {
-        auto primaryCommands = primaryCommandContext.beginEndScope();
+        auto primaryCommands = primaryCommandContext->beginEndScope();
         
         ZoneScopedN("drawIMGUI");
 
         TracyVkZone(
-            primaryCommandContext.userData<command_vulkan::UserData>().tracyContext,
+            primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
             primaryCommands, "drawIMGUI");
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
@@ -524,7 +523,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
         uint64_t waitTimelineValues[2] = {
             waitTimelineValue, waitTimelineValue};
-        submitResult = primaryCommandContext.submit({
+        submitResult = primaryCommandContext->submit({
             myDesc.deviceContext->getPrimaryGraphicsQueue(),
             frame->getFence(),
             1,
@@ -677,7 +676,36 @@ Window<GraphicsBackend::Vulkan>::Window(
     ZoneScopedN("Window()");
 
     createFrameObjects(commands);
+
+    for (const auto& frame : myFrames)
+    {
+        auto& frameCommandContexts = myCommandContexts.emplace_back();
+        const auto& frameCommandPools = myDesc.deviceContext->getGraphicsCommandPools()[frame->getDesc().index];
+
+        uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myDesc.maxCommandContextCount);
+        frameCommandContexts.reserve(commandContextCount);
+
+        for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
+        {
+            frameCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
+                CommandContextCreateDesc<GraphicsBackend::Vulkan>{
+                    getDesc().deviceContext,
+                    frameCommandPools[poolIt],
+                    static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
+                    myDesc.timelineSemaphore,
+                    myDesc.timelineValue}));
+        }
+
+        frameCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
+            TracyVkContext(
+                getDesc().deviceContext->getPhysicalDevice(),
+                getDesc().deviceContext->getDevice(),
+                getDesc().deviceContext->getPrimaryGraphicsQueue(),
+                frameCommandContexts[0]->commands());
+    }
 }
+
+//, myCommandContexts(std::move(other.myCommandContexts))
 
 template <>
 Window<GraphicsBackend::Vulkan>::~Window()
@@ -685,4 +713,8 @@ Window<GraphicsBackend::Vulkan>::~Window()
     ZoneScopedN("~Window()");
 
     destroyFrameObjects();
+
+    for (auto& frameCommandContexts : myCommandContexts)
+        for (auto& commandContext : frameCommandContexts)
+            commandContext->clear();
 }

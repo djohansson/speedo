@@ -27,6 +27,7 @@ struct WindowCreateDesc
 	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
 	bool imguiEnable = false;
+	uint32_t maxCommandContextCount = 4;
 };
 
 template <GraphicsBackend B>
@@ -56,6 +57,7 @@ public:
 
 	auto& depthTexture() { return *myDepthTexture; }
 	auto& frames() { return myFrames; }
+	auto& commandContexts() { return myCommandContexts; }
 
 	void createFrameObjects(CommandContext<B>& commandContext);
 	void destroyFrameObjects();
@@ -86,6 +88,7 @@ private:
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<std::shared_ptr<Frame<B>>> myFrames;
+	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommandContexts;
 	std::vector<std::chrono::high_resolution_clock::time_point> myFrameTimestamps;
 	RenderPassHandle<B> myRenderPass = 0;
 	std::vector<std::function<void()>> myIMGUIDrawCallbacks;

@@ -15,6 +15,7 @@ template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBack
 
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
 
+
 template <>
 void Frame<GraphicsBackend::Vulkan>::waitForFence() const
 {
@@ -25,17 +26,16 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence() const
 template <>
 Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
 : BaseType(std::move(other))
-    , myCommandContexts(std::move(other.myCommandContexts))
-	, myFence(other.myFence)
-	, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
-	, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
-    {
-        ++ourDebugCount;
-    
-		other.myFence = 0;
-		other.myRenderCompleteSemaphore = 0;
-		other.myNewImageAcquiredSemaphore = 0;
-    }
+, myFence(other.myFence)
+, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
+, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
+{
+    ++ourDebugCount;
+
+    other.myFence = 0;
+    other.myRenderCompleteSemaphore = 0;
+    other.myNewImageAcquiredSemaphore = 0;
+}
 
 template <>
 Frame<GraphicsBackend::Vulkan>::Frame(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc)
@@ -54,28 +54,6 @@ Frame<GraphicsBackend::Vulkan>::Frame(FrameCreateDesc<GraphicsBackend::Vulkan>&&
         getDesc().deviceContext->getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
     CHECK_VK(vkCreateSemaphore(
         getDesc().deviceContext->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
-
-    const auto& frameCommandPools = getDesc().deviceContext->getGraphicsCommandPools()[myDesc.index];
-
-    uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myDesc.maxCommandContextCount);
-    myCommandContexts.reserve(commandContextCount);
-    for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
-    {
-        myCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
-            CommandContextCreateDesc<GraphicsBackend::Vulkan>{
-                getDesc().deviceContext,
-                frameCommandPools[poolIt],
-                static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
-                myDesc.timelineSemaphore,
-                myDesc.timelineValue}));
-    }
-
-    myCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
-        TracyVkContext(
-            getDesc().deviceContext->getPhysicalDevice(),
-            getDesc().deviceContext->getDevice(),
-            getDesc().deviceContext->getPrimaryGraphicsQueue(),
-            myCommandContexts[0]->commands());
 }
 
 template <>
@@ -84,9 +62,6 @@ Frame<GraphicsBackend::Vulkan>::~Frame()
     ZoneScopedN("~Frame()");
 
     --ourDebugCount;
-
-    for (auto& commandContext : myCommandContexts)
-        commandContext->clear();
     
     vkDestroyFence(getDesc().deviceContext->getDevice(), myFence, nullptr);
     vkDestroySemaphore(getDesc().deviceContext->getDevice(), myRenderCompleteSemaphore, nullptr);

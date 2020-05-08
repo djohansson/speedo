@@ -14,7 +14,6 @@ struct FrameCreateDesc : RenderTargetCreateDesc<B>
 	SemaphoreHandle<B> timelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> timelineValue;
 	uint32_t index = 0;
-	uint32_t maxCommandContextCount = 4;
 };
 
 template <GraphicsBackend B>
@@ -34,13 +33,10 @@ public:
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 
-	auto& commandContexts() { return myCommandContexts; }
-
 	void waitForFence() const;
 
 private:
 
-	std::vector<std::shared_ptr<CommandContext<B>>> myCommandContexts; // todo: move to window so that we dont have to recreate these on frame recreate?
 	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
