@@ -97,7 +97,28 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myRenderPass = createRenderPass(
         myDesc.deviceContext->getDevice(),
         myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
-        myDepthTexture->getDesc().format);
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_STORE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        myDepthTexture->getDesc().format,
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_STORE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+    myUIRenderPass = createRenderPass(
+        myDesc.deviceContext->getDevice(),
+        myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
+        VK_ATTACHMENT_LOAD_OP_LOAD,
+        VK_ATTACHMENT_STORE_OP_STORE,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        myDepthTexture->getDesc().format,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     uint32_t imageCount;
     CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
@@ -138,6 +159,12 @@ void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
     {
         vkDestroyRenderPass(myDesc.deviceContext->getDevice(), myRenderPass, nullptr);
         myRenderPass = 0;
+    }
+
+    if (myUIRenderPass)
+    {
+        vkDestroyRenderPass(myDesc.deviceContext->getDevice(), myUIRenderPass, nullptr);
+        myUIRenderPass = 0;
     }
 }
 
@@ -436,7 +463,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
             primaryCommands, "drawIMGUI");
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-        beginInfo.renderPass = myRenderPass;
+        beginInfo.renderPass = myUIRenderPass;
         beginInfo.framebuffer = frame->frameBuffer;
         beginInfo.renderArea.offset = {0, 0};
         beginInfo.renderArea.extent = {frame->getDesc().imageExtent.width, frame->getDesc().imageExtent.height};
@@ -501,6 +528,16 @@ template <>
 void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex)
 {
     ZoneScopedN("updateInput");
+
+    // todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
+    if (myDesc.imguiEnable)
+    {
+        using namespace ImGui;
+
+        auto& io = GetIO();
+        if (io.WantCaptureMouse)
+            return;
+    }
 
     assert(frameIndex < myFrameTimestamps.size());
     assert(lastFrameIndex < myFrameTimestamps.size());

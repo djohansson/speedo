@@ -72,7 +72,18 @@ VkFramebuffer createFramebuffer(
 	uint32_t attachmentCount, const VkImageView* attachments,
 	uint32_t width, uint32_t height, uint32_t layers);
 
-VkRenderPass createRenderPass(VkDevice device, VkFormat colorFormat, VkFormat depthFormat);
+VkRenderPass createRenderPass(
+	VkDevice device,
+	VkFormat colorFormat,
+	VkAttachmentLoadOp colorLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+	VkAttachmentStoreOp colorStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
+	VkImageLayout colorInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    VkImageLayout colorFinalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+	VkFormat depthFormat = VK_FORMAT_UNDEFINED,
+	VkAttachmentLoadOp depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+	VkAttachmentStoreOp depthStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+	VkImageLayout depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
 

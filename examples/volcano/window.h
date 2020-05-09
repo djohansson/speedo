@@ -26,7 +26,7 @@ struct WindowCreateDesc
 	Extent2d<B> splitScreenGrid = {};
 	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
-	bool imguiEnable = false;
+	bool imguiEnable = true;
 	uint32_t maxCommandContextCount = 4;
 };
 
@@ -91,5 +91,6 @@ private:
 	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommandContexts;
 	std::vector<std::chrono::high_resolution_clock::time_point> myFrameTimestamps;
 	RenderPassHandle<B> myRenderPass = 0;
+	RenderPassHandle<B> myUIRenderPass = 0;
 	std::vector<std::function<void()>> myIMGUIDrawCallbacks;
 };
