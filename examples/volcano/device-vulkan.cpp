@@ -8,8 +8,6 @@
 #include <tuple>
 #include <utility>
 
-#include <Tracy.hpp>
-
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(

@@ -15,8 +15,7 @@
 #include <imgui.h>
 #include <examples/imgui_impl_glfw.h>
 
-#include <Tracy.hpp>
-
+#include "utils.h"
 #include "volcano.h"
 
 static MouseState g_mouse = { -1.0, -1.0, 0, 0, 0, false };
@@ -260,8 +259,11 @@ int main(int argc, char** argv)
 
 		{
 			ZoneScopedN("glfw");
-
 			glfwPollEvents();
+		}
+
+		{
+			ZoneScopedN("imgui");
 			ImGui_ImplGlfw_NewFrame();
 		}
 

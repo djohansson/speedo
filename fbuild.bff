@@ -504,7 +504,6 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -I$RootPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
-			+ ' -DTRACY_ENABLE'
 			+ ' -DGLM_FORCE_AVX2'
 		// .CompilerInputUnity = 'volcano-unity'
 		.CompilerInputPath = '$RootPath$/examples/volcano'

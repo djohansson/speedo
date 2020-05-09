@@ -3,7 +3,6 @@
 
 #include <string>
 
-#include <Tracy.hpp>
 
 template <>
 uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount = 0;

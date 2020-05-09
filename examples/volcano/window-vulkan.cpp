@@ -22,14 +22,6 @@
 #include <imgui.h>
 #include <examples/imgui_impl_vulkan.h>
 
-#include <Tracy.hpp>
-
-
-extern template uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t CommandContext<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount;
 
 template <>
 void Window<GraphicsBackend::Vulkan>::renderIMGUI()
@@ -38,60 +30,11 @@ void Window<GraphicsBackend::Vulkan>::renderIMGUI()
     
     using namespace ImGui;
 
+    ImGui_ImplVulkan_NewFrame();
     NewFrame();
 
-    {
-        ShowDemoWindow();
-    }
-
-    {
-        Begin("Render Options");
-        // DragInt(
-        //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
-        ColorEdit3(
-            "Clear Color", &myDesc.clearValue.color.float32[0]);
-        End();
-    }
-
-    {
-        Begin("GUI Options");
-        // static int styleIndex = 0;
-        ShowStyleSelector("Styles" /*, &styleIndex*/);
-        ShowFontSelector("Fonts");
-        if (Button("Show User Guide"))
-        {
-            SetNextWindowPos(ImVec2(0.5f, 0.5f));
-            OpenPopup("UserGuide");
-        }
-        if (BeginPopup(
-                "UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-        {
-            ShowUserGuide();
-            EndPopup();
-        }
-        End();
-    }
-
-    {
-        Begin("Statistics");
-            Text("Frame count: %u", Frame<GraphicsBackend::Vulkan>::ourDebugCount);
-            Text("CommandContext count: %u", CommandContext<GraphicsBackend::Vulkan>::ourDebugCount);
-            Text("CommandBufferArray count: %u", CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount);
-            Text("Buffer count: %u", Buffer<GraphicsBackend::Vulkan>::ourDebugCount);
-            Text("Texture count: %u", Texture<GraphicsBackend::Vulkan>::ourDebugCount);
-        End();
-    }
-
-    {
-        ShowMetricsWindow();
-    }
-
-    {
-        for (auto callback : myIMGUIDrawCallbacks)
-            callback();
-
-        myIMGUIDrawCallbacks.clear();
-    }
+    for (auto callback : myIMGUIDrawCallbacks)
+        callback();
 
     Render();
 }

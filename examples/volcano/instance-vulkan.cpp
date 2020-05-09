@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <vector>
 
-#include <Tracy.hpp>
 
 namespace instance_vulkan
 {

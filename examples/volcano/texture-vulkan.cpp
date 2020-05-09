@@ -21,8 +21,6 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
-#include <Tracy.hpp>
-
 
 template <>
 uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount = 0;

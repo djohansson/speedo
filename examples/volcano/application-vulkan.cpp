@@ -12,7 +12,12 @@
 #include <examples/imgui_impl_glfw.h>
 #include <examples/imgui_impl_vulkan.h>
 
-#include <Tracy.hpp>
+
+extern template uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount;
+extern template uint32_t CommandContext<GraphicsBackend::Vulkan>::ourDebugCount;
+extern template uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount;
+extern template uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount;
+extern template uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount;
 
 template <>
 void Application<GraphicsBackend::Vulkan>::initIMGUI(
@@ -28,8 +33,11 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     auto& io = GetIO();
     static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").u8string();
     io.IniFilename = iniFilePath.c_str();
-    // io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+    // auto& platformIo = ImGui::GetPlatformIO();
+    // platformIo.Platform_CreateVkSurface = ...
 
     auto surfaceCapabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(myInstance->getSurface(), myDevice->getPhysicalDevice());
 
@@ -316,76 +324,145 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
-    myWindow->addIMGUIDrawCallback([this]
+    auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
-        auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
+        std::string resourcePath = std::filesystem::absolute(myResourcePath).u8string();
+        nfdchar_t* openFilePath;
+        return std::make_tuple(NFD_OpenDialog(filterList, resourcePath.c_str(), &openFilePath),
+            openFilePath, std::move(onCompletionCallback));
+    };
+
+    auto loadModel = [this](nfdchar_t* openFilePath)
+    {
+        // todo: replace with other sync method
+        CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
+
         {
-            std::string resourcePath = std::filesystem::absolute(myResourcePath).u8string();
-            nfdchar_t* openFilePath;
-            return std::make_tuple(NFD_OpenDialog(filterList, resourcePath.c_str(), &openFilePath),
-                openFilePath, std::move(onCompletionCallback));
-        };
+            auto beginEndScope(myTransferCommandContext->beginEndScope());
 
-        auto loadModel = [this](nfdchar_t* openFilePath)
-        {
-            // todo: replace with other sync method
-            CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
+            myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+                std::filesystem::absolute(openFilePath),
+                *myTransferCommandContext);
+        }
 
-            {
-                auto beginEndScope(myTransferCommandContext->beginEndScope());
+        updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
-                myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                    std::filesystem::absolute(openFilePath),
-                    *myTransferCommandContext);
-            }
+        // submit transfers.
+        myLastTransferTimelineValue = myTransferCommandContext->submit({
+            myDevice->getPrimaryTransferQueue(),
+            myTransferFence});
 
-            updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+        // todo: resource transition
+    };
 
-            // submit transfers.
-            myLastTransferTimelineValue = myTransferCommandContext->submit({
-                myDevice->getPrimaryTransferQueue(),
-                myTransferFence});
+    // auto loadTexture = [this](nfdchar_t* openFilePath)
+    // {
+    //     // todo: replace with other sync method
+    //     CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
-            // todo: resource transition
-        };
+    //     {
+    //         auto beginEndScope(myTransferCommandContext->beginEndScope());
 
-        auto loadTexture = [this](nfdchar_t* openFilePath)
-        {
-            // todo: replace with other sync method
-            CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
+    //         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+    //             std::filesystem::absolute(openFilePath),
+    //             *myTransferCommandContext);
+    //     }
 
-            {
-                auto beginEndScope(myTransferCommandContext->beginEndScope());
+    //     vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
+    //     myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
-                myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
-                    std::filesystem::absolute(openFilePath),
-                    *myTransferCommandContext);
-            }
+    //     updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
-            vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
-            myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+    //     // submit transfers.
+    //     myLastTransferTimelineValue = myTransferCommandContext->submit({
+    //         myDevice->getPrimaryTransferQueue(),
+    //         myTransferFence});
 
-            updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+    //     // todo: resource transition
+    // };
 
-            // submit transfers.
-            myLastTransferTimelineValue = myTransferCommandContext->submit({
-                myDevice->getPrimaryTransferQueue(),
-                myTransferFence});
-
-            // todo: resource transition
-        };
-
+    myWindow->addIMGUIDrawCallback([&, openFileDialogue, loadModel]
+    {
         using namespace ImGui;
 
-        Begin("File");
+        static bool showStatistics = false;
+        if (showStatistics)
+        {
+            if (Begin("Statistics", &showStatistics))
+            {
+                Text("Frame count: %u", Frame<GraphicsBackend::Vulkan>::ourDebugCount);
+                Text("CommandContext count: %u", CommandContext<GraphicsBackend::Vulkan>::ourDebugCount);
+                Text("CommandBufferArray count: %u", CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount);
+                Text("Buffer count: %u", Buffer<GraphicsBackend::Vulkan>::ourDebugCount);
+                Text("Texture count: %u", Texture<GraphicsBackend::Vulkan>::ourDebugCount);
+            }
+            End();
+        }
 
-        if (Button("Open OBJ file") && !myOpenFileFuture.valid())
-            myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+        static bool showDemoWindow = false;
+        if (showDemoWindow)
+            ShowDemoWindow(&showDemoWindow);
 
-        if (Button("Open JPG file") && !myOpenFileFuture.valid())
-            myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "jpg", loadTexture);
+        static bool showAbout = false;
+        if (showAbout)
+        {
+            if (Begin("About volcano", &showAbout)) {}
+            End();
+        }
 
-        End();
+        if (ImGui::BeginMainMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("Open OBJ", "CTRL+O") && !myOpenFileFuture.valid())
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("View"))
+            {
+                if (ImGui::MenuItem("Statistics..."))
+                    showStatistics = !showStatistics;
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("About"))
+            {
+                if (ImGui::MenuItem("About volcano..."))
+                    showAbout = !showAbout;
+                if (ImGui::MenuItem("Show IMGUI Demo..."))
+                    showDemoWindow = !showDemoWindow;
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMainMenuBar();
+        }  
+
+        // {
+        //     Begin("Render Options");
+        //     // DragInt(
+        //     //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
+        //     ColorEdit3(
+        //         "Clear Color", &myDesc.clearValue.color.float32[0]);
+        //     End();
+        // }
+
+        // {
+        //     Begin("GUI Options");
+        //     // static int styleIndex = 0;
+        //     ShowStyleSelector("Styles" /*, &styleIndex*/);
+        //     ShowFontSelector("Fonts");
+        //     if (Button("Show User Guide"))
+        //     {
+        //         SetNextWindowPos(ImVec2(0.5f, 0.5f));
+        //         OpenPopup("UserGuide");
+        //     }
+        //     if (BeginPopup(
+        //             "UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+        //     {
+        //         ShowUserGuide();
+        //         EndPopup();
+        //     }
+        //     End();
+        // }      
     });
 }
 

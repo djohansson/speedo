@@ -1,7 +1,6 @@
 #include "command.h"
 #include "vk-utils.h"
 
-#include <Tracy.hpp>
 
 template <>
 uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount = 0;

@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include <Tracy.hpp>
 
 template <typename CreateDescType>
 class RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan> : public RenderTarget<GraphicsBackend::Vulkan>

@@ -30,10 +30,11 @@ isCacheValid<GraphicsBackend::Vulkan>(
 		memcmp(header.pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header.pipelineCacheUUID)) == 0);
 }
 
-template <GraphicsBackend B>
-SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device)
+template <>
+SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities<GraphicsBackend::Vulkan>(
+    SurfaceHandle<GraphicsBackend::Vulkan> surface, PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
-    SurfaceCapabilities<B> capabilities;
+    SurfaceCapabilities<GraphicsBackend::Vulkan> capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
 
     return capabilities;

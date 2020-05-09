@@ -4,7 +4,6 @@
 
 #include <cereal/types/vector.hpp>
 
-#include <Tracy.hpp>
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath)
 {
