@@ -54,12 +54,6 @@ struct InstanceConfiguration
 };
 
 template <GraphicsBackend B>
-struct InstanceCreateDesc : ScopedFileObject<InstanceConfiguration<B>>
-{
-    void* surfaceHandle = nullptr;
-};
-
-template <GraphicsBackend B>
 struct SwapchainInfo
 {
 	SurfaceCapabilities<B> capabilities = {};
@@ -83,10 +77,10 @@ class InstanceContext
 public:
 
     InstanceContext(InstanceContext&& other) = default;
-    InstanceContext(InstanceCreateDesc<B>&& desc);
+    InstanceContext(ScopedFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
     ~InstanceContext();
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getConfig() const { return myConfig; }
     const auto& getInstance() const { return myInstance; }
     const auto& getSurface() const { return mySurface; }
     const auto& getPhysicalDevices() const { return myPhysicalDevices; }
@@ -97,7 +91,7 @@ public:
 
 private:
 
-    const InstanceCreateDesc<B> myDesc;
+    ScopedFileObject<InstanceConfiguration<B>> myConfig;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
@@ -105,4 +99,3 @@ private:
     std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };
-

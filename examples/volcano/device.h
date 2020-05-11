@@ -48,12 +48,6 @@ struct DeviceConfiguration
     }
 };
 
-template <GraphicsBackend B>
-struct DeviceCreateDesc : ScopedFileObject<DeviceConfiguration<B>>
-{
-    std::shared_ptr<InstanceContext<B>> instanceContext;
-};
-
 enum QueueFamilyFlags : uint8_t
 {
     Graphics = 1 << 0,
@@ -77,13 +71,16 @@ class DeviceContext
 public:
 
     DeviceContext(DeviceContext<B>&& other) = default;
-	DeviceContext(DeviceCreateDesc<B>&& desc);
+	DeviceContext(
+        const std::shared_ptr<InstanceContext<B>>& instanceContext,
+        ScopedFileObject<DeviceConfiguration<B>>&& config);
     ~DeviceContext();
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getDesc() const { return myConfig; }
     const auto& getDevice() const { return myDevice; }
     const auto& getPhysicalDevice() const
-    { return myDesc.instanceContext->getPhysicalDevices()[myDesc.physicalDeviceIndex]; }
+    { return myInstanceContext->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
+    const auto& getSurface() const { return myInstanceContext->getSurface(); }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
@@ -104,7 +101,8 @@ public:
 
 private:
 
-    DeviceCreateDesc<B> myDesc = {};
+    std::shared_ptr<InstanceContext<B>> myInstanceContext;
+    ScopedFileObject<DeviceConfiguration<B>> myConfig = {};
     DeviceHandle<B> myDevice = 0;
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;

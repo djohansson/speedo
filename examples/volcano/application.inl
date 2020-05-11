@@ -34,5 +34,5 @@ auto Application<B>::createPipelineConfig(DeviceHandle<B> device,
 template <GraphicsBackend B>
 const char* Application<B>::getName() const
 {
-    return myInstance->getDesc().applicationName.c_str();
+    return myInstance->getConfig().applicationName.c_str();
 }

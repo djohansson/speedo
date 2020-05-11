@@ -10,7 +10,6 @@
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc
 {
-    std::shared_ptr<DeviceContext<B>> deviceContext;
     RenderPassHandle<B> renderPass = 0; // optional
     Extent2d<B> imageExtent = {};
 	Format<B> colorImageFormat = {};
@@ -24,8 +23,6 @@ class RenderTarget
 {
 public:
 
-    RenderTarget(RenderTarget<B>&& other, const RenderTargetCreateDesc<B>* myDescPtr);
-    RenderTarget(const RenderTargetCreateDesc<B>& desc, const RenderTargetCreateDesc<B>* myDescPtr);
     virtual ~RenderTarget();
 
     const auto& getImageExtent() const { return myDesc.imageExtent; }
@@ -36,8 +33,20 @@ public:
 
 protected:
 
-    const RenderTargetCreateDesc<B>& myDesc; // do NOT use myDesc in constructor or destructor - object pointed to may not be valid during construction/destruction
+    RenderTarget(
+        RenderTarget<B>&& other,
+        const RenderTargetCreateDesc<B>* myDescPtr);
+    RenderTarget(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const RenderTargetCreateDesc<B>& desc,
+        const RenderTargetCreateDesc<B>* myDescPtr);
+
+    const auto& getDeviceContext() const { return myDeviceContext; }
+
+private:
+
     std::shared_ptr<DeviceContext<B>> myDeviceContext;
+    const RenderTargetCreateDesc<B>& myDesc; // do NOT use myDesc in constructor or destructor - object pointed to may not be valid during construction/destruction
     FramebufferHandle<B> myFrameBuffer = 0;
 	std::vector<ImageViewHandle<B>> myColorViews;
 	std::optional<ImageViewHandle<B>> myDepthView;

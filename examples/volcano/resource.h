@@ -18,17 +18,18 @@ class Resource
 {
 public:
 
+    virtual ~Resource();
+
+    const auto& getName() const { return myName; }
+
+protected:
+
     Resource(Resource<B>&& other);
     Resource(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const ResourceCreateDesc<B>& desc,
         ObjectType<B> objectType,
         uint64_t objectHandle);
-    virtual ~Resource();
-
-    const auto& getName() const { return myName; }
-
-protected:
 
     const auto& getDeviceContext() const { return myDeviceContext; }
 

@@ -9,7 +9,6 @@
 template <GraphicsBackend B>
 struct SwapchainCreateDesc
 {
-	std::shared_ptr<DeviceContext<B>> deviceContext;
 	Extent2d<B> imageExtent = {};
 	SwapchainHandle<B> previous = 0;
 };
@@ -20,7 +19,9 @@ class SwapchainContext
 public:
 
 	SwapchainContext(SwapchainContext&& other) = default;
-	SwapchainContext(SwapchainCreateDesc<B>&& desc);
+	SwapchainContext(
+		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		SwapchainCreateDesc<B>&& desc);
     ~SwapchainContext();
 
     const auto& getDesc() const { return myDesc; }
@@ -35,6 +36,7 @@ public:
 
 private:
 
+	std::shared_ptr<DeviceContext<B>> myDeviceContext;
 	const SwapchainCreateDesc<B> myDesc = {};
 	SwapchainHandle<B> mySwapchain = 0;
 };

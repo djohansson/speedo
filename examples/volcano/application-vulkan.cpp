@@ -197,11 +197,10 @@ Application<GraphicsBackend::Vulkan>::Application(
     std::filesystem::path instanceConfigFile(std::filesystem::absolute(myUserProfilePath / "instance.json"));
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
-        InstanceCreateDesc<GraphicsBackend::Vulkan>{
-            ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
-                instanceConfigFile,
-                "instanceConfiguration"),
-            view});
+        ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
+            instanceConfigFile,
+            "instanceConfiguration"),
+        view);
 
     const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
     if (graphicsDeviceCandidates.empty())
@@ -210,12 +209,11 @@ Application<GraphicsBackend::Vulkan>::Application(
     std::filesystem::path deviceConfigFile(std::filesystem::absolute(myUserProfilePath / "device.json"));
 
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
-        DeviceCreateDesc<GraphicsBackend::Vulkan>{
-            ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
-                deviceConfigFile,
-                "deviceConfiguration",
-                {graphicsDeviceCandidates.front().first}),
-            myInstance});
+        myInstance,
+        ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
+            deviceConfigFile,
+            "deviceConfiguration",
+            {graphicsDeviceCandidates.front().first}));
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
         std::filesystem::absolute(myUserProfilePath / "pipeline.cache"),

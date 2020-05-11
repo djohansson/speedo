@@ -4,9 +4,10 @@
 
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
-    RenderTarget<GraphicsBackend::Vulkan>&& other, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>* myDescPtr)
-: myDesc(*myDescPtr)
-, myDeviceContext(other.myDeviceContext)
+    RenderTarget<GraphicsBackend::Vulkan>&& other,
+    const RenderTargetCreateDesc<GraphicsBackend::Vulkan>* myDescPtr)
+: myDeviceContext(other.myDeviceContext)
+, myDesc(*myDescPtr)
 , myFrameBuffer(other.myFrameBuffer)
 , myColorViews(std::move(other.myColorViews))
 , myDepthView(std::move(other.myDepthView))
@@ -15,9 +16,11 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
 
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
-    const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>* myDescPtr)
-: myDesc(*myDescPtr)
-, myDeviceContext(desc.deviceContext)
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc,
+    const RenderTargetCreateDesc<GraphicsBackend::Vulkan>* myDescPtr)
+: myDeviceContext(deviceContext)
+, myDesc(*myDescPtr)
 {
     ZoneScopedN("RenderTarget()");
 
@@ -74,6 +77,8 @@ RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
 template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
 
-template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc);
+template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc);
 
 template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();

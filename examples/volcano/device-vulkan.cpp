@@ -11,18 +11,20 @@
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
-    DeviceCreateDesc<GraphicsBackend::Vulkan>&& desc)
-    : myDesc(std::move(desc))
+    const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
+    ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
+: myInstanceContext(instanceContext)
+, myConfig(std::move(config))
 {
     ZoneScopedN("DeviceContext()");
 
     const auto& physicalDeviceInfo =
-        myDesc.instanceContext->getPhysicalDeviceInfos()[myDesc.physicalDeviceIndex];
+        myInstanceContext->getPhysicalDeviceInfos()[myConfig.physicalDeviceIndex];
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
-    if (!myDesc.swapchainConfiguration)
+    if (!myConfig.swapchainConfiguration)
     {
-        myDesc.swapchainConfiguration = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
+        myConfig.swapchainConfiguration = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
 
         const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
             VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM,
@@ -48,7 +50,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 requestedFormat);
             if (formatIt != swapchainInfo.formats.end())
             {
-                myDesc.swapchainConfiguration->surfaceFormat = *formatIt;
+                myConfig.swapchainConfiguration->surfaceFormat = *formatIt;
                 break;
             }
         }
@@ -63,15 +65,15 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 requestPresentMode[request_i]);
             if (modeIt != swapchainInfo.presentModes.end())
             {
-                myDesc.swapchainConfiguration->presentMode = *modeIt;
+                myConfig.swapchainConfiguration->presentMode = *modeIt;
 
-                switch (myDesc.swapchainConfiguration->presentMode)
+                switch (myConfig.swapchainConfiguration->presentMode)
                 {
                 case VK_PRESENT_MODE_MAILBOX_KHR:
-                    myDesc.swapchainConfiguration->imageCount = 3;
+                    myConfig.swapchainConfiguration->imageCount = 3;
                     break;
                 default:
-                    myDesc.swapchainConfiguration->imageCount = 2;
+                    myConfig.swapchainConfiguration->imageCount = 2;
                     break;
                 }
 
@@ -130,22 +132,22 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
-    if (!myDesc.useTimelineSemaphores)
+    if (!myConfig.useTimelineSemaphores)
     {
         if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
             [](const char* extension) { return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0; });
             it != deviceExtensions.end())
         {
-            myDesc.useTimelineSemaphores = std::make_optional(true);
+            myConfig.useTimelineSemaphores = std::make_optional(true);
         }
         else
         {
-            myDesc.useTimelineSemaphores = std::make_optional(false);
+            myConfig.useTimelineSemaphores = std::make_optional(false);
         }
     }
 
-    if (!myDesc.useCommandPoolReset)
-        myDesc.useCommandPoolReset = std::make_optional(false);
+    if (!myConfig.useCommandPoolReset)
+        myConfig.useCommandPoolReset = std::make_optional(false);
 
     VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
     physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
@@ -154,7 +156,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     timelineFeatures.timelineSemaphore = VK_TRUE;
 
     VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    physicalDeviceFeatures2.pNext = myDesc.useTimelineSemaphores.value() ? &timelineFeatures : nullptr;
+    physicalDeviceFeatures2.pNext = myConfig.useTimelineSemaphores.value() ? &timelineFeatures : nullptr;
     physicalDeviceFeatures2.features = physicalDeviceFeatures;
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -168,7 +170,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
     VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    if (!myDesc.useCommandPoolReset.value())
+    if (!myConfig.useCommandPoolReset.value())
         cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
@@ -186,7 +188,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
             vkGetDeviceQueue(myDevice, queueFamilyIt, queueIt, &queueFamilyDesc.queues[queueIt]);
 
-        uint32_t frameCount = queueFamilyPresentSupport ? myDesc.swapchainConfiguration->imageCount : 1;
+        uint32_t frameCount = queueFamilyPresentSupport ? myConfig.swapchainConfiguration->imageCount : 1;
 
         queueFamilyDesc.commandPools.resize(frameCount);
 
@@ -203,7 +205,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     }
 
     myAllocator = createAllocator<GraphicsBackend::Vulkan>(
-        myDesc.instanceContext->getInstance(),
+        myInstanceContext->getInstance(),
         myDevice,
         getPhysicalDevice());
 

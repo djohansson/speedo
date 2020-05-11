@@ -51,8 +51,8 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
         myDesc.instanceContext->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
 
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
+        myDesc.deviceContext,
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
             frameBufferExtent,
             mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr});
 
@@ -126,9 +126,9 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
+            myDesc.deviceContext,
             FrameCreateDesc<GraphicsBackend::Vulkan>{
-                {myDesc.deviceContext,
-                myRenderPass,
+                {myRenderPass,
                 frameBufferExtent,
                 myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
                 {colorImages[frameIt]},
