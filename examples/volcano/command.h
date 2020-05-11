@@ -35,8 +35,6 @@ public:
     CommandBufferArray(CommandBufferArrayCreateDesc<B>&& desc);
     ~CommandBufferArray();
 
-    static uint32_t ourDebugCount;
-
 private:
 
     friend class CommandContext<B>;
@@ -123,8 +121,6 @@ public:
     CommandContext(CommandContextCreateDesc<B>&& desc);
     ~CommandContext();
 
-    static uint32_t ourDebugCount;
-
     const auto& getDesc() const { return myDesc; }
     const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
@@ -202,4 +198,4 @@ private:
     std::any myUserData;
 };
 
-#include "command-vulkan.h"
+#include "command-vulkan.inl"

@@ -12,7 +12,7 @@ namespace instance_vulkan
 struct UserData
 {
 #ifdef PROFILING_ENABLED
-    VkDebugUtilsMessengerEXT debugUtilsMessenger = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT debugUtilsMessenger = 0;
 #endif
 };
 
@@ -23,7 +23,7 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
         (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
     assert(vkCreateDebugUtilsMessengerEXT != nullptr);
 
-    PFN_vkDebugUtilsMessengerCallbackEXT callback = static_cast<PFN_vkDebugUtilsMessengerCallbackEXT>([](
+    auto callback = static_cast<PFN_vkDebugUtilsMessengerCallbackEXT>([](
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageTypes,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,

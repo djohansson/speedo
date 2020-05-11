@@ -3,12 +3,6 @@
 
 
 template <>
-uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount = 0;
-
-template <>
-uint32_t CommandContext<GraphicsBackend::Vulkan>::ourDebugCount = 0;
-
-template <>
 bool CommandContext<GraphicsBackend::Vulkan>::hasReached(uint64_t timelineValue) const
 {
     uint64_t value;
@@ -39,8 +33,6 @@ template <>
 CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDesc(std::move(desc))
 {
-    ++ourDebugCount;
-
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     cmdInfo.commandPool = myDesc.commandPool;
     cmdInfo.level = static_cast<VkCommandBufferLevel>(myDesc.commandBufferLevel);
@@ -59,9 +51,7 @@ CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
             myDesc.commandContext->getDesc().deviceContext->getDevice(),
             myDesc.commandPool,
             kCommandBufferCount,
-            myCommandBufferArray);
-    
-    --ourDebugCount;
+            myCommandBufferArray);    
 }
 
 template <>
@@ -327,8 +317,6 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(CommandContextCreateDesc
 {
     ZoneScopedN("CommandContext()");
 
-    ++ourDebugCount;
-
     myUserData = command_vulkan::UserData();
 
 // disabled as shared_from_this() throws exception. called from the outside for now
@@ -378,8 +366,6 @@ CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 
     if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
         TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
-
-    --ourDebugCount;
 }
 
 template <>

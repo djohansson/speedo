@@ -13,8 +13,8 @@ struct SerializableVertexInputAttributeDescription : public VertexInputAttribute
 {
 	using BaseType = VertexInputAttributeDescription<B>;
 
-	template <class Archive, GraphicsBackend B = B>
-	typename std::enable_if_t<B == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
+	template <class Archive, GraphicsBackend Backend = B>
+	typename std::enable_if_t<Backend == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
 	{
 		static_assert(sizeof(*this) == sizeof(BaseType));
 

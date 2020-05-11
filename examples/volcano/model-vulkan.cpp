@@ -79,48 +79,62 @@ calculateInputBindingDescriptions(
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-ModelCreateDesc<GraphicsBackend::Vulkan> load(
+std::tuple<
+	ModelCreateDesc<GraphicsBackend::Vulkan>,
+	BufferHandle<GraphicsBackend::Vulkan>,
+	AllocationHandle<GraphicsBackend::Vulkan>>
+load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
 	ZoneScopedN("model::load()");
 
-	ModelCreateDesc<GraphicsBackend::Vulkan> desc = {};
-	desc.deviceContext = deviceContext;
-	desc.debugName = modelFile.u8string();
+	std::tuple<
+		ModelCreateDesc<GraphicsBackend::Vulkan>,
+		BufferHandle<GraphicsBackend::Vulkan>,
+		AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
+
+	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+    desc.name = modelFile.u8string().c_str();
 	
-	auto loadPBin = [&desc](std::istream& stream) {
+	auto loadPBin = [&descAndInitialData, &deviceContext](std::istream& stream) {
+		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		cereal::PortableBinaryInputArchive pbin(stream);
 		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
 		std::string debugString;
-		debugString.append(desc.debugName);
+		debugString.append(desc.name);
 		debugString.append("_staging");
 		
-		std::tie(desc.initialData, desc.initialMemory) = createBuffer(
-			desc.deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		auto [locBufferHandle, locMemoryHandle] = createBuffer(
+			deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			debugString.c_str());
 
 		std::byte* data;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialMemory, (void**)&data));
+		CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
 		pbin(cereal::binary_data(data, desc.indexBufferSize));
 		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialMemory);
+		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+
+		bufferHandle = locBufferHandle;
+        memoryHandle = locMemoryHandle;
 	};
 
-	auto savePBin = [&desc](std::ostream& stream) {
+	auto savePBin = [&descAndInitialData, &deviceContext](std::ostream& stream) {
+		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		cereal::PortableBinaryOutputArchive pbin(stream);
 		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
 		std::byte* data;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialMemory, (void**)&data));
+		CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
 		pbin(cereal::binary_data(data, desc.indexBufferSize));
 		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialMemory);
+		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
 	};
 
-	auto loadOBJ = [&desc](std::istream& stream) {
+	auto loadOBJ = [&descAndInitialData, &deviceContext](std::istream& stream) {
+		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 		using namespace tinyobj_opt;
 #else
@@ -224,63 +238,63 @@ ModelCreateDesc<GraphicsBackend::Vulkan> load(
 		desc.indexCount = indices.size();
 
 		std::string debugString;
-		debugString.append(desc.debugName);
+		debugString.append(desc.name);
 		debugString.append("_staging");
 		
-		std::tie(desc.initialData, desc.initialMemory) = createBuffer(
-			desc.deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		auto [locBufferHandle, locMemoryHandle] = createBuffer(
+			deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			debugString.c_str());
 
 		std::byte* data;
-		CHECK_VK(vmaMapMemory(desc.deviceContext->getAllocator(), desc.initialMemory, (void**)&data));
+		CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
 		memcpy(data, indices.data(), desc.indexBufferSize);
 		memcpy(data + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
-		vmaUnmapMemory(desc.deviceContext->getAllocator(), desc.initialMemory);
+		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+
+		bufferHandle = locBufferHandle;
+        memoryHandle = locMemoryHandle;
 	};
 
 	loadCachedSourceFile(
 		modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
 
-	if (desc.initialData == VK_NULL_HANDLE)
+	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");
 
-	return desc;
+	return descAndInitialData;
 }
 
 } // namespace model
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
-	ModelCreateDesc<GraphicsBackend::Vulkan>&& desc,
-	CommandContext<GraphicsBackend::Vulkan>& commandContext)
-: myDesc(std::move(desc))
-, myBuffer({
-		myDesc.deviceContext,
-		myDesc.indexBufferSize + myDesc.vertexBufferSize,
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-		myDesc.initialData,
-		myDesc.initialMemory,
-		myDesc.debugName},
-	commandContext)
+	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+	const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+	std::tuple<
+		ModelCreateDesc<GraphicsBackend::Vulkan>,
+		BufferHandle<GraphicsBackend::Vulkan>,
+		AllocationHandle<GraphicsBackend::Vulkan>>&& descAndInitialData)
+: myDesc(std::move(std::get<0>(descAndInitialData)))
+, myBuffer(
+	deviceContext,
+	commandContext,
+	std::make_tuple(
+		BufferCreateDesc<GraphicsBackend::Vulkan>{ { std::get<0>(descAndInitialData).name },
+			std::get<0>(descAndInitialData).indexBufferSize + std::get<0>(descAndInitialData).vertexBufferSize,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT },
+		std::get<1>(descAndInitialData),
+		std::get<2>(descAndInitialData)))
 , myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
 {
-	ZoneScopedN("Model()");
 }
 
 template <>
 Model<GraphicsBackend::Vulkan>::Model(
-	const std::filesystem::path& modelFile,
-	CommandContext<GraphicsBackend::Vulkan>& commandContext)
-	: Model(model::load(modelFile, commandContext.getDesc().deviceContext), commandContext)
+	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+	const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+	const std::filesystem::path& modelFile)
+	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
 {
-}
-
-template <>
-void Model<GraphicsBackend::Vulkan>::deleteInitialData()
-{
-	ZoneScopedN("deleteInitialData");
-
-	myBuffer.deleteInitialData();
 }

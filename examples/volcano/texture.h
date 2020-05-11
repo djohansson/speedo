@@ -3,53 +3,55 @@
 #include "command.h"
 #include "device.h"
 #include "gfx-types.h"
+#include "resource.h"
 
+#include <memory>
 #include <filesystem>
 
 template <GraphicsBackend B>
-struct TextureCreateDesc
+struct TextureCreateDesc : ResourceCreateDesc<B>
 {
-    std::shared_ptr<DeviceContext<B>> deviceContext;
     Extent2d<B> extent = {};
     uint32_t channelCount = 0;
     Format<B> format = {};
     Flags<B> usage = 0;
-    // these will be destroyed when calling deleteInitialData()
-    BufferHandle<B> initialData = 0;
-    AllocationHandle<B> initialDataMemory = 0;
-    //
-    std::string debugName;
 };
 
 template <GraphicsBackend B>
-class Texture
+class Texture : Resource<B>
 {
 public:
 
     Texture(Texture&& other) = default;
-    Texture(TextureCreateDesc<B>&& desc, CommandContext<B>& commandContext);
-    Texture(const std::filesystem::path& textureFile, CommandContext<B>& commandContext);
+    Texture( // creates uninitialized texture
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        TextureCreateDesc<B>&& desc);
+    Texture( // uses provided image
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<TextureCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
+    Texture( // copies the initial buffer into a new image. buffer gets garbage collected when finished copying.
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
+        std::tuple<TextureCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
+    Texture( // loads a file into a buffer and creates a new image from it. buffer gets garbage collected when finished copying.
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
+        const std::filesystem::path& textureFile);
     ~Texture();
 
-    static uint32_t ourDebugCount;
-
     const auto& getDesc() const { return myDesc; }
-    const auto& getImage() const { return myImage; }
-    const auto& getImageMemory() const { return myImageMemory; }
-    const auto& getImageLayout() const { return myImageLayout; }
+    const auto& getImage() const { return std::get<0>(myData); }
+    const auto& getImageMemory() const { return std::get<1>(myData); }
+    const auto& getImageLayout() const { return std::get<2>(myData); }
 
     ImageViewHandle<B> createView(Flags<B> aspectFlags) const;
 
-    void transition(CommandBufferHandle<GraphicsBackend::Vulkan> commands, ImageLayout<B> layout);
+    void transition(CommandBufferHandle<B> commands, ImageLayout<B> layout);
     
 private:
 
-    void deleteInitialData();
-
     // todo: mipmaps
-    TextureCreateDesc<B> myDesc = {};
-	ImageHandle<B> myImage = 0;
-	AllocationHandle<B> myImageMemory = 0;
-    ImageLayout<B> myImageLayout = {};
+    const TextureCreateDesc<B> myDesc = {};
+    std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>> myData = {};
     //
 };

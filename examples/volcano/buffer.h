@@ -1,53 +1,46 @@
 #pragma once
 
 #include "command.h"
+#include "device.h"
 #include "gfx-types.h"
+#include "resource.h"
 
 #include <memory>
 
 template <GraphicsBackend B>
-struct BufferCreateDesc
+struct BufferCreateDesc : ResourceCreateDesc<B>
 {
-    std::shared_ptr<DeviceContext<B>> deviceContext;
     DeviceSize<B> size = 0;
     Flags<B> usageFlags = 0;
     Flags<B> memoryFlags = 0;
-    // these will be destroyed when calling deleteInitialData()
-    BufferHandle<B> initialData = 0;
-    AllocationHandle<B> initialDataMemory = 0;
-    //
-    // todo: reconsider.
-    std::string debugName;
-    //
 };
 
 template <GraphicsBackend B>
-class Model;
-
-template <GraphicsBackend B>
-class Buffer
+class Buffer : Resource<B>
 {
-    friend class Model<B>;
-
 public:
 
     Buffer(Buffer&& other) = default;
-    Buffer(BufferCreateDesc<B>&& desc, CommandContext<B>& commandContext);
+    Buffer( // creates uninitialized buffer
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        BufferCreateDesc<B>&& desc);
+    Buffer( // uses provided buffer
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndData);
+    Buffer( // copies the initial buffer into a new one. buffer gets garbage collected when finished copying.
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
+        std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     ~Buffer();
 
-    static uint32_t ourDebugCount;
-
     const auto& getDesc() const { return myDesc; }
-    const auto& getBuffer() const { return myBuffer; }
-    const auto& getBufferMemory() const { return myBufferMemory; }
+    const auto& getBuffer() const { return std::get<0>(myData); }
+    const auto& getBufferMemory() const { return std::get<1>(myData); }
     
     BufferViewHandle<B> createView(Format<B> format, DeviceSize<B> offset, DeviceSize<B> range) const;
 
 private:
 
-    void deleteInitialData();
-
-    BufferCreateDesc<B> myDesc = {};
-	BufferHandle<B> myBuffer = 0;
-	AllocationHandle<B> myBufferMemory = 0;
+    const BufferCreateDesc<B> myDesc = {};
+    std::tuple<BufferHandle<B>, AllocationHandle<B>> myData = {};
 };

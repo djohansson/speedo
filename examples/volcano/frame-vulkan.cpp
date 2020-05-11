@@ -4,16 +4,12 @@
 #include "vk-utils.h"
 
 
-template <>
-uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount = 0;
-
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
 
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc);
 
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
-
 
 template <>
 void Frame<GraphicsBackend::Vulkan>::waitForFence() const
@@ -23,26 +19,10 @@ void Frame<GraphicsBackend::Vulkan>::waitForFence() const
 }
 
 template <>
-Frame<GraphicsBackend::Vulkan>::Frame(Frame<GraphicsBackend::Vulkan>&& other)
-: BaseType(std::move(other))
-, myFence(other.myFence)
-, myRenderCompleteSemaphore(other.myRenderCompleteSemaphore)
-, myNewImageAcquiredSemaphore(other.myNewImageAcquiredSemaphore)
-{
-    ++ourDebugCount;
-
-    other.myFence = 0;
-    other.myRenderCompleteSemaphore = 0;
-    other.myNewImageAcquiredSemaphore = 0;
-}
-
-template <>
 Frame<GraphicsBackend::Vulkan>::Frame(FrameCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : BaseType(std::move(desc))
 {
     ZoneScopedN("Frame()");
-
-    ++ourDebugCount;
 
     VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -59,9 +39,7 @@ template <>
 Frame<GraphicsBackend::Vulkan>::~Frame()
 {
     ZoneScopedN("~Frame()");
-
-    --ourDebugCount;
-    
+   
     vkDestroyFence(getDesc().deviceContext->getDevice(), myFence, nullptr);
     vkDestroySemaphore(getDesc().deviceContext->getDevice(), myRenderCompleteSemaphore, nullptr);
     vkDestroySemaphore(getDesc().deviceContext->getDevice(), myNewImageAcquiredSemaphore, nullptr);

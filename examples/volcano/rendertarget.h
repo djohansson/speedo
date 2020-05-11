@@ -4,6 +4,7 @@
 #include "gfx-types.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 template <GraphicsBackend B>
@@ -19,17 +20,31 @@ struct RenderTargetCreateDesc
 };
 
 template <GraphicsBackend B>
-struct RenderTarget
+class RenderTarget
 {
-    Extent2d<B> imageExtent = {};
-    RenderPassHandle<B> renderPass = 0;
-    FramebufferHandle<B> frameBuffer = 0;
-	std::vector<ImageViewHandle<B>> colorViews;
-	std::optional<ImageViewHandle<B>> depthView;
+public:
+
+    RenderTarget(RenderTarget<B>&& other, const RenderTargetCreateDesc<B>* myDescPtr);
+    RenderTarget(const RenderTargetCreateDesc<B>& desc, const RenderTargetCreateDesc<B>* myDescPtr);
+    virtual ~RenderTarget();
+
+    const auto& getImageExtent() const { return myDesc.imageExtent; }
+    const auto& getRenderPass() const { return myDesc.renderPass; }
+    const auto& getFrameBuffer() const { return myFrameBuffer; }
+    const auto& getColorViews() const { return myColorViews; }
+    const auto& getDepthView() const { return myDepthView; }
+
+protected:
+
+    const RenderTargetCreateDesc<B>& myDesc; // do NOT use myDesc in constructor or destructor - object pointed to may not be valid during construction/destruction
+    std::shared_ptr<DeviceContext<B>> myDeviceContext;
+    FramebufferHandle<B> myFrameBuffer = 0;
+	std::vector<ImageViewHandle<B>> myColorViews;
+	std::optional<ImageViewHandle<B>> myDepthView;
 };
 
 template <typename CreateDescType, GraphicsBackend B>
 class RenderTargetImpl : public RenderTarget<B>
 { };
 
-#include "rendertarget-vulkan.h"
+#include "rendertarget-vulkan.inl"

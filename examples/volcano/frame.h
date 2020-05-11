@@ -27,8 +27,6 @@ public:
     Frame(FrameCreateDesc<B>&& desc);
 	virtual ~Frame();
 
-	static uint32_t ourDebugCount;
-
 	const auto& getFence() const { return myFence; }
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
@@ -42,4 +40,5 @@ private:
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
 };
 
-#include "frame-vulkan.h"
+#include "frame.inl"
+#include "frame-vulkan.inl"

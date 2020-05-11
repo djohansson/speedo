@@ -3,30 +3,19 @@
 #include "aabb.h"
 #include "buffer.h"
 #include "device.h"
+#include "resource.h"
 #include "vertex.h"
-
-#include <filesystem>
-#include <string>
-#include <vector>
 
 
 template <GraphicsBackend B>
-struct ModelCreateDesc
+struct ModelCreateDesc : ResourceCreateDesc<B>
 {
-	std::shared_ptr<DeviceContext<B>> deviceContext;
 	AABB3f aabb = {};
-	// todo: reconsider.
-	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
-	//
 	DeviceSize<B> indexBufferSize = 0;
 	DeviceSize<B> vertexBufferSize = 0;
 	uint32_t indexCount = 0;
-	// temp: these will be destroyed when calling deleteInitialData()
-	BufferHandle<B> initialData = 0;
-	AllocationHandle<B> initialMemory = 0;
-    //
 	// todo: reconsider.
-	std::string debugName;
+	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
 	//
 };
 
@@ -36,8 +25,14 @@ class Model
 public:
 
 	Model(Model&& other) = default;
-	Model(ModelCreateDesc<B>&& desc, CommandContext<B>& commandContext);
-	Model(const std::filesystem::path& modelFile, CommandContext<B>& commandContext);
+	Model( // copies the initial buffer into a new one. buffer gets garbage collected when finished copying.
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
+        std::tuple<ModelCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
+	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
+        const std::filesystem::path& textureFile);
 
 	const auto& getDesc() const { return myDesc; }
 	const auto& getBuffer() const { return myBuffer; }
@@ -47,9 +42,7 @@ public:
 
 private:
 
-	void deleteInitialData();
-
-	ModelCreateDesc<B> myDesc = {};
-	Buffer<B> myBuffer = {};
+	const ModelCreateDesc<B> myDesc = {};
+	Buffer<B> myBuffer;
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 };

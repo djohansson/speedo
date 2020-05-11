@@ -28,6 +28,9 @@ template <GraphicsBackend B>
 using Extent2d = std::conditional_t<B == GraphicsBackend::Vulkan, VkExtent2D, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using ObjectType = std::conditional_t<B == GraphicsBackend::Vulkan, VkObjectType, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using InstanceHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkInstance, std::nullptr_t>;
 
 template <GraphicsBackend B>

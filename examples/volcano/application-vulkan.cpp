@@ -13,12 +13,6 @@
 #include <examples/imgui_impl_vulkan.h>
 
 
-extern template uint32_t Frame<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t CommandContext<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t Buffer<GraphicsBackend::Vulkan>::ourDebugCount;
-extern template uint32_t Texture<GraphicsBackend::Vulkan>::ourDebugCount;
-
 template <>
 void Application<GraphicsBackend::Vulkan>::initIMGUI(
     const std::filesystem::path& userProfilePath,
@@ -266,11 +260,13 @@ Application<GraphicsBackend::Vulkan>::Application(
             auto transferCommands = myTransferCommandContext->beginEndScope();
 
             myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"),
-                *myTransferCommandContext);
+                myDevice,
+                myTransferCommandContext,
+                std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
             myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
-                std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"),
-                *myTransferCommandContext);
+                myDevice,
+                myTransferCommandContext,
+                std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
             myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
             myWindow = std::make_shared<Window<GraphicsBackend::Vulkan>>(
@@ -280,8 +276,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                     myTimelineSemaphore,
                     myTimelineValue,
                     {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                    {2, 1}},
-                *myTransferCommandContext);
+                    {2, 1}});
         }
 
         // submit transfers.
@@ -334,15 +329,16 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        // todo: replace with other sync method
+        // todo: replace with other sync method. garbage collect resource?
         CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
         {
             auto beginEndScope(myTransferCommandContext->beginEndScope());
 
             myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                std::filesystem::absolute(openFilePath),
-                *myTransferCommandContext);
+                myDevice,
+                myTransferCommandContext,
+                std::filesystem::absolute(openFilePath));
         }
 
         updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
@@ -364,8 +360,9 @@ Application<GraphicsBackend::Vulkan>::Application(
     //         auto beginEndScope(myTransferCommandContext->beginEndScope());
 
     //         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
-    //             std::filesystem::absolute(openFilePath),
-    //             *myTransferCommandContext);
+    //             myDevice,
+    //             myTransferCommandContext,
+    //             std::filesystem::absolute(openFilePath));
     //     }
 
     //     vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
@@ -381,7 +378,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     //     // todo: resource transition
     // };
 
-    myWindow->addIMGUIDrawCallback([&, openFileDialogue, loadModel]
+    myWindow->addIMGUIDrawCallback([this, openFileDialogue, loadModel]
     {
         using namespace ImGui;
 
@@ -390,11 +387,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             if (Begin("Statistics", &showStatistics))
             {
-                Text("Frame count: %u", Frame<GraphicsBackend::Vulkan>::ourDebugCount);
-                Text("CommandContext count: %u", CommandContext<GraphicsBackend::Vulkan>::ourDebugCount);
-                Text("CommandBufferArray count: %u", CommandBufferArray<GraphicsBackend::Vulkan>::ourDebugCount);
-                Text("Buffer count: %u", Buffer<GraphicsBackend::Vulkan>::ourDebugCount);
-                Text("Texture count: %u", Texture<GraphicsBackend::Vulkan>::ourDebugCount);
+                // ...
             }
             End();
         }
@@ -409,6 +402,25 @@ Application<GraphicsBackend::Vulkan>::Application(
             if (Begin("About volcano", &showAbout)) {}
             End();
         }
+
+        // {
+        //     Begin("GUI Options");
+        //     // static int styleIndex = 0;
+        //     ShowStyleSelector("Styles" /*, &styleIndex*/);
+        //     ShowFontSelector("Fonts");
+        //     if (Button("Show User Guide"))
+        //     {
+        //         SetNextWindowPos(ImVec2(0.5f, 0.5f));
+        //         OpenPopup("UserGuide");
+        //     }
+        //     if (BeginPopup(
+        //             "UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+        //     {
+        //         ShowUserGuide();
+        //         EndPopup();
+        //     }
+        //     End();
+        // }  
 
         if (ImGui::BeginMainMenuBar())
         {
@@ -443,26 +455,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         //     ColorEdit3(
         //         "Clear Color", &myDesc.clearValue.color.float32[0]);
         //     End();
-        // }
-
-        // {
-        //     Begin("GUI Options");
-        //     // static int styleIndex = 0;
-        //     ShowStyleSelector("Styles" /*, &styleIndex*/);
-        //     ShowFontSelector("Fonts");
-        //     if (Button("Show User Guide"))
-        //     {
-        //         SetNextWindowPos(ImVec2(0.5f, 0.5f));
-        //         OpenPopup("UserGuide");
-        //     }
-        //     if (BeginPopup(
-        //             "UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-        //     {
-        //         ShowUserGuide();
-        //         EndPopup();
-        //     }
-        //     End();
-        // }      
+        // }    
     });
 }
 
@@ -629,35 +622,10 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
     }
 
     destroyFrameObjects();
-
     myWindow->destroyFrameObjects();
-
-    {
-        auto cmd = myTransferCommandContext->beginEndScope();
-
-        TracyVkZone(
-            myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            cmd, "transfer");
-
-        myWindow->createFrameObjects(*myTransferCommandContext);
-        
-        createFrameObjects();
-
-        updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
-    }
-
-    if (!myTransferCommandContext->isSubmittedEmpty())
-    {
-        // collect garbage
-        myTransferCommandContext->collectGarbage(
-            myLastTransferTimelineValue,
-            myTransferFence);
-    }
-
-    // submit transfers.
-    myLastTransferTimelineValue = myTransferCommandContext->submit({
-        myDevice->getPrimaryTransferQueue(),
-        myTransferFence});
+    myWindow->createFrameObjects();
+    createFrameObjects();
+    updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
     // submit primary
     {

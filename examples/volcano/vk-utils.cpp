@@ -15,6 +15,7 @@
 #include <array>
 #include <iostream>
 
+
 uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 {
 	outDivisor = 1;
@@ -74,7 +75,7 @@ bool hasDepthComponent(VkFormat format)
 uint32_t findMemoryType(VkPhysicalDevice device, uint32_t typeFilter,
 						VkMemoryPropertyFlags properties)
 {
-	VkPhysicalDeviceMemoryProperties memProperties = {};
+	VkPhysicalDeviceMemoryProperties memProperties;
 	vkGetPhysicalDeviceMemoryProperties(device, &memProperties);
 
 	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
@@ -89,13 +90,12 @@ VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat
 {
 	for (VkFormat format : candidates)
 	{
-		VkFormatProperties props = {};
+		VkFormatProperties props;
 		vkGetPhysicalDeviceFormatProperties(device, format, &props);
 
 		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
 			return format;
-		else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
-				 (props.optimalTilingFeatures & features) == features)
+		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
 			return format;
 	}
 
@@ -105,14 +105,14 @@ VkFormat findSupportedFormat(VkPhysicalDevice device, const std::vector<VkFormat
 VkCommandPool createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags,
 								int queueFamilyIndex)
 {
-	VkCommandPool pool = VK_NULL_HANDLE;
-
 	VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 	cmdPoolInfo.flags = flags;
 	cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
-	CHECK_VK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &pool));
 
-	return pool;
+	VkCommandPool outPool;
+	CHECK_VK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &outPool));
+
+	return outPool;
 }
 
 std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPool pool,
@@ -150,7 +150,7 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	layoutInfo.bindingCount = bindingCount;
 	layoutInfo.pBindings = bindings;
 
-	VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+	VkDescriptorSetLayout layout;
 	CHECK_VK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
 
 	return layout;
@@ -182,8 +182,8 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	allocInfo.memoryTypeBits = 0; // memRequirements.memoryTypeBits;
 	allocInfo.pUserData = (void*)debugName;
 
-	VkBuffer outBuffer = VK_NULL_HANDLE;
-	VmaAllocation outBufferMemory = VK_NULL_HANDLE;
+	VkBuffer outBuffer;
+	VmaAllocation outBufferMemory;
 	CHECK_VK(vmaCreateBuffer(
 		allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
 
@@ -196,10 +196,10 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 {
 	assert(bufferSize > 0);
 
-	VkBuffer outBuffer = VK_NULL_HANDLE;
-	VmaAllocation outBufferMemory = VK_NULL_HANDLE;
+	VkBuffer outBuffer;
+	VmaAllocation outBufferMemory;
 
-	if (stagingBuffer != VK_NULL_HANDLE)
+	if (stagingBuffer)
 	{
 		std::tie(outBuffer, outBufferMemory) = createBuffer(
 			allocator, bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -227,7 +227,7 @@ VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
     viewInfo.offset = offset;
     viewInfo.range = range;
 
-	VkBufferView outBufferView = VK_NULL_HANDLE;
+	VkBufferView outBufferView;
 	CHECK_VK(vkCreateBufferView(device, &viewInfo, nullptr, &outBufferView));
 
 	return outBufferView;
@@ -481,9 +481,9 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	allocInfo.memoryTypeBits = 0; // memRequirements.memoryTypeBits;
 	allocInfo.pUserData = (void*)debugName;
 
-	VkImage outImage = VK_NULL_HANDLE;
-    VmaAllocation outImageMemory = VK_NULL_HANDLE;
-	VmaAllocationInfo outAllocInfo = {};
+	VkImage outImage;
+    VmaAllocation outImageMemory;
+	VmaAllocationInfo outAllocInfo;
 	CHECK_VK(vmaCreateImage(
 		allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
@@ -495,33 +495,22 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
-    VkImage outImage = VK_NULL_HANDLE;
-    VmaAllocation outImageMemory = VK_NULL_HANDLE;
+    VkImage outImage;
+    VmaAllocation outImageMemory;
 
-	if (stagingBuffer != VK_NULL_HANDLE)
-	{
-		std::tie(outImage, outImageMemory) = createImage2D(
-			allocator, width, height, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			memoryFlags, debugName);
+	assert(stagingBuffer);
 
-		transitionImageLayout(
-			commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height);
-		transitionImageLayout(
-			commandBuffer, outImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			layout);
-	}
-	else
-	{
-		std::tie(outImage, outImageMemory) = createImage2D(
-			allocator, width, height, format, tiling, usage,
-			memoryFlags, debugName);
+	std::tie(outImage, outImageMemory) = createImage2D(
+		allocator, width, height, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		memoryFlags, debugName);
 
-		transitionImageLayout(
-			commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
-			layout);
-	}
+	transitionImageLayout(
+		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height);
+	transitionImageLayout(
+		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		layout);
 
     return std::make_tuple(outImage, outImageMemory);
 }
@@ -542,7 +531,7 @@ VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, V
 	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
-	VkImageView outImageView = VK_NULL_HANDLE;
+	VkImageView outImageView;
 	CHECK_VK(vkCreateImageView(device, &viewInfo, nullptr, &outImageView));
 
 	return outImageView;
@@ -567,7 +556,7 @@ VkSampler createTextureSampler(VkDevice device)
 	samplerInfo.minLod = 0.0f;
 	samplerInfo.maxLod = 0.0f;
 
-	VkSampler outSampler = VK_NULL_HANDLE;
+	VkSampler outSampler;
 	CHECK_VK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));
 
 	return outSampler;
@@ -586,7 +575,7 @@ VkFramebuffer createFramebuffer(
 	info.height = height;
 	info.layers = layers;
 
-	VkFramebuffer outFramebuffer = VK_NULL_HANDLE;
+	VkFramebuffer outFramebuffer;
 	CHECK_VK(vkCreateFramebuffer(device, &info, nullptr, &outFramebuffer));
 
 	return outFramebuffer;

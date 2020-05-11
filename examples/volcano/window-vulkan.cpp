@@ -39,8 +39,9 @@ void Window<GraphicsBackend::Vulkan>::renderIMGUI()
     Render();
 }
 
+// todo: remove dependency on external CommandContext (since we will not be uploading any data anyways). need to add another constructor to Texture to facilitate
 template <>
-void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<GraphicsBackend::Vulkan>& commandContext)
+void Window<GraphicsBackend::Vulkan>::createFrameObjects()
 {
     ZoneScopedN("createFrameObjects");
 
@@ -57,30 +58,24 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
 
     // todo: append stencil bit for depthstencil composite formats
     myDepthTexture = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
+        myDesc.deviceContext,
         TextureCreateDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
+            {"myDepthTexture"},
             frameBufferExtent,
             1,
             findSupportedFormat(
                 myDesc.deviceContext->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            VK_NULL_HANDLE,
-            VK_NULL_HANDLE, 
-            "myDepthTexture"},
-        commandContext);
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT});
 
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
+        myDesc.deviceContext,
         BufferCreateDesc<GraphicsBackend::Vulkan>{
-            myDesc.deviceContext,
+            {"myViewBuffer"},
             myDesc.deviceContext->getDesc().swapchainConfiguration->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            VK_NULL_HANDLE,
-            VK_NULL_HANDLE,
-            "myViewBuffer"},
-        commandContext);
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
     myViews.resize(myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
     for (auto& view : myViews)
@@ -100,7 +95,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
         VK_ATTACHMENT_LOAD_OP_CLEAR,
         VK_ATTACHMENT_STORE_OP_STORE,
         VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         myDepthTexture->getDesc().format,
         VK_ATTACHMENT_LOAD_OP_CLEAR,
         VK_ATTACHMENT_STORE_OP_STORE,
@@ -112,7 +107,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
         myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
         VK_ATTACHMENT_LOAD_OP_LOAD,
         VK_ATTACHMENT_STORE_OP_STORE,
-        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         myDepthTexture->getDesc().format,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -131,8 +126,8 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects(CommandContext<Graphics
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
-            FrameCreateDesc<GraphicsBackend::Vulkan>{{
-                myDesc.deviceContext,
+            FrameCreateDesc<GraphicsBackend::Vulkan>{
+                {myDesc.deviceContext,
                 myRenderPass,
                 frameBufferExtent,
                 myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
@@ -210,7 +205,7 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
             mySwapchainContext->getSwapchain(),
             UINT64_MAX,
             lastFrame->getNewImageAcquiredSemaphore(),
-            VK_NULL_HANDLE,
+            0,
             &frameIndex));
 
     if (flipResult != VK_SUCCESS)
@@ -268,8 +263,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
     std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
     {
-        if (myDesc.imguiEnable)
-            renderIMGUI();
+        renderIMGUI();
     }));
 
     std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
@@ -335,7 +329,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                 
                 CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                 inherit.renderPass = myRenderPass;
-                inherit.framebuffer = frame->frameBuffer;
+                inherit.framebuffer = frame->getFrameBuffer();
 
                 CommandBufferBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
                 secBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
@@ -423,7 +417,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         // call secondary command buffers
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myRenderPass;
-        beginInfo.framebuffer = frame->frameBuffer;
+        beginInfo.framebuffer = frame->getFrameBuffer();
         beginInfo.renderArea.offset = {0, 0};
         beginInfo.renderArea.extent = {frame->getDesc().imageExtent.width, frame->getDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
@@ -452,7 +446,6 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     }
 
     // Record Imgui Draw Data and draw funcs into primary command buffer
-    if (myDesc.imguiEnable)
     {
         auto primaryCommands = primaryCommandContext->beginEndScope();
         
@@ -464,7 +457,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myUIRenderPass;
-        beginInfo.framebuffer = frame->frameBuffer;
+        beginInfo.framebuffer = frame->getFrameBuffer();
         beginInfo.renderArea.offset = {0, 0};
         beginInfo.renderArea.extent = {frame->getDesc().imageExtent.width, frame->getDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
@@ -530,7 +523,6 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
     ZoneScopedN("updateInput");
 
     // todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
-    if (myDesc.imguiEnable)
     {
         using namespace ImGui;
 
@@ -546,17 +538,6 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
     auto& lastFrameTimestamp = myFrameTimestamps[lastFrameIndex];
 
     float dt = (frameTimestamp - lastFrameTimestamp).count();
-
-    // update input dependent state
-    {
-        auto& io = ImGui::GetIO();
-
-        static bool escBufferState = false;
-        bool escState = io.KeysDown[io.KeyMap[ImGuiKey_Escape]];
-        if (escState && !escBufferState)
-            myDesc.imguiEnable = !myDesc.imguiEnable;
-        escBufferState = escState;
-    }
 
     if (input.mouseButtonsPressed[2])
     {
@@ -649,13 +630,12 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
 }
 
 template <>
-Window<GraphicsBackend::Vulkan>::Window(
-    WindowCreateDesc<GraphicsBackend::Vulkan>&& desc, CommandContext<GraphicsBackend::Vulkan>& commands)
+Window<GraphicsBackend::Vulkan>::Window(WindowCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDesc(std::move(desc))
 {
     ZoneScopedN("Window()");
 
-    createFrameObjects(commands);
+    createFrameObjects();
 
     for (const auto& frame : myFrames)
     {

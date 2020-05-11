@@ -26,7 +26,6 @@ struct WindowCreateDesc
 	Extent2d<B> splitScreenGrid = {};
 	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
-	bool imguiEnable = true;
 	uint32_t maxCommandContextCount = 4;
 };
 
@@ -43,7 +42,7 @@ public:
 		glm::mat4 pad2;
 	};
 
-	Window(WindowCreateDesc<B>&& desc, CommandContext<B>& commands);
+	Window(WindowCreateDesc<B>&& desc);
 	~Window();
 
 	const auto& getDesc() const { return myDesc; }
@@ -59,7 +58,7 @@ public:
 	auto& frames() { return myFrames; }
 	auto& commandContexts() { return myCommandContexts; }
 
-	void createFrameObjects(CommandContext<B>& commandContext);
+	void createFrameObjects();
 	void destroyFrameObjects();
 	
 	void updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex);

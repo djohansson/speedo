@@ -1,5 +1,3 @@
-#pragma once
-
 #include <TracyVulkan.hpp>
 
 namespace command_vulkan

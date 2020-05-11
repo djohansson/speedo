@@ -1,7 +1,3 @@
-#pragma once
-
-#include "gfx-types.h"
-
 template <class Archive>
 void serialize(Archive& archive, ApplicationInfo<GraphicsBackend::Vulkan>& desc)
 {

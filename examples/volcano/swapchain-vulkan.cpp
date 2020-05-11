@@ -26,7 +26,7 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
 
     CHECK_VK(vkCreateSwapchainKHR(myDesc.deviceContext->getDevice(), &info, nullptr, &mySwapchain));
 
-    if (myDesc.previous != VK_NULL_HANDLE)
+    if (myDesc.previous)
         vkDestroySwapchainKHR(myDesc.deviceContext->getDevice(), myDesc.previous, nullptr);
 }
 
@@ -35,6 +35,6 @@ SwapchainContext<GraphicsBackend::Vulkan>::~SwapchainContext()
 {
     ZoneScopedN("~SwapchainContext()");
 
-    if (mySwapchain != VK_NULL_HANDLE)
+    if (mySwapchain)
         vkDestroySwapchainKHR(myDesc.deviceContext->getDevice(), mySwapchain, nullptr);
 }
