@@ -6,7 +6,6 @@
 #include <atomic>
 #include <string>
 
-
 template <GraphicsBackend B>
 struct ResourceCreateDesc
 {
@@ -29,7 +28,8 @@ protected:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const ResourceCreateDesc<B>& desc,
         ObjectType<B> objectType,
-        uint64_t objectHandle);
+        uint32_t objectHandleCount,
+        const uint64_t* objectHandles);
 
     const auto& getDeviceContext() const { return myDeviceContext; }
 

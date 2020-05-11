@@ -45,35 +45,35 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
 {
     ZoneScopedN("createFrameObjects");
 
-    uint32_t physicalDeviceIndex = myDesc.deviceContext->getDesc().physicalDeviceIndex;
-    myDesc.instanceContext->updateSurfaceCapabilities(physicalDeviceIndex);
+    uint32_t physicalDeviceIndex = myDeviceContext->getDesc().physicalDeviceIndex;
+    myInstanceContext->updateSurfaceCapabilities(physicalDeviceIndex);
     auto frameBufferExtent = 
-        myDesc.instanceContext->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
+        myInstanceContext->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
 
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
-        myDesc.deviceContext,
+        myDeviceContext,
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
             frameBufferExtent,
             mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr});
 
     // todo: append stencil bit for depthstencil composite formats
     myDepthTexture = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
-        myDesc.deviceContext,
+        myDeviceContext,
         TextureCreateDesc<GraphicsBackend::Vulkan>{
             {"myDepthTexture"},
             frameBufferExtent,
             1,
             findSupportedFormat(
-                myDesc.deviceContext->getPhysicalDevice(),
+                myDeviceContext->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT});
 
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
-        myDesc.deviceContext,
+        myDeviceContext,
         BufferCreateDesc<GraphicsBackend::Vulkan>{
             {"myViewBuffer"},
-            myDesc.deviceContext->getDesc().swapchainConfiguration->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
+            myDeviceContext->getDesc().swapchainConfiguration->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(Window::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
@@ -90,8 +90,8 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
     }
 
     myRenderPass = createRenderPass(
-        myDesc.deviceContext->getDevice(),
-        myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
+        myDeviceContext->getDevice(),
+        myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
         VK_ATTACHMENT_LOAD_OP_CLEAR,
         VK_ATTACHMENT_STORE_OP_STORE,
         VK_IMAGE_LAYOUT_UNDEFINED,
@@ -103,8 +103,8 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     myUIRenderPass = createRenderPass(
-        myDesc.deviceContext->getDevice(),
-        myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
+        myDeviceContext->getDevice(),
+        myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
         VK_ATTACHMENT_LOAD_OP_LOAD,
         VK_ATTACHMENT_STORE_OP_STORE,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -116,26 +116,24 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     uint32_t imageCount;
-    CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
+    CHECK_VK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
     
     std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
-    CHECK_VK(vkGetSwapchainImagesKHR(myDesc.deviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
+    CHECK_VK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
 
-    uint32_t frameCount = myDesc.deviceContext->getDesc().swapchainConfiguration->imageCount;
+    uint32_t frameCount = myDeviceContext->getDesc().swapchainConfiguration->imageCount;
     myFrames.reserve(frameCount);
     myFrameTimestamps.resize(frameCount);
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
-            myDesc.deviceContext,
+            myDeviceContext,
             FrameCreateDesc<GraphicsBackend::Vulkan>{
                 {myRenderPass,
                 frameBufferExtent,
-                myDesc.deviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
+                myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
                 {colorImages[frameIt]},
                 myDepthTexture->getDesc().format,
                 myDepthTexture->getImage()},
-                myDesc.timelineSemaphore, 
-                myDesc.timelineValue,
                 frameIt}));
 }
 
@@ -152,13 +150,13 @@ void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
 
     if (myRenderPass)
     {
-        vkDestroyRenderPass(myDesc.deviceContext->getDevice(), myRenderPass, nullptr);
+        vkDestroyRenderPass(myDeviceContext->getDevice(), myRenderPass, nullptr);
         myRenderPass = 0;
     }
 
     if (myUIRenderPass)
     {
-        vkDestroyRenderPass(myDesc.deviceContext->getDevice(), myUIRenderPass, nullptr);
+        vkDestroyRenderPass(myDeviceContext->getDevice(), myUIRenderPass, nullptr);
         myUIRenderPass = 0;
     }
 }
@@ -171,7 +169,7 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) cons
     assert(frameIndex < myFrames.size());
 
     void* data;
-    CHECK_VK(vmaMapMemory(myDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+    CHECK_VK(vmaMapMemory(myDeviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
     for (uint32_t n = 0; n < (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height); n++)
     {
@@ -181,12 +179,12 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) cons
     }
 
     vmaFlushAllocation(
-        myDesc.deviceContext->getAllocator(),
+        myDeviceContext->getAllocator(),
         myViewBuffer->getBufferMemory(),
         sizeof(ViewBufferData) * frameIndex * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height),
         sizeof(ViewBufferData) * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height));
 
-    vmaUnmapMemory(myDesc.deviceContext->getAllocator(), myViewBuffer->getBufferMemory());
+    vmaUnmapMemory(myDeviceContext->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
@@ -201,7 +199,7 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
     uint32_t frameIndex;
     auto flipResult = checkFlipOrPresentResult(
         vkAcquireNextImageKHR(
-            myDesc.deviceContext->getDevice(),
+            myDeviceContext->getDevice(),
             mySwapchainContext->getSwapchain(),
             UINT64_MAX,
             lastFrame->getNewImageAcquiredSemaphore(),
@@ -237,14 +235,6 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
 }
 
 template <>
-void Window<GraphicsBackend::Vulkan>::waitFrame(uint32_t frameIndex) const
-{
-    ZoneScopedN("waitFrame");
-
-    myFrames[frameIndex]->waitForFence();
-}
-
-template <>
 uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     uint32_t frameIndex,
     uint32_t lastFrameIndex,
@@ -257,9 +247,6 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
     auto& frame = myFrames[frameIndex];
     auto& lastFrame = myFrames[lastFrameIndex];
-
-    for (auto& commandContext : commandContexts()[frameIndex])
-        commandContext->collectGarbage();
 
     std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
     {
@@ -481,13 +468,13 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         ZoneScopedN("submitCommands");
 
         SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[2] = {
-            lastFrame->getNewImageAcquiredSemaphore(), myDesc.timelineSemaphore };
+            lastFrame->getNewImageAcquiredSemaphore(), myDeviceContext->getTimelineSemaphore() };
         Flags<GraphicsBackend::Vulkan> waitStages[2] = {
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
         uint64_t waitTimelineValues[2] = {
             waitTimelineValue, waitTimelineValue};
         submitResult = primaryCommandContext->submit({
-            myDesc.deviceContext->getPrimaryGraphicsQueue(),
+            myDeviceContext->getPrimaryGraphicsQueue(),
             frame->getFence(),
             1,
             &frame->getRenderCompleteSemaphore(),
@@ -496,6 +483,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
             waitStages,
             waitTimelineValues, 
         });
+        frame->setLastSubmitTimelineValue(submitResult);
     }
     
     return submitResult;
@@ -514,7 +502,7 @@ void Window<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) const
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchainContext->getSwapchain();
     info.pImageIndices = &frameIndex;
-    checkFlipOrPresentResult(vkQueuePresentKHR(myDesc.deviceContext->getPrimaryGraphicsQueue(), &info));
+    checkFlipOrPresentResult(vkQueuePresentKHR(myDeviceContext->getPrimaryGraphicsQueue(), &info));
 }
 
 template <>
@@ -630,8 +618,13 @@ void Window<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint3
 }
 
 template <>
-Window<GraphicsBackend::Vulkan>::Window(WindowCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: myDesc(std::move(desc))
+Window<GraphicsBackend::Vulkan>::Window(
+    const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
+	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    WindowCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: myInstanceContext(instanceContext)
+, myDeviceContext(deviceContext)
+, myDesc(std::move(desc))
 {
     ZoneScopedN("Window()");
 
@@ -640,7 +633,7 @@ Window<GraphicsBackend::Vulkan>::Window(WindowCreateDesc<GraphicsBackend::Vulkan
     for (const auto& frame : myFrames)
     {
         auto& frameCommandContexts = myCommandContexts.emplace_back();
-        const auto& frameCommandPools = myDesc.deviceContext->getGraphicsCommandPools()[frame->getDesc().index];
+        const auto& frameCommandPools = myDeviceContext->getGraphicsCommandPools()[frame->getDesc().index];
 
         uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myDesc.maxCommandContextCount);
         frameCommandContexts.reserve(commandContextCount);
@@ -648,24 +641,20 @@ Window<GraphicsBackend::Vulkan>::Window(WindowCreateDesc<GraphicsBackend::Vulkan
         for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
         {
             frameCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
+               myDeviceContext,
                 CommandContextCreateDesc<GraphicsBackend::Vulkan>{
-                    getDesc().deviceContext,
                     frameCommandPools[poolIt],
-                    static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY),
-                    myDesc.timelineSemaphore,
-                    myDesc.timelineValue}));
+                    static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY)}));
         }
 
         frameCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
             TracyVkContext(
-                getDesc().deviceContext->getPhysicalDevice(),
-                getDesc().deviceContext->getDevice(),
-                getDesc().deviceContext->getPrimaryGraphicsQueue(),
+                myDeviceContext->getPhysicalDevice(),
+                myDeviceContext->getDevice(),
+                myDeviceContext->getPrimaryGraphicsQueue(),
                 frameCommandContexts[0]->commands());
     }
 }
-
-//, myCommandContexts(std::move(other.myCommandContexts))
 
 template <>
 Window<GraphicsBackend::Vulkan>::~Window()

@@ -197,7 +197,12 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         ImageHandle<GraphicsBackend::Vulkan>,
         AllocationHandle<GraphicsBackend::Vulkan>,
         ImageLayout<GraphicsBackend::Vulkan>>&& descAndData)
-: Resource<GraphicsBackend::Vulkan>(deviceContext, std::get<0>(descAndData), VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(std::get<1>(descAndData)))
+: Resource<GraphicsBackend::Vulkan>(
+    deviceContext,
+    std::get<0>(descAndData),
+    VK_OBJECT_TYPE_IMAGE,
+    1,
+    reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
 , myDesc(std::move(std::get<0>(descAndData)))
 , myData(std::make_tuple(std::get<1>(descAndData), std::get<2>(descAndData), std::get<3>(descAndData)))
 {
@@ -250,9 +255,9 @@ Texture<GraphicsBackend::Vulkan>::Texture(
             std::get<0>(descAndInitialData).name),
         std::make_tuple(VK_IMAGE_LAYOUT_GENERAL)))
 {   
-    commandContext->addGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
+    deviceContext->addResourceGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
-    });
+    }, deviceContext->timelineValue()->fetch_add(1, std::memory_order_relaxed));
 }
 
 template <>

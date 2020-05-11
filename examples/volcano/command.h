@@ -2,9 +2,11 @@
 
 #include "device.h"
 #include "gfx-types.h"
+#include "resource.h"
 
 #include <any>
 #include <atomic>
+#include <array>
 #include <cassert>
 #include <functional>
 #include <list>
@@ -19,33 +21,39 @@ template <GraphicsBackend B, bool EndOnDestruct>
 class CommandBufferAccessScope;
 
 template <GraphicsBackend B>
-struct CommandBufferArrayCreateDesc
+struct CommandBufferArrayCreateDesc : ResourceCreateDesc<B>
 {
-    std::shared_ptr<CommandContext<B>> commandContext;
     CommandPoolHandle<B> commandPool = 0;
     uint32_t commandBufferLevel = 0;
 };
 
 template <GraphicsBackend B>
-class CommandBufferArray
+class CommandBufferArray : Resource<B>
 {
-public:
-
-    CommandBufferArray(CommandBufferArray<B>&& other) = default;
-    CommandBufferArray(CommandBufferArrayCreateDesc<B>&& desc);
-    ~CommandBufferArray();
-
-private:
-
     friend class CommandContext<B>;
     friend class CommandBufferAccessScope<B, true>;
     friend class CommandBufferAccessScope<B, false>;
+
+    static constexpr uint32_t kCommandBufferCount = 8;
+
+public:
+
+    CommandBufferArray(CommandBufferArray<B>&& other) = default;
+    CommandBufferArray(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<CommandBufferArrayCreateDesc<B>, std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
+    CommandBufferArray(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        CommandBufferArrayCreateDesc<B>&& desc);
+    ~CommandBufferArray();
+
+private:
 
     void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr);
     bool end();
     void reset();
 
-    const CommandBufferHandle<B>* data() const { assert(!recording()); return myCommandBufferArray; }
+    const CommandBufferHandle<B>* data() const { assert(!recording()); return myCommandBufferArray.data(); }
     uint8_t size() const { static_assert(kCommandBufferCount < 128); assert(!recording()); return myBits.myHead; }
     bool recording() const { return myBits.myRecording; }
     bool full() const { return (size() + 1) >= capacity(); }
@@ -53,10 +61,11 @@ private:
     
     operator CommandBufferHandle<B>() const { return myCommandBufferArray[myBits.myHead]; }
 
-    static constexpr uint32_t kCommandBufferCount = 8;
-
-    CommandBufferArrayCreateDesc<B> myDesc = {};
-    CommandBufferHandle<B> myCommandBufferArray[kCommandBufferCount] = { static_cast<CommandBufferHandle<B>>(0) };
+    static auto createArray(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const CommandBufferArrayCreateDesc<B>& desc);
+    const CommandBufferArrayCreateDesc<B> myDesc = {};
+    std::array<CommandBufferHandle<B>, kCommandBufferCount> myCommandBufferArray = {};
     struct Bits
     {
         uint8_t myHead : 7;
@@ -92,11 +101,8 @@ private:
 template <GraphicsBackend B>
 struct CommandContextCreateDesc
 {
-    std::shared_ptr<DeviceContext<B>> deviceContext;
     CommandPoolHandle<B> commandPool = 0;
     uint32_t commandBufferLevel = 0;
-    SemaphoreHandle<B> timelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> timelineValue;
 };
 
 template <GraphicsBackend B>
@@ -113,12 +119,15 @@ struct CommandSubmitInfo
 };
 
 template <GraphicsBackend B>
-class CommandContext : public std::enable_shared_from_this<CommandContext<B>>
+class CommandContext
 {
+    friend class CommandBufferArray<B>;
+    friend class CommandBufferAccessScope<B, true>;
+
 public:
 
     CommandContext(CommandContext<B>&& other) = default;
-    CommandContext(CommandContextCreateDesc<B>&& desc);
+    CommandContext(const std::shared_ptr<DeviceContext<B>>& deviceContext, CommandContextCreateDesc<B>&& desc);
     ~CommandContext();
 
     const auto& getDesc() const { return myDesc; }
@@ -146,36 +155,16 @@ public:
     uint64_t execute(CommandContext<B>& other);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
 
-    bool hasReached(uint64_t timelineValue) const;
-    void wait(uint64_t timelineValue) const;
-
-    void collectGarbage(
-        std::optional<uint64_t> waitTimelineValue = std::nullopt,
-        std::optional<FenceHandle<B>> waitFence = std::nullopt);
-
-    template <typename T>
-    uint64_t addGarbageCollectCallback(T callback, uint64_t timelineValue)
-    {
-        myGarbageCollectCallbacks.emplace_back(std::make_pair(callback, timelineValue));
-
-        return timelineValue;
-    }
-
-    template <typename T>
-    uint64_t addGarbageCollectCallback(T callback)
-    {
-        return addGarbageCollectCallback(callback,
-            myDesc.timelineValue->fetch_add(1, std::memory_order_relaxed));
-    }
-
     template <typename T>
     T& userData();
 
     void clear();
 
-private:
+protected:
 
-    friend class CommandBufferAccessScope<B, true>;
+    const auto& getDeviceContext() const { return myDeviceContext; }
+
+private:
 
     void end()
     {
@@ -188,11 +177,11 @@ private:
     void enqueueOnePending();
     void enqueueAllPendingToSubmitted(uint64_t timelineValue);
 
-    CommandContextCreateDesc<B> myDesc = {};
+    std::shared_ptr<DeviceContext<B>> myDeviceContext;
+    const CommandContextCreateDesc<B> myDesc = {};
     std::list<CommandBufferArray<B>> myPendingCommands;
     std::list<CommandBufferArray<B>> mySubmittedCommands;
     std::list<CommandBufferArray<B>> myFreeCommands;
-    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myGarbageCollectCallbacks;
     std::optional<uint64_t> myLastSubmitTimelineValue;
     std::vector<std::byte> myScratchMemory;
     std::any myUserData;

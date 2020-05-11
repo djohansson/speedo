@@ -10,6 +10,63 @@
 
 
 template <>
+bool DeviceContext<GraphicsBackend::Vulkan>::hasReached(uint64_t timelineValue) const
+{
+    uint64_t value;
+    CHECK_VK(vkGetSemaphoreCounterValue(
+        myDevice,
+        myTimelineSemaphore,
+        &value));
+
+    return (timelineValue <= value);
+}
+
+template <>
+void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
+{
+    if (!hasReached(timelineValue))
+    {
+        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+        waitInfo.flags = 0;
+        waitInfo.semaphoreCount = 1;
+        waitInfo.pSemaphores = &myTimelineSemaphore;
+        waitInfo.pValues = &timelineValue;
+
+        CHECK_VK(vkWaitSemaphores(myDevice, &waitInfo, UINT64_MAX));
+    }
+}
+
+template <>
+void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(uint64_t timelineValue)
+{
+    ZoneScopedN("collectGarbage");
+
+    std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
+
+    if (!hasReached(timelineValue))
+        return;
+
+    while (!myCommandBufferGarbageCollectCallbacks.empty() &&
+        myCommandBufferGarbageCollectCallbacks.begin()->second <= timelineValue)
+    {
+        uint64_t commandBufferTimelineValue = myCommandBufferGarbageCollectCallbacks.begin()->second;
+
+        myCommandBufferGarbageCollectCallbacks.begin()->first(commandBufferTimelineValue);
+        myCommandBufferGarbageCollectCallbacks.pop_front();
+
+        while (!myResourceGarbageCollectCallbacks.empty() &&
+            myResourceGarbageCollectCallbacks.begin()->second <= commandBufferTimelineValue)
+        {
+            uint64_t resourceTimelineValue = myResourceGarbageCollectCallbacks.begin()->second;
+
+            myResourceGarbageCollectCallbacks.begin()->first(resourceTimelineValue);
+            myResourceGarbageCollectCallbacks.pop_front();
+        }
+    }
+}
+
+
+template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
     ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
@@ -210,12 +267,29 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         getPhysicalDevice());
 
     myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
+
+    VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timelineCreateInfo.initialValue = 0;
+
+    bool useTimelineSemaphores = myConfig.useTimelineSemaphores.value();
+
+    VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semaphoreCreateInfo.pNext = useTimelineSemaphores ? &timelineCreateInfo : nullptr;
+    semaphoreCreateInfo.flags = 0;
+
+    CHECK_VK(vkCreateSemaphore(
+        myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
+
+    myTimelineValue = std::make_shared<std::atomic_uint64_t>(1);
 }
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
     ZoneScopedN("DeviceContext()");
+
+    vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
     
     vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 

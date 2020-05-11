@@ -75,8 +75,9 @@ public:
 private:
 
 	void initIMGUI(
-		const std::filesystem::path& userProfilePath,
-		CommandContext<B>& commandContext) const;
+		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		CommandBufferHandle<B> commands,
+		const std::filesystem::path& userProfilePath) const;
 
 	void createFrameObjects();
 	void destroyFrameObjects();
@@ -105,9 +106,6 @@ private:
 	std::filesystem::path myUserProfilePath;
 
 	InputState myInput = {};
-
-	SemaphoreHandle<B> myTimelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
 
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
 	FenceHandle<B> myTransferFence = 0;

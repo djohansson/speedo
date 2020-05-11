@@ -99,6 +99,27 @@ public:
     const auto& getAllocator() const { return myAllocator; }
     const auto& getDescriptorPool() const { return myDescriptorPool; }
 
+    const auto& getTimelineSemaphore() const { return myTimelineSemaphore; }
+
+    auto& timelineValue() { return myTimelineValue; }
+    bool hasReached(uint64_t timelineValue) const;
+    void wait(uint64_t timelineValue) const;
+    void collectGarbage(uint64_t timelineValue);
+
+    template <typename T>
+    void addCommandBufferGarbageCollectCallback(T callback, uint64_t timelineValue)
+    {
+        std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
+        myCommandBufferGarbageCollectCallbacks.emplace_back(std::make_pair(callback, timelineValue));
+    }
+
+    template <typename T>
+    void addResourceGarbageCollectCallback(T callback, uint64_t timelineValue)
+    {
+        std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
+        myResourceGarbageCollectCallbacks.emplace_back(std::make_pair(callback, timelineValue));
+    }
+
 private:
 
     std::shared_ptr<InstanceContext<B>> myInstanceContext;
@@ -112,4 +133,10 @@ private:
     
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
+
+    SemaphoreHandle<B> myTimelineSemaphore = 0;
+    std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
+    std::mutex myGarbageCollectCallbacksMutex;
+    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myCommandBufferGarbageCollectCallbacks;
+    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myResourceGarbageCollectCallbacks;
 };

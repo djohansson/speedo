@@ -29,9 +29,19 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData) -> VkBool32
     {
+        for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
+        {
+            std::cout << "Object " << objectIt;
+
+            if (pCallbackData->pObjects[objectIt].pObjectName)
+                std::cout << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
+            
+            std::cout << ": ";
+        }
+
         if (pCallbackData->pMessageIdName)
             std::cout << pCallbackData->pMessageIdName << ": ";
-        
+
         std::cout << pCallbackData->pMessage << std::endl;
 
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)

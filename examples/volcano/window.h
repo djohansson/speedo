@@ -18,15 +18,11 @@
 template <GraphicsBackend B>
 struct WindowCreateDesc
 {
-	std::shared_ptr<InstanceContext<B>> instanceContext;
-	std::shared_ptr<DeviceContext<B>> deviceContext;
-	SemaphoreHandle<B> timelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> timelineValue;
 	Extent2d<B> windowExtent = {};
 	Extent2d<B> splitScreenGrid = {};
-	bool clearEnable = true;
 	ClearValue<B> clearValue = {};
-	uint32_t maxCommandContextCount = 4;
+	bool clearEnable = true;
+	uint8_t maxCommandContextCount = 4;
 };
 
 template <GraphicsBackend B>
@@ -42,7 +38,10 @@ public:
 		glm::mat4 pad2;
 	};
 
-	Window(WindowCreateDesc<B>&& desc);
+	Window(
+		const std::shared_ptr<InstanceContext<B>>& instanceContext,
+		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		WindowCreateDesc<B>&& desc);
 	~Window();
 
 	const auto& getDesc() const { return myDesc; }
@@ -73,13 +72,14 @@ public:
 		const PipelineConfiguration<B>& config,
 		uint64_t waitTimelineValue);
 	void presentFrame(uint32_t frameIndex) const;
-	void waitFrame(uint32_t frameIndex) const;
 
 private:
 
 	void renderIMGUI();
 	void updateViewBuffer(uint32_t frameIndex) const;
 
+	std::shared_ptr<InstanceContext<B>> myInstanceContext;
+	std::shared_ptr<DeviceContext<B>> myDeviceContext;
 	WindowCreateDesc<B> myDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
 	std::unique_ptr<Texture<B>> myDepthTexture;
