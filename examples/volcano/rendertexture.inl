@@ -1,30 +1,51 @@
+namespace rendertexture
+{
+
 template <GraphicsBackend B>
-RenderTexture<B>::RenderTexture(
-    std::shared_ptr<DeviceContext<B>> deviceContext,
+RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
+    const char* name,
     RenderPassHandle<B> renderPass,
     const std::vector<std::shared_ptr<Texture<B>>>& colorTextures,
     std::shared_ptr<Texture<B>> depthTexture)
-    : RenderTargetCreateDesc<B>{deviceContext, renderPass}
-    , colorTextures(colorTextures_)
-    , depthTexture(depthTexture_)
 {
+    RenderTargetCreateDesc<B> outDesc = {};
+
     assertf(colorTextures.size(), "colorTextures cannot be empty");
 
-    this->imageExtent = colorTextures.front()->getDesc().extent;
-    this->colorImageFormat = colorTextures.front()->getDesc().format;
-    this->colorImages.reserve(colorTextures.size());
+    outDesc.name = name;
+    outDesc.imageExtent = colorTextures.front()->getDesc().extent;
+    outDesc.colorImageFormat = colorTextures.front()->getDesc().format;
+    outDesc.colorImages.reserve(colorTextures.size());
     
     for (const auto& texture : colorTextures)
     {
-        assertf(this->imageExtent == texture->getDesc().extent, "all colorTextures needs to have same extent");
-        assertf(this->colorImageFormat == texture->getDesc().format, "all colorTextures needs to have same format");
+        assertf(outDesc.imageExtent.width == texture->getDesc().extent.width, "all colorTextures needs to have same width");
+        assertf(outDesc.imageExtent.height == texture->getDesc().extent.height, "all colorTextures needs to have same height");
+        assertf(outDesc.colorImageFormat == texture->getDesc().format, "all colorTextures needs to have same format");
 
-        this->colorImages.emplace_back(texture->getImage());
+        outDesc.colorImages.emplace_back(texture->getImage());
     }
 
     if (depthTexture)
     {
-        this->depthImageFormat = depthTexture->getDesc().format;
-        this->depthImage = depthTexture->getImage();
+        outDesc.depthImageFormat = depthTexture->getDesc().format;
+        outDesc.depthImage = depthTexture->getImage();
     }
+
+    return outDesc;
+}
+
+}
+
+template <GraphicsBackend B>
+RenderTexture<B>::RenderTexture(
+    std::shared_ptr<DeviceContext<B>> deviceContext,
+    const char* name,
+    RenderPassHandle<B> renderPass,
+    const std::vector<std::shared_ptr<Texture<B>>>& colorTextures,
+    std::shared_ptr<Texture<B>> depthTexture)
+: BaseType(deviceContext, rendertexture::createRenderTargetCreateDesc(name, renderPass, colorTextures, depthTexture))
+, myColorTextures(colorTextures)
+, myDepthTexture(depthTexture)
+{
 }

@@ -13,9 +13,12 @@ class RenderTexture : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>
 public:
 
 	RenderTexture(RenderTexture<B>&& other) : BaseType(std::move(other)) {}
-    RenderTexture(RenderTargetCreateDesc<B>&& desc) : BaseType(std::move(desc)) {}
     RenderTexture(
         std::shared_ptr<DeviceContext<B>> deviceContext,
+        RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}
+    RenderTexture(
+        std::shared_ptr<DeviceContext<B>> deviceContext,
+        const char* name,
         RenderPassHandle<B> renderPass,
         const std::vector<std::shared_ptr<Texture<B>>>& colorTextures,
         std::shared_ptr<Texture<B>> depthTexture = nullptr);
