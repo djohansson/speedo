@@ -36,30 +36,21 @@ void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(uint64_t timelineValue)
+void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(std::optional<uint64_t> timelineValue)
 {
     ZoneScopedN("collectGarbage");
 
     std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
 
-    //uint64_t currentTimelineValue = getTimelineSemaphoreValue();
-    
-    while (!myCommandBufferGarbageCollectCallbacks.empty() &&
-        myCommandBufferGarbageCollectCallbacks.begin()->second < timelineValue)
+    while (!myGarbageCollectCallbacks.empty())
     {
-        uint64_t commandBufferTimelineValue = myCommandBufferGarbageCollectCallbacks.begin()->second;
+        uint64_t commandBufferTimelineValue = myGarbageCollectCallbacks.begin()->second;
 
-        myCommandBufferGarbageCollectCallbacks.begin()->first(commandBufferTimelineValue);
-        myCommandBufferGarbageCollectCallbacks.pop_front();
+        if (timelineValue && commandBufferTimelineValue > timelineValue.value())
+            return;
 
-        while (!myResourceGarbageCollectCallbacks.empty() &&
-            myResourceGarbageCollectCallbacks.begin()->second < commandBufferTimelineValue)
-        {
-            uint64_t resourceTimelineValue = myResourceGarbageCollectCallbacks.begin()->second;
-
-            myResourceGarbageCollectCallbacks.begin()->first(resourceTimelineValue);
-            myResourceGarbageCollectCallbacks.pop_front();
-        }
+        myGarbageCollectCallbacks.begin()->first(commandBufferTimelineValue);
+        myGarbageCollectCallbacks.pop_front();
     }
 }
 
@@ -304,6 +295,8 @@ template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
     ZoneScopedN("DeviceContext()");
+
+    collectGarbage();
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
     

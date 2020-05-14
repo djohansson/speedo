@@ -92,9 +92,9 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
     
-    deviceContext->addResourceGarbageCollectCallback([](uint64_t){
+    deviceContext->addGarbageCollectCallback([](uint64_t){
         ImGui_ImplVulkan_DestroyFontUploadObjects();
-    }, deviceContext->timelineValue()->load(std::memory_order_relaxed));
+    });
 }
 
 template <>
@@ -459,17 +459,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
         // todo: replace with frame & transfer sync
         CHECK_VK(vkDeviceWaitIdle(myDevice->getDevice()));
     }
-
-    myTransferCommandContext->clear();
     
-    {
-        myDefaultResources->texture.reset();
-        myDefaultResources->model.reset();
-        myDefaultResources->renderTarget.reset();
-        vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
-        vkDestroySampler(myDevice->getDevice(), myDefaultResources->sampler, nullptr);
-    }
-
     ImGui_ImplVulkan_Shutdown();
     ImGui::DestroyContext();
 
@@ -489,9 +479,11 @@ Application<GraphicsBackend::Vulkan>::~Application()
     vmaFreeStatsString(myDevice->getAllocator(), allocatorStatsJSON);
 #endif
 
-    myWindow.reset();
-
     destroyFrameObjects();
+
+    // todo: work on a resourcetable of some sort, and automatically delete all resources from it.
+    vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
+    vkDestroySampler(myDevice->getDevice(), myDefaultResources->sampler, nullptr);
 }
 
 template <>
@@ -536,6 +528,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
     {
         {
             ZoneScopedN("wait");
+            
             assert(frameIndex != myLastFrameIndex);
 
             myDevice->wait(frameLastSubmitTimelineValue);

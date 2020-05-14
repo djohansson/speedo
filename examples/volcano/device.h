@@ -107,20 +107,22 @@ public:
     auto& timelineValue() { return myTimelineValue; }
     bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
-    void collectGarbage(uint64_t timelineValue);
+    void collectGarbage(std::optional<uint64_t> timelineValue = std::nullopt);
 
     template <typename T>
-    void addCommandBufferGarbageCollectCallback(T callback, uint64_t timelineValue)
+    void addGarbageCollectCallback(T callback)
     {
         std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
-        myCommandBufferGarbageCollectCallbacks.emplace_back(std::make_pair(callback, timelineValue));
+        myGarbageCollectCallbacks.emplace_back(
+            std::make_pair(callback, myTimelineValue->load(std::memory_order_relaxed)));
     }
 
     template <typename T>
-    void addResourceGarbageCollectCallback(T callback, uint64_t timelineValue)
+    void addGarbageCollectCallback(uint64_t timelineValue, T callback)
     {
         std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
-        myResourceGarbageCollectCallbacks.emplace_back(std::make_pair(callback, timelineValue));
+        myGarbageCollectCallbacks.emplace_back(
+            std::make_pair(callback, timelineValue));
     }
 
 private:
@@ -140,6 +142,5 @@ private:
     SemaphoreHandle<B> myTimelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
     std::mutex myGarbageCollectCallbacksMutex;
-    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myCommandBufferGarbageCollectCallbacks;
-    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myResourceGarbageCollectCallbacks;
+    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myGarbageCollectCallbacks;
 };

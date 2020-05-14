@@ -37,8 +37,4 @@ private:
 
     std::shared_ptr<DeviceContext<B>> myDeviceContext;
     std::string myName;
-
-#ifdef PROFILING_ENABLED
-    static std::atomic_uint32_t sTypeCount;
-#endif
 };

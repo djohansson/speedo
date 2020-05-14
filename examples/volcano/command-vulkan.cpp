@@ -93,7 +93,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
 
     mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(myPendingCommands));
 
-    myDeviceContext->addCommandBufferGarbageCollectCallback([this](uint64_t timelineValue)
+    myDeviceContext->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
     {
         ZoneScopedN("freeCmd");
 
@@ -112,7 +112,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
         
         myFreeCommands.splice(myFreeCommands.end(), std::move(mySubmittedCommands), freeBeginIt, freeEndIt);
 
-    }, timelineValue);
+    });
 }
 
 template <>
@@ -311,31 +311,37 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(
 // }
 }
 
-template <>
-void CommandContext<GraphicsBackend::Vulkan>::clear()
-{
-    ZoneScopedN("commandContextClear");
+// template <>
+// void CommandContext<GraphicsBackend::Vulkan>::clear()
+// {
+//     ZoneScopedN("commandContextClear");
 
-    {
-        ZoneScopedN("pending");
-        myPendingCommands.clear();
-    }
-    {
-        ZoneScopedN("submitted");
-        mySubmittedCommands.clear();
-    }
-    {
-        ZoneScopedN("free");
-        myFreeCommands.clear();        
-    }
+//     {
+//         ZoneScopedN("pending");
+//         myPendingCommands.clear();
+//     }
+//     {
+//         ZoneScopedN("submitted");
+//         mySubmittedCommands.clear();
+//     }
+//     {
+//         ZoneScopedN("free");
+//         myFreeCommands.clear();        
+//     }
 
-    myScratchMemory.clear();
-}
+//     myScratchMemory.clear();
+// }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 {
     ZoneScopedN("~CommandContext()");
+
+    if (!mySubmittedCommands.empty())
+    {
+        myDeviceContext->wait(mySubmittedCommands.back().second);
+        myDeviceContext->collectGarbage(mySubmittedCommands.back().second);
+    }
 
     if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
         TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);

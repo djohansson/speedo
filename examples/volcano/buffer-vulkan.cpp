@@ -70,14 +70,16 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
             std::get<0>(descAndInitialData).memoryFlags,
             std::get<0>(descAndInitialData).name)))
 {
-    deviceContext->addResourceGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
+    deviceContext->addGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
-    }, deviceContext->timelineValue()->load(std::memory_order_relaxed));
+    });
 }
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
-    // todo: put on command context delete queue?
-    vmaDestroyBuffer(getDeviceContext()->getAllocator(), getBuffer(), getBufferMemory());
+    getDeviceContext()->addGarbageCollectCallback(
+        [allocator = getDeviceContext()->getAllocator(), buffer = getBuffer(), bufferMemory = getBufferMemory()](uint64_t){
+            vmaDestroyBuffer(allocator, buffer, bufferMemory);
+    });
 }

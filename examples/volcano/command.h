@@ -166,7 +166,7 @@ public:
     template <typename T>
     T& userData();
 
-    void clear();
+    //void clear();
 
 protected:
 

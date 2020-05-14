@@ -660,7 +660,7 @@ Window<GraphicsBackend::Vulkan>::~Window()
 
     destroyFrameObjects();
 
-    for (auto& frameCommandContexts : myCommandContexts)
-        for (auto& commandContext : frameCommandContexts)
-            commandContext->clear();
+    // for (auto& frameCommandContexts : myCommandContexts)
+    //     for (auto& commandContext : frameCommandContexts)
+    //         commandContext->clear();
 }

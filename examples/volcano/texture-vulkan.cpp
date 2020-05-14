@@ -255,9 +255,9 @@ Texture<GraphicsBackend::Vulkan>::Texture(
             std::get<0>(descAndInitialData).name),
         std::make_tuple(VK_IMAGE_LAYOUT_GENERAL)))
 {   
-    deviceContext->addResourceGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
+    deviceContext->addGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
-    }, deviceContext->timelineValue()->load(std::memory_order_relaxed));
+    });
 }
 
 template <>
@@ -272,6 +272,9 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
-    // todo: put on command context delete queue?
-    vmaDestroyImage(getDeviceContext()->getAllocator(), getImage(), getImageMemory());
+    getDeviceContext()->addGarbageCollectCallback(
+        [allocator = getDeviceContext()->getAllocator(), image = getImage(), imageMemory = getImageMemory()](uint64_t){
+            vmaDestroyImage(allocator, image, imageMemory);
+    });
+    
 }
