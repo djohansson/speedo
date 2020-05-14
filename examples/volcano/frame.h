@@ -21,27 +21,21 @@ class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
 
 public:
 
-	Frame(Frame<B>&& other);
-    Frame(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
-		FrameCreateDesc<B>&& desc);
+	Frame(Frame<B>&& other) = default;
+    Frame(const std::shared_ptr<DeviceContext<B>>& deviceContext, FrameCreateDesc<B>&& desc);
 	virtual ~Frame();
 
-	const auto& getFence() const { return myFence; }
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 	const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
-	void waitForFence() const;
 	void setLastSubmitTimelineValue(uint64_t timelineValue) { myLastSubmitTimelineValue = timelineValue; };
 
 private:
 
-	FenceHandle<B> myFence = 0;
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
 	uint64_t myLastSubmitTimelineValue = 0;
 };
 
-#include "frame.inl"
 #include "frame-vulkan.inl"

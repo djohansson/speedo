@@ -478,8 +478,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
             waitTimelineValues,
             2,
             signalSemaphores,
-            signalTimelineValues,
-            frame->getFence()});
+            signalTimelineValues});
 
         frame->setLastSubmitTimelineValue(submitTimelineValue); // todo: remove
     }

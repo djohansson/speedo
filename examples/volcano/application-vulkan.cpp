@@ -151,7 +151,6 @@ void Application<GraphicsBackend::Vulkan>::createFrameObjects()
 
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
     auto& frame = myWindow->frames()[myLastFrameIndex];
-    frame->waitForFence();
     myDefaultResources->renderTarget = std::static_pointer_cast<RenderTarget<GraphicsBackend::Vulkan>>(frame);
 
     // for (all referenced resources/shaders)
@@ -222,9 +221,6 @@ Application<GraphicsBackend::Vulkan>::Application(
     myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>();
     *myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice->getDevice(), *slangShaders);
 
-    // VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    // CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &myTransferFence));
-
     myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{
@@ -264,8 +260,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &waitTimelineValue,
             1,
             &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue,
-            myTransferFence});
+            &signalTimelineValue});
     }
 
     createFrameObjects();
@@ -298,8 +293,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &waitTimelineValue,
             1,
             &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue,
-            frame->getFence()});
+            &signalTimelineValue});
 
         frame->setLastSubmitTimelineValue(myLastFrameTimelineValue); // todo: remove
     }
@@ -342,8 +336,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &waitTimelineValue,
             1,
             &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue,
-            myTransferFence});
+            &signalTimelineValue});
 
         // todo: resource transition?
     };
@@ -468,8 +461,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
     }
 
     myTransferCommandContext->clear();
-    //vkDestroyFence(myDevice->getDevice(), myTransferFence, nullptr);
-
+    
     {
         myDefaultResources->texture.reset();
         myDefaultResources->model.reset();
@@ -547,8 +539,6 @@ void Application<GraphicsBackend::Vulkan>::draw()
             assert(frameIndex != myLastFrameIndex);
 
             myDevice->wait(frameLastSubmitTimelineValue);
-            // this should really not be needed if vkGetSemaphoreCounterValue/vkWaitSemaphores works as intended
-            //frame->waitForFence();
 
             for (auto& context : myWindow->commandContexts()[frame->getDesc().index])
                 context->reset();
@@ -579,18 +569,8 @@ void Application<GraphicsBackend::Vulkan>::draw()
     {
         {
             ZoneScopedN("waitTransfer");
+
             myDevice->wait(myLastTransferTimelineValue);
-            // this should really not be needed if vkGetSemaphoreCounterValue/vkWaitSemaphores works as intended
-            // CHECK_VK(vkWaitForFences(
-            //     myDevice->getDevice(),
-            //     1,
-            //     &myTransferFence,
-            //     VK_TRUE,
-            //     UINT64_MAX));
-            // CHECK_VK(vkResetFences(
-            //     myDevice->getDevice(),
-            //     1,
-            //     &myTransferFence));
 
             myTransferCommandContext->reset();
         }
@@ -629,8 +609,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
             &waitTimelineValue,
             1,
             &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue,
-            myTransferFence});
+            &signalTimelineValue});
     }
 
     myLastFrameIndex = frameIndex;

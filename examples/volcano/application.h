@@ -108,7 +108,6 @@ private:
 	InputState myInput = {};
 
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
-	FenceHandle<B> myTransferFence = 0;
 	uint64_t myLastTransferTimelineValue = 0;
 
 	std::shared_ptr<RenderTexture<B>> myRenderTexture;
