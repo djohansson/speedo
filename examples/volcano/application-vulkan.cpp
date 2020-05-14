@@ -221,6 +221,17 @@ Application<GraphicsBackend::Vulkan>::Application(
     myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>();
     *myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice->getDevice(), *slangShaders);
 
+    // if (commandBufferLevel == 0)
+    //     std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
+    //         TracyVkContext(
+    //             myDeviceContext->getPhysicalDevice(),
+    //             myDeviceContext->getDevice(),
+    //             queue,
+    //             commands());
+
+    // if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
+    //     TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
+
     myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{
@@ -274,13 +285,6 @@ Application<GraphicsBackend::Vulkan>::Application(
             myDefaultResources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             initIMGUI(myDevice, primaryCommands, myUserProfilePath);
         }
-
-        myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext =
-            TracyVkContext(
-                myDevice->getPhysicalDevice(),
-                myDevice->getDevice(),
-                myDevice->getPrimaryGraphicsQueue(),
-                primaryCommandContext->commands());
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
@@ -572,16 +576,16 @@ void Application<GraphicsBackend::Vulkan>::draw()
         
         myLastTransferTimelineValue = 0;
 
-        {
-            ZoneScopedN("tracyVkCollectTransfer");
+        // {
+        //     ZoneScopedN("tracyVkCollectTransfer");
 
-            auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
-            auto primaryCommands = primaryCommandContext->beginScope();
+        //     auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
+        //     auto primaryCommands = primaryCommandContext->beginScope();
 
-            TracyVkCollect(
-                myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-                primaryCommands);
-        }
+        //     TracyVkCollect(
+        //         myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
+        //         primaryCommands);
+        // }
     }
     else
     {

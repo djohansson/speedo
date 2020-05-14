@@ -1,10 +1,9 @@
 #pragma once
 
 #include "device.h"
+#include "deviceresource.h"
 #include "gfx-types.h"
-#include "resource.h"
 
-#include <any>
 #include <atomic>
 #include <array>
 #include <cassert>
@@ -21,14 +20,14 @@ template <GraphicsBackend B, bool EndOnDestruct>
 class CommandBufferAccessScope;
 
 template <GraphicsBackend B>
-struct CommandBufferArrayCreateDesc : ResourceCreateDesc<B>
+struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
 {
     CommandPoolHandle<B> commandPool = 0;
     uint32_t commandBufferLevel = 0;
 };
 
 template <GraphicsBackend B>
-class CommandBufferArray : Resource<B>
+class CommandBufferArray : DeviceResource<B>
 {
     friend class CommandContext<B>;
     friend class CommandBufferAccessScope<B, true>;
@@ -135,7 +134,9 @@ class CommandContext
 public:
 
     CommandContext(CommandContext<B>&& other) = default;
-    CommandContext(const std::shared_ptr<DeviceContext<B>>& deviceContext, CommandContextCreateDesc<B>&& desc);
+    CommandContext(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        CommandContextCreateDesc<B>&& desc);
     ~CommandContext();
 
     const auto& getDesc() const { return myDesc; }
@@ -163,24 +164,11 @@ public:
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
     void reset();
 
-    template <typename T>
-    T& userData();
-
-    //void clear();
-
 protected:
 
     const auto& getDeviceContext() const { return myDeviceContext; }
 
 private:
-
-    // void end()
-    // {
-    //     assert(!myPendingCommands.empty());
-
-    //     if (myPendingCommands.back().end())
-    //         enqueueOnePending();
-    // }
     
     void enqueueOnePending();
     void enqueueAllPendingToSubmitted(uint64_t timelineValue);
@@ -191,7 +179,4 @@ private:
     std::list<std::pair<CommandBufferArray<B>, uint64_t>> mySubmittedCommands;
     std::list<std::pair<CommandBufferArray<B>, uint64_t>> myFreeCommands;
     std::vector<std::byte> myScratchMemory;
-    std::any myUserData;
 };
-
-#include "command-vulkan.inl"

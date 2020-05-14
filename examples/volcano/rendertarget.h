@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device.h"
+#include "deviceresource.h"
 #include "gfx-types.h"
 
 #include <memory>
@@ -8,7 +9,7 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct RenderTargetCreateDesc
+struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 {
     RenderPassHandle<B> renderPass = 0; // optional
     Extent2d<B> imageExtent = {};
@@ -19,7 +20,7 @@ struct RenderTargetCreateDesc
 };
 
 template <GraphicsBackend B>
-class RenderTarget
+class RenderTarget : public DeviceResource<B>
 {
 public:
 
@@ -41,11 +42,8 @@ protected:
         const RenderTargetCreateDesc<B>& desc,
         const RenderTargetCreateDesc<B>* myDescPtr);
 
-    const auto& getDeviceContext() const { return myDeviceContext; }
-
 private:
 
-    std::shared_ptr<DeviceContext<B>> myDeviceContext;
     const RenderTargetCreateDesc<B>& myDesc; // do NOT use myDesc in constructor or destructor - object pointed to may not be valid during construction/destruction
     FramebufferHandle<B> myFrameBuffer = 0;
 	std::vector<ImageViewHandle<B>> myColorViews;

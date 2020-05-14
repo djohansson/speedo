@@ -2,14 +2,14 @@
 
 #include "command.h"
 #include "device.h"
+#include "deviceresource.h"
 #include "gfx-types.h"
-#include "resource.h"
 
 #include <memory>
 #include <filesystem>
 
 template <GraphicsBackend B>
-struct TextureCreateDesc : ResourceCreateDesc<B>
+struct TextureCreateDesc : DeviceResourceCreateDesc<B>
 {
     Extent2d<B> extent = {};
     uint32_t channelCount = 0;
@@ -18,7 +18,7 @@ struct TextureCreateDesc : ResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class Texture : Resource<B>
+class Texture : public DeviceResource<B>
 {
 public:
 

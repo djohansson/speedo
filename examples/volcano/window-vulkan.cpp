@@ -128,7 +128,8 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
         myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
             myDeviceContext,
             FrameCreateDesc<GraphicsBackend::Vulkan>{
-                {myRenderPass,
+                {{"Frame"},
+                myRenderPass,
                 frameBufferExtent,
                 myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
                 {colorImages[frameIt]},
@@ -248,19 +249,19 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     auto& frame = myFrames[frameIndex];
     auto& lastFrame = myFrames[lastFrameIndex];
 
-    {
-        ZoneScopedN("tracyVkCollect");
+    // {
+    //     ZoneScopedN("tracyVkCollect");
 
-        for (uint32_t contextIt = 0; contextIt < 1/*frame->commandContexts().size()*/; contextIt++)
-        {
-            auto& commandContext = commandContexts()[frameIndex][contextIt];
-            auto cmd = commandContext->beginScope();
+    //     for (uint32_t contextIt = 0; contextIt < 1/*frame->commandContexts().size()*/; contextIt++)
+    //     {
+    //         auto& commandContext = commandContexts()[frameIndex][contextIt];
+    //         auto cmd = commandContext->beginScope();
 
-            TracyVkCollect(
-                commandContext->userData<command_vulkan::UserData>().tracyContext,
-                cmd);
-        }
-    }
+    //         TracyVkCollect(
+    //             commandContext->userData<command_vulkan::UserData>().tracyContext,
+    //             cmd);
+    //     }
+    // }
 
     std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
     {
@@ -405,9 +406,9 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
 
-        TracyVkZone(
-            primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            primaryCommands, "executeCommands");
+        // TracyVkZone(
+        //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
+        //     primaryCommands, "executeCommands");
 
         vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
@@ -431,9 +432,9 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     {        
         ZoneScopedN("drawIMGUI");
 
-        TracyVkZone(
-            primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            primaryCommands, "drawIMGUI");
+        // TracyVkZone(
+        //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
+        //     primaryCommands, "drawIMGUI");
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
         beginInfo.renderPass = myUIRenderPass;
@@ -638,18 +639,11 @@ Window<GraphicsBackend::Vulkan>::Window(
         for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
         {
             frameCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
-               myDeviceContext,
+                myDeviceContext,
                 CommandContextCreateDesc<GraphicsBackend::Vulkan>{
                     frameCommandPools[poolIt],
                     static_cast<uint32_t>(poolIt == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY)}));
         }
-
-        frameCommandContexts[0]->userData<command_vulkan::UserData>().tracyContext =
-            TracyVkContext(
-                myDeviceContext->getPhysicalDevice(),
-                myDeviceContext->getDevice(),
-                myDeviceContext->getPrimaryGraphicsQueue(),
-                frameCommandContexts[0]->commands());
     }
 }
 

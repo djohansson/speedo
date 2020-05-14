@@ -28,11 +28,11 @@ CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(
         CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>,
         std::array<CommandBufferHandle<GraphicsBackend::Vulkan>,
         kCommandBufferCount>>&& descAndData)
-: Resource(
+: DeviceResource(
     deviceContext,
     std::get<0>(descAndData),
-    VK_OBJECT_TYPE_COMMAND_BUFFER, 
     kCommandBufferCount,
+    VK_OBJECT_TYPE_COMMAND_BUFFER, 
     reinterpret_cast<uint64_t*>(std::get<1>(descAndData).data()))
 , myDesc(std::move(std::get<0>(descAndData)))
 , myCommandBufferArray(std::move(std::get<1>(descAndData)))
@@ -50,9 +50,9 @@ CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(
 template <>
 CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
 {
-    if (getDeviceContext())
+    if (auto deviceContext = getDeviceContext())
         vkFreeCommandBuffers(
-            getDeviceContext()->getDevice(),
+            deviceContext->getDevice(),
             myDesc.commandPool,
             kCommandBufferCount,
             myCommandBufferArray.data());
@@ -111,7 +111,6 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
         assert(mySubmittedCommands.size() < 100);
         
         myFreeCommands.splice(myFreeCommands.end(), std::move(mySubmittedCommands), freeBeginIt, freeEndIt);
-
     });
 }
 
@@ -296,41 +295,7 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(
 , myDesc(std::move(desc))
 {
     ZoneScopedN("CommandContext()");
-
-    myUserData = command_vulkan::UserData();
-
-// disabled as shared_from_this() throws exception. called from the outside for now
-// {
-//     if (myDesc.commandBufferLevel == 0)
-//         std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
-//             TracyVkContext(
-//                 myDeviceContext->getPhysicalDevice(),
-//                 myDeviceContext->getDevice(),
-//                 myDeviceContext->getPrimaryGraphicsQueue(),
-//                 commands());
-// }
 }
-
-// template <>
-// void CommandContext<GraphicsBackend::Vulkan>::clear()
-// {
-//     ZoneScopedN("commandContextClear");
-
-//     {
-//         ZoneScopedN("pending");
-//         myPendingCommands.clear();
-//     }
-//     {
-//         ZoneScopedN("submitted");
-//         mySubmittedCommands.clear();
-//     }
-//     {
-//         ZoneScopedN("free");
-//         myFreeCommands.clear();        
-//     }
-
-//     myScratchMemory.clear();
-// }
 
 template <>
 CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
@@ -342,14 +307,5 @@ CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
         myDeviceContext->wait(mySubmittedCommands.back().second);
         myDeviceContext->collectGarbage(mySubmittedCommands.back().second);
     }
-
-    if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
-        TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
 }
 
-template <>
-template <>
-command_vulkan::UserData& CommandContext<GraphicsBackend::Vulkan>::userData<command_vulkan::UserData>()
-{
-    return std::any_cast<command_vulkan::UserData&>(myUserData);
-}

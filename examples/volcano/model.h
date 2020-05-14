@@ -3,12 +3,12 @@
 #include "aabb.h"
 #include "buffer.h"
 #include "device.h"
-#include "resource.h"
+#include "deviceresource.h"
 #include "vertex.h"
 
 
 template <GraphicsBackend B>
-struct ModelCreateDesc : ResourceCreateDesc<B>
+struct ModelCreateDesc : DeviceResourceCreateDesc<B>
 {
 	AABB3f aabb = {};
 	DeviceSize<B> indexBufferSize = 0;

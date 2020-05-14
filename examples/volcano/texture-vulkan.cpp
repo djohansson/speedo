@@ -197,11 +197,11 @@ Texture<GraphicsBackend::Vulkan>::Texture(
         ImageHandle<GraphicsBackend::Vulkan>,
         AllocationHandle<GraphicsBackend::Vulkan>,
         ImageLayout<GraphicsBackend::Vulkan>>&& descAndData)
-: Resource<GraphicsBackend::Vulkan>(
+: DeviceResource<GraphicsBackend::Vulkan>(
     deviceContext,
     std::get<0>(descAndData),
-    VK_OBJECT_TYPE_IMAGE,
     1,
+    VK_OBJECT_TYPE_IMAGE,
     reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
 , myDesc(std::move(std::get<0>(descAndData)))
 , myData(std::make_tuple(std::get<1>(descAndData), std::get<2>(descAndData), std::get<3>(descAndData)))

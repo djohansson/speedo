@@ -2,13 +2,13 @@
 
 #include "command.h"
 #include "device.h"
+#include "deviceresource.h"
 #include "gfx-types.h"
-#include "resource.h"
 
 #include <memory>
 
 template <GraphicsBackend B>
-struct BufferCreateDesc : ResourceCreateDesc<B>
+struct BufferCreateDesc : DeviceResourceCreateDesc<B>
 {
     DeviceSize<B> size = 0;
     Flags<B> usageFlags = 0;
@@ -16,7 +16,7 @@ struct BufferCreateDesc : ResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class Buffer : Resource<B>
+class Buffer : public DeviceResource<B>
 {
 public:
 
