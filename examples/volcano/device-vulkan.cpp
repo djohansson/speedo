@@ -8,9 +8,8 @@
 #include <tuple>
 #include <utility>
 
-
 template <>
-bool DeviceContext<GraphicsBackend::Vulkan>::hasReached(uint64_t timelineValue) const
+uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() const
 {
     uint64_t value;
     CHECK_VK(vkGetSemaphoreCounterValue(
@@ -18,13 +17,13 @@ bool DeviceContext<GraphicsBackend::Vulkan>::hasReached(uint64_t timelineValue) 
         myTimelineSemaphore,
         &value));
 
-    return (timelineValue <= value);
+    return value;
 }
 
 template <>
 void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
 {
-    if (!hasReached(timelineValue))
+    //if (!hasReached(timelineValue))
     {
         VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
         waitInfo.flags = 0;
@@ -43,11 +42,10 @@ void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(uint64_t timelineVal
 
     std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
 
-    if (!hasReached(timelineValue))
-        return;
-
+    //uint64_t currentTimelineValue = getTimelineSemaphoreValue();
+    
     while (!myCommandBufferGarbageCollectCallbacks.empty() &&
-        myCommandBufferGarbageCollectCallbacks.begin()->second <= timelineValue)
+        myCommandBufferGarbageCollectCallbacks.begin()->second < timelineValue)
     {
         uint64_t commandBufferTimelineValue = myCommandBufferGarbageCollectCallbacks.begin()->second;
 
@@ -55,7 +53,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(uint64_t timelineVal
         myCommandBufferGarbageCollectCallbacks.pop_front();
 
         while (!myResourceGarbageCollectCallbacks.empty() &&
-            myResourceGarbageCollectCallbacks.begin()->second <= commandBufferTimelineValue)
+            myResourceGarbageCollectCallbacks.begin()->second < commandBufferTimelineValue)
         {
             uint64_t resourceTimelineValue = myResourceGarbageCollectCallbacks.begin()->second;
 
@@ -189,6 +187,23 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
+    if (!myConfig.useCommandPoolReset)
+        myConfig.useCommandPoolReset = std::make_optional(false);
+
+    if (!myConfig.useHostQueryReset)
+    {
+        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
+            [](const char* extension) { return strcmp(extension, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME) == 0; });
+            it != deviceExtensions.end())
+        {
+            myConfig.useHostQueryReset = std::make_optional(true);
+        }
+        else
+        {
+            myConfig.useHostQueryReset = std::make_optional(false);
+        }
+    }
+
     if (!myConfig.useTimelineSemaphores)
     {
         if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
@@ -203,17 +218,18 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         }
     }
 
-    if (!myConfig.useCommandPoolReset)
-        myConfig.useCommandPoolReset = std::make_optional(false);
-
     VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
     physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 
+    VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
+    hostQueryResetFeatures.hostQueryReset = myConfig.useHostQueryReset.value();
+
     VkPhysicalDeviceTimelineSemaphoreFeatures timelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
-    timelineFeatures.timelineSemaphore = VK_TRUE;
+    timelineFeatures.pNext = &hostQueryResetFeatures;
+    timelineFeatures.timelineSemaphore = myConfig.useTimelineSemaphores.value();
 
     VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    physicalDeviceFeatures2.pNext = myConfig.useTimelineSemaphores.value() ? &timelineFeatures : nullptr;
+    physicalDeviceFeatures2.pNext = &timelineFeatures;
     physicalDeviceFeatures2.features = physicalDeviceFeatures;
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
@@ -281,7 +297,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     CHECK_VK(vkCreateSemaphore(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
 
-    myTimelineValue = std::make_shared<std::atomic_uint64_t>(1);
+    myTimelineValue = std::make_shared<std::atomic_uint64_t>(0);
 }
 
 template <>

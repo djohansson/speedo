@@ -94,7 +94,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     
     deviceContext->addResourceGarbageCollectCallback([](uint64_t){
         ImGui_ImplVulkan_DestroyFontUploadObjects();
-    }, deviceContext->timelineValue()->fetch_add(1, std::memory_order_relaxed));
+    }, deviceContext->timelineValue()->load(std::memory_order_relaxed));
 }
 
 template <>
@@ -222,8 +222,8 @@ Application<GraphicsBackend::Vulkan>::Application(
     myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>();
     *myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice->getDevice(), *slangShaders);
 
-    VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &myTransferFence));
+    // VkFenceCreateInfo fenceInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    // CHECK_VK(vkCreateFence(myDevice->getDevice(), &fenceInfo, nullptr, &myTransferFence));
 
     myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
@@ -232,7 +232,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             VK_COMMAND_BUFFER_LEVEL_PRIMARY});
     {
         {
-            auto transferCommands = myTransferCommandContext->beginEndScope();
+            auto transferCommands = myTransferCommandContext->beginScope();
 
             myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
@@ -249,12 +249,22 @@ Application<GraphicsBackend::Vulkan>::Application(
                 myDevice,    
                 WindowCreateDesc<GraphicsBackend::Vulkan>{
                     {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                    {2, 1}});
+                    {3, 2}});
         }
 
         // submit transfers.
+        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &waitDstStageMask,
+            &waitTimelineValue,
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &signalTimelineValue,
             myTransferFence});
     }
 
@@ -265,7 +275,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         auto& frame = myWindow->frames()[myLastFrameIndex];
         auto& primaryCommandContext = myWindow->commandContexts()[frame->getDesc().index][0];
         {
-            auto primaryCommands = primaryCommandContext->beginEndScope();
+            auto primaryCommands = primaryCommandContext->beginScope();
             myDefaultResources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             initIMGUI(myDevice, primaryCommands, myUserProfilePath);
         }
@@ -278,16 +288,20 @@ Application<GraphicsBackend::Vulkan>::Application(
                 primaryCommandContext->commands());
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = primaryCommandContext->submit({
             myDevice->getPrimaryGraphicsQueue(),
-            frame->getFence(),
-            0,
-            nullptr,
             1,
             &myDevice->getTimelineSemaphore(),
             &waitDstStageMask,
-            &myLastTransferTimelineValue,
-        });
+            &waitTimelineValue,
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &signalTimelineValue,
+            frame->getFence()});
+
+        frame->setLastSubmitTimelineValue(myLastFrameTimelineValue); // todo: remove
     }
 
     updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
@@ -306,7 +320,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
         {
-            auto beginEndScope(myTransferCommandContext->beginEndScope());
+            auto beginScope(myTransferCommandContext->beginScope());
 
             myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
@@ -317,11 +331,21 @@ Application<GraphicsBackend::Vulkan>::Application(
         updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 
         // submit transfers.
-        myLastTransferTimelineValue = myTransferCommandContext->submit({
+        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        myLastFrameTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &waitDstStageMask,
+            &waitTimelineValue,
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &signalTimelineValue,
             myTransferFence});
 
-        // todo: resource transition
+        // todo: resource transition?
     };
 
     // auto loadTexture = [this](nfdchar_t* openFilePath)
@@ -330,7 +354,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     //     CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
     //     {
-    //         auto beginEndScope(myTransferCommandContext->beginEndScope());
+    //         auto beginScope(myTransferCommandContext->beginScope());
 
     //         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
     //             myDevice,
@@ -345,8 +369,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     //     // submit transfers.
     //     myLastTransferTimelineValue = myTransferCommandContext->submit({
-    //         myDevice->getPrimaryTransferQueue(),
-    //         myTransferFence});
+    //         myDevice->getPrimaryTransferQueue()});
 
     //     // todo: resource transition
     // };
@@ -445,7 +468,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
     }
 
     myTransferCommandContext->clear();
-    vkDestroyFence(myDevice->getDevice(), myTransferFence, nullptr);
+    //vkDestroyFence(myDevice->getDevice(), myTransferFence, nullptr);
 
     {
         myDefaultResources->texture.reset();
@@ -513,18 +536,24 @@ void Application<GraphicsBackend::Vulkan>::draw()
 
     auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
     auto& frame = myWindow->frames()[frameIndex];
+    uint64_t frameLastSubmitTimelineValue = frame->getLastSubmitTimelineValue();
 
     myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
 
     if (flipSuccess)
     {
-        assert(frameIndex != myLastFrameIndex);
+        {
+            ZoneScopedN("wait");
+            assert(frameIndex != myLastFrameIndex);
 
-        uint64_t lastSubmitTimelineValue = frame->getLastSubmitTimelineValue();
-        myDevice->wait(lastSubmitTimelineValue);
-        frame->waitForFence(); // this should really not be needed if vkGetSemaphoreCounterValue/vkWaitSemaphores works as intended
-        myDevice->collectGarbage(lastSubmitTimelineValue);
+            myDevice->wait(frameLastSubmitTimelineValue);
+            // this should really not be needed if vkGetSemaphoreCounterValue/vkWaitSemaphores works as intended
+            //frame->waitForFence();
 
+            for (auto& context : myWindow->commandContexts()[frame->getDesc().index])
+                context->reset();
+        }
+    
         myDefaultResources->renderTarget = frame;
 
         myLastFrameTimelineValue = myWindow->submitFrame(
@@ -534,20 +563,7 @@ void Application<GraphicsBackend::Vulkan>::draw()
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
-    {
-        ZoneScopedN("tracyVkCollectTransfer");
-
-        auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
-        auto primaryCommands = primaryCommandContext->beginEndScope();
-
-        TracyVkZone(
-            myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            primaryCommands, "tracyVkCollectTransfer");
-
-        TracyVkCollect(
-            myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-            primaryCommands);
-    }
+    myWindow->presentFrame(frameIndex);
 
     // todo: launch async work on another queue
     if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
@@ -559,42 +575,63 @@ void Application<GraphicsBackend::Vulkan>::draw()
             onCompletionCallback(openFilePath);
     }
 
-    if (!myTransferCommandContext->isPendingEmpty())
+    if (myLastTransferTimelineValue)
     {
-        if (!myTransferCommandContext->isSubmittedEmpty())
         {
+            ZoneScopedN("waitTransfer");
             myDevice->wait(myLastTransferTimelineValue);
-
             // this should really not be needed if vkGetSemaphoreCounterValue/vkWaitSemaphores works as intended
-            CHECK_VK(vkWaitForFences(
-                myDevice->getDevice(),
-                1,
-                &myTransferFence,
-                VK_TRUE,
-                UINT64_MAX));
-            CHECK_VK(vkResetFences(
-                myDevice->getDevice(),
-                1,
-                &myTransferFence));
+            // CHECK_VK(vkWaitForFences(
+            //     myDevice->getDevice(),
+            //     1,
+            //     &myTransferFence,
+            //     VK_TRUE,
+            //     UINT64_MAX));
+            // CHECK_VK(vkResetFences(
+            //     myDevice->getDevice(),
+            //     1,
+            //     &myTransferFence));
 
-            myDevice->collectGarbage(myLastTransferTimelineValue);
+            myTransferCommandContext->reset();
         }
 
-        // submit transfers.
-        VkPipelineStageFlags waitDstStageMasks = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        uint64_t syncValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        myLastTransferTimelineValue = myTransferCommandContext->submit({
-            myDevice->getPrimaryTransferQueue(),
-            myTransferFence,
-            0,
-            nullptr,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMasks,
-            &syncValue});
+        myDevice->collectGarbage(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
+        
+        myLastTransferTimelineValue = 0;
+
+        {
+            ZoneScopedN("tracyVkCollectTransfer");
+
+            auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
+            auto primaryCommands = primaryCommandContext->beginScope();
+
+            TracyVkCollect(
+                myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
+                primaryCommands);
+        }
+    }
+    else
+    {
+        myDevice->collectGarbage(frameLastSubmitTimelineValue);
     }
 
-    myWindow->presentFrame(frameIndex);
+    if (!myTransferCommandContext->isPendingEmpty())
+    {
+        // submit transfers.
+        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        myLastTransferTimelineValue = myTransferCommandContext->submit({
+            myDevice->getPrimaryTransferQueue(),
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &waitDstStageMask,
+            &waitTimelineValue,
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &signalTimelineValue,
+            myTransferFence});
+    }
 
     myLastFrameIndex = frameIndex;
 }
@@ -616,22 +653,4 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
     myWindow->createFrameObjects();
     createFrameObjects();
     updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
-
-    // submit primary
-    {
-        auto& frame = myWindow->frames()[myLastFrameIndex];
-        auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
-
-        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        myLastFrameTimelineValue = primaryCommandContext->submit({
-            myDevice->getPrimaryGraphicsQueue(),
-            frame->getFence(),
-            0,
-            nullptr,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMask,
-            &myLastTransferTimelineValue,
-        });
-    }
 }

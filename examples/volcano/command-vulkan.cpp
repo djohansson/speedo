@@ -65,17 +65,7 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::reset()
     assert(myBits.myHead < kCommandBufferCount);
     
     for (uint32_t i = 0; i <= myBits.myHead; i++)
-        CHECK_VK(vkResetCommandBuffer(myCommandBufferArray[i], 0));
-
-    // if (myConfig.useCommandPoolReset.value())
-    // {
-    //     ZoneScopedN("poolReset");
-
-    //     CHECK_VK(vkResetCommandPool(
-    //         myDevice,
-    //         myDesc.commandPool,
-    //         VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
-    // }
+        CHECK_VK(vkResetCommandBuffer(myCommandBufferArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
     myBits.myHead = 0;
 }
@@ -87,17 +77,20 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending()
     if (!myFreeCommands.empty())
         myPendingCommands.splice(myPendingCommands.end(), std::move(myFreeCommands), myFreeCommands.begin());
     else
-        myPendingCommands.emplace_back(CommandBufferArray<GraphicsBackend::Vulkan>(
+        myPendingCommands.emplace_back(std::make_pair(CommandBufferArray<GraphicsBackend::Vulkan>(
             myDeviceContext,
             CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>{
                 {"CommandBufferArray"},
                 myDesc.commandPool,
-                myDesc.commandBufferLevel}));
+                myDesc.commandBufferLevel}), 0));
 }
 
 template <>
 void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint64_t timelineValue)
 {
+    for (auto& cmd : myPendingCommands)
+        cmd.second = timelineValue;
+
     mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(myPendingCommands));
 
     myDeviceContext->addCommandBufferGarbageCollectCallback([this](uint64_t timelineValue)
@@ -110,9 +103,9 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(uint6
         if (!myDeviceContext->getDesc().useCommandPoolReset.value())
         {
             ZoneScopedN("reset");
-
-            while (freeEndIt != mySubmittedCommands.end())
-                (freeEndIt++)->reset();
+            
+            while (freeEndIt != mySubmittedCommands.end() && freeEndIt->second < timelineValue)
+                (freeEndIt++)->first.reset();
         }
 
         assert(mySubmittedCommands.size() < 100);
@@ -130,8 +123,8 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     assert(!myPendingCommands.empty());
 
-    const auto waitSemaphoreCount = submitInfo.waitSemaphoreCount + 1;
-    const auto signalSemaphoreCount = submitInfo.signalSemaphoreCount + 1;
+    const auto waitSemaphoreCount = submitInfo.waitSemaphoreCount;
+    const auto signalSemaphoreCount = submitInfo.signalSemaphoreCount;
 
     myScratchMemory.resize(
         sizeof(uint64_t) * signalSemaphoreCount + 
@@ -149,7 +142,6 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         auto waitSemaphoresPtr = waitSemaphoresBegin;
         for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
             *waitSemaphoresPtr++ = submitInfo.waitSemaphores[i];
-        *waitSemaphoresPtr++ = myDeviceContext->getTimelineSemaphore();
 
         writePtr = reinterpret_cast<std::byte*>(waitSemaphoresPtr);
     }
@@ -159,7 +151,6 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         auto waitDstStageMasksPtr = waitDstStageMasksBegin;
         for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
             *waitDstStageMasksPtr++ = submitInfo.waitDstStageMasks[i];
-        *waitDstStageMasksPtr++ = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 
         writePtr = reinterpret_cast<std::byte*>(waitDstStageMasksPtr);
     }
@@ -167,32 +158,31 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     auto waitSemaphoreValuesBegin = reinterpret_cast<uint64_t*>(writePtr);
     {
         auto waitSemaphoreValuesPtr = waitSemaphoreValuesBegin;
-        auto lastSubmitTimelineValue = myLastSubmitTimelineValue.value_or(0);
         for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
-            *waitSemaphoreValuesPtr++ = submitInfo.waitSemaphoreValues ? submitInfo.waitSemaphoreValues[i] : lastSubmitTimelineValue;
-        *waitSemaphoreValuesPtr++ = lastSubmitTimelineValue;
+            *waitSemaphoreValuesPtr++ = submitInfo.waitSemaphoreValues[i];
 
         writePtr = reinterpret_cast<std::byte*>(waitSemaphoreValuesPtr);
     }
-
-    auto timelineValue = myDeviceContext->timelineValue()->fetch_add(signalSemaphoreCount, std::memory_order_relaxed);
     
     auto signalSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
     {
         auto signalSemaphoresPtr = signalSemaphoresBegin;
         for (uint32_t i = 0; i < submitInfo.signalSemaphoreCount; i++)
             *signalSemaphoresPtr++ = submitInfo.signalSemaphores[i];
-        *signalSemaphoresPtr++ = myDeviceContext->getTimelineSemaphore();
 
         writePtr = reinterpret_cast<std::byte*>(signalSemaphoresPtr);
     }
 
+    uint64_t maxSignalValue = 0;
     auto signalSemaphoreValuesBegin = reinterpret_cast<uint64_t*>(writePtr);
     {
         auto signalSemaphoreValuesPtr = signalSemaphoreValuesBegin;
         for (uint32_t i = 0; i < submitInfo.signalSemaphoreCount; i++)
-            *signalSemaphoreValuesPtr++ = ++timelineValue;
-        *signalSemaphoreValuesPtr++ = ++timelineValue;
+        {
+            uint64_t signalValue = submitInfo.signalSemaphoreValues[i];
+            maxSignalValue = std::max(maxSignalValue, signalValue);
+            *signalSemaphoreValuesPtr++ = signalValue;
+        }
 
         writePtr = reinterpret_cast<std::byte*>(signalSemaphoreValuesPtr);
     }
@@ -204,7 +194,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     for (auto& cmd : myPendingCommands)
     {
-        assert(!cmd.recording());
+        assert(!cmd.first.recording());
 
         VkTimelineSemaphoreSubmitInfo& timelineInfo = *timelineSemaphoreSubmitInfoPtr++;
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -222,19 +212,15 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         vkSubmitInfo.pWaitDstStageMask = waitDstStageMasksBegin;
         vkSubmitInfo.signalSemaphoreCount  = signalSemaphoreCount;
         vkSubmitInfo.pSignalSemaphores = signalSemaphoresBegin;
-        vkSubmitInfo.commandBufferCount = cmd.size();
-        vkSubmitInfo.pCommandBuffers = cmd.data();
+        vkSubmitInfo.commandBufferCount = cmd.first.size();
+        vkSubmitInfo.pCommandBuffers = cmd.first.data();
     }
-
-    writePtr = reinterpret_cast<std::byte*>(submitInfoPtr);
 
     CHECK_VK(vkQueueSubmit(submitInfo.queue, myPendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
 
-    enqueueAllPendingToSubmitted(timelineValue);
+    enqueueAllPendingToSubmitted(maxSignalValue);
 
-    myLastSubmitTimelineValue = timelineValue;
-
-    return timelineValue;
+    return maxSignalValue;
 }
 
 template <>
@@ -246,14 +232,28 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<Graphic
 		auto cmd = commands();
 
 		for (const auto& secPendingCommands : other.myPendingCommands)
-			vkCmdExecuteCommands(cmd, secPendingCommands.size(), secPendingCommands.data());
+			vkCmdExecuteCommands(cmd, secPendingCommands.first.size(), secPendingCommands.first.data());
 	}
 
-    auto timelineValue = myDeviceContext->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+    auto timelineValue = myDeviceContext->timelineValue()->load(std::memory_order_relaxed);
 
 	other.enqueueAllPendingToSubmitted(timelineValue);
 
     return timelineValue;
+}
+
+template <>
+void CommandContext<GraphicsBackend::Vulkan>::reset()
+{
+    if (myDeviceContext->getDesc().useCommandPoolReset.value())
+    {
+        ZoneScopedN("poolReset");
+
+        CHECK_VK(vkResetCommandPool(
+            myDeviceContext->getDevice(),
+            myDesc.commandPool,
+            VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
+    }
 }
 
 template <>
@@ -329,7 +329,6 @@ void CommandContext<GraphicsBackend::Vulkan>::clear()
         myFreeCommands.clear();        
     }
 
-    myLastSubmitTimelineValue.reset();
     myScratchMemory.clear();
 }
 

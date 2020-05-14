@@ -248,6 +248,20 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     auto& frame = myFrames[frameIndex];
     auto& lastFrame = myFrames[lastFrameIndex];
 
+    {
+        ZoneScopedN("tracyVkCollect");
+
+        for (uint32_t contextIt = 0; contextIt < 1/*frame->commandContexts().size()*/; contextIt++)
+        {
+            auto& commandContext = commandContexts()[frameIndex][contextIt];
+            auto cmd = commandContext->beginScope();
+
+            TracyVkCollect(
+                commandContext->userData<command_vulkan::UserData>().tracyContext,
+                cmd);
+        }
+    }
+
     std::future<void> renderIMGUIFuture(std::async(std::launch::async, [this]
     {
         renderIMGUI();
@@ -257,24 +271,6 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     {
         updateViewBuffer(frameIndex);
     }));
-
-    {
-        ZoneScopedN("tracyVkCollect");
-
-        for (uint32_t contextIt = 0; contextIt < 1/*frame->commandContexts().size()*/; contextIt++)
-        {
-            auto& commandContext = commandContexts()[frameIndex][contextIt];
-            auto cmd = commandContext->beginEndScope();
-
-            TracyVkZone(
-                commandContext->userData<command_vulkan::UserData>().tracyContext,
-                cmd, "tracyVkCollect");
-
-            TracyVkCollect(
-                commandContext->userData<command_vulkan::UserData>().tracyContext,
-                cmd);
-        }
-    }
 
     std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
     clearValues[0] = myDesc.clearValue;
@@ -324,7 +320,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                 secBeginInfo.pInheritanceInfo = &inherit;
                     
                 auto& commandContext = commandContexts()[frame->getDesc().index][segmentIt + 1];
-                auto cmd = commandContext->beginEndScope(&secBeginInfo);
+                auto cmd = commandContext->beginScope(&secBeginInfo);
 
                 // TracyVkZone(
                 //     commandContext->userData<command_vulkan::UserData>().tracyContext,
@@ -395,11 +391,10 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     }
 
     auto& primaryCommandContext = commandContexts()[frameIndex][0];
+    auto primaryCommands = primaryCommandContext->beginScope();
 
     {
         ZoneScopedN("executeCommands");
-
-        auto primaryCommands = primaryCommandContext->beginEndScope();
 
         // call secondary command buffers
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
@@ -433,9 +428,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     }
 
     // Record Imgui Draw Data and draw funcs into primary command buffer
-    {
-        auto primaryCommands = primaryCommandContext->beginEndScope();
-        
+    {        
         ZoneScopedN("drawIMGUI");
 
         TracyVkZone(
@@ -456,37 +449,42 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         vkCmdEndRenderPass(primaryCommands);
     }
 
-    // Submit primary command buffer
     {
         ZoneScopedN("waitViewBuffer");
 
         updateViewBufferFuture.get();
     }
 
-    uint64_t submitResult = 0;
+    // Submit primary command buffer
+    uint64_t submitTimelineValue = 0;
     {
         ZoneScopedN("submitCommands");
 
+        primaryCommands.end();
+
         SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[2] = {
-            lastFrame->getNewImageAcquiredSemaphore(), myDeviceContext->getTimelineSemaphore() };
-        Flags<GraphicsBackend::Vulkan> waitStages[2] = {
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
-        uint64_t waitTimelineValues[2] = {
-            waitTimelineValue, waitTimelineValue};
-        submitResult = primaryCommandContext->submit({
+            myDeviceContext->getTimelineSemaphore(), lastFrame->getNewImageAcquiredSemaphore() };
+        Flags<GraphicsBackend::Vulkan> waitDstStageMasks[2] = {
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        uint64_t waitTimelineValues[2] = { waitTimelineValue, 1 };
+        SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[2] = {
+            myDeviceContext->getTimelineSemaphore(), frame->getRenderCompleteSemaphore() };
+        uint64_t signalTimelineValues[2] = { 1 + myDeviceContext->timelineValue()->fetch_add(1, std::memory_order_relaxed), 1 };
+        submitTimelineValue = primaryCommandContext->submit({
             myDeviceContext->getPrimaryGraphicsQueue(),
-            frame->getFence(),
-            1,
-            &frame->getRenderCompleteSemaphore(),
             2,
             waitSemaphores,
-            waitStages,
-            waitTimelineValues, 
-        });
-        frame->setLastSubmitTimelineValue(submitResult);
+            waitDstStageMasks,
+            waitTimelineValues,
+            2,
+            signalSemaphores,
+            signalTimelineValues,
+            frame->getFence()});
+
+        frame->setLastSubmitTimelineValue(submitTimelineValue); // todo: remove
     }
     
-    return submitResult;
+    return submitTimelineValue;
 }
 
 template <>

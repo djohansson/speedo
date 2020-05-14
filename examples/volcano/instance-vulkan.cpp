@@ -45,7 +45,7 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
         std::cout << pCallbackData->pMessage << std::endl;
 
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-            return VK_TRUE;
+            __debugbreak();
     
         return VK_FALSE;
     });
@@ -209,8 +209,8 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
             3,//VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
             0x7FFFFFFF//VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
         };
-        return deviceTypePriority[myPhysicalDeviceInfos[lhs.first].deviceProperties.deviceType] < 
-            deviceTypePriority[myPhysicalDeviceInfos[rhs.first].deviceProperties.deviceType];
+        return deviceTypePriority[myPhysicalDeviceInfos[lhs.first].deviceProperties.properties.deviceType] < 
+            deviceTypePriority[myPhysicalDeviceInfos[rhs.first].deviceProperties.properties.deviceType];
     });
 
     myUserData = instance_vulkan::UserData();

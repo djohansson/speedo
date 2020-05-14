@@ -153,6 +153,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/debug/volcano.exe",
+            "symbolSearchPath": "cache*D:/symbolcache;srv*https://msdl.microsoft.com/download/symbols",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",

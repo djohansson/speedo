@@ -34,6 +34,7 @@ struct DeviceConfiguration
     uint32_t physicalDeviceIndex = 0;
     std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
     std::optional<bool> useCommandPoolReset;
+    std::optional<bool> useHostQueryReset;
     std::optional<bool> useTimelineSemaphores;
 
     template <class Archive>
@@ -43,6 +44,7 @@ struct DeviceConfiguration
             CEREAL_NVP(physicalDeviceIndex),
             CEREAL_NVP(swapchainConfiguration),
             CEREAL_NVP(useCommandPoolReset),
+            CEREAL_NVP(useHostQueryReset),
             CEREAL_NVP(useTimelineSemaphores)
         );
     }
@@ -100,9 +102,10 @@ public:
     const auto& getDescriptorPool() const { return myDescriptorPool; }
 
     const auto& getTimelineSemaphore() const { return myTimelineSemaphore; }
+    uint64_t getTimelineSemaphoreValue() const;
 
     auto& timelineValue() { return myTimelineValue; }
-    bool hasReached(uint64_t timelineValue) const;
+    bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
     void collectGarbage(uint64_t timelineValue);
 

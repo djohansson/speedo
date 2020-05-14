@@ -72,7 +72,7 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 {
     deviceContext->addResourceGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
-    }, deviceContext->timelineValue()->fetch_add(1, std::memory_order_relaxed));
+    }, deviceContext->timelineValue()->load(std::memory_order_relaxed));
 }
 
 template <>

@@ -85,10 +85,17 @@ public:
             myArray.begin(beginInfo);
     }
 
+    void end()
+    {
+        myArray.end();
+    }
+
     ~CommandBufferAccessScope()
     {
         if constexpr (CallBeginAndEnd)
-            myArray.end();
+            if (myArray.recording())
+                myArray.end();
+            
     }
 
     operator CommandBufferHandle<B>() const { return myArray; }
@@ -109,13 +116,14 @@ template <GraphicsBackend B>
 struct CommandSubmitInfo
 {
     QueueHandle<B> queue = 0;
-    FenceHandle<B> signalFence = 0;
-    uint32_t signalSemaphoreCount = 0;
-    const SemaphoreHandle<B>* signalSemaphores = nullptr;
     uint32_t waitSemaphoreCount = 0;
     const SemaphoreHandle<B>* waitSemaphores = nullptr;
-    const Flags<B>* waitDstStageMasks = 0;
-    const uint64_t* waitSemaphoreValues = 0;
+    const Flags<B>* waitDstStageMasks = nullptr;
+    const uint64_t* waitSemaphoreValues = nullptr;
+    uint32_t signalSemaphoreCount = 0;
+    const SemaphoreHandle<B>* signalSemaphores = nullptr;
+    const uint64_t* signalSemaphoreValues = nullptr;
+    FenceHandle<B> signalFence = 0;
 };
 
 template <GraphicsBackend B>
@@ -131,14 +139,13 @@ public:
     ~CommandContext();
 
     const auto& getDesc() const { return myDesc; }
-    const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
-    auto beginEndScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
+    auto beginScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
     {
-        if (myPendingCommands.empty() || myPendingCommands.back().full())
+        if (myPendingCommands.empty() || myPendingCommands.back().first.full())
             enqueueOnePending();
 
-        return CommandBufferAccessScope<B, true>(myPendingCommands.back(), beginInfo);
+        return CommandBufferAccessScope<B, true>(myPendingCommands.back().first, beginInfo);
     }
     
     auto commands()
@@ -146,7 +153,7 @@ public:
         if (myPendingCommands.empty())
             enqueueOnePending();
 
-        return CommandBufferAccessScope<B, false>(myPendingCommands.back());
+        return CommandBufferAccessScope<B, false>(myPendingCommands.back().first);
     }
 
     bool isPendingEmpty() const { return myPendingCommands.empty(); }
@@ -154,6 +161,7 @@ public:
 
     uint64_t execute(CommandContext<B>& other);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
+    void reset();
 
     template <typename T>
     T& userData();
@@ -166,23 +174,22 @@ protected:
 
 private:
 
-    void end()
-    {
-        assert(!myPendingCommands.empty());
+    // void end()
+    // {
+    //     assert(!myPendingCommands.empty());
 
-        if (myPendingCommands.back().end())
-            enqueueOnePending();
-    }
+    //     if (myPendingCommands.back().end())
+    //         enqueueOnePending();
+    // }
     
     void enqueueOnePending();
     void enqueueAllPendingToSubmitted(uint64_t timelineValue);
 
     std::shared_ptr<DeviceContext<B>> myDeviceContext;
     const CommandContextCreateDesc<B> myDesc = {};
-    std::list<CommandBufferArray<B>> myPendingCommands;
-    std::list<CommandBufferArray<B>> mySubmittedCommands;
-    std::list<CommandBufferArray<B>> myFreeCommands;
-    std::optional<uint64_t> myLastSubmitTimelineValue;
+    std::list<std::pair<CommandBufferArray<B>, uint64_t>> myPendingCommands;
+    std::list<std::pair<CommandBufferArray<B>, uint64_t>> mySubmittedCommands;
+    std::list<std::pair<CommandBufferArray<B>, uint64_t>> myFreeCommands;
     std::vector<std::byte> myScratchMemory;
     std::any myUserData;
 };

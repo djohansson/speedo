@@ -25,9 +25,9 @@ isCacheValid<GraphicsBackend::Vulkan>(
 {
 	return (header.headerLength > 0 &&
 		header.cacheHeaderVersion == VK_PIPELINE_CACHE_HEADER_VERSION_ONE &&
-		header.vendorID == physicalDeviceProperties.vendorID &&
-		header.deviceID == physicalDeviceProperties.deviceID &&
-		memcmp(header.pipelineCacheUUID, physicalDeviceProperties.pipelineCacheUUID, sizeof(header.pipelineCacheUUID)) == 0);
+		header.vendorID == physicalDeviceProperties.properties.vendorID &&
+		header.deviceID == physicalDeviceProperties.properties.deviceID &&
+		memcmp(header.pipelineCacheUUID, physicalDeviceProperties.properties.pipelineCacheUUID, sizeof(header.pipelineCacheUUID)) == 0);
 }
 
 template <>
@@ -46,9 +46,12 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
 	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
     PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
-	
-	vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties);
-	vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures);
+    VkPhysicalDeviceTimelineSemaphoreProperties timelineProperties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES };
+    deviceInfo.deviceProperties.pNext = &timelineProperties;
+    vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties.properties);
+	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+	vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures.features);
+    vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);
 
 	uint32_t formatCount;
