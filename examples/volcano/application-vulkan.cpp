@@ -1,7 +1,4 @@
 #include "application.h"
-#include "command.h"
-#include "gfx.h"
-#include "file.h"
 #include "vk-utils.h"
 
 #define GLFW_INCLUDE_NONE
@@ -11,6 +8,8 @@
 #include <imgui.h>
 #include <examples/imgui_impl_glfw.h>
 #include <examples/imgui_impl_vulkan.h>
+
+#include <imnodes.h>
 
 
 template <>
@@ -95,6 +94,16 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     deviceContext->addGarbageCollectCallback([](uint64_t){
         ImGui_ImplVulkan_DestroyFontUploadObjects();
     });
+
+    imnodes::Initialize();
+}
+
+template <>
+void Application<GraphicsBackend::Vulkan>::shutdownIMGUI() const
+{
+    imnodes::Shutdown();
+    ImGui_ImplVulkan_Shutdown();
+    ImGui::DestroyContext();
 }
 
 template <>
@@ -174,38 +183,89 @@ void Application<GraphicsBackend::Vulkan>::destroyFrameObjects()
 }
 
 template <>
+void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubmitTimelineValue)
+{
+    if (myLastTransferTimelineValue)
+    {
+        {
+            ZoneScopedN("waitTransfer");
+
+            myDevice->wait(myLastTransferTimelineValue);
+
+            // todo: remove? not likely that this path (full command pool reset) will be needed.
+            myTransferCommandContext->reset();
+        }
+
+        myDevice->collectGarbage(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
+        
+        myLastTransferTimelineValue = 0;
+
+        // {
+        //     ZoneScopedN("tracyVkCollectTransfer");
+
+        //     auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
+        //     auto primaryCommands = primaryCommandContext->beginScope();
+
+        //     TracyVkCollect(
+        //         myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
+        //         primaryCommands);
+        // }
+    }
+    else
+    {
+        myDevice->collectGarbage(frameLastSubmitTimelineValue);
+    }
+}
+
+namespace application
+{
+
+
+    
+}
+
+template <>
 Application<GraphicsBackend::Vulkan>::Application(
-    void* view, int width, int height, const char* resourcePath, const char* userProfilePath)
-    : myResourcePath(resourcePath ? resourcePath : "./resources/")
-    , myUserProfilePath(userProfilePath ? userProfilePath : "./.profile/")
+    void* view,
+    int width,
+    int height,
+    const char* resourcePath,
+    const char* userProfilePath)
+: myResourcePath([](const char* pathStr, const char* defaultPathStr)
+{
+    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+    assert(std::filesystem::is_directory(path));
+    return path;
+}(resourcePath, "./resources/"))
+, myUserProfilePath([](const char* pathStr, const char* defaultPathStr)
+{
+    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+     if (!std::filesystem::exists(path))
+        std::filesystem::create_directory(path);
+    assert(std::filesystem::is_directory(path));
+    return path;
+}(userProfilePath, "./.profile/"))
+, myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph", true) // temp - this should be stored in the resource path
 {
     ZoneScopedN("Application()");
     
-    if (!std::filesystem::exists(myUserProfilePath))
-        std::filesystem::create_directory(myUserProfilePath);
-
-    assert(std::filesystem::is_directory(myResourcePath));
-    assert(std::filesystem::is_directory(myUserProfilePath));
-
-    std::filesystem::path instanceConfigFile(std::filesystem::absolute(myUserProfilePath / "instance.json"));
-    
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
-            instanceConfigFile,
-            "instanceConfiguration"),
+            std::filesystem::absolute(myUserProfilePath / "instance.json"),
+            "instanceConfiguration",
+            true),
         view);
 
     const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
     if (graphicsDeviceCandidates.empty())
         throw std::runtime_error("failed to find a suitable GPU!");
 
-    std::filesystem::path deviceConfigFile(std::filesystem::absolute(myUserProfilePath / "device.json"));
-
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         myInstance,
         ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
-            deviceConfigFile,
+            std::filesystem::absolute(myUserProfilePath / "device.json"),
             "deviceConfiguration",
+            true,
             {graphicsDeviceCandidates.front().first}));
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
@@ -275,6 +335,8 @@ Application<GraphicsBackend::Vulkan>::Application(
     }
 
     createFrameObjects();
+
+    //auto renderTexture = RenderTexture<GraphicsBackend::Vulkan>(myDevice, "RenderTexture", 0, {}, nullptr);
     
     // stuff that needs to be initialized on graphics queue
     {
@@ -413,42 +475,132 @@ Application<GraphicsBackend::Vulkan>::Application(
         //         EndPopup();
         //     }
         //     End();
-        // }  
+        // }
+
+        static bool showNodeEditor = false;
+        if (showNodeEditor)
+        {
+            ImGui::Begin("Node Editor", &showNodeEditor);
+            
+            {
+                imnodes::BeginNodeEditor();
+
+                for (const auto& node : myNodeGraph.nodes)
+                {
+                    imnodes::BeginNode(node->getIdx());
+
+                    imnodes::BeginNodeTitleBar();
+                    ImGui::TextUnformatted(node->getName().c_str());
+                    imnodes::EndNodeTitleBar();
+
+                    if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
+                    {
+                         for (const auto& inputAttribute : inOutNode->inputAttributes)
+                        {
+                            imnodes::BeginInputAttribute(inputAttribute.idx);
+                            ImGui::TextUnformatted(inputAttribute.name.c_str());
+                            imnodes::EndAttribute();
+                        }
+
+                        for (const auto& outputAttribute : inOutNode->outputAttributes)
+                        {
+                            imnodes::BeginOutputAttribute(outputAttribute.idx);
+                            ImGui::TextUnformatted(outputAttribute.name.c_str());
+                            imnodes::EndAttribute();
+                        }
+                    }
+                   
+                    imnodes::EndNode();
+                }
+
+                {
+                    int linkIt = 0;
+                    for (const auto& link : myNodeGraph.links)
+                        imnodes::Link(++linkIt, link.fromIdx, link.toIdx);
+                }
+                
+                imnodes::EndNodeEditor();
+            }
+
+            if (ImGui::BeginPopupContextItem("Node Editor Context Menu"))
+            {
+                enum class NodeType { SlangShaderNode };
+                static constexpr std::pair<NodeType, std::string_view> menuItems[] = { { NodeType::SlangShaderNode, "Slang Shader"} };
+
+                for (const auto& menuItem : menuItems)
+                    if (ImGui::Selectable(menuItem.second.data()))
+                        myNodeGraph.nodes.emplace_back([&menuItem, idx = static_cast<int>(myNodeGraph.nodes.size() + 1)]() -> std::shared_ptr<INode> 
+                        {
+                            switch (menuItem.first)
+                            {
+                                case NodeType::SlangShaderNode:
+                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(idx, std::string(menuItem.second.data())));
+                                default:
+                                    assert(false);
+                                    break;
+                            }
+                            return {};
+                        }());
+
+                ImGui::EndPopup();
+            }
+
+
+            // int startAttr, endAttr;
+            // if (imnodes::IsLinkCreated(&startAttr, &endAttr))
+            //     links.push_back(std::make_pair(startAttr, endAttr));
+
+            // {
+                
+            //     if (imnodes::IsNodeHovered(&firstNodeId))
+            //         firstNodeHovered = firstNodeId;
+            // }
+
+            // {
+            //     const int selectedNodeCount = imnodes::NumSelectedNodes();
+            //     if (selectedNodeCount > 0)
+            //     {
+            //         std::vector<int> selectedNodes;
+            //         selectedNodes.resize(selectedNodeCount);
+            //         imnodes::GetSelectedNodes(selectedNodes.data());
+            //     }
+            // }
+            
+            ImGui::End();
+        }
 
         if (ImGui::BeginMainMenuBar())
         {
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Open OBJ", "CTRL+O") && !myOpenFileFuture.valid())
+                if (ImGui::MenuItem("Open OBJ...", "CTRL+O") && !myOpenFileFuture.valid())
                     myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Exit", "CTRL+Q"))
+                    myRequestExit = true;
+                    
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("View"))
             {
+                if (ImGui::MenuItem("Node Editor..."))
+                    showNodeEditor = !showNodeEditor;
                 if (ImGui::MenuItem("Statistics..."))
                     showStatistics = !showStatistics;
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("About"))
             {
-                if (ImGui::MenuItem("About volcano..."))
-                    showAbout = !showAbout;
                 if (ImGui::MenuItem("Show IMGUI Demo..."))
                     showDemoWindow = !showDemoWindow;
+                ImGui::Separator();
+                if (ImGui::MenuItem("About volcano..."))
+                    showAbout = !showAbout;
                 ImGui::EndMenu();
             }
 
             ImGui::EndMainMenuBar();
-        }  
-
-        // {
-        //     Begin("Render Options");
-        //     // DragInt(
-        //     //     "Command Buffer Threads", &myRequestedCommandBufferThreadCount, 0.1f, 2, 32);
-        //     ColorEdit3(
-        //         "Clear Color", &myDesc.clearValue.color.float32[0]);
-        //     End();
-        // }    
+        } 
     });
 }
 
@@ -464,8 +616,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
         CHECK_VK(vkDeviceWaitIdle(myDevice->getDevice()));
     }
     
-    ImGui_ImplVulkan_Shutdown();
-    ImGui::DestroyContext();
+    shutdownIMGUI();
 
     savePipelineCache<GraphicsBackend::Vulkan>(
         myUserProfilePath / "pipeline.cache",
@@ -518,15 +669,13 @@ void Application<GraphicsBackend::Vulkan>::onKeyboard(const KeyboardState& state
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::draw()
+bool Application<GraphicsBackend::Vulkan>::draw()
 {
     ZoneScopedN("draw");
 
     auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
     auto& frame = myWindow->frames()[frameIndex];
     uint64_t frameLastSubmitTimelineValue = frame->getLastSubmitTimelineValue();
-
-    myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
 
     if (flipSuccess)
     {
@@ -537,9 +686,12 @@ void Application<GraphicsBackend::Vulkan>::draw()
 
             myDevice->wait(frameLastSubmitTimelineValue);
 
+            // todo: remove? not likely that this path (full command pool reset) will be needed.
             for (auto& context : myWindow->commandContexts()[frame->getDesc().index])
                 context->reset();
         }
+
+        myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
     
         myDefaultResources->renderTarget = frame;
 
@@ -550,9 +702,24 @@ void Application<GraphicsBackend::Vulkan>::draw()
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
-    myWindow->presentFrame(frameIndex);
+    auto garbageCollectFuture(
+        std::async(
+            std::launch::async,
+            &Application<GraphicsBackend::Vulkan>::collectGarbage,
+            this,
+            frameLastSubmitTimelineValue));
 
-    // todo: launch async work on another queue
+    if (flipSuccess)
+        myWindow->presentFrame(frameIndex);
+
+    // wait for garbage collect
+    {
+        ZoneScopedN("waitGarbageCollect");
+
+        garbageCollectFuture.get();
+    }
+
+    // record transfers
     if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
     {
         ZoneScopedN("openFileCallback");
@@ -562,54 +729,23 @@ void Application<GraphicsBackend::Vulkan>::draw()
             onCompletionCallback(openFilePath);
     }
 
-    if (myLastTransferTimelineValue)
-    {
-        {
-            ZoneScopedN("waitTransfer");
-
-            myDevice->wait(myLastTransferTimelineValue);
-
-            myTransferCommandContext->reset();
-        }
-
-        myDevice->collectGarbage(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
-        
-        myLastTransferTimelineValue = 0;
-
-        // {
-        //     ZoneScopedN("tracyVkCollectTransfer");
-
-        //     auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
-        //     auto primaryCommands = primaryCommandContext->beginScope();
-
-        //     TracyVkCollect(
-        //         myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
-        //         primaryCommands);
-        // }
-    }
-    else
-    {
-        myDevice->collectGarbage(frameLastSubmitTimelineValue);
-    }
-
-    if (!myTransferCommandContext->isPendingEmpty())
-    {
-        // submit transfers.
-        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
-        myLastTransferTimelineValue = myTransferCommandContext->submit({
-            myDevice->getPrimaryTransferQueue(),
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMask,
-            &waitTimelineValue,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue});
-    }
+    // submit transfers.
+    Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+    auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+    myLastTransferTimelineValue = myTransferCommandContext->submit({
+        myDevice->getPrimaryTransferQueue(),
+        1,
+        &myDevice->getTimelineSemaphore(),
+        &waitDstStageMask,
+        &waitTimelineValue,
+        1,
+        &myDevice->getTimelineSemaphore(),
+        &signalTimelineValue});
 
     myLastFrameIndex = frameIndex;
+
+    return myRequestExit;
 }
 
 template <>

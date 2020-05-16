@@ -22,6 +22,8 @@
 #include <imgui.h>
 #include <examples/imgui_impl_vulkan.h>
 
+#include <blockingconcurrentqueue.h>
+
 
 template <>
 void Window<GraphicsBackend::Vulkan>::renderIMGUI()
@@ -209,7 +211,7 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
 
     if (flipResult != VK_SUCCESS)
     {
-        assert(lastFrameIndex == frameIndex); // just check that vkAcquireNextImageKHR is not messing up things
+        //assert(lastFrameIndex == frameIndex); // just check that vkAcquireNextImageKHR is not messing up things
 
         static constexpr std::string_view errorStr = " - ERROR: vkAcquireNextImageKHR failed";
 
@@ -223,7 +225,7 @@ std::tuple<bool, uint32_t> Window<GraphicsBackend::Vulkan>::flipFrame(uint32_t l
         // todo: print error code
         //ZoneText(failedStr, sizeof_array(failedStr));
 
-        return std::make_tuple(false, frameIndex);
+        return std::make_tuple(false, lastFrameIndex);
     }
 
     char flipFrameWithNumberStr[flipFrameStr.size()+2];
@@ -280,36 +282,37 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
     // setup draw parameters
     uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
     uint32_t commandContextCount = static_cast<uint32_t>(commandContexts()[frameIndex].size());
-    uint32_t segmentCount = std::max<uint32_t>(std::min<int32_t>(drawCount, commandContextCount - 1), 0);
+    uint32_t secondaryCommandContextCount = commandContextCount ? commandContextCount - 1 : 0;
+    uint32_t secondaryDrawPartitionSize = std::max<uint32_t>(std::min<uint32_t>(drawCount, secondaryCommandContextCount), 0);
 
-    // draw geometry using secondary command buffers
+    // draw views using secondary command buffers
+    // todo: generalize this to other types of draws
+    //moodycamel::BlockingConcurrentQueue<int> q;
+    // todo: call execute on primary command buffer as soon as we are done with the secondary
     {
-        ZoneScopedN("drawGeometry");
+        ZoneScopedN("drawViews");
 
-        uint32_t segmentDrawCount = drawCount / segmentCount;
-        if (drawCount % segmentCount)
-            segmentDrawCount += 1;
-
-        uint32_t dx = frame->getDesc().imageExtent.width / myDesc.splitScreenGrid.width;
-        uint32_t dy = frame->getDesc().imageExtent.height / myDesc.splitScreenGrid.height;
+        uint32_t secondaryDrawCount = drawCount / secondaryDrawPartitionSize;
+        if (drawCount % secondaryDrawPartitionSize)
+            secondaryDrawCount += 1;
 
         std::array<uint32_t, 128> seq;
-        std::iota(seq.begin(), seq.begin() + segmentCount, 0);
+        std::iota(seq.begin(), seq.begin() + secondaryDrawPartitionSize, 0);
         std::for_each_n(
 #if defined(__WINDOWS__)
              std::execution::par,
 #endif
-            seq.begin(), segmentCount,
-            [this, &config, &frame, &dx, &dy, &drawCount, &segmentDrawCount](uint32_t segmentIt)
+            seq.begin(), secondaryDrawPartitionSize,
+            [this, &config, &frame, &drawCount, &secondaryDrawCount](uint32_t drawPartitionIt)
             {
                 ZoneScoped;
 
-                static constexpr std::string_view drawSegmentStr = "drawSegment";
-                char drawSegmentWithNumberStr[drawSegmentStr.size()+3];
-                sprintf_s(drawSegmentWithNumberStr, sizeof(drawSegmentWithNumberStr), "%.*s%u",
-                    static_cast<int>(drawSegmentStr.size()), drawSegmentStr.data(), segmentIt);
+                static constexpr std::string_view drawPartitionStr = "drawPartition";
+                char drawPartitionWithNumberStr[drawPartitionStr.size()+3];
+                sprintf_s(drawPartitionWithNumberStr, sizeof(drawPartitionWithNumberStr), "%.*s%u",
+                    static_cast<int>(drawPartitionStr.size()), drawPartitionStr.data(), drawPartitionIt);
 
-                ZoneName(drawSegmentWithNumberStr, sizeof_array(drawSegmentWithNumberStr));
+                ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
                 
                 CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                 inherit.renderPass = myRenderPass;
@@ -320,12 +323,12 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                                     VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
                 secBeginInfo.pInheritanceInfo = &inherit;
                     
-                auto& commandContext = commandContexts()[frame->getDesc().index][segmentIt + 1];
+                auto& commandContext = commandContexts()[frame->getDesc().index][drawPartitionIt + 1];
                 auto cmd = commandContext->beginScope(&secBeginInfo);
 
                 // TracyVkZone(
                 //     commandContext->userData<command_vulkan::UserData>().tracyContext,
-                //     cmd, drawSegmentStr.data());
+                //     cmd, drawPartitionStr.data());
             
                 // bind pipeline and inputs
                 {
@@ -341,52 +344,63 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                         config.resources->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
-                for (uint32_t drawIt = 0; drawIt < segmentDrawCount; drawIt++)
+                uint32_t dx = frame->getDesc().imageExtent.width / myDesc.splitScreenGrid.width;
+                uint32_t dy = frame->getDesc().imageExtent.height / myDesc.splitScreenGrid.height;
+
+                for (uint32_t drawIt = 0; drawIt < secondaryDrawCount; drawIt++)
                 {
-                    uint32_t n = segmentIt * segmentDrawCount + drawIt;
+                    auto drawView = [this, &drawCount, &frame, &config, &cmd, &dx, &dy](uint32_t viewIt)
+                    {
+                        uint32_t i = viewIt % myDesc.splitScreenGrid.width;
+                        uint32_t j = viewIt / myDesc.splitScreenGrid.width;
+
+                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
+                                                        int32_t width, int32_t height)
+                        {
+                            VkViewport viewport = {};
+                            viewport.x = static_cast<float>(x);
+                            viewport.y = static_cast<float>(y);
+                            viewport.width = static_cast<float>(width);
+                            viewport.height = static_cast<float>(height);
+                            viewport.minDepth = 0.0f;
+                            viewport.maxDepth = 1.0f;
+
+                            VkRect2D scissor = {};
+                            scissor.offset = {x, y};
+                            scissor.extent = {static_cast<uint32_t>(width),
+                                            static_cast<uint32_t>(height)};
+
+                            vkCmdSetViewport(cmd, 0, 1, &viewport);
+                            vkCmdSetScissor(cmd, 0, 1, &scissor);
+                        };
+
+                        auto drawModel = [viewIt, drawCount, &frame](
+                                            VkCommandBuffer cmd, uint32_t indexCount,
+                                            uint32_t descriptorSetCount,
+                                            const VkDescriptorSet* descriptorSets,
+                                            VkPipelineLayout pipelineLayout)
+                        {
+                            uint32_t viewBufferOffset = (frame->getDesc().index * drawCount + viewIt) * sizeof(Window::ViewBufferData);
+                            vkCmdBindDescriptorSets(
+                                cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
+                                descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
+                            vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+                        };
+
+                        setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+
+                        drawModel(
+                            cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
+                            config.descriptorSets.data(), config.layout->layout);
+
+                    };
+
+                    uint32_t n = drawPartitionIt * secondaryDrawCount + drawIt;
 
                     if (n >= drawCount)
                         break;
 
-                    uint32_t i = n % myDesc.splitScreenGrid.width;
-                    uint32_t j = n / myDesc.splitScreenGrid.width;
-
-                    auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
-                                                    int32_t width, int32_t height) {
-                        VkViewport viewport = {};
-                        viewport.x = static_cast<float>(x);
-                        viewport.y = static_cast<float>(y);
-                        viewport.width = static_cast<float>(width);
-                        viewport.height = static_cast<float>(height);
-                        viewport.minDepth = 0.0f;
-                        viewport.maxDepth = 1.0f;
-
-                        VkRect2D scissor = {};
-                        scissor.offset = {x, y};
-                        scissor.extent = {static_cast<uint32_t>(width),
-                                        static_cast<uint32_t>(height)};
-
-                        vkCmdSetViewport(cmd, 0, 1, &viewport);
-                        vkCmdSetScissor(cmd, 0, 1, &scissor);
-                    };
-
-                    auto drawModel = [n, drawCount, &frame](
-                                        VkCommandBuffer cmd, uint32_t indexCount,
-                                        uint32_t descriptorSetCount,
-                                        const VkDescriptorSet* descriptorSets,
-                                        VkPipelineLayout pipelineLayout) {
-                        uint32_t viewBufferOffset = (frame->getDesc().index * drawCount + n) * sizeof(Window::ViewBufferData);
-                        vkCmdBindDescriptorSets(
-                            cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                            descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
-                        vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
-                    };
-
-                    setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
-
-                    drawModel(
-                        cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
-                        config.descriptorSets.data(), config.layout->layout);
+                    drawView(n);
                 }
             });
     }
@@ -412,7 +426,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
         vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-        for (uint32_t contextIt = 1; contextIt <= segmentCount; contextIt++)
+        for (uint32_t contextIt = 1; contextIt <= secondaryDrawPartitionSize; contextIt++)
         {
             primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
             //vkCmdNextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);

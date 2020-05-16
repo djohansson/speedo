@@ -496,6 +496,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			+ ' -I$RootPath$/external/glfw/include'
 			+ ' -I$RootPath$/external/VulkanMemoryAllocator/src'
 			+ ' -I$RootPath$/external/imgui'
+			+ ' -I$RootPath$/external/imnodes'
+			+ ' -I$RootPath$/external/concurrentqueue'
 			+ ' -I$RootPath$/external/cereal/include'
 			+ ' -I$RootPath$/external/picosha2'
 			+ ' -I$RootPath$/external/mio/include'
@@ -710,6 +712,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/imgui/examples/imgui_impl_opengl3.cpp'
 			'$RootPath$/external/imgui/examples/imgui_impl_vulkan.cpp'
 			'$RootPath$/external/imgui/examples/imgui_impl_glfw.cpp'
+			'$RootPath$/external/imnodes/imnodes.cpp'
 		}
 
 		.UnityOutputPath = '$IntermediateFilePath$/external/imgui'
@@ -723,6 +726,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 		.Name = 'imgui'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$RootPath$/external/imgui'
+			+ ' -I$RootPath$/external/imnodes'
 			+ ' -I$RootPath$/external/gl3w/include'
 			+ ' -I$RootPath$/external/glfw/include'
 			+ ' -I$RootPath$/external/freetype2/include'

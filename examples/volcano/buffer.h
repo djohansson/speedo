@@ -37,6 +37,7 @@ public:
     const auto& getBuffer() const { return std::get<0>(myData); }
     const auto& getBufferMemory() const { return std::get<1>(myData); }
     
+    // todo: create scoped wrapper for the view handle
     BufferViewHandle<B> createView(Format<B> format, DeviceSize<B> offset, DeviceSize<B> range) const;
 
 private:

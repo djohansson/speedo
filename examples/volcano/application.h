@@ -18,9 +18,11 @@
 
 #include "command.h"
 #include "device.h"
+#include "file.h"
 #include "gfx.h" // replace with "gfx-types.h" once all types have been encapsulated
 #include "glm.h"
 #include "instance.h"
+#include "nodegraph.h"
 #include "rendertexture.h"
 #include "window.h"
 
@@ -59,10 +61,14 @@ public:
 
 	Application(Application&& other) = default;
 	Application(
-		void* view, int width, int height, const char* resourcePath, const char* userProfilePath);
+		void* view,
+		int width,
+		int height,
+		const char* resourcePath,
+		const char* userProfilePath);
 	~Application();
 
-	void draw();
+	bool draw();
 
 	void resizeWindow(const WindowState& state);
 	void resizeFramebuffer(int width, int height);
@@ -78,9 +84,12 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		CommandBufferHandle<B> commands,
 		const std::filesystem::path& userProfilePath) const;
+	void shutdownIMGUI() const;
 
 	void createFrameObjects();
 	void destroyFrameObjects();
+
+	void collectGarbage(uint64_t frameLastSubmitTimelineValue);
 
 	// todo: encapsulate in PipelineConfiguration?
 	auto createPipelineConfig(DeviceHandle<B> device,
@@ -88,6 +97,13 @@ private:
         std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceView<B>> resources) const;
 	void updateDescriptorSets(const Window<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
 	//
+
+	std::filesystem::path myResourcePath;
+	std::filesystem::path myUserProfilePath;
+
+	ScopedFileObject<NodeGraph> myNodeGraph;
+
+	InputState myInput = {};
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
@@ -102,17 +118,14 @@ private:
 	std::shared_ptr<PipelineConfiguration<B>> myGraphicsPipelineConfig;
 	//
 
-	std::filesystem::path myResourcePath;
-	std::filesystem::path myUserProfilePath;
-
-	InputState myInput = {};
-
 	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
 	uint64_t myLastTransferTimelineValue = 0;
 
 	std::shared_ptr<RenderTexture<B>> myRenderTexture;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
+
+	bool myRequestExit = false;
 };
 
 #include "application.inl"

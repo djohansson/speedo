@@ -26,7 +26,7 @@
 	.PlatformInfo = 'Linux'
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
-	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -Wall'
+	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -frtti -Wall'
 		+ .BaseIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
