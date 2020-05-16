@@ -61,3 +61,6 @@
 [submodule "external/capstone"]
 	path = external/capstone
 	url = https://github.com/aquynh/capstone
+[submodule "external/concurrentqueue"]
+	path = external/concurrentqueue
+	url = https://github.com/cameron314/concurrentqueue.git
