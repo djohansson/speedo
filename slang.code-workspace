@@ -121,7 +121,8 @@
 			"*.idl": "cpp",
 			"concepts": "cpp",
 			"*.rh": "cpp",
-			"parentbad": "cpp"
+			"parentbad": "cpp",
+			"*.inc": "cpp"
 		}
 	}
 }
