@@ -6,7 +6,7 @@
 #include <atomic>
 #include <memory>
 #include <optional>
-#include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 
@@ -128,6 +128,6 @@ private:
 
     SemaphoreHandle<B> myTimelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
-    std::mutex myGarbageCollectCallbacksMutex;
+    std::shared_mutex myGarbageCollectCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myGarbageCollectCallbacks;
 };
