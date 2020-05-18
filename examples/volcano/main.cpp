@@ -108,6 +108,9 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 
 static void onFramebufferResize(GLFWwindow*, int w, int h)
 {
+	if (w == 0 || h == 0)
+		return;
+		
 	volcano_resizeFramebuffer(w, h);
 }
 
@@ -216,11 +219,6 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	//GLFWmonitor* selectedMonitor = monitors[0];
-	//int videoModeCount;
-	//const GLFWvidmode* modes = glfwGetVideoModes(selectedMonitor, &videoModeCount);
-	//const GLFWvidmode* selectedVideoMode = glfwGetVideoMode(selectedMonitor);
-
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "", NULL, NULL);
 
@@ -252,7 +250,7 @@ int main(int argc, char** argv)
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 
-	while (!glfwWindowShouldClose(window))
+	do
 	{
 		FrameMark;
 		ZoneScopedN("gameLoop");
@@ -267,8 +265,7 @@ int main(int argc, char** argv)
 			ImGui_ImplGlfw_NewFrame();
 		}
 
-		volcano_draw();
-	}
+	} while (!glfwWindowShouldClose(window) && !volcano_draw());
 
 	ImGui_ImplGlfw_Shutdown();
 

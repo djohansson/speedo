@@ -7,6 +7,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <mutex>
 #include <vector>
 
 
@@ -109,27 +110,13 @@ public:
     bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
     void collectGarbage(std::optional<uint64_t> timelineValue = std::nullopt);
-
-    template <typename T>
-    void addGarbageCollectCallback(T callback)
-    {
-        std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
-        myGarbageCollectCallbacks.emplace_back(
-            std::make_pair(callback, myTimelineValue->load(std::memory_order_relaxed)));
-    }
-
-    template <typename T>
-    void addGarbageCollectCallback(uint64_t timelineValue, T callback)
-    {
-        std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
-        myGarbageCollectCallbacks.emplace_back(
-            std::make_pair(callback, timelineValue));
-    }
+    void addGarbageCollectCallback(std::function<void(uint64_t)>&& callback);
+    void addGarbageCollectCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
 
 private:
 
     std::shared_ptr<InstanceContext<B>> myInstanceContext;
-    ScopedFileObject<DeviceConfiguration<B>> myConfig = {};
+    ScopedFileObject<DeviceConfiguration<B>> myConfig;
     DeviceHandle<B> myDevice = 0;
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
@@ -143,5 +130,5 @@ private:
     SemaphoreHandle<B> myTimelineSemaphore = 0;
     std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
     std::mutex myGarbageCollectCallbacksMutex;
-    std::list<std::pair<std::function<void(uint64_t)>, uint64_t>> myGarbageCollectCallbacks;
+    std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myGarbageCollectCallbacks;
 };

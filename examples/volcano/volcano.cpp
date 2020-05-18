@@ -14,11 +14,11 @@ int volcano_create(
 	return EXIT_SUCCESS;
 }
 
-void volcano_draw()
+bool volcano_draw()
 {
 	assert(theApplication);
 
-	theApplication->draw();
+	return theApplication->draw();
 }
 
 void volcano_resizeWindow(const WindowState* state)

@@ -70,7 +70,6 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::reset()
     myBits.myHead = 0;
 }
 
-
 template <>
 void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending()
 {
@@ -83,6 +82,26 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending()
                 {"CommandBufferArray"},
                 myDesc.commandPool,
                 myDesc.commandBufferLevel}), 0));
+}
+
+template <>
+CommandBufferAccessScope<GraphicsBackend::Vulkan, true>
+CommandContext<GraphicsBackend::Vulkan>::internalBeginScope(const CommandBufferBeginInfo<GraphicsBackend::Vulkan>* beginInfo)
+{
+    if (myPendingCommands.empty() || myPendingCommands.back().first.full())
+        enqueueOnePending();
+
+    return CommandBufferAccessScope<GraphicsBackend::Vulkan, true>(myPendingCommands.back().first, beginInfo);
+}
+    
+template <>
+CommandBufferAccessScope<GraphicsBackend::Vulkan, false>
+CommandContext<GraphicsBackend::Vulkan>::internalCommands()
+{    
+    if (myPendingCommands.empty())
+        enqueueOnePending();
+
+    return CommandBufferAccessScope<GraphicsBackend::Vulkan, false>(myPendingCommands.back().first);
 }
 
 template <>
@@ -118,9 +137,12 @@ template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
 {
+    std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+
     ZoneScopedN("submit");
 
-    assert(!myPendingCommands.empty());
+    if (myPendingCommands.empty())
+        return 0;
 
     const auto waitSemaphoreCount = submitInfo.waitSemaphoreCount;
     const auto signalSemaphoreCount = submitInfo.signalSemaphoreCount;
@@ -225,10 +247,12 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<GraphicsBackend::Vulkan>& other)
 {
+    std::scoped_lock guard(myCommandsMutex, other.myCommandsMutex);
+    
     ZoneScopedN("execute");
 
     {
-		auto cmd = commands();
+		auto cmd = internalCommands();
 
 		for (const auto& secPendingCommands : other.myPendingCommands)
 			vkCmdExecuteCommands(cmd, secPendingCommands.first.size(), secPendingCommands.first.data());

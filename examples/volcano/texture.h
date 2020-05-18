@@ -44,6 +44,7 @@ public:
     const auto& getImageMemory() const { return std::get<1>(myData); }
     const auto& getImageLayout() const { return std::get<2>(myData); }
 
+    // todo: create scoped wrapper for the view handle
     ImageViewHandle<B> createView(Flags<B> aspectFlags) const;
 
     void transition(CommandBufferHandle<B> commands, ImageLayout<B> layout);

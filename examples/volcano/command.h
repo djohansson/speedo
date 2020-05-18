@@ -10,6 +10,7 @@
 #include <functional>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -63,6 +64,7 @@ private:
     static auto createArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const CommandBufferArrayCreateDesc<B>& desc);
+        
     const CommandBufferArrayCreateDesc<B> myDesc = {};
     std::array<CommandBufferHandle<B>, kCommandBufferCount> myCommandBufferArray = {};
     struct Bits
@@ -141,25 +143,17 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto beginScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr)
+    auto beginScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr) 
     {
-        if (myPendingCommands.empty() || myPendingCommands.back().first.full())
-            enqueueOnePending();
-
-        return CommandBufferAccessScope<B, true>(myPendingCommands.back().first, beginInfo);
+        std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+        return internalBeginScope(beginInfo);
     }
-    
     auto commands()
     {
-        if (myPendingCommands.empty())
-            enqueueOnePending();
-
-        return CommandBufferAccessScope<B, false>(myPendingCommands.back().first);
+        std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+        return internalCommands();
     }
-
-    bool isPendingEmpty() const { return myPendingCommands.empty(); }
-    bool isSubmittedEmpty() const { return mySubmittedCommands.empty(); }
-
+    
     uint64_t execute(CommandContext<B>& other);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
     void reset();
@@ -169,6 +163,9 @@ protected:
     const auto& getDeviceContext() const { return myDeviceContext; }
 
 private:
+
+    CommandBufferAccessScope<GraphicsBackend::Vulkan, true> internalBeginScope(const CommandBufferBeginInfo<B>* beginInfo);
+    CommandBufferAccessScope<GraphicsBackend::Vulkan, false> internalCommands();
     
     void enqueueOnePending();
     void enqueueAllPendingToSubmitted(uint64_t timelineValue);
@@ -178,5 +175,6 @@ private:
     std::list<std::pair<CommandBufferArray<B>, uint64_t>> myPendingCommands;
     std::list<std::pair<CommandBufferArray<B>, uint64_t>> mySubmittedCommands;
     std::list<std::pair<CommandBufferArray<B>, uint64_t>> myFreeCommands;
+    std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
 };

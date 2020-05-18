@@ -13,7 +13,7 @@ int volcano_create(
     int windowHeight,
     const char* resourcePath,
     const char* userProfilePath);
-void volcano_draw();
+bool volcano_draw();
 void volcano_resizeWindow(const WindowState* state);
 void volcano_resizeFramebuffer(int width, int height);
 void volcano_mouse(const MouseState* state);

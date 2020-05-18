@@ -23,16 +23,13 @@ uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() con
 template <>
 void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
 {
-    //if (!hasReached(timelineValue))
-    {
-        VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-        waitInfo.flags = 0;
-        waitInfo.semaphoreCount = 1;
-        waitInfo.pSemaphores = &myTimelineSemaphore;
-        waitInfo.pValues = &timelineValue;
+    VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+    waitInfo.flags = 0;
+    waitInfo.semaphoreCount = 1;
+    waitInfo.pSemaphores = &myTimelineSemaphore;
+    waitInfo.pValues = &timelineValue;
 
-        CHECK_VK(vkWaitSemaphores(myDevice, &waitInfo, UINT64_MAX));
-    }
+    CHECK_VK(vkWaitSemaphores(myDevice, &waitInfo, UINT64_MAX));
 }
 
 template <>
@@ -40,20 +37,41 @@ void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(std::optional<uint64
 {
     ZoneScopedN("collectGarbage");
 
-    std::lock_guard<std::mutex> guard(myGarbageCollectCallbacksMutex);
+    std::lock_guard<decltype(myGarbageCollectCallbacksMutex)> guard(myGarbageCollectCallbacksMutex);
 
     while (!myGarbageCollectCallbacks.empty())
     {
-        uint64_t commandBufferTimelineValue = myGarbageCollectCallbacks.begin()->second;
+        uint64_t commandBufferTimelineValue = myGarbageCollectCallbacks.begin()->first;
 
         if (timelineValue && commandBufferTimelineValue > timelineValue.value())
             return;
 
-        myGarbageCollectCallbacks.begin()->first(commandBufferTimelineValue);
+        myGarbageCollectCallbacks.begin()->second(commandBufferTimelineValue);
         myGarbageCollectCallbacks.pop_front();
     }
 }
 
+template <>
+void DeviceContext<GraphicsBackend::Vulkan>::addGarbageCollectCallback(std::function<void(uint64_t)>&& callback)
+{
+    std::lock_guard<decltype(myGarbageCollectCallbacksMutex)> guard(myGarbageCollectCallbacksMutex);
+
+    myGarbageCollectCallbacks.emplace_back(
+        std::make_pair(
+            myTimelineValue->load(std::memory_order_relaxed),
+            std::move(callback)));
+}
+
+template <>
+void DeviceContext<GraphicsBackend::Vulkan>::addGarbageCollectCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
+{
+    std::lock_guard<decltype(myGarbageCollectCallbacksMutex)> guard(myGarbageCollectCallbacksMutex);
+    
+    myGarbageCollectCallbacks.emplace_back(
+        std::make_pair(
+            timelineValue,
+            std::move(callback)));
+}
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
