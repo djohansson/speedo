@@ -4,6 +4,7 @@
 #include "instance.h"
 
 #include <atomic>
+#include <list>
 #include <memory>
 #include <optional>
 #include <shared_mutex>

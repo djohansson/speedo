@@ -1,6 +1,8 @@
 #include "rendertarget.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
