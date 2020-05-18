@@ -125,12 +125,18 @@ class ScopedFileObject : public Noncopyable, public T
 
 public:
 
-    ScopedFileObject(const std::filesystem::path& filePath, const std::string& name, bool saveOnClose = false, T&& defaultObject = T{})
-    : T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
+    ScopedFileObject(
+        const std::filesystem::path& filePath,
+        const std::string& name,
+        T&& defaultObject = T{},
+        bool saveOnClose = true)
+    : T(std::get<0>(
+        loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
     , myFilePath(filePath)
     , myName(name)
     , mySaveOnClose(saveOnClose)
-    { }
+    {
+    }
 
     ScopedFileObject(ScopedFileObject&& other)
     : T(std::move(other))

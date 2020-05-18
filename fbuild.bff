@@ -708,6 +708,7 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 			'$RootPath$/external/imgui/imgui_demo.cpp'
 			'$RootPath$/external/imgui/imgui_draw.cpp'
 			'$RootPath$/external/imgui/imgui_widgets.cpp'
+			'$RootPath$/external/imgui/misc/cpp/imgui_stdlib.cpp'
 			'$RootPath$/external/imgui/misc/freetype/imgui_freetype.cpp'
 			'$RootPath$/external/imgui/examples/imgui_impl_opengl3.cpp'
 			'$RootPath$/external/imgui/examples/imgui_impl_vulkan.cpp'

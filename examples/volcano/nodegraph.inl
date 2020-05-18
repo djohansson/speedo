@@ -8,7 +8,7 @@ template <class Archive>
 void serialize(Archive& archive, Attribute& attribute)
 {
     archive(
-        cereal::make_nvp("idx", attribute.idx),
+        cereal::make_nvp("id", attribute.id),
         cereal::make_nvp("name", attribute.name));
 }
 
@@ -16,18 +16,18 @@ template <class Archive>
 void serialize(Archive& archive, InputOutputNode& node)
 {
     archive(
-        cereal::make_nvp("name", node.name),
-        cereal::make_nvp("idx", node.idx),
-        cereal::make_nvp("inputAttributes", node.inputAttributes),
-        cereal::make_nvp("outputAttributes", node.outputAttributes));
+        cereal::make_nvp("name", node.name_),
+        cereal::make_nvp("id", node.id_),
+        cereal::make_nvp("inputAttributes", node.inputAttributes_),
+        cereal::make_nvp("outputAttributes", node.outputAttributes_));
 }
 
 template <class Archive>
 void serialize(Archive& archive, Link& link)
 {
     archive(
-        cereal::make_nvp("fromIdx", link.fromIdx),
-        cereal::make_nvp("toIdx", link.toIdx));
+        cereal::make_nvp("fromId", link.fromId),
+        cereal::make_nvp("toId", link.toId));
 }
 
 template <class Archive>
@@ -35,7 +35,7 @@ void serialize(Archive& archive, SlangShaderNode& node)
 {
     archive(
         cereal::virtual_base_class<InputOutputNode>(&node),
-        cereal::make_nvp("path", node.path.u8string()));
+        cereal::make_nvp("path", node.path_));
 }
 
 template <class Archive>
@@ -43,5 +43,7 @@ void serialize(Archive& archive, NodeGraph& nodeGraph)
 {
     archive(
         cereal::make_nvp("nodes", nodeGraph.nodes),
-        cereal::make_nvp("links", nodeGraph.links));
+        cereal::make_nvp("links", nodeGraph.links),
+        cereal::make_nvp("layout", nodeGraph.layout),
+        cereal::make_nvp("uniqueId", nodeGraph.uniqueId));
 }

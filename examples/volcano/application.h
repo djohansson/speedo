@@ -84,7 +84,7 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		CommandBufferHandle<B> commands,
 		const std::filesystem::path& userProfilePath) const;
-	void shutdownIMGUI() const;
+	void shutdownIMGUI();
 
 	void createFrameObjects();
 	void destroyFrameObjects();

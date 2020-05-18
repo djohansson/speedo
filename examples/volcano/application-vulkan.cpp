@@ -6,6 +6,7 @@
 #include <GLFW/glfw3.h>
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 #include <examples/imgui_impl_glfw.h>
 #include <examples/imgui_impl_vulkan.h>
 
@@ -28,6 +29,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").u8string();
     io.IniFilename = iniFilePath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.FontAllowUserScaling = true;
     // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
     // auto& platformIo = ImGui::GetPlatformIO();
@@ -96,12 +98,16 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     });
 
     imnodes::Initialize();
+    imnodes::LoadCurrentEditorStateFromIniString(myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::shutdownIMGUI() const
+void Application<GraphicsBackend::Vulkan>::shutdownIMGUI()
 {
+    size_t count;
+    myNodeGraph.layout.assign(imnodes::SaveCurrentEditorStateToIniString(&count));
     imnodes::Shutdown();
+
     ImGui_ImplVulkan_Shutdown();
     ImGui::DestroyContext();
 }
@@ -217,13 +223,6 @@ void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubm
     }
 }
 
-namespace application
-{
-
-
-    
-}
-
 template <>
 Application<GraphicsBackend::Vulkan>::Application(
     void* view,
@@ -245,15 +244,14 @@ Application<GraphicsBackend::Vulkan>::Application(
     assert(std::filesystem::is_directory(path));
     return path;
 }(userProfilePath, "./.profile/"))
-, myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph", true) // temp - this should be stored in the resource path
+, myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph") // temp - this should be stored in the resource path
 {
     ZoneScopedN("Application()");
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
             std::filesystem::absolute(myUserProfilePath / "instance.json"),
-            "instanceConfiguration",
-            true),
+            "instanceConfiguration"),
         view);
 
     const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
@@ -265,7 +263,6 @@ Application<GraphicsBackend::Vulkan>::Application(
         ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
             std::filesystem::absolute(myUserProfilePath / "device.json"),
             "deviceConfiguration",
-            true,
             {graphicsDeviceCandidates.front().first}));
 
     myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
@@ -437,6 +434,63 @@ Application<GraphicsBackend::Vulkan>::Application(
     {
         using namespace ImGui;
 
+        // todo: move elsewhere
+        auto editableTextField = [](int id, const char* label, std::string& str, int& inputId)
+        {
+            auto textSize = CalcTextSize(
+                str.c_str(),
+                str.c_str() + str.size());
+
+            PushItemWidth(std::max(160.f, textSize.x));
+            
+            if (id == inputId)
+            {
+                if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsMouseClicked(0))
+                {
+                    PushAllowKeyboardFocus(true);
+                    SetKeyboardFocusHere();
+
+                    if (InputText(
+                        label,
+                        &str,
+                        ImGuiInputTextFlags_EnterReturnsTrue|ImGuiInputTextFlags_CallbackAlways,
+                        [](ImGuiInputTextCallbackData* data)
+                        {
+                            auto textSize = CalcTextSize(data->Buf, data->Buf + data->BufTextLen);
+
+                            PopItemWidth();
+                            PushItemWidth(std::max(160.f, textSize.x));
+
+                            data->SelectionStart = data->SelectionEnd;
+
+                            return 0;
+
+                        }))
+                    {
+                        if (str.empty())
+                            str = "Empty";
+                        
+                        inputId = 0;
+                    }
+
+                    PopAllowKeyboardFocus();
+                }
+                else
+                {
+                    if (str.empty())
+                        str = "Empty";
+                            
+                    inputId = 0;
+                }
+            }
+            else
+            {
+                TextUnformatted(str.c_str(), str.c_str() + str.size());
+            }
+
+            PopItemWidth();
+        };
+
         static bool showStatistics = false;
         if (showStatistics)
         {
@@ -458,103 +512,166 @@ Application<GraphicsBackend::Vulkan>::Application(
             End();
         }
 
-        // {
-        //     Begin("GUI Options");
-        //     // static int styleIndex = 0;
-        //     ShowStyleSelector("Styles" /*, &styleIndex*/);
-        //     ShowFontSelector("Fonts");
-        //     if (Button("Show User Guide"))
-        //     {
-        //         SetNextWindowPos(ImVec2(0.5f, 0.5f));
-        //         OpenPopup("UserGuide");
-        //     }
-        //     if (BeginPopup(
-        //             "UserGuide", ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-        //     {
-        //         ShowUserGuide();
-        //         EndPopup();
-        //     }
-        //     End();
-        // }
-
         static bool showNodeEditor = false;
         if (showNodeEditor)
         {
-            ImGui::Begin("Node Editor", &showNodeEditor);
+            Begin("Node Editor Window", &showNodeEditor);
+
+            PushAllowKeyboardFocus(false);
             
+            imnodes::BeginNodeEditor();
+
+            struct NodeUserData
             {
-                imnodes::BeginNodeEditor();
+                int inputId = 0;
+            };
 
-                for (const auto& node : myNodeGraph.nodes)
+            for (const auto& node : myNodeGraph.nodes)
+            {
+                if (!node->userData().has_value())
+                    node->userData() = NodeUserData{};
+
+                char buffer[64];
+
+                imnodes::BeginNode(node->getId());
+
+                // title bar
+                sprintf_s(buffer, sizeof(buffer), "##node%.*u", 4, node->getId());
+
+                imnodes::BeginNodeTitleBar();
+
+                editableTextField(
+                    node->getId(),
+                    buffer,
+                    node->name(),
+                    std::any_cast<NodeUserData&>(node->userData()).inputId);
+
+                imnodes::EndNodeTitleBar();
+
+                if (IsItemClicked() && IsMouseDoubleClicked(0))
+                    std::any_cast<NodeUserData&>(node->userData()).inputId = node->getId();
+                
+                // attributes
+                if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                 {
-                    imnodes::BeginNode(node->getIdx());
-
-                    imnodes::BeginNodeTitleBar();
-                    ImGui::TextUnformatted(node->getName().c_str());
-                    imnodes::EndNodeTitleBar();
-
-                    if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
+                    auto rowCount = std::max(inOutNode->inputAttributes().size(), inOutNode->inputAttributes().size());
+                    for (uint32_t rowIt = 0; rowIt < rowCount; rowIt++)
                     {
-                         for (const auto& inputAttribute : inOutNode->inputAttributes)
+                        if (uint32_t inputAttribIt = rowIt; inputAttribIt < inOutNode->inputAttributes().size())
                         {
-                            imnodes::BeginInputAttribute(inputAttribute.idx);
-                            ImGui::TextUnformatted(inputAttribute.name.c_str());
+                            auto& inputAttribute = inOutNode->inputAttributes()[inputAttribIt];
+                            sprintf_s(buffer, sizeof(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
+                            
+                            imnodes::BeginInputAttribute(inputAttribute.id);
+
+                            editableTextField(
+                                inputAttribute.id,
+                                buffer,
+                                inputAttribute.name,
+                                std::any_cast<NodeUserData&>(node->userData()).inputId);
+                            
                             imnodes::EndAttribute();
+
+                            if (IsItemClicked() && IsMouseDoubleClicked(0))
+                                std::any_cast<NodeUserData&>(node->userData()).inputId = inputAttribute.id;
+
                         }
 
-                        for (const auto& outputAttribute : inOutNode->outputAttributes)
+                        if (uint32_t outputAttribIt = rowIt; outputAttribIt < inOutNode->outputAttributes().size())
                         {
-                            imnodes::BeginOutputAttribute(outputAttribute.idx);
-                            ImGui::TextUnformatted(outputAttribute.name.c_str());
+                            ImGui::SameLine();
+
+                            auto& outputAttribute = inOutNode->outputAttributes()[outputAttribIt];
+                            sprintf_s(buffer, sizeof(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
+
+                            imnodes::BeginOutputAttribute(outputAttribute.id);
+                            
+                            editableTextField(
+                                outputAttribute.id,
+                                buffer,
+                                outputAttribute.name,
+                                std::any_cast<NodeUserData&>(node->userData()).inputId);
+                            
                             imnodes::EndAttribute();
+
+                            if (IsItemClicked() && IsMouseDoubleClicked(0))
+                                std::any_cast<NodeUserData&>(node->userData()).inputId = outputAttribute.id;
                         }
                     }
-                   
-                    imnodes::EndNode();
                 }
-
-                {
-                    int linkIt = 0;
-                    for (const auto& link : myNodeGraph.links)
-                        imnodes::Link(++linkIt, link.fromIdx, link.toIdx);
-                }
+            
+                imnodes::EndNode();
                 
-                imnodes::EndNodeEditor();
+                if (ImGui::BeginPopupContextItem())
+                {
+                    if (ImGui::Selectable("Add Input"))
+                    {
+                        if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
+                        {
+                            sprintf_s(buffer, sizeof(buffer), "In %u", inOutNode->inputAttributes().size());
+                            inOutNode->inputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
+                        }
+                    }
+                    if (ImGui::Selectable("Add Output"))
+                    {
+                        if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
+                        {
+                            sprintf_s(buffer, sizeof(buffer), "Out %u", inOutNode->outputAttributes().size());
+                            inOutNode->outputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
             }
+        
+            for (int linkIt = 0; linkIt < myNodeGraph.links.size(); linkIt++)
+                imnodes::Link(linkIt, myNodeGraph.links[linkIt].fromId, myNodeGraph.links[linkIt].toId);
+            
+            imnodes::EndNodeEditor();
 
-            if (ImGui::BeginPopupContextItem("Node Editor Context Menu"))
+            int hoveredNodeId;
+            if (/*imnodes::IsEditorHovered() && */
+                !imnodes::IsNodeHovered(&hoveredNodeId) &&
+                ImGui::BeginPopupContextItem("Node Editor Context Menu"))
             {
+                ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
+
                 enum class NodeType { SlangShaderNode };
                 static constexpr std::pair<NodeType, std::string_view> menuItems[] = { { NodeType::SlangShaderNode, "Slang Shader"} };
 
                 for (const auto& menuItem : menuItems)
+                {
                     if (ImGui::Selectable(menuItem.second.data()))
-                        myNodeGraph.nodes.emplace_back([&menuItem, idx = static_cast<int>(myNodeGraph.nodes.size() + 1)]() -> std::shared_ptr<INode> 
+                    {
+                        int id = ++myNodeGraph.uniqueId;
+                        imnodes::SetNodeScreenSpacePos(id, clickPos);
+                        myNodeGraph.nodes.emplace_back([&menuItem, &id]() -> std::shared_ptr<INode> 
                         {
                             switch (menuItem.first)
                             {
                                 case NodeType::SlangShaderNode:
-                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(idx, std::string(menuItem.second.data())));
+                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(id, std::string(menuItem.second.data())));
                                 default:
                                     assert(false);
                                     break;
                             }
                             return {};
                         }());
+                    }
+                }
 
                 ImGui::EndPopup();
             }
 
+            PopAllowKeyboardFocus();
 
-            // int startAttr, endAttr;
-            // if (imnodes::IsLinkCreated(&startAttr, &endAttr))
-            //     links.push_back(std::make_pair(startAttr, endAttr));
+            ImGui::End();
 
-            // {
-                
-            //     if (imnodes::IsNodeHovered(&firstNodeId))
-            //         firstNodeHovered = firstNodeId;
-            // }
+            {
+                int startAttr, endAttr;
+                if (imnodes::IsLinkCreated(&startAttr, &endAttr))
+                    myNodeGraph.links.emplace_back(Link{startAttr, endAttr});
+            }
 
             // {
             //     const int selectedNodeCount = imnodes::NumSelectedNodes();
@@ -565,8 +682,6 @@ Application<GraphicsBackend::Vulkan>::Application(
             //         imnodes::GetSelectedNodes(selectedNodes.data());
             //     }
             // }
-            
-            ImGui::End();
         }
 
         if (ImGui::BeginMainMenuBar())
