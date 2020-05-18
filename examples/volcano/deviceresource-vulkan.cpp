@@ -1,6 +1,8 @@
 #include "deviceresource.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 
 template <> 
 void DeviceResource<GraphicsBackend::Vulkan>::setObjectName(
