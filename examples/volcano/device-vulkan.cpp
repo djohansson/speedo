@@ -196,9 +196,6 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
-    if (!myConfig.useCommandPoolReset)
-        myConfig.useCommandPoolReset = std::make_optional(false);
-
     if (!myConfig.useHostQueryReset)
     {
         if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
@@ -251,9 +248,8 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
-    VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    if (!myConfig.useCommandPoolReset.value())
-        cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    VkCommandPoolCreateFlags cmdPoolCreateFlags =
+        VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
     for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
