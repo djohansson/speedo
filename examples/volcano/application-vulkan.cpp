@@ -585,7 +585,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                                 80.0f,
                                 std::any_cast<NodeUserData&>(node->userData()).inputId);
                             
-                            imnodes::EndAttribute();
+                            imnodes::EndInputAttribute();
 
                             if (IsItemClicked() && IsMouseDoubleClicked(0))
                                 std::any_cast<NodeUserData&>(node->userData()).inputId = inputAttribute.id;
@@ -614,7 +614,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                                 80.0f,
                                 std::any_cast<NodeUserData&>(node->userData()).inputId);
                             
-                            imnodes::EndAttribute();
+                            imnodes::EndOutputAttribute();
 
                             if (IsItemClicked() && IsMouseDoubleClicked(0))
                                 std::any_cast<NodeUserData&>(node->userData()).inputId = outputAttribute.id;
