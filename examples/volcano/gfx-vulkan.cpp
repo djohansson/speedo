@@ -47,9 +47,12 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
 {
     PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
     VkPhysicalDeviceTimelineSemaphoreProperties timelineProperties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES };
+    deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     deviceInfo.deviceProperties.pNext = &timelineProperties;
     vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties.properties);
 	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+    deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    deviceInfo.deviceFeatures.pNext = nullptr;
 	vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures.features);
     vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);

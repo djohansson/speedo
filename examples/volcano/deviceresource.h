@@ -22,6 +22,12 @@ public:
 
     const auto& getName() const { return myName; }
 
+    static void setObjectName(
+        const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+        ObjectType<B> objectType,
+        uint64_t objectHandle,
+        const std::string& objectName);
+
 protected:
 
     DeviceResource(DeviceResource<B>&& other) = default;
@@ -43,11 +49,8 @@ protected:
         const char** objectNames);
 
     const auto& getDeviceContext() const { return myDeviceContext; }
-    
-    void setObjectName(
-        ObjectType<B> objectType,
-        uint64_t objectHandle,
-        const char* objectName);
+
+    auto& objectNames() { return myObjectNames; }
 
 private:
 

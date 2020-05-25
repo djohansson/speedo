@@ -69,24 +69,37 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::resetAll()
     assert(!recordingFlags());
     assert(head() < kCommandBufferCount);
     
-    for (uint32_t i = 0; i <= myBits.head; i++)
+    for (uint32_t i = 0; i < myBits.head; i++)
         CHECK_VK(vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
-    myBits.head = 0;
+    myBits = {0, 0};
 }
 
 template <>
 void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending(CommandBufferLevel<GraphicsBackend::Vulkan> level)
 {
     if (!myFreeCommands[level].empty())
+    {
         myPendingCommands[level].splice(myPendingCommands[level].end(), std::move(myFreeCommands[level]), myFreeCommands[level].begin());
+    }
     else
+    {
+        char stringBuffer[32];
+
+        sprintf_s(
+            stringBuffer,
+            sizeof(stringBuffer),
+            "%s%s",
+            level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
+            "CommandBufferArray");
+            
         myPendingCommands[level].emplace_back(std::make_pair(CommandBufferArray<GraphicsBackend::Vulkan>(
             myDeviceContext,
             CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>{
-                {"CommandBufferArray"},
+                {stringBuffer},
                 myDesc.pool,
-                level}), 0));
+                level}), std::make_pair(0, std::reference_wrapper(*this))));
+    }
 }
 
 template <>
@@ -114,59 +127,78 @@ CommandContext<GraphicsBackend::Vulkan>::internalBeginScope(const CommandContext
 }
     
 template <>
-CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalCommands()
+CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalCommands() const
 {
     return myLastCommands;
 }
 
-namespace command_vulkan
+template <>
+void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue)
 {
+    for (auto& cmd : commands)
+        cmd.second.first = timelineValue;
 
-static void onCommandBufferReset(
-    CommandBufferList<GraphicsBackend::Vulkan>& from,
-    CommandBufferList<GraphicsBackend::Vulkan>& to,
-    uint64_t timelineValue)
-{
-    ZoneScopedN("cmdReset");
+    myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
 
-    auto fromBeginIt = from.begin();
-    auto fromEndIt = fromBeginIt;
+    myDeviceContext->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
+    {
+        ZoneScopedN("cmdReset");
 
-    while (fromEndIt != from.end() && fromEndIt->second < timelineValue)
-        (fromEndIt++)->first.resetAll();
-    
-    to.splice(to.end(), std::move(from), fromBeginIt, fromEndIt);
-}
+        auto onResetCommands = [](CommandBufferList& from, uint64_t timelineValue)
+        {
+            auto fromBeginIt = from.begin();
+            auto fromIt = fromBeginIt;
 
+            while (fromIt != from.end() && fromIt->second.first < timelineValue)
+            {
+                fromIt->first.resetAll();
+                auto& toContext = fromIt->second.second.get();
+                auto& to = toContext.myFreeCommands[fromIt->first.getDesc().level];                
+                auto toIt = fromIt++;
+                to.splice(to.end(), std::move(from), toIt);
+            }
+        };
+
+        onResetCommands(myExecutedCommands, timelineValue);
+    });
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::enqueueAllPendingToSubmitted(CommandBufferLevel<GraphicsBackend::Vulkan> level, uint64_t timelineValue)
+void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue)
 {
-    for (auto& cmd : myPendingCommands[level])
-        cmd.second = timelineValue;
+    for (auto& cmd : commands)
+        cmd.second.first = timelineValue;
 
-    mySubmittedCommands[level].splice(mySubmittedCommands[level].end(), std::move(myPendingCommands[level]));
+    mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(commands));
 
-    myDeviceContext->addGarbageCollectCallback(timelineValue,
-        [this, level](uint64_t timelineValue){
-            command_vulkan::onCommandBufferReset(
-                mySubmittedCommands[level],
-                myFreeCommands[level],
-                timelineValue); });
+    myDeviceContext->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
+    {
+        ZoneScopedN("cmdReset");
+
+        auto onResetCommands = [](CommandBufferList& from, CommandBufferList& to, uint64_t timelineValue)
+        {
+            auto fromBeginIt = from.begin();
+            auto fromIt = fromBeginIt;
+
+            while (fromIt != from.end() && fromIt->second.first < timelineValue)
+                (fromIt++)->first.resetAll();
+
+            to.splice(to.end(), std::move(from), fromBeginIt, fromIt);
+        };
+
+        onResetCommands(mySubmittedCommands, myFreeCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY], timelineValue);
+    });
 }
 
 template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
 {
-    std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+    std::unique_lock guard(myCommandsMutex);
 
     ZoneScopedN("submit");
 
-    assert(submitInfo.level == VK_COMMAND_BUFFER_LEVEL_PRIMARY); // only valid case for vulkan afaik.
-
-    auto& pendingCommands = myPendingCommands[submitInfo.level];
+    auto& pendingCommands = myPendingCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
     if (pendingCommands.empty())
         return 0;
@@ -266,30 +298,36 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     CHECK_VK(vkQueueSubmit(submitInfo.queue, pendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
 
-    enqueueAllPendingToSubmitted(submitInfo.level, maxSignalValue);
+    enqueueSubmitted(std::move(pendingCommands), maxSignalValue);
 
     return maxSignalValue;
 }
 
 template <>
-uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(
-    CommandContext<GraphicsBackend::Vulkan>& other,
-    CommandBufferLevel<GraphicsBackend::Vulkan> level)
+uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<GraphicsBackend::Vulkan>& callee)
 {
-    std::scoped_lock guard(myCommandsMutex, other.myCommandsMutex);
-    
     ZoneScopedN("execute");
+
+    if (&callee != this)
+        std::lock(myCommandsMutex, callee.myCommandsMutex);
+    else
+        myCommandsMutex.lock();
 
     {
 		auto cmd = internalCommands();
 
-		for (const auto& secPendingCommands : other.myPendingCommands[level])
+		for (const auto& secPendingCommands : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
 			vkCmdExecuteCommands(cmd, secPendingCommands.first.head(), secPendingCommands.first.data());
 	}
 
     auto timelineValue = myDeviceContext->timelineValue()->load(std::memory_order_relaxed);
 
-	other.enqueueAllPendingToSubmitted(level, timelineValue);
+	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
+    
+    myCommandsMutex.unlock();
+
+    if (&callee != this)
+        callee.myCommandsMutex.unlock();
 
     return timelineValue;
 }
@@ -299,7 +337,7 @@ uint8_t CommandBufferArray<GraphicsBackend::Vulkan>::begin(
     const CommandBufferBeginInfo<GraphicsBackend::Vulkan>& beginInfo)
 {
     assert(!recording(myBits.head));
-    assert(head() < kCommandBufferCount);
+    assert(!full());
     
     CHECK_VK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
 
@@ -312,7 +350,6 @@ template <>
 void CommandBufferArray<GraphicsBackend::Vulkan>::end(uint8_t index)
 {
     assert(recording(index));
-    assert(head() < kCommandBufferCount);
 
     myBits.recordingFlags &= ~(1 << index);
 
@@ -326,7 +363,6 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(
 : myDeviceContext(deviceContext)
 , myDesc(std::move(desc))
 , myPendingCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
-, mySubmittedCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
 , myFreeCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
 {
     ZoneScopedN("CommandContext()");
@@ -337,12 +373,9 @@ CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 {
     ZoneScopedN("~CommandContext()");
 
-    for (auto& submittedCommands : mySubmittedCommands)
+    if (!mySubmittedCommands.empty())
     {
-        if (!submittedCommands.empty())
-        {
-            myDeviceContext->wait(submittedCommands.back().second);
-            myDeviceContext->collectGarbage(submittedCommands.back().second);
-        }
+        myDeviceContext->wait(mySubmittedCommands.back().second.first);
+        myDeviceContext->collectGarbage(mySubmittedCommands.back().second.first);
     }
 }

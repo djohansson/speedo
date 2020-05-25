@@ -71,11 +71,8 @@ private:
     {
         uint64_t head : kHeadBitCount;
         uint64_t recordingFlags : kCommandBufferCount;
-    } myBits = {};
+    } myBits = {0, 0};
 };
-
-template <GraphicsBackend B>
-using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, uint64_t>>;
 
 template <GraphicsBackend B>
 class CommandBufferAccessScope : Noncopyable, Nondynamic
@@ -117,7 +114,6 @@ struct CommandContextCreateDesc
 template <GraphicsBackend B>
 struct CommandSubmitInfo
 {
-    CommandBufferLevel<B> level = 0;
     QueueHandle<B> queue = 0;
     uint32_t waitSemaphoreCount = 0;
     const SemaphoreHandle<B>* waitSemaphores = nullptr;
@@ -140,9 +136,6 @@ struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
 template <GraphicsBackend B>
 class CommandContext
 {
-    friend class CommandBufferArray<B>;
-    friend class CommandBufferAccessScope<B>;
-
 public:
 
     CommandContext(CommandContext<B>&& other) = default;
@@ -155,15 +148,16 @@ public:
 
     auto beginScope(const CommandContextBeginInfo<B>& beginInfo = {}) 
     {
-        std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+        std::unique_lock guard(myCommandsMutex);
         return internalBeginScope(beginInfo);
     }
     auto commands()
     {
+        std::shared_lock guard(myCommandsMutex);
         return internalCommands();
     }
     
-    uint64_t execute(CommandContext<B>& other, CommandBufferLevel<B> level);
+    uint64_t execute(CommandContext<B>& callee);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
 
 protected:
@@ -173,16 +167,20 @@ protected:
 private:
 
     CommandBufferAccessScope<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
-    CommandBufferHandle<B> internalCommands();
+    CommandBufferHandle<B> internalCommands() const;
+
+    using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
     
     void enqueueOnePending(CommandBufferLevel<B> level);
-    void enqueueAllPendingToSubmitted(CommandBufferLevel<B> level, uint64_t timelineValue);
+    void enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue);
+    void enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue);
 
     std::shared_ptr<DeviceContext<B>> myDeviceContext;
     const CommandContextCreateDesc<B> myDesc = {};
-    std::vector<CommandBufferList<B>> myPendingCommands;
-    std::vector<CommandBufferList<B>> mySubmittedCommands;
-    std::vector<CommandBufferList<B>> myFreeCommands;
+    std::vector<CommandBufferList> myPendingCommands;
+    CommandBufferList myExecutedCommands;
+    CommandBufferList mySubmittedCommands;
+    std::vector<CommandBufferList> myFreeCommands;
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
     CommandBufferHandle<B> myLastCommands;

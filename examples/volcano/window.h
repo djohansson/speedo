@@ -22,7 +22,7 @@ struct WindowCreateDesc
 	Extent2d<B> splitScreenGrid = {};
 	ClearValue<B> clearValue = {};
 	bool clearEnable = true;
-	uint8_t maxCommandContextCount = 16;
+	uint8_t maxViewCommandContextCount = 4;
 };
 
 template <GraphicsBackend B>

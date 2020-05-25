@@ -6,25 +6,23 @@
 
 template <> 
 void DeviceResource<GraphicsBackend::Vulkan>::setObjectName(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     ObjectType<GraphicsBackend::Vulkan> objectType,
     uint64_t objectHandle,
-    const char* objectName)
+    const std::string& objectName)
 {
-    auto device = myDeviceContext->getDevice();
+    auto device = deviceContext->getDevice();
 
     // todo: create a lookup table for device extensions functions
     auto vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
         vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
-
-    myObjectNames.push_back(objectName);
 
     auto imageNameInfo = VkDebugUtilsObjectNameInfoEXT{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         nullptr,
         objectType,
         objectHandle,
-        myObjectNames.back().c_str()
-    };
+        objectName.c_str()};
     CHECK_VK(vkSetDebugUtilsObjectNameEXT(device, &imageNameInfo));
 }
 
@@ -59,7 +57,11 @@ DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
             2,
             objectIt);
 
-        setObjectName(objectType, objectHandles[objectIt], stringBuffer);
+        setObjectName(
+            myDeviceContext,
+            objectType,
+            objectHandles[objectIt],
+            myObjectNames.emplace_back(stringBuffer));
     } 
 }
     
@@ -74,7 +76,11 @@ DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
 : DeviceResource(deviceContext, desc)
 {
     for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
-        setObjectName(objectTypes[objectIt], objectHandles[objectIt], objectNames[objectIt]);
+        setObjectName(
+            myDeviceContext,
+            objectTypes[objectIt],
+            objectHandles[objectIt],
+            myObjectNames.emplace_back(objectNames[objectIt]));
 }
 
 template <> 

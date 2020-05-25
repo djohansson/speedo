@@ -316,7 +316,6 @@ Application<GraphicsBackend::Vulkan>::Application(
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommandContext->submit({
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             myDevice->getPrimaryTransferQueue(),
             1,
             &myDevice->getTimelineSemaphore(),
@@ -345,7 +344,6 @@ Application<GraphicsBackend::Vulkan>::Application(
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = primaryCommandContext->submit({
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             myDevice->getPrimaryGraphicsQueue(),
             1,
             &myDevice->getTimelineSemaphore(),
@@ -389,7 +387,6 @@ Application<GraphicsBackend::Vulkan>::Application(
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = myTransferCommandContext->submit({
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             myDevice->getPrimaryTransferQueue(),
             1,
             &myDevice->getTimelineSemaphore(),
@@ -870,7 +867,6 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
     auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
     myLastTransferTimelineValue = myTransferCommandContext->submit({
-        VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         myDevice->getPrimaryTransferQueue(),
         1,
         &myDevice->getTimelineSemaphore(),
