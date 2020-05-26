@@ -194,7 +194,7 @@ template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
 {
-    std::unique_lock guard(myCommandsMutex);
+    std::unique_lock writeLock(myCommandsMutex);
 
     ZoneScopedN("submit");
 

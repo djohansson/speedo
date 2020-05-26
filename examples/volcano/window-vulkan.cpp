@@ -55,6 +55,7 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         myDeviceContext,
         SwapchainCreateDesc<GraphicsBackend::Vulkan>{
+            {"mySwapchain"},
             frameBufferExtent,
             mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr});
 

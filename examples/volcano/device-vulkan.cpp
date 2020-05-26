@@ -35,9 +35,9 @@ void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
 template <>
 void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(std::optional<uint64_t> timelineValue)
 {
-    ZoneScopedN("collectGarbage");
+    std::unique_lock<decltype(myGarbageCollectCallbacksMutex)> writeLock(myGarbageCollectCallbacksMutex);
 
-    std::lock_guard<decltype(myGarbageCollectCallbacksMutex)> guard(myGarbageCollectCallbacksMutex);
+    ZoneScopedN("collectGarbage");
 
     while (!myGarbageCollectCallbacks.empty())
     {
@@ -54,7 +54,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::collectGarbage(std::optional<uint64
 template <>
 void DeviceContext<GraphicsBackend::Vulkan>::addGarbageCollectCallback(std::function<void(uint64_t)>&& callback)
 {
-    std::lock_guard<decltype(myGarbageCollectCallbacksMutex)> guard(myGarbageCollectCallbacksMutex);
+    std::unique_lock<decltype(myGarbageCollectCallbacksMutex)> writeLock(myGarbageCollectCallbacksMutex);
 
     myGarbageCollectCallbacks.emplace_back(
         std::make_pair(
@@ -65,7 +65,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::addGarbageCollectCallback(std::func
 template <>
 void DeviceContext<GraphicsBackend::Vulkan>::addGarbageCollectCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
 {
-    std::lock_guard<decltype(myGarbageCollectCallbacksMutex)> guard(myGarbageCollectCallbacksMutex);
+    std::unique_lock<decltype(myGarbageCollectCallbacksMutex)> writeLock(myGarbageCollectCallbacksMutex);
     
     myGarbageCollectCallbacks.emplace_back(
         std::make_pair(

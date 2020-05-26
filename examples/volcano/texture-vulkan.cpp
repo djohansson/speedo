@@ -64,7 +64,7 @@ load(
         AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
 
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = textureFile.u8string().c_str();
+    desc.name = textureFile.filename().u8string();
 
     auto loadPBin = [&descAndInitialData, &size, &deviceContext](std::istream& stream) {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
@@ -172,9 +172,25 @@ load(
 
 template <>
 ImageViewHandle<GraphicsBackend::Vulkan>
-Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags) const
+Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags)
 {
-    return createImageView2D(getDeviceContext()->getDevice(), getImage(), myDesc.format, aspectFlags);
+    auto view = createImageView2D(getDeviceContext()->getDevice(), getImage(), myDesc.format, aspectFlags);
+    
+    static std::atomic_uint32_t viewIndex = 0;
+    char stringBuffer[256];
+    static constexpr std::string_view imageViewStr = "_ImageView";
+    sprintf_s(
+        stringBuffer,
+        sizeof(stringBuffer),
+        "%.*s%.*s%u",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(imageViewStr.size()),
+        imageViewStr.data(),
+        viewIndex++);
+    addObject(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(view), stringBuffer);
+    
+    return view;
 }
 
 template <>
@@ -224,7 +240,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
             VK_IMAGE_TILING_OPTIMAL,
             desc.usage,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            desc.name),
+            desc.name.c_str()),
         std::make_tuple(VK_IMAGE_LAYOUT_UNDEFINED)))
 {
 }
@@ -252,7 +268,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
             VK_IMAGE_LAYOUT_GENERAL,
             std::get<0>(descAndInitialData).usage,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            std::get<0>(descAndInitialData).name),
+            std::get<0>(descAndInitialData).name.c_str()),
         std::make_tuple(VK_IMAGE_LAYOUT_GENERAL)))
 {   
     deviceContext->addGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){

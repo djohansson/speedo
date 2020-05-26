@@ -372,7 +372,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
         {
-            auto beginScope(myTransferCommandContext->beginScope());
+            auto transferCommands = myTransferCommandContext->beginScope();
 
             myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
@@ -405,7 +405,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     //     CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
     //     {
-    //         auto beginScope(myTransferCommandContext->beginScope());
+    //         auto transferCommands = myTransferCommandContext->beginScope();
 
     //         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
     //             myDevice,
@@ -508,7 +508,17 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             if (Begin("Statistics", &showStatistics))
             {
-                // ...
+                Text("Fences: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FENCE));
+                Text("Semaphores: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
+                Text("Command Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+                Text("Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER));
+                Text("Buffer Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
+                Text("Images: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE));
+                Text("Image Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
+                Text("Framebuffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
+                Text("Command Pools: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
+                Text("Surfaces: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
+                Text("Swapchains: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
             }
             End();
         }

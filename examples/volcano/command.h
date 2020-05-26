@@ -32,7 +32,7 @@ class CommandBufferArray : DeviceResource<B>
 {
 public:
 
-    static constexpr uint32_t kHeadBitCount = 5;
+    static constexpr uint32_t kHeadBitCount = 2;
     static constexpr uint32_t kCommandBufferCount = (1 << kHeadBitCount);
 
     CommandBufferArray(CommandBufferArray<B>&& other) = default;
@@ -55,7 +55,7 @@ public:
     const CommandBufferHandle<B>* data() const { assert(!recordingFlags()); return myArray.data(); }
     
     bool recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
-    uint64_t recordingFlags() const { return myBits.recordingFlags; }
+    uint8_t recordingFlags() const { return myBits.recordingFlags; }
     
     bool full() const { return (head() + 1) >= capacity(); }
     constexpr auto capacity() const { return kCommandBufferCount; }
@@ -69,8 +69,8 @@ private:
     std::array<CommandBufferHandle<B>, kCommandBufferCount> myArray = {};
     struct Bits
     {
-        uint64_t head : kHeadBitCount;
-        uint64_t recordingFlags : kCommandBufferCount;
+        uint8_t head : kHeadBitCount;
+        uint8_t recordingFlags : kCommandBufferCount;
     } myBits = {0, 0};
 };
 
@@ -148,12 +148,12 @@ public:
 
     auto beginScope(const CommandContextBeginInfo<B>& beginInfo = {}) 
     {
-        std::unique_lock guard(myCommandsMutex);
+        std::unique_lock writeLock(myCommandsMutex);
         return internalBeginScope(beginInfo);
     }
     auto commands()
     {
-        std::shared_lock guard(myCommandsMutex);
+        std::shared_lock readLock(myCommandsMutex);
         return internalCommands();
     }
     

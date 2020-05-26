@@ -140,11 +140,10 @@ public:
 
     ScopedFileObject(ScopedFileObject&& other)
     : T(std::move(other))
-    , myFilePath(std::move(other.myFilePath))
-    , myName(std::move(other.myName))
-    { 
-        other.myFilePath.clear();
-        other.myName.clear();
+    , myFilePath(std::exchange(other.myFilePath, {}))
+    , myName(std::exchange(other.myName, {}))
+    , mySaveOnClose(other.mySaveOnClose)
+    {
     }
 
     void save() const { saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName); }
@@ -159,5 +158,5 @@ private:
 
     std::filesystem::path myFilePath;
     std::string myName;
-    bool mySaveOnClose = false;
+    bool mySaveOnClose = true;
 };

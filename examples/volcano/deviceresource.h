@@ -3,14 +3,15 @@
 #include "device.h"
 #include "gfx-types.h"
 
-#include <atomic>
 #include <list>
 #include <string>
+#include <map>
+#include <shared_mutex>
 
 template <GraphicsBackend B>
 struct DeviceResourceCreateDesc
 {
-    const char* name = nullptr;
+    std::string name;
 };
 
 template <GraphicsBackend B>
@@ -21,14 +22,16 @@ public:
     virtual ~DeviceResource();
 
     const auto& getName() const { return myName; }
-
-    static void setObjectName(
-        const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-        ObjectType<B> objectType,
-        uint64_t objectHandle,
-        const std::string& objectName);
+    static uint32_t getTypeCount(ObjectType<B> type);
 
 protected:
+
+    struct Object
+    {
+        std::string name;
+        ObjectType<B> type = {};
+        uint64_t handle = 0;
+    };
 
     DeviceResource(DeviceResource<B>&& other) = default;
     DeviceResource( // no object names are set
@@ -40,21 +43,28 @@ protected:
         uint32_t objectCount,
         ObjectType<B> objectType,
         const uint64_t* objectHandles);
-    DeviceResource( // uses objectNames and individual objectTypes for all objectHandles
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const DeviceResourceCreateDesc<B>& desc,
-        uint32_t objectCount,
-        const ObjectType<B>* objectTypes,
-        const uint64_t* objectHandles,
-        const char** objectNames);
 
     const auto& getDeviceContext() const { return myDeviceContext; }
 
-    auto& objectNames() { return myObjectNames; }
+    void addObject(
+        ObjectType<B> objectType,
+        uint64_t objectHandle,
+        const char* objectName);
 
 private:
 
+    void internalAddObject(
+        ObjectType<B> objectType,
+        uint64_t objectHandle,
+        const char* objectName);
+
+    static void incrementTypeCount(ObjectType<B> type, uint32_t count);
+    static void decrementTypeCount(ObjectType<B> type, uint32_t count);
+
     std::shared_ptr<DeviceContext<B>> myDeviceContext;
     std::string myName;
-    std::list<std::string> myObjectNames;
+    std::list<Object> myObjects;
+
+    static std::shared_mutex gObjectTypeCountsMutex;
+    static std::map<ObjectType<B>, uint32_t> gObjectTypeCounts;
 };
