@@ -3,6 +3,8 @@
 #include "rendertarget.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
@@ -26,6 +28,32 @@ Frame<GraphicsBackend::Vulkan>::Frame(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
     VK_CHECK(vkCreateSemaphore(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
+
+    char stringBuffer[64];
+    static constexpr std::string_view renderCompleteSemaphoreStr = "_RenderCompleteSemaphore";
+    static constexpr std::string_view newImageAcquiredSemaphoreStr = "_NewImageAcquiredSemaphore";
+    
+    sprintf_s(
+        stringBuffer,
+        sizeof(stringBuffer),
+        "%.*s%.*s",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(renderCompleteSemaphoreStr.size()),
+        renderCompleteSemaphoreStr.data());
+
+    addObject(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myRenderCompleteSemaphore), stringBuffer);
+
+    sprintf_s(
+        stringBuffer,
+        sizeof(stringBuffer),
+        "%.*s%.*s",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(newImageAcquiredSemaphoreStr.size()),
+        newImageAcquiredSemaphoreStr.data());
+
+    addObject(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore), stringBuffer);
 }
 
 template <>

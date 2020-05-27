@@ -95,7 +95,7 @@ load(
 		AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = modelFile.u8string().c_str();
+    desc.name = modelFile.filename().u8string();
 	
 	auto loadPBin = [&descAndInitialData, &deviceContext](std::istream& stream) {
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;

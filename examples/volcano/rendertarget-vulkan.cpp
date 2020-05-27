@@ -52,7 +52,10 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
             1,
             colorImageIt);
 
-        setObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(myColorViews.back()), stringBuffer);
+        addObject(
+            VK_OBJECT_TYPE_IMAGE_VIEW,
+            reinterpret_cast<uint64_t>(myColorViews.back()),
+            stringBuffer);
     }
 
     attachments.insert(std::end(attachments), std::begin(myColorViews), std::end(myColorViews));
@@ -78,7 +81,10 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
             static_cast<int>(depthImageViewStr.size()),
             depthImageViewStr.data());
 
-        setObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(myDepthView.value()), stringBuffer);
+        addObject(
+            VK_OBJECT_TYPE_IMAGE_VIEW,
+            reinterpret_cast<uint64_t>(myDepthView.value()),
+            stringBuffer);
 
         attachments.push_back(myDepthView.value());
     }
@@ -102,7 +108,10 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
         getName().c_str(),
         framebufferStr.data());
 
-    setObjectName(VK_OBJECT_TYPE_FRAMEBUFFER, reinterpret_cast<uint64_t>(myFrameBuffer), stringBuffer);
+    addObject(
+        VK_OBJECT_TYPE_FRAMEBUFFER,
+        reinterpret_cast<uint64_t>(myFrameBuffer),
+        stringBuffer);
 }
 
 template <>

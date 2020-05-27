@@ -1003,7 +1003,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 			.ObjectListName = '$Name$-obj-$ConfigName$'
 
-			.CompilerOptions + .ObjectListCompilerOptions
+			.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
+				+ .ObjectListCompilerOptions
 			.CompilerOutputPath = '$IntermediateFilePath$/$Name$/$ConfigName$'
 		]
 		^LocalObjectLists + .ObjectList
@@ -1020,7 +1021,8 @@ ForEach(.CompilerConfig in .Clang_x64_Configs)
 
 			.LibraryName = '$Name$-lib-$ConfigName$'
 
-			.CompilerOptions + .LibraryCompilerOptions
+			.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
+				+ .LibraryCompilerOptions
 			.CompilerOutputPath = '$IntermediateFilePath$/$Name$/$ConfigName$'
 
 			.LibrarianOutput = '$BuildOutputPath$/$ConfigName$/$LibPrefix$$Name$$LibSuffix$'

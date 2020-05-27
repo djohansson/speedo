@@ -22,7 +22,7 @@ struct WindowCreateDesc
 	Extent2d<B> splitScreenGrid = {};
 	ClearValue<B> clearValue = {};
 	bool clearEnable = true;
-	uint8_t maxCommandContextCount = 16;
+	uint8_t maxViewCommandContextCount = 4;
 };
 
 template <GraphicsBackend B>
@@ -79,7 +79,7 @@ private:
 	void updateViewBuffer(uint32_t frameIndex) const;
 
 	std::shared_ptr<InstanceContext<B>> myInstanceContext;
-	std::shared_ptr<DeviceContext<B>> myDeviceContext;
+	std::shared_ptr<DeviceContext<B>> myDeviceContext; // todo: make window into a deviceresource
 	WindowCreateDesc<B> myDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
 	std::unique_ptr<Texture<B>> myDepthTexture;

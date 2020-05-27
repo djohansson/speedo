@@ -17,26 +17,23 @@
 template <GraphicsBackend B>
 class CommandContext;
 
-template <GraphicsBackend B, bool EndOnDestruct>
+template <GraphicsBackend B>
 class CommandBufferAccessScope;
 
 template <GraphicsBackend B>
 struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
 {
-    CommandPoolHandle<B> commandPool = 0;
-    uint32_t commandBufferLevel = 0;
+    CommandPoolHandle<B> pool = 0;
+    CommandBufferLevel<B> level = {};
 };
 
 template <GraphicsBackend B>
 class CommandBufferArray : DeviceResource<B>
 {
-    friend class CommandContext<B>;
-    friend class CommandBufferAccessScope<B, true>;
-    friend class CommandBufferAccessScope<B, false>;
-
-    static constexpr uint32_t kCommandBufferCount = 8;
-
 public:
+
+    static constexpr uint32_t kHeadBitCount = 2;
+    static constexpr uint32_t kCommandBufferCount = (1 << kHeadBitCount);
 
     CommandBufferArray(CommandBufferArray<B>&& other) = default;
     CommandBufferArray(
@@ -47,70 +44,71 @@ public:
         CommandBufferArrayCreateDesc<B>&& desc);
     ~CommandBufferArray();
 
-private:
+    const auto& getDesc() const { return myDesc; }
 
-    void begin(const CommandBufferBeginInfo<B>* beginInfo = nullptr);
-    bool end();
-    void reset();
+    uint8_t begin(const CommandBufferBeginInfo<B>& beginInfo);
+    void end(uint8_t index);
 
-    const CommandBufferHandle<B>* data() const { assert(!recording()); return myCommandBufferArray.data(); }
-    uint8_t size() const { static_assert(kCommandBufferCount < 128); assert(!recording()); return myBits.myHead; }
-    bool recording() const { return myBits.myRecording; }
-    bool full() const { return (size() + 1) >= capacity(); }
+    void resetAll();
+
+    uint8_t head() const { return myBits.head; }
+    const CommandBufferHandle<B>* data() const { assert(!recordingFlags()); return myArray.data(); }
+    
+    bool recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
+    uint8_t recordingFlags() const { return myBits.recordingFlags; }
+    
+    bool full() const { return (head() + 1) >= capacity(); }
     constexpr auto capacity() const { return kCommandBufferCount; }
     
-    operator CommandBufferHandle<B>() const { return myCommandBufferArray[myBits.myHead]; }
+    CommandBufferHandle<B>& operator[](uint8_t index) { return myArray[index]; }
+    const CommandBufferHandle<B>& operator[](uint8_t index) const { return myArray[index]; }
 
-    static auto createArray(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const CommandBufferArrayCreateDesc<B>& desc);
+private:
         
     const CommandBufferArrayCreateDesc<B> myDesc = {};
-    std::array<CommandBufferHandle<B>, kCommandBufferCount> myCommandBufferArray = {};
+    std::array<CommandBufferHandle<B>, kCommandBufferCount> myArray = {};
     struct Bits
     {
-        uint8_t myHead : 7;
-        uint8_t myRecording : 1;
-    } myBits = {};
+        uint8_t head : kHeadBitCount;
+        uint8_t recordingFlags : kCommandBufferCount;
+    } myBits = {0, 0};
 };
 
-template <GraphicsBackend B, bool CallBeginAndEnd>
+template <GraphicsBackend B>
 class CommandBufferAccessScope : Noncopyable, Nondynamic
 {
 public:
 
-    CommandBufferAccessScope(CommandBufferArray<B>& array, const CommandBufferBeginInfo<B>* beginInfo = nullptr)
-        : myArray(array)
+    CommandBufferAccessScope(CommandBufferAccessScope<B>&& other) = default;
+    CommandBufferAccessScope(CommandBufferAccessScope<B> const&& other)
+    : myArray(other.myArray)
+    , myIndex(other.myIndex) {};
+    CommandBufferAccessScope(CommandBufferArray<B>& array, const CommandBufferBeginInfo<B>& beginInfo)
+    : myArray(array)
+    , myIndex(myArray.begin(beginInfo)) {}
+    ~CommandBufferAccessScope()
     {
-        if constexpr (CallBeginAndEnd)
-            myArray.begin(beginInfo);
+        if (myArray.recording(myIndex))
+            end();
     }
 
     void end()
     {
-        myArray.end();
+        myArray.end(myIndex);
     }
 
-    ~CommandBufferAccessScope()
-    {
-        if constexpr (CallBeginAndEnd)
-            if (myArray.recording())
-                myArray.end();
-            
-    }
-
-    operator CommandBufferHandle<B>() const { return myArray; }
+    operator CommandBufferHandle<B>() const { return myArray[myIndex]; }
 
 private:
 
     CommandBufferArray<B>& myArray;
+    uint8_t myIndex = 0;
 };
 
 template <GraphicsBackend B>
 struct CommandContextCreateDesc
 {
-    CommandPoolHandle<B> commandPool = 0;
-    uint32_t commandBufferLevel = 0;
+    CommandPoolHandle<B> pool = 0;
 };
 
 template <GraphicsBackend B>
@@ -128,11 +126,16 @@ struct CommandSubmitInfo
 };
 
 template <GraphicsBackend B>
+struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
+{
+    CommandContextBeginInfo();
+    
+    CommandBufferLevel<B> level = {};
+};
+
+template <GraphicsBackend B>
 class CommandContext
 {
-    friend class CommandBufferArray<B>;
-    friend class CommandBufferAccessScope<B, true>;
-
 public:
 
     CommandContext(CommandContext<B>&& other) = default;
@@ -143,20 +146,19 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto beginScope(const CommandBufferBeginInfo<B>* beginInfo = nullptr) 
+    auto beginScope(const CommandContextBeginInfo<B>& beginInfo = {}) 
     {
-        std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+        std::unique_lock writeLock(myCommandsMutex);
         return internalBeginScope(beginInfo);
     }
     auto commands()
     {
-        std::lock_guard<decltype(myCommandsMutex)> guard(myCommandsMutex);
+        std::shared_lock readLock(myCommandsMutex);
         return internalCommands();
     }
     
-    uint64_t execute(CommandContext<B>& other);
-    uint64_t submit(const CommandSubmitInfo<B>& submitInfo = CommandSubmitInfo<B>());
-    void reset();
+    uint64_t execute(CommandContext<B>& callee);
+    uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
 
 protected:
 
@@ -164,17 +166,22 @@ protected:
 
 private:
 
-    CommandBufferAccessScope<GraphicsBackend::Vulkan, true> internalBeginScope(const CommandBufferBeginInfo<B>* beginInfo);
-    CommandBufferAccessScope<GraphicsBackend::Vulkan, false> internalCommands();
+    CommandBufferAccessScope<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
+    CommandBufferHandle<B> internalCommands() const;
+
+    using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
     
-    void enqueueOnePending();
-    void enqueueAllPendingToSubmitted(uint64_t timelineValue);
+    void enqueueOnePending(CommandBufferLevel<B> level);
+    void enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue);
+    void enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue);
 
     std::shared_ptr<DeviceContext<B>> myDeviceContext;
     const CommandContextCreateDesc<B> myDesc = {};
-    std::list<std::pair<CommandBufferArray<B>, uint64_t>> myPendingCommands;
-    std::list<std::pair<CommandBufferArray<B>, uint64_t>> mySubmittedCommands;
-    std::list<std::pair<CommandBufferArray<B>, uint64_t>> myFreeCommands;
+    std::vector<CommandBufferList> myPendingCommands;
+    CommandBufferList myExecutedCommands;
+    CommandBufferList mySubmittedCommands;
+    std::vector<CommandBufferList> myFreeCommands;
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
+    CommandBufferHandle<B> myLastCommands;
 };

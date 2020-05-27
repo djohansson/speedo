@@ -11,7 +11,7 @@
 #include <future>
 #include <tuple>
 
-#ifdef PROFILING_ENABLED
+#if PROFILING_ENABLED
 #ifndef TRACY_ENABLE
 #define TRACY_ENABLE
 #endif

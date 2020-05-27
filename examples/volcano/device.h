@@ -35,7 +35,6 @@ struct DeviceConfiguration
 {
     uint32_t physicalDeviceIndex = 0;
     std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
-    std::optional<bool> useCommandPoolReset;
     std::optional<bool> useHostQueryReset;
     std::optional<bool> useTimelineSemaphores;
 
@@ -45,7 +44,6 @@ struct DeviceConfiguration
         archive(
             CEREAL_NVP(physicalDeviceIndex),
             CEREAL_NVP(swapchainConfiguration),
-            CEREAL_NVP(useCommandPoolReset),
             CEREAL_NVP(useHostQueryReset),
             CEREAL_NVP(useTimelineSemaphores)
         );

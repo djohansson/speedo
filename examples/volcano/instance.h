@@ -10,24 +10,11 @@
 template <GraphicsBackend B>
 struct InstanceConfiguration
 {
-    InstanceConfiguration() = default;
-    InstanceConfiguration(InstanceConfiguration&& other)
-    : applicationName(std::move(other.applicationName))
-    , engineName(std::move(other.engineName))
-    , appInfo(std::move(other.appInfo))
-    {}
-
+    InstanceConfiguration();
+    
     std::string applicationName = "volcano";
     std::string engineName = "magma";
-    ApplicationInfo<B> appInfo = {
-        VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        nullptr,
-        nullptr,
-        VK_MAKE_VERSION(1, 0, 0),
-        nullptr,
-        VK_MAKE_VERSION(1, 0, 0),
-        VK_API_VERSION_1_2
-    };
+    ApplicationInfo<B> appInfo = {};
 
     template <class Archive>
     void load(Archive& archive)

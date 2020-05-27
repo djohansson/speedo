@@ -199,9 +199,6 @@ void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubm
             ZoneScopedN("waitTransfer");
 
             myDevice->wait(myLastTransferTimelineValue);
-
-            // todo: remove? not likely that this path (full command pool reset) will be needed.
-            myTransferCommandContext->reset();
         }
 
         myDevice->collectGarbage(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
@@ -293,9 +290,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
-        CommandContextCreateDesc<GraphicsBackend::Vulkan>{
-            myDevice->getTransferCommandPools()[0][0],
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY});
+        CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
         {
             auto transferCommands = myTransferCommandContext->beginScope();
@@ -379,7 +374,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
         {
-            auto beginScope(myTransferCommandContext->beginScope());
+            auto transferCommands = myTransferCommandContext->beginScope();
 
             myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
@@ -412,7 +407,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     //     VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
     //     {
-    //         auto beginScope(myTransferCommandContext->beginScope());
+    //         auto transferCommands = myTransferCommandContext->beginScope();
 
     //         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
     //             myDevice,
@@ -437,13 +432,16 @@ Application<GraphicsBackend::Vulkan>::Application(
         using namespace ImGui;
 
         // todo: move elsewhere
-        auto editableTextField = [](int id, const char* label, std::string& str, int& inputId)
+        auto editableTextField = [](int id, const char* label, std::string& str, float maxTextWidth, int& inputId)
         {
-            auto textSize = CalcTextSize(
-                str.c_str(),
-                str.c_str() + str.size());
+            auto textSize = std::max(
+                maxTextWidth,
+                CalcTextSize(
+                    str.c_str(),
+                    str.c_str() + str.size()).x);
 
-            PushItemWidth(std::max(160.f, textSize.x));
+            PushItemWidth(textSize);
+            //PushClipRect(textSize);
             
             if (id == inputId)
             {
@@ -458,16 +456,23 @@ Application<GraphicsBackend::Vulkan>::Application(
                         ImGuiInputTextFlags_EnterReturnsTrue|ImGuiInputTextFlags_CallbackAlways,
                         [](ImGuiInputTextCallbackData* data)
                         {
-                            auto textSize = CalcTextSize(data->Buf, data->Buf + data->BufTextLen);
-
+                            PopClipRect();
                             PopItemWidth();
-                            PushItemWidth(std::max(160.f, textSize.x));
+
+                            auto textSize = std::max(
+                                *static_cast<float*>(data->UserData),
+                                CalcTextSize(
+                                    data->Buf,
+                                    data->Buf + data->BufTextLen).x);
+
+                            PushItemWidth(textSize);
+                            //PushClipRect(textSize);
 
                             data->SelectionStart = data->SelectionEnd;
 
                             return 0;
 
-                        }))
+                        }, &maxTextWidth))
                     {
                         if (str.empty())
                             str = "Empty";
@@ -490,7 +495,14 @@ Application<GraphicsBackend::Vulkan>::Application(
                 TextUnformatted(str.c_str(), str.c_str() + str.size());
             }
 
+            //PopClipRect();
             PopItemWidth();
+
+            return std::max(
+                maxTextWidth,
+                CalcTextSize(
+                    str.c_str(),
+                    str.c_str() + str.size()).x);;
         };
 
         static bool showStatistics = false;
@@ -498,7 +510,17 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             if (Begin("Statistics", &showStatistics))
             {
-                // ...
+                Text("Fences: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FENCE));
+                Text("Semaphores: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
+                Text("Command Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+                Text("Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER));
+                Text("Buffer Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
+                Text("Images: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE));
+                Text("Image Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
+                Text("Framebuffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
+                Text("Command Pools: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
+                Text("Surfaces: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
+                Text("Swapchains: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
             }
             End();
         }
@@ -542,10 +564,11 @@ Application<GraphicsBackend::Vulkan>::Application(
 
                 imnodes::BeginNodeTitleBar();
 
-                editableTextField(
+                float titleBarTextWidth = editableTextField(
                     node->getId(),
                     buffer,
                     node->name(),
+                    160.0f,
                     std::any_cast<NodeUserData&>(node->userData()).inputId);
 
                 imnodes::EndNodeTitleBar();
@@ -559,42 +582,51 @@ Application<GraphicsBackend::Vulkan>::Application(
                     auto rowCount = std::max(inOutNode->inputAttributes().size(), inOutNode->inputAttributes().size());
                     for (uint32_t rowIt = 0; rowIt < rowCount; rowIt++)
                     {
-                        if (uint32_t inputAttribIt = rowIt; inputAttribIt < inOutNode->inputAttributes().size())
+                        float inputTextWidth = 0.0f;
+                        if (rowIt < inOutNode->inputAttributes().size())
                         {
-                            auto& inputAttribute = inOutNode->inputAttributes()[inputAttribIt];
+                            auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
                             sprintf_s(buffer, sizeof(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
                             
                             imnodes::BeginInputAttribute(inputAttribute.id);
 
-                            editableTextField(
+                            inputTextWidth = editableTextField(
                                 inputAttribute.id,
                                 buffer,
                                 inputAttribute.name,
+                                80.0f,
                                 std::any_cast<NodeUserData&>(node->userData()).inputId);
                             
-                            imnodes::EndAttribute();
+                            imnodes::EndInputAttribute();
 
                             if (IsItemClicked() && IsMouseDoubleClicked(0))
                                 std::any_cast<NodeUserData&>(node->userData()).inputId = inputAttribute.id;
-
                         }
 
-                        if (uint32_t outputAttribIt = rowIt; outputAttribIt < inOutNode->outputAttributes().size())
+                        if (rowIt < inOutNode->outputAttributes().size())
                         {
-                            ImGui::SameLine();
-
-                            auto& outputAttribute = inOutNode->outputAttributes()[outputAttribIt];
+                            auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
                             sprintf_s(buffer, sizeof(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
 
                             imnodes::BeginOutputAttribute(outputAttribute.id);
-                            
+
+                            float outputTextWidth = CalcTextSize(
+                                outputAttribute.name.c_str(),
+                                outputAttribute.name.c_str() + outputAttribute.name.size()).x;
+
+                            // if (rowIt < inOutNode->inputAttributes().size())
+                            //     ImGui::SameLine();
+
+                            Indent(std::max(titleBarTextWidth, inputTextWidth + outputTextWidth) - outputTextWidth);
+
                             editableTextField(
                                 outputAttribute.id,
                                 buffer,
                                 outputAttribute.name,
+                                80.0f,
                                 std::any_cast<NodeUserData&>(node->userData()).inputId);
                             
-                            imnodes::EndAttribute();
+                            imnodes::EndOutputAttribute();
 
                             if (IsItemClicked() && IsMouseDoubleClicked(0))
                                 std::any_cast<NodeUserData&>(node->userData()).inputId = outputAttribute.id;
@@ -802,10 +834,6 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             assert(frameIndex != myLastFrameIndex);
 
             myDevice->wait(frameLastSubmitTimelineValue);
-
-            // todo: remove? not likely that this path (full command pool reset) will be needed.
-            for (auto& context : myWindow->commandContexts()[frame->getDesc().index])
-                context->reset();
         }
 
         myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);

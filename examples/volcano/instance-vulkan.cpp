@@ -11,12 +11,9 @@ namespace instance_vulkan
 
 struct UserData
 {
-#ifdef PROFILING_ENABLED
     VkDebugUtilsMessengerEXT debugUtilsMessenger = 0;
-#endif
 };
 
-#ifdef PROFILING_ENABLED
 VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 {
     auto vkCreateDebugUtilsMessengerEXT =
@@ -66,8 +63,20 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 
     return messenger;
 }
-#endif
 
+}
+
+template <>
+InstanceConfiguration<GraphicsBackend::Vulkan>::InstanceConfiguration()
+: appInfo{
+    VK_STRUCTURE_TYPE_APPLICATION_INFO,
+    nullptr,
+    nullptr,
+    VK_MAKE_VERSION(1, 0, 0),
+    nullptr,
+    VK_MAKE_VERSION(1, 0, 0),
+    VK_API_VERSION_1_2}
+{
 }
 
 template <>
@@ -125,21 +134,16 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
         std::cout << instanceExtensions[i] << "\n";
     }
 
-    std::sort(
-        instanceExtensions.begin(), instanceExtensions.end(),
+    // must be sorted lexicographically for std::includes to work!
+    std::sort(instanceExtensions.begin(), instanceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
-    std::vector<const char*> requiredLayers = {
-#ifdef PROFILING_ENABLED
-        "VK_LAYER_KHRONOS_validation",
-#endif
-    };
+    std::vector<const char*> requiredLayers = {};
+    if constexpr (PROFILING_ENABLED)
+        requiredLayers.emplace_back("VK_LAYER_KHRONOS_validation");
 
     std::vector<const char*> requiredExtensions = {
         // must be sorted lexicographically for std::includes to work!
-#ifdef PROFILING_ENABLED
-        "VK_EXT_debug_utils",
-#endif
 #if defined(__APPLE__)
         "VK_EXT_metal_surface",
 #endif
@@ -159,6 +163,13 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
 #	endif
 #endif
     };
+
+    if constexpr(PROFILING_ENABLED)
+        requiredExtensions.emplace_back("VK_EXT_debug_utils");
+
+    // must be sorted lexicographically for std::includes to work!
+    std::sort(requiredExtensions.begin(), requiredExtensions.end(),
+        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
     assert(std::includes(
         instanceExtensions.begin(), instanceExtensions.end(), requiredExtensions.begin(),
@@ -221,10 +232,11 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
 
     myUserData = instance_vulkan::UserData();
 
-#ifdef PROFILING_ENABLED
-    std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger =
-        instance_vulkan::createDebugUtilsMessenger(myInstance);
-#endif
+    if constexpr(PROFILING_ENABLED)
+    {
+        std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger =
+            instance_vulkan::createDebugUtilsMessenger(myInstance);
+    }
 }
 
 template <>
@@ -232,11 +244,12 @@ InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
 {
     ZoneScopedN("~Instance()");
 
-#ifdef PROFILING_ENABLED
-    auto vkDestroyDebugUtilsMessengerEXT =
-        (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
-    vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
-#endif
+    if constexpr(PROFILING_ENABLED)
+    {
+        auto vkDestroyDebugUtilsMessengerEXT =
+            (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
+        vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
+    }
 
     vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
     vkDestroyInstance(myInstance, nullptr);

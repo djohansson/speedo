@@ -50,10 +50,11 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
     VkPhysicalDeviceTimelineSemaphoreProperties timelineProperties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES };
     deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     deviceInfo.deviceProperties.pNext = &timelineProperties;
+    deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    deviceInfo.deviceFeatures.pNext = nullptr;
     
     vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties.properties);
-	
-    auto _vkGetPhysicalDeviceProperties2 =
+	auto _vkGetPhysicalDeviceProperties2 =
         (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(
             instance, "vkGetPhysicalDeviceProperties2");
     assert(_vkGetPhysicalDeviceProperties2 != nullptr);
@@ -66,7 +67,7 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
             instance, "vkGetPhysicalDeviceFeatures2");
     assert(_vkGetPhysicalDeviceFeatures2 != nullptr);
     _vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
-
+    
 	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);
 
 	uint32_t formatCount;

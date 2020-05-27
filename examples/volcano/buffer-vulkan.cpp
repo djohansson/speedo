@@ -3,15 +3,33 @@
 
 #include <string>
 
+#include <core/slang-secure-crt.h>
+
 
 template <>
 BufferViewHandle<GraphicsBackend::Vulkan>
 Buffer<GraphicsBackend::Vulkan>::createView(
     Format<GraphicsBackend::Vulkan> format,
     DeviceSize<GraphicsBackend::Vulkan> offset,
-    DeviceSize<GraphicsBackend::Vulkan> range) const
+    DeviceSize<GraphicsBackend::Vulkan> range)
 {
-    return createBufferView(getDeviceContext()->getDevice(), getBuffer(), 0, format, offset, range);
+    auto view = createBufferView(getDeviceContext()->getDevice(), getBuffer(), 0, format, offset, range);
+    
+    static std::atomic_uint32_t viewIndex = 0;
+    char stringBuffer[256];
+    static constexpr std::string_view bufferViewStr = "_BufferView";
+    sprintf_s(
+        stringBuffer,
+        sizeof(stringBuffer),
+        "%.*s%.*s%u",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(bufferViewStr.size()),
+        bufferViewStr.data(),
+        viewIndex++);
+    addObject(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(view), stringBuffer);
+    
+    return view;
 }
 
 template <>
@@ -45,7 +63,7 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
             desc.size,
             desc.usageFlags,
             desc.memoryFlags,
-            desc.name)))
+            desc.name.c_str())))
 {
 }
 
@@ -68,7 +86,7 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
             std::get<0>(descAndInitialData).size,
             std::get<0>(descAndInitialData).usageFlags,
             std::get<0>(descAndInitialData).memoryFlags,
-            std::get<0>(descAndInitialData).name)))
+            std::get<0>(descAndInitialData).name.c_str())))
 {
     deviceContext->addGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
