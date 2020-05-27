@@ -314,15 +314,13 @@ Application<GraphicsBackend::Vulkan>::Application(
         }
 
         // submit transfers.
-        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMask,
-            &waitTimelineValue,
+            0,
+            nullptr,
+            nullptr,
+            nullptr,
             1,
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
@@ -344,7 +342,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = primaryCommandContext->submit({
             myDevice->getPrimaryGraphicsQueue(),
             1,
@@ -387,7 +385,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         // submit transfers.
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
             1,
@@ -877,7 +875,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     // submit transfers.
     Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-    auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+    auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
     myLastTransferTimelineValue = myTransferCommandContext->submit({
         myDevice->getPrimaryTransferQueue(),
         1,

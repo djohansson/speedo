@@ -58,7 +58,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::addGarbageCollectCallback(std::func
 
     myGarbageCollectCallbacks.emplace_back(
         std::make_pair(
-            myTimelineValue->load(std::memory_order_relaxed),
+            myTimelineValue.load(std::memory_order_relaxed),
             std::move(callback)));
 }
 
@@ -301,8 +301,6 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     VK_CHECK(vkCreateSemaphore(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
-
-    myTimelineValue = std::make_shared<std::atomic_uint64_t>(0);
 }
 
 template <>

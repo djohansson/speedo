@@ -319,7 +319,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<Graphic
 			vkCmdExecuteCommands(cmd, secPendingCommands.first.head(), secPendingCommands.first.data());
 	}
 
-    auto timelineValue = myDeviceContext->timelineValue()->load(std::memory_order_relaxed);
+    auto timelineValue = myDeviceContext->timelineValue().load(std::memory_order_relaxed);
 
 	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
     

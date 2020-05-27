@@ -501,7 +501,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         uint64_t waitTimelineValues[2] = { waitTimelineValue, 1 };
         SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[2] = {
             myDeviceContext->getTimelineSemaphore(), frame->getRenderCompleteSemaphore() };
-        uint64_t signalTimelineValues[2] = { 1 + myDeviceContext->timelineValue()->fetch_add(1, std::memory_order_relaxed), 1 };
+        uint64_t signalTimelineValues[2] = { 1 + myDeviceContext->timelineValue().fetch_add(1, std::memory_order_relaxed), 1 };
         submitTimelineValue = primaryCommandContext->submit({
             myDeviceContext->getPrimaryGraphicsQueue(),
             2,
