@@ -26,7 +26,7 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
     info.clipped = VK_TRUE;
     info.oldSwapchain = myDesc.previous;
 
-    CHECK_VK(vkCreateSwapchainKHR(myDeviceContext->getDevice(), &info, nullptr, &mySwapchain));
+    VK_CHECK(vkCreateSwapchainKHR(myDeviceContext->getDevice(), &info, nullptr, &mySwapchain));
 
     if (myDesc.previous)
         vkDestroySwapchainKHR(myDeviceContext->getDevice(), myDesc.previous, nullptr);

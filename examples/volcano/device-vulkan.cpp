@@ -12,7 +12,7 @@ template <>
 uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() const
 {
     uint64_t value;
-    CHECK_VK(vkGetSemaphoreCounterValue(
+    VK_CHECK(vkGetSemaphoreCounterValue(
         myDevice,
         myTimelineSemaphore,
         &value));
@@ -28,8 +28,8 @@ void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
     waitInfo.semaphoreCount = 1;
     waitInfo.pSemaphores = &myTimelineSemaphore;
     waitInfo.pValues = &timelineValue;
-
-    CHECK_VK(vkWaitSemaphores(myDevice, &waitInfo, UINT64_MAX));
+    
+    VK_CHECK(vkWaitSemaphores(myDevice, &waitInfo, UINT64_MAX));
 }
 
 template <>
@@ -249,7 +249,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         static_cast<uint32_t>(requiredDeviceExtensions.size());
     deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
-    CHECK_VK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
+    VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
 
     VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
     if (!myConfig.useCommandPoolReset.value())
@@ -303,7 +303,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     semaphoreCreateInfo.pNext = useTimelineSemaphores ? &timelineCreateInfo : nullptr;
     semaphoreCreateInfo.flags = 0;
 
-    CHECK_VK(vkCreateSemaphore(
+    VK_CHECK(vkCreateSemaphore(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
 
     myTimelineValue = std::make_shared<std::atomic_uint64_t>(0);

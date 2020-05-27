@@ -6,10 +6,16 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-static inline void CHECK_VK(VkResult err)
+#define VK_CHECK(expr) \
+    do { \
+        VkResult __result = (expr); \
+		assertf(__result == VK_SUCCESS, "'%s' line %i failed with %i\n", \
+				#expr, __LINE__, __result); \
+    } while (0)
+
+static inline void checkResult(VkResult err)
 {
-	(void)err;
-	assertf(err == VK_SUCCESS, "Vulkan call failed.");
+	VK_CHECK(err);
 }
 
 uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor);

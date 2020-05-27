@@ -118,10 +118,10 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     uint32_t imageCount;
-    CHECK_VK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
+    VK_CHECK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
     
     std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
-    CHECK_VK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
+    VK_CHECK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, colorImages.data()));
 
     uint32_t frameCount = myDeviceContext->getDesc().swapchainConfiguration->imageCount;
     myFrames.reserve(frameCount);
@@ -172,7 +172,7 @@ void Window<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) cons
     assert(frameIndex < myFrames.size());
 
     void* data;
-    CHECK_VK(vmaMapMemory(myDeviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+    VK_CHECK(vmaMapMemory(myDeviceContext->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
     for (uint32_t n = 0; n < (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height); n++)
     {

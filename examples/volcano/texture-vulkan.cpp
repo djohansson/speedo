@@ -81,7 +81,7 @@ load(
             debugString.c_str());
 
         std::byte* data;
-        CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
         pbin(cereal::binary_data(data, size));
         vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
@@ -95,7 +95,7 @@ load(
         pbin(desc.extent.width, desc.extent.height, desc.channelCount, size);
 
         std::byte* data;
-        CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
         pbin(cereal::binary_data(data, size));
         vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
     };
@@ -123,7 +123,7 @@ load(
             debugString.c_str());
 
         std::byte* data;
-        CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
 
         auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride,
                                 stbi_uc* dst) {

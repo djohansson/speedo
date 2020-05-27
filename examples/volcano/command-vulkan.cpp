@@ -13,7 +13,7 @@ auto CommandBufferArray<GraphicsBackend::Vulkan>::createArray(
     cmdInfo.commandPool = desc.commandPool;
     cmdInfo.level = static_cast<VkCommandBufferLevel>(desc.commandBufferLevel);
     cmdInfo.commandBufferCount = kCommandBufferCount;
-    CHECK_VK(vkAllocateCommandBuffers(
+    VK_CHECK(vkAllocateCommandBuffers(
         deviceContext->getDevice(),
         &cmdInfo,
         outArray.data()));
@@ -65,7 +65,7 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::reset()
     assert(myBits.myHead < kCommandBufferCount);
     
     for (uint32_t i = 0; i <= myBits.myHead; i++)
-        CHECK_VK(vkResetCommandBuffer(myCommandBufferArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
+        VK_CHECK(vkResetCommandBuffer(myCommandBufferArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
     myBits.myHead = 0;
 }
@@ -237,7 +237,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         vkSubmitInfo.pCommandBuffers = cmd.first.data();
     }
 
-    CHECK_VK(vkQueueSubmit(submitInfo.queue, myPendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
+    VK_CHECK(vkQueueSubmit(submitInfo.queue, myPendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
 
     enqueueAllPendingToSubmitted(maxSignalValue);
 
@@ -272,7 +272,7 @@ void CommandContext<GraphicsBackend::Vulkan>::reset()
     {
         ZoneScopedN("poolReset");
 
-        CHECK_VK(vkResetCommandPool(
+        VK_CHECK(vkResetCommandPool(
             myDeviceContext->getDevice(),
             myDesc.commandPool,
             VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
@@ -293,7 +293,7 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::begin(
         nullptr
     };
     
-    CHECK_VK(vkBeginCommandBuffer(myCommandBufferArray[myBits.myHead], beginInfo ? beginInfo : &defaultBeginInfo));
+    VK_CHECK(vkBeginCommandBuffer(myCommandBufferArray[myBits.myHead], beginInfo ? beginInfo : &defaultBeginInfo));
 
     myBits.myRecording = true;
 }
@@ -306,7 +306,7 @@ bool CommandBufferArray<GraphicsBackend::Vulkan>::end()
 
     myBits.myRecording = false;
 
-    CHECK_VK(vkEndCommandBuffer(myCommandBufferArray[myBits.myHead]));
+    VK_CHECK(vkEndCommandBuffer(myCommandBufferArray[myBits.myHead]));
 
     return (++myBits.myHead == kCommandBufferCount);
 }

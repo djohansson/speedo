@@ -22,9 +22,9 @@ Frame<GraphicsBackend::Vulkan>::Frame(
     ZoneScopedN("Frame()");
 
     VkSemaphoreCreateInfo semaphoreInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    CHECK_VK(vkCreateSemaphore(
+    VK_CHECK(vkCreateSemaphore(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
-    CHECK_VK(vkCreateSemaphore(
+    VK_CHECK(vkCreateSemaphore(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 }
 

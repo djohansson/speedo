@@ -110,7 +110,7 @@ VkCommandPool createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags,
 	cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
 
 	VkCommandPool outPool;
-	CHECK_VK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &outPool));
+	VK_CHECK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &outPool));
 
 	return outPool;
 }
@@ -124,7 +124,7 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPo
 	cmdInfo.commandPool = pool;
 	cmdInfo.level = level;
 	cmdInfo.commandBufferCount = count;
-	CHECK_VK(vkAllocateCommandBuffers(device, &cmdInfo, commandBuffers.data()));
+	VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, commandBuffers.data()));
 
 	return commandBuffers;
 }
@@ -138,7 +138,7 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescripto
 	allocInfo.pSetLayouts = layouts;
 
 	std::vector<VkDescriptorSet> outDescriptorSets(layoutCount);
-	CHECK_VK(vkAllocateDescriptorSets(device, &allocInfo, outDescriptorSets.data()));
+	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, outDescriptorSets.data()));
 
 	return outDescriptorSets;
 }
@@ -151,7 +151,7 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	layoutInfo.pBindings = bindings;
 
 	VkDescriptorSetLayout layout;
-	CHECK_VK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
+	VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
 
 	return layout;
 }
@@ -184,7 +184,7 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 
 	VkBuffer outBuffer;
 	VmaAllocation outBufferMemory;
-	CHECK_VK(vmaCreateBuffer(
+	VK_CHECK(vmaCreateBuffer(
 		allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
 
     return std::make_tuple(outBuffer, outBufferMemory);
@@ -228,7 +228,7 @@ VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
     viewInfo.range = range;
 
 	VkBufferView outBufferView;
-	CHECK_VK(vkCreateBufferView(device, &viewInfo, nullptr, &outBufferView));
+	VK_CHECK(vkCreateBufferView(device, &viewInfo, nullptr, &outBufferView));
 
 	return outBufferView;
 }
@@ -484,7 +484,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkImage outImage;
     VmaAllocation outImageMemory;
 	VmaAllocationInfo outAllocInfo;
-	CHECK_VK(vmaCreateImage(
+	VK_CHECK(vmaCreateImage(
 		allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
     return std::make_tuple(outImage, outImageMemory);
@@ -532,7 +532,7 @@ VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, V
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
 	VkImageView outImageView;
-	CHECK_VK(vkCreateImageView(device, &viewInfo, nullptr, &outImageView));
+	VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &outImageView));
 
 	return outImageView;
 }
@@ -557,7 +557,7 @@ VkSampler createTextureSampler(VkDevice device)
 	samplerInfo.maxLod = 0.0f;
 
 	VkSampler outSampler;
-	CHECK_VK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));
+	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));
 
 	return outSampler;
 }
@@ -576,7 +576,7 @@ VkFramebuffer createFramebuffer(
 	info.layers = layers;
 
 	VkFramebuffer outFramebuffer;
-	CHECK_VK(vkCreateFramebuffer(device, &info, nullptr, &outFramebuffer));
+	VK_CHECK(vkCreateFramebuffer(device, &info, nullptr, &outFramebuffer));
 
 	return outFramebuffer;
 }
@@ -652,7 +652,7 @@ VkRenderPass createRenderPass(
     renderPassInfo.pDependencies = &dependency;
 
     VkRenderPass outRenderPass;
-    CHECK_VK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
+    VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
 
     return outRenderPass;
 }
@@ -660,7 +660,7 @@ VkRenderPass createRenderPass(
 VkSurfaceKHR createSurface(VkInstance instance,	void* view)
 {
     VkSurfaceKHR surface;
-    CHECK_VK(glfwCreateWindowSurface(instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
+    VK_CHECK(glfwCreateWindowSurface(instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
 
     return surface;
 }

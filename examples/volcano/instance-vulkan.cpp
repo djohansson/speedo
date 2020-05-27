@@ -62,7 +62,7 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
     };
 
     VkDebugUtilsMessengerEXT messenger;
-    CHECK_VK(vkCreateDebugUtilsMessengerEXT(instance, &callbackCreateInfo, nullptr, &messenger));
+    VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &callbackCreateInfo, nullptr, &messenger));
 
     return messenger;
 }
@@ -100,13 +100,13 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
 #endif
 
     uint32_t instanceLayerCount;
-    CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
+    VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
     std::cout << instanceLayerCount << " layers found!\n";
     if (instanceLayerCount > 0)
     {
         std::unique_ptr<VkLayerProperties[]> instanceLayers(
             new VkLayerProperties[instanceLayerCount]);
-        CHECK_VK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
+        VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
         for (uint32_t i = 0; i < instanceLayerCount; ++i)
             std::cout << instanceLayers[i].layerName << "\n";
     }
@@ -140,11 +140,13 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
 #ifdef PROFILING_ENABLED
         "VK_EXT_debug_utils",
 #endif
+#if defined(__APPLE__)
+        "VK_EXT_metal_surface",
+#endif
+        "VK_KHR_get_physical_device_properties2",
         "VK_KHR_surface",
 #if defined(__WINDOWS__)
         "VK_KHR_win32_surface",
-#elif defined(__APPLE__)
-        "VK_MVK_macos_surface",
 #elif defined(__linux__)
 #	if defined(VK_USE_PLATFORM_XCB_KHR)
         "VK_KHR_xcb_surface",
@@ -170,24 +172,28 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
     info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
     info.ppEnabledExtensionNames = info.enabledExtensionCount ? requiredExtensions.data() : nullptr;
 
-    CHECK_VK(vkCreateInstance(&info, nullptr, &myInstance));
+    VK_CHECK(vkCreateInstance(&info, nullptr, &myInstance));
 
     mySurface = createSurface(myInstance, surfaceHandle);
 
     uint32_t physicalDeviceCount = 0;
-    CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
+    VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
     if (physicalDeviceCount == 0)
         throw std::runtime_error("failed to find GPUs with Vulkan support!");
 
     myPhysicalDevices.resize(physicalDeviceCount);
-    CHECK_VK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
+    VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
 
     myPhysicalDeviceInfos.reserve(myPhysicalDevices.size());
     myGraphicsDeviceCandidates.reserve(myPhysicalDevices.size());
     
     for (uint32_t deviceIt = 0; deviceIt < myPhysicalDevices.size(); deviceIt++)
     {
-        myPhysicalDeviceInfos.emplace_back(getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(mySurface, myPhysicalDevices[deviceIt]));
+        myPhysicalDeviceInfos.emplace_back(
+            getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
+                mySurface,
+                myInstance,
+                myPhysicalDevices[deviceIt]));
 
         for (uint32_t queueFamilyIt = 0; queueFamilyIt < myPhysicalDeviceInfos.back().queueFamilyProperties.size(); queueFamilyIt++)
         {

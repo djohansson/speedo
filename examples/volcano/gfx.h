@@ -90,7 +90,10 @@ template <GraphicsBackend B>
 SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
 
 template <GraphicsBackend B>
-PhysicalDeviceInfo<B> getPhysicalDeviceInfo(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
+PhysicalDeviceInfo<B> getPhysicalDeviceInfo(
+	SurfaceHandle<B> surface,
+	InstanceHandle<B> instance,
+	PhysicalDeviceHandle<B> device);
 
 template <GraphicsBackend B>
 std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile);

@@ -112,7 +112,7 @@ load(
 			debugString.c_str());
 
 		std::byte* data;
-		CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
 		pbin(cereal::binary_data(data, desc.indexBufferSize));
 		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
 		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
@@ -127,7 +127,7 @@ load(
 		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
 		std::byte* data;
-		CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
+		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
 		pbin(cereal::binary_data(data, desc.indexBufferSize));
 		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
 		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
@@ -247,7 +247,7 @@ load(
 			debugString.c_str());
 
 		std::byte* data;
-		CHECK_VK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
 		memcpy(data, indices.data(), desc.indexBufferSize);
 		memcpy(data + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
 		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);

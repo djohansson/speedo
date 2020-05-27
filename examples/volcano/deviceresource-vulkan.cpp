@@ -25,7 +25,7 @@ void DeviceResource<GraphicsBackend::Vulkan>::setObjectName(
         objectHandle,
         myObjectNames.back().c_str()
     };
-    CHECK_VK(vkSetDebugUtilsObjectNameEXT(device, &imageNameInfo));
+    VK_CHECK(vkSetDebugUtilsObjectNameEXT(device, &imageNameInfo));
 }
 
 template <> 

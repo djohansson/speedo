@@ -43,15 +43,30 @@ SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities<GraphicsBack
 template <>
 PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
 	SurfaceHandle<GraphicsBackend::Vulkan> surface,
+    InstanceHandle<GraphicsBackend::Vulkan> instance,
 	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
     PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
     VkPhysicalDeviceTimelineSemaphoreProperties timelineProperties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES };
+    deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     deviceInfo.deviceProperties.pNext = &timelineProperties;
+    
     vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties.properties);
-	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
-	vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures.features);
-    vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
+	
+    auto _vkGetPhysicalDeviceProperties2 =
+        (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(
+            instance, "vkGetPhysicalDeviceProperties2");
+    assert(_vkGetPhysicalDeviceProperties2 != nullptr);
+    _vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+	
+    vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures.features);
+    
+    auto _vkGetPhysicalDeviceFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(
+            instance, "vkGetPhysicalDeviceFeatures2");
+    assert(_vkGetPhysicalDeviceFeatures2 != nullptr);
+    _vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
+
 	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);
 
 	uint32_t formatCount;
@@ -123,7 +138,7 @@ createPipelineLayoutContext<GraphicsBackend::Vulkan>(
 			info.pCode = reinterpret_cast<const uint32_t*>(shader.first.data());
 
 			VkShaderModule vkShaderModule;
-			CHECK_VK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
+			VK_CHECK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
 
 			return vkShaderModule;
 		};
@@ -145,7 +160,7 @@ createPipelineLayoutContext<GraphicsBackend::Vulkan>(
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
 	pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
-	CHECK_VK(vkCreatePipelineLayout(
+	VK_CHECK(vkCreatePipelineLayout(
 		device, &pipelineLayoutInfo, nullptr, &pipelineLayout.layout));
 
 	return pipelineLayout;
@@ -163,7 +178,7 @@ createPipelineCache<GraphicsBackend::Vulkan>(
 	createInfo.initialDataSize = cacheData.size();
 	createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
 
-	CHECK_VK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
+	VK_CHECK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
 
 	return cache;
 };
@@ -175,11 +190,11 @@ std::vector<std::byte> getPipelineCacheData<GraphicsBackend::Vulkan>(
 {
 	std::vector<std::byte> cacheData;
 	size_t cacheDataSize = 0;
-	CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
+	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
 	if (cacheDataSize)
 	{
 		cacheData.resize(cacheDataSize);
-		CHECK_VK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
+		VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
 	}
 
 	return cacheData;
@@ -258,7 +273,7 @@ createDescriptorPool<GraphicsBackend::Vulkan>(DeviceHandle<GraphicsBackend::Vulk
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
     DescriptorPoolHandle<GraphicsBackend::Vulkan> outDescriptorPool;
-    CHECK_VK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &outDescriptorPool));
+    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &outDescriptorPool));
 
     return outDescriptorPool;
 }
@@ -415,7 +430,7 @@ createGraphicsPipeline<GraphicsBackend::Vulkan>(
     pipelineInfo.basePipelineIndex = -1;
 
     PipelineHandle<GraphicsBackend::Vulkan> outPipeline = 0;
-    CHECK_VK(vkCreateGraphicsPipelines(
+    VK_CHECK(vkCreateGraphicsPipelines(
         device, pipelineCache, 1, &pipelineInfo, nullptr, &outPipeline));
 
     return outPipeline;
