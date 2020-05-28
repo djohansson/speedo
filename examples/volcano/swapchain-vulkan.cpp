@@ -1,6 +1,8 @@
 #include "swapchain.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 
 template <>
 SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
@@ -26,7 +28,7 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
     info.clipped = VK_TRUE;
     info.oldSwapchain = myDesc.previous;
 
-    CHECK_VK(vkCreateSwapchainKHR(getDeviceContext()->getDevice(), &info, nullptr, &mySwapchain));
+    VK_CHECK(vkCreateSwapchainKHR(getDeviceContext()->getDevice(), &info, nullptr, &mySwapchain));
 
     char stringBuffer[32];
     static constexpr std::string_view swapchainStr = "_Swapchain";

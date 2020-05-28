@@ -1,6 +1,7 @@
 #include "command.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
 
 
 namespace commandbufferarray_vulkan
@@ -16,7 +17,7 @@ static auto createArray(
     cmdInfo.commandPool = desc.pool;
     cmdInfo.level = static_cast<VkCommandBufferLevel>(desc.level);
     cmdInfo.commandBufferCount = CommandBufferArray<GraphicsBackend::Vulkan>::kCommandBufferCount;
-    CHECK_VK(vkAllocateCommandBuffers(
+    VK_CHECK(vkAllocateCommandBuffers(
         deviceContext->getDevice(),
         &cmdInfo,
         outArray.data()));
@@ -70,7 +71,7 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::resetAll()
     assert(head() < kCommandBufferCount);
     
     for (uint32_t i = 0; i < myBits.head; i++)
-        CHECK_VK(vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
+        VK_CHECK(vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 
     myBits = {0, 0};
 }
@@ -296,10 +297,8 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         vkSubmitInfo.pCommandBuffers = cmd.first.data();
     }
 
-    CHECK_VK(vkQueueSubmit(submitInfo.queue, pendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
-
-    enqueueSubmitted(std::move(pendingCommands), maxSignalValue);
-
+    VK_CHECK(vkQueueSubmit(submitInfo.queue, pendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
+    
     return maxSignalValue;
 }
 
@@ -320,7 +319,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<Graphic
 			vkCmdExecuteCommands(cmd, secPendingCommands.first.head(), secPendingCommands.first.data());
 	}
 
-    auto timelineValue = myDeviceContext->timelineValue()->load(std::memory_order_relaxed);
+    auto timelineValue = myDeviceContext->timelineValue().load(std::memory_order_relaxed);
 
 	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
     
@@ -339,7 +338,7 @@ uint8_t CommandBufferArray<GraphicsBackend::Vulkan>::begin(
     assert(!recording(myBits.head));
     assert(!full());
     
-    CHECK_VK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
+    VK_CHECK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
 
     myBits.recordingFlags |= (1 << myBits.head);
 
@@ -353,7 +352,7 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::end(uint8_t index)
 
     myBits.recordingFlags &= ~(1 << index);
 
-    CHECK_VK(vkEndCommandBuffer(myArray[index]));
+    VK_CHECK(vkEndCommandBuffer(myArray[index]));
 }
 
 template <>

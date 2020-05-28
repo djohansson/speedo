@@ -126,7 +126,7 @@ private:
 	DescriptorPoolHandle<B> myDescriptorPool = 0;
 
     SemaphoreHandle<B> myTimelineSemaphore = 0;
-    std::shared_ptr<std::atomic_uint64_t> myTimelineValue;
+    std::atomic_uint64_t myTimelineValue = 0;
     std::shared_mutex myGarbageCollectCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myGarbageCollectCallbacks;
 };

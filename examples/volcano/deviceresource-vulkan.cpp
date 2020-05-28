@@ -29,7 +29,7 @@ void DeviceResource<GraphicsBackend::Vulkan>::internalAddObject(
         objectHandle,
         objectName};
 
-    CHECK_VK(vkSetDebugUtilsObjectNameEXT(device, &imageNameInfo));
+    VK_CHECK(vkSetDebugUtilsObjectNameEXT(device, &imageNameInfo));
 
     myObjects.emplace_back(Object{objectName, objectType, objectHandle});
 }

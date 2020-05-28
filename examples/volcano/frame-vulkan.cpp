@@ -3,6 +3,8 @@
 #include "rendertarget.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
@@ -22,9 +24,9 @@ Frame<GraphicsBackend::Vulkan>::Frame(
     ZoneScopedN("Frame()");
 
     VkSemaphoreCreateInfo semaphoreInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    CHECK_VK(vkCreateSemaphore(
+    VK_CHECK(vkCreateSemaphore(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
-    CHECK_VK(vkCreateSemaphore(
+    VK_CHECK(vkCreateSemaphore(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 
     char stringBuffer[64];

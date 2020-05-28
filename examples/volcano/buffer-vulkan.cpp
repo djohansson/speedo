@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include <core/slang-secure-crt.h>
+
 
 template <>
 BufferViewHandle<GraphicsBackend::Vulkan>

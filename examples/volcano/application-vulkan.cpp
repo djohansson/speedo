@@ -1,6 +1,8 @@
 #include "application.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -87,7 +89,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.ImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
     initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
-    initInfo.CheckVkResultFn = CHECK_VK;
+    initInfo.CheckVkResultFn = checkResult;
     ImGui_ImplVulkan_Init(&initInfo, myWindow->getRenderPass());
 
     // Upload Fonts
@@ -312,15 +314,13 @@ Application<GraphicsBackend::Vulkan>::Application(
         }
 
         // submit transfers.
-        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMask,
-            &waitTimelineValue,
+            0,
+            nullptr,
+            nullptr,
+            nullptr,
             1,
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
@@ -342,7 +342,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = primaryCommandContext->submit({
             myDevice->getPrimaryGraphicsQueue(),
             1,
@@ -369,7 +369,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
         // todo: replace with other sync method. garbage collect resource?
-        CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
+        VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
         {
             auto transferCommands = myTransferCommandContext->beginScope();
@@ -385,7 +385,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         // submit transfers.
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = myTransferCommandContext->submit({
             myDevice->getPrimaryTransferQueue(),
             1,
@@ -402,7 +402,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     // auto loadTexture = [this](nfdchar_t* openFilePath)
     // {
     //     // todo: replace with other sync method
-    //     CHECK_VK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
+    //     VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
     //     {
     //         auto transferCommands = myTransferCommandContext->beginScope();
@@ -760,7 +760,7 @@ Application<GraphicsBackend::Vulkan>::~Application()
         ZoneScopedN("deviceWaitIdle");
 
         // todo: replace with frame & transfer sync
-        CHECK_VK(vkDeviceWaitIdle(myDevice->getDevice()));
+        VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
     }
     
     shutdownIMGUI();
@@ -875,7 +875,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     // submit transfers.
     Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-    auto signalTimelineValue = 1 + myDevice->timelineValue()->fetch_add(1, std::memory_order_relaxed);
+    auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
     myLastTransferTimelineValue = myTransferCommandContext->submit({
         myDevice->getPrimaryTransferQueue(),
         1,
@@ -900,7 +900,7 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
         ZoneScopedN("deviceWaitIdle");
 
         // todo: replace with frame & transfer timline sync
-        CHECK_VK(vkDeviceWaitIdle(myDevice->getDevice()));
+        VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
     }
 
     destroyFrameObjects();
