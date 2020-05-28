@@ -12,10 +12,12 @@ namespace Slang
 
     struct TokenList
     {
-        Token* begin() const;
-        Token* end() const;
+        const Token* begin() const;
+        const Token* end() const;
 
-        List<Token> mTokens;
+        SLANG_FORCE_INLINE void add(const Token& token) { m_tokens.add(token); }
+
+        List<Token> m_tokens;
     };
 
     struct TokenSpan
@@ -23,62 +25,66 @@ namespace Slang
         TokenSpan();
         TokenSpan(
             TokenList const& tokenList)
-            : mBegin(tokenList.begin())
-            , mEnd  (tokenList.end  ())
+            : m_begin(tokenList.begin())
+            , m_end  (tokenList.end  ())
         {}
 
-        Token* begin() const { return mBegin; }
-        Token* end  () const { return mEnd  ; }
+        const Token* begin() const { return m_begin; }
+        const Token* end  () const { return m_end  ; }
 
-        int GetCount() { return (int)(mEnd - mBegin); }
+        int getCount() { return (int)(m_end - m_begin); }
 
-        Token* mBegin;
-        Token* mEnd;
+        const Token* m_begin;
+        const Token* m_end;
     };
 
     struct TokenReader
     {
-        Token nextToken;
+        Token m_nextToken;
         TokenReader();
         explicit TokenReader(TokenSpan const& tokens)
-            : mCursor(tokens.begin())
-            , mEnd   (tokens.end  ())
-            , nextToken(tokens.begin() ? *tokens.begin() : GetEndOfFileToken())
+            : m_cursor(tokens.begin())
+            , m_end   (tokens.end  ())
+            , m_nextToken(tokens.begin() ? *tokens.begin() : getEndOfFileToken())
         {}
         explicit TokenReader(TokenList const& tokens)
-            : mCursor(tokens.begin())
-            , mEnd   (tokens.end  ())
-            , nextToken(tokens.begin() ? *tokens.begin() : GetEndOfFileToken())
+            : m_cursor(tokens.begin())
+            , m_end   (tokens.end  ())
+            , m_nextToken(tokens.begin() ? *tokens.begin() : getEndOfFileToken())
         {}
         struct ParsingCursor
         {
             Token nextToken;
-            Token* tokenReaderCursor = nullptr;
+            const Token* tokenReaderCursor = nullptr;
         };
         ParsingCursor getCursor()
         {
             ParsingCursor rs;
-            rs.nextToken = nextToken;
-            rs.tokenReaderCursor = mCursor;
+            rs.nextToken = m_nextToken;
+            rs.tokenReaderCursor = m_cursor;
             return rs;
         }
         void setCursor(ParsingCursor cursor)
         {
-            mCursor = cursor.tokenReaderCursor;
-            nextToken = cursor.nextToken;
+            m_cursor = cursor.tokenReaderCursor;
+            m_nextToken = cursor.nextToken;
         }
-        bool IsAtEnd() const { return mCursor == mEnd; }
-        Token& PeekToken();
-        TokenType PeekTokenType() const;
-        SourceLoc PeekLoc() const;
+        bool isAtCursor(const ParsingCursor& cursor) const
+        {
+            return cursor.tokenReaderCursor == m_cursor;
+        }
+        bool isAtEnd() const { return m_cursor == m_end; }
+        Token& peekToken();
+        TokenType peekTokenType() const;
+        SourceLoc peekLoc() const;
 
-        Token AdvanceToken();
+        Token advanceToken();
 
-        int GetCount() { return (int)(mEnd - mCursor); }
+        int getCount() { return (int)(m_end - m_cursor); }
 
-        Token* mCursor;
-        Token* mEnd;
-        static Token GetEndOfFileToken();
+        const Token* m_cursor;
+        const Token* m_end;
+        static Token getEndOfFileToken();
     };
 
     typedef unsigned int LexerFlags;
@@ -104,22 +110,22 @@ namespace Slang
 
         TokenList lexAllTokens();
 
-        SourceView*     sourceView;
-        DiagnosticSink* sink;
-        NamePool*       namePool;
+        SourceView*     m_sourceView;
+        DiagnosticSink* m_sink;
+        NamePool*       m_namePool;
 
-        char const*     cursor;
+        char const*     m_cursor;
 
-        char const*     begin;
-        char const*     end;
+        char const*     m_begin;
+        char const*     m_end;
 
         /// The starting sourceLoc (same as first location of SourceView)
-        SourceLoc       startLoc;           
+        SourceLoc       m_startLoc;           
 
-        TokenFlags      tokenFlags;
-        LexerFlags      lexerFlags;
+        TokenFlags      m_tokenFlags;
+        LexerFlags      m_lexerFlags;
 
-        MemoryArena*    memoryArena;
+        MemoryArena*    m_memoryArena;
     };
 
     // Helper routines for extracting values from tokens

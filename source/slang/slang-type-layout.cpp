@@ -2,6 +2,7 @@
 #include "slang-type-layout.h"
 
 #include "slang-syntax.h"
+#include "slang-ir-insts.h"
 
 #include <assert.h>
 
@@ -111,8 +112,9 @@ struct DefaultLayoutRulesImpl : SimpleLayoutRulesImpl
         return arrayInfo;
     }
 
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount) override
+    SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t elementCount) override
     {
+        SLANG_UNUSED(elementType);
         SimpleLayoutInfo vectorInfo;
         vectorInfo.kind = elementInfo.kind;
         vectorInfo.size = elementInfo.size * elementCount;
@@ -120,7 +122,7 @@ struct DefaultLayoutRulesImpl : SimpleLayoutRulesImpl
         return vectorInfo;
     }
 
-    SimpleArrayLayoutInfo GetMatrixLayout(SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount) override
+    SimpleArrayLayoutInfo GetMatrixLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount) override
     {
         // The default behavior here is to lay out a matrix
         // as an array of row vectors (that is row-major).
@@ -130,7 +132,7 @@ struct DefaultLayoutRulesImpl : SimpleLayoutRulesImpl
         // to get layouts with a different convention.
         //
         return GetArrayLayout(
-            GetVectorLayout(elementInfo, columnCount),
+            GetVectorLayout(elementType, elementInfo, columnCount),
             rowCount);
     }
 
@@ -203,8 +205,9 @@ struct GLSLBaseLayoutRulesImpl : DefaultLayoutRulesImpl
 {
     typedef DefaultLayoutRulesImpl Super;
 
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount) override
+    SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t elementCount) override
     {
+        SLANG_UNUSED(elementType);
         // The `std140` and `std430` rules require vectors to be aligned to the next power of
         // two up from their size (so a `float2` is 8-byte aligned, and a `float3` is
         // 16-byte aligned).
@@ -223,7 +226,7 @@ struct GLSLBaseLayoutRulesImpl : DefaultLayoutRulesImpl
         return vectorInfo;
     }
 
-    SimpleArrayLayoutInfo GetArrayLayout( SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
+    SimpleArrayLayoutInfo GetArrayLayout(SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
     {
         // The size of an array must be rounded up to be a multiple of its alignment.
         //
@@ -366,6 +369,25 @@ struct CPULayoutRulesImpl : DefaultLayoutRulesImpl
         }
     }
 
+    SimpleArrayLayoutInfo GetArrayLayout( SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
+    {
+        if (elementCount.isInfinite())
+        {
+            // This is an unsized array, get information for element
+            auto info = Super::GetArrayLayout(elementInfo, LayoutSize(1));
+
+            // So it is actually a Array<T> on CPU which is a pointer and a size
+            info.size = sizeof(void*) * 2;
+            info.alignment = SLANG_ALIGN_OF(void*);
+
+            return info;
+        }
+        else
+        {
+            return Super::GetArrayLayout(elementInfo, elementCount);
+        }
+    }
+
     UniformLayoutInfo BeginStructLayout() override
     {
         return Super::BeginStructLayout();
@@ -374,6 +396,116 @@ struct CPULayoutRulesImpl : DefaultLayoutRulesImpl
     void EndStructLayout(UniformLayoutInfo* ioStructInfo) override
     {
         // Conform to C/C++ size is adjusted to the largest alignment
+        ioStructInfo->size = RoundToAlignment(ioStructInfo->size, ioStructInfo->alignment);
+    }
+};
+
+struct CUDALayoutRulesImpl : DefaultLayoutRulesImpl
+{
+    typedef DefaultLayoutRulesImpl Super;
+
+    SimpleLayoutInfo GetScalarLayout(BaseType baseType) override
+    {
+        switch (baseType)
+        {
+            case BaseType::Bool:
+            {
+                // In memory a bool is a byte. BUT when in a vector or matrix it will actually be a int32_t
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(uint8_t), SLANG_ALIGN_OF(uint8_t));
+            }
+
+            default: return Super::GetScalarLayout(baseType);
+        }
+    }
+
+    SimpleArrayLayoutInfo GetArrayLayout(SimpleLayoutInfo elementInfo, LayoutSize elementCount) override
+    {
+        SLANG_RELEASE_ASSERT(elementInfo.size.isFinite());
+        auto elementSize = elementInfo.size.getFiniteValue();
+        auto elementAlignment = elementInfo.alignment;
+        auto elementStride = RoundToAlignment(elementSize, elementAlignment);
+
+        if (elementCount.isInfinite())
+        {
+            // This is an unsized array, get information for element
+            auto info = Super::GetArrayLayout(elementInfo, LayoutSize(1));
+
+            // So it is actually a Array<T> on CUDA which is a pointer and a size
+            info.size = sizeof(void*) * 2;
+            info.alignment = SLANG_ALIGN_OF(void*);
+            return info;
+        }
+
+        // An array with no elements will have zero size.
+        //
+        LayoutSize arraySize = 0;
+        //
+        // Any array with a non-zero number of elements will need
+        // to have space for N elements of size `elementSize`, with
+        // the constraints that there must be `elementStride` bytes
+        // between consecutive elements.
+        //
+        if (elementCount > 0)
+        {
+            // We can think of this as either allocating (N-1)
+            // chunks of size `elementStride` (for most of the elements)
+            // and then one final chunk of size `elementSize`  for
+            // the last element, or equivalently as allocating
+            // N chunks of size `elementStride` and then "giving back"
+            // the final `elementStride - elementSize` bytes.
+            //
+            arraySize = (elementStride * (elementCount - 1)) + elementSize;
+        }
+
+        SimpleArrayLayoutInfo arrayInfo;
+        arrayInfo.kind = elementInfo.kind;
+        arrayInfo.size = arraySize;
+        arrayInfo.alignment = elementAlignment;
+        arrayInfo.elementStride = elementStride;
+        return arrayInfo;
+    }
+
+    SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t elementCount) override
+    {
+        // Special case bool
+        if (elementType == BaseType::Bool)
+        {
+            SimpleLayoutInfo fixInfo(elementInfo);
+            fixInfo.size = sizeof(int32_t);
+            fixInfo.alignment = SLANG_ALIGN_OF(int32_t);
+            return GetVectorLayout(BaseType::Int, fixInfo, elementCount);
+        }
+
+        SimpleLayoutInfo vectorInfo;
+        vectorInfo.kind = elementInfo.kind;
+        vectorInfo.size = elementInfo.size * elementCount;
+        vectorInfo.alignment = elementInfo.alignment;
+    
+        return vectorInfo;
+    }
+
+    SimpleArrayLayoutInfo GetMatrixLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount) override
+    {
+        // Special case bool
+        if (elementType == BaseType::Bool)
+        {
+            SimpleLayoutInfo fixInfo(elementInfo);
+            fixInfo.size = sizeof(int32_t);
+            fixInfo.alignment = SLANG_ALIGN_OF(int32_t);
+            return GetMatrixLayout(BaseType::Int, fixInfo, rowCount, columnCount);
+        }
+
+        return Super::GetMatrixLayout(elementType, elementInfo, rowCount, columnCount);
+    }
+
+    UniformLayoutInfo BeginStructLayout() override
+    {
+        return Super::BeginStructLayout();
+    }
+
+    void EndStructLayout(UniformLayoutInfo* ioStructInfo) override
+    {
+        // Conform to CUDA/C/C++ size is adjusted to the largest alignment
         ioStructInfo->size = RoundToAlignment(ioStructInfo->size, ioStructInfo->alignment);
     }
 };
@@ -409,8 +541,9 @@ struct DefaultVaryingLayoutRulesImpl : DefaultLayoutRulesImpl
             1);
     }
 
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo, size_t) override
+    SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo, size_t) override
     {
+        SLANG_UNUSED(elementType);
         // Vectors take up one slot by default
         //
         // TODO: some platforms may decide that vectors of `double` need
@@ -452,8 +585,9 @@ struct GLSLSpecializationConstantLayoutRulesImpl : DefaultLayoutRulesImpl
             1);
     }
 
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo, size_t elementCount) override
+    SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo, size_t elementCount) override
     {
+        SLANG_UNUSED(elementType);
         // GLSL doesn't support vectors of specialization constants,
         // but we will assume that, if supported, they would use one slot per element.
         return SimpleLayoutInfo(
@@ -633,9 +767,29 @@ struct CPULayoutRulesFamilyImpl : LayoutRulesFamilyImpl
     LayoutRulesImpl* getStructuredBufferRules() override;
 };
 
+struct CUDALayoutRulesFamilyImpl : LayoutRulesFamilyImpl
+{
+    virtual LayoutRulesImpl* getConstantBufferRules() override;
+    virtual LayoutRulesImpl* getPushConstantBufferRules() override;
+    virtual LayoutRulesImpl* getTextureBufferRules() override;
+    virtual LayoutRulesImpl* getVaryingInputRules() override;
+    virtual LayoutRulesImpl* getVaryingOutputRules() override;
+    virtual LayoutRulesImpl* getSpecializationConstantRules() override;
+    virtual LayoutRulesImpl* getShaderStorageBufferRules() override;
+    virtual LayoutRulesImpl* getParameterBlockRules() override;
+
+    LayoutRulesImpl* getRayPayloadParameterRules()      override;
+    LayoutRulesImpl* getCallablePayloadParameterRules() override;
+    LayoutRulesImpl* getHitAttributesParameterRules()   override;
+
+    LayoutRulesImpl* getShaderRecordConstantBufferRules() override;
+    LayoutRulesImpl* getStructuredBufferRules() override;
+};
+
 GLSLLayoutRulesFamilyImpl kGLSLLayoutRulesFamilyImpl;
 HLSLLayoutRulesFamilyImpl kHLSLLayoutRulesFamilyImpl;
 CPULayoutRulesFamilyImpl kCPULayoutRulesFamilyImpl;
+CUDALayoutRulesFamilyImpl kCUDALayoutRulesFamilyImpl;
 
 // CPU case
 
@@ -647,29 +801,29 @@ struct CPUObjectLayoutRulesImpl : ObjectLayoutRulesImpl
         {
             case ShaderParameterKind::ConstantBuffer:
                 // It's a pointer to the actual uniform data
-                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), sizeof(void*));
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), SLANG_ALIGN_OF(void*));
 
             case ShaderParameterKind::MutableTexture:
             case ShaderParameterKind::TextureUniformBuffer:
             case ShaderParameterKind::Texture:
                 // It's a pointer to a texture interface 
-                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), sizeof(void*));
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), SLANG_ALIGN_OF(void*));
                 
             case ShaderParameterKind::StructuredBuffer:            
             case ShaderParameterKind::MutableStructuredBuffer:
                 // It's a ptr and a size of the amount of elements
-                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*) * 2, sizeof(void*));
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*) * 2, SLANG_ALIGN_OF(void*));
 
             case ShaderParameterKind::RawBuffer:
             case ShaderParameterKind::Buffer:
             case ShaderParameterKind::MutableRawBuffer:
             case ShaderParameterKind::MutableBuffer:
                 // It's a pointer and a size in bytes
-                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*) * 2, sizeof(void*));
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*) * 2, SLANG_ALIGN_OF(void*));
 
             case ShaderParameterKind::SamplerState:
                 // It's a pointer
-                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), sizeof(void*));
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), SLANG_ALIGN_OF(void*));
  
             case ShaderParameterKind::TextureSampler:
             case ShaderParameterKind::MutableTextureSampler:
@@ -683,6 +837,64 @@ struct CPUObjectLayoutRulesImpl : ObjectLayoutRulesImpl
 };
 
 
+// TODO(JS): Most likely wrong! Assumes largely CPU layout which is probably not right
+struct CUDAObjectLayoutRulesImpl : CPUObjectLayoutRulesImpl
+{
+    typedef CPUObjectLayoutRulesImpl Super;
+
+    // cuda.h defines a variety of handle types. We don't want to have to include cuda.h though - as it may not be available
+    // on a build target. So for we define this handle type, that matches cuda.h and is used for types that use this kind
+    // of opaque handle (as opposed to a pointer) such as CUsurfObject, CUtexObject
+    typedef unsigned long long ObjectHandle;
+
+    virtual SimpleLayoutInfo GetObjectLayout(ShaderParameterKind kind) override
+    {
+        switch (kind)
+        {
+            case ShaderParameterKind::ConstantBuffer:
+                // It's a pointer to the actual uniform data
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), SLANG_ALIGN_OF(void*));
+
+            case ShaderParameterKind::TextureSampler:
+            case ShaderParameterKind::MutableTextureSampler:
+                // That there is no distinct Sampler on CUDA, so TextureSampler is the same as a Texture
+                // which is an ObjectHandle.
+            case ShaderParameterKind::MutableTexture:
+            case ShaderParameterKind::TextureUniformBuffer:
+            case ShaderParameterKind::Texture:
+                // It's a pointer to a texture interface 
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(ObjectHandle), SLANG_ALIGN_OF(ObjectHandle));
+
+            case ShaderParameterKind::StructuredBuffer:
+            case ShaderParameterKind::MutableStructuredBuffer:
+                // It's a pointer and a size
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*) * 2, SLANG_ALIGN_OF(void*));
+
+            case ShaderParameterKind::RawBuffer:
+            case ShaderParameterKind::Buffer:
+            case ShaderParameterKind::MutableRawBuffer:
+            case ShaderParameterKind::MutableBuffer:
+                // It's a pointer and a size in bytes
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*) * 2, SLANG_ALIGN_OF(void*));
+
+            case ShaderParameterKind::SamplerState:
+                // In CUDA it seems that sampler states are combined into texture objects.
+                // So it's a binding issue to combine a sampler with a texture - and sampler are ignored
+                // For simplicity here though - we do create a variable and that variable takes up
+                // uniform binding space.
+                // TODO(JS): If we wanted to remove these variables we'd want to do it as a pass. The pass
+                // would presumably have to remove use of variables of this kind throughout IR. 
+                return SimpleLayoutInfo(LayoutResourceKind::Uniform, sizeof(void*), SLANG_ALIGN_OF(void*));
+
+            case ShaderParameterKind::InputRenderTarget:
+                // TODO: how to handle these?
+            default:
+                SLANG_UNEXPECTED("unhandled shader parameter kind");
+                UNREACHABLE_RETURN(SimpleLayoutInfo());
+        }
+    }
+
+};
 
 static CPUObjectLayoutRulesImpl kCPUObjectLayoutRulesImpl;
 static CPULayoutRulesImpl kCPULayoutRulesImpl;
@@ -690,6 +902,16 @@ static CPULayoutRulesImpl kCPULayoutRulesImpl;
 LayoutRulesImpl kCPULayoutRulesImpl_ = {
     &kCPULayoutRulesFamilyImpl, &kCPULayoutRulesImpl, &kCPUObjectLayoutRulesImpl,
 };
+
+// CUDA
+
+static CUDAObjectLayoutRulesImpl kCUDAObjectLayoutRulesImpl;
+static CUDALayoutRulesImpl kCUDALayoutRulesImpl;
+
+LayoutRulesImpl kCUDALayoutRulesImpl_ = {
+    &kCUDALayoutRulesFamilyImpl, &kCUDALayoutRulesImpl, &kCUDAObjectLayoutRulesImpl,
+};
+
 
 // GLSL cases
 
@@ -966,6 +1188,69 @@ LayoutRulesImpl* CPULayoutRulesFamilyImpl::getStructuredBufferRules()
     return &kCPULayoutRulesImpl_;
 }
 
+// CUDA Family
+
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getConstantBufferRules()
+{
+    return &kCUDALayoutRulesImpl_;
+}
+
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getPushConstantBufferRules()
+{
+    return &kCUDALayoutRulesImpl_;
+}
+
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getTextureBufferRules()
+{
+    return nullptr;
+}
+
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getVaryingInputRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getVaryingOutputRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getSpecializationConstantRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getShaderStorageBufferRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getParameterBlockRules()
+{
+    // Not clear - just use similar to CPU 
+    return &kCUDALayoutRulesImpl_;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getRayPayloadParameterRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getCallablePayloadParameterRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getHitAttributesParameterRules()
+{
+    return nullptr;
+}
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getShaderRecordConstantBufferRules()
+{
+    // Just following HLSLs lead for the moment
+    return &kCUDALayoutRulesImpl_;
+}
+
+LayoutRulesImpl* CUDALayoutRulesFamilyImpl::getStructuredBufferRules()
+{
+    return &kCUDALayoutRulesImpl_;
+}
+
+
+
 LayoutRulesFamilyImpl* getDefaultLayoutRulesFamilyForTarget(TargetRequest* targetReq)
 {
     switch (targetReq->getTarget())
@@ -998,6 +1283,13 @@ LayoutRulesFamilyImpl* getDefaultLayoutRulesFamilyForTarget(TargetRequest* targe
 
         return &kCPULayoutRulesFamilyImpl;
     }
+
+    case CodeGenTarget::PTX:
+    case CodeGenTarget::CUDASource:
+    {
+        return &kCUDALayoutRulesFamilyImpl;
+    }
+
 
     default:
         return nullptr;
@@ -1267,6 +1559,20 @@ RefPtr<TypeLayout> applyOffsetToTypeLayout(
             break;
         }
     }
+    if( auto oldPendingTypeLayout = oldTypeLayout->pendingDataTypeLayout )
+    {
+        if( auto pendingOffsetVarLayout = offsetVarLayout->pendingVarLayout )
+        {
+            for (auto oldResInfo : oldPendingTypeLayout->resourceInfos)
+            {
+                if (auto offsetResInfo = pendingOffsetVarLayout->FindResourceInfo(oldResInfo.kind))
+                {
+                    anyHit = true;
+                    break;
+                }
+            }
+        }
+    }
 
     if (!anyHit)
         return oldTypeLayout;
@@ -1304,6 +1610,35 @@ RefPtr<TypeLayout> applyOffsetToTypeLayout(
                 }
             }
 
+            if( auto oldPendingField = oldField->pendingVarLayout )
+            {
+                RefPtr<VarLayout> newPendingField = new VarLayout();
+                newPendingField->varDecl                   = oldPendingField->varDecl;
+                newPendingField->typeLayout                = oldPendingField->typeLayout;
+                newPendingField->flags                     = oldPendingField->flags;
+                newPendingField->semanticIndex             = oldPendingField->semanticIndex;
+                newPendingField->semanticName              = oldPendingField->semanticName;
+                newPendingField->stage                     = oldPendingField->stage;
+                newPendingField->systemValueSemantic       = oldPendingField->systemValueSemantic;
+                newPendingField->systemValueSemanticIndex  = oldPendingField->systemValueSemanticIndex;
+
+                newField->pendingVarLayout = newPendingField;
+
+                for (auto oldResInfo : oldPendingField->resourceInfos)
+                {
+                    auto newResInfo = newPendingField->findOrAddResourceInfo(oldResInfo.kind);
+                    newResInfo->index = oldResInfo.index;
+                    newResInfo->space = oldResInfo.space;
+                    if( auto pendingOffsetVarLayout = offsetVarLayout->pendingVarLayout )
+                    {
+                        if (auto offsetResInfo = pendingOffsetVarLayout->FindResourceInfo(oldResInfo.kind))
+                        {
+                            newResInfo->index += offsetResInfo->index;
+                        }
+                    }
+                }
+            }
+
             newStructTypeLayout->fields.add(newField);
 
             mapOldFieldToNew.Add(oldField.Ptr(), newField.Ptr());
@@ -1334,76 +1669,121 @@ RefPtr<TypeLayout> applyOffsetToTypeLayout(
         newResInfo->count = oldResInfo.count;
     }
 
+    if( auto oldPendingTypeLayout = oldTypeLayout->pendingDataTypeLayout )
+    {
+        if( auto pendingOffsetVarLayout = offsetVarLayout->pendingVarLayout )
+        {
+            newTypeLayout->pendingDataTypeLayout = applyOffsetToTypeLayout(oldPendingTypeLayout, pendingOffsetVarLayout);
+        }
+    }
+
     return newTypeLayout;
 }
 
-RefPtr<VarLayout> applyOffsetToVarLayout(
-    VarLayout* baseLayout,
-    VarLayout* offsetLayout)
+IRTypeLayout* applyOffsetToTypeLayout(
+    IRBuilder*      irBuilder,
+    IRTypeLayout*   oldTypeLayout,
+    IRVarLayout*    offsetVarLayout)
 {
-    RefPtr<VarLayout> adjustedLayout = new VarLayout();
-    adjustedLayout->typeLayout = baseLayout->typeLayout;
-    adjustedLayout->varDecl = baseLayout->varDecl;
-    adjustedLayout->flags = baseLayout->flags;
-    adjustedLayout->semanticName = baseLayout->semanticName;
-    adjustedLayout->semanticIndex = baseLayout->semanticIndex;
-    adjustedLayout->systemValueSemantic = baseLayout->systemValueSemantic;
-    adjustedLayout->systemValueSemanticIndex = baseLayout->systemValueSemanticIndex;
-    adjustedLayout->stage = baseLayout->stage;
+    // The body of this function is derived from the AST case defined above.
+    //
+    // TODO: We shouldn't need this function at all because "offset" type
+    // layouts were only introduced as a legacy workaround for some bad choices
+    // in the reflection API.
+    //
 
-    if( auto basePendingLayout = baseLayout->pendingVarLayout )
+    // There is no need to apply offsets if the old type and the offset
+    // don't share any resource infos in common.
+    bool anyHit = false;
+    for (auto oldResInfo : oldTypeLayout->getSizeAttrs())
     {
-        if( auto offsetPendingLayout = offsetLayout->pendingVarLayout )
+        if (auto offsetResInfo = offsetVarLayout->findOffsetAttr(oldResInfo->getResourceKind()))
         {
-            adjustedLayout->pendingVarLayout = applyOffsetToVarLayout(
-                basePendingLayout,
-                offsetPendingLayout);
+            anyHit = true;
+            break;
         }
     }
 
-    for( auto baseResInfo : baseLayout->resourceInfos )
+    if (!anyHit)
+        return oldTypeLayout;
+
+    if (auto oldStructTypeLayout = as<IRStructTypeLayout>(oldTypeLayout))
     {
-        auto adjustedResInfo = baseResInfo;
-        if( auto offsetResInfo = offsetLayout->FindResourceInfo(baseResInfo.kind) )
+        IRStructTypeLayout::Builder newStructTypeLayoutBuilder(irBuilder);
+        newStructTypeLayoutBuilder.addResourceUsageFrom(oldTypeLayout);
+
+        for (auto oldFieldAttr : oldStructTypeLayout->getFieldLayoutAttrs())
         {
-            adjustedResInfo.index += offsetResInfo->index;
-            adjustedResInfo.space += offsetResInfo->space;
+            auto fieldKey = oldFieldAttr->getFieldKey();
+            auto oldFieldLayout = oldFieldAttr->getLayout();
+
+            IRVarLayout::Builder newFieldBuilder(irBuilder, oldFieldLayout->getTypeLayout());
+            newFieldBuilder.cloneEverythingButOffsetsFrom(oldFieldLayout);
+
+            for (auto oldResInfo : oldFieldLayout->getOffsetAttrs())
+            {
+                auto kind = oldResInfo->getResourceKind();
+                auto newResInfo = newFieldBuilder.findOrAddResourceInfo(kind);
+                newResInfo->offset = oldResInfo->getOffset();
+                newResInfo->space = oldResInfo->getSpace();
+                if (auto offsetResInfo = offsetVarLayout->findOffsetAttr(kind))
+                {
+                    newResInfo->offset += offsetResInfo->getOffset();
+                }
+            }
+
+            newStructTypeLayoutBuilder.addField(fieldKey, newFieldBuilder.build());
         }
-        adjustedLayout->resourceInfos.add(adjustedResInfo);
-    }
 
-    return adjustedLayout;
+        return newStructTypeLayoutBuilder.build();
+    }
+    else
+    {
+        // We can only effectively apply this offsetting to basic struct types,
+        // and so we won't even attempt it for anything else. This matches the
+        // AST implementation of this function, and shouldn't matter in the long
+        // run since we will remove the concept of offset type layouts from
+        // the IR.
+        //
+        return oldTypeLayout;
+    }
 }
 
-EntryPointLayout* EntryPointLayout::getAbsoluteLayout(
-    VarLayout* parentLayout)
+IRVarLayout* applyOffsetToVarLayout(
+    IRBuilder*      irBuilder,
+    IRVarLayout*    baseLayout,
+    IRVarLayout*    offsetLayout)
 {
-    SLANG_ASSERT(parentLayout);
+    IRVarLayout::Builder adjustedLayoutBuilder(irBuilder, baseLayout->getTypeLayout());
+    adjustedLayoutBuilder.cloneEverythingButOffsetsFrom(baseLayout);
 
-    if(m_absoluteLayout)
-        return m_absoluteLayout;
-
-    RefPtr<EntryPointLayout> adjustedLayout = new EntryPointLayout();
-    adjustedLayout->entryPoint = this->entryPoint;
-    adjustedLayout->flags = this->flags;
-    adjustedLayout->parametersLayout = this->parametersLayout->getAbsoluteLayout(parentLayout);
-    adjustedLayout->profile = this->profile;
-    if( auto baseResultLayout = this->resultLayout )
+    if( auto basePendingLayout = baseLayout->getPendingVarLayout() )
     {
-        adjustedLayout->resultLayout = baseResultLayout->getAbsoluteLayout(parentLayout);
+        if( auto offsetPendingLayout = offsetLayout->getPendingVarLayout() )
+        {
+            adjustedLayoutBuilder.setPendingVarLayout(
+                applyOffsetToVarLayout(
+                    irBuilder,
+                    basePendingLayout,
+                    offsetPendingLayout));
+        }
     }
 
-    m_absoluteLayout = adjustedLayout;
-    return adjustedLayout;
-}
-
-VarLayout* VarLayout::getAbsoluteLayout(VarLayout* parentAbsoluteLayout)
-{
-    if( !m_absoluteLayout )
+    for( auto baseResInfo : baseLayout->getOffsetAttrs() )
     {
-        m_absoluteLayout = applyOffsetToVarLayout(this, parentAbsoluteLayout);
+        auto kind = baseResInfo->getResourceKind();
+        auto adjustedResInfo = adjustedLayoutBuilder.findOrAddResourceInfo(kind);
+        adjustedResInfo->offset = baseResInfo->getOffset();
+        adjustedResInfo->space = baseResInfo->getSpace();
+
+        if( auto offsetResInfo = offsetLayout->findOffsetAttr(baseResInfo->getResourceKind()) )
+        {
+            adjustedResInfo->offset += offsetResInfo->getOffset();
+            adjustedResInfo->space += offsetResInfo->getSpace();
+        }
     }
-    return m_absoluteLayout;
+
+    return adjustedLayoutBuilder.build();
 }
 
 static bool _usesResourceKind(RefPtr<TypeLayout> typeLayout, LayoutResourceKind kind)
@@ -1415,6 +1795,11 @@ static bool _usesResourceKind(RefPtr<TypeLayout> typeLayout, LayoutResourceKind 
 static bool _usesOrdinaryData(RefPtr<TypeLayout> typeLayout)
 {
     return _usesResourceKind(typeLayout, LayoutResourceKind::Uniform);
+}
+
+static bool _usesExistentialData(RefPtr<TypeLayout> typeLayout)
+{
+    return _usesResourceKind(typeLayout, LayoutResourceKind::ExistentialObjectParam);
 }
 
     /// Add resource usage from `srcTypeLayout` to `dstTypeLayout` unless it would be "masked."
@@ -1538,9 +1923,32 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     //
     // To determine if we actually need a constant-buffer binding,
     // we will inspect the element type and see if it contains
-    // any ordinary/uniform data.
+    // any ordinary/uniform data *or* any interface/existential-type
+    // slots.
     //
-    bool wantConstantBuffer = _usesOrdinaryData(rawElementTypeLayout);
+    // The latter detail might sound surprising, because it means
+    // that for a declaration like:
+    //
+    //      cbuffer U { IThing gThing; }
+    //
+    // we will allocate a constant-buffer binding for `U` whether
+    // or not it turns out that the concrete type plugged in for
+    // `IThing gThing` has any ordinary/uniform data at all (that is,
+    // if the user plugs in a type that only holds a `Texture2D`,
+    // we will still have allocated the constant buffer binding/register,
+    // and waste it on an empty buffer).
+    //
+    // The reason for this choice is that it greatly simplifies
+    // logic for clients of Slang: a given `ConstantBuffer<>` or
+    // `cbuffer` variable can be statically determined to either
+    // need a constant buffer binding or not, based on its declared
+    // element type, and *nothing* that happens later can change
+    // that (e.g., plugging in a new value/object for `gThing`
+    // can't retroactively change whether or not `U` needed
+    // a constant buffer).
+    //
+    bool wantConstantBuffer = _usesOrdinaryData(rawElementTypeLayout)
+        || _usesExistentialData(rawElementTypeLayout);
     if( wantConstantBuffer )
     {
         // If there is any ordinary data, then we'll need to
@@ -1552,10 +1960,8 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     }
 
     // Similarly to how we only need a constant buffer to be allocated
-    // if the contents of the group actually had ordinary/uniform data,
-    // we also only want to allocate a `space` or `set` if that is really
-    // required.
-    //
+    // if the contents of the group actually call for it, we also only
+    // want to allocate a `space` or `set` if that is really required.
     //
     bool canUseSpaceOrSet = false;
     //
@@ -1590,9 +1996,11 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     if( canUseSpaceOrSet )
     {
         // Note that if we are allocating a constant buffer to hold
-        // some ordinary/uniform data then we definitely want a space/set,
-        // but we don't need to special-case that because the loop
-        // here will also detect the `LayoutResourceKind::Uniform` usage.
+        // some ordinary/uniform (or existential) data then we
+        // definitely want a space/set (because we will need it for
+        // the constant buffer we allocated above)  but we don't need
+        // to special-case that because the loop here will also detect
+        // the `LayoutResourceKind::Uniform` usage.
 
         for( auto elementResourceInfo : rawElementTypeLayout->resourceInfos )
         {
@@ -1650,36 +2058,6 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
         }
     }
 
-    // The existing Slang reflection API was created before we really
-    // understood the wrinkle that the "container" and elements parts
-    // of a parameter group could collide on some resource kinds,
-    // so the API doesn't currently expose the nice `VarLayout`s we've
-    // just computed.
-    //
-    // Instead, the API allows the user to query the element type layout
-    // for the group, and the user just assumes that the offsetting
-    // is magically applied there. To go back to the earlier example:
-    //
-    //      struct MyMaterial { Texture2D t; SamplerState s; };
-    //      ConstantBuffer<MyMaterial> gMaterial;
-    //
-    // A user of the existing reflection API expects to be able to
-    // query the `binding` of `gMaterial` and get back zero, then
-    // query the `binding` of the `t` field of the element type
-    // and get *one*. It is clear that in the abstract, the
-    // `MyMaterial::t` field should have an offset of zero (as
-    // the first field in a `struct`), so to meet the user's
-    // expectations, some cleverness is needed.
-    //
-    // We will use a subroutine `applyOffsetToTypeLayout`
-    // that tries to recursively walk an existing `TypeLayout`
-    // and apply an offset to its fields. This is currently
-    // quite ad hoc, but that doesn't matter much as it
-    // handles `struct` types which are the 99% case for
-    // parameter blocks.
-    //
-    typeLayout->offsetElementTypeLayout = applyOffsetToTypeLayout(rawElementTypeLayout, elementVarLayout);
-
     // Next, resource usage from the container and element
     // types may need to "bleed through" to the overall
     // parameter group type.
@@ -1730,89 +2108,27 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     {
         auto rules = rawElementTypeLayout->rules;
 
-        // One really annoying complication we need to deal with here
-        // its that it is possible that the original parameter group
-        // declaration didn't need a constant buffer or `space`/`set`
-        // to be allocated, but once we consider the "pending" data
-        // we need to have a constant buffer and/or space.
+        // Note that because we conservatively allocated both
+        // a constant buffer `register`/`binding` and a `space`/`set`
+        // for the container in cases where the element type
+        // might need it (which included interface/existential types),
+        // there is no need to worry about a case where `pendingElementType`
+        // could require a constant buffer `register`/`binding` or
+        // as `space`/`set` to be allocated but we didn't already
+        // allocate one in the non-pending layout.
         //
-        // We will compute whether the pending data create a demand
-        // for a constant buffer and/or a space/set, so that we know
-        // if we are in the tricky case.
+        // Out focus here is then on setting up the representation
+        // of the "pending" data for the element type, and in
+        // particular on dealing with any data that needs to
+        // "bleed through" to the resource usage of the overall
+        // parameter group.
         //
-        bool pendingDataWantsConstantBuffer = _usesOrdinaryData(pendingElementTypeLayout);
-        bool pendingDataWantsSpaceOrSet = false;
-        if( canUseSpaceOrSet )
-        {
-            for( auto resInfo : pendingElementTypeLayout->resourceInfos )
-            {
-                if( resInfo.kind != LayoutResourceKind::RegisterSpace )
-                {
-                    pendingDataWantsSpaceOrSet = true;
-                    break;
-                }
-            }
-        }
-
-        // We will use a few different variables to track resource
-        // usage for the pending data, with roles similar to the
-        // umbrella type layout, container layout, and element layout
-        // that already came up for the main part of the parameter group type.
-
-
-        RefPtr<TypeLayout> pendingContainerTypeLayout = new TypeLayout();
-        pendingContainerTypeLayout->type = parameterGroupType;
-        pendingContainerTypeLayout->rules = parameterGroupRules;
-
-        containerTypeLayout->pendingDataTypeLayout = pendingContainerTypeLayout;
-
-        RefPtr<VarLayout> pendingContainerVarLayout = new VarLayout();
-        pendingContainerVarLayout->typeLayout = pendingContainerTypeLayout;
-
-        containerVarLayout->pendingVarLayout = pendingContainerVarLayout;
-
-
         RefPtr<VarLayout> pendingElementVarLayout = new VarLayout();
         pendingElementVarLayout->typeLayout = pendingElementTypeLayout;
 
         elementVarLayout->pendingVarLayout = pendingElementVarLayout;
 
-        // If we need a space/set for the pending data, and don't already
-        // have one, then we will allocate it now, as part of the
-        // "full" data type.
-        //
-        if( pendingDataWantsSpaceOrSet && !wantSpaceOrSet )
-        {
-            pendingContainerTypeLayout->addResourceUsage(LayoutResourceKind::RegisterSpace, 1);
-
-            // From here on, we know we have access to a register space,
-            // and we can mask any registers/bindings appropriately.
-            //
-            wantSpaceOrSet = true;
-        }
-
-        // If we need a constant buffer for laying out ordinary
-        // data, and didn't have one allocated before, we will create
-        // one.
-        //
-        if( pendingDataWantsConstantBuffer && !wantConstantBuffer )
-        {
-            auto cbUsage = rules->GetObjectLayout(ShaderParameterKind::ConstantBuffer);
-            pendingContainerTypeLayout->addResourceUsage(cbUsage.kind, cbUsage.size);
-
-            wantConstantBuffer = true;
-        }
-
-        for( auto resInfo : pendingContainerTypeLayout->resourceInfos )
-        {
-            pendingContainerVarLayout->findOrAddResourceInfo(resInfo.kind);
-        }
-
-        // Now that we've added in the resource usage for any CB or set/space
-        // we needed to allocate just for the pending data, we can safely
-        // lay out the pending data itself.
-        //
-        // The ordinary/uniform part of things wil always be "masked" and
+        // Any ordinary/uniform part of the pending data wil always be "masked" and
         // needs to come after any uniform data from the original element type.
         //
         // To kick things off we will initialize state for `struct` type layout,
@@ -1833,8 +2149,8 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
             if( resInfo.kind == LayoutResourceKind::Uniform )
             {
                 // For the ordinary/uniform resource kind, we will add the resource
-                // usage as a structure field, and then write the resulting offset
-                // into the variable layout for the pending data.
+                // usage as if it was a structure field, and then write the resulting
+                // offset into the variable layout for the pending data.
                 //
                 auto offset = rules->AddStructField(
                     &uniformLayout,
@@ -1845,16 +2161,11 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
             }
             else
             {
-                // For all other resource kinds, we will set the offset in
-                // the variable layout based on the total resources of that
-                // kind seen so far (including the "container" if any),
-                // and then bump the count for total resource usage.
+                // For all other resource kinds, we simply need to add an
+                // entry to the pending layout to represent the resource
+                // usage of the pending data.
                 //
-                auto elementVarResInfo = pendingElementVarLayout->findOrAddResourceInfo(resInfo.kind);
-                if( auto containerTypeInfo = pendingContainerTypeLayout->FindResourceInfo(resInfo.kind) )
-                {
-                    elementVarResInfo->index = containerTypeInfo->count.getFiniteValue();
-                }
+                pendingElementVarLayout->findOrAddResourceInfo(resInfo.kind);
             }
         }
         rules->EndStructLayout(&uniformLayout);
@@ -1868,7 +2179,6 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
         // up the hierarchy.
         //
         RefPtr<TypeLayout> unmaskedPendingDataTypeLayout = new TypeLayout();
-        _addUnmaskedResourceUsage(true, unmaskedPendingDataTypeLayout, pendingContainerTypeLayout, wantSpaceOrSet);
         _addUnmaskedResourceUsage(false, unmaskedPendingDataTypeLayout, pendingElementTypeLayout, wantSpaceOrSet);
 
         // TODO: we should probably optimize for the case where there is no unmasked
@@ -1877,7 +2187,93 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
         // Now we need to update the type layout to  what we've done.
         //
         typeLayout->pendingDataTypeLayout = unmaskedPendingDataTypeLayout;
+
+        // We will now attempt to compute reasonable offset information for
+        // (non-uniform) pending data in the element type. There are basically
+        // two cases here:
+        //
+        // 1. If the resource kind is one that is "masked" by the container,
+        // then the pending data can be statically placed at an offset fater
+        // the diret (non-pending) element data.
+        //
+        // 2. If the resource kind is one that "bleeds through" to the container,
+        // then its offset will always be relative to the location that
+        // gets allocated for pending data in the container, which means it
+        // is always zero.
+        //
+        // Because the offsets are currently all set to zero, we only
+        // need to check for case (1).
+        //
+        for( auto pendingVarResInfo : pendingElementVarLayout->resourceInfos )
+        {
+            auto kind = pendingVarResInfo.kind;
+
+            // If we are looking at uniform resource usage, we already
+            // handled it easlier.
+            //
+            if(kind == LayoutResourceKind::Uniform)
+                continue;
+
+            // If the usage is unmasked, the nwe are in case (2) and should
+            // skip out.
+            //
+            if(unmaskedPendingDataTypeLayout->FindResourceInfo(kind))
+                continue;
+
+            // Okay, we have resource info for somethign that is going
+            // to be "masked" by the container, in which case we
+            // can compute a fixed offset, after any existing data
+            // of the same kind.
+            //
+            auto existingVarResInfo = elementVarLayout->FindResourceInfo(kind);
+            if(!existingVarResInfo)
+                continue;
+
+            auto existingTypeResInfo = elementVarLayout->typeLayout->FindResourceInfo(kind);
+            if(!existingTypeResInfo)
+                continue;
+
+            // TODO: We need a more robust solution than just calling
+            // `getFiniteValue` here.
+            //
+            pendingVarResInfo.index = existingVarResInfo->index
+                + existingTypeResInfo->count.getFiniteValue();
+        }
+
+        // TODO: we should probably adjust the size reported by the element type
+        // to include any "pending" data that was allocated into the group, so
+        // that it can be easier for client code to allocate their instances.
     }
+
+    // The existing Slang reflection API was created before we really
+    // understood the wrinkle that the "container" and elements parts
+    // of a parameter group could collide on some resource kinds,
+    // so the API doesn't currently expose the nice `VarLayout`s we've
+    // just computed.
+    //
+    // Instead, the API allows the user to query the element type layout
+    // for the group, and the user just assumes that the offsetting
+    // is magically applied there. To go back to the earlier example:
+    //
+    //      struct MyMaterial { Texture2D t; SamplerState s; };
+    //      ConstantBuffer<MyMaterial> gMaterial;
+    //
+    // A user of the existing reflection API expects to be able to
+    // query the `binding` of `gMaterial` and get back zero, then
+    // query the `binding` of the `t` field of the element type
+    // and get *one*. It is clear that in the abstract, the
+    // `MyMaterial::t` field should have an offset of zero (as
+    // the first field in a `struct`), so to meet the user's
+    // expectations, some cleverness is needed.
+    //
+    // We will use a subroutine `applyOffsetToTypeLayout`
+    // that tries to recursively walk an existing `TypeLayout`
+    // and apply an offset to its fields. This is currently
+    // quite ad hoc, but that doesn't matter much as it
+    // handles `struct` types which are the 99% case for
+    // parameter blocks.
+    //
+    typeLayout->offsetElementTypeLayout = applyOffsetToTypeLayout(rawElementTypeLayout, elementVarLayout);
 
     return typeLayout;
 }
@@ -2092,10 +2488,10 @@ static TypeLayoutResult _createTypeLayout(
         // are only applied to leaf fields/variables of matrix type
         // the difference should be immaterial.
 
-        if (declForModifiers->HasModifier<RowMajorLayoutModifier>())
+        if (declForModifiers->hasModifier<RowMajorLayoutModifier>())
             subContext.matrixLayoutMode = kMatrixLayoutMode_RowMajor;
 
-        if (declForModifiers->HasModifier<ColumnMajorLayoutModifier>())
+        if (declForModifiers->hasModifier<ColumnMajorLayoutModifier>())
             subContext.matrixLayoutMode = kMatrixLayoutMode_ColumnMajor;
 
         // TODO: really need to look for other modifiers that affect
@@ -2365,7 +2761,7 @@ static RefPtr<TypeLayout> maybeAdjustLayoutForArrayElementType(
 
         for( auto p : originalStructTypeLayout->mapVarToLayout )
         {
-            Decl* key = p.Key;
+            VarDeclBase* key = p.Key;
             RefPtr<VarLayout> originalVal = p.Value;
             RefPtr<VarLayout> adjustedVal;
             if( mapOriginalFieldToAdjusted.TryGetValue(originalVal, adjustedVal) )
@@ -2641,7 +3037,7 @@ static TypeLayoutResult _createTypeLayout(
         //    buffer, including offsets, etc.
         //
         // 2. Compute information about any object types inside
-        //    the constant buffer, which need to be surfaces out
+        //    the constant buffer, which need to be surfaced out
         //    to the top level.
         //
         auto typeLayout = createParameterGroupTypeLayout(
@@ -2777,7 +3173,13 @@ static TypeLayoutResult _createTypeLayout(
             context,
             elementType);
 
-        auto info = rules->GetVectorLayout(element.info, elementCount);
+        BaseType elementBaseType = BaseType::Void;
+        if (auto elementBasicType = as<BasicExpressionType>(elementType))
+        {
+            elementBaseType = elementBasicType->baseType;
+        }
+
+        auto info = rules->GetVectorLayout(elementBaseType, element.info, elementCount);
 
         RefPtr<VectorTypeLayout> typeLayout = new VectorTypeLayout();
         typeLayout->type = type;
@@ -2803,6 +3205,12 @@ static TypeLayoutResult _createTypeLayout(
         auto elementTypeLayout = elementResult.layout;
         auto elementInfo = elementResult.info;
 
+        BaseType elementBaseType = BaseType::Void;
+        if (auto elementBasicType = as<BasicExpressionType>(elementType))
+        {
+            elementBaseType = elementBasicType->baseType;
+        }
+
         // The `GetMatrixLayout` implementation in the layout rules
         // currently defaults to assuming row-major layout,
         // so if we want column-major layout we achieve it here by
@@ -2817,6 +3225,7 @@ static TypeLayoutResult _createTypeLayout(
             layoutMinorCount = tmp;
         }
         auto info = rules->GetMatrixLayout(
+            elementBaseType,
             elementInfo,
             layoutMajorCount,
             layoutMinorCount);
@@ -2825,6 +3234,7 @@ static TypeLayoutResult _createTypeLayout(
         RefPtr<VectorTypeLayout> rowTypeLayout = new VectorTypeLayout();
 
         auto rowInfo = rules->GetVectorLayout(
+            elementBaseType,
             elementInfo,
             colCount);
 
@@ -2884,7 +3294,7 @@ static TypeLayoutResult _createTypeLayout(
         // The layout rules for these vary heavily by resource kind and API.
         //
 
-        auto elementCount = GetElementCount(arrayType->ArrayLength);
+        auto elementCount = GetElementCount(arrayType->arrayLength);
 
         //
         // We can compute the uniform storage layout of an array using
@@ -3026,12 +3436,8 @@ static TypeLayoutResult _createTypeLayout(
 
             typeLayoutBuilder.beginLayout(type, rules);
             auto typeLayout = typeLayoutBuilder.getTypeLayout();
-            for (auto field : GetFields(structDeclRef))
+            for (auto field : GetFields(structDeclRef, MemberFilterStyle::Instance))
             {
-                // Static fields shouldn't take part in layout.
-                if(field.getDecl()->HasModifier<HLSLStaticModifier>())
-                    continue;
-
                 // The fields of a `struct` type may include existential (interface)
                 // types (including as nested sub-fields), and any types present
                 // in those fields will need to be specialized based on the
@@ -3294,6 +3700,7 @@ static TypeLayoutResult _createTypeLayout(
         RefPtr<VarLayout> pendingDataVarLayout = new VarLayout();
         if(auto pendingDataTypeLayout = baseTypeLayoutResult.layout->pendingDataTypeLayout)
         {
+            pendingDataVarLayout->typeLayout = pendingDataTypeLayout;
             for( auto pendingResInfo : pendingDataTypeLayout->resourceInfos )
             {
                 auto kind = pendingResInfo.kind;
@@ -3404,7 +3811,7 @@ RefPtr<TypeLayout> getSimpleVaryingParameterTypeLayout(
         {
             auto varyingRuleSet = varyingRules[rr];
             auto elementInfo = varyingRuleSet->GetScalarLayout(elementBaseType);
-            auto info = varyingRuleSet->GetVectorLayout(elementInfo, elementCount);
+            auto info = varyingRuleSet->GetVectorLayout(elementBaseType, elementInfo, elementCount);
             typeLayout->addResourceUsage(info.kind, info.size);
         }
 
@@ -3459,14 +3866,14 @@ RefPtr<TypeLayout> getSimpleVaryingParameterTypeLayout(
             auto varyingRuleSet = varyingRules[rr];
             auto elementInfo = varyingRuleSet->GetScalarLayout(elementBaseType);
 
-            auto info = varyingRuleSet->GetMatrixLayout(elementInfo, layoutMajorCount, layoutMinorCount);
+            auto info = varyingRuleSet->GetMatrixLayout(elementBaseType, elementInfo, layoutMajorCount, layoutMinorCount);
             typeLayout->addResourceUsage(info.kind, info.size);
 
             if(context.matrixLayoutMode == kMatrixLayoutMode_RowMajor)
             {
                 // For row-major matrices only, we can compute an effective
                 // resource usage for the row type.
-                auto rowInfo = varyingRuleSet->GetVectorLayout(elementInfo, colCount);
+                auto rowInfo = varyingRuleSet->GetVectorLayout(elementBaseType, elementInfo, colCount);
                 rowTypeLayout->addResourceUsage(rowInfo.kind, rowInfo.size);
             }
         }
@@ -3490,6 +3897,19 @@ RefPtr<TypeLayout> createTypeLayout(
 }
 
 void TypeLayout::removeResourceUsage(LayoutResourceKind kind)
+{
+    Int infoCount = resourceInfos.getCount();
+    for( Int ii = 0; ii < infoCount; ++ii )
+    {
+        if( resourceInfos[ii].kind == kind )
+        {
+            resourceInfos.removeAt(ii);
+            return;
+        }
+    }
+}
+
+void VarLayout::removeResourceUsage(LayoutResourceKind kind)
 {
     Int infoCount = resourceInfos.getCount();
     for( Int ii = 0; ii < infoCount; ++ii )

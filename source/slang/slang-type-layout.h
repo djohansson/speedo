@@ -15,6 +15,8 @@ namespace Slang {
 enum class BaseType;
 class Type;
 
+struct IRLayout;
+
 //
 
 #if 0
@@ -40,6 +42,13 @@ struct LayoutSize
         : raw(size)
     {
         SLANG_ASSERT(size != RawValue(-1));
+    }
+
+    static LayoutSize fromRaw(RawValue raw)
+    {
+        LayoutSize size;
+        size.raw = raw;
+        return size;
     }
 
     static LayoutSize infinite()
@@ -466,22 +475,9 @@ public:
         return AddResourceInfo(kind);
     }
 
+    void removeResourceUsage(LayoutResourceKind kind);
+
     RefPtr<VarLayout> pendingVarLayout;
-
-
-        /// Get the "absolute" layout of this variable, if applicable.
-        ///
-        /// The `parentAbsoluteLayout` must be the absolute layout
-        /// of the parent of this variable.
-        ///
-        /// The absolute layout will be created once and cached on
-        /// future accesses; if `parentAbsoluteLayout` is not
-        /// consistent at different call sites an unexpected
-        /// layout could be returned.
-        ///
-    VarLayout* getAbsoluteLayout(VarLayout* parentAbsoluteLayout);
-
-    RefPtr<VarLayout> m_absoluteLayout;
 };
 
 // type layout for a variable that has a constant-buffer type
@@ -508,16 +504,6 @@ public:
     // so that any fields (if the element type is a `struct`)
     // will be offset by the resource usage of the container.
     RefPtr<TypeLayout>  offsetElementTypeLayout;
-
-    // If the element type layout had any "pending" data, then
-    // as much of that data as possible will be flushed to
-    // fit into the overall layout of the parameter group.
-    //
-    // This field stores the offset information for where
-    // the pending data got stored relative to the start of
-    // the group.
-    //
-//    RefPtr<VarLayout> flushedDataVarLayout;
 };
 
 // type layout for a variable that has a constant-buffer type
@@ -586,7 +572,7 @@ public:
 class StructTypeLayout : public TypeLayout
 {
 public:
-    // An ordered list of layouts for the known fields
+    // An ordered list of layouts for the known per *instance* fields
     List<RefPtr<VarLayout>> fields;
 
     // Map a variable to its layout directly.
@@ -601,13 +587,7 @@ public:
     // TODO: This should map from a declaration to the *index*
     // in the array above, rather than to the actual pointer,
     // so that we 
-    Dictionary<Decl*, RefPtr<VarLayout>> mapVarToLayout;
-
-    // As an accellerator for type layouts created at the
-    // IR layer, we include a second map that use IR "key"
-    // instructions to map to fields.
-    //
-    Dictionary<IRInst*, RefPtr<VarLayout>> mapKeyToLayout;
+    Dictionary<VarDeclBase*, RefPtr<VarLayout>> mapVarToLayout;
 };
 
 class GenericParamTypeLayout : public TypeLayout
@@ -680,6 +660,9 @@ public:
     // The shader profile that was used to compile the entry point
     Profile profile;
 
+    // The name of the entry point. Always available even if entryPoint is nullptr (for example when it came from a library)
+    Name* name = nullptr;
+
     // Layout for any results of the entry point
     RefPtr<VarLayout> resultLayout;
 
@@ -689,9 +672,9 @@ public:
     };
     unsigned flags = 0;
 
-    EntryPointLayout* getAbsoluteLayout(VarLayout* parentLayout);
+//    EntryPointLayout* getAbsoluteLayout(VarLayout* parentLayout);
 
-    RefPtr<EntryPointLayout> m_absoluteLayout;
+//    RefPtr<EntryPointLayout> m_absoluteLayout;
 };
 
     /// Reflection/layout information about a specialization parameter
@@ -751,6 +734,10 @@ public:
     TargetRequest* getTargetReq() { return targetProgram->getTargetReq(); }
     ComponentType* getProgram() { return targetProgram->getProgram(); }
 
+    ProgramLayout():
+        hashedStringLiteralPool(StringSlicePool::Style::Empty)
+    {
+    }
 
     // We catalog the requested entry points here,
     // and any entry-point-specific parameter data
@@ -772,6 +759,9 @@ public:
         /// arguments that have been used to specialize the program.
         ///
     List<RefPtr<TypeLayout>> taggedUnionTypeLayouts;
+
+        /// Holds all of the string literals that have been hashed
+    StringSlicePool hashedStringLiteralPool;
 };
 
 StructTypeLayout* getGlobalStructLayout(
@@ -826,8 +816,8 @@ struct SimpleLayoutRulesImpl
     virtual SimpleArrayLayoutInfo GetArrayLayout(SimpleLayoutInfo elementInfo, LayoutSize elementCount) = 0;
 
     // Get layout for a vector or matrix type
-    virtual SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount) = 0;
-    virtual SimpleArrayLayoutInfo GetMatrixLayout(SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount) = 0;
+    virtual SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t elementCount) = 0;
+    virtual SimpleArrayLayoutInfo GetMatrixLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount) = 0;
 
     // Begin doing layout on a `struct` type
     virtual UniformLayoutInfo BeginStructLayout() = 0;
@@ -863,14 +853,14 @@ struct LayoutRulesImpl
         return simpleRules->GetArrayLayout(elementInfo, elementCount);
     }
 
-    SimpleLayoutInfo GetVectorLayout(SimpleLayoutInfo elementInfo, size_t elementCount)
+    SimpleLayoutInfo GetVectorLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t elementCount)
     {
-        return simpleRules->GetVectorLayout(elementInfo, elementCount);
+        return simpleRules->GetVectorLayout(elementType, elementInfo, elementCount);
     }
 
-    SimpleArrayLayoutInfo GetMatrixLayout(SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount)
+    SimpleArrayLayoutInfo GetMatrixLayout(BaseType elementType, SimpleLayoutInfo elementInfo, size_t rowCount, size_t columnCount)
     {
-        return simpleRules->GetMatrixLayout(elementInfo, rowCount, columnCount);
+        return simpleRules->GetMatrixLayout(elementType, elementInfo, rowCount, columnCount);
     }
 
     UniformLayoutInfo BeginStructLayout()
@@ -1168,10 +1158,20 @@ RefPtr<TypeLayout> applyOffsetToTypeLayout(
     RefPtr<TypeLayout>  oldTypeLayout,
     RefPtr<VarLayout>   offsetVarLayout);
 
+struct IRBuilder;
+struct IRTypeLayout;
+struct IRVarLayout;
+
+IRTypeLayout* applyOffsetToTypeLayout(
+    IRBuilder*      irBuilder,
+    IRTypeLayout*   oldTypeLayout,
+    IRVarLayout*    offsetVarLayout);
+
     /// Create a layout like `baseLayout`, but offset by `offsetLayout`
-RefPtr<VarLayout> applyOffsetToVarLayout(
-    VarLayout* baseLayout,
-    VarLayout* offsetLayout);
+IRVarLayout* applyOffsetToVarLayout(
+    IRBuilder*      irBuilder,
+    IRVarLayout*    baseLayout,
+    IRVarLayout*    offsetLayout);
 
 }
 

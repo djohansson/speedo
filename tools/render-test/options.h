@@ -6,6 +6,8 @@
 #include "../../slang-com-helper.h"
 #include "../../source/core/slang-writer.h"
 
+#include "../../source/core/slang-process-util.h"
+
 #include "render.h"
 
 namespace renderer_test {
@@ -34,7 +36,8 @@ struct Options
     {
         Graphics,
         Compute,
-        GraphicsCompute
+        GraphicsCompute,
+        RayTracing,
     };
 
     char const* appName = "render-test";
@@ -47,6 +50,7 @@ struct Options
         /// The set render type
     RendererType rendererType = RendererType::Unknown;
     InputLanguageID inputLanguageID = InputLanguageID::Slang;
+    SlangSourceLanguage sourceLanguage = SLANG_SOURCE_LANGUAGE_UNKNOWN;
 
         /// Can be used for overriding the profile
     const char* profileName = nullptr;
@@ -54,12 +58,22 @@ struct Options
     char const* slangArgs[kMaxSlangArgs];
     int slangArgCount = 0;
 
+    bool outputUsingType = false;
+
     bool useDXIL = false;
     bool onlyStartup = false;
 
+    bool performanceProfile = false;
+
+    bool dontAddDefaultEntryPoints = false;
+
     Slang::List<Slang::String> renderFeatures;          /// Required render features for this test to run
 
+    Slang::List<Slang::CommandLine::Arg> compileArgs;
+
     Slang::String adapter;                              ///< The adapter to use either name or index
+
+    uint32_t computeDispatchSize[3] = { 1, 1, 1 };
 };
 
 extern Options gOptions;

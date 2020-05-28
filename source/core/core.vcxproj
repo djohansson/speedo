@@ -174,10 +174,11 @@
     <ClInclude Include="slang-array-view.h" />
     <ClInclude Include="slang-array.h" />
     <ClInclude Include="slang-basic.h" />
+    <ClInclude Include="slang-blob.h" />
     <ClInclude Include="slang-byte-encode-util.h" />
     <ClInclude Include="slang-common.h" />
-    <ClInclude Include="slang-cpp-compiler.h" />
     <ClInclude Include="slang-dictionary.h" />
+    <ClInclude Include="slang-downstream-compiler.h" />
     <ClInclude Include="slang-exception.h" />
     <ClInclude Include="slang-free-list.h" />
     <ClInclude Include="slang-gcc-compiler-util.h" />
@@ -187,12 +188,16 @@
     <ClInclude Include="slang-list.h" />
     <ClInclude Include="slang-math.h" />
     <ClInclude Include="slang-memory-arena.h" />
+    <ClInclude Include="slang-nvrtc-compiler.h" />
     <ClInclude Include="slang-object-scope-manager.h" />
+    <ClInclude Include="slang-offset-container.h" />
     <ClInclude Include="slang-platform.h" />
     <ClInclude Include="slang-process-util.h" />
     <ClInclude Include="slang-random-generator.h" />
     <ClInclude Include="slang-render-api-util.h" />
+    <ClInclude Include="slang-riff.h" />
     <ClInclude Include="slang-secure-crt.h" />
+    <ClInclude Include="slang-semantic-version.h" />
     <ClInclude Include="slang-shared-library.h" />
     <ClInclude Include="slang-smart-pointer.h" />
     <ClInclude Include="slang-std-writers.h" />
@@ -203,6 +208,7 @@
     <ClInclude Include="slang-test-tool-util.h" />
     <ClInclude Include="slang-text-io.h" />
     <ClInclude Include="slang-token-reader.h" />
+    <ClInclude Include="slang-type-text-util.h" />
     <ClInclude Include="slang-type-traits.h" />
     <ClInclude Include="slang-uint-set.h" />
     <ClInclude Include="slang-visual-studio-compiler-util.h" />
@@ -210,17 +216,22 @@
     <ClInclude Include="windows\slang-win-visual-studio-util.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="slang-blob.cpp" />
     <ClCompile Include="slang-byte-encode-util.cpp" />
-    <ClCompile Include="slang-cpp-compiler.cpp" />
+    <ClCompile Include="slang-downstream-compiler.cpp" />
     <ClCompile Include="slang-free-list.cpp" />
     <ClCompile Include="slang-gcc-compiler-util.cpp" />
     <ClCompile Include="slang-hex-dump-util.cpp" />
     <ClCompile Include="slang-io.cpp" />
     <ClCompile Include="slang-memory-arena.cpp" />
+    <ClCompile Include="slang-nvrtc-compiler.cpp" />
     <ClCompile Include="slang-object-scope-manager.cpp" />
+    <ClCompile Include="slang-offset-container.cpp" />
     <ClCompile Include="slang-platform.cpp" />
     <ClCompile Include="slang-random-generator.cpp" />
     <ClCompile Include="slang-render-api-util.cpp" />
+    <ClCompile Include="slang-riff.cpp" />
+    <ClCompile Include="slang-semantic-version.cpp" />
     <ClCompile Include="slang-shared-library.cpp" />
     <ClCompile Include="slang-std-writers.cpp" />
     <ClCompile Include="slang-stream.cpp" />
@@ -230,6 +241,7 @@
     <ClCompile Include="slang-test-tool-util.cpp" />
     <ClCompile Include="slang-text-io.cpp" />
     <ClCompile Include="slang-token-reader.cpp" />
+    <ClCompile Include="slang-type-text-util.cpp" />
     <ClCompile Include="slang-uint-set.cpp" />
     <ClCompile Include="slang-visual-studio-compiler-util.cpp" />
     <ClCompile Include="slang-writer.cpp" />
@@ -237,9 +249,7 @@
     <ClCompile Include="windows\slang-win-visual-studio-util.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Natvis Include="core.natvis">
-      <FileType>Document</FileType>
-    </Natvis>
+    <Natvis Include="core.natvis" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

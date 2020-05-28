@@ -12,6 +12,7 @@
 #include "../../source/core/slang-smart-pointer.h"
 #include "../../source/core/slang-list.h"
 #include "../../source/core/slang-dictionary.h"
+#include "../../source/core/slang-process-util.h"
 
 #include "../../slang.h"
 
@@ -20,9 +21,10 @@ namespace gfx {
 using Slang::RefObject;
 using Slang::RefPtr;
 using Slang::Dictionary;
-using Slang::GetHashCode;
-using Slang::combineHash;
 using Slang::List;
+
+using Slang::getHashCode;
+using Slang::combineHash;
 
 typedef SlangResult Result;
 
@@ -44,6 +46,7 @@ enum class PipelineType
     Unknown,
     Graphics,
     Compute,
+    RayTracing,
     CountOf,
 };
 
@@ -56,6 +59,12 @@ enum class StageType
     Geometry,
     Fragment,
     Compute,
+    RayGeneration,
+    Intersection,
+    AnyHit,
+    ClosestHit,
+    Miss,
+    Callable,
     CountOf,
 };
 
@@ -67,13 +76,14 @@ enum class RendererType
     OpenGl,
     Vulkan,
     CPU,
+    CUDA,
     CountOf,
 };
 
 enum class ProjectionStyle
 {
     Unknown,
-    OpenGl,
+    OpenGl, 
     DirectX,
     Vulkan,
     CountOf,
@@ -87,6 +97,7 @@ enum class BindingStyle
     OpenGl,
     Vulkan,
     CPU,
+    CUDA,
     CountOf,
 };
 
@@ -99,6 +110,7 @@ public:
         StageType   stage;
         void const* codeBegin;
         void const* codeEnd;
+        char const* entryPointName;
 
         UInt getCodeSize() const { return (char const*)codeEnd - (char const*)codeBegin; }
     };
@@ -138,17 +150,16 @@ struct ShaderCompileRequest
     struct EntryPoint
     {
         char const* name = nullptr;
-        SourceInfo  source;
+        SlangStage  slangStage;
     };
 
     SourceInfo source;
-    EntryPoint vertexShader;
-    EntryPoint fragmentShader;
-    EntryPoint computeShader;
-    Slang::List<Slang::String> globalGenericTypeArguments;
-    Slang::List<Slang::String> entryPointGenericTypeArguments;
-    Slang::List<Slang::String> entryPointExistentialTypeArguments;
-    Slang::List<Slang::String> globalExistentialTypeArguments;
+    Slang::List<EntryPoint> entryPoints;
+
+    Slang::List<Slang::String> globalSpecializationArgs;
+    Slang::List<Slang::String> entryPointSpecializationArgs;
+
+    Slang::List<Slang::CommandLine::Arg> compileArgs;
 };
 
 /// Different formats of things like pixels or elements of vertices
@@ -972,6 +983,8 @@ inline void Renderer::setVertexBuffer(UInt slot, BufferResource* buffer, UInt st
 /// Functions that are around Renderer and it's types
 struct RendererUtil
 {
+    typedef Renderer* (*CreateFunc)();
+
         /// Gets the size in bytes of a Format type. Returns 0 if a size is not defined/invalid
     SLANG_FORCE_INLINE static size_t getFormatSize(Format format) { return s_formatSize[int(format)]; }
         /// Given a renderer type, gets a projection style
@@ -985,6 +998,9 @@ struct RendererUtil
 
         /// Get as text
     static Slang::UnownedStringSlice toText(RendererType type);
+
+        /// Given a type returns a function that can construct it, or nullptr if there isn't one
+    static CreateFunc getCreateFunc(RendererType type);
 
     private:
     static void compileTimeAsserts();

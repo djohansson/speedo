@@ -1,9 +1,7 @@
 // slang-diagnostics.cpp
 #include "slang-diagnostics.h"
 
-#include "slang-compiler.h"
 #include "slang-name.h"
-#include "slang-syntax.h"
 
 #include <assert.h>
 
@@ -43,6 +41,11 @@ void printDiagnosticArg(StringBuilder& sb, uint64_t val)
     sb << val;
 }
 
+void printDiagnosticArg(StringBuilder& sb, double val)
+{
+    sb << val;
+}
+
 void printDiagnosticArg(StringBuilder& sb, Slang::String const& str)
 {
     sb << str;
@@ -60,34 +63,6 @@ void printDiagnosticArg(StringBuilder& sb, Name* name)
 }
 
 
-void printDiagnosticArg(StringBuilder& sb, Decl* decl)
-{
-    sb << getText(decl->getName());
-}
-
-void printDiagnosticArg(StringBuilder& sb, Type* type)
-{
-    sb << type->ToString();
-}
-
-void printDiagnosticArg(StringBuilder& sb, Val* val)
-{
-    sb << val->ToString();
-}
-
-void printDiagnosticArg(StringBuilder& sb, TypeExp const& type)
-{
-    sb << type.type->ToString();
-}
-
-void printDiagnosticArg(StringBuilder& sb, QualType const& type)
-{
-    if (type.type)
-        sb << type.type->ToString();
-    else
-        sb << "<null>";
-}
-
 void printDiagnosticArg(StringBuilder& sb, TokenType tokenType)
 {
     sb << TokenTypeToString(tokenType);
@@ -95,61 +70,13 @@ void printDiagnosticArg(StringBuilder& sb, TokenType tokenType)
 
 void printDiagnosticArg(StringBuilder& sb, Token const& token)
 {
-    sb << token.Content;
-}
-
-void printDiagnosticArg(StringBuilder& sb, CodeGenTarget val)
-{
-    switch( val )
-    {
-    default:
-        sb << "<unknown>";
-        break;
-
-#define CASE(TAG, STR) case CodeGenTarget::TAG: sb << STR; break
-    CASE(GLSL,                  "glsl");
-    CASE(HLSL,                  "hlsl");
-    CASE(SPIRV,                 "spirv");
-    CASE(SPIRVAssembly,         "spriv-assembly");
-    CASE(DXBytecode,            "dxbc");
-    CASE(DXBytecodeAssembly,    "dxbc-assembly");
-    CASE(DXIL,                  "dxil");
-    CASE(DXILAssembly,          "dxil-assembly");
-#undef CASE
-    }
-}
-
-void printDiagnosticArg(StringBuilder& sb, Stage val)
-{
-    sb << getStageName(val);
-}
-
-void printDiagnosticArg(StringBuilder& sb, ProfileVersion val)
-{
-    sb << Profile(val).getName();
-}
-
-
-SourceLoc const& getDiagnosticPos(SyntaxNode const* syntax)
-{
-    return syntax->loc;
+    sb << token.getContent();
 }
 
 SourceLoc const& getDiagnosticPos(Token const& token)
 {
     return token.loc;
 }
-
-SourceLoc const& getDiagnosticPos(TypeExp const& typeExp)
-{
-    return typeExp.exp->loc;
-}
-
-SourceLoc const& getDiagnosticPos(IRInst* inst)
-{
-    return inst->sourceLoc;
-}
-
 
 // Take the format string for a diagnostic message, along with its arguments, and turn it into a
 static void formatDiagnosticMessage(StringBuilder& sb, char const* format, int argCount, DiagnosticArg const* const* args)
@@ -323,7 +250,7 @@ void DiagnosticSink::diagnoseRaw(
     if(writer)
     {
         // If so, pass the error string along to them
-        writer->write(message.begin(), message.size());
+        writer->write(message.begin(), message.getLength());
     }
     else
     {

@@ -11,7 +11,7 @@
 namespace Slang
 {
 
-/* static */SlangResult GCCCompilerUtil::parseVersion(const UnownedStringSlice& text, const UnownedStringSlice& prefix, CPPCompiler::Desc& outDesc)
+/* static */SlangResult GCCDownstreamCompilerUtil::parseVersion(const UnownedStringSlice& text, const UnownedStringSlice& prefix, DownstreamCompiler::Desc& outDesc)
 {
     List<UnownedStringSlice> lines;
     StringUtil::calcLines(text, lines);
@@ -20,7 +20,7 @@ namespace Slang
     {
         if (line.startsWith(prefix))
         {
-            const UnownedStringSlice remainingSlice = UnownedStringSlice(line.begin() + prefix.size(), line.end()).trim();
+            const UnownedStringSlice remainingSlice = UnownedStringSlice(line.begin() + prefix.getLength(), line.end()).trim();
             const Index versionEndIndex = remainingSlice.indexOf(' ');
             if (versionEndIndex < 0)
             {
@@ -55,7 +55,7 @@ namespace Slang
     return SLANG_FAIL;
 }
 
-SlangResult GCCCompilerUtil::calcVersion(const String& exeName, CPPCompiler::Desc& outDesc)
+SlangResult GCCDownstreamCompilerUtil::calcVersion(const String& exeName, DownstreamCompiler::Desc& outDesc)
 {
     CommandLine cmdLine;
     cmdLine.setExecutableFilename(exeName);
@@ -70,11 +70,11 @@ SlangResult GCCCompilerUtil::calcVersion(const String& exeName, CPPCompiler::Des
         UnownedStringSlice::fromLiteral("gcc version"),
         UnownedStringSlice::fromLiteral("Apple LLVM version"),
     };
-    const CPPCompiler::CompilerType types[] =
+    const SlangPassThrough types[] =
     {
-        CPPCompiler::CompilerType::Clang,
-        CPPCompiler::CompilerType::GCC,
-        CPPCompiler::CompilerType::Clang,
+        SLANG_PASS_THROUGH_CLANG,
+        SLANG_PASS_THROUGH_GCC,
+        SLANG_PASS_THROUGH_CLANG,
     };
 
     SLANG_COMPILE_TIME_ASSERT(SLANG_COUNT_OF(prefixes) == SLANG_COUNT_OF(types));
@@ -92,9 +92,9 @@ SlangResult GCCCompilerUtil::calcVersion(const String& exeName, CPPCompiler::Des
     return SLANG_FAIL;
 }
 
-static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::Diagnostic::Type& outType)
+static SlangResult _parseErrorType(const UnownedStringSlice& in, DownstreamDiagnostic::Type& outType)
 {
-    typedef CPPCompiler::Diagnostic::Type Type;
+    typedef DownstreamDiagnostic::Type Type;
 
     if (in == "error" || in == "fatal error")
     {
@@ -127,22 +127,22 @@ enum class LineParseResult
     
 } // anonymous
     
-static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParseResult& outLineParseResult, CPPCompiler::Diagnostic& outDiagnostic)
+static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParseResult& outLineParseResult, DownstreamDiagnostic& outDiagnostic)
 {
-    typedef CPPCompiler::Diagnostic Diagnostic;
+    typedef DownstreamDiagnostic Diagnostic;
     typedef Diagnostic::Type Type;
     
     // Set to default case
     outLineParseResult = LineParseResult::Ignore;
-    
+
     /* example error output from different scenarios */
     
     /*
-        tests/cpp-compiler/c-compile-error.c: In function ‘int main(int, char**)’:
-        tests/cpp-compiler/c-compile-error.c:8:13: error: ‘b’ was not declared in this scope
+        tests/cpp-compiler/c-compile-error.c: In function 'int main(int, char**)':
+        tests/cpp-compiler/c-compile-error.c:8:13: error: 'b' was not declared in this scope
         int a = b + c;
         ^
-        tests/cpp-compiler/c-compile-error.c:8:17: error: ‘c’ was not declared in this scope
+        tests/cpp-compiler/c-compile-error.c:8:17: error: 'c' was not declared in this scope
         int a = b + c;
         ^
     */
@@ -167,10 +167,28 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         /home/travis/build/shader-slang/slang/tests/cpp-compiler/c-compile-link-error.c:10: undefined reference to `thing'
         clang-7: error: linker command failed with exit code 1 (use -v to see invocation)*/
 
+    /*  /path/slang-cpp-prelude.h:4:10: fatal error: ../slang.h: No such file or directory
+        #include "../slang.h"
+        ^~~~~~~~~~~~
+        compilation terminated.*/
+    
     outDiagnostic.stage = Diagnostic::Stage::Compile;
 
     List<UnownedStringSlice> split;
     StringUtil::split(line, ':', split);
+
+    // On windows we can have paths that are a: etc... if we detect this we can combine 0 - 1 to be 1.
+    if (split.getCount() > 1 && split[0].getLength() == 1)
+    {
+        const char c = split[0][0];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+        {
+            // We'll assume it's a path
+            UnownedStringSlice path(split[0].begin(), split[1].end());
+            split.removeAt(0);
+            split[0] = path;
+        }
+    }
 
     if (split.getCount() == 2)
     {
@@ -231,7 +249,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         }
         else if (text.startsWith("ld returned"))
         {
-            outDiagnostic.stage = CPPCompiler::Diagnostic::Stage::Link;
+            outDiagnostic.stage = DownstreamDiagnostic::Stage::Link;
             SLANG_RETURN_ON_FAIL(_parseErrorType(split[1].trim(), outDiagnostic.type));
             outDiagnostic.text = line;
             outLineParseResult = LineParseResult::Single;
@@ -247,7 +265,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     else if (split.getCount() == 4)
     {
         // Probably a link error, give the source line
-        String ext = Path::getFileExt(split[0]);
+        String ext = Path::getPathExt(split[0]);
 
         // Maybe a bit fragile -> but probably okay for now
         if (ext != "o" && ext != "obj")
@@ -267,25 +285,27 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
             return SLANG_OK;
         }
     }
-    else if (split.getCount() == 5)
+    else if (split.getCount() >= 5)
     {
         // Probably a regular error line
         SLANG_RETURN_ON_FAIL(_parseErrorType(split[3].trim(), outDiagnostic.type));
 
         outDiagnostic.filePath = split[0];
         SLANG_RETURN_ON_FAIL(StringUtil::parseInt(split[1], outDiagnostic.fileLine));
-        outDiagnostic.text = split[4];
+
+        // Everything from 4 to the end is the error
+        outDiagnostic.text = UnownedStringSlice(split[4].begin(), split.getLast().end());
 
         outLineParseResult = LineParseResult::Start;
         return SLANG_OK;
     }
-    
+
     // Assume it's a continuation
     outLineParseResult = LineParseResult::Continuation;
     return SLANG_OK;
 }
 
-/* static */SlangResult GCCCompilerUtil::parseOutput(const ExecuteResult& exeRes, CPPCompiler::Output& outOutput)
+/* static */SlangResult GCCDownstreamCompilerUtil::parseOutput(const ExecuteResult& exeRes, DownstreamDiagnostics& outOutput)
 {
     LineParseResult prevLineResult = LineParseResult::Ignore;
     
@@ -294,7 +314,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
 
     for (auto line : LineParser(exeRes.standardError.getUnownedSlice()))
     {
-        CPPCompiler::Diagnostic diagnostic;
+        Diagnostic diagnostic;
         diagnostic.reset();
 
         LineParseResult lineRes;
@@ -341,7 +361,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         }
     }
 
-    if (outOutput.has(CPPCompiler::Diagnostic::Type::Error) || exeRes.resultCode != 0)
+    if (outOutput.has(Diagnostic::Type::Error) || exeRes.resultCode != 0)
     {
         outOutput.result = SLANG_FAIL;
     }
@@ -349,8 +369,10 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     return SLANG_OK;
 }
 
-/* static */ SlangResult GCCCompilerUtil::calcModuleFilePath(const CompileOptions& options, StringBuilder& outPath)
+/* static */ SlangResult GCCDownstreamCompilerUtil::calcModuleFilePath(const CompileOptions& options, StringBuilder& outPath)
 {
+    SLANG_ASSERT(options.modulePath.getLength());
+
     outPath.Clear();
 
     switch (options.targetType)
@@ -381,8 +403,10 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     return SLANG_FAIL;
 }
 
-/* static */SlangResult GCCCompilerUtil::calcCompileProducts(const CompileOptions& options, ProductFlags flags, List<String>& outPaths)
+/* static */SlangResult GCCDownstreamCompilerUtil::calcCompileProducts(const CompileOptions& options, ProductFlags flags, List<String>& outPaths)
 {
+    SLANG_ASSERT(options.modulePath.getLength());
+
     outPaths.clear();
 
     if (flags & ProductFlag::Execution)
@@ -395,17 +419,34 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     return SLANG_OK;
 }
 
-/* static */SlangResult GCCCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
+/* static */SlangResult GCCDownstreamCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
 {
+    SLANG_ASSERT(options.sourceContents.getLength() == 0);
+    SLANG_ASSERT(options.modulePath.getLength());
+
     PlatformKind platformKind = (options.platform == PlatformKind::Unknown) ? PlatformUtil::getPlatformKind() : options.platform;
         
-    if (options.sourceType == SourceType::CPP)
+    if (options.sourceLanguage == SLANG_SOURCE_LANGUAGE_CPP)
     {
         cmdLine.addArg("-fvisibility=hidden");
 
         // Need C++14 for partial specialization
         cmdLine.addArg("-std=c++14");
     }
+
+    // TODO(JS): Here we always set -m32 on x86. It could be argued it is only necessary when creating a shared library
+    // but if we create an object file, we don't know what to choose because we don't know what final usage is.
+    // It could also be argued that the platformKind could define the actual desired target - but as it stands
+    // we only have a target of 'Linux' (as opposed to Win32/64). Really it implies we need an arch enumeration too.
+    //
+    // For now we just make X86 binaries try and produce x86 compatible binaries as fixes the immediate problems.
+#if SLANG_PROCESSOR_X86
+    /* Used to specify the processor more broadly. For a x86 binary we need to make sure we build x86 builds
+    even when on an x64 system.
+    -m32
+    -m64*/
+    cmdLine.addArg("-m32");
+#endif
 
     switch (options.optimizationLevel)
     {
@@ -497,6 +538,8 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
     for (const auto& define : options.defines)
     {
         StringBuilder builder;
+
+        builder << "-D";
         builder << define.nameWithSig;
         if (define.value.getLength())
         {
@@ -547,7 +590,7 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         cmdLine.addArg(libPath);
     }
 
-    if (options.sourceType == SourceType::CPP && !PlatformUtil::isFamily(PlatformFamily::Windows, platformKind))
+    if (options.sourceLanguage == SLANG_SOURCE_LANGUAGE_CPP && !PlatformUtil::isFamily(PlatformFamily::Windows, platformKind))
     {
         // Make STD libs available
         cmdLine.addArg("-lstdc++");
@@ -555,6 +598,47 @@ static SlangResult _parseGCCFamilyLine(const UnownedStringSlice& line, LineParse
         cmdLine.addArg("-lm");
     }
 
+    return SLANG_OK;
+}
+
+/* static */SlangResult GCCDownstreamCompilerUtil::createCompiler(const String& path, const String& inExeName, RefPtr<DownstreamCompiler>& outCompiler)
+{
+    String exeName(inExeName);
+    if (path.getLength() > 0)
+    {
+        exeName = Path::combine(path, inExeName);
+    }
+
+    DownstreamCompiler::Desc desc;
+    SLANG_RETURN_ON_FAIL(GCCDownstreamCompilerUtil::calcVersion(exeName, desc));
+
+    RefPtr<CommandLineDownstreamCompiler> compiler(new GCCDownstreamCompiler(desc));
+    compiler->m_cmdLine.setExecutableFilename(exeName);
+
+    outCompiler = compiler;
+    return SLANG_OK;
+}
+
+/* static */SlangResult GCCDownstreamCompilerUtil::locateGCCCompilers(const String& path, ISlangSharedLibraryLoader* loader, DownstreamCompilerSet* set)
+{
+    SLANG_UNUSED(loader);
+    RefPtr<DownstreamCompiler> compiler;
+    if (SLANG_SUCCEEDED(createCompiler(path, "g++", compiler)))
+    {
+        set->addCompiler(compiler);
+    }
+    return SLANG_OK;
+}
+
+/* static */SlangResult GCCDownstreamCompilerUtil::locateClangCompilers(const String& path, ISlangSharedLibraryLoader* loader, DownstreamCompilerSet* set)
+{
+    SLANG_UNUSED(loader);
+
+    RefPtr<DownstreamCompiler> compiler;
+    if (SLANG_SUCCEEDED(createCompiler(path, "clang", compiler)))
+    {
+        set->addCompiler(compiler);
+    }
     return SLANG_OK;
 }
 

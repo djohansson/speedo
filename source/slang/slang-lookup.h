@@ -24,15 +24,6 @@ LookupResult lookUp(
     RefPtr<Scope>       scope,
     LookupMask          mask = LookupMask::Default);
 
-// perform lookup within the context of a particular container declaration,
-// and do *not* look further up the chain
-LookupResult lookUpLocal(
-    Session*                session,
-    SemanticsVisitor*       semantics,
-    Name*                   name,
-    DeclRef<ContainerDecl>  containerDeclRef,
-    LookupMask          mask = LookupMask::Default);
-
 // Perform member lookup in the context of a type
 LookupResult lookUpMember(
     Session*            session,
@@ -41,6 +32,14 @@ LookupResult lookUpMember(
     Type*               type,
     LookupMask          mask = LookupMask::Default);
 
+    /// Perform "direct" lookup in a container declaration
+LookupResult lookUpDirectAndTransparentMembers(
+    Session*                session,
+    SemanticsVisitor*       semantics,
+    Name*                   name,
+    DeclRef<ContainerDecl>  containerDeclRef,
+    LookupMask              mask = LookupMask::Default);
+
 // TODO: this belongs somewhere else
 
 QualType getTypeForDeclRef(
@@ -48,12 +47,18 @@ QualType getTypeForDeclRef(
     SemanticsVisitor*       sema,
     DiagnosticSink*         sink,
     DeclRef<Decl>           declRef,
-    RefPtr<Type>* outTypeResult);
+    RefPtr<Type>*           outTypeResult,
+    SourceLoc               loc);
 
 QualType getTypeForDeclRef(
     Session*        session,
-    DeclRef<Decl>   declRef);
+    DeclRef<Decl>   declRef,
+    SourceLoc       loc);
 
+    /// Add a found item to a lookup result
+void AddToLookupResult(
+    LookupResult&		result,
+    LookupResultItem	item);
 
 }
 

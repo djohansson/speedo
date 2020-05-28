@@ -14,15 +14,8 @@ static void _diagnosticCallback(char const* message, void* /*userData*/)
     stdError.flush();
 }
 
-SlangResult SlangCTool::innerMain(StdWriters* stdWriters, SlangSession* session, int argc, const char*const* argv)
+static SlangResult _compile(SlangCompileRequest* compileRequest, int argc, const char*const* argv)
 {
-    SlangCompileRequest* compileRequest = spCreateCompileRequest(session);
-    spSetDiagnosticCallback(compileRequest, &_diagnosticCallback, nullptr);
-
-    spSetCommandLineCompilerMode(compileRequest);
-    // Do any app specific configuration
-    stdWriters->setRequestWriters(compileRequest);
-
     {
         const SlangResult res = spProcessCommandLineArguments(compileRequest, &argv[1], argc - 1);
         if (SLANG_FAILED(res))
@@ -45,12 +38,29 @@ SlangResult SlangCTool::innerMain(StdWriters* stdWriters, SlangSession* session,
         res = SLANG_FAILED(res) ? SLANG_E_INTERNAL_FAIL : res;
     }
 #ifndef _DEBUG
-    catch (Exception & e)
+    catch (const Exception& e)
     {
         StdWriters::getOut().print("internal compiler error: %S\n", e.Message.toWString().begin());
         res = SLANG_FAIL;
     }
 #endif
+
+    return res;
+}
+
+SlangResult SlangCTool::innerMain(StdWriters* stdWriters, SlangSession* session, int argc, const char*const* argv)
+{
+    SlangCompileRequest* compileRequest = spCreateCompileRequest(session);
+    spSetDiagnosticCallback(compileRequest, &_diagnosticCallback, nullptr);
+
+    spSetCommandLineCompilerMode(compileRequest);
+    // Do any app specific configuration
+    for (int i = 0; i < SLANG_WRITER_CHANNEL_COUNT_OF; ++i)
+    {
+        spSetWriter(compileRequest, SlangWriterChannel(i), stdWriters->getWriter(i));
+    }
+    
+    SlangResult res = _compile(compileRequest, argc, argv);
 
     // Now that we are done, clean up after ourselves
     spDestroyCompileRequest(compileRequest);

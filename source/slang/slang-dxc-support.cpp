@@ -29,12 +29,9 @@
 namespace Slang
 {
     String GetHLSLProfileName(Profile profile);
-    String emitHLSLForEntryPoint(
-        BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq);
+
+
+    SlangResult locateDXCCompilers(const String& path, ISlangSharedLibraryLoader* loader, DownstreamCompilerSet* set);
 
     static UnownedStringSlice _getSlice(IDxcBlob* blob)
     {
@@ -70,15 +67,6 @@ namespace Slang
             return SLANG_FAIL;
         }
 
-        {
-            if (!session->getSharedLibrary(SharedLibraryType::Dxil))
-            {
-                // If can't load dxil - dxc will not be able to sign output
-                // Output a suitable warning to the user
-                sink->diagnose(SourceLoc(), Diagnostics::dxilNotFound);
-            }
-        }
-
         ComPtr<IDxcCompiler> dxcCompiler;
         SLANG_RETURN_ON_FAIL(dxcCreateInstance(
             CLSID_DxcCompiler,
@@ -93,12 +81,11 @@ namespace Slang
 
         // Now let's go ahead and generate HLSL for the entry
         // point, since we'll need that to feed into dxc.
-        auto hlslCode = emitHLSLForEntryPoint(
-            compileRequest,
-            entryPoint,
-            entryPointIndex,
-            targetReq,
-            endToEndReq);
+        SourceResult source;
+        SLANG_RETURN_ON_FAIL(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, CodeGenTarget::HLSL, endToEndReq, source));
+
+        const auto& hlslCode = source.source;
+
         maybeDumpIntermediate(compileRequest, hlslCode.getBuffer(), CodeGenTarget::HLSL);
 
         // Wrap the 

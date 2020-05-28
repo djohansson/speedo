@@ -5,6 +5,11 @@
 #include "../../slang-com-helper.h"
 #include "slang-string-util.h"
 
+// if Visual Studio import the visual studio platform specific header
+#if SLANG_VC
+#   include "windows/slang-win-visual-studio-util.h"
+#endif
+
 #include "slang-io.h"
 
 namespace Slang
@@ -12,6 +17,8 @@ namespace Slang
 
 /* static */ SlangResult VisualStudioCompilerUtil::calcModuleFilePath(const CompileOptions& options, StringBuilder& outPath)
 {
+    SLANG_ASSERT(options.modulePath.getLength());
+
     outPath.Clear();
 
     switch (options.targetType)
@@ -39,6 +46,8 @@ namespace Slang
 
 /* static */SlangResult VisualStudioCompilerUtil::calcCompileProducts(const CompileOptions& options, ProductFlags flags, List<String>& outPaths)
 {
+    SLANG_ASSERT(options.modulePath.getLength());
+
     outPaths.clear();
 
     if (flags & ProductFlag::Execution)
@@ -72,6 +81,9 @@ namespace Slang
 
 /* static */SlangResult VisualStudioCompilerUtil::calcArgs(const CompileOptions& options, CommandLine& cmdLine)
 {
+    SLANG_ASSERT(options.sourceContents.getLength() == 0);
+    SLANG_ASSERT(options.modulePath.getLength());
+
     // https://docs.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-alphabetically?view=vs-2019
 
     cmdLine.addArg("/nologo");
@@ -82,7 +94,7 @@ namespace Slang
 
     if (options.flags & CompileOptions::Flag::EnableExceptionHandling)
     {
-        if (options.sourceType == SourceType::CPP)
+        if (options.sourceLanguage == SLANG_SOURCE_LANGUAGE_CPP)
         {
             // https://docs.microsoft.com/en-us/cpp/build/reference/eh-exception-handling-model?view=vs-2019
             // Assumes c functions cannot throw
@@ -95,12 +107,25 @@ namespace Slang
         // Doesn't appear to be a VS equivalent
     }
 
+    if (options.flags & CompileOptions::Flag::EnableSecurityChecks)
+    {
+        cmdLine.addArg("/GS");
+    }
+    else
+    {
+        cmdLine.addArg("/GS-");
+    }
+
     switch (options.debugInfoType)
     {
         default:
         {
             // Multithreaded statically linked runtime library
             cmdLine.addArg("/MD");
+            break;
+        }
+        case DebugInfoType::None:
+        {
             break;
         }
         case DebugInfoType::Maximal:
@@ -195,6 +220,7 @@ namespace Slang
     for (const auto& define : options.defines)
     {
         StringBuilder builder;
+        builder << "/D";
         builder << define.nameWithSig;
         if (define.value.getLength())
         {
@@ -235,9 +261,9 @@ namespace Slang
 namespace SlangVisualStudioCompilerUtil
 {
 
-static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::Diagnostic::Type& outType)
+static SlangResult _parseErrorType(const UnownedStringSlice& in, DownstreamDiagnostics::Diagnostic::Type& outType)
 {
-    typedef CPPCompiler::Diagnostic::Type Type;
+    typedef DownstreamDiagnostics::Diagnostic::Type Type;
 
     if (in == "error" || in == "fatal error")
     {
@@ -258,9 +284,9 @@ static SlangResult _parseErrorType(const UnownedStringSlice& in, CPPCompiler::Di
     return SLANG_OK;
 }
 
-static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCompiler::Diagnostic& outDiagnostic)
+static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, DownstreamDiagnostics::Diagnostic& outDiagnostic)
 {
-    typedef CPPCompiler::Diagnostic Diagnostic;
+    typedef DownstreamDiagnostics::Diagnostic Diagnostic;
 
     UnownedStringSlice linkPrefix = UnownedStringSlice::fromLiteral("LINK :");
     if (line.startsWith(linkPrefix))
@@ -268,7 +294,7 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
         outDiagnostic.stage = Diagnostic::Stage::Link;
         outDiagnostic.type = Diagnostic::Type::Info;
 
-        outDiagnostic.text = UnownedStringSlice(line.begin() + linkPrefix.size(), line.end());
+        outDiagnostic.text = UnownedStringSlice(line.begin() + linkPrefix.getLength(), line.end());
 
         return SLANG_OK;
     }
@@ -384,11 +410,11 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
 
 } // namespace SlangVisualStudioCompilerUtil
 
-/* static */SlangResult VisualStudioCompilerUtil::parseOutput(const ExecuteResult& exeRes, CPPCompiler::Output& outOutput)
+/* static */SlangResult VisualStudioCompilerUtil::parseOutput(const ExecuteResult& exeRes, DownstreamDiagnostics& outDiagnostics)
 {
-    outOutput.reset();
+    outDiagnostics.reset();
 
-    outOutput.rawDiagnostics = exeRes.standardOutput;
+    outDiagnostics.rawDiagnostics = exeRes.standardOutput;
 
     for (auto line : LineParser(exeRes.standardOutput.getUnownedSlice()))
     {
@@ -397,17 +423,32 @@ static SlangResult _parseVisualStudioLine(const UnownedStringSlice& line, CPPCom
         fprintf(stdout, "\n");
 #endif
 
-        CPPCompiler::Diagnostic diagnostic;
+        Diagnostic diagnostic;
         if (SLANG_SUCCEEDED(SlangVisualStudioCompilerUtil::_parseVisualStudioLine(line, diagnostic)))
         {
-            outOutput.diagnostics.add(diagnostic);
+            outDiagnostics.diagnostics.add(diagnostic);
         }
     }
 
     // if it has a compilation error.. set on output
-    if (outOutput.has(CPPCompiler::Diagnostic::Type::Error))
+    if (outDiagnostics.has(Diagnostic::Type::Error))
     {
-        outOutput.result = SLANG_FAIL;
+        outDiagnostics.result = SLANG_FAIL;
+    }
+
+    return SLANG_OK;
+}
+
+/* static */SlangResult VisualStudioCompilerUtil::locateCompilers(const String& path, ISlangSharedLibraryLoader* loader, DownstreamCompilerSet* set)
+{
+    SLANG_UNUSED(loader);
+
+    // TODO(JS): We don't support fixed path for visual studio just yet
+    if (path.getLength() == 0)
+    {
+#if SLANG_VC
+        return WinVisualStudioUtil::find(set);
+#endif
     }
 
     return SLANG_OK;

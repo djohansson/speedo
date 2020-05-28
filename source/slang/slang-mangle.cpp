@@ -139,7 +139,7 @@ namespace Slang
         else if (auto arrType = dynamicCast<ArrayExpressionType>(type))
         {
             emitRaw(context, "a");
-            emitSimpleIntVal(context, arrType->ArrayLength);
+            emitSimpleIntVal(context, arrType->arrayLength);
             emitType(context, arrType->baseType);
         }
         else if( auto taggedUnionType = dynamicCast<TaggedUnionType>(type) )
@@ -150,6 +150,11 @@ namespace Slang
                 emitType(context, caseType);
             }
             emitRaw(context, "U");
+        }
+        else if( auto thisType = dynamicCast<ThisType>(type) )
+        {
+            emitRaw(context, "t");
+            emitQualifiedName(context, thisType->interfaceDeclRef);
         }
         else
         {
@@ -268,6 +273,14 @@ namespace Slang
             if (declRef.is<RefAccessorDecl>())   emitRaw(context, "Ar");
         }
 
+        // Special case: need a way to tell prefix and postfix unary
+        // operators apart.
+        {
+            if(declRef.getDecl()->hasModifier<PostfixModifier>()) emitRaw(context, "P");
+            if(declRef.getDecl()->hasModifier<PrefixModifier>()) emitRaw(context, "p");
+        }
+
+
         // Are we the "inner" declaration beneath a generic decl?
         if(parentGenericDeclRef && (parentGenericDeclRef.getDecl()->inner.Ptr() == declRef.getDecl()))
         {
@@ -345,7 +358,7 @@ namespace Slang
         if( auto callableDeclRef = declRef.as<CallableDecl>())
         {
             auto parameters = GetParameters(callableDeclRef);
-            UInt parameterCount = parameters.Count();
+            UInt parameterCount = parameters.getCount();
 
             emitRaw(context, "p");
             emit(context, parameterCount);
@@ -474,5 +487,15 @@ namespace Slang
         return context.sb.ProduceString();
     }
 
+    String getHashedName(const UnownedStringSlice& mangledName)
+    {
+        HashCode64 hash = getStableHashCode64(mangledName.begin(), mangledName.getLength());
+
+        StringBuilder builder;
+        builder << "_Sh";
+        builder.append(uint64_t(hash), 16);
+
+        return builder;
+    }
 
 }

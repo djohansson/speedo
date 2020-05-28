@@ -175,10 +175,12 @@
     <ClCompile Include="slangc-tool.cpp" />
     <ClCompile Include="test-context.cpp" />
     <ClCompile Include="test-reporter.cpp" />
+    <ClCompile Include="unit-offset-container.cpp" />
     <ClCompile Include="unit-test-byte-encode.cpp" />
     <ClCompile Include="unit-test-free-list.cpp" />
     <ClCompile Include="unit-test-memory-arena.cpp" />
     <ClCompile Include="unit-test-path.cpp" />
+    <ClCompile Include="unit-test-riff.cpp" />
     <ClCompile Include="unit-test-string.cpp" />
   </ItemGroup>
   <ItemGroup>

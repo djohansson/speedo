@@ -41,16 +41,21 @@ int test(
 }
 
 
-//TEST_INPUT:ubuffer(data=[0 0 0 0], stride=4):dxbinding(0),glbinding(0),out
+//TEST_INPUT:ubuffer(data=[0 0 0 0], stride=4):out
 RWStructuredBuffer<int> gOutputBuffer;
 
+// Note: even though `C` doesn't include any
+// uniform/ordinary dat as declared, it gets a
+// constant buffer allocated for it because
+// there is no way to rule out the possibility
+// that it *will* contain uniform/ordinary data
+// after specialization.
+//
+//TEST_INPUT:cbuffer(data=[0]):
 cbuffer C
 {
    IRandomNumberGenerationStrategy gStrategy;
 }
-
-//TEST_INPUT: globalExistentialType MyStrategy
-//TEST_INPUT:ubuffer(data=[1 2 4 8], stride=4):dxbinding(1),glbinding(1)
 
 struct Stuff
 {
@@ -58,9 +63,23 @@ struct Stuff
     int extra;
 }
 
+// Note: the data for global-scope existential parameters
+// is being introduced *before* the entry point declaration,
+// because the default policy used by `slangc` (which the
+// render test also uses) is to specialize the parameters at
+// the global scope (producing a new layout) and then compose
+// that specialized global scope with the entry point.
+//
+// (The net result is that data related to global-scope
+// specialization always precedes the data for entry point
+// parameters in these tests today)
+//
+//TEST_INPUT: globalExistentialType MyStrategy
+//TEST_INPUT:ubuffer(data=[1 2 4 8], stride=4):
+
 [numthreads(4, 1, 1)]
 void computeMain(
-//TEST_INPUT:cbuffer(data=[256]):dxbinding(0),glbinding(2)
+//TEST_INPUT:cbuffer(data=[256]):
     uniform Stuff stuff,
 
     uint3       dispatchThreadID : SV_DispatchThreadID)
@@ -111,4 +130,4 @@ struct MyModifier : IModifier
 }
 
 //TEST_INPUT: entryPointExistentialType MyModifier
-//TEST_INPUT:ubuffer(data=[16 32 64 128], stride=4):dxbinding(2),glbinding(3)
+//TEST_INPUT:ubuffer(data=[16 32 64 128], stride=4):

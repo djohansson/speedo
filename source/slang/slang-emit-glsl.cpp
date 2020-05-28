@@ -12,9 +12,9 @@
 
 namespace Slang {
 
-void GLSLSourceEmitter::_requireGLSLExtension(String const& name)
+void GLSLSourceEmitter::_requireGLSLExtension(const UnownedStringSlice& name)
 {
-    m_glslExtensionTracker.requireExtension(name);
+    m_glslExtensionTracker->requireExtension(name);
 }
 
 void GLSLSourceEmitter::_requireGLSLVersion(ProfileVersion version)
@@ -22,7 +22,12 @@ void GLSLSourceEmitter::_requireGLSLVersion(ProfileVersion version)
     if (getSourceStyle() != SourceStyle::GLSL)
         return;
 
-    m_glslExtensionTracker.requireVersion(version);
+    m_glslExtensionTracker->requireVersion(version);
+}
+
+void GLSLSourceEmitter::_requireSPIRVVersion(const SemanticVersion& version)
+{
+    m_glslExtensionTracker->requireSPIRVVersion(version);
 }
 
 void GLSLSourceEmitter::_requireGLSLVersion(int version)
@@ -195,13 +200,13 @@ void GLSLSourceEmitter::_emitGLSLParameterGroup(IRGlobalParam* varDecl, IRUnifor
     EmitVarChain containerChain = blockChain;
     EmitVarChain elementChain = blockChain;
 
-    auto typeLayout = varLayout->typeLayout->unwrapArray();
-    if (auto parameterGroupTypeLayout = as<ParameterGroupTypeLayout>(typeLayout))
+    auto typeLayout = varLayout->getTypeLayout()->unwrapArray();
+    if (auto parameterGroupTypeLayout = as<IRParameterGroupTypeLayout>(typeLayout))
     {
-        containerChain = EmitVarChain(parameterGroupTypeLayout->containerVarLayout, &blockChain);
-        elementChain = EmitVarChain(parameterGroupTypeLayout->elementVarLayout, &blockChain);
+        containerChain = EmitVarChain(parameterGroupTypeLayout->getContainerVarLayout(), &blockChain);
+        elementChain = EmitVarChain(parameterGroupTypeLayout->getElementVarLayout(), &blockChain);
 
-        typeLayout = parameterGroupTypeLayout->elementVarLayout->typeLayout;
+        typeLayout = parameterGroupTypeLayout->getElementVarLayout()->getTypeLayout();
     }
 
     /*
@@ -279,7 +284,7 @@ void GLSLSourceEmitter::_emitGLSLImageFormatModifier(IRInst* var, IRTextureType*
             // the image *type* (with a "base type" for images with
             // unknown format).
             //
-            _requireGLSLExtension("GL_EXT_shader_image_load_formatted");
+            _requireGLSLExtension(UnownedStringSlice::fromLiteral("GL_EXT_shader_image_load_formatted"));
         }
         else
         {
@@ -311,7 +316,7 @@ void GLSLSourceEmitter::_emitGLSLImageFormatModifier(IRInst* var, IRTextureType*
     //
     if (m_compileRequest->useUnknownImageFormatAsDefault)
     {
-        _requireGLSLExtension("GL_EXT_shader_image_load_formatted");
+        _requireGLSLExtension(UnownedStringSlice::fromLiteral("GL_EXT_shader_image_load_formatted"));
         return;
     }
 
@@ -432,7 +437,7 @@ bool GLSLSourceEmitter::_emitGLSLLayoutQualifier(LayoutResourceKind kind, EmitVa
 {
     if (!chain)
         return false;
-    if (!chain->varLayout->FindResourceInfo(kind))
+    if (!chain->varLayout->findOffsetAttr(kind))
         return false;
 
     UInt index = getBindingOffset(chain, kind);
@@ -461,7 +466,7 @@ bool GLSLSourceEmitter::_emitGLSLLayoutQualifier(LayoutResourceKind kind, EmitVa
             bool useExplicitOffsets = false;
             if (useExplicitOffsets)
             {
-                _requireGLSLExtension("GL_ARB_enhanced_layouts");
+                _requireGLSLExtension(UnownedStringSlice::fromLiteral("GL_ARB_enhanced_layouts"));
 
                 m_writer->emit("layout(offset = ");
                 m_writer->emit(index);
@@ -470,10 +475,15 @@ bool GLSLSourceEmitter::_emitGLSLLayoutQualifier(LayoutResourceKind kind, EmitVa
         }
         break;
 
-        case LayoutResourceKind::VertexInput:
-        case LayoutResourceKind::FragmentOutput:
+        case LayoutResourceKind::VaryingInput:
+        case LayoutResourceKind::VaryingOutput:
             m_writer->emit("layout(location = ");
             m_writer->emit(index);
+            if( space )
+            {
+                m_writer->emit(", index = ");
+                m_writer->emit(space);
+            }
             m_writer->emit(")\n");
             break;
 
@@ -509,7 +519,7 @@ bool GLSLSourceEmitter::_emitGLSLLayoutQualifier(LayoutResourceKind kind, EmitVa
     return true;
 }
 
-void GLSLSourceEmitter::_emitGLSLLayoutQualifiers(RefPtr<VarLayout> layout, EmitVarChain* inChain, LayoutResourceKind filter)
+void GLSLSourceEmitter::_emitGLSLLayoutQualifiers(IRVarLayout* layout, EmitVarChain* inChain, LayoutResourceKind filter)
 {
     if (!layout) return;
 
@@ -524,16 +534,16 @@ void GLSLSourceEmitter::_emitGLSLLayoutQualifiers(RefPtr<VarLayout> layout, Emit
 
     EmitVarChain chain(layout, inChain);
 
-    for (auto info : layout->resourceInfos)
+    for (auto info : layout->getOffsetAttrs())
     {
         // Skip info that doesn't match our filter
         if (filter != LayoutResourceKind::None
-            && filter != info.kind)
+            && filter != info->getResourceKind())
         {
             continue;
         }
 
-        _emitGLSLLayoutQualifier(info.kind, &chain);
+        _emitGLSLLayoutQualifier(info->getResourceKind(), &chain);
     }
 }
 
@@ -583,18 +593,29 @@ void GLSLSourceEmitter::_emitGLSLTypePrefix(IRType* type, bool promoteHalfToFloa
         case kIROp_Int8Type:    m_writer->emit("i8");     break;
         case kIROp_Int16Type:   m_writer->emit("i16");    break;
         case kIROp_IntType:     m_writer->emit("i");      break;
-        case kIROp_Int64Type:   m_writer->emit("i64");    break;
+        case kIROp_Int64Type:   
+        {
+            _requireBaseType(BaseType::Int64);
+            m_writer->emit("i64");
+            break;
+        }
 
         case kIROp_UInt8Type:   m_writer->emit("u8");     break;
         case kIROp_UInt16Type:  m_writer->emit("u16");    break;
         case kIROp_UIntType:    m_writer->emit("u");      break;
-        case kIROp_UInt64Type:  m_writer->emit("u64");    break;
+
+        case kIROp_UInt64Type:
+        {
+            _requireBaseType(BaseType::UInt64);
+            m_writer->emit("u64");
+            break;
+        }
 
         case kIROp_BoolType:    m_writer->emit("b");		break;
 
         case kIROp_HalfType:
         {
-            _requireHalf();
+            _requireBaseType(BaseType::Half);
             if (promoteHalfToFloat)
             {
                 // no prefix
@@ -621,9 +642,9 @@ void GLSLSourceEmitter::_emitGLSLTypePrefix(IRType* type, bool promoteHalfToFloa
     }
 }
 
-void GLSLSourceEmitter::_requireHalf()
+void GLSLSourceEmitter::_requireBaseType(BaseType baseType)
 {
-    m_glslExtensionTracker.requireHalfExtension();
+    m_glslExtensionTracker->requireBaseTypeExtension(baseType);
 }
 
 void GLSLSourceEmitter::_maybeEmitGLSLFlatModifier(IRType* valueType)
@@ -647,34 +668,121 @@ void GLSLSourceEmitter::_maybeEmitGLSLFlatModifier(IRType* valueType)
     }
 }
 
+void GLSLSourceEmitter::emitLoopControlDecorationImpl(IRLoopControlDecoration* decl)
+{
+    if (decl->getMode() == kIRLoopControl_Unroll)
+    {
+        // https://github.com/KhronosGroup/GLSL/blob/master/extensions/ext/GL_EXT_control_flow_attributes.txt
+        m_glslExtensionTracker->requireExtension(UnownedStringSlice::fromLiteral("GL_EXT_control_flow_attributes"));
+        m_writer->emit("[[unroll]]\n");
+    }
+}
+
+void GLSLSourceEmitter::emitSimpleValueImpl(IRInst* inst) 
+{
+    switch (inst->op)
+    {
+        case kIROp_IntLit:
+        {
+            auto litInst = static_cast<IRConstant*>(inst);
+
+            IRBasicType* type = as<IRBasicType>(inst->getDataType());
+            if (type)
+            {
+                switch (type->getBaseType())
+                {
+                    default: 
+                    
+                    case BaseType::Int8:
+                    case BaseType::Int16:
+                    case BaseType::Int:
+                    {
+                        m_writer->emit(litInst->value.intVal);
+                        return;
+                    }
+                    case BaseType::UInt8:
+                    case BaseType::UInt16:
+                    case BaseType::UInt:
+                    {
+                        m_writer->emit(UInt(litInst->value.intVal));
+                        m_writer->emit("U");
+                        return;
+                    }
+                    case BaseType::Int64:
+                    {
+                        m_writer->emitInt64(int64_t(litInst->value.intVal));
+                        m_writer->emit("L");
+                        return;
+                    }
+                    case BaseType::UInt64:
+                    {
+                        SLANG_COMPILE_TIME_ASSERT(sizeof(litInst->value.intVal) >= sizeof(uint64_t));
+                        m_writer->emitUInt64(uint64_t(litInst->value.intVal));
+                        m_writer->emit("UL");
+                        return;
+                    }
+
+                }
+            }
+            break;   
+        }
+        case kIROp_FloatLit:
+        {
+            IRConstant* constantInst = static_cast<IRConstant*>(inst);
+
+            IRConstant::FloatKind kind = constantInst->getFloatKind();
+
+            switch (kind)
+            {
+                case IRConstant::FloatKind::Nan:
+                {
+                    m_writer->emit("(0.0 / 0.0)");
+                    return;
+                }
+                case IRConstant::FloatKind::PositiveInfinity:
+                {
+                    m_writer->emit("(1.0 / 0.0)");
+                    return;
+                }
+                case IRConstant::FloatKind::NegativeInfinity:
+                {
+                    m_writer->emit("(-1.0 / 0.0)");
+                    return;
+                }
+                default: break;
+            }
+            break;
+        }
+
+        default: break;
+    }
+
+    Super::emitSimpleValueImpl(inst);
+}
+
+
 void GLSLSourceEmitter::emitParameterGroupImpl(IRGlobalParam* varDecl, IRUniformParameterGroupType* type)
 {
     _emitGLSLParameterGroup(varDecl, type);
 }
 
-void GLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, EntryPointLayout* entryPointLayout)
+void GLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPointDecoration* entryPointDecor)
 {
-    auto profile = entryPointLayout->profile;
+    SLANG_ASSERT(entryPointDecor);
+
+    auto profile = entryPointDecor->getProfile();
     auto stage = profile.GetStage();
 
     switch (stage)
     {
         case Stage::Compute:
         {
-            static const UInt kAxisCount = 3;
-            UInt sizeAlongAxis[kAxisCount];
-
-            // TODO: this is kind of gross because we are using a public
-            // reflection API function, rather than some kind of internal
-            // utility it forwards to...
-            spReflectionEntryPoint_getComputeThreadGroupSize(
-                (SlangReflectionEntryPoint*)entryPointLayout,
-                kAxisCount,
-                &sizeAlongAxis[0]);
+            Int sizeAlongAxis[kThreadGroupAxisCount];
+            getComputeThreadGroupSize(irFunc, sizeAlongAxis);
 
             m_writer->emit("layout(");
             char const* axes[] = { "x", "y", "z" };
-            for (int ii = 0; ii < 3; ++ii)
+            for (int ii = 0; ii < kThreadGroupAxisCount; ++ii)
             {
                 if (ii != 0) m_writer->emit(", ");
                 m_writer->emit("local_size_");
@@ -687,63 +795,52 @@ void GLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, EntryPointL
         break;
         case Stage::Geometry:
         {
-            if (auto attrib = entryPointLayout->getFuncDecl()->FindModifier<MaxVertexCountAttribute>())
+            if (auto decor = irFunc->findDecoration<IRMaxVertexCountDecoration>())
             {
+                auto count = GetIntVal(decor->getCount());
                 m_writer->emit("layout(max_vertices = ");
-                m_writer->emit(attrib->value);
+                m_writer->emit(Int(count));
                 m_writer->emit(") out;\n");
             }
-            if (auto attrib = entryPointLayout->getFuncDecl()->FindModifier<InstanceAttribute>())
+
+            if (auto decor = irFunc->findDecoration<IRInstanceDecoration>())
             {
+                auto count = GetIntVal(decor->getCount());
                 m_writer->emit("layout(invocations = ");
-                m_writer->emit(attrib->value);
+                m_writer->emit(Int(count));
                 m_writer->emit(") in;\n");
             }
 
-            for (auto pp : entryPointLayout->getFuncDecl()->GetParameters())
+            // These decorations were moved from the parameters to the entry point by ir-glsl-legalize.
+            // The actual parameters have become potentially multiple global parameters.
+            if (auto decor = irFunc->findDecoration<IRGeometryInputPrimitiveTypeDecoration>())
             {
-                if (auto inputPrimitiveTypeModifier = pp->FindModifier<HLSLGeometryShaderInputPrimitiveTypeModifier>())
+                switch (decor->op)
                 {
-                    if (as<HLSLTriangleModifier>(inputPrimitiveTypeModifier))
+                    case kIROp_TriangleInputPrimitiveTypeDecoration:       m_writer->emit("layout(triangles) in;\n"); break;
+                    case kIROp_LineInputPrimitiveTypeDecoration:           m_writer->emit("layout(lines) in;\n"); break;
+                    case kIROp_LineAdjInputPrimitiveTypeDecoration:        m_writer->emit("layout(lines_adjacency) in;\n"); break;
+                    case kIROp_PointInputPrimitiveTypeDecoration:          m_writer->emit("layout(points) in;\n"); break;
+                    case kIROp_TriangleAdjInputPrimitiveTypeDecoration:    m_writer->emit("layout(triangles_adjacency) in;\n"); break;
+                    default:
                     {
-                        m_writer->emit("layout(triangles) in;\n");
-                    }
-                    else if (as<HLSLLineModifier>(inputPrimitiveTypeModifier))
-                    {
-                        m_writer->emit("layout(lines) in;\n");
-                    }
-                    else if (as<HLSLLineAdjModifier>(inputPrimitiveTypeModifier))
-                    {
-                        m_writer->emit("layout(lines_adjacency) in;\n");
-                    }
-                    else if (as<HLSLPointModifier>(inputPrimitiveTypeModifier))
-                    {
-                        m_writer->emit("layout(points) in;\n");
-                    }
-                    else if (as<HLSLTriangleAdjModifier>(inputPrimitiveTypeModifier))
-                    {
-                        m_writer->emit("layout(triangles_adjacency) in;\n");
-                    }
-                }
-
-                if (auto outputStreamType = as<HLSLStreamOutputType>(pp->type))
-                {
-                    if (as<HLSLTriangleStreamType>(outputStreamType))
-                    {
-                        m_writer->emit("layout(triangle_strip) out;\n");
-                    }
-                    else if (as<HLSLLineStreamType>(outputStreamType))
-                    {
-                        m_writer->emit("layout(line_strip) out;\n");
-                    }
-                    else if (as<HLSLPointStreamType>(outputStreamType))
-                    {
-                        m_writer->emit("layout(points) out;\n");
+                        SLANG_ASSERT(!"Unknown primitive type");
                     }
                 }
             }
 
+            if (auto decor = irFunc->findDecoration<IRStreamOutputTypeDecoration>())
+            {
+                IRType* type = decor->getStreamType();
 
+                switch (type->op)
+                {
+                    case kIROp_HLSLPointStreamType:     m_writer->emit("layout(points) out;\n"); break;
+                    case kIROp_HLSLLineStreamType:      m_writer->emit("layout(line_strip) out;\n"); break;
+                    case kIROp_HLSLTriangleStreamType:  m_writer->emit("layout(triangle_strip) out;\n"); break;
+                    default: SLANG_ASSERT(!"Unknown stream out type");
+                }    
+            }
         }
         break;
         case Stage::Pixel:
@@ -836,7 +933,7 @@ bool GLSLSourceEmitter::tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* v
     {
         if (isResourceType(unwrapArray(varType)))
         {
-            _requireGLSLExtension("GL_EXT_nonuniform_qualifier");
+            _requireGLSLExtension(UnownedStringSlice::fromLiteral("GL_EXT_nonuniform_qualifier"));
         }
     }
 
@@ -866,16 +963,16 @@ void GLSLSourceEmitter::emitImageFormatModifierImpl(IRInst* varDecl, IRType* var
     }
 }
 
-void GLSLSourceEmitter::emitLayoutQualifiersImpl(VarLayout* layout)
+void GLSLSourceEmitter::emitLayoutQualifiersImpl(IRVarLayout* layout)
 {
     // Layout-related modifiers need to come before the declaration,
     // so deal with them here.
     _emitGLSLLayoutQualifiers(layout, nullptr);
 
     // try to emit an appropriate leading qualifier
-    for (auto rr : layout->resourceInfos)
+    for (auto rr : layout->getOffsetAttrs())
     {
-        switch (rr.kind)
+        switch (rr->getResourceKind())
         {
             case LayoutResourceKind::Uniform:
             case LayoutResourceKind::ShaderResource:
@@ -921,16 +1018,6 @@ void GLSLSourceEmitter::emitLayoutQualifiersImpl(VarLayout* layout)
     }
 }
 
-static EmitOp _getBoolOp(IROp op)
-{
-    switch (op)
-    {
-        case kIROp_BitAnd:          return EmitOp::And;
-        case kIROp_BitOr:           return EmitOp::Or;
-        default:                    return EmitOp::None;
-    }
-}
-
 static const char* _getGLSLVectorCompareFunctionName(IROp op)
 {
     // Glsl vector comparisons use functions...
@@ -966,6 +1053,102 @@ void GLSLSourceEmitter::_maybeEmitGLSLCast(IRType* castType, IRInst* inst)
         // Emit the operand
         emitOperand(inst, getInfo(EmitOp::General));
     }
+}
+
+void GLSLSourceEmitter::_emitLegalizedBoolVectorBinOp(IRInst* inst, IRVectorType* type, const EmitOpInfo& op, const EmitOpInfo& inOuterPrec)
+{
+    auto elementCount = type->getElementCount();
+
+    EmitOpInfo outerPrec = inOuterPrec;
+    auto prec = getInfo(EmitOp::Postfix);
+    bool needClose = maybeEmitParens(outerPrec, prec);
+
+    emitType(type);
+    m_writer->emit("(uvec");
+    emitSimpleValue(elementCount);
+    m_writer->emit("(");
+    emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+    m_writer->emit(")");
+    m_writer->emit(op.op);
+    m_writer->emit("uvec");
+    emitSimpleValue(elementCount);
+    m_writer->emit("(");
+    emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+    m_writer->emit("))");
+
+    maybeCloseParens(needClose);
+}
+
+bool GLSLSourceEmitter::_tryEmitLogicalBinOp(IRInst* inst, const EmitOpInfo& bitOp, const EmitOpInfo& inOuterPrec)
+{
+    // Logical operation on scalar `bool` values are directly
+    // supported by GLSL. They have short-circuiting behavior,
+    // but we need not worry about that because our logic
+    // for folding sub-expressions into their use sites will
+    // never fold a sub-expression that would have side effects.
+    //
+    // Thus we fall back to the default handling for scalar
+    // cases (which should only arise for `bool` operands).
+    //
+    IRType* type = inst->getDataType();
+    auto vectorType = as<IRVectorType>(type);
+    if(!vectorType)
+        return false;
+
+    // For vector cases, we need to convert the operands to
+    // a type that supports vector operations, and then use
+    // bit operations there.
+    //
+    _emitLegalizedBoolVectorBinOp(inst, vectorType, bitOp, inOuterPrec);
+    return true;
+}
+
+bool GLSLSourceEmitter::_tryEmitBitBinOp(IRInst* inst, const EmitOpInfo& bitOp, const EmitOpInfo& boolOp, const EmitOpInfo& inOuterPrec)
+{
+    // The bitwise binary operations are supported in GLSL,
+    // but do not support `bool` or vector-of-`bool` operands.
+    //
+    // We start by checking if we have a `bool`-based case,
+    // and fall back to the default emit logic if not.
+    //
+    IRType* type = inst->getDataType();
+    IRType* elementType = type;
+    auto vectorType = as<IRVectorType>(type);
+    if(vectorType)
+        elementType = vectorType->getElementType();
+    if(!as<IRBoolType>(elementType))
+        return false;
+
+    // If we have a vector case, then it will be handled
+    // by casting the `bool` vectors to vectors of
+    // integers and doing the bitwise op there, where
+    // it should yield an equivalent result.
+    //
+    if(vectorType)
+    {
+        _emitLegalizedBoolVectorBinOp(inst, vectorType, bitOp, inOuterPrec);
+    }
+    else
+    {
+        // In the scalar case, we will translate
+        // bitwise operations on `bool` values to
+        // the equivalent logical operation, knowing
+        // that our appraoch to folding of sub-expressions
+        // into use sites will avoid any potential issues
+        // around short-circuiting behavior.
+        //
+        auto prec = boolOp;
+        EmitOpInfo outerPrec = inOuterPrec;
+        bool needClose = maybeEmitParens(outerPrec, prec);
+
+        emitOperand(inst->getOperand(0), leftSide(outerPrec, prec));
+        m_writer->emit(prec.op);
+        emitOperand(inst->getOperand(1), rightSide(outerPrec, prec));
+
+        maybeCloseParens(needClose);
+    }
+    return true;
+
 }
 
 bool GLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOuterPrec)
@@ -1009,31 +1192,6 @@ bool GLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             }
             break;
         }
-        case kIROp_Mul_Vector_Matrix:
-        case kIROp_Mul_Matrix_Vector:
-        case kIROp_Mul_Matrix_Matrix:
-        {
-            EmitOpInfo outerPrec = inOuterPrec;
-            bool needClose = false;
-
-            // GLSL expresses inner-product multiplications
-            // with the ordinary infix `*` operator.
-            //
-            // Note that the order of the operands is reversed
-            // compared to HLSL (and Slang's internal representation)
-            // because the notion of what is a "row" vs. a "column"
-            // is reversed between HLSL/Slang and GLSL.
-            //
-            auto prec = getInfo(EmitOp::Mul);
-            needClose = maybeEmitParens(outerPrec, prec);
-
-            emitOperand(inst->getOperand(1), leftSide(outerPrec, prec));
-            m_writer->emit(" * ");
-            emitOperand(inst->getOperand(0), rightSide(prec, outerPrec));
-
-            maybeCloseParens(needClose);
-            return true;
-        }
         case kIROp_Select:
         {
             if (inst->getOperand(0)->getDataType()->op != kIROp_BoolType)
@@ -1056,7 +1214,7 @@ bool GLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             switch (toType)
             {
                 default:
-                    m_writer->emit("/* unhandled */");
+                    diagnoseUnhandledInst(inst);
                     break;
 
                 case BaseType::UInt:
@@ -1077,6 +1235,10 @@ bool GLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
 
             return true;
         }
+        case kIROp_And:
+            return _tryEmitLogicalBinOp(inst, getInfo(EmitOp::BitAnd), inOuterPrec);
+        case kIROp_Or:
+            return _tryEmitLogicalBinOp(inst, getInfo(EmitOp::BitOr), inOuterPrec);
         case kIROp_Not:
         {
             IRInst* operand = inst->getOperand(0);
@@ -1098,33 +1260,24 @@ bool GLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             }
             return false;
         }
+
+        // When emitting a bitwise operation in GLSL, we need to special-case the handling
+        // of `bool` and vectors of `bool` so that they produce valid results by operating
+        // on the single-bit truth value.
+        //
+        // In the case of a vector we will convert to `uint` vectors and perform the
+        // bitwise op on them before converting back to `bool` vectors.
+        //
+        // In the scalar case we will apply the corresponding logical operation to
+        // the `bool` operands.
+        //
         case kIROp_BitAnd:
+            return _tryEmitBitBinOp(inst, getInfo(EmitOp::BitAnd), getInfo(EmitOp::And), inOuterPrec);
         case kIROp_BitOr:
-        {
-            // Are we targetting GLSL, and are both operands scalar bools?
-            // In that case convert the operation to a logical And
-            if (as<IRBoolType>(inst->getOperand(0)->getDataType())
-                && as<IRBoolType>(inst->getOperand(1)->getDataType()))
-            {
-                EmitOpInfo outerPrec = inOuterPrec;
-                bool needClose = maybeEmitParens(outerPrec, outerPrec);
-
-                // Get the boolean version of the op
-                const auto op = _getBoolOp(inst->op);
-                auto prec = getInfo(op);
-
-                // TODO: handle a bitwise Or of a vector of bools by casting to
-                // a uvec and performing the bitwise operation
-
-                emitOperand(inst->getOperand(0), leftSide(outerPrec, prec));
-                m_writer->emit(prec.op);
-                emitOperand(inst->getOperand(1), rightSide(outerPrec, prec));
-
-                maybeCloseParens(needClose);
-                return true;
-            }
-            break;
-        }
+            return _tryEmitBitBinOp(inst, getInfo(EmitOp::BitOr), getInfo(EmitOp::Or), inOuterPrec);
+        case kIROp_BitXor:
+            // Note: on scalar `bool` operands, a bitwise XOR (`^`) is equivalent to a not-equal (`!=`) comparison.
+            return _tryEmitBitBinOp(inst, getInfo(EmitOp::BitXor), getInfo(EmitOp::Neq), inOuterPrec);
 
         // Comparisons
         case kIROp_Eql:
@@ -1171,8 +1324,92 @@ bool GLSLSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             // Use the default
             break;
         }
-        
+        case kIROp_FRem:
+        {
+            IRInst* left = inst->getOperand(0);
+            IRInst* right = inst->getOperand(1);
 
+            // Handle as a function call
+            auto prec = getInfo(EmitOp::Postfix);
+
+            EmitOpInfo outerPrec = inOuterPrec;
+            bool needClose = maybeEmitParens(outerPrec, outerPrec);
+
+            // TODO: the GLSL `mod` function amounts to a floating-point
+            // modulus rather than a floating-point remainder. We need
+            // to fix this to emit the right SPIR-V opcode, but there is
+            // no built-in GLSL function that maps to the opcode we want.
+            //
+            m_writer->emit("mod(");
+            emitOperand(left, getInfo(EmitOp::General));
+            m_writer->emit(",");
+            emitOperand(right, getInfo(EmitOp::General));
+            m_writer->emit(")");
+
+            maybeCloseParens(needClose);
+
+            return true;
+        }
+        // TODO: We should also special-case `kIROp_IRem` here,
+        // so that we emit a remainder instead of a modulus. As for
+        // `FRem` there is no direct GLSL translation, so we will
+        // leave things with the default behavior for now.
+
+        case kIROp_StringLit:
+        {
+            IRStringLit* lit = cast<IRStringLit>(inst);
+            const UnownedStringSlice slice = lit->getStringSlice();
+            m_writer->emit(int32_t(getStableHashCode32(slice.begin(), slice.getLength())));
+            return true;
+        }
+        case kIROp_GetStringHash:
+        {
+            // On GLSL target, the `String` type is just an `int`
+            // that is the hash of the string, so we can emit
+            // the first operand to `getStringHash` directly.
+            //
+            EmitOpInfo outerPrec = inOuterPrec;
+            emitOperand(inst->getOperand(0), outerPrec);
+            return true;
+        }
+        case kIROp_StructuredBufferLoad:
+        {
+            auto outerPrec = inOuterPrec;
+            auto prec = getInfo(EmitOp::Postfix);
+            bool needClose = maybeEmitParens(outerPrec, prec);
+
+            emitOperand(inst->getOperand(0), leftSide(outerPrec, prec));
+            m_writer->emit("._data[");
+            emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+            m_writer->emit("]");
+
+            maybeCloseParens(needClose);
+            return true;
+        }
+        case kIROp_StructuredBufferStore:
+        {
+            auto outerPrec = inOuterPrec;
+
+            auto assignPrec = getInfo(EmitOp::Assign);
+            bool assignNeedsClose = maybeEmitParens(outerPrec, assignPrec);
+
+            {
+                auto subscriptPrec = getInfo(EmitOp::Postfix);
+                bool subscriptNeedsClose = maybeEmitParens(assignPrec, subscriptPrec);
+
+                emitOperand(inst->getOperand(0), leftSide(assignPrec, subscriptPrec));
+                m_writer->emit("._data[");
+                emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+                m_writer->emit("]");
+
+                maybeCloseParens(subscriptNeedsClose);
+            }
+
+            m_writer->emit(" = ");
+            emitOperand(inst->getOperand(2), rightSide(assignPrec, outerPrec));
+            maybeCloseParens(assignNeedsClose);
+            return true;
+        }
         default: break;
     }
 
@@ -1199,12 +1436,24 @@ void GLSLSourceEmitter::handleCallExprDecorationsImpl(IRInst* funcValue)
                 break;
 
             case kIROp_RequireGLSLExtensionDecoration:
-                _requireGLSLExtension(String(((IRRequireGLSLExtensionDecoration*)decoration)->getExtensionName()));
+            {
+                _requireGLSLExtension(((IRRequireGLSLExtensionDecoration*)decoration)->getExtensionName());
                 break;
-
+            }
             case kIROp_RequireGLSLVersionDecoration:
+            {
                 _requireGLSLVersion(int(((IRRequireGLSLVersionDecoration*)decoration)->getLanguageVersion()));
                 break;
+            }
+            case kIROp_RequireSPIRVVersionDecoration:
+            {
+                auto intValue = static_cast<IRRequireSPIRVVersionDecoration*>(decoration)->getSPIRVVersion();
+                SemanticVersion version;
+                version.setFromInteger(SemanticVersion::IntegerType(intValue));
+                _requireSPIRVVersion(version);
+                break;
+            }
+
         }
     }
 }
@@ -1226,9 +1475,9 @@ void GLSLSourceEmitter::emitPreprocessorDirectivesImpl()
     //
     // TODO: Either correctly compute a minimum required version, or require
     // the user to specify a version as part of the target.
-    m_glslExtensionTracker.requireVersion(ProfileVersion::GLSL_450);
+    m_glslExtensionTracker->requireVersion(ProfileVersion::GLSL_450);
 
-    auto requiredProfileVersion = m_glslExtensionTracker.getRequiredProfileVersion();
+    auto requiredProfileVersion = m_glslExtensionTracker->getRequiredProfileVersion();
     switch (requiredProfileVersion)
     {
 #define CASE(TAG, VALUE)    \
@@ -1305,29 +1554,39 @@ void GLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
 {
     switch (type->op)
     {
-        case kIROp_VoidType:   
-        case kIROp_BoolType:   
-        case kIROp_Int8Type:   
-        case kIROp_Int16Type:  
-        case kIROp_IntType:    
-        case kIROp_Int64Type:  
-        case kIROp_UInt8Type:  
-        case kIROp_UInt16Type: 
-        case kIROp_UIntType:   
-        case kIROp_UInt64Type: 
+        case kIROp_Int64Type:
+        {
+            _requireBaseType(BaseType::Int64);
+            m_writer->emit(getDefaultBuiltinTypeName(type->op));
+            return;
+        }
+        case kIROp_UInt64Type:
+        {
+            _requireBaseType(BaseType::UInt64);
+            m_writer->emit(getDefaultBuiltinTypeName(type->op));
+            return;
+        }
+        case kIROp_VoidType:
+        case kIROp_BoolType:
+        case kIROp_Int8Type:
+        case kIROp_Int16Type:
+        case kIROp_IntType:
+        case kIROp_UInt8Type:
+        case kIROp_UInt16Type:
+        case kIROp_UIntType:
         case kIROp_FloatType:   
         case kIROp_DoubleType:
         {
+            _requireBaseType(cast<IRBasicType>(type)->getBaseType());
             m_writer->emit(getDefaultBuiltinTypeName(type->op));
             return;
         }
         case kIROp_HalfType:
         {
-            _requireHalf();
+            _requireBaseType(BaseType::Half);
             m_writer->emit("float16_t");
             return;
         }
-
         case kIROp_StructType:
             m_writer->emit(getName(type));
             return;
@@ -1365,6 +1624,7 @@ void GLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
             }
             return;
         }
+        case kIROp_StringType: m_writer->emit("int"); return;
         default: break;
     }
 
@@ -1413,7 +1673,7 @@ void GLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
         switch (untypedBufferType->op)
         {
             case kIROp_RaytracingAccelerationStructureType:
-                _requireGLSLExtension("GL_NV_ray_tracing");
+                _requireGLSLExtension(UnownedStringSlice::fromLiteral("GL_NV_ray_tracing"));
                 m_writer->emit("accelerationStructureNV");
                 break;
 
@@ -1464,7 +1724,7 @@ static UnownedStringSlice _getInterpolationModifierText(IRInterpolationMode mode
 
 }
 
-void GLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* valueType, VarLayout* layout)
+void GLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* valueType, IRVarLayout* layout)
 {
     bool anyModifiers = false;
 
@@ -1476,7 +1736,7 @@ void GLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* 
         auto decoration = (IRInterpolationModeDecoration*)dd;
         const UnownedStringSlice slice = SlangEmitGLSL::_getInterpolationModifierText(decoration->getMode());
 
-        if (slice.size())
+        if (slice.getLength())
         {
             m_writer->emit(slice);
             m_writer->emitChar(' ');
@@ -1500,8 +1760,8 @@ void GLSLSourceEmitter::emitInterpolationModifiersImpl(IRInst* varInst, IRType* 
         // output everything with `flat` except for
         // fragment *outputs* (and maybe vertex inputs).
         //
-        if (layout && layout->stage == Stage::Fragment
-            && layout->FindResourceInfo(LayoutResourceKind::VaryingInput))
+        if (layout && layout->getStage() == Stage::Fragment
+            && layout->usesResourceKind(LayoutResourceKind::VaryingInput))
         {
             _maybeEmitGLSLFlatModifier(valueType);
         }
@@ -1541,24 +1801,22 @@ void GLSLSourceEmitter::emitVarDecorationsImpl(IRInst* varDecl)
     }
 }
 
-void GLSLSourceEmitter::emitMatrixLayoutModifiersImpl(VarLayout* layout)
+void GLSLSourceEmitter::emitMatrixLayoutModifiersImpl(IRVarLayout* layout)
 {
     // When a variable has a matrix type, we want to emit an explicit
     // layout qualifier based on what the layout has been computed to be.
     //
 
-    auto typeLayout = layout->typeLayout;
-    while (auto arrayTypeLayout = as<ArrayTypeLayout>(typeLayout))
-        typeLayout = arrayTypeLayout->elementTypeLayout;
+    auto typeLayout = layout->getTypeLayout()->unwrapArray();
 
-    if (auto matrixTypeLayout = typeLayout.as<MatrixTypeLayout>())
+    if (auto matrixTypeLayout = as<IRMatrixTypeLayout>(typeLayout))
     {
         // Reminder: the meaning of row/column major layout
         // in our semantics is the *opposite* of what GLSL
         // calls them, because what they call "columns"
         // are what we call "rows."
         //
-        switch (matrixTypeLayout->mode)
+        switch (matrixTypeLayout->getMode())
         {
             case kMatrixLayoutMode_ColumnMajor:
                 m_writer->emit("layout(row_major)\n");

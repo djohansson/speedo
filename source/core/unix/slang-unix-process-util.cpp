@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <time.h>
+
 namespace Slang {
 
 
@@ -105,14 +107,23 @@ namespace Slang {
     int stderrPipe[2];
 
     if (pipe(stdoutPipe) == -1)
+    {
+        fprintf(stderr, "error: `pipe` failed\n");
         return SLANG_FAIL;
+    }
 
     if (pipe(stderrPipe) == -1)
+    {
+        fprintf(stderr, "error: `pipe` failed\n");
         return SLANG_FAIL;
+    }
 
     pid_t childProcessID = fork();
     if (childProcessID == -1)
+    {
+        fprintf(stderr, "error: `fork` failed\n");
         return SLANG_FAIL;
+    }
 
     if (childProcessID == 0)
     {
@@ -165,9 +176,9 @@ namespace Slang {
                 return SLANG_FAIL;
             }
 
-            // Set a timeout of ten seconds;
+            // Set a timeout of twenty seconds;
             // we really shouldn't wait too long...
-            int pollTimeout = 10000;
+            int pollTimeout = 20000;
             int pollResult = poll(pollInfos, pollInfoCount, pollTimeout);
             if (pollResult <= 0)
             {
@@ -177,6 +188,7 @@ namespace Slang {
                     continue;
 
                 // timeout or error...
+                fprintf(stderr, "error: `poll` failed or timed out\n");
                 return SLANG_FAIL;
             }
 
@@ -227,6 +239,7 @@ namespace Slang {
             pid_t terminatedProcessID = waitpid(childProcessID, &childStatus, 0);
             if (terminatedProcessID == -1)
             {
+                fprintf(stderr, "error: `waitpid` failed\n");
                 return SLANG_FAIL;
             }
 
@@ -246,6 +259,19 @@ namespace Slang {
     }
 
     return SLANG_FAIL;
+}
+
+
+/* static */uint64_t ProcessUtil::getClockFrequency()
+{
+    return 1000000000;
+}
+
+/* static */uint64_t ProcessUtil::getClockTick()
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return uint64_t(now.tv_sec) * 1000000000 + now.tv_nsec;
 }
 
 } // namespace Slang

@@ -44,10 +44,12 @@
 #if __OSX__
 		+ ' -D__APPLE__'
 		+ ' -D__OSX__'
+		+ ' -fPIC'
 #endif //__OSX__
 #if __LINUX__
 		+ ' -D__LINUX__'
 		+ ' -D__linux__'
+		+ ' -fPIC'
 #endif //__LINUX__
 	.CompilerOptionsC = ' -std=c11'
 	.CompilerOptionsCpp = ' -std=c++17'

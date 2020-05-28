@@ -8,6 +8,10 @@
 #define STRINGIZE2(x) #x
 #define LINE_STRING STRINGIZE(__LINE__)
 
+#ifdef interface
+#undef interface
+#endif
+
 namespace Slang
 {
     String Session::getStdlibPath()
@@ -49,8 +53,6 @@ namespace Slang
         BOOL_RESULT = 1 << 2,
         BOOL_MASK   = 1 << 3,
         UINT_MASK   = 1 << 4,
-        ASSIGNMENT  = 1 << 5,
-        POSTFIX     = 1 << 6,
 
         INT_MASK = SINT_MASK | UINT_MASK,
         ARITHMETIC_MASK = INT_MASK | FLOAT_MASK,
@@ -89,7 +91,7 @@ namespace Slang
 
     // Here we declare the table of all our builtin types, so that we can generate all the relevant declarations.
     //
-    struct BaseTypeInfo
+    struct BaseTypeConversionInfo
     {
         char const* name;
         BaseType	tag;
@@ -97,7 +99,7 @@ namespace Slang
         BaseTypeConversionKind conversionKind;
         BaseTypeConversionRank conversionRank;
     };
-    static const BaseTypeInfo kBaseTypes[] = {
+    static const BaseTypeConversionInfo kBaseTypes[] = {
         // TODO: `void` really shouldn't be in the `BaseType` enumeration, since it behaves so differently across the board
         { "void",	BaseType::Void,     0,          kBaseTypeConversionKind_Error,      kBaseTypeConversionRank_Error},
 
@@ -120,8 +122,8 @@ namespace Slang
 
     // Given two base types, we need to be able to compute the cost of converting between them.
     ConversionCost getBaseTypeConversionCost(
-        BaseTypeInfo const& toInfo,
-        BaseTypeInfo const& fromInfo)
+        BaseTypeConversionInfo const& toInfo,
+        BaseTypeConversionInfo const& fromInfo)
     {
         if(toInfo.conversionKind == fromInfo.conversionKind
             && toInfo.conversionRank == fromInfo.conversionRank)
@@ -198,48 +200,34 @@ namespace Slang
         }
     }
 
-    struct OpInfo { int32_t opCode; char const* opName; unsigned flags; };
+    struct IntrinsicOpInfo { IROp opCode; char const* opName; char const* interface; unsigned flags; };
 
-    static const OpInfo unaryOps[] = {
-        { kIRPseudoOp_Pos,     "+",    ARITHMETIC_MASK },
-        { kIROp_Neg,     "-",    ARITHMETIC_MASK },
-        { kIROp_Not,     "!",    BOOL_MASK | BOOL_RESULT },
-        { kIROp_BitNot,    "~",    INT_MASK        },
-        { kIRPseudoOp_PreInc,  "++",   ARITHMETIC_MASK | ASSIGNMENT },
-        { kIRPseudoOp_PreDec,  "--",   ARITHMETIC_MASK | ASSIGNMENT },
-        { kIRPseudoOp_PostInc, "++",   ARITHMETIC_MASK | ASSIGNMENT | POSTFIX },
-        { kIRPseudoOp_PostDec, "--",   ARITHMETIC_MASK | ASSIGNMENT | POSTFIX },
+    static const IntrinsicOpInfo intrinsicUnaryOps[] = {
+        { kIROp_Neg,                    "-",    "__BuiltinArithmeticType",  ARITHMETIC_MASK },
+        { kIROp_Not,                    "!",    nullptr,                    BOOL_MASK | BOOL_RESULT },
+        { kIROp_BitNot,                 "~",    "__BuiltinIntegerType",     INT_MASK        },
     };
 
-    static const OpInfo binaryOps[] = {
-        { kIROp_Add,     "+",    ARITHMETIC_MASK },
-        { kIROp_Sub,     "-",    ARITHMETIC_MASK },
-        { kIROp_Mul,     "*",    ARITHMETIC_MASK },
-        { kIROp_Div,     "/",    ARITHMETIC_MASK },
-        { kIROp_Mod,     "%",    INT_MASK },
-        { kIROp_And,     "&&",   BOOL_MASK | BOOL_RESULT},
-        { kIROp_Or,      "||",   BOOL_MASK | BOOL_RESULT },
-        { kIROp_BitAnd,  "&",    LOGICAL_MASK },
-        { kIROp_BitOr,   "|",    LOGICAL_MASK },
-        { kIROp_BitXor,  "^",    LOGICAL_MASK },
-        { kIROp_Lsh,     "<<",   INT_MASK },
-        { kIROp_Rsh,     ">>",   INT_MASK },
-        { kIROp_Eql,     "==",   ANY_MASK | BOOL_RESULT },
-        { kIROp_Neq,     "!=",   ANY_MASK | BOOL_RESULT },
-        { kIROp_Greater, ">",    ARITHMETIC_MASK | BOOL_RESULT },
-        { kIROp_Less,    "<",    ARITHMETIC_MASK | BOOL_RESULT },
-        { kIROp_Geq,     ">=",   ARITHMETIC_MASK | BOOL_RESULT },
-        { kIROp_Leq,     "<=",   ARITHMETIC_MASK | BOOL_RESULT },
-        { kIRPseudoOp_AddAssign,     "+=",    ASSIGNMENT | ARITHMETIC_MASK },
-        { kIRPseudoOp_SubAssign,     "-=",    ASSIGNMENT | ARITHMETIC_MASK },
-        { kIRPseudoOp_MulAssign,     "*=",    ASSIGNMENT | ARITHMETIC_MASK },
-        { kIRPseudoOp_DivAssign,     "/=",    ASSIGNMENT | ARITHMETIC_MASK },
-        { kIRPseudoOp_ModAssign,     "%=",    ASSIGNMENT | ARITHMETIC_MASK },
-        { kIRPseudoOp_AndAssign,     "&=",    ASSIGNMENT | LOGICAL_MASK },
-        { kIRPseudoOp_OrAssign,      "|=",    ASSIGNMENT | LOGICAL_MASK },
-        { kIRPseudoOp_XorAssign,     "^=",    ASSIGNMENT | LOGICAL_MASK },
-        { kIRPseudoOp_LshAssign,     "<<=",   ASSIGNMENT | INT_MASK },
-        { kIRPseudoOp_RshAssign,     ">>=",   ASSIGNMENT | INT_MASK },
+    static const IntrinsicOpInfo intrinsicBinaryOps[] = {
+        { kIROp_Add,                        "+",    "__BuiltinArithmeticType",      ARITHMETIC_MASK },
+        { kIROp_Sub,                        "-",    "__BuiltinArithmeticType",      ARITHMETIC_MASK },
+        { kIROp_Mul,                        "*",    "__BuiltinArithmeticType",      ARITHMETIC_MASK },
+        { kIROp_Div,                        "/",    "__BuiltinArithmeticType",      ARITHMETIC_MASK },
+        { kIROp_IRem,                       "%",    "__BuiltinIntegerType",         INT_MASK },
+        { kIROp_FRem,                       "%",    "__BuiltinFloatingPointType",   FLOAT_MASK },
+        { kIROp_And,                        "&&",   nullptr,                        BOOL_MASK | BOOL_RESULT},
+        { kIROp_Or,                         "||",   nullptr,                        BOOL_MASK | BOOL_RESULT },
+        { kIROp_BitAnd,                     "&",    "__BuiltinLogicalType",         LOGICAL_MASK },
+        { kIROp_BitOr,                      "|",    "__BuiltinLogicalType",         LOGICAL_MASK },
+        { kIROp_BitXor,                     "^",    "__BuiltinLogicalType",         LOGICAL_MASK },
+        { kIROp_Lsh,                        "<<",   "__BuiltinIntegerType",         INT_MASK },
+        { kIROp_Rsh,                        ">>",   "__BuiltinIntegerType",         INT_MASK },
+        { kIROp_Eql,                        "==",   "__BuiltinType",                ANY_MASK | BOOL_RESULT },
+        { kIROp_Neq,                        "!=",   "__BuiltinType",                ANY_MASK | BOOL_RESULT },
+        { kIROp_Greater,                    ">",    "__BuiltinArithmeticType",      ARITHMETIC_MASK | BOOL_RESULT },
+        { kIROp_Less,                       "<",    "__BuiltinArithmeticType",      ARITHMETIC_MASK | BOOL_RESULT },
+        { kIROp_Geq,                        ">=",   "__BuiltinArithmeticType",      ARITHMETIC_MASK | BOOL_RESULT },
+        { kIROp_Leq,                        "<=",   "__BuiltinArithmeticType",      ARITHMETIC_MASK | BOOL_RESULT },
     };
 
     String Session::getCoreLibraryCode()

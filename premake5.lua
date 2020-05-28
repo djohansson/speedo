@@ -48,7 +48,6 @@
 -- From in the build directory you can use
 -- % premake5 --file=../premake5.lua --os=linux gmake 
 
-
 newoption {
    trigger     = "override-module",
    description = "(Optional) Specify a lua file that can override functions",
@@ -76,9 +75,72 @@ newoption {
    allowed     = { {"cygwin"}, {"mingw"} }
 }
 
+newoption {
+   trigger     = "build-glslang",
+   description = "(Optional) If true glslang and spirv-opt will be built",
+   value       = "bool",
+   default     = "false",
+   allowed     = { { "true", "True"}, { "false", "False" } }
+}
+
+newoption {
+   trigger     = "enable-cuda",
+   description = "(Optional) If true will enable cuda tests, if CUDA is found via CUDA_PATH",
+   value       = "bool",
+   default     = "false",
+   allowed     = { { "true", "True"}, { "false", "False" } }
+}
+
+newoption {
+   trigger     = "cuda-sdk-path",
+   description = "(Optional) Path to the root of CUDA SDK. If set will enable CUDA in build (ie in effect sets enable-cuda=true too)",
+   value       = "path"
+}
+
+newoption {
+   trigger     = "enable-optix",
+   description = "(Optional) If true will enable OptiX build/ tests (also implicitly enables CUDA)",
+   value       = "bool",
+   default     = "false",
+   allowed     = { { "true", "True"}, { "false", "False" } }
+}
+
+newoption {
+   trigger     = "optix-sdk-path",
+   description = "(Optional) Path to the root of OptiX SDK. (Implicitly enabled OptiX and CUDA)",
+   value       = "path"
+}
+
+
+newoption {
+   trigger     = "enable-profile",
+   description = "(Optional) If true will enable slang-profile tool - suitable for gprof usage on linux",
+   value       = "bool",
+   default     = "false",
+   allowed     = { { "true", "True"}, { "false", "False" } }
+}
+
 buildLocation = _OPTIONS["build-location"]
 executeBinary = (_OPTIONS["execute-binary"] == "true")
 targetDetail = _OPTIONS["target-detail"]
+buildGlslang = (_OPTIONS["build-glslang"] == "true")
+enableCuda = not not (_OPTIONS["enable-cuda"] == "true" or _OPTIONS["cuda-sdk-path"])
+enableProfile = (_OPTIONS["enable-profile"] == "true")
+optixPath = _OPTIONS["optix-sdk-path"]
+enableOptix = not not (_OPTIONS["enable-optix"] == "true" or optixPath)
+enableProfile = (_OPTIONS["enable-profile"] == "true")
+
+if enableOptix then
+    optixPath = optixPath or "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.0.0/"
+    enableCuda = true;
+end
+
+-- cudaPath is only set if cuda is enabled, and CUDA_PATH enviromental variable is set
+cudaPath = nil
+if enableCuda then
+    -- Get the CUDA path. Use the value set on cuda-sdk-path by default, if not set use the environment variable. 
+    cudaPath = (_OPTIONS["cuda-sdk-path"] or os.getenv("CUDA_PATH"))
+end
 
 -- Is true when the target is really windows (ie not something on top of windows like cygwin)
 local isTargetWindows = (os.target() == "windows") and not (targetDetail == "mingw" or targetDetail == "cygwin")
@@ -140,13 +202,13 @@ workspace "slang"
 
     filter { "toolset:clang or gcc*" }
         buildoptions { "-Wno-unused-parameter", "-Wno-type-limits", "-Wno-sign-compare", "-Wno-unused-variable", "-Wno-reorder", "-Wno-switch", "-Wno-return-type", "-Wno-unused-local-typedefs", "-Wno-parentheses",  "-std=c++11", "-fvisibility=hidden" , "-Wno-ignored-optimization-argument", "-Wno-unknown-warning-option"} 
-    	
-	filter { "toolset:gcc*"}
-		buildoptions { "-Wno-unused-but-set-variable", "-Wno-implicit-fallthrough"  }
-		
+        
+    filter { "toolset:gcc*"}
+        buildoptions { "-Wno-unused-but-set-variable", "-Wno-implicit-fallthrough"  }
+        
     filter { "toolset:clang" }
          buildoptions { "-Wno-deprecated-register", "-Wno-tautological-compare", "-Wno-missing-braces", "-Wno-undefined-var-template", "-Wno-unused-function", "-Wno-return-std-move"}
-		
+        
     -- When compiling the debug configuration, we want to turn
     -- optimization off, make sure debug symbols are output,
     -- and add the same preprocessor definition that VS
@@ -162,10 +224,9 @@ workspace "slang"
     filter { "configurations:release" }
         optimize "On"
         defines { "NDEBUG" }
-    		
+            
     filter { "system:linux" }
         linkoptions{  "-Wl,-rpath,'$$ORIGIN',--no-as-needed", "-ldl"}
-        
             
 function dump(o)
     if type(o) == 'table' then
@@ -179,14 +240,14 @@ function dump(o)
         return tostring(o)
      end
 end
-	
+    
 function dumpTable(o)
-	local s = '{ '
-	for k,v in pairs(o) do
-		if type(k) ~= 'number' then k = '"'..k..'"' end
-		s = s .. '['..k..'] = ' .. tostring(v) .. ',\n'
-	end
-	return s .. '} '
+    local s = '{ '
+    for k,v in pairs(o) do
+        if type(k) ~= 'number' then k = '"'..k..'"' end
+        s = s .. '['..k..'] = ' .. tostring(v) .. ',\n'
+    end
+    return s .. '} '
 end
 
 
@@ -213,6 +274,7 @@ function addSourceDir(path)
         path .. "/*.natvis",    -- Visual Studio debugger visualization files
     }
 end
+
 --
 -- Next we will define a helper routine that all of our
 -- projects will bottleneck through. Here `name` is
@@ -419,7 +481,13 @@ if isTargetWindows then
 
     -- Let's go ahead and set up the projects for our other example now.
     example "model-viewer"
+
+    example "gpu-printing"
+        kind "ConsoleApp"
 end
+
+example "cpu-hello-world"
+    kind "ConsoleApp"
 
 -- Most of the other projects have more interesting configuration going
 -- on, so let's walk through them in order of increasing complexity.
@@ -452,6 +520,33 @@ standardProject "core"
         buildoptions{"-fPIC"}
     
 --
+-- The cpp extractor is a tool that scans C++ header files to extract
+-- reflection like information, and generate files to handle 
+-- RTTI fast/simply
+---
+
+tool "slang-cpp-extractor"
+    uuid "CA8A30D1-8FA9-4330-B7F7-84709246D8DC"
+    includedirs { "." }
+    
+    files { 
+        "source/slang/slang-lexer.cpp",
+        "source/slang/slang-lexer.h",
+        "source/slang/slang-source-loc.cpp",
+        "source/slang/slang-source-loc.h",
+        "source/slang/slang-file-system.cpp",
+        "source/slang/slang-file-system.h",
+        "source/slang/slang-diagnostics.cpp",
+        "source/slang/slang-diagnostics.h",
+        "source/slang/slang-name.cpp",
+        "source/slang/slang-name.h",
+        "source/slang/slang-token.cpp",
+        "source/slang/slang-token.h",
+    }
+    
+    links { "core" }
+    
+--
 -- `slang-generate` is a tool we use for source code generation on
 -- the compiler. It depends on the `core` library, so we need to
 -- declare that:
@@ -460,7 +555,6 @@ standardProject "core"
 tool "slang-generate"
     uuid "66174227-8541-41FC-A6DF-4764FC66F78E"
     links { "core" }
-
 
 --
 -- The `slang-test` test driver also uses the `core` library, and it
@@ -483,6 +577,7 @@ toolSharedLibrary "slang-reflection-test"
     uuid "C5ACCA6E-C04D-4B36-8516-3752B3C13C2F"
     
     includedirs { "." }
+    
     kind "SharedLib"
     links { "core", "slang" }      
     
@@ -501,34 +596,56 @@ toolSharedLibrary "slang-reflection-test"
 -- TODO: Fix that requirement.
 --
 
-if isTargetWindows then    
-    toolSharedLibrary "render-test"
-        uuid "61F7EB00-7281-4BF3-9470-7C2EA92620C3"
-        
-        includedirs { ".", "external", "source", "tools/gfx" }
-        links { "core", "slang", "gfx" }
+toolSharedLibrary "render-test"
+    uuid "61F7EB00-7281-4BF3-9470-7C2EA92620C3"
+    
+    includedirs { ".", "external", "source", "tools/gfx" }
+    links { "core", "slang", "gfx" }
+   
+    if isTargetWindows then    
+        addSourceDir "tools/render-test/windows"
         
         systemversion "10.0.14393.0"
-
-        -- For Windows targets, we want to copy d3dcompiler_47.dll,
+     
+        -- For Windows targets, we want to copy 
         -- dxcompiler.dll, and dxil.dll from the Windows SDK redistributable
         -- directory into the output directory.
-        postbuildcommands { '"$(SolutionDir)tools\\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/%{cfg.platform:lower()}/" "%{cfg.targetdir}/"'}
-       
-end
-            
+        -- d3dcompiler_47.dll is copied from the external/slang-binaries submodule.
+        postbuildcommands { '"$(SolutionDir)tools\\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/%{cfg.platform:lower()}/" "%{cfg.targetdir}/" "windows-%{cfg.platform:lower()}"'}    
+    end
+   
+    if type(cudaPath) == "string" and isTargetWindows then
+        addSourceDir "tools/render-test/cuda"
+        defines { "RENDER_TEST_CUDA" }
+        includedirs { cudaPath .. "/include" }
+        includedirs { cudaPath .. "/include", cudaPath .. "/common/inc" }
+
+        if optixPath then
+            defines { "RENDER_TEST_OPTIX" }
+            includedirs { optixPath .. "include/" }
+        end
+        
+        links { "cuda", "cudart" }   
+        
+        filter { "platforms:x86" }
+            libdirs { cudaPath .. "/lib/Win32/" }
+           
+        filter { "platforms:x64" }
+            libdirs { cudaPath .. "/lib/x64/" }       
+    end
+  
 --
 -- `gfx` is a utility library for doing GPU rendering
 -- and compute, which is used by both our testing and exmaples.
 -- It depends on teh `core` library, so we need to declare that:
 --
 
-tool "gfx"
+tool "gfx" 
     uuid "222F7498-B40C-4F3F-A704-DDEB91A4484A"
     -- Unlike most of the code under `tools/`, this is a library
     -- rather than a stand-alone executable.
     kind "StaticLib"
-
+    
     includedirs { ".", "external", "source", "external/imgui" }
 
     -- To special case that we may be building using cygwin on windows. If 'true windows' we build for dx12/vk and run the script
@@ -536,18 +653,33 @@ tool "gfx"
     if isTargetWindows then
         systemversion "10.0.14393.0"
 
-        -- For Windows targets, we want to copy d3dcompiler_47.dll,
+        -- For Windows targets, we want to copy 
         -- dxcompiler.dll, and dxil.dll from the Windows SDK redistributable
-        -- directory into the output directory.
+        -- directory into the output directory. 
+        -- d3dcompiler_47.dll is copied from the external/slang-binaries submodule.
         postbuildcommands { '"$(SolutionDir)tools\\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/%{cfg.platform:lower()}/" "%{cfg.targetdir}/"'}
+        
+        addSourceDir "tools/gfx/vulkan"
+        addSourceDir "tools/gfx/open-gl"
+        addSourceDir "tools/gfx/d3d" 
+        addSourceDir "tools/gfx/d3d11"
+        addSourceDir "tools/gfx/d3d12"
+        
+        addSourceDir "tools/gfx/windows"
+        
+    elseif targetDetail == "mingw" or targetDetail == "cygwin" then
+        -- Don't support any render techs...
+    elseif os.target() == "macosx" then
+        --addSourceDir "tools/gfx/open-gl"
     else
-         removefiles { "tools/gfx/circular-resource-heap-d3d12.cpp", "tools/gfx/d3d-util.cpp", "tools/gfx/descriptor-heap-d3d12.cpp", "tools/gfx/render-d3d11.cpp", "tools/gfx/render-d3d12.cpp", "tools/gfx/render-gl.cpp", "tools/gfx/resource-d3d12.cpp", "tools/gfx/render-vk.cpp", "tools/gfx/vk-swap-chain.cpp", "tools/gfx/window.cpp" }
+        -- Linux like
+        --addSourceDir "tools/gfx/vulkan"
+        --addSourceDir "tools/gfx/open-gl"
     end
-
-	-- Remove VK from OSX gfx build
-	if os.target() == "macosx" then
-		removefiles { "tools/gfx/render-vk.cpp", "tools/gfx/vk-device-queue.cpp", "tools/gfx/vk-api.cpp", "tools/gfx/vk-module.cpp", "tools/gfx/vk-swap-chain.cpp", "tools/gfx/vk-util.cpp" }
-	end
+        
+    filter { "system:linux" }
+        -- might be able to do pic(true)
+        buildoptions{"-fPIC"}
     
 --
 -- The `slangc` command-line application is just a very thin wrapper
@@ -561,7 +693,7 @@ standardProject "slangc"
     uuid "D56CBCEB-1EB5-4CA8-AEC4-48EA35ED61C7"
     kind "ConsoleApp"
     links { "core", "slang" }
-    
+
 --
 -- TODO: Slang's current `Makefile` build does some careful incantations
 -- to make sure that the binaries it generates use a "relative `RPATH`"
@@ -591,24 +723,89 @@ standardProject "slang"
     --
     defines { "SLANG_DYNAMIC_EXPORT" }
 
+    includedirs { "external/spirv-headers/include" }
+
+    -- On some tests with MSBuild disabling these made build work.
+    -- flags { "NoIncrementalLink", "NoPCH", "NoMinimalRebuild" }
+
     -- The `standardProject` operation already added all the code in
     -- `source/slang/*`, but we also want to incldue the umbrella
     -- `slang.h` header in this prject, so we do that manually here.
     files { "slang.h" }
 
+    files { "source/core/core.natvis" }
+ 
+    -- 
     -- The most challenging part of building `slang` is that we need
-    -- to invoke the `slang-generate` tool to generate the version
+    -- to invoke the `slang-generate`tools to generate the version
     -- of the Slang standard library that we embed into the compiler.
+    -- We need to build the `slang-cpp-extractor` for similar reasons.
     --
-    -- First, we need to ensure that `slang-generate` gets built
-    -- before `slang`, so we declare a non-linking dependency between
+    -- First, we need to ensure that `slang-generate`/`slang-cpp-extactor` 
+    -- gets built before `slang`, so we declare a non-linking dependency between
     -- the projects here:
     --
-    dependson { "slang-generate" }
+    dependson { "slang-cpp-extractor", "slang-generate"  }
+    
+    -- If we are not building glslang from source, then be
+    -- sure to copy a binary copy over to the output directory
+    if not buildGlslang then
+        filter { "system:windows" }
+            postbuildcommands {
+                "{COPY} ../../external/slang-binaries/bin/" .. targetName .. "/slang-glslang.dll %{cfg.targetdir}"
+            }
+
+        filter { "system:linux" }
+            postbuildcommands {
+                "{COPY} ../../../external/slang-binaries/bin/" .. targetName .. "/libslang-glslang.so %{cfg.targetdir}"
+            }
+    end
 
     filter { "system:linux" }
-	-- might be able to do pic(true)
+        -- might be able to do pic(true)
         buildoptions{"-fPIC"}
+       
+    -- We need to run the C++ extractor to generate some include files
+    if executeBinary then
+        filter "files:**/slang-ast-reflect.h"
+            buildmessage "slang-cpp-extractor AST %{file.relpath}"
+
+            -- Where the input files are located
+            local sourcePath = "%{file.directory}/"
+            
+            -- Specify the files that will be used for the generation
+            local inputFiles = { "slang-ast-base.h", "slang-ast-decl.h", "slang-ast-expr.h", "slang-ast-modifier.h", "slang-ast-stmt.h", "slang-ast-type.h", "slang-ast-val.h" }
+
+            -- Specify the actual command to run for this action.
+            --
+            -- Note that we use a single-quoted Lua string and wrap the path
+            -- to the `slang-cpp-extractor` command in double quotes to avoid
+            -- confusing the Windows shell. It seems that Premake outputs that
+            -- path with forward slashes, which confused the shell if we don't
+            -- quote the executable path.
+
+            local buildcmd = '"%{cfg.targetdir}/slang-cpp-extractor" -d ' .. sourcePath .. " " .. table.concat(inputFiles, " ") .. " -strip-prefix slang-ast- -o slang-ast-generated -output-fields"
+            
+            buildcommands { buildcmd }
+            
+            -- Specify the files output by the extactor - so custom action will run when these files are needed.
+            --
+            buildoutputs { sourcePath .. "slang-ast-generated.h", sourcePath .. "slang-ast-generated-macro.h"}
+            
+            local executableSuffix = "";
+            if(os.target() == "windows") then
+                executableSuffix = ".exe";
+            end
+            
+            -- Make it depend on the extractor tool itself
+            local buildInputTable = { "%{cfg.targetdir}/slang-cpp-extractor" .. executableSuffix }
+            for key, inputFile in ipairs(inputFiles) do
+                table.insert(buildInputTable, sourcePath .. inputFile)
+            end
+            
+            --
+            buildinputs(buildInputTable)
+    end       
        
     -- Next, we want to add a custom build rule for each of the
     -- files that makes up the standard library. Those are
@@ -653,6 +850,42 @@ standardProject "slang"
             buildinputs { "%{cfg.targetdir}/slang-generate" .. executableSuffix }
     end
 
+
+
+if enableProfile then
+    tool "slang-profile"
+        uuid "375CC87D-F34A-4DF1-9607-C5C990FD6227"
+        
+        -- gprof needs symbols
+        symbols "On"
+        
+        dependson { "slang" }
+
+        includedirs { "external/spirv-headers/include" }
+
+        defines { "SLANG_STATIC" }
+
+        -- The `standardProject` operation already added all the code in
+        -- `source/slang/*`, but we also want to incldue the umbrella
+        -- `slang.h` header in this prject, so we do that manually here.
+        files { "slang.h" }
+
+        files { "source/core/core.natvis" }
+
+        -- Add the slang source
+        addSourceDir "source/slang"
+
+        includedirs { "." }
+        links { "core"}
+        
+        filter { "system:linux" }
+            linkoptions{  "-pg" }
+            buildoptions{ "-pg" }
+
+end
+
+if buildGlslang then
+
 --
 -- The single most complicated part of our build is our custom version of glslang.
 -- Is not really set up to produce a shared library with a usable API, so we have
@@ -668,12 +901,12 @@ standardProject "slang"
 standardProject "slang-glslang"
     uuid "C495878A-832C-485B-B347-0998A90CC936"
     kind "SharedLib"
-    includedirs { "external/glslang" }
+    includedirs { "external/glslang", "external/spirv-tools", "external/spirv-tools/include", "external/spirv-headers/include", "external/spirv-tools-generated" }
 
     defines
     {
         -- `ENABLE_OPT` must be defined (to either zero or one) for glslang to compile at all
-        "ENABLE_OPT=0",
+        "ENABLE_OPT=1",
 
         -- We want to build a version of glslang that supports every feature possible,
         -- so we will enable all of the supported vendor-specific extensions so
@@ -692,6 +925,10 @@ standardProject "slang-glslang"
     addSourceDir("external/glslang/OGLCompilersDLL")
     addSourceDir("external/glslang/SPIRV")
     addSourceDir("external/glslang/StandAlone")
+    addSourceDir("external/spirv-tools/source")
+    addSourceDir("external/spirv-tools/source/opt")
+    addSourceDir("external/spirv-tools/source/util")
+    addSourceDir("external/spirv-tools/source/val")
 
     -- Unfortunately, blindly adding files like that also pulled in a declaration
     -- of a main entry point that we do *not* want, so we will specifically
@@ -726,3 +963,5 @@ standardProject "slang-glslang"
 -- * Packaging up binaries
 -- * "Installing" Slang on a user's machine
 --
+
+end

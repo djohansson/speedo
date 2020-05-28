@@ -5,17 +5,26 @@
 #include "../core/slang-io.h"
 #include "../core/slang-string-util.h"
 #include "../core/slang-hex-dump-util.h"
+#include "../core/slang-riff.h"
+#include "../core/slang-type-text-util.h"
 
+
+#include "slang-check.h"
 #include "slang-compiler.h"
 #include "slang-lexer.h"
 #include "slang-lower-to-ir.h"
+#include "slang-mangle.h"
 #include "slang-parameter-binding.h"
 #include "slang-parser.h"
 #include "slang-preprocessor.h"
-#include "slang-syntax-visitors.h"
 #include "slang-type-layout.h"
 #include "slang-reflection.h"
 #include "slang-emit.h"
+
+#include "slang-glsl-extension-tracker.h"
+#include "slang-emit-cuda.h"
+
+#include "slang-ir-serialize.h"
 
 // Enable calling through to `fxc` or `dxc` to
 // generate code on Windows.
@@ -71,102 +80,42 @@
 
 namespace Slang
 {
-#define SLANG_CODE_GEN_TARGETS(x) \
-    x("unknown", Unknown) \
-    x("none", None) \
-    x("glsl", GLSL) \
-    x("glsl-vulkan", GLSL_Vulkan) \
-    x("glsl-vulkan-one-desc", GLSL_Vulkan_OneDesc) \
-    x("hlsl", HLSL) \
-    x("spirv", SPIRV) \
-    x("spirv-asm,spirv-assembly", SPIRVAssembly) \
-    x("dxbc", DXBytecode) \
-    x("dxbc-asm,dxbc-assembly", DXBytecodeAssembly) \
-    x("dxil", DXIL) \
-    x("dxil-asm,dxil-assembly", DXILAssembly) \
-    x("c", CSource) \
-    x("cpp", CPPSource) \
-    x("exe,executable", Executable) \
-    x("sharedlib,sharedlibrary,dll", SharedLibrary) \
-    x("callable,host-callable", HostCallable)
 
-#define SLANG_CODE_GEN_INFO(names, e) \
-    { CodeGenTarget::e, UnownedStringSlice::fromLiteral(names) },
+    // !!!!!!!!!!!!!!!!!!!!!! free functions for DiagnosicSink !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-    struct CodeGenTargetInfo
+    void printDiagnosticArg(StringBuilder& sb, CodeGenTarget val)
     {
-        CodeGenTarget target;
-        UnownedStringSlice names;
-    };
-
-    static const CodeGenTargetInfo s_codeGenTargetInfos[] = 
-    {
-        SLANG_CODE_GEN_TARGETS(SLANG_CODE_GEN_INFO)
-    };
-
-    CodeGenTarget calcCodeGenTargetFromName(const UnownedStringSlice& name)
-    {
-        for (int i = 0; i < SLANG_COUNT_OF(s_codeGenTargetInfos); ++i)
+        switch (val)
         {
-            const auto& info = s_codeGenTargetInfos[i];
+            default:
+                sb << "<unknown>";
+                break;
 
-            SLANG_ASSERT(i == int(info.target));
-
-            if (StringUtil::indexOfInSplit(info.names, ',', name) >= 0)
-            {
-                return info.target;
-            }
+    #define CASE(TAG, STR) case CodeGenTarget::TAG: sb << STR; break
+                CASE(GLSL, "glsl");
+                CASE(HLSL, "hlsl");
+                CASE(SPIRV, "spirv");
+                CASE(SPIRVAssembly, "spriv-assembly");
+                CASE(DXBytecode, "dxbc");
+                CASE(DXBytecodeAssembly, "dxbc-assembly");
+                CASE(DXIL, "dxil");
+                CASE(DXILAssembly, "dxil-assembly");
+    #undef CASE
         }
-        return CodeGenTarget::Unknown;
-    }
-    UnownedStringSlice getCodeGenTargetName(CodeGenTarget target)
-    {
-        // Return the first name
-        return StringUtil::getAtInSplit(s_codeGenTargetInfos[int(target)].names, ',', 0);
     }
 
-    // CompileResult
-
-    void CompileResult::append(CompileResult const& result)
-    {
-        // Find which to append to
-        ResultFormat appendTo = ResultFormat::None;
-
-        if (format == ResultFormat::None)
-        {
-            format = result.format;
-            appendTo = result.format;
-        }
-        else if (format == result.format)
-        {
-            appendTo = format;
-        }
-
-        if (appendTo == ResultFormat::Text)
-        {
-            outputString.append(result.outputString.getBuffer());
-        }
-        else if (appendTo == ResultFormat::Binary)
-        {
-            outputBinary.addRange(result.outputBinary.getBuffer(), result.outputBinary.getCount());
-        }
-        else if (appendTo == ResultFormat::SharedLibrary)
-        {
-            SLANG_ASSERT(!"Trying to append to a shared library");
-        }
-    }
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!! CompileResult !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     SlangResult CompileResult::getSharedLibrary(ComPtr<ISlangSharedLibrary>& outSharedLibrary)
     {
-        if (format == ResultFormat::SharedLibrary && sharedLibrary)
+        if (downstreamResult)
         {
-            outSharedLibrary = sharedLibrary;
-            return SLANG_OK;
+            return downstreamResult->getHostCallableSharedLibrary(outSharedLibrary);
         }
         return SLANG_FAIL;
     }
 
-    SlangResult CompileResult::getBlob(ComPtr<ISlangBlob>& outBlob)
+    SlangResult CompileResult::getBlob(ComPtr<ISlangBlob>& outBlob) const
     {
         if(!blob)
         {
@@ -179,28 +128,12 @@ namespace Slang
                 case ResultFormat::Text:
                     blob = StringUtil::createStringBlob(outputString);
                     break;
-
                 case ResultFormat::Binary:
-                    blob = createRawBlob(outputBinary.getBuffer(), outputBinary.getCount());
-                    break;
-                case ResultFormat::SharedLibrary:
                 {
-                    // TODO(JS): Could do something more sophisticated to check this cast is safe (like have an interface to get the path), but this
-                    // is simple and works with current impl
-                    TemporarySharedLibrary* tempLibrary = static_cast<TemporarySharedLibrary*>(sharedLibrary.get());
-
-                    SLANG_ASSERT(sharedLibrary);
-                    List<uint8_t> contents;
-                    try
+                    if (downstreamResult)
                     {
-                        // We can read it from the shared library...
-                        contents = File::readAllBytes(tempLibrary->getPath());
+                        SLANG_RETURN_ON_FAIL(downstreamResult->getBinary(blob));
                     }
-                    catch (const Slang::IOException&)
-                    {
-                        return SLANG_E_CANNOT_OPEN; 
-                    }
-                    blob = createRawBlob(contents.getBuffer(), contents.getCount());
                     break;
                 }
             }
@@ -235,6 +168,16 @@ namespace Slang
     // EntryPoint
     //
 
+    static const Guid IID_IEntryPoint = SLANG_UUID_IEntryPoint;
+
+    ISlangUnknown* EntryPoint::getInterface(const Guid& guid)
+    {
+        if(guid == IID_IEntryPoint)
+            return static_cast<slang::IEntryPoint*>(this);
+
+        return Super::getInterface(guid);
+    }
+
     RefPtr<EntryPoint> EntryPoint::create(
         Linkage*            linkage,
         DeclRef<FuncDecl>   funcDeclRef,
@@ -245,6 +188,7 @@ namespace Slang
             funcDeclRef.GetName(),
             profile,
             funcDeclRef);
+        entryPoint->m_mangledName = getMangledName(funcDeclRef);
         return entryPoint;
     }
 
@@ -258,6 +202,21 @@ namespace Slang
             name,
             profile,
             DeclRef<FuncDecl>());
+        return entryPoint;
+    }
+
+    RefPtr<EntryPoint> EntryPoint::createDummyForDeserialize(
+        Linkage*    linkage,
+        Name*       name,
+        Profile     profile,
+        String      mangledName)
+    {
+        RefPtr<EntryPoint> entryPoint = new EntryPoint(
+            linkage,
+            name,
+            profile,
+            DeclRef<FuncDecl>());
+        entryPoint->m_mangledName = mangledName;
         return entryPoint;
     }
 
@@ -328,6 +287,14 @@ namespace Slang
         return getModule();
     }
 
+    String EntryPoint::getEntryPointMangledName(Index index)
+    {
+        SLANG_UNUSED(index);
+        SLANG_ASSERT(index == 0);
+
+        return m_mangledName;
+    }
+
     void EntryPoint::acceptVisitor(ComponentTypeVisitor* visitor, SpecializationInfo* specializationInfo)
     {
         visitor->visitEntryPoint(this, as<EntryPointSpecializationInfo>(specializationInfo));
@@ -375,23 +342,23 @@ namespace Slang
         }
     }
 
-    Stage findStageByName(String const& name)
+    static const struct
     {
-        static const struct
-        {
-            char const* name;
-            Stage       stage;
-        } kStages[] =
-        {
-        #define PROFILE_STAGE(ID, NAME, ENUM) \
+        char const* name;
+        Stage       stage;
+    } kStages[] =
+    {
+    #define PROFILE_STAGE(ID, NAME, ENUM) \
             { #NAME,    Stage::ID },
 
         #define PROFILE_STAGE_ALIAS(ID, NAME, VAL) \
             { #NAME,    Stage::ID },
 
         #include "slang-profile-defs.h"
-        };
+    };
 
+    Stage findStageByName(String const& name)
+    {
         for(auto entry : kStages)
         {
             if(name == entry.name)
@@ -403,24 +370,21 @@ namespace Slang
         return Stage::Unknown;
     }
 
-    static UnownedStringSlice _getPassThroughAsText(PassThroughMode mode)
+    UnownedStringSlice getStageText(Stage stage)
     {
-        switch (mode)
+        for (auto entry : kStages)
         {
-            case PassThroughMode::None:     return UnownedStringSlice::fromLiteral("None");
-            case PassThroughMode::Dxc:      return UnownedStringSlice::fromLiteral("Dxc");
-            case PassThroughMode::Fxc:      return UnownedStringSlice::fromLiteral("Fxc");
-            case PassThroughMode::Glslang:  return UnownedStringSlice::fromLiteral("Glslang");
-            case PassThroughMode::Clang:    return UnownedStringSlice::fromLiteral("Clang");
-            case PassThroughMode::VisualStudio: return UnownedStringSlice::fromLiteral("VisualStudio");
-            case PassThroughMode::Gcc:      return UnownedStringSlice::fromLiteral("GCC");
-            case PassThroughMode::GenericCCpp:  return UnownedStringSlice::fromLiteral("Generic C/C++ Compiler");
-            default:                        return UnownedStringSlice::fromLiteral("Unknown");
+            if (stage == entry.stage)
+            {
+                return UnownedStringSlice(entry.name);
+            }
         }
+        return UnownedStringSlice();
     }
 
     SlangResult checkExternalCompilerSupport(Session* session, PassThroughMode passThrough)
     {
+        // Check if the type is supported on this compile
         switch (passThrough)
         {
             case PassThroughMode::None:
@@ -428,50 +392,20 @@ namespace Slang
                 // If no pass through -> that will always work!
                 return SLANG_OK;
             }
-            case PassThroughMode::Dxc:
-            {
-#if SLANG_ENABLE_DXIL_SUPPORT
-                // Must have dxc
-                return session->getOrLoadSharedLibrary(SharedLibraryType::Dxc, nullptr) ? SLANG_OK : SLANG_E_NOT_FOUND;
+#if !SLANG_ENABLE_DXIL_SUPPORT
+            case PassThroughMode::Dxc: return SLANG_E_NOT_IMPLEMENTED;
 #endif
-                break;
-            }
-            case PassThroughMode::Fxc:
-            {
-#if SLANG_ENABLE_DXBC_SUPPORT
-                // Must have fxc
-                return session->getOrLoadSharedLibrary(SharedLibraryType::Fxc, nullptr) ? SLANG_OK : SLANG_E_NOT_FOUND;
+#if !SLANG_ENABLE_DXBC_SUPPORT
+            case PassThroughMode::Fxc: return SLANG_E_NOT_IMPLEMENTED;
 #endif
-                break;
-            }
-            case PassThroughMode::Glslang:
-            {
-#if SLANG_ENABLE_GLSLANG_SUPPORT
-                return session->getOrLoadSharedLibrary(Slang::SharedLibraryType::Glslang, nullptr) ? SLANG_OK : SLANG_E_NOT_FOUND;
+#if !SLANG_ENABLE_GLSLANG_SUPPORT
+            case PassThroughMode::Glslang: return SLANG_E_NOT_IMPLEMENTED;
 #endif
-                break;
-            }
-            case PassThroughMode::Clang:
-            {
-                return session->requireCPPCompilerSet()->hasCompiler(CPPCompiler::CompilerType::Clang) ? SLANG_OK: SLANG_E_NOT_FOUND;
-            }
-            case PassThroughMode::VisualStudio:
-            {
-                return session->requireCPPCompilerSet()->hasCompiler(CPPCompiler::CompilerType::VisualStudio) ? SLANG_OK: SLANG_E_NOT_FOUND;
-            }
-            case PassThroughMode::Gcc:
-            {
-                return session->requireCPPCompilerSet()->hasCompiler(CPPCompiler::CompilerType::GCC) ? SLANG_OK: SLANG_E_NOT_FOUND;
-            }
-            case PassThroughMode::GenericCCpp:
-            {
-                List<CPPCompiler::Desc> descs;
-                session->requireCPPCompilerSet()->getCompilerDescs(descs);
 
-                return descs.getCount() ? SLANG_OK: SLANG_E_NOT_FOUND;
-            }
+            default: break;
         }
-        return SLANG_E_NOT_IMPLEMENTED;
+
+        return session->getOrLoadDownstreamCompiler(passThrough, nullptr) ? SLANG_OK: SLANG_E_NOT_FOUND;
     }
 
     PassThroughMode getDownstreamCompilerRequiredForTarget(CodeGenTarget target)
@@ -483,8 +417,6 @@ namespace Slang
                 return PassThroughMode::None;
             }
             case CodeGenTarget::GLSL:
-            case CodeGenTarget::GLSL_Vulkan:
-            case CodeGenTarget::GLSL_Vulkan_OneDesc:
             {
                 // Can always output GLSL
                 return PassThroughMode::None; 
@@ -492,6 +424,11 @@ namespace Slang
             case CodeGenTarget::HLSL:
             {
                 // Can always output HLSL
+                return PassThroughMode::None;
+            }
+            case CodeGenTarget::CUDASource:
+            {
+                // Can always output CUDA
                 return PassThroughMode::None;
             }
             case CodeGenTarget::SPIRVAssembly:
@@ -509,6 +446,11 @@ namespace Slang
             {
                 return PassThroughMode::Dxc;
             }
+            case CodeGenTarget::GLSL_Vulkan:
+            case CodeGenTarget::GLSL_Vulkan_OneDesc:
+            {
+                return PassThroughMode::Glslang;
+            }
             case CodeGenTarget::CPPSource:
             case CodeGenTarget::CSource:
             {
@@ -522,25 +464,16 @@ namespace Slang
                 // We need some C/C++ compiler
                 return PassThroughMode::GenericCCpp;
             }
+            case CodeGenTarget::PTX:
+            {
+                return PassThroughMode::NVRTC;
+            }
 
             default: break;
         }
 
         SLANG_ASSERT(!"Unhandled target");
         return PassThroughMode::None;
-    }
-
-    PassThroughMode getPassThroughModeForCPPCompiler(CPPCompiler::CompilerType type)
-    {
-        typedef CPPCompiler::CompilerType CompilerType;
-
-        switch (type)
-        {
-            case CompilerType::VisualStudio:        return PassThroughMode::VisualStudio;
-            case CompilerType::GCC:                 return PassThroughMode::Gcc;
-            case CompilerType::Clang:               return PassThroughMode::Clang;
-            default:                                return PassThroughMode::None;
-        }
     }
 
     SlangResult checkCompileTargetSupport(Session* session, CodeGenTarget target)
@@ -595,13 +528,16 @@ namespace Slang
         outCodeBuilder << fileContent << "\n";
     }
 
-    String emitHLSLForEntryPoint(
+    SlangResult emitEntryPointSource(
         BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq)
+        CodeGenTarget           target,
+        EndToEndCompileRequest* endToEndReq,
+        SourceResult&       outSource)
     {
+        outSource.reset();
+
         if(auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
         {
             // Generate a string that includes the content of
@@ -611,96 +547,45 @@ namespace Slang
             // mode.
 
             StringBuilder codeBuilder;
-            for(auto sourceFile : translationUnit->getSourceFiles())
+            if (target == CodeGenTarget::GLSL)
             {
-                _appendCodeWithPath(sourceFile->getPathInfo().foundPath.getUnownedSlice(), sourceFile->getContent(), codeBuilder);
-            }
-
-            return codeBuilder.ProduceString();
-        }
-        else
-        {
-            return emitEntryPoint(
-                compileRequest,
-                entryPoint,
-                CodeGenTarget::HLSL,
-                targetReq);
-        }
-    }
-
-    String emitCPPForEntryPoint(
-        BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq)
-    {
-        if (auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
-        {
-            // Generate a string that includes the content of
-            // the source file(s), along with a line directive
-            // to ensure that we get reasonable messages
-            // from the downstream compiler when in pass-through
-            // mode.
-
-            StringBuilder codeBuilder;
-            for (auto sourceFile : translationUnit->getSourceFiles())
-            {
-                _appendCodeWithPath(sourceFile->getPathInfo().foundPath.getUnownedSlice(), sourceFile->getContent(), codeBuilder);
-            }
-
-            return codeBuilder.ProduceString();
-        }
-        else
-        {
-            return emitEntryPoint(compileRequest, entryPoint, CodeGenTarget::CPPSource, targetReq);
-        }
-    }
-
-    String emitGLSLForEntryPoint(
-        BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq)
-    {
-        if(auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
-        {
-            // Generate a string that includes the content of
-            // the source file(s), along with a line directive
-            // to ensure that we get reasonable messages
-            // from the downstream compiler when in pass-through
-            // mode.
-
-            StringBuilder codeBuilder;
-            int translationUnitCounter = 0;
-            for(auto sourceFile : translationUnit->getSourceFiles())
-            {
-                int translationUnitIndex = translationUnitCounter++;
-
-                // We want to output `#line` directives, but we need
-                // to skip this for the first file, since otherwise
-                // some GLSL implementations will get tripped up by
-                // not having the `#version` directive be the first
-                // thing in the file.
-                if(translationUnitIndex != 0)
+                // Special case GLSL
+                int translationUnitCounter = 0;
+                for (auto sourceFile : translationUnit->getSourceFiles())
                 {
-                    codeBuilder << "#line 1 " << translationUnitIndex << "\n";
+                    int translationUnitIndex = translationUnitCounter++;
+
+                    // We want to output `#line` directives, but we need
+                    // to skip this for the first file, since otherwise
+                    // some GLSL implementations will get tripped up by
+                    // not having the `#version` directive be the first
+                    // thing in the file.
+                    if (translationUnitIndex != 0)
+                    {
+                        codeBuilder << "#line 1 " << translationUnitIndex << "\n";
+                    }
+                    codeBuilder << sourceFile->getContent() << "\n";
                 }
-                codeBuilder << sourceFile->getContent() << "\n";
+            }
+            else
+            {
+                for(auto sourceFile : translationUnit->getSourceFiles())
+                {
+                    _appendCodeWithPath(sourceFile->getPathInfo().foundPath.getUnownedSlice(), sourceFile->getContent(), codeBuilder);
+                }
             }
 
-            return codeBuilder.ProduceString();
+            outSource.source = codeBuilder.ProduceString();
+            return SLANG_OK;
         }
         else
         {
-            // TODO(tfoley): need to pass along the entry point
-            // so that we properly emit it as the `main` function.
-            return emitEntryPoint(
+            return emitEntryPointSourceFromIR(
                 compileRequest,
-                entryPoint,
-                CodeGenTarget::GLSL,
-                targetReq);
+                entryPointIndex,
+                target,
+                targetReq,
+                outSource);
         }
     }
 
@@ -751,6 +636,8 @@ namespace Slang
         CASE(Geometry,  gs);
         CASE(Fragment,  ps);
         CASE(Compute,   cs);
+        CASE(Amplification, as);
+        CASE(Mesh,          ms);
     #undef CASE
         }
 
@@ -769,6 +656,8 @@ namespace Slang
         CASE(DX_6_1,             _6_1);
         CASE(DX_6_2,             _6_2);
         CASE(DX_6_3,             _6_3);
+        CASE(DX_6_4,             _6_4);
+        CASE(DX_6_5,             _6_5);
     #undef CASE
 
         default:
@@ -789,11 +678,6 @@ namespace Slang
             builder << compilerName << ": ";
         }
 
-        if (diagnostic.size() > 0)
-        {
-            builder.Append(diagnostic);
-        }
-
         if (SLANG_FAILED(res) && res != SLANG_FAIL)
         {
             {
@@ -803,6 +687,15 @@ namespace Slang
             }
 
             PlatformUtil::appendResult(res, builder);
+        }
+
+        if (diagnostic.getLength() > 0)
+        {
+            builder.Append(diagnostic);
+            if (!diagnostic.endsWith("\n"))
+            {
+                builder.Append("\n");
+            }
         }
 
         sink->diagnoseRaw(severity, builder.getUnownedSlice());
@@ -873,6 +766,93 @@ namespace Slang
         return UnownedStringSlice();
     }
 
+        /// Read a file in the context of handling a preprocessor directive
+    static SlangResult readFile(
+        Linkage*        linkage,
+        String const&   path,
+        ISlangBlob**    outBlob)
+    {
+        // The actual file loading will be handled by the file system
+        // associated with the parent linkage.
+        //
+        auto fileSystemExt = linkage->getFileSystemExt();
+        SLANG_RETURN_ON_FAIL(fileSystemExt->loadFile(path.getBuffer(), outBlob));
+
+        return SLANG_OK;
+    }
+
+    struct FxcIncludeHandler : ID3DInclude
+    {
+        Linkage*        linkage;
+        DiagnosticSink* sink;
+        IncludeHandler* includeHandler;
+        PathInfo        rootPathInfo;
+
+        STDMETHOD(Open)(D3D_INCLUDE_TYPE IncludeType, LPCSTR pFileName, LPCVOID pParentData, LPCVOID *ppData, UINT *pBytes) override
+        {
+            SLANG_UNUSED(IncludeType);
+            SLANG_UNUSED(pParentData);
+
+            String path(pFileName);
+
+            SourceLoc loc;
+
+            PathInfo includedFromPathInfo = rootPathInfo;
+
+            if (!includeHandler)
+            {
+                return SLANG_E_NOT_IMPLEMENTED;
+            }
+
+            // Find the path relative to the foundPath
+            PathInfo filePathInfo;
+            if (SLANG_FAILED(includeHandler->findFile(path, includedFromPathInfo.foundPath, filePathInfo)))
+            {
+                return SLANG_E_CANNOT_OPEN;
+            }
+
+            // We must have a uniqueIdentity to be compare
+            if (!filePathInfo.hasUniqueIdentity())
+            {
+                return SLANG_E_ABORT;
+            }
+
+            // Simplify the path
+            filePathInfo.foundPath = includeHandler->simplifyPath(filePathInfo.foundPath);
+
+            // See if this an already loaded source file
+            auto sourceManager = linkage->getSourceManager();
+            SourceFile* sourceFile = sourceManager->findSourceFileRecursively(filePathInfo.uniqueIdentity);
+
+            // If not create a new one, and add to the list of known source files
+            if (!sourceFile)
+            {
+                ComPtr<ISlangBlob> foundSourceBlob;
+                if (SLANG_FAILED(readFile(linkage, filePathInfo.foundPath, foundSourceBlob.writeRef())))
+                {
+                    return SLANG_E_CANNOT_OPEN;
+                }
+
+                sourceFile = sourceManager->createSourceFileWithBlob(filePathInfo, foundSourceBlob);
+                sourceManager->addSourceFile(filePathInfo.uniqueIdentity, sourceFile);
+            }
+
+            // This is a new parse (even if it's a pre-existing source file), so create a new SourceUnit
+            SourceView* sourceView = sourceManager->createSourceView(sourceFile, &filePathInfo);
+
+            *ppData = sourceView->getContent().begin();
+            *pBytes = (UINT) sourceView->getContentSize();
+
+            return S_OK;
+        }
+
+        STDMETHOD(Close)(LPCVOID pData) override
+        {
+            SLANG_UNUSED(pData);
+            return S_OK;
+        }
+    };
+
     SlangResult emitDXBytecodeForEntryPoint(
         BackEndCompileRequest*  compileRequest,
         EntryPoint*             entryPoint,
@@ -892,10 +872,15 @@ namespace Slang
             return SLANG_FAIL;
         }
 
-        auto hlslCode = emitHLSLForEntryPoint(compileRequest, entryPoint, entryPointIndex, targetReq, endToEndReq);
+        SourceResult source;
+        SLANG_RETURN_ON_FAIL(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, CodeGenTarget::HLSL, endToEndReq, source));
+
+        const auto& hlslCode = source.source;
         maybeDumpIntermediate(compileRequest, hlslCode.getBuffer(), CodeGenTarget::HLSL);
 
         auto profile = getEffectiveProfile(entryPoint, targetReq);
+
+        auto linkage = compileRequest->getLinkage();
 
         // If we have been invoked in a pass-through mode, then we need to make sure
         // that the downstream compiler sees whatever options were passed to Slang
@@ -905,6 +890,14 @@ namespace Slang
         //
         List<D3D_SHADER_MACRO> dxMacrosStorage;
         D3D_SHADER_MACRO const* dxMacros = nullptr;
+
+        IncludeHandlerImpl includeHandler;
+        includeHandler.linkage = linkage;
+        includeHandler.searchDirectories = &linkage->searchDirectories;
+
+        FxcIncludeHandler fxcIncludeHandlerStorage;
+        FxcIncludeHandler* fxcIncludeHandler = nullptr;
+
         if(auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
         {
             for( auto& define :  translationUnit->compileRequest->preprocessorDefinitions )
@@ -925,6 +918,12 @@ namespace Slang
             dxMacrosStorage.add(nullTerminator);
 
             dxMacros = dxMacrosStorage.getBuffer();
+
+            fxcIncludeHandler = &fxcIncludeHandlerStorage;
+            fxcIncludeHandler->linkage = linkage;
+            fxcIncludeHandler->sink = compileRequest->getSink();
+            fxcIncludeHandler->includeHandler = &includeHandler;
+            fxcIncludeHandler->rootPathInfo = translationUnit->m_sourceFiles[0]->getPathInfo();
         }
 
         DWORD flags = 0;
@@ -952,7 +951,6 @@ namespace Slang
         flags |= D3DCOMPILE_ENABLE_STRICTNESS;
         flags |= D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES;
 
-        auto linkage = compileRequest->getLinkage();
         switch( linkage->optimizationLevel )
         {
         default:
@@ -983,7 +981,7 @@ namespace Slang
             hlslCode.getLength(),
             sourcePath.getBuffer(),
             dxMacros,
-            nullptr,
+            fxcIncludeHandler,
             getText(entryPoint->getName()).begin(),
             GetHLSLProfileName(profile).getBuffer(),
             flags,
@@ -1090,14 +1088,20 @@ SlangResult dissassembleDXILUsingDXC(
 #if SLANG_ENABLE_GLSLANG_SUPPORT
     SlangResult invokeGLSLCompiler(
         BackEndCompileRequest*      slangCompileRequest,
-        glslang_CompileRequest&     request)
+        glslang_CompileRequest_1_1&     request)
     {
         Session* session = slangCompileRequest->getSession();
         auto sink = slangCompileRequest->getSink();
+        auto linkage = slangCompileRequest->getLinkage();
 
-        auto glslang_compile = (glslang_CompileFunc)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Glslang_Compile, sink);
-        if (!glslang_compile)
+        auto glslang_compile_1_0 = (glslang_CompileFunc_1_0)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Glslang_Compile_1_0, nullptr);
+        auto glslang_compile_1_1 = (glslang_CompileFunc_1_1)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Glslang_Compile_1_1, nullptr);
+
+        if(glslang_compile_1_0 == nullptr && glslang_compile_1_1 == nullptr)
         {
+            // Try again and put diagnostic to the sink
+            session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Glslang_Compile_1_0, sink);
+            session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Glslang_Compile_1_1, sink);
             return SLANG_FAIL;
         }
 
@@ -1111,7 +1115,20 @@ SlangResult dissassembleDXILUsingDXC(
         request.diagnosticFunc = diagnosticOutputFunc;
         request.diagnosticUserData = &diagnosticOutput;
 
-        int err = glslang_compile(&request);
+        request.optimizationLevel = (unsigned)linkage->optimizationLevel;
+        request.debugInfoType = (unsigned)linkage->debugInfoLevel;
+
+        int err = 1;
+        if (glslang_compile_1_1)
+        {
+            err = glslang_compile_1_1(&request);   
+        }
+        else if (glslang_compile_1_0)
+        {
+            glslang_CompileRequest_1_0 request_1_0;
+            request_1_0.set(request);
+            err = glslang_compile_1_0(&request_1_0);   
+        }
 
         if (err)
         {
@@ -1136,13 +1153,17 @@ SlangResult dissassembleDXILUsingDXC(
             (*(String*)userData).append((char const*)data, (char const*)data + size);
         };
 
-        glslang_CompileRequest request;
+        glslang_CompileRequest_1_1 request;
+        memset(&request, 0, sizeof(request));
+        request.sizeInBytes = sizeof(request);
+
+            
         request.action = GLSLANG_ACTION_DISSASSEMBLE_SPIRV;
 
         request.sourcePath = nullptr;
 
-        request.inputBegin  = data;
-        request.inputEnd    = (char*)data + size;
+        request.inputBegin = data;
+        request.inputEnd = (char*)data + size;
 
         request.outputFunc = outputFunc;
         request.outputUserData = &output;
@@ -1153,78 +1174,74 @@ SlangResult dissassembleDXILUsingDXC(
         return SLANG_OK;
     }
 
-    SlangResult emitCPUBinaryForEntryPoint(
+    SlangResult emitWithDownstreamForEntryPoint(
         BackEndCompileRequest*  slangRequest,
-        EntryPoint*             entryPoint,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
-        ComPtr<ISlangSharedLibrary>& outSharedLib,
-        List<uint8_t>&          outBin)
+        RefPtr<DownstreamCompileResult>& outResult)
     {
+        outResult.setNull();
+
         auto sink = slangRequest->getSink();
+
+        auto session = slangRequest->getSession();
 
         const String originalSourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
 
-        outBin.clear();
-        outSharedLib.setNull();
-      
-        CPPCompilerSet* compilerSet = slangRequest->getSession()->requireCPPCompilerSet();
+        CodeGenTarget sourceTarget = CodeGenTarget::None;
+        SourceLanguage sourceLanguage = SourceLanguage::Unknown;
 
-        // Determine compiler to use
-        CPPCompiler* compiler = nullptr;
-        switch (endToEndReq->passThrough)
+        PassThroughMode downstreamCompiler = endToEndReq->passThrough;
+
+        // If we are not in pass through, lookup the default compiler for the emitted source type
+        if (downstreamCompiler == PassThroughMode::None)
         {
-            case PassThroughMode::None:
-            case PassThroughMode::GenericCCpp:
+            auto target = targetReq->target;
+            switch (target)
             {
-                // If there is no pass through... still need a compiler
-                compiler = compilerSet->getDefaultCompiler();
-                break;
+                case CodeGenTarget::PTX:
+                {
+                    sourceTarget = CodeGenTarget::CUDASource;
+                    sourceLanguage = SourceLanguage::CUDA;
+                    break;
+                }
+                case CodeGenTarget::HostCallable:
+                case CodeGenTarget::SharedLibrary:
+                case CodeGenTarget::Executable:
+                {
+                    sourceTarget = CodeGenTarget::CPPSource;
+                    sourceLanguage = SourceLanguage::CPP;
+                    break;
+                }
+                default: break;
             }
-            case PassThroughMode::Clang:
-            {
-                compiler = CPPCompilerUtil::findCompiler(compilerSet, CPPCompilerUtil::MatchType::Newest, CPPCompiler::Desc(CPPCompiler::CompilerType::Clang));
-                break;
-            }
-            case PassThroughMode::VisualStudio:
-            {
-                compiler = CPPCompilerUtil::findCompiler(compilerSet, CPPCompilerUtil::MatchType::Newest, CPPCompiler::Desc(CPPCompiler::CompilerType::VisualStudio));
-                break;
-            }
-            case PassThroughMode::Gcc:
-            {
-                compiler = CPPCompilerUtil::findCompiler(compilerSet, CPPCompilerUtil::MatchType::Newest, CPPCompiler::Desc(CPPCompiler::CompilerType::GCC));
-                break;
-            }
+
+            downstreamCompiler = PassThroughMode(session->getDefaultDownstreamCompiler(SlangSourceLanguage(sourceLanguage)));
         }
+        
+        // Get the required downstream compiler
+        DownstreamCompiler* compiler = session->getOrLoadDownstreamCompiler(downstreamCompiler, sink);
 
         if (!compiler)
         {
-            if (endToEndReq->passThrough != PassThroughMode::None)
+            auto compilerName = TypeTextUtil::getPassThroughAsHumanText((SlangPassThrough)downstreamCompiler);
+            if (downstreamCompiler != PassThroughMode::None)
             {
-                sink->diagnose(SourceLoc(), Diagnostics::passThroughCompilerNotFound, _getPassThroughAsText(endToEndReq->passThrough));
+                sink->diagnose(SourceLoc(), Diagnostics::passThroughCompilerNotFound, compilerName);
             }
             else
             {
-                sink->diagnose(SourceLoc(), Diagnostics::cppCompilerNotFound);
+                sink->diagnose(SourceLoc(), Diagnostics::cppCompilerNotFound, compilerName);
             }
             return SLANG_FAIL;
         }
 
-        TemporaryFileSet temporaryFileSet;
-
-        bool useOriginalFile = false;
-
-        String compileSourcePath;
-        String sourceContents;
-
-        String rawSource;
-
-        SourceLanguage rawSourceLanguage = SourceLanguage::Unknown;
-
         Dictionary<String, String> preprocessorDefinitions;
         List<String> includePaths;
+
+        typedef DownstreamCompiler::CompileOptions CompileOptions;
+        CompileOptions options;
 
         /* This is more convoluted than the other scenarios, because when we invoke C/C++ compiler we would ideally like
         to use the original file. We want to do this because we want includes relative to the source file to work, and
@@ -1239,6 +1256,13 @@ SlangResult dissassembleDXILUsingDXC(
             for (auto& define : translationUnit->preprocessorDefinitions)
             {
                 preprocessorDefinitions.Add(define.Key, define.Value);
+            }
+            {
+                auto linkage = targetReq->getLinkage();
+                for (auto& define : linkage->preprocessorDefinitions)
+                {
+                    preprocessorDefinitions.Add(define.Key, define.Value);
+                }
             }
 
             {
@@ -1267,8 +1291,10 @@ SlangResult dissassembleDXILUsingDXC(
             }
 
             // We are just passing thru, so it's whatever it originally was
-            rawSourceLanguage = translationUnit->sourceLanguage;
+            sourceLanguage = translationUnit->sourceLanguage;
+            sourceTarget = CodeGenTarget(DownstreamCompiler::getCompileTarget(SlangSourceLanguage(sourceLanguage)));
 
+            // Special case if we have a single file, so that we pass the path, and the contents
             const auto& sourceFiles = translationUnit->getSourceFiles();
             if (sourceFiles.getCount() == 1)
             {
@@ -1276,101 +1302,46 @@ SlangResult dissassembleDXILUsingDXC(
                 const PathInfo& pathInfo = sourceFile->getPathInfo();
                 if (pathInfo.type == PathInfo::Type::FoundPath || pathInfo.type == PathInfo::Type::Normal)
                 {
-                    compileSourcePath = pathInfo.foundPath;
-                    // We can see if we can load it
-                    if (File::exists(compileSourcePath))
-                    {
-                        // Here we look for the file on the regular file system (as opposed to using the 
-                        // ISlangFileSystem. This is unfortunate but necessary - because when we call out
-                        // to the CPP compiler all it is able to (currently) see are files on the file system.
-                        //
-                        // Note that it could be coincidence that the filesystem has a file that's identical in
-                        // contents/name. That being the case though, any includes wouldn't work for a generated
-                        // file either from some specialized ISlangFileSystem, so this is probably as good as it gets
-                        // until we can integrate directly to a C/C++ compiler through say a shared library where we can control
-                        // file system access.
-                        try
-                        {
-                            String readContents = File::readAllText(compileSourcePath);
-                            // We should see if they are the same
-                            useOriginalFile = (sourceFile->getContent() == readContents.getUnownedSlice());
-                        }
-                        catch (const Slang::IOException&)
-                        {
-                        }
-                    }
+                    options.sourceContentsPath = pathInfo.foundPath;
                 }
+                options.sourceContents = sourceFile->getContent();
             }
-
-            if (!useOriginalFile)
+            else
             {
-                StringBuilder codeBuilder;
-                for (auto sourceFile : translationUnit->getSourceFiles())
-                {
-                    _appendCodeWithPath(sourceFile->getPathInfo().foundPath.getUnownedSlice(), sourceFile->getContent(), codeBuilder);
-                }
-                sourceContents = codeBuilder.ProduceString();
+                SourceResult source;
+                SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, sourceTarget, endToEndReq, source));
+
+                options.sourceContents = source.source;
             }
         }
         else
         {
-            rawSource = emitCPPForEntryPoint(
-                slangRequest,
-                entryPoint,
-                entryPointIndex,
-                targetReq,
-                endToEndReq);
+            SourceResult source;
+            SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, sourceTarget, endToEndReq, source));
 
-            maybeDumpIntermediate(slangRequest, rawSource.getBuffer(), CodeGenTarget::CPPSource);
+            // Look for the version
+            if (auto cudaTracker = as<CUDAExtensionTracker>(source.extensionTracker))
+            {
+                if (cudaTracker->m_smVersion.isSet())
+                {
+                    DownstreamCompiler::CapabilityVersion version;
+                    version.kind = DownstreamCompiler::CapabilityVersion::Kind::CUDASM;
+                    version.version = cudaTracker->m_smVersion;
 
-            rawSourceLanguage = SourceLanguage::CPP;
+                    options.requiredCapabilityVersions.add(version);
+                }
+            }
+
+            options.sourceContents = source.source;
+            
+            maybeDumpIntermediate(slangRequest, options.sourceContents.getBuffer(), sourceTarget);
         }
-
-        List<String> tempFiles;
-
-        if (!useOriginalFile)
-        {
-            SLANG_RETURN_ON_FAIL(File::generateTemporary(UnownedStringSlice::fromLiteral("slang-generated"), compileSourcePath));
-
-            // Make the temporary filename have the appropriate extension.
-            // NOTE: Strictly speaking that may introduce a temp filename clash, but in practice is extraordinary unlikely
-            if (rawSourceLanguage == SourceLanguage::C)
-            {
-                compileSourcePath.append(".c");
-            }
-            else
-            {
-                compileSourcePath.append(".cpp");
-            }
-
-            // Delete this path at end of execution
-            temporaryFileSet.add(compileSourcePath);
-
-            try
-            {
-                File::writeAllText(compileSourcePath, rawSource);
-            }
-            catch (...)
-            {
-                sink->diagnose(SourceLoc(), Diagnostics::unableToWriteFile, compileSourcePath);
-                return SLANG_FAIL;
-            }
-        }
-
-        CPPCompiler::CompileOptions options;
 
         // Set the source type
-        options.sourceType = (rawSourceLanguage == SourceLanguage::C) ? CPPCompiler::SourceType::C : CPPCompiler::SourceType::CPP;
+        options.sourceLanguage = SlangSourceLanguage(sourceLanguage);
 
-        // Generate a path a temporary filename for output module
-        String modulePath;
-        SLANG_RETURN_ON_FAIL(File::generateTemporary(UnownedStringSlice::fromLiteral("slang-generated"), modulePath));
-
-        // Remove the temporary path/file when done
-        temporaryFileSet.add(modulePath);
-
-        options.modulePath = modulePath;
-        options.sourceFiles.add(compileSourcePath);
+        // Disable exceptions and security checks
+        options.flags &= ~(CompileOptions::Flag::EnableExceptionHandling | CompileOptions::Flag::EnableSecurityChecks);
 
         // Set what kind of target we should build
         switch (targetReq->target)
@@ -1378,31 +1349,22 @@ SlangResult dissassembleDXILUsingDXC(
             case CodeGenTarget::HostCallable:
             case CodeGenTarget::SharedLibrary:
             {
-                options.targetType = CPPCompiler::TargetType::SharedLibrary;
+                options.targetType = DownstreamCompiler::TargetType::SharedLibrary;
                 break;
             }
             case CodeGenTarget::Executable:
             {
-                options.targetType = CPPCompiler::TargetType::Executable;
+                options.targetType = DownstreamCompiler::TargetType::Executable;
+                break;
+            }
+            case CodeGenTarget::PTX:
+            {
+                // TODO(JS): Not clear what to do here.
+                // For example should 'Kernel' be distinct from 'Executable'. For now just use executable.
+                options.targetType = DownstreamCompiler::TargetType::Executable;
                 break;
             }
             default: break;
-        }
-
-        String moduleFilePath;
-
-        {
-            StringBuilder builder;
-            SLANG_RETURN_ON_FAIL(compiler->calcModuleFilePath(options, builder));
-            moduleFilePath = builder.ProduceString();
-        }
-
-        // Find all the files that will be produced
-        TemporaryFileSet productFileSet;
-        {
-            List<String> paths;
-            SLANG_RETURN_ON_FAIL(compiler->calcCompileProducts(options, CPPCompiler::ProductFlag::All, paths));
-            productFileSet.add(paths);
         }
 
         // Need to configure for the compilation
@@ -1412,29 +1374,79 @@ SlangResult dissassembleDXILUsingDXC(
 
             switch (linkage->optimizationLevel)
             {
-                case OptimizationLevel::None:       options.optimizationLevel = CPPCompiler::OptimizationLevel::None; break;
-                case OptimizationLevel::Default:    options.optimizationLevel = CPPCompiler::OptimizationLevel::Default;  break;
-                case OptimizationLevel::High:       options.optimizationLevel = CPPCompiler::OptimizationLevel::High;  break;
-                case OptimizationLevel::Maximal:    options.optimizationLevel = CPPCompiler::OptimizationLevel::Maximal;  break;
+                case OptimizationLevel::None:       options.optimizationLevel = DownstreamCompiler::OptimizationLevel::None; break;
+                case OptimizationLevel::Default:    options.optimizationLevel = DownstreamCompiler::OptimizationLevel::Default;  break;
+                case OptimizationLevel::High:       options.optimizationLevel = DownstreamCompiler::OptimizationLevel::High;  break;
+                case OptimizationLevel::Maximal:    options.optimizationLevel = DownstreamCompiler::OptimizationLevel::Maximal;  break;
                 default: SLANG_ASSERT(!"Unhandled optimization level"); break;
             }
 
             switch (linkage->debugInfoLevel)
             {
-                case DebugInfoLevel::None:          options.debugInfoType = CPPCompiler::DebugInfoType::None; break; 
-                case DebugInfoLevel::Minimal:       options.debugInfoType = CPPCompiler::DebugInfoType::Minimal; break; 
+                case DebugInfoLevel::None:          options.debugInfoType = DownstreamCompiler::DebugInfoType::None; break; 
+                case DebugInfoLevel::Minimal:       options.debugInfoType = DownstreamCompiler::DebugInfoType::Minimal; break; 
                 
-                case DebugInfoLevel::Standard:      options.debugInfoType = CPPCompiler::DebugInfoType::Standard; break; 
-                case DebugInfoLevel::Maximal:       options.debugInfoType = CPPCompiler::DebugInfoType::Maximal; break; 
+                case DebugInfoLevel::Standard:      options.debugInfoType = DownstreamCompiler::DebugInfoType::Standard; break; 
+                case DebugInfoLevel::Maximal:       options.debugInfoType = DownstreamCompiler::DebugInfoType::Maximal; break; 
                 default: SLANG_ASSERT(!"Unhandled debug level"); break;
             }
 
             switch( targetReq->floatingPointMode )
             {
-                case FloatingPointMode::Default:    options.floatingPointMode = CPPCompiler::FloatingPointMode::Default; break;
-                case FloatingPointMode::Precise:    options.floatingPointMode = CPPCompiler::FloatingPointMode::Precise; break;
-                case FloatingPointMode::Fast:       options.floatingPointMode = CPPCompiler::FloatingPointMode::Fast; break;
-                default: SLANG_ASSERT(!"Unhanlde floating point mode");
+                case FloatingPointMode::Default:    options.floatingPointMode = DownstreamCompiler::FloatingPointMode::Default; break;
+                case FloatingPointMode::Precise:    options.floatingPointMode = DownstreamCompiler::FloatingPointMode::Precise; break;
+                case FloatingPointMode::Fast:       options.floatingPointMode = DownstreamCompiler::FloatingPointMode::Fast; break;
+                default: SLANG_ASSERT(!"Unhandled floating point mode");
+            }
+
+            {
+                // We need to look at the stage of the entry point(s) we are
+                // being asked to compile, since this will determine the
+                // "pipeline" that the result should be compiled for (e.g.,
+                // compute vs. ray tracing).
+                //
+                // TODO: This logic is kind of messy in that it assumes
+                // a program to be compiled will only contain kernels for
+                // a single pipeline type, but that invariant isn't expressed
+                // at all in the front-end today. It also has no error
+                // checking for the case where there are conflicts.
+                //
+                // HACK: Right now none of the above concerns matter
+                // because we always perform code generation on a single
+                // entry point at a time.
+                //
+                Index entryPointCount = slangRequest->getProgram()->getEntryPointCount();
+                for(Index ee = 0; ee < entryPointCount; ++ee)
+                {
+                    auto stage = slangRequest->getProgram()->getEntryPoint(ee)->getStage();
+                    switch(stage)
+                    {
+                    default:
+                        break;
+
+                    case Stage::Compute:
+                        options.pipelineType = DownstreamCompiler::PipelineType::Compute;
+                        break;
+
+                    case Stage::Vertex:
+                    case Stage::Hull:
+                    case Stage::Domain:
+                    case Stage::Geometry:
+                    case Stage::Fragment:
+                        options.pipelineType = DownstreamCompiler::PipelineType::Rasterization;
+                        break;
+
+                    case Stage::RayGeneration:
+                    case Stage::Intersection:
+                    case Stage::AnyHit:
+                    case Stage::ClosestHit:
+                    case Stage::Miss:
+                    case Stage::Callable:
+                        options.pipelineType = DownstreamCompiler::PipelineType::RayTracing;
+                        break;
+                    }
+                }
+                
             }
 
             // Add all the search paths (as calculated earlier - they will only be set if this is a pass through else will be empty)
@@ -1444,7 +1456,7 @@ SlangResult dissassembleDXILUsingDXC(
             {
                 for(auto& def : preprocessorDefinitions)
                 {
-                    CPPCompiler::Define define;
+                    DownstreamCompiler::Define define;
                     define.nameWithSig = def.Key;
                     define.value = def.Value;
 
@@ -1454,8 +1466,10 @@ SlangResult dissassembleDXILUsingDXC(
         }
 
         // Compile
-        CPPCompiler::Output output;
-        SLANG_RETURN_ON_FAIL(compiler->compile(options, output));
+        RefPtr<DownstreamCompileResult> downstreamCompileResult;
+        SLANG_RETURN_ON_FAIL(compiler->compile(options, downstreamCompileResult));
+        
+        const auto& diagnostics = downstreamCompileResult->getDiagnostics();
 
         {
             StringBuilder compilerText;
@@ -1463,9 +1477,9 @@ SlangResult dissassembleDXILUsingDXC(
 
             StringBuilder builder;
 
-            typedef CPPCompiler::Diagnostic Diagnostic;
+            typedef DownstreamDiagnostic Diagnostic;
 
-            for (const auto& diagnostic : output.diagnostics)
+            for (const auto& diagnostic : diagnostics.diagnostics)
             {
                 builder.Clear();
 
@@ -1510,63 +1524,71 @@ SlangResult dissassembleDXILUsingDXC(
         }
 
         // If any errors are emitted, then we are done
-        if (output.has(CPPCompiler::Diagnostic::Type::Error))
+        if (diagnostics.has(DownstreamDiagnostic::Type::Error))
         {
             return SLANG_FAIL;
         }
 
-        // If callable we need to load the shared library
-        if (targetReq->target == CodeGenTarget::HostCallable)
+        outResult = downstreamCompileResult;
+        return SLANG_OK;
+    }
+
+    SlangResult emitSPIRVForEntryPointDirectly(
+        BackEndCompileRequest*  compileRequest,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        List<uint8_t>&          spirvOut);
+
+    SlangResult emitSPIRVForEntryPointViaGLSL(
+        BackEndCompileRequest*  slangRequest,
+        EntryPoint*             entryPoint,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq,
+        List<uint8_t>&          spirvOut)
+    {
+        spirvOut.clear();
+
+        SourceResult source;
+
+        SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, CodeGenTarget::GLSL, endToEndReq, source));
+
+        const auto& rawGLSL = source.source;
+
+        maybeDumpIntermediate(slangRequest, rawGLSL.getBuffer(), CodeGenTarget::GLSL);
+
+        auto outputFunc = [](void const* data, size_t size, void* userData)
         {
-            // Try loading the shared library
-            SharedLibrary::Handle handle;
-            if (SLANG_FAILED(SharedLibrary::loadWithPlatformPath(moduleFilePath.getBuffer(), handle)))
-            {
-                sink->diagnose(SourceLoc(), Diagnostics::unableToReadFile, moduleFilePath);
-                return SLANG_FAIL;
-            }
-            RefPtr<TemporarySharedLibrary> sharedLib(new TemporarySharedLibrary(handle, moduleFilePath));
-            sharedLib->m_temporaryFileSet = productFileSet;
-            productFileSet.clear();
+            ((List<uint8_t>*)userData)->addRange((uint8_t*)data, size);
+        };
 
-            // Copy the paths in the temporary file set
-            // We particularly want to do this to keep the source
-            sharedLib->m_temporaryFileSet.add(temporaryFileSet.m_paths);
-            temporaryFileSet.clear();
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
 
-            // Output the shared library
-            outSharedLib = sharedLib;
-        }
-        else
+        glslang_CompileRequest_1_1 request;
+        memset(&request, 0, sizeof(request));
+        request.sizeInBytes = sizeof(request);
+
+        request.action = GLSLANG_ACTION_COMPILE_GLSL_TO_SPIRV;
+        request.sourcePath = sourcePath.getBuffer();
+        request.slangStage = (SlangStage)entryPoint->getStage();
+
+        request.inputBegin  = rawGLSL.begin();
+        request.inputEnd    = rawGLSL.end();
+
+        if (GLSLExtensionTracker* tracker = as<GLSLExtensionTracker>(source.extensionTracker.Ptr()))
         {
-            // Read the binary
-            try
-            {
-                // TODO(JS): We have a problem here.. productFileSet will clear up all temporaries
-                // and although we return the binary here (through outBin), we don't return debug info
-                // which is separate (say with a pdb). To work around this we reevaluate productFileSet,
-                // so we don't include debug info. The executable will presumably be reconstructed from
-                // outBin
-                // The problem is that these files have no specific lifetime (unlike with HostCallable).
+            request.spirvTargetName = nullptr;
+            auto spirvLanguageVersion = tracker->getSPIRVVersion();
 
-                CPPCompiler::ProductFlags flags = CPPCompiler::ProductFlag::All;
-                flags &= ~CPPCompiler::ProductFlag::Debug;
-
-                List<String> paths;
-                SLANG_RETURN_ON_FAIL(compiler->calcCompileProducts(options, flags, paths));
-                productFileSet.clear();
-                productFileSet.add(paths);
-
-                // Read the contents of the binary
-                outBin = File::readAllBytes(moduleFilePath);
-            }
-            catch (const Slang::IOException&)
-            {
-                sink->diagnose(SourceLoc(), Diagnostics::unableToReadFile, moduleFilePath);
-                return SLANG_FAIL;
-            }
+            request.spirvVersion.major = spirvLanguageVersion.m_major;
+            request.spirvVersion.minor = spirvLanguageVersion.m_minor;
+            request.spirvVersion.patch = spirvLanguageVersion.m_patch;
         }
 
+        request.outputFunc = outputFunc;
+        request.outputUserData = &spirvOut;
+
+        SLANG_RETURN_ON_FAIL(invokeGLSLCompiler(slangRequest, request));
         return SLANG_OK;
     }
 
@@ -1578,36 +1600,24 @@ SlangResult dissassembleDXILUsingDXC(
         EndToEndCompileRequest* endToEndReq,
         List<uint8_t>&          spirvOut)
     {
-        spirvOut.clear();
-
-        String rawGLSL = emitGLSLForEntryPoint(
-            slangRequest,
-            entryPoint,
-            entryPointIndex,
-            targetReq,
-            endToEndReq);
-        maybeDumpIntermediate(slangRequest, rawGLSL.getBuffer(), CodeGenTarget::GLSL);
-
-        auto outputFunc = [](void const* data, size_t size, void* userData)
+        if( slangRequest->shouldEmitSPIRVDirectly )
         {
-            ((List<uint8_t>*)userData)->addRange((uint8_t*)data, size);
-        };
-
-        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
-
-        glslang_CompileRequest request;
-        request.action = GLSLANG_ACTION_COMPILE_GLSL_TO_SPIRV;
-        request.sourcePath = sourcePath.getBuffer();
-        request.slangStage = (SlangStage)entryPoint->getStage();
-
-        request.inputBegin  = rawGLSL.begin();
-        request.inputEnd    = rawGLSL.end();
-
-        request.outputFunc = outputFunc;
-        request.outputUserData = &spirvOut;
-
-        SLANG_RETURN_ON_FAIL(invokeGLSLCompiler(slangRequest, request));
-        return SLANG_OK;
+            return emitSPIRVForEntryPointDirectly(
+                slangRequest,
+                entryPointIndex,
+                targetReq,
+                spirvOut);
+        }
+        else
+        {
+            return emitSPIRVForEntryPointViaGLSL(
+                slangRequest,
+                entryPoint,
+                entryPointIndex,
+                targetReq,
+                endToEndReq,
+                spirvOut);
+        }
     }
 
     SlangResult emitSPIRVAssemblyForEntryPoint(
@@ -1648,68 +1658,41 @@ SlangResult dissassembleDXILUsingDXC(
 
         switch (target)
         {
+        case CodeGenTarget::PTX:
         case CodeGenTarget::HostCallable:
         case CodeGenTarget::SharedLibrary:
         case CodeGenTarget::Executable:
             {
-                ComPtr<ISlangSharedLibrary> sharedLibrary;
+                RefPtr<DownstreamCompileResult> downstreamResult;
 
-                List<uint8_t> code;
-                if (SLANG_SUCCEEDED(emitCPUBinaryForEntryPoint(
+                if (SLANG_SUCCEEDED(emitWithDownstreamForEntryPoint(
                     compileRequest,
-                    entryPoint,
                     entryPointIndex,
                     targetReq,
                     endToEndReq,
-                    sharedLibrary,
-                    code)))
+                    downstreamResult)))
                 {
-                    if (target == CodeGenTarget::HostCallable)
-                    {
-                        result = CompileResult(sharedLibrary);
-                    }
-                    else
-                    {
-                        maybeDumpIntermediate(compileRequest, code.getBuffer(), code.getCount(), target);
-                        result = CompileResult(code);
-                    }
+                    maybeDumpIntermediate(compileRequest, downstreamResult, target);
+
+                    result = CompileResult(downstreamResult);
                 }
             }
             break;
-        case CodeGenTarget::HLSL:
-            {
-                String code = emitHLSLForEntryPoint(
-                    compileRequest,
-                    entryPoint,
-                    entryPointIndex,
-                    targetReq,
-                    endToEndReq);
-                maybeDumpIntermediate(compileRequest, code.getBuffer(), target);
-                result = CompileResult(code);
-            }
-            break;
-
         case CodeGenTarget::GLSL:
-            {
-                String code = emitGLSLForEntryPoint(
-                    compileRequest,
-                    entryPoint,
-                    entryPointIndex,
-                    targetReq,
-                    endToEndReq);
-                maybeDumpIntermediate(compileRequest, code.getBuffer(), target);
-                result = CompileResult(code);
-            }
-            break;
-
+        case CodeGenTarget::HLSL:
+        case CodeGenTarget::CUDASource:
         case CodeGenTarget::CPPSource:
         case CodeGenTarget::CSource:
             {
-                return emitEntryPoint(
-                    compileRequest,
-                    entryPoint,
-                    target, 
-                    targetReq);
+                SourceResult source;
+                if (SLANG_FAILED(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, target, endToEndReq, source)))
+                {
+                    return result;
+                }
+
+                const auto& code = source.source;
+                maybeDumpIntermediate(compileRequest, code.getBuffer(), target);
+                result = CompileResult(code);
             }
             break;
 
@@ -1726,7 +1709,8 @@ SlangResult dissassembleDXILUsingDXC(
                     code)))
                 {
                     maybeDumpIntermediate(compileRequest, code.getBuffer(), code.getCount(), target);
-                    result = CompileResult(code);
+
+                    result = CompileResult(ListBlob::moveCreate(code));
                 }
             }
             break;
@@ -1762,7 +1746,7 @@ SlangResult dissassembleDXILUsingDXC(
                     code)))
                 {
                     maybeDumpIntermediate(compileRequest, code.getBuffer(), code.getCount(), target);
-                    result = CompileResult(code);
+                    result = CompileResult(ListBlob::moveCreate(code));
                 }
             }
             break;
@@ -1786,7 +1770,6 @@ SlangResult dissassembleDXILUsingDXC(
                         assembly);
 
                     maybeDumpIntermediate(compileRequest, assembly.getBuffer(), target);
-
                     result = CompileResult(assembly);
                 }
             }
@@ -1805,7 +1788,7 @@ SlangResult dissassembleDXILUsingDXC(
                     code)))
                 {
                     maybeDumpIntermediate(compileRequest, code.getBuffer(), code.getCount(), target);
-                    result = CompileResult(code);
+                    result = CompileResult(ListBlob::moveCreate(code));
                 }
             }
             break;
@@ -1929,11 +1912,12 @@ SlangResult dissassembleDXILUsingDXC(
 
         case ResultFormat::Binary:
             {
-                auto& data = result.outputBinary;
+                ComPtr<ISlangBlob> blob;
+                result.getBlob(blob);
                 writeOutputFile(compileRequest,
                     outputPath,
-                    data.begin(),
-                    data.end() - data.begin(),
+                    blob->getBufferPointer(),
+                    blob->getBufferSize(),
                     OutputFileKind::Binary);
             }
             break;
@@ -1969,13 +1953,17 @@ SlangResult dissassembleDXILUsingDXC(
             writeOutputToConsole(writer, result.outputString);
             break;
 
-        case ResultFormat::SharedLibrary:
-            break;
-
         case ResultFormat::Binary:
             {
-                auto& data = result.outputBinary;
-                
+                ComPtr<ISlangBlob> blob;
+                if (SLANG_FAILED(result.getBlob(blob)))
+                {
+                    return;
+                }
+
+                const void* blobData = blob->getBufferPointer();
+                size_t blobSize = blob->getBufferSize();
+
                 if (writer->isConsole())
                 {
                     // Writing to console, so we need to generate text output.
@@ -1986,9 +1974,7 @@ SlangResult dissassembleDXILUsingDXC(
                     case CodeGenTarget::DXBytecode:
                         {
                             String assembly;
-                            dissassembleDXBC(backEndReq,
-                                data.begin(),
-                                data.end() - data.begin(), assembly);
+                            dissassembleDXBC(backEndReq, blobData, blobSize, assembly);
                             writeOutputToConsole(writer, assembly);
                         }
                         break;
@@ -1998,10 +1984,7 @@ SlangResult dissassembleDXILUsingDXC(
                     case CodeGenTarget::DXIL:
                         {
                             String assembly; 
-                            dissassembleDXILUsingDXC(backEndReq,
-                                data.begin(),
-                                data.end() - data.begin(), 
-                                assembly);
+                            dissassembleDXILUsingDXC(backEndReq, blobData, blobSize, assembly);
                             writeOutputToConsole(writer, assembly);
                         }
                         break;
@@ -2010,17 +1993,20 @@ SlangResult dissassembleDXILUsingDXC(
                     case CodeGenTarget::SPIRV:
                         {
                             String assembly;
-                            dissassembleSPIRV(backEndReq,
-                                data.begin(),
-                                data.end() - data.begin(), assembly);
+                            dissassembleSPIRV(backEndReq, blobData, blobSize, assembly);
                             writeOutputToConsole(writer, assembly);
                         }
                         break;
 
+                    case CodeGenTarget::PTX:
+                        // For now we just dump PTX out as hex
+
+                    case CodeGenTarget::HostCallable:
                     case CodeGenTarget::SharedLibrary:
                     case CodeGenTarget::Executable:
-                        HexDumpUtil::dumpWithMarkers(data, 24, writer);
+                        HexDumpUtil::dumpWithMarkers((const uint8_t*)blobData, blobSize, 24, writer);
                         break;
+
 
                     default:
                         SLANG_UNEXPECTED("unhandled output format");
@@ -2036,8 +2022,8 @@ SlangResult dissassembleDXILUsingDXC(
                         backEndReq,
                         writer,
                         "stdout",
-                        data.begin(),
-                        data.end() - data.begin());
+                        blobData,
+                        blobSize);
                 }
             }
             break;
@@ -2125,6 +2111,15 @@ SlangResult dissassembleDXILUsingDXC(
         if( result.format != ResultFormat::None )
             return result;
 
+        // If we haven't yet computed a layout for this target
+        // program, we need to make sure that is done before
+        // code generation.
+        //
+        if( !getOrCreateIRModuleForLayout(sink) )
+        {
+            return result;
+        }
+
         RefPtr<BackEndCompileRequest> backEndRequest = new BackEndCompileRequest(
             m_program->getLinkage(),
             sink,
@@ -2156,12 +2151,177 @@ SlangResult dissassembleDXILUsingDXC(
         }
     }
 
+    
+    SlangResult EndToEndCompileRequest::writeContainerToStream(Stream* stream)
+    {
+        RiffContainer container;
+
+        const IRSerialBinary::CompressionType compressionType = getLinkage()->irCompressionType;
+
+        {
+            // Module list
+            RiffContainer::ScopeChunk listScope(&container, RiffContainer::Chunk::Kind::List, IRSerialBinary::kSlangModuleListFourCc);
+
+            auto linkage = getLinkage();
+            auto sink = getSink();
+            auto frontEndReq = getFrontEndReq();
+
+            IRSerialWriter::OptionFlags optionFlags = 0;
+
+            if (linkage->debugInfoLevel != DebugInfoLevel::None)
+            {
+                optionFlags |= IRSerialWriter::OptionFlag::DebugInfo;
+            }
+
+            SourceManager* sourceManager = frontEndReq->getSourceManager();
+
+            for (auto translationUnit : frontEndReq->translationUnits)
+            {
+                auto module = translationUnit->module;
+                auto irModule = module->getIRModule();
+
+                // Okay, we need to serialize this module to our container file.
+                // We currently don't serialize it's name..., but support for that could be added.
+
+                IRSerialData serialData;
+                IRSerialWriter writer;
+                SLANG_RETURN_ON_FAIL(writer.write(irModule, sourceManager, optionFlags, &serialData));
+                SLANG_RETURN_ON_FAIL(IRSerialWriter::writeContainer(serialData, compressionType, &container));
+            }
+
+            auto program = getSpecializedGlobalAndEntryPointsComponentType();
+
+            // TODO: in the case where we have specialization, we might need
+            // to serialize IR related to `program`...
+
+            for (auto target : linkage->targets)
+            {
+                auto targetProgram = program->getTargetProgram(target);
+                auto irModule = targetProgram->getOrCreateIRModuleForLayout(sink);
+
+                // Okay, we need to serialize this target program and its IR too...
+                IRSerialData serialData;
+                IRSerialWriter writer;
+                SLANG_RETURN_ON_FAIL(writer.write(irModule, sourceManager, optionFlags, &serialData));
+                SLANG_RETURN_ON_FAIL(IRSerialWriter::writeContainer(serialData, compressionType, &container));
+            }
+
+            auto entryPointCount = program->getEntryPointCount();
+            for( Index ii = 0; ii < entryPointCount; ++ii )
+            {
+                auto entryPoint = program->getEntryPoint(ii);
+                auto entryPointMangledName = program->getEntryPointMangledName(ii);
+
+                RiffContainer::ScopeChunk entryPointScope(&container, RiffContainer::Chunk::Kind::Data, IRSerialBinary::kEntryPointFourCc);
+
+                auto writeString = [&](String const& str)
+                {
+                    uint32_t length = (uint32_t) str.getLength();
+                    container.write(&length, sizeof(length));
+                    container.write(str.getBuffer(), length+1);
+                };
+
+                writeString(entryPoint->getName()->text);
+
+                Profile profile = entryPoint->getProfile();
+                container.write(&profile, sizeof(profile));
+
+                writeString(entryPointMangledName);
+            }
+        }
+
+        // We now write the RiffContainer to the stream
+        SLANG_RETURN_ON_FAIL(RiffUtil::write(container.getRoot(), true, stream));
+
+        return SLANG_OK;
+    }
+
+    SlangResult EndToEndCompileRequest::maybeCreateContainer()
+    {
+        switch (m_containerFormat)
+        {
+            case ContainerFormat::SlangModule:
+            {
+                m_containerBlob.setNull();
+
+                OwnedMemoryStream stream(FileAccess::Write);
+                SlangResult res = writeContainerToStream(&stream);
+                if (SLANG_FAILED(res))
+                {
+                    getSink()->diagnose(SourceLoc(), Diagnostics::unableToCreateModuleContainer);
+                    return res;
+                }
+
+                // Need to turn into a blob
+                RefPtr<ListBlob> blob(new ListBlob);
+                // Swap the streams contents into the blob
+                stream.swapContents(blob->m_data);
+                m_containerBlob = blob;
+
+                return res;
+            }
+            default: break;
+        }
+        return SLANG_OK;
+    }
+
+    SlangResult EndToEndCompileRequest::maybeWriteContainer(const String& fileName)
+    {
+        // If there is no container, or filename, don't write anything 
+        if (fileName.getLength() == 0 || !m_containerBlob)
+        {
+            return SLANG_OK;
+        }
+
+        FileStream stream(fileName, FileMode::Create, FileAccess::Write, FileShare::ReadWrite);
+        try
+        {
+            stream.write(m_containerBlob->getBufferPointer(), m_containerBlob->getBufferSize());
+        }
+        catch (const IOException&)
+        {
+            // Unable to write
+            return SLANG_FAIL;
+        }
+        return SLANG_OK;
+    }
 
 
     static void _generateOutput(
         BackEndCompileRequest* compileRequest,
         EndToEndCompileRequest* endToEndReq)
     {
+        // If we are about to generate output code, but we still
+        // have unspecialized generic/existential parameters,
+        // then there is a problem.
+        //
+        auto program = compileRequest->getProgram();
+        auto specializationParamCount = program->getSpecializationParamCount();
+        if( specializationParamCount != 0 )
+        {
+            auto sink = compileRequest->getSink();
+            
+            for( Index ii = 0; ii < specializationParamCount; ++ii )
+            {
+                auto specializationParam = program->getSpecializationParam(ii);
+                if( auto decl = as<Decl>(specializationParam.object) )
+                {
+                    sink->diagnose(specializationParam.loc, Diagnostics::specializationParameterOfNameNotSpecialized, decl);
+                }
+                else if( auto type = as<Type>(specializationParam.object) )
+                {
+                    sink->diagnose(specializationParam.loc, Diagnostics::specializationParameterOfNameNotSpecialized, type);
+                }
+                else
+                {
+                    sink->diagnose(specializationParam.loc, Diagnostics::specializationParameterNotSpecialized);
+                }
+            }
+
+            return;
+        }
+
+
         // Go through the code-generation targets that the user
         // has specified, and generate code for each of them.
         //
@@ -2202,6 +2362,9 @@ SlangResult dissassembleDXILUsingDXC(
                         ee);
                 }
             }
+
+            compileRequest->maybeCreateContainer();
+            compileRequest->maybeWriteContainer(compileRequest->m_containerOutputPath);
         }
     }
 
@@ -2210,7 +2373,7 @@ SlangResult dissassembleDXILUsingDXC(
     //
 
     void dumpIntermediate(
-        BackEndCompileRequest*,
+        BackEndCompileRequest* request,
         void const*     data,
         size_t          size,
         char const*     ext,
@@ -2232,7 +2395,7 @@ SlangResult dissassembleDXILUsingDXC(
 #endif
 
         String path;
-        path.append("slang-dump-");
+        path.append(request->m_dumpIntermediatePrefix);
         path.append(id);
         path.append(ext);
 
@@ -2259,6 +2422,21 @@ SlangResult dissassembleDXILUsingDXC(
         char const*     ext)
     {
         dumpIntermediate(compileRequest, data, size, ext, true);
+    }
+
+    void maybeDumpIntermediate(
+        BackEndCompileRequest* compileRequest,
+        DownstreamCompileResult* compileResult,
+        CodeGenTarget   target)
+    {
+        if (!compileRequest->shouldDumpIntermediates)
+            return;
+
+        ComPtr<ISlangBlob> blob;
+        if (SLANG_SUCCEEDED(compileResult->getBinary(blob)))
+        {
+            maybeDumpIntermediate(compileRequest, blob->getBufferPointer(), blob->getBufferSize(), target);
+        }
     }
 
     void maybeDumpIntermediate(

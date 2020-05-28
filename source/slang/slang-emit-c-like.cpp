@@ -98,6 +98,7 @@ struct CLikeSourceEmitter::ComputeEmitActionsContext
         {
             return SourceStyle::HLSL;
         }
+        case CodeGenTarget::PTX:
         case CodeGenTarget::SPIRV:
         case CodeGenTarget::SPIRVAssembly:
         case CodeGenTarget::DXBytecode:
@@ -115,6 +116,10 @@ struct CLikeSourceEmitter::ComputeEmitActionsContext
         {
             return SourceStyle::CPP;
         }
+        case CodeGenTarget::CUDASource:
+        {
+            return SourceStyle::CUDA;
+        }
     }
 }
 
@@ -127,13 +132,8 @@ CLikeSourceEmitter::CLikeSourceEmitter(const Desc& desc)
     m_target = desc.target;
 
     m_compileRequest = desc.compileRequest;
-    m_entryPoint = desc.entryPoint;
+    m_entryPointStage = desc.entryPointStage;
     m_effectiveProfile = desc.effectiveProfile;
-    
-    m_entryPointLayout = desc.entryPointLayout;
-    
-    m_programLayout = desc.programLayout;
-    m_globalStructLayout = desc.globalStructLayout;
 }
 
 //
@@ -201,6 +201,17 @@ void CLikeSourceEmitter::emitSimpleType(IRType* type)
         case kIROp_DoubleType:  return UnownedStringSlice("double");   
         default:                return UnownedStringSlice();
     }
+}
+
+
+/* static */IRNumThreadsDecoration* CLikeSourceEmitter::getComputeThreadGroupSize(IRFunc* func, Int outNumThreads[kThreadGroupAxisCount])
+{
+    IRNumThreadsDecoration* decor = func->findDecoration<IRNumThreadsDecoration>();
+    for (int i = 0; i < 3; ++i)
+    {
+        outNumThreads[i] = decor ? Int(GetIntVal(decor->getOperand(i))) : 1;
+    }
+    return decor;
 }
 
 void CLikeSourceEmitter::_emitArrayType(IRArrayType* arrayType, EDeclarator* declarator)
@@ -337,6 +348,7 @@ bool CLikeSourceEmitter::isTargetIntrinsicModifierApplicable(const String& targe
     case SourceStyle::CPP:  return targetName == "cpp";
     case SourceStyle::GLSL: return targetName == "glsl";
     case SourceStyle::HLSL: return targetName == "hlsl";
+    case SourceStyle::CUDA: return targetName == "cuda";
     }
 }
 
@@ -350,6 +362,18 @@ bool CLikeSourceEmitter::isTargetIntrinsicModifierApplicable(IRTargetIntrinsicDe
         return true;
 
     return isTargetIntrinsicModifierApplicable(targetName);
+}
+
+bool CLikeSourceEmitter::isTargetIntrinsicModifierBetter(IRTargetIntrinsicDecoration* candidate, IRTargetIntrinsicDecoration* existing)
+{
+    // For now, the rule is that an empty string represents a catch-all
+    // definition, which is worse than any target-specific declaration.
+    // Therefore, if the new `candidate` has a non-empty target name
+    // specified, then it is automatically better (or at least as
+    // good) as `existing`.
+    //
+    SLANG_UNUSED(existing);
+    return candidate->getTargetName().getLength() != 0;
 }
 
 void CLikeSourceEmitter::emitStringLiteral(String const& value)
@@ -378,21 +402,6 @@ void CLikeSourceEmitter::emitStringLiteral(String const& value)
     m_writer->emit("\"");
 }
 
-void CLikeSourceEmitter::setSampleRateFlag()
-{
-    m_entryPointLayout->flags |= EntryPointLayout::Flag::usesAnySampleRateInput;
-}
-
-void CLikeSourceEmitter::doSampleRateInputCheck(Name* name)
-{
-    // TODO(JS): This doesn't appear to be called from anywhere!!
-    auto text = getText(name);
-    if (text == "gl_SampleID")
-    {
-        setSampleRateFlag();
-    }
-}
-
 void CLikeSourceEmitter::emitVal(IRInst* val, EmitOpInfo const& outerPrec)
 {
     if(auto type = as<IRType>(val))
@@ -410,9 +419,9 @@ UInt CLikeSourceEmitter::getBindingOffset(EmitVarChain* chain, LayoutResourceKin
     UInt offset = 0;
     for(auto cc = chain; cc; cc = cc->next)
     {
-        if(auto resInfo = cc->varLayout->FindResourceInfo(kind))
+        if(auto resInfo = cc->varLayout->findOffsetAttr(kind))
         {
-            offset += resInfo->index;
+            offset += resInfo->getOffset();
         }
     }
     return offset;
@@ -424,13 +433,13 @@ UInt CLikeSourceEmitter::getBindingSpace(EmitVarChain* chain, LayoutResourceKind
     for(auto cc = chain; cc; cc = cc->next)
     {
         auto varLayout = cc->varLayout;
-        if(auto resInfo = varLayout->FindResourceInfo(kind))
+        if(auto resInfo = varLayout->findOffsetAttr(kind))
         {
-            space += resInfo->space;
+            space += resInfo->getSpace();
         }
-        if(auto resInfo = varLayout->FindResourceInfo(LayoutResourceKind::RegisterSpace))
+        if(auto resInfo = varLayout->findOffsetAttr(LayoutResourceKind::RegisterSpace))
         {
-            space += resInfo->index;
+            space += resInfo->getOffset();
         }
     }
     return space;
@@ -604,6 +613,25 @@ String CLikeSourceEmitter::generateName(IRInst* inst)
         return String(intrinsicDecoration->getDefinition());
     }
 
+    auto entryPointDecor = inst->findDecoration<IREntryPointDecoration>();
+    if (entryPointDecor)
+    {
+        if (getSourceStyle() == SourceStyle::GLSL)
+        {
+            // GLSL will always need to use `main` as the
+            // name for an entry-point function, but other
+            // targets should try to use the original name.
+            //
+            // TODO: always use the original name, and
+            // use the appropriate options for glslang to
+            // make it support a non-`main` name.
+            //
+            return "main";
+        }
+
+        return entryPointDecor->getName()->getStringSlice();
+    }
+
     // If we have a name hint on the instruction, then we will try to use that
     // to provide the actual name in the output code.
     //
@@ -622,7 +650,7 @@ String CLikeSourceEmitter::generateName(IRInst* inst)
     //
     if(auto nameHintDecoration = inst->findDecoration<IRNameHintDecoration>())
     {
-        // The name we output will basically be:
+        // The (non-obfuscated) name we output will basically be:
         //
         //      <nameHint>_<uniqueID>
         //
@@ -630,19 +658,24 @@ String CLikeSourceEmitter::generateName(IRInst* inst)
         // and we will omit the underscore if the (scrubbed)
         // name hint already ends with one.
         //
+        // The obfuscated name we output will simply be:
+        //
+        //      _<uniqueID>
+        //
+
+        StringBuilder sb;
 
         String nameHint = nameHintDecoration->getName();
         nameHint = scrubName(nameHint);
 
-        StringBuilder sb;
         sb.append(nameHint);
 
         // Avoid introducing a double underscore
-        if(!nameHint.endsWith("_"))
+        if (!nameHint.endsWith("_"))
         {
             sb.append("_");
         }
-
+        
         String key = sb.ProduceString();
         UInt count = 0;
         m_uniqueNameCounters.TryGetValue(key, count);
@@ -710,8 +743,87 @@ void CLikeSourceEmitter::emitSimpleValueImpl(IRInst* inst)
     switch(inst->op)
     {
     case kIROp_IntLit:
-        m_writer->emit(((IRConstant*) inst)->value.intVal);
+    {
+        auto litInst = static_cast<IRConstant*>(inst);
+
+        IRBasicType* type = as<IRBasicType>(inst->getDataType());
+        if (type)
+        {
+            switch (type->getBaseType())
+            {
+                default:
+                case BaseType::Int8:
+                case BaseType::Int16:
+                case BaseType::Int:
+                {
+                    // NOTE! This hack is required, otherwise we get different results across targets.
+                    // You'd hope that outputting L suffix would be enough to make this work, and not require a cast, but testing shows L suffix
+                    // does not have the same meaning across targets.
+                    //
+                    // For example
+                    // 
+                    // uint64_t v = 0x80000000;
+                    // 
+                    // When output this becomes...
+                    // v_0 = uint64_t(-2147483648L);
+                    // 
+                    // On MSVC/Gcc/Clang this is equal to 0x80000000, elsewhere it's 0xffffffff80000000 elsewhere.
+                    // Note that '-' isn't the issue because v0 = uint64_t(0x80000000L); produces the same issue
+                    // 
+                    // If we use a cast, we get the same result across targets (which is why the hack is here).
+                    //
+                    // Why? It's not clear - it seems likely that it's related to the order of how the promotion takes place.
+                    // 
+                    // If we convert from int32_t -> uint64_t, there are two possible scenarios
+                    // 1) int32_t -> int64_t -> uint64_t  (ie widen first then do sign type change)
+                    // 2) int32_t -> uint32_t -> uint64_t (ie do sign type change then widen)
+                    //
+                    // 2 would produce what we see on C++, 1 what we see everywhere else.
+                    // 
+                    // Why having a cast or having a suffix would make a difference though is not clear. It is also possible that the
+                    // L suffix is just ignored, and the literal is really a 'non typed' int literal in C++.
+
+                    // This little hack is needed for gcc that if we have the expression
+                    // int(-0x80000000) we get the warning: warning :  integer overflow in expression [-Woverflow]
+                    // 0x80000000 and -0x80000000 mean the same thing when casted to 32 bit int, so we just flip the value here.
+                    IRIntegerValue value = litInst->value.intVal;
+                    value = (value == -0x80000000ll) ? -value : value;
+
+                    m_writer->emit("int(");
+                    m_writer->emit(value);
+                    m_writer->emit(")");
+                    return;
+                }
+                case BaseType::UInt8:
+                case BaseType::UInt16:
+                case BaseType::UInt:
+                {
+                    m_writer->emit(UInt(litInst->value.intVal));
+                    m_writer->emit("U");
+                    break;
+                }
+                case BaseType::Int64:
+                {
+                    m_writer->emitInt64(int64_t(litInst->value.intVal));
+                    m_writer->emit("LL");
+                    break;
+                }
+                case BaseType::UInt64:
+                {
+                    SLANG_COMPILE_TIME_ASSERT(sizeof(litInst->value.intVal) >= sizeof(uint64_t));
+                    m_writer->emitUInt64(uint64_t(litInst->value.intVal));
+                    m_writer->emit("ULL");
+                    break;
+                }
+            }
+        }
+        else
+        {
+            // If no type... just output what we have
+            m_writer->emit(litInst->value.intVal);
+        }
         break;
+    }
 
     case kIROp_FloatLit:
         m_writer->emit(((IRConstant*) inst)->value.floatVal);
@@ -769,6 +881,15 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
     case kIROp_Specialize:
         return true;
     }
+
+    // Layouts and attributes are only present to annotate other
+    // instructions, and should not be emitted as anything in
+    // source code.
+    //
+    if(as<IRLayout>(inst))
+        return true;
+    if(as<IRAttr>(inst))
+        return true;
 
     switch( inst->op )
     {
@@ -858,6 +979,8 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
         }
     }
 
+
+
     // If the instruction is at global scope, then it might represent
     // a constant (e.g., the value of an enum case).
     //
@@ -898,6 +1021,56 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
 
     auto user = use->getUser();
 
+    // Check if the use is a call using a target intrinsic that uses the parameter more than once
+    // in the intrinsic definition.
+    if (auto callInst = as<IRCall>(user))
+    {
+        const auto funcValue = callInst->getCallee();
+
+        // Let's see if this instruction is a intrinsic call
+        // This is significant, because we can within a target intrinsics definition multiple accesses to the same
+        // parameter. This is not indicated into the call, and can lead to output code computes something multiple
+        // times as it is folding into the expression of the the target intrinsic, which we don't want.
+        if (auto targetIntrinsicDecoration = findTargetIntrinsicDecoration(funcValue))
+        {         
+            // Find the index of the original instruction, to see if it's multiply used.
+            IRUse* args = callInst->getArgs();
+            const Index paramIndex = Index(use - args);
+            SLANG_ASSERT(paramIndex >= 0 && paramIndex < Index(callInst->getArgCount()));
+
+            // Look through the slice to seeing how many times this parameters is used (signified via the $0...$9)
+            {
+                UnownedStringSlice slice = targetIntrinsicDecoration->getDefinition();
+                
+                const char* cur = slice.begin();
+                const char* end = slice.end();
+
+                // Count the amount of uses
+                Index useCount = 0;
+                while (cur < end)
+                {
+                    const char c = *cur;
+                    if (c == '$' && cur + 1 < end && cur[1] >= '0' && cur[1] <= '9')
+                    {
+                        const Index index = Index(cur[1] - '0');
+                        useCount += Index(index == paramIndex);
+                        cur += 2;
+                    }
+                    else
+                    {
+                        cur++;
+                    }
+                }
+
+                // If there is more than one use can't fold.
+                if (useCount > 1)
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    
     // We'd like to figure out if it is safe to fold our instruction into `user`
 
     // First, let's make sure they are in the same block/parent:
@@ -920,6 +1093,17 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
         if(ii->mightHaveSideEffects())
             return false;
     }
+
+    // As a safeguard, we should not allow an instruction that references
+    // a block parameter to be folded into a unconcditonal branch
+    // (which includes arguments for the parameters of the target block).
+    //
+    // For simplicity, we will just disallow folding of intructions
+    // into an unconditonal branch completely, and leave a more refined
+    // version of this check for later.
+    //
+    if(as<IRUnconditionalBranch>(user))
+        return false;
 
     // Okay, if we reach this point then the user comes later in
     // the same block, and there are no instructions with side
@@ -985,6 +1169,7 @@ void CLikeSourceEmitter::emitInstResultDecl(IRInst* inst)
 
         switch (getSourceStyle())
         {
+        case SourceStyle::CUDA:
         case SourceStyle::HLSL:
         case SourceStyle::C:
         case SourceStyle::CPP:
@@ -1002,31 +1187,68 @@ void CLikeSourceEmitter::emitInstResultDecl(IRInst* inst)
     m_writer->emit(" = ");
 }
 
-IRTargetIntrinsicDecoration* CLikeSourceEmitter::findTargetIntrinsicDecoration(IRInst* inst)
+IRTargetIntrinsicDecoration* CLikeSourceEmitter::findTargetIntrinsicDecoration(IRInst* inInst)
 {
+    // An intrinsic generic function will be invoked through a `specialize` instruction,
+    // so the callee won't directly be the thing that is decorated. We will look up
+    // through specializations until we can see the actual thing being called.
+    //
+    IRInst* inst = inInst;
+    while (auto specInst = as<IRSpecialize>(inst))
+    {
+        inst = getSpecializedValue(specInst);
+
+        // If `getSpecializedValue` can't find the result value
+        // of the generic being specialized, then it returns
+        // the original instruction. This would be a disaster
+        // for use because this loop would go on forever.
+        //
+        // This case should never happen if the stdlib is well-formed
+        // and the compiler is doing its job right.
+        //
+        SLANG_ASSERT(inst != specInst);
+    }
+
+    // We will search through all the `IRTargetIntrinsicDecoration`s on
+    // the instruction, looking for those that are applicable to the
+    // current code generation target. Among the application decorations
+    // we will try to find one that is "best" in the sense that it is
+    // more (or at least as) specialized for the target than the
+    // others.
+    //
+    IRTargetIntrinsicDecoration* best = nullptr;
     for(auto dd : inst->getDecorations())
     {
         if (dd->op != kIROp_TargetIntrinsicDecoration)
             continue;
 
         auto targetIntrinsic = (IRTargetIntrinsicDecoration*)dd;
-        if (isTargetIntrinsicModifierApplicable(targetIntrinsic))
-            return targetIntrinsic;
+        if (!isTargetIntrinsicModifierApplicable(targetIntrinsic))
+            continue;
+
+        if(!best || isTargetIntrinsicModifierBetter(targetIntrinsic, best))
+            best = targetIntrinsic;
     }
 
-    return nullptr;
+    return best;
 }
 
-/* static */bool CLikeSourceEmitter::isOrdinaryName(String const& name)
+/* static */bool CLikeSourceEmitter::isOrdinaryName(UnownedStringSlice const& name)
 {
     char const* cursor = name.begin();
     char const* end = name.end();
+
+    // Consume an optional `.` at the start, which indicates
+    // the ordinary name is for a member function.
+    if(cursor != end && *cursor == '.')
+        cursor++;
 
     while(cursor != end)
     {
         int c = *cursor++;
         if( (c >= 'a') && (c <= 'z') ) continue;
         if( (c >= 'A') && (c <= 'Z') ) continue;
+        if( (c >= '0') && (c <= '9') ) continue;
         if( c == '_' ) continue;
 
         return false;
@@ -1034,9 +1256,14 @@ IRTargetIntrinsicDecoration* CLikeSourceEmitter::findTargetIntrinsicDecoration(I
     return true;
 }
 
-void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
+
+void CLikeSourceEmitter::emitIntrinsicCallExpr(IRCall* inst, IRTargetIntrinsicDecoration* targetIntrinsic, EmitOpInfo const& inOuterPrec)
+{
+    emitIntrinsicCallExprImpl(inst, targetIntrinsic, inOuterPrec);
+}
+
+void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
     IRCall*                         inst,
-    IRFunc*                         /* func */,
     IRTargetIntrinsicDecoration*    targetIntrinsic,
     EmitOpInfo const&               inOuterPrec)
 {
@@ -1049,13 +1276,27 @@ void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
     args++;
     argCount--;
 
-    auto name = String(targetIntrinsic->getDefinition());
+    auto name = targetIntrinsic->getDefinition();
 
     if(isOrdinaryName(name))
     {
         // Simple case: it is just an ordinary name, so we call it like a builtin.
         auto prec = getInfo(EmitOp::Postfix);
         bool needClose = maybeEmitParens(outerPrec, prec);
+
+        // The definition string may be an ordinary name prefixed with `.`
+        // to indicate that the operation should be called as a member
+        // function on its first operand.
+        //
+        if(name[0] == '.')
+        {
+            emitOperand(args[0].get(), leftSide(outerPrec, prec));
+            m_writer->emit(".");
+
+            name = UnownedStringSlice(name.begin() + 1, name.end());
+            args++;
+            argCount--;
+        }
 
         m_writer->emit(name);
         m_writer->emit("(");
@@ -1065,6 +1306,35 @@ void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
             emitOperand(args[aa].get(), getInfo(EmitOp::General));
         }
         m_writer->emit(")");
+
+        maybeCloseParens(needClose);
+        return;
+    }
+    else if(name == ".operator[]")
+    {
+        // The user is invoking a built-in subscript operator
+        //
+        // TODO: We might want to remove this bit of special-casing
+        // in favor of making all subscript operations in the standard
+        // library explicitly declare how they lower. On the flip
+        // side, that would require modifications to a very large
+        // number of declarations.
+
+        auto prec = getInfo(EmitOp::Postfix);
+        bool needClose = maybeEmitParens(outerPrec, prec);
+
+        Int argIndex = 0;
+
+        emitOperand(args[argIndex++].get(), leftSide(outerPrec, prec));
+        m_writer->emit("[");
+        emitOperand(args[argIndex++].get(), getInfo(EmitOp::General));
+        m_writer->emit("]");
+
+        if(argIndex < argCount)
+        {
+            m_writer->emit(" = ");
+            emitOperand(args[argIndex++].get(), getInfo(EmitOp::General));
+        }
 
         maybeCloseParens(needClose);
         return;
@@ -1114,6 +1384,54 @@ void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
                 }
                 break;
 
+            case 'T':
+                // Get the the 'element' type for the type of the param at the index
+                {
+                    SLANG_RELEASE_ASSERT(*cursor >= '0' && *cursor <= '9');
+                    Index argIndex = (*cursor++) - '0';
+                    SLANG_RELEASE_ASSERT(argCount > argIndex);
+
+                    IRType* type = args[argIndex].get()->getDataType();
+                    if (auto baseTextureType = as<IRTextureType>(type))
+                    {
+                        type = baseTextureType->getElementType();
+                    }
+                    emitType(type);
+                }
+                break;
+            
+            case 'S':
+                // Get the scalar type of a generic at specified index
+                {
+                    SLANG_RELEASE_ASSERT(*cursor >= '0' && *cursor <= '9');
+                    Index argIndex = (*cursor++) - '0';
+                    SLANG_RELEASE_ASSERT(argCount > argIndex);
+
+                    IRType* type = args[argIndex].get()->getDataType();
+                    if (auto baseTextureType = as<IRTextureType>(type))
+                    {
+                        type = baseTextureType->getElementType();
+                    }
+
+                    IRBasicType* underlyingType = nullptr;
+                    if (auto basicType = as<IRBasicType>(type))
+                    {
+                        underlyingType = basicType;
+                    }
+                    else if (auto vectorType = as<IRVectorType>(type))
+                    {
+                        underlyingType = as<IRBasicType>(vectorType->getElementType());
+                    }
+                    else if (auto matrixType = as<IRMatrixType>(type))
+                    {
+                        underlyingType = as<IRBasicType>(matrixType->getElementType());
+                    }
+
+                    SLANG_ASSERT(underlyingType);
+
+                    emitSimpleType(underlyingType);
+                }
+                break;
             case 'p':
                 {
                     // If we are calling a D3D texturing operation in the form t.Foo(s, ...),
@@ -1449,7 +1767,7 @@ void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
                             // The `$XT` case handles selecting between
                             // the `gl_HitTNV` and `gl_RayTmaxNV` builtins,
                             // based on what stage we are using:
-                            switch( m_entryPoint->getStage() )
+                            switch( m_entryPointStage )
                             {
                             default:
                                 m_writer->emit("gl_RayTmaxNV");
@@ -1470,6 +1788,42 @@ void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
                 }
                 break;
 
+            case 'P':
+                // Type-based prefix as used for CUDA and C++ targets
+                {
+                    Index argIndex = 0;
+                    SLANG_RELEASE_ASSERT(argCount > argIndex);
+                    auto arg = args[argIndex].get();
+                    auto argType = arg->getDataType();
+
+                    const char* str = "";
+                    switch(argType->op)
+                    {
+                    #define CASE(OP, STR) \
+                    case kIROp_##OP: str = #STR; break
+
+                    CASE(Int8Type,      I8);
+                    CASE(Int16Type,     I16);
+                    CASE(IntType,       I32);
+                    CASE(Int64Type,     I64);
+                    CASE(UInt8Type,     U8);
+                    CASE(UInt16Type,    U16);
+                    CASE(UIntType,      U32);
+                    CASE(UInt64Type,    U64);
+                    CASE(HalfType,      F16);
+                    CASE(FloatType,     F32);
+                    CASE(DoubleType,    F64);
+
+                    #undef CASE
+
+                    default:
+                        SLANG_UNEXPECTED("unexpected type in intrinsic definition");
+                        break;
+                    }
+                    m_writer->emit(str);
+                }
+                break;
+
             default:
                 SLANG_UNEXPECTED("bad format in intrinsic definition");
                 break;
@@ -1484,151 +1838,6 @@ void CLikeSourceEmitter::emitTargetIntrinsicCallExpr(
     }
 }
 
-void CLikeSourceEmitter::emitIntrinsicCallExpr(
-    IRCall*             inst,
-    IRFunc*             func,
-    EmitOpInfo const&   inOuterPrec)
-{
-    auto outerPrec = inOuterPrec;
-    bool needClose = false;
-
-    // For a call with N arguments, the instruction will
-    // have N+1 operands. We will start consuming operands
-    // starting at the index 1.
-    UInt operandCount = inst->getOperandCount();
-    UInt argCount = operandCount - 1;
-    UInt operandIndex = 1;
-
-
-    //
-    if (auto targetIntrinsicDecoration = findTargetIntrinsicDecoration(func))
-    {
-        emitTargetIntrinsicCallExpr(
-            inst,
-            func,
-            targetIntrinsicDecoration,
-            outerPrec);
-        return;
-    }
-
-    // Our current strategy for dealing with intrinsic
-    // calls is to "un-mangle" the mangled name, in
-    // order to figure out what the user was originally
-    // calling. This is a bit messy, and there might
-    // be better strategies (including just stuffing
-    // a pointer to the original decl onto the callee).
-
-    // If the intrinsic the user is calling is a generic,
-    // then the mangled name will have been set on the
-    // outer-most generic, and not on the leaf value
-    // (which is `func` above), so we need to walk
-    // upwards to find it.
-    //
-    IRInst* valueForName = func;
-    for(;;)
-    {
-        auto parentBlock = as<IRBlock>(valueForName->parent);
-        if(!parentBlock)
-            break;
-
-        auto parentGeneric = as<IRGeneric>(parentBlock->parent);
-        if(!parentGeneric)
-            break;
-
-        valueForName = parentGeneric;
-    }
-
-    // If we reach this point, we are assuming that the value
-    // has some kind of linkage, and thus a mangled name.
-    //
-    auto linkageDecoration = valueForName->findDecoration<IRLinkageDecoration>();
-    SLANG_ASSERT(linkageDecoration);
-    
-    // We will use the `MangledLexer` to
-    // help us split the original name into its pieces.
-    MangledLexer lexer(linkageDecoration->getMangledName());
-    
-    // We'll read through the qualified name of the
-    // symbol (e.g., `Texture2D<T>.Sample`) and then
-    // only keep the last segment of the name (e.g.,
-    // the `Sample` part).
-    auto name = lexer.readSimpleName();
-
-    // We will special-case some names here, that
-    // represent callable declarations that aren't
-    // ordinary functions, and thus may use different
-    // syntax.
-    if(name == "operator[]")
-    {
-        // The user is invoking a built-in subscript operator
-
-        auto prec = getInfo(EmitOp::Postfix);
-        needClose = maybeEmitParens(outerPrec, prec);
-
-        emitOperand(inst->getOperand(operandIndex++), leftSide(outerPrec, prec));
-        m_writer->emit("[");
-        emitOperand(inst->getOperand(operandIndex++), getInfo(EmitOp::General));
-        m_writer->emit("]");
-
-        if(operandIndex < operandCount)
-        {
-            m_writer->emit(" = ");
-            emitOperand(inst->getOperand(operandIndex++), getInfo(EmitOp::General));
-        }
-
-        maybeCloseParens(needClose);
-        return;
-    }
-
-    auto prec = getInfo(EmitOp::Postfix);
-    needClose = maybeEmitParens(outerPrec, prec);
-
-    // The mangled function name currently records
-    // the number of explicit parameters, and thus
-    // doesn't include the implicit `this` parameter.
-    // We can compare the argument and parameter counts
-    // to figure out whether we have a member function call.
-    UInt paramCount = lexer.readParamCount();
-
-    if(argCount != paramCount)
-    {
-        // Looks like a member function call
-        emitOperand(inst->getOperand(operandIndex), leftSide(outerPrec, prec));
-        m_writer->emit(".");
-        operandIndex++;
-    }
-    // fixing issue #602 for GLSL sign function: https://github.com/shader-slang/slang/issues/602
-    bool glslSignFix = getSourceStyle() == SourceStyle::GLSL && name == "sign";
-    if (glslSignFix)
-    {
-        if (auto vectorType = as<IRVectorType>(inst->getDataType()))
-        {
-            m_writer->emit("ivec");
-            m_writer->emit(as<IRConstant>(vectorType->getElementCount())->value.intVal);
-            m_writer->emit("(");
-        }
-        else if (auto scalarType = as<IRBasicType>(inst->getDataType()))
-        {
-            m_writer->emit("int(");
-        }
-        else
-            glslSignFix = false;
-    }
-    m_writer->emit(name);
-    m_writer->emit("(");
-    bool first = true;
-    for(; operandIndex < operandCount; ++operandIndex )
-    {
-        if(!first) m_writer->emit(", ");
-        emitOperand(inst->getOperand(operandIndex), getInfo(EmitOp::General));
-        first = false;
-    }
-    m_writer->emit(")");
-    if (glslSignFix)
-        m_writer->emit(")");
-    maybeCloseParens(needClose);
-}
-
 void CLikeSourceEmitter::emitCallExpr(IRCall* inst, EmitOpInfo outerPrec)
 {
     auto funcValue = inst->getOperand(0);
@@ -1638,9 +1847,9 @@ void CLikeSourceEmitter::emitCallExpr(IRCall* inst, EmitOpInfo outerPrec)
 
     // We want to detect any call to an intrinsic operation,
     // that we can emit it directly without mangling, etc.
-    if(auto irFunc = asTargetIntrinsic(funcValue))
+    if(auto targetIntrinsic = findTargetIntrinsicDecoration(funcValue))
     {
-        emitIntrinsicCallExpr(inst, irFunc, outerPrec);
+        emitIntrinsicCallExpr(inst, targetIntrinsic, outerPrec);
     }
     else
     {
@@ -1674,12 +1883,22 @@ void CLikeSourceEmitter::emitInstExpr(IRInst* inst, const EmitOpInfo& inOuterPre
     defaultEmitInstExpr(inst, inOuterPrec);
 }
 
+void CLikeSourceEmitter::diagnoseUnhandledInst(IRInst* inst)
+{
+    getSink()->diagnose(inst, Diagnostics::unimplemented, "unexpected IR opcode during code emit");
+}
+
 void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inOuterPrec)
 {
     EmitOpInfo outerPrec = inOuterPrec;
     bool needClose = false;
     switch(inst->op)
     {
+    case kIROp_GlobalHashedStringLiterals:
+        /* Don't need to to output anything for this instruction - it's used for reflecting string literals that
+        are hashed with 'getStringHash' */
+        break;
+
     case kIROp_IntLit:
     case kIROp_FloatLit:
     case kIROp_BoolLit:
@@ -1772,7 +1991,8 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
     case kIROp_Add:
     case kIROp_Sub:
     case kIROp_Div:
-    case kIROp_Mod:
+    case kIROp_IRem:
+    case kIROp_FRem:
     case kIROp_Lsh:
     case kIROp_Rsh:
     case kIROp_BitXor:
@@ -1805,19 +2025,31 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
 
         needClose = maybeEmitParens(outerPrec, prec);
 
-        // If it's a BitNot, but the data type is bool special case to !
-        if (emitOp == EmitOp::BitNot && as<IRBoolType>(inst->getDataType()))
+        switch (inst->op)
         {
-            m_writer->emit("!");
+            case kIROp_BitNot:
+            {
+                // If it's a BitNot, but the data type is bool special case to !
+                m_writer->emit(as<IRBoolType>(inst->getDataType()) ? "!" : prec.op);
+                break;
+            }
+            case kIROp_Not:
+            {
+                m_writer->emit(prec.op);
+                break;
+            }
+            case kIROp_Neg:
+            {
+                // Emit a space after the unary -, so if we are followed by a negative literal we don't end up with --
+                // which some downstream compilers determine to be decrement.
+                m_writer->emit("- ");
+                break;
+            }
         }
-        else
-        {
-            m_writer->emit(prec.op);
-        }
-        
+
         emitOperand(operand, rightSide(prec, outerPrec));
         break;
-    }
+    }    
     case kIROp_Load:
         {
             auto base = inst->getOperand(0);
@@ -1877,17 +2109,6 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
             emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
             m_writer->emit("]");
         }
-        break;
-
-    case kIROp_Mul_Vector_Matrix:
-    case kIROp_Mul_Matrix_Vector:
-    case kIROp_Mul_Matrix_Matrix:
-        // Default impl
-        m_writer->emit("mul(");
-        emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
-        m_writer->emit(", ");
-        emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
-        m_writer->emit(")");
         break;
 
     case kIROp_swizzle:
@@ -1978,8 +2199,32 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
         emitOperand(inst->getOperand(0), outerPrec);
         break;
 
+    case kIROp_ByteAddressBufferLoad:
+        m_writer->emit("(");
+        emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+        m_writer->emit(").Load<");
+        emitType(inst->getDataType());
+        m_writer->emit(">(");
+        emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+        m_writer->emit(")");
+        break;
+
+    case kIROp_ByteAddressBufferStore:
+        {
+            auto prec = getInfo(EmitOp::Postfix);
+            needClose = maybeEmitParens(outerPrec, prec);
+
+            emitOperand(inst->getOperand(0), leftSide(outerPrec, prec));
+            m_writer->emit(".Store(");
+            emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+            m_writer->emit(",");
+            emitOperand(inst->getOperand(2), getInfo(EmitOp::General));
+            m_writer->emit(")");
+        }
+        break;
+
     default:
-        m_writer->emit("/* unhandled */");
+        diagnoseUnhandledInst(inst);
         break;
     }
     maybeCloseParens(needClose);
@@ -2014,7 +2259,7 @@ void CLikeSourceEmitter::emitInst(IRInst* inst)
     }
     // Don't emit any context message for an explicit `AbortCompilationException`
     // because it should only happen when an error is already emitted.
-    catch(AbortCompilationException&) { throw; }
+    catch(const AbortCompilationException&) { throw; }
     catch(...)
     {
         noteInternalErrorLoc(inst->sourceLoc);
@@ -2149,15 +2394,33 @@ void CLikeSourceEmitter::_emitInst(IRInst* inst)
     }
 }
 
-void CLikeSourceEmitter::emitSemantics(VarLayout* varLayout)
+void CLikeSourceEmitter::emitSemanticsUsingVarLayout(IRVarLayout* varLayout)
 {
-    if(varLayout->flags & VarLayoutFlag::HasSemantic)
+    if(auto semanticAttr = varLayout->findAttr<IRSemanticAttr>())
     {
+        // Note: We force the semantic name stored in the IR to
+        // upper-case here because that is what existing Slang
+        // tests had assumed and continue to rely upon.
+        //
+        // The original rationale for switching to uppercase was
+        // canonicalization for reflection (users can't accidentally
+        // write code that works for `COLOR` but not for `Color`),
+        // but it would probably be more ideal for our output code
+        // to give the semantic name as close to how it was originally spelled
+        // spelled as possible.
+        //
+        // TODO: Try removing this step and fixing up the test cases
+        // to see if we are happier with an approach that doesn't
+        // force uppercase.
+        //
+        String name = semanticAttr->getName();
+        name = name.toUpper();
+
         m_writer->emit(" : ");
-        m_writer->emit(varLayout->semanticName);
-        if(varLayout->semanticIndex)
+        m_writer->emit(name);
+        if(auto index = semanticAttr->getIndex())
         {
-            m_writer->emit(varLayout->semanticIndex);
+            m_writer->emit(index);
         }
     }
 }
@@ -2167,13 +2430,13 @@ void CLikeSourceEmitter::emitSemantics(IRInst* inst)
     emitSemanticsImpl(inst);
 }
 
-VarLayout* CLikeSourceEmitter::getVarLayout(IRInst* var)
+IRVarLayout* CLikeSourceEmitter::getVarLayout(IRInst* var)
 {
     auto decoration = var->findDecoration<IRLayoutDecoration>();
     if (!decoration)
         return nullptr;
 
-    return (VarLayout*) decoration->getLayout();
+    return as<IRVarLayout>(decoration->getLayout());
 }
 
 void CLikeSourceEmitter::emitLayoutSemantics(IRInst* inst, char const* uniformSemanticSpelling)
@@ -2183,25 +2446,206 @@ void CLikeSourceEmitter::emitLayoutSemantics(IRInst* inst, char const* uniformSe
 
 void CLikeSourceEmitter::emitPhiVarAssignments(UInt argCount, IRUse* args, IRBlock* targetBlock)
 {
-    UInt argCounter = 0;
-    for (auto pp = targetBlock->getFirstParam(); pp; pp = pp->getNextParam())
+    // The basic setup here is that we are at the end of a block
+    // and are about to branch to `targetBlock`. The target block
+    // has parameters (representing the phi variables/nodes in SSA
+    // form), and the block we are branching from provided arguments
+    // (given as `args` and `argCount` here) to be passed to those
+    // parameters.
+    //
+    // An earlier step will have already emitted a local variable
+    // declaration for each phi node (block parameter), so we should
+    // be able to "pass" an argument to a parameter by assigning
+    // to the variable that represents the parameter.
+    //
+    // A naive approach would simply loop over the parameters/arguments
+    // in tandem and emit assignments like:
+    //
+    //      <param_i> = <arg_i>;
+    //
+    // This approach has an important and known failure case, which
+    // can occur when one of the arguments is also one of the parameters.
+    //
+    // If we have a block like:
+    //
+    //      block b(
+    //          param x: Int,
+    //          y: Int)
+    //          ...
+    //
+    // and then a branch to it like:
+    //
+    //      br(b, y, x);
+    //
+    // Then the naive approach for emitting the assignments for
+    // that branch would output:
+    //
+    //      x = y;
+    //      y = x;
+    //
+    // But that is not the semantics that the "parameter passing"
+    // model is meant to capture.
+    //
+    // The simplest way to restore the correct semantics would
+    // be to assign each of the arguments to a temporary, and
+    // then to assign those temporaries to the parameters:
+    //
+    //      let tmp0 = y;
+    //      let tmp1 = x;
+    //      x = tmp0;
+    //      y = tmp1;
+    //
+    // Adding temporaries like that unconditionally would clutter
+    // up the generated code, so it would be nicer to only
+    // introduce them when strictly necessary.
+    //
+    // A temporary should only be necessary when we have:
+    //
+    // * A parameter `destParam` of the `targetBlock`
+    // * Where the argument value for `destParam` is another parameter, `srcParam`, of `targetBlock`
+    // * And `srcParam` appears before `destParam` in the parameter list
+    //
+    // We start by looking for such cases, and collecting the
+    // set of block parameters that will require a defensive
+    // temporary.
+    //
+    // Note: an alternative approach would first look for a total
+    // order on the arguments/parameters such that we avoid
+    // the problem, and then only resort to introducing temporaries
+    // as a means of breaking cycles.
+    //
+    // We will track the parameters that need temporaries by
+    // building a dictionary mapping parameters to the name
+    // of the temporary they will use, if any.
+    //
+    Dictionary<IRParam*, String> mapParamToTempName;
     {
-        UInt argIndex = argCounter++;
+        // To know whether a  parameter occurs earlier in
+        // the list than another, we will rely on a set
+        // of parameters we have already "seen" during
+        // our iteration.
+        //
+        // TODO: This is a strong candidate for using a
+        // hash set optimized for a small number of entries
+        // (and thus using a stack allocation in the common case),
+        // given that most blocks will only have a handful
+        // of parameters.
+        //
+        HashSet<IRParam*> seenParams;
 
-        if (argIndex >= argCount)
+        UInt argCounter = 0;
+        for (auto destParam = targetBlock->getFirstParam(); destParam; destParam = destParam->getNextParam())
         {
-            SLANG_UNEXPECTED("not enough arguments for branch");
-            break;
-        }
+            seenParams.Add(destParam);
 
-        IRInst* arg = args[argIndex].get();
+            UInt argIndex = argCounter++;
+            if (argIndex >= argCount)
+            {
+                SLANG_UNEXPECTED("not enough arguments for branch");
+                break;
+            }
+            IRInst* arg = args[argIndex].get();
+
+            // Is the argument also a parameter of the same block?
+            //
+            // If not, then we don't have to worry about this assignment.
+            //
+            IRParam* srcParam = as<IRParam>(arg);
+            if(!srcParam)
+                continue;
+            if(srcParam->getParent() != targetBlock)
+                continue;
+
+            // Is the argument an *earlier* parameter of the same block?
+            // We test this by checking if we've already seen it during
+            // our iteration.
+            //
+            // If the parameter isn't an earlier one, then we don't have
+            // to worry about the order of assignment creating problems.
+            //
+            if(!seenParams.Contains(srcParam))
+                continue;
+
+            // At this point we've detected a problem case: the `dstParam`
+            // would naively be assigned the value of `srcParam` *after*
+            // we've already assigned to `srcParam`.
+            //
+            // We will need to avoid the problem by introducing a temporary
+            // for `srcParam`.
+            //
+            if( !mapParamToTempName.ContainsKey(srcParam) )
+            {
+                String tempName = "tmp_" + getName(srcParam);
+                mapParamToTempName.Add(srcParam, tempName);
+            }
+        }
+    }
+
+    // Now that we've determined which of the parameters could cause problems,
+    // we can do an initial round of assignments, where we move form the
+    // argument values into either a parameter (if there were no problems)
+    // or a temporary (if we needed to avoid a problem).
+    //
+    {
+        UInt argCounter = 0;
+        for (auto param = targetBlock->getFirstParam(); param; param = param->getNextParam())
+        {
+            UInt argIndex = argCounter++;
+            if (argIndex >= argCount)
+            {
+                SLANG_UNEXPECTED("not enough arguments for branch");
+                break;
+            }
+            IRInst* arg = args[argIndex].get();
+
+            auto outerPrec = getInfo(EmitOp::General);
+            auto prec = getInfo(EmitOp::Assign);
+
+            String tempName;
+            if( mapParamToTempName.TryGetValue(param, tempName) )
+            {
+                // This parameter was involved in a confounding assignment,
+                // where it was used as the argument value for a later
+                // parameter on this same branch/edge.
+                //
+                // We need to assign to a temporary instead of
+                // to the parameter itself. We will declare
+                // the temporary here so that the assignment
+                // of the argument serves as the initializer.
+                //
+                emitType(param->getFullType(), tempName);
+            }
+            else
+            {
+                // This parameter was not involved in any confounding assignments,
+                // so we can simply us the parameter itself as the left-hand side
+                // of an assignment.
+                //
+                emitOperand(param, leftSide(outerPrec, prec));
+            }
+
+            m_writer->emit(" = ");
+            emitOperand(arg, rightSide(prec, outerPrec));
+            m_writer->emit(";\n");
+        }
+    }
+
+    // Finally, after all the assignments from argument values have been completed,
+    // we will make a cleanup pass that copies from any of the temporary variables
+    // we introduced over to the parameter that needed a temporary.
+    //
+    for (auto param = targetBlock->getFirstParam(); param; param = param->getNextParam())
+    {
+        String tempName;
+        if( !mapParamToTempName.TryGetValue(param, tempName) )
+            continue;
 
         auto outerPrec = getInfo(EmitOp::General);
         auto prec = getInfo(EmitOp::Assign);
 
-        emitOperand(pp, leftSide(outerPrec, prec));
+        emitOperand(param, leftSide(outerPrec, prec));
         m_writer->emit(" = ");
-        emitOperand(arg, rightSide(prec, outerPrec));
+        m_writer->emit(tempName);
         m_writer->emit(";\n");
     }
 }
@@ -2369,20 +2813,8 @@ void CLikeSourceEmitter::emitRegion(Region* inRegion)
                 //
                 if (auto loopControlDecoration = loopInst->findDecoration<IRLoopControlDecoration>())
                 {
-                    switch (loopControlDecoration->getMode())
-                    {
-                    case kIRLoopControl_Unroll:
-                        // Note: loop unrolling control is only available in HLSL, not GLSL
-                        if(getSourceStyle() == SourceStyle::HLSL)
-                        {
-                            m_writer->emit("[unroll]\n");
-                        }
-                        break;
-
-                    default:
-                        break;
-                    }
-                }
+                    emitLoopControlDecorationImpl(loopControlDecoration);
+               }
 
                 m_writer->emit("for(;;)\n{\n");
                 m_writer->indent();
@@ -2451,37 +2883,9 @@ bool CLikeSourceEmitter::isDefinition(IRFunc* func)
     return func->getFirstBlock() != nullptr;
 }
 
-String CLikeSourceEmitter::getFuncName(IRFunc* func)
+void CLikeSourceEmitter::emitEntryPointAttributes(IRFunc* irFunc, IREntryPointDecoration* entryPointDecor)
 {
-    if (auto entryPointLayout = asEntryPoint(func))
-    {
-        // GLSL will always need to use `main` as the
-        // name for an entry-point function, but other
-        // targets should try to use the original name.
-        //
-        // TODO: always use the original name, and
-        // use the appropriate options for glslang to
-        // make it support a non-`main` name.
-        //
-        if (getSourceStyle() != SourceStyle::GLSL)
-        {
-            return getText(entryPointLayout->getFuncDecl()->getName());
-        }
-
-        //
-
-        return "main";
-    }
-    else
-    {
-        return getName(func);
-    }
-}
-
-
-void CLikeSourceEmitter::emitEntryPointAttributes(IRFunc* irFunc, EntryPointLayout* entryPointLayout)
-{
-    emitEntryPointAttributesImpl(irFunc, entryPointLayout);
+    emitEntryPointAttributesImpl(irFunc, entryPointDecor);
 }
 
 void CLikeSourceEmitter::emitPhiVarDecls(IRFunc* func)
@@ -2541,33 +2945,39 @@ void CLikeSourceEmitter::emitSimpleFuncParamImpl(IRParam* param)
     emitSemantics(param);
 }
 
+void CLikeSourceEmitter::emitSimpleFuncParamsImpl(IRFunc* func)
+{
+    m_writer->emit("(");
+
+    auto firstParam = func->getFirstParam();
+    for (auto pp = firstParam; pp; pp = pp->getNextParam())
+    {
+        if (pp != firstParam)
+            m_writer->emit(", ");
+
+        emitSimpleFuncParamImpl(pp);
+    }
+
+    m_writer->emit(")");
+}
+
 void CLikeSourceEmitter::emitSimpleFuncImpl(IRFunc* func)
 {
     auto resultType = func->getResultType();
 
     // Deal with decorations that need
     // to be emitted as attributes
-    auto entryPointLayout = asEntryPoint(func);
-    if (entryPointLayout)
+    if ( IREntryPointDecoration* entryPointDecor = func->findDecoration<IREntryPointDecoration>())
     {
-        emitEntryPointAttributes(func, entryPointLayout);
+        emitEntryPointAttributes(func, entryPointDecor);
     }
 
-    auto name = getFuncName(func);
+    emitFunctionPreambleImpl(func);
+
+    auto name = getName(func);
 
     emitType(resultType, name);
-
-    m_writer->emit("(");
-    auto firstParam = func->getFirstParam();
-    for( auto pp = firstParam; pp; pp = pp->getNextParam())
-    {
-        if(pp != firstParam)
-            m_writer->emit(", ");
-
-        emitSimpleFuncParamImpl(pp);
-    }
-    m_writer->emit(")");
-
+    emitSimpleFuncParamsImpl(func);
     emitSemantics(func);
 
     // TODO: encode declaration vs. definition
@@ -2661,7 +3071,7 @@ void CLikeSourceEmitter::emitFuncDecl(IRFunc* func)
     auto funcType = func->getDataType();
     auto resultType = func->getResultType();
 
-    auto name = getFuncName(func);
+    auto name = getName(func);
 
     emitType(resultType, name);
 
@@ -2682,20 +3092,20 @@ void CLikeSourceEmitter::emitFuncDecl(IRFunc* func)
     m_writer->emit(");\n\n");
 }
 
-EntryPointLayout* CLikeSourceEmitter::getEntryPointLayout(IRFunc* func)
+IREntryPointLayout* CLikeSourceEmitter::getEntryPointLayout(IRFunc* func)
 {
     if( auto layoutDecoration = func->findDecoration<IRLayoutDecoration>() )
     {
-        return as<EntryPointLayout>(layoutDecoration->getLayout());
+        return as<IREntryPointLayout>(layoutDecoration->getLayout());
     }
     return nullptr;
 }
 
-EntryPointLayout* CLikeSourceEmitter::asEntryPoint(IRFunc* func)
+IREntryPointLayout* CLikeSourceEmitter::asEntryPoint(IRFunc* func)
 {
     if (auto layoutDecoration = func->findDecoration<IRLayoutDecoration>())
     {
-        if (auto entryPointLayout = as<EntryPointLayout>(layoutDecoration->getLayout()))
+        if (auto entryPointLayout = as<IREntryPointLayout>(layoutDecoration->getLayout()))
         {
             return entryPointLayout;
         }
@@ -2706,46 +3116,27 @@ EntryPointLayout* CLikeSourceEmitter::asEntryPoint(IRFunc* func)
 
 bool CLikeSourceEmitter::isTargetIntrinsic(IRFunc* func)
 {
-    // For now we do this in an overly simplistic
-    // fashion: we say that *any* function declaration
-    // (rather then definition) must be an intrinsic:
-    return !isDefinition(func);
-}
-
-IRFunc* CLikeSourceEmitter::asTargetIntrinsic(IRInst* value)
-{
-    if(!value)
-        return nullptr;
-
-    while (auto specInst = as<IRSpecialize>(value))
-    {
-        value = getSpecializedValue(specInst);
-    }
-
-    if(value->op != kIROp_Func)
-        return nullptr;
-
-    IRFunc* func = (IRFunc*) value;
-    if(!isTargetIntrinsic(func))
-        return nullptr;
-
-    return func;
+    // A function is a target intrinsic if and only if
+    // it has a suitable decoration marking it as a
+    // target intrinsic for the current compilation target.
+    //
+    return findTargetIntrinsicDecoration(func) != nullptr;
 }
 
 void CLikeSourceEmitter::emitFunc(IRFunc* func)
 {
+    // Target-intrinsic functions should never be emitted
+    // even if they happen to have a body.
+    //
+    if (isTargetIntrinsic(func))
+        return;
+
+
     if(!isDefinition(func))
     {
         // This is just a function declaration,
         // and so we want to emit it as such.
-        // (Or maybe not emit it at all).
-
-        // We do not emit the declaration for
-        // functions that appear to be intrinsics/builtins
-        // in the target language.
-        if (isTargetIntrinsic(func))
-            return;
-
+        //
         emitFuncDecl(func);
     }
     else
@@ -2753,6 +3144,7 @@ void CLikeSourceEmitter::emitFunc(IRFunc* func)
         // The common case is that what we
         // have is just an ordinary function,
         // and we can emit it as such.
+        //
         emitSimpleFunc(func);
     }
 }
@@ -2796,7 +3188,7 @@ void CLikeSourceEmitter::emitStruct(IRStructType* structType)
     m_writer->emit("};\n\n");
 }
 
-void CLikeSourceEmitter::emitInterpolationModifiers(IRInst* varInst, IRType* valueType, VarLayout* layout)
+void CLikeSourceEmitter::emitInterpolationModifiers(IRInst* varInst, IRType* valueType, IRVarLayout* layout)
 {
     emitInterpolationModifiersImpl(varInst, valueType, layout);
 }
@@ -2834,7 +3226,7 @@ void CLikeSourceEmitter::emitTempModifiers(IRInst* temp)
     }
 }
 
-void CLikeSourceEmitter::emitVarModifiers(VarLayout* layout, IRInst* varDecl, IRType* varType)
+void CLikeSourceEmitter::emitVarModifiers(IRVarLayout* layout, IRInst* varDecl, IRType* varType)
 {
     // TODO(JS): We could push all of this onto the target impls, and then not need so many virtual hooks.
     emitVarDecorationsImpl(varDecl);
@@ -2849,8 +3241,8 @@ void CLikeSourceEmitter::emitVarModifiers(VarLayout* layout, IRInst* varDecl, IR
     // Target specific modifier output
     emitImageFormatModifierImpl(varDecl, varType);
 
-    if(layout->FindResourceInfo(LayoutResourceKind::VaryingInput)
-        || layout->FindResourceInfo(LayoutResourceKind::VaryingOutput))
+    if(layout->usesResourceKind(LayoutResourceKind::VaryingInput)
+        || layout->usesResourceKind(LayoutResourceKind::VaryingOutput))
     {
         emitInterpolationModifiers(varDecl, varType, layout);
     }
@@ -2967,6 +3359,8 @@ void CLikeSourceEmitter::emitGlobalVar(IRGlobalVar* varDecl)
     String initFuncName;
     if (varDecl->getFirstBlock())
     {
+        emitFunctionPreambleImpl(varDecl);
+
         // A global variable with code means it has an initializer
         // associated with it. Eventually we'd like to emit that
         // initializer directly as an expression here, but for
@@ -2989,7 +3383,7 @@ void CLikeSourceEmitter::emitGlobalVar(IRGlobalVar* varDecl)
     // parameter.
     //
     SLANG_ASSERT(!getVarLayout(varDecl));
-    VarLayout* layout = nullptr;
+    IRVarLayout* layout = nullptr;
 
     // An ordinary global variable (which is not a
     // shader parameter) may need special
@@ -3092,6 +3486,11 @@ void CLikeSourceEmitter::emitGlobalInst(IRInst* inst)
 
     switch(inst->op)
     {
+    case kIROp_GlobalHashedStringLiterals:
+        /* Don't need to to output anything for this instruction - it's used for reflecting string literals that
+        are hashed with 'getStringHash' */
+        break;
+
     case kIROp_Func:
         emitFunc((IRFunc*) inst);
         break;

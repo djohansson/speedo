@@ -8,10 +8,6 @@
 #define INST_RANGE(BASE, FIRST, LAST) /* empty */
 #endif
 
-#ifndef PSEUDO_INST
-#define PSEUDO_INST(ID) /* empty */
-#endif
-
 #define PARENT kIROpFlag_Parent
 #define USE_OTHER kIROpFlag_UseOther
 
@@ -173,7 +169,7 @@ INST(InterfaceType, interface, 0, PARENT)
 INST_RANGE(Type, VoidType, InterfaceType)
 
 /*IRGlobalValueWithCode*/
-    /* IRGlobalValueWIthParams*/
+    /* IRGlobalValueWithParams*/
         INST(Func, func, 0, PARENT)
         INST(Generic, generic, 0, PARENT)
     INST_RANGE(GlobalValueWithParams, Func, Generic)
@@ -187,6 +183,8 @@ INST(GlobalConstant, globalConstant, 0, 0)
 INST(StructKey, key, 0, 0)
 INST(GlobalGenericParam, global_generic_param, 0, 0)
 INST(WitnessTable, witness_table, 0, 0)
+
+INST(GlobalHashedStringLiterals, global_hashed_string_literals, 0, 0)
 
 INST(Module, module, 0, PARENT)
 
@@ -234,6 +232,50 @@ INST(getElementPtr, getElementPtr, 2, 0)
 
 // "Subscript" an image at a pixel coordinate to get pointer
 INST(ImageSubscript, imageSubscript, 2, 0)
+
+// Load (almost) arbitrary-type data from a byte-address buffer
+//
+// %dst = byteAddressBufferLoad(%buffer, %offset)
+//
+// where
+// - `buffer` is a value of some `ByteAddressBufferTypeBase` type
+// - `offset` is an `int`
+// - `dst` is a value of some type containing only ordinary data
+//
+INST(ByteAddressBufferLoad, byteAddressBufferLoad, 2, 0)
+
+// Store (almost) arbitrary-type data to a byte-address buffer
+//
+// byteAddressBufferLoad(%buffer, %offset, %src)
+//
+// where
+// - `buffer` is a value of some `ByteAddressBufferTypeBase` type
+// - `offset` is an `int`
+// - `src` is a value of some type containing only ordinary data
+//
+INST(ByteAddressBufferStore, byteAddressBufferStore, 3, 0)
+
+// Load data from a structured buffer
+//
+// %dst = structuredBufferLoad(%buffer, %index)
+//
+// where
+// - `buffer` is a value of some `StructuredBufferTypeBase` type with element type T
+// - `offset` is an `int`
+// - `dst` is a value of type T
+//
+INST(StructuredBufferLoad, structuredBufferLoad, 2, 0)
+
+// Store data to a structured buffer
+//
+// structuredBufferLoad(%buffer, %offset, %src)
+//
+// where
+// - `buffer` is a value of some `StructuredBufferTypeBase` type with element type T
+// - `offset` is an `int`
+// - `src` is a value of type T
+//
+INST(StructuredBufferStore, structuredBufferStore, 3, 0)
 
 // Construct a vector from a scalar
 //
@@ -330,11 +372,23 @@ INST(SwizzledStore, swizzledStore, 2, 0)
 
 INST_RANGE(TerminatorInst, ReturnVal, Unreachable)
 
+// TODO: We should consider splitting the basic arithmetic/comparison
+// ops into cases for signed integers, unsigned integers, and floating-point
+// values, to better match downstream targets that want to treat them
+// all differently (e.g., SPIR-V).
+
 INST(Add, add, 2, 0)
 INST(Sub, sub, 2, 0)
 INST(Mul, mul, 2, 0)
 INST(Div, div, 2, 0)
-INST(Mod, mod, 2, 0)
+
+// Remainder of division.
+//
+// Note: this is distinct from modulus, and we should have a separate
+// opcode for `mod` if we ever need to support it.
+//
+INST(IRem, irem, 2, 0) // integer (signed or unsigned)
+INST(FRem, frem, 2, 0) // floating-point
 
 INST(Lsh, shl, 2, 0)
 INST(Rsh, shr, 2, 0)
@@ -361,9 +415,7 @@ INST(Select, select, 3, 0)
 
 INST(Dot, dot, 2, 0)
 
-INST(Mul_Vector_Matrix, mulVectorMatrix, 2, 0)
-INST(Mul_Matrix_Vector, mulMatrixVector, 2, 0)
-INST(Mul_Matrix_Matrix, mulMatrixMatrix, 2, 0)
+INST(GetStringHash, getStringHash, 1, 0)
 
 // Texture sampling operation of the form `t.Sample(s,u)`
 INST(Sample, sample, 3, 0)
@@ -382,7 +434,7 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
         INST(TargetIntrinsicDecoration,     targetIntrinsic,        2, 0)
     INST_RANGE(TargetSpecificDecoration, TargetDecoration, TargetIntrinsicDecoration)
     INST(GLSLOuterArrayDecoration,          glslOuterArray,         1, 0)
-    INST(SemanticDecoration,                semantic,               1, 0)
+    
     INST(InterpolationModeDecoration,       interpolationMode,      1, 0)
     INST(NameHintDecoration,                nameHint,               1, 0)
 
@@ -393,8 +445,11 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
 
     INST(VulkanRayPayloadDecoration,        vulkanRayPayload,       0, 0)
     INST(VulkanHitAttributesDecoration,     vulkanHitAttributes,    0, 0)
+    INST(RequireSPIRVVersionDecoration,     requireSPIRVVersion,    1, 0)
     INST(RequireGLSLVersionDecoration,      requireGLSLVersion,     1, 0)
     INST(RequireGLSLExtensionDecoration,    requireGLSLExtension,   1, 0)
+    INST(RequireCUDASMVersionDecoration,    requireCUDASMVersion,   1, 0)
+
     INST(ReadNoneDecoration,                readNone,               0, 0)
     INST(VulkanCallablePayloadDecoration,   vulkanCallablePayload,  0, 0)
     INST(EarlyDepthStencilDecoration,       earlyDepthStencil,      0, 0)
@@ -402,9 +457,30 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
     INST(PreciseDecoration,                 precise,       0, 0)
     INST(PatchConstantFuncDecoration,       patchConstantFunc,      1, 0)
 
-        /// An `[entryPoint]` decoration marks a function that represents a shader entry point.
-        /// Also used in some scenarios mark parameters that are moved from entry point parameters to global params as coming from the entry point.
-    INST(EntryPointDecoration,              entryPoint,             0, 0)
+    INST(OutputControlPointsDecoration,     outputControlPoints,    1, 0)
+    INST(OutputTopologyDecoration,          outputTopology,         1, 0)
+    INST(PartitioningDecoration,            partioning,             1, 0)
+    INST(DomainDecoration,                  domain,                 1, 0)
+    INST(MaxVertexCountDecoration,          maxVertexCount,         1, 0)
+    INST(InstanceDecoration,                instance,               1, 0)
+    INST(NumThreadsDecoration,              numThreads,             3, 0)
+
+        // Added to IRParam parameters to an entry point
+    /* GeometryInputPrimitiveTypeDecoration */
+        INST(PointInputPrimitiveTypeDecoration,  pointPrimitiveType,     0, 0)
+        INST(LineInputPrimitiveTypeDecoration,   linePrimitiveType,      0, 0)
+        INST(TriangleInputPrimitiveTypeDecoration, trianglePrimitiveType, 0, 0)
+        INST(LineAdjInputPrimitiveTypeDecoration,  lineAdjPrimitiveType,  0, 0)
+        INST(TriangleAdjInputPrimitiveTypeDecoration, triangleAdjPrimitiveType, 0, 0)
+    INST_RANGE(GeometryInputPrimitiveTypeDecoration, PointInputPrimitiveTypeDecoration, TriangleAdjInputPrimitiveTypeDecoration)
+
+    INST(StreamOutputTypeDecoration,       streamOutputTypeDecoration,    1, 0)
+
+        /// An `[entryPoint]` decoration marks a function that represents a shader entry point
+    INST(EntryPointDecoration,              entryPoint,             2, 0)
+
+        /// Used to mark parameters that are moved from entry point parameters to global params as coming from the entry point.
+    INST(EntryPointParamDecoration,         entryPointParam,        0, 0)
 
         /// A `[dependsOn(x)]` decoration indicates that the parent instruction depends on `x`
         /// even if it does not otherwise reference it.
@@ -418,12 +494,23 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
         /// A `[format(f)]` decoration specifies that the format of an image should be `f`
     INST(FormatDecoration, format, 1, 0)
 
+        /// An `[unsafeForceInlineEarly]` decoration specifies that calls to this function should be inline after initial codegen
+    INST(UnsafeForceInlineEarlyDecoration, unsafeForceInlineEarly, 0, 0)
+
+        /// A `[naturalSizeAndAlignment(s,a)]` decoration is attached to a type to indicate that is has natural size `s` and alignment `a`
+    INST(NaturalSizeAndAlignmentDecoration, naturalSizeAndAlignment, 2, 0)
+
+        /// A `[naturalOffset(o)]` decoration is attached to a field to indicate that it has natural offset `o` in the parent type
+    INST(NaturalOffsetDecoration, naturalOffset, 1, 0)
+
     /* LinkageDecoration */
         INST(ImportDecoration, import, 1, 0)
         INST(ExportDecoration, export, 1, 0)
     INST_RANGE(LinkageDecoration, ImportDecoration, ExportDecoration)
 
-INST_RANGE(Decoration, HighLevelDeclDecoration, ExportDecoration)
+    INST(SemanticDecoration, semantic, 2, 0)
+
+    INST_RANGE(Decoration, HighLevelDeclDecoration, SemanticDecoration)
 
 
 //
@@ -450,29 +537,37 @@ INST(ExtractTaggedUnionPayload,         extractTaggedUnionPayload,  1, 0)
 
 INST(BitCast,                           bitCast,                    1, 0)
 
-PSEUDO_INST(Pos)
-PSEUDO_INST(PreInc)
+/* Layout */
+    INST(VarLayout, varLayout, 1, 0)
 
-PSEUDO_INST(PreDec)
-PSEUDO_INST(PostInc)
-PSEUDO_INST(PostDec)
-PSEUDO_INST(Sequence)
-PSEUDO_INST(AddAssign)
-PSEUDO_INST(SubAssign)
-PSEUDO_INST(MulAssign)
-PSEUDO_INST(DivAssign)
-PSEUDO_INST(ModAssign)
-PSEUDO_INST(AndAssign)
-PSEUDO_INST(OrAssign)
-PSEUDO_INST(XorAssign )
-PSEUDO_INST(LshAssign)
-PSEUDO_INST(RshAssign)
-PSEUDO_INST(Assign)
-PSEUDO_INST(And)
-PSEUDO_INST(Or)
+    /* TypeLayout */
+        INST(TypeLayoutBase, typeLayout, 0, 0)
+        INST(ParameterGroupTypeLayout, parameterGroupTypeLayout, 2, 0)
+        INST(ArrayTypeLayout, arrayTypeLayout, 1, 0)
+        INST(StreamOutputTypeLayout, streamOutputTypeLayout, 1, 0)
+        INST(MatrixTypeLayout, matrixTypeLayout, 1, 0)
+        INST(TaggedUnionTypeLayout, taggedUnionTypeLayout, 0, 0)
+        INST(StructTypeLayout, structTypeLayout, 0, 0)
+    INST_RANGE(TypeLayout, TypeLayoutBase, StructTypeLayout)
 
+    INST(EntryPointLayout, EntryPointLayout, 1, 0)
+INST_RANGE(Layout, VarLayout, EntryPointLayout)
 
-#undef PSEUDO_INST
+/* Attr */
+    INST(PendingLayoutAttr, pendingLayout, 1, 0)
+    INST(StageAttr, stage, 1, 0)
+    INST(StructFieldLayoutAttr, fieldLayout, 2, 0)
+    INST(CaseTypeLayoutAttr, caseLayout, 1, 0)
+    /* SemanticAttr */
+        INST(UserSemanticAttr, userSemantic, 2, 0)
+        INST(SystemValueSemanticAttr, systemValueSemantic, 2, 0)
+    INST_RANGE(SemanticAttr, UserSemanticAttr, SystemValueSemanticAttr)
+    /* LayoutResourceInfoAttr */
+        INST(TypeSizeAttr, size, 2, 0)
+        INST(VarOffsetAttr, offset, 2, 0)
+    INST_RANGE(LayoutResourceInfoAttr, TypeSizeAttr, VarOffsetAttr)
+INST_RANGE(Attr, PendingLayoutAttr, VarOffsetAttr)
+
 #undef PARENT
 #undef USE_OTHER
 #undef INST_RANGE

@@ -93,23 +93,22 @@ namespace Slang
             return m_end;
         }
 
-        Index size() const
+            /// True if slice is strictly contained in memory.
+        bool isMemoryContained(const UnownedStringSlice& slice) const
+        {
+            return slice.m_begin >= m_begin && slice.m_end <= m_end; 
+        }
+
+        Index getLength() const
         {
             return Index(m_end - m_begin);
         }
 
-        Index indexOf(char c) const
-        {
-            const Index size = int(m_end - m_begin);
-            for (Index i = 0; i < size; ++i)
-            {
-                if (m_begin[i] == c)
-                {
-                    return i;
-                }
-            }
-            return -1;
-        }
+            /// Finds first index of char 'c'. If not found returns -1.
+        Index indexOf(char c) const;
+            /// Find first index of slice. If not found returns -1
+        Index indexOf(const UnownedStringSlice& slice) const;
+
         Index lastIndexOf(char c) const
         {
             const Index size = Index(m_end - m_begin);
@@ -134,8 +133,8 @@ namespace Slang
             // Note that memcmp is undefined when passed in null ptrs, so if we want to handle
             // we need to cover that case.
             // Can only be nullptr if size is 0.
-            auto thisSize = size();
-            auto otherSize = other.size();
+            auto thisSize = getLength();
+            auto otherSize = other.getLength();
 
             if (thisSize != otherSize)
             {
@@ -171,9 +170,9 @@ namespace Slang
 
         UnownedStringSlice trim() const;
 
-        int GetHashCode() const
+        HashCode getHashCode() const
         {
-            return Slang::GetHashCode(m_begin, size_t(m_end - m_begin)); 
+            return Slang::getHashCode(m_begin, size_t(m_end - m_begin)); 
         }
 
         template <size_t SIZE> 
@@ -801,9 +800,9 @@ namespace Slang
 			return contains(str.begin());
 		}
 
-		int GetHashCode() const
+		HashCode getHashCode() const
 		{
-			return Slang::GetHashCode((const char*)begin());
+			return Slang::getHashCode(StringRepresentation::asSlice(m_buffer));
 		}
 
         UnownedStringSlice getUnownedSlice() const

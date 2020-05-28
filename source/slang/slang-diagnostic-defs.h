@@ -70,6 +70,7 @@ DIAGNOSTIC(    15, Error, unknownStage, "unknown stage '$0'");
 DIAGNOSTIC(    16, Error, unknownPassThroughTarget, "unknown pass-through target '$0'");
 DIAGNOSTIC(    17, Error, unknownCommandLineOption, "unknown command-line option '$0'");
 DIAGNOSTIC(    18, Error, unknownFileSystemOption, "unknown file-system option '$0'");
+DIAGNOSTIC(    19, Error, unknownSourceLanguage, "unknown source language '$0'");
 
 DIAGNOSTIC(    20, Error, entryPointsNeedToBeAssociatedWithTranslationUnits, "when using multiple source files, entry points must be specified after their corresponding source file(s)");
 DIAGNOSTIC(    21, Error, expectedArgumentForOption, "expected an argument for command-line option '$0'");
@@ -102,14 +103,22 @@ DIAGNOSTIC(    50, Error, duplicateTargets, "the target '$0' has been specified 
 DIAGNOSTIC(    60, Error, cannotDeduceOutputFormatFromPath, "cannot infer an output format from the output path '$0'")
 DIAGNOSTIC(    61, Error, cannotMatchOutputFileToTarget, "no specified '-target' option matches the output path '$0', which implies the '$1' format")
 
-DIAGNOSTIC(    62, Error, failedToFindFunctionInSharedLibrary, "failed to find function '$0' in shared/dynamic library '$1'")
+DIAGNOSTIC(    62, Error, failedToFindFunctionForCompiler, "failed to find function '$0' for downstream compiler '$1'")
 
 DIAGNOSTIC(    70, Error, cannotMatchOutputFileToEntryPoint, "the output path '$0' is not associated with any entry point; a '-o' option for a compiled kernel must follow the '-entry' option for its corresponding entry point")
 
 DIAGNOSTIC(    80, Error, duplicateOutputPathsForEntryPointAndTarget, "multiple output paths have been specified entry point '$0' on target '$1'")
 
+DIAGNOSTIC(    82, Error, unableToWriteReproFile, "unable to write repro file '%0'");
+DIAGNOSTIC(    83, Error, unableToWriteModuleContainer, "unable to write module container '%0'");
+DIAGNOSTIC(    84, Error, unableToReadModuleContainer, "unable to read module container '%0'");
+DIAGNOSTIC(    85, Error, unableToAddReferenceToModuleContainer, "unable to add a reference to a module container");
+DIAGNOSTIC(    86, Error, unableToCreateModuleContainer, "unable to create module container");
+
+DIAGNOSTIC(    87, Error, unableToSetDefaultDownstreamCompiler, "unable to set default downstream compiler for source language '%0' to '%1'");
+
 //
-// 1xxxx - Lexical anaylsis
+// 1xxxx - Lexical analysis
 //
 
 DIAGNOSTIC(10000, Error, illegalCharacterPrint, "illegal character '$0'");
@@ -166,6 +175,7 @@ DIAGNOSTIC(15403, Error, expectedTokenInMacroParameters, "expected '$0' in macro
 // 155xx - macro expansion
 DIAGNOSTIC(15500, Warning, expectedTokenInMacroArguments, "expected '$0' in macro invocation")
 DIAGNOSTIC(15501, Error, wrongNumberOfArgumentsToMacro, "wrong number of arguments to macro (expected $0, got $1)")
+DIAGNOSTIC(15502, Error, errorParsingToMacroInvocationArgument, "error parsing macro '$0' invocation argument to '$1'")
 
 // 156xx - pragmas
 DIAGNOSTIC(15600, Error, expectedPragmaDirectiveName, "expected a name after '#pragma'")
@@ -197,12 +207,12 @@ DIAGNOSTIC(20002, Error, syntaxError, "syntax error.");
 DIAGNOSTIC(20004, Error, unexpectedTokenExpectedComponentDefinition, "unexpected token '$0', only component definitions are allowed in a shader scope.")
 DIAGNOSTIC(20008, Error, invalidOperator, "invalid operator '$0'.");
 DIAGNOSTIC(20011, Error, unexpectedColon, "unexpected ':'.")
-
+DIAGNOSTIC(20012, Error, invalidSPIRVVersion, "Expecting SPIR-V version as either 'major.minor', or quoted if has patch (eg for SPIR-V 1.2, '1.2' or \"1.2\"')")
+DIAGNOSTIC(20013, Error, invalidCUDASMVersion, "Expecting CUDA SM version as either 'major.minor', or quoted if has patch (eg for '7.0' or \"7.0\"')")
 //
 // 3xxxx - Semantic analysis
 //
 
-DIAGNOSTIC(30002, Error, parameterAlreadyDefined, "parameter '$0' already defined.")
 DIAGNOSTIC(30003, Error, breakOutsideLoop, "'break' must appear inside loop constructs.")
 DIAGNOSTIC(30004, Error, continueOutsideLoop, "'continue' must appear inside loop constructs.")
 DIAGNOSTIC(30005, Error, whilePredicateTypeError, "'while': expression must evaluate to int.")
@@ -218,7 +228,6 @@ DIAGNOSTIC(30012, Error, noApplicationUnaryOperator, "no overload found for oper
 DIAGNOSTIC(30012, Error, noOverloadFoundForBinOperatorOnTypes, "no overload found for operator $0  ($1, $2).")
 DIAGNOSTIC(30013, Error, subscriptNonArray, "no subscript operation found for  type '$0'")
 DIAGNOSTIC(30014, Error, subscriptIndexNonInteger, "index expression must evaluate to int.")
-DIAGNOSTIC(30015, Error, undefinedIdentifier, "'$0': undefined identifier.")
 DIAGNOSTIC(30015, Error, undefinedIdentifier2, "undefined identifier '$0'.")
 DIAGNOSTIC(30017, Error, componentNotAccessibleFromShader, "component '$0' is not accessible from shader '$1'.")
 DIAGNOSTIC(30019, Error, typeMismatch, "expected an expression of type '$0', got '$1'")
@@ -241,11 +250,13 @@ DIAGNOSTIC(30049, Note,  thisIsImmutableByDefault, "a 'this' parameter is an imm
 
 DIAGNOSTIC(30051, Error, invalidValueForArgument, "invalid value for argument '$0'")
 DIAGNOSTIC(30052, Error, invalidSwizzleExpr, "invalid swizzle pattern '$0' on type '$1'")
+DIAGNOSTIC(30043, Error, getStringHashRequiresStringLiteral, "getStringHash parameter can only accept a string literal")
 
-DIAGNOSTIC(30060, Error, expectedAType, "expected a type got a '$0'")
+DIAGNOSTIC(30060, Error, expectedAType, "expected a type, got a '$0'")
 
 DIAGNOSTIC(30100, Error, staticRefToNonStaticMember, "type '$0' cannot be used to refer to non-static member '$1'")
 
+DIAGNOSTIC(30200, Error, redeclaration, "declaration of '$0' conflicts with existing declaration")
 DIAGNOSTIC(30201, Error, functionRedefinition, "function '$0' already has a body")
 DIAGNOSTIC(30202, Error, functionRedeclarationWithDifferentReturnType, "function '$0' declared to return '$1' was previously declared to return '$2'")
 
@@ -255,9 +266,6 @@ DIAGNOSTIC(33071, Error, expectedAStringLiteral, "expected a string literal")
 
 DIAGNOSTIC(   -1, Note, noteExplicitConversionPossible, "explicit conversion from '$0' to '$1' is possible")
 DIAGNOSTIC(30080, Error, ambiguousConversion, "more than one implicit conversion exists from '$0' to '$1'")
-
-
-
 
 // Attributes
 DIAGNOSTIC(31000, Error, unknownAttributeName, "unknown attribute '$0'")
@@ -274,6 +282,7 @@ DIAGNOSTIC(31006, Error, attributeFunctionNotFound, "Could not find function '$0
 DIAGNOSTIC(31100, Error, unknownStageName, "unknown stage name '$0'")
 DIAGNOSTIC(31101, Error, unknownImageFormatName, "unknown image format '$0'")
 DIAGNOSTIC(31101, Error, unknownDiagnosticName, "unknown diagnostic '$0'")
+DIAGNOSTIC(31102, Error, nonPositiveNumThreads, "expected a positive integer in 'numthreads' attribute, got '$0'")
 
 DIAGNOSTIC(31120, Error, invalidAttributeTarget, "invalid syntax target for user defined attribute")
 
@@ -306,8 +315,12 @@ DIAGNOSTIC(30504, Error, cannotUseInitializerListForType, "cannot use initialize
 // 306xx: variables
 DIAGNOSTIC(30600, Error, varWithoutTypeMustHaveInitializer, "a variable declaration without an initial-value expression must be given an explicit type");
 
+DIAGNOSTIC(30610, Error, ambiguousDefaultInitializerForType, "more than one default initializer was found for type '$0'")
+
 // 307xx: parameters
 DIAGNOSTIC(30700, Error, outputParameterCannotHaveDefaultValue, "an 'out' or 'inout' parameter cannot have a default-value expression");
+
+// 39999 waiting to be placed in the right range
 
 DIAGNOSTIC(39999, Error, expectedIntegerConstantWrongType, "expected integer constant (found: '$0')")
 DIAGNOSTIC(39999, Error, expectedIntegerConstantNotConstant, "expression does not evaluate to a compile-time constant")
@@ -316,7 +329,7 @@ DIAGNOSTIC(39999, Error, expectedIntegerConstantNotLiteral, "could not extract v
 DIAGNOSTIC(39999, Error, noApplicableOverloadForNameWithArgs, "no overload for '$0' applicable to arguments of type $1")
 DIAGNOSTIC(39999, Error, noApplicableWithArgs, "no overload applicable to arguments of type $0")
 
-DIAGNOSTIC(39999, Error, ambiguousOverloadForNameWithArgs, "ambiguous call to '$0' operation with arguments of type $1")
+DIAGNOSTIC(39999, Error, ambiguousOverloadForNameWithArgs, "ambiguous call to '$0' with arguments of type $1")
 DIAGNOSTIC(39999, Error, ambiguousOverloadWithArgs, "ambiguous call to overloaded operation with arguments of type $0")
 
 DIAGNOSTIC(39999, Note, overloadCandidate, "candidate: $0")
@@ -332,10 +345,10 @@ DIAGNOSTIC(39999, Note, genericSignatureTried, "see declaration of $0")
 
 DIAGNOSTIC(39999, Error, expectedAnInterfaceGot, "expected an interface, got '$0'")
 
-DIAGNOSTIC(39999, Error, ambiguousReference, "amiguous reference to '$0'");
+DIAGNOSTIC(39999, Error, ambiguousReference, "ambiguous reference to '$0'");
+DIAGNOSTIC(39999, Error, ambiguousExpression, "ambiguous reference");
 
 DIAGNOSTIC(39999, Error, declarationDidntDeclareAnything, "declaration does not declare anything");
-
 
 DIAGNOSTIC(39999, Error, expectedPrefixOperator, "function called as prefix operator was not declared `__prefix`")
 DIAGNOSTIC(39999, Error, expectedPostfixOperator, "function called as postfix operator was not declared `__postfix`")
@@ -346,7 +359,11 @@ DIAGNOSTIC(39999, Error, tooManyArguments, "too many arguments to call (got $0, 
 DIAGNOSTIC(39999, Error, invalidIntegerLiteralSuffix, "invalid suffix '$0' on integer literal")
 DIAGNOSTIC(39999, Error, invalidFloatingPointLiteralSuffix, "invalid suffix '$0' on floating-point literal")
 
+DIAGNOSTIC(39999, Warning, integerLiteralTruncated, "integer literal '$0' too large for type '$1' truncated to '$2'")
+DIAGNOSTIC(39999, Warning, floatLiteralUnrepresentable, "$0 literal '$1' unrepresentable, converted to '$2'")
+DIAGNOSTIC(39999, Warning, floatLiteralTooSmall, "'$1' is smaller than the smallest representable value for type $0, converted to '$2'")
 
+// 38xxx 
 
 DIAGNOSTIC(38000, Error, entryPointFunctionNotFound, "no function found matching entry point name '$0'")
 DIAGNOSTIC(38001, Error, ambiguousEntryPoint, "more than one function matches entry point name '$0'")
@@ -354,15 +371,21 @@ DIAGNOSTIC(38002, Note, entryPointCandidate, "see candidate declaration for entr
 DIAGNOSTIC(38003, Error, entryPointSymbolNotAFunction, "entry point '$0' must be declared as a function")
 
 DIAGNOSTIC(38004, Error, entryPointTypeParameterNotFound, "no type found matching entry-point type parameter name '$0'")
-DIAGNOSTIC(38005, Error, globalGenericArgumentNotAType, "argument for global generic parameter '$0' must be a type")
+DIAGNOSTIC(38005, Error, expectedTypeForSpecializationArg, "expected a type as argument for specialization parameter '$0'")
 
 DIAGNOSTIC(38006, Warning, specifiedStageDoesntMatchAttribute, "entry point '$0' being compiled for the '$1' stage has a '[shader(...)]' attribute that specifies the '$2' stage")
 DIAGNOSTIC(38007, Error, entryPointHasNoStage, "no stage specified for entry point '$0'; use either a '[shader(\"name\")]' function attribute or the '-stage <name>' command-line option to specify a stage")
+
+DIAGNOSTIC(38008, Error, specializationParameterOfNameNotSpecialized, "no specialization argument was provided for specialization parameter '$0'")
+DIAGNOSTIC(38008, Error, specializationParameterNotSpecialized, "no specialization argument was provided for specialization parameter")
+
+DIAGNOSTIC(38009, Error, expectedValueOfTypeForSpecializationArg, "expected a constant value of type '$0' as argument for specialization parameter '$1'")
 
 DIAGNOSTIC(38100, Error, typeDoesntImplementInterfaceRequirement, "type '$0' does not provide required interface member '$1'")
 DIAGNOSTIC(38101, Error, thisExpressionOutsideOfTypeDecl, "'this' expression can only be used in members of an aggregate type")
 DIAGNOSTIC(38102, Error, initializerNotInsideType, "an 'init' declaration is only allowed inside a type or 'extension' declaration")
 DIAGNOSTIC(38102, Error, accessorMustBeInsideSubscriptOrProperty, "an accessor declaration is only allowed inside a subscript or property declaration")
+DIAGNOSTIC(38103, Error, thisTypeOutsideOfTypeDecl, "'This' type can only be used inside of an aggregate type")
 
 DIAGNOSTIC(38020, Error, mismatchEntryPointTypeArgument, "expecting $0 entry-point type arguments, provided $1.")
 DIAGNOSTIC(38021, Error, typeArgumentForGenericParameterDoesNotConformToInterface, "type argument `$0` for generic parameter `$1` does not conform to interface `$2`.")
@@ -379,7 +402,6 @@ DIAGNOSTIC(38025, Error, mismatchSpecializationArguments, "expected $0 specializ
 DIAGNOSTIC(38026, Error, globalTypeArgumentDoesNotConformToInterface, "type argument `$1` for global generic parameter `$0` does not conform to interface `$2`.")
 
 DIAGNOSTIC(38027, Error, mismatchExistentialSlotArgCount, "expected $0 existential slot arguments ($1 provided)")
-DIAGNOSTIC(38028, Error, existentialSlotArgNotAType, "existential slot argument $0 was not a type")
 DIAGNOSTIC(38029, Error,typeArgumentDoesNotConformToInterface, "type argument '$0' does not conform to the required interface '$1'")
 
 DIAGNOSTIC(38200, Error, recursiveModuleImport, "module `$0` recursively imports itself")
@@ -416,6 +438,9 @@ DIAGNOSTIC(39016, Error, globalUniformsNotSupported, "'$0' is implicitly a globa
 DIAGNOSTIC(39017, Error, tooManyShaderRecordConstantBuffers, "can have at most one 'shader record' attributed constant buffer; found $0.")
 
 DIAGNOSTIC(39018, Error, typeParametersNotAllowedOnEntryPointGlobal, "local-root-signature shader parameter '$0' at global scope must not include existential/interface types");
+
+DIAGNOSTIC(39019, Warning, vkIndexWithoutVkLocation, "ignoring '[[vk::index(...)]]` attribute without a corresponding '[[vk::location(...)]]' attribute")
+DIAGNOSTIC(39020, Error, mixingImplicitAndExplicitBindingForVaryingParams, "mixing explicit and implicit bindings for varying parameters is not supported (see '$0' and '$1')");
 
 //
 // 4xxxx - IL code generation.
@@ -485,7 +510,7 @@ DIAGNOSTIC(52000, Error, multiLevelBreakUnsupported, "control flow appears to re
 DIAGNOSTIC(52001, Warning, dxilNotFound, "dxil shared library not found, so 'dxc' output cannot be signed! Shader code will not be runnable in non-development environments.");
 
 DIAGNOSTIC(52002, Error, passThroughCompilerNotFound, "Could not find a suitable pass-through compiler for '$0'.");
-DIAGNOSTIC(52003, Error, cppCompilerNotFound, "Could not find a suitable C/C++ compiler.");
+DIAGNOSTIC(52003, Error, cppCompilerNotFound, "Could not find a suitable C/C++ compiler for '$0'.");
 
 DIAGNOSTIC(52004, Error, unableToWriteFile, "Unable to write file '$0'");
 DIAGNOSTIC(52005, Error, unableToReadFile, "Unable to read file '$0'");

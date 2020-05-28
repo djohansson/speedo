@@ -110,7 +110,7 @@
       <ImportLibrary>..\..\bin\windows-x86\debug\render-test-tool.lib</ImportLibrary>
     </Link>
     <PostBuildEvent>
-      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x86/" "../../bin/windows-x86/debug/"</Command>
+      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x86/" "../../bin/windows-x86/debug/" "windows-x86"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -129,7 +129,7 @@
       <ImportLibrary>..\..\bin\windows-x64\debug\render-test-tool.lib</ImportLibrary>
     </Link>
     <PostBuildEvent>
-      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x64/" "../../bin/windows-x64/debug/"</Command>
+      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x64/" "../../bin/windows-x64/debug/" "windows-x64"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -152,7 +152,7 @@
       <ImportLibrary>..\..\bin\windows-x86\release\render-test-tool.lib</ImportLibrary>
     </Link>
     <PostBuildEvent>
-      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x86/" "../../bin/windows-x86/release/"</Command>
+      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x86/" "../../bin/windows-x86/release/" "windows-x86"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -175,25 +175,30 @@
       <ImportLibrary>..\..\bin\windows-x64\release\render-test-tool.lib</ImportLibrary>
     </Link>
     <PostBuildEvent>
-      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x64/" "../../bin/windows-x64/release/"</Command>
+      <Command>"$(SolutionDir)tools\copy-hlsl-libs.bat" "$(WindowsSdkDir)Redist/D3D/x64/" "../../bin/windows-x64/release/" "windows-x64"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="cpu-memory-binding.h" />
+    <ClInclude Include="bind-location.h" />
+    <ClInclude Include="cpu-compute-util.h" />
     <ClInclude Include="options.h" />
     <ClInclude Include="png-serialize-util.h" />
     <ClInclude Include="shader-input-layout.h" />
     <ClInclude Include="shader-renderer-util.h" />
     <ClInclude Include="slang-support.h" />
+    <ClInclude Include="window.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="cpu-memory-binding.cpp" />
+    <ClCompile Include="bind-location.cpp" />
+    <ClCompile Include="cpu-compute-util.cpp" />
     <ClCompile Include="options.cpp" />
     <ClCompile Include="png-serialize-util.cpp" />
     <ClCompile Include="render-test-main.cpp" />
     <ClCompile Include="shader-input-layout.cpp" />
     <ClCompile Include="shader-renderer-util.cpp" />
     <ClCompile Include="slang-support.cpp" />
+    <ClCompile Include="window.cpp" />
+    <ClCompile Include="windows\win-window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\source\core\core.vcxproj">

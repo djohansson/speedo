@@ -1,8 +1,6 @@
 // slang-source-loc.cpp
 #include "slang-source-loc.h"
 
-#include "slang-compiler.h"
-
 #include "../core/slang-string-util.h"
 
 namespace Slang {
@@ -359,7 +357,7 @@ SourceManager::~SourceManager()
 
 UnownedStringSlice SourceManager::allocateStringSlice(const UnownedStringSlice& slice)
 {
-    const UInt numChars = slice.size();
+    const UInt numChars = slice.getLength();
 
     char* dst = (char*)m_memoryArena.allocate(numChars);
     ::memcpy(dst, slice.begin(), numChars);

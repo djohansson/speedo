@@ -7,7 +7,7 @@
 namespace Slang
 {
     // Flavors of translation unit
-    enum class SourceLanguage : SlangSourceLanguage
+    enum class SourceLanguage : SlangSourceLanguageIntegral
     {
         Unknown = SLANG_SOURCE_LANGUAGE_UNKNOWN, // should not occur
         Slang = SLANG_SOURCE_LANGUAGE_SLANG,
@@ -15,6 +15,8 @@ namespace Slang
         GLSL = SLANG_SOURCE_LANGUAGE_GLSL,
         C = SLANG_SOURCE_LANGUAGE_C,
         CPP = SLANG_SOURCE_LANGUAGE_CPP,
+        CUDA = SLANG_SOURCE_LANGUAGE_CUDA,
+        CountOf = SLANG_SOURCE_LANGUAGE_COUNT_OF,
     };
 
     // TODO(tfoley): This should merge with the above...
@@ -39,6 +41,9 @@ namespace Slang
 #include "slang-profile-defs.h"
     };
 
+
+    void printDiagnosticArg(StringBuilder& sb, ProfileVersion val);
+    
     enum class Stage : SlangStage
     {
         Unknown = SLANG_STAGE_NONE,
@@ -48,6 +53,8 @@ namespace Slang
     };
 
     const char* getStageName(Stage stage);
+
+    void printDiagnosticArg(StringBuilder& sb, Stage val);
 
     ProfileFamily getProfileFamily(ProfileVersion version);
 
@@ -102,7 +109,11 @@ namespace Slang
         RawVal raw = Unknown;
     };
 
+
+
     Stage findStageByName(String const& name);
+
+    UnownedStringSlice getStageText(Stage stage);
 }
 
 #endif

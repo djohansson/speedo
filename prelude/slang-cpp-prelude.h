@@ -22,12 +22,20 @@
 
 #define SLANG_PRELUDE_EXPORT SLANG_PRELUDE_EXTERN_C SLANG_PRELUDE_SHARED_LIB_EXPORT
 
+#ifndef SLANG_INFINITY
+#   define SLANG_INFINITY   INFINITY
+#endif
+
 #include "slang-cpp-types.h"
 #include "slang-cpp-scalar-intrinsics.h"
 
 // TODO(JS): Hack! Output C++ code from slang can copy uninitialized variables. 
 #if SLANG_VC
 #   pragma warning(disable : 4700)
+#endif
+
+#ifndef SLANG_UNROLL
+#   define SLANG_UNROLL
 #endif
 
 #endif

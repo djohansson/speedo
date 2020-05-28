@@ -41,36 +41,27 @@ enum : IROpFlags
 
 /* Bit usage of IROp is a follows
 
-          MainOp | Pseudo | Other
-Bit range: 0-7   |    8   | Remaining bits
+          MainOp | Other
+Bit range: 0-7   | Remaining bits
 
-If an instruction is 'pseudo' (ie shouldn't appear in output IR), then the Pseudo bit is set - and 'Invalid' falls into 
-this category as well as all pseudo ops.
 For doing range checks (for example for doing isa tests), the value is masked by kIROpMeta_OpMask, such that the Other bits don't interfere.
 The other bits can be used for storage for anything that needs to identify as a different 'op' or 'type'. It is currently 
 used currently for storing the TextureFlavor of a IRResourceTypeBase derived types for example. 
+
+TODO: We should eliminate the use of the "other" bits so that the entire value/state
+of an instruction is manifest in its opcode, operands, and children.
 */
 enum IROp : int32_t
 {
 #define INST(ID, MNEMONIC, ARG_COUNT, FLAGS)  \
     kIROp_##ID,
-
 #include "slang-ir-inst-defs.h"
 
+        /// The total number of valid opcodes
     kIROpCount,
 
-    // We use the range 0x100 to 0x1ff set for pseudo/non main codes
-    // Instructions that should not appear in valid IR.
-
-    kIROp_Invalid = 0x100,                                      ///< If bit set, then in pseudo/not normal space 
-    kIRPseudoOp_First = kIROp_Invalid,
-
-#define INST(ID, MNEMONIC, ARG_COUNT, FLAGS) /* empty */
-#define PSEUDO_INST(ID) kIRPseudoOp_##ID,
-
-    kIRPseudoOp_LastPlusOne,
-
-#include "slang-ir-inst-defs.h"
+        /// An invalid opcode used to represent a missing or unknown opcode value.
+    kIROp_Invalid = kIROpCount,
 
 #define INST(ID, MNEMONIC, ARG_COUNT, FLAGS) /* empty */
 #define INST_RANGE(BASE, FIRST, LAST)       \
@@ -83,15 +74,9 @@ enum IROp : int32_t
 /* IROpMeta describe values for layout of IROp, as well as values for accessing aspects of IROp bits. */
 enum IROpMeta
 {
-    kIROpMeta_OtherShift = 9,                                            ///< Number of bits for op/pseudo ops (shift right by this to get the other bits)
-    kIROpMeta_PseudoOpMask = (int32_t(1) << kIROpMeta_OtherShift) - 1,   ///< Mask for ops including pseudo ops
-    kIROpMeta_OpMask = 0xff,                                        ///< Mask for just ops
-    kIrOpMeta_OtherMask = ~kIROpMeta_PseudoOpMask,                  ///< Mask for bits that can be used for other purposes than 'op' ('other' bits)
-    kIROpMeta_IsPseudoOp = kIROp_Invalid,                           ///< 'And' with op, if set, the op is a pseudo op
+    kIROpMeta_OtherShift = 8,   ///< Number of bits for op (shift right by this to get the other bits)
+    kIROpMeta_OpMask = 0xff,    ///< Mask for just opcode
 };
-
-// True if op is pseudo (or invalid which is 'pseudo-like' at least in as so far as current behavior)
-SLANG_FORCE_INLINE bool isPseudoOp(IROp op) { return (op & kIROpMeta_IsPseudoOp) != 0; }
 
 IROp findIROp(const UnownedStringSlice& name);
 
@@ -219,7 +204,108 @@ struct IRInstList : IRInstListBase
     Iterator end();
 };
 
+    /// A list of contiguous operands that can be iterated over as `IRInst`s.
+struct IROperandListBase
+{
+    IROperandListBase()
+        : m_begin(nullptr)
+        , m_end(nullptr)
+    {}
 
+    IROperandListBase(
+        IRUse* begin,
+        IRUse* end)
+        : m_begin(begin)
+        , m_end(end)
+    {}
+
+    struct Iterator
+    {
+    public:
+        Iterator()
+            : m_cursor(nullptr)
+        {}
+
+        Iterator(IRUse* use)
+            : m_cursor(use)
+        {}
+
+        IRInst* operator*() const
+        {
+            return m_cursor->get();
+        }
+
+        IRUse* getCursor() const { return m_cursor; }
+
+        void operator++()
+        {
+            m_cursor++;
+        }
+
+        bool operator!=(Iterator const& that) const
+        {
+            return m_cursor != that.m_cursor;
+        }
+
+    protected:
+        IRUse* m_cursor;
+    };
+
+    Iterator begin() const { return Iterator(m_begin); }
+    Iterator end() const { return Iterator(m_end); }
+
+    Int getCount() const { return m_end - m_begin; }
+
+    IRInst* operator[](Int index) const
+    {
+        return m_begin[index].get();
+    }
+
+protected:
+    IRUse* m_begin;
+    IRUse* m_end;
+};
+
+    /// A list of contiguous operands that can be iterated over as all being of type `T`.
+template<typename T>
+struct IROperandList : IROperandListBase
+{
+    typedef IROperandListBase Super;
+public:
+    IROperandList()
+    {}
+
+    IROperandList(
+        IRUse* begin,
+        IRUse* end)
+        : Super(begin, end)
+    {}
+
+    struct Iterator : public IROperandListBase::Iterator
+    {
+        typedef IROperandListBase::Iterator Super;
+    public:
+        Iterator()
+        {}
+
+        Iterator(IRUse* use)
+            : Super(use)
+        {}
+
+        T* operator*() const
+        {
+            return (T*) m_cursor->get();
+        }
+    };
+
+    Iterator begin() const { return Iterator(m_begin); }
+    Iterator end() const { return Iterator(m_end); }
+
+    T* operator[](Int index) const
+    {
+        return (T*) m_begin[index].get();
+    }
+};
 
 // Every value in the IR is an instruction (even things
 // like literal values).
@@ -259,6 +345,40 @@ struct IRInst
     IRDecoration* findDecorationImpl(IROp op);
     template<typename T>
     T* findDecoration();
+
+        /// Get all the attributes attached to this instruction.
+    IROperandListBase getAllAttrs();
+
+        /// Find the first attribute of type `T` attached to this instruction.
+    template<typename T>
+    T* findAttr()
+    {
+        for( auto attr : getAllAttrs() )
+        {
+            if(auto found = as<T>(attr))
+                return found;
+        }
+        return nullptr;
+    }
+
+        /// Find all attributes of type `T` attached to this instruction.
+        ///
+        /// This operation assumes that attributes are grouped by type,
+        /// so that all the attributes of type `T` are contiguous.
+        ///
+    template<typename T>
+    IROperandList<T> findAttrs()
+    {
+        auto allAttrs = getAllAttrs();
+        auto bb = allAttrs.begin();
+        auto end = allAttrs.end();
+        while(bb != end && !as<T>(*bb))
+            ++bb;
+        auto ee = bb;
+        while(ee != end && as<T>(*ee))
+            ++ee;
+        return IROperandList<T>(bb.getCursor(),ee.getCursor());
+    }
 
     // The first use of this value (start of a linked list)
     IRUse*      firstUse = nullptr;
@@ -445,6 +565,8 @@ T* cast(IRInst* inst, T* /* */ = nullptr)
     return (T*)inst;
 }
 
+SourceLoc const& getDiagnosticPos(IRInst* inst);
+
 // Now that `IRInst` is defined we can back-fill the definitions that need to access it.
 
 template<typename T>
@@ -467,8 +589,8 @@ typename IRInstList<T>::Iterator IRInstList<T>::end()
 
 // Types
 
-#define IR_LEAF_ISA(NAME) static bool isaImpl(IROp op) { return (kIROpMeta_PseudoOpMask & op) == kIROp_##NAME; }
-#define IR_PARENT_ISA(NAME) static bool isaImpl(IROp opIn) { const int op = (kIROpMeta_PseudoOpMask & opIn); return op >= kIROp_First##NAME && op <= kIROp_Last##NAME; }
+#define IR_LEAF_ISA(NAME) static bool isaImpl(IROp op) { return (kIROpMeta_OpMask & op) == kIROp_##NAME; }
+#define IR_PARENT_ISA(NAME) static bool isaImpl(IROp opIn) { const int op = (kIROpMeta_OpMask & opIn); return op >= kIROp_First##NAME && op <= kIROp_Last##NAME; }
 
 #define SIMPLE_IR_TYPE(NAME, BASE) struct IR##NAME : IR##BASE { IR_LEAF_ISA(NAME) };
 #define SIMPLE_IR_PARENT_TYPE(NAME, BASE) struct IR##NAME : IR##BASE { IR_PARENT_ISA(NAME) };
@@ -518,6 +640,14 @@ typedef double IRFloatingPointValue;
 
 struct IRConstant : IRInst
 {
+    enum class FloatKind
+    {
+        Finite,
+        PositiveInfinity,
+        NegativeInfinity,
+        Nan,
+    };
+
     struct StringValue
     {   
         uint32_t numChars;           ///< The number of chars
@@ -545,6 +675,13 @@ struct IRConstant : IRInst
         /// Returns a string slice (or empty string if not appropriate)
     UnownedStringSlice getStringSlice();
 
+         /// Returns the kind of floating point value we have
+    FloatKind getFloatKind() const;
+
+        /// Returns true if the value is finite.
+        /// NOTE! Only works on floating point types
+    bool isFinite() const;
+
         /// True if constants are equal
     bool equal(IRConstant* rhs);
         /// True if the value is equal.
@@ -552,7 +689,7 @@ struct IRConstant : IRInst
     bool isValueEqual(IRConstant* rhs);
 
         /// Get the hash 
-    int getHashCode();
+    HashCode getHashCode();
 
     IR_PARENT_ISA(Constant)
 
@@ -574,7 +711,6 @@ struct IRBoolLit : IRConstant
 
     IR_LEAF_ISA(BoolLit);
 };
-
 
 // Get the compile-time constant integer value of an instruction,
 // if it has one, and assert-fail otherwise.
@@ -769,7 +905,7 @@ struct IRResourceTypeBase : IRType
 
     TextureFlavor::Shape GetBaseShape() const
     {
-        return getFlavor().GetBaseShape();
+        return getFlavor().getBaseShape();
     }
     bool isMultisample() const { return getFlavor().isMultisample(); }
     bool isArray() const { return getFlavor().isArray(); }
@@ -946,6 +1082,18 @@ SIMPLE_IR_TYPE(OutType, OutTypeBase)
 SIMPLE_IR_TYPE(InOutType, OutTypeBase)
 SIMPLE_IR_TYPE(ExistentialBoxType, PtrTypeBase)
 
+struct IRGlobalHashedStringLiterals : IRInst
+{
+    IR_LEAF_ISA(GlobalHashedStringLiterals)
+};
+
+struct IRGetStringHash : IRInst
+{
+    IR_LEAF_ISA(GetStringHash)
+
+    IRStringLit* getStringLit() { return as<IRStringLit>(getOperand(0)); }
+};
+
     /// Get the type pointed to be `ptrType`, or `nullptr` if it is not a pointer(-like) type.
     ///
     /// The given IR `builder` will be used if new instructions need to be created.
@@ -1102,6 +1250,10 @@ struct IRGeneric : IRGlobalValueWithParams
 // Find the value that is returned from a generic, so that
 // a pass can glean information from it.
 IRInst* findGenericReturnVal(IRGeneric* generic);
+
+struct IRSpecialize;
+IRGeneric* findSpecializedGeneric(IRSpecialize* specialize);
+IRInst* findSpecializeReturnVal(IRSpecialize* specialize);
 
 // Resolve an instruction that might reference a static definition
 // to the most specific IR node possible, so that we can read

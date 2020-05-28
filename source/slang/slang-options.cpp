@@ -3,6 +3,8 @@
 // Implementation of options parsing for `slangc` command line,
 // and also for API interface that takes command-line argument strings.
 
+#include "slang-options.h"
+
 #include "../../slang.h"
 
 #include "slang-compiler.h"
@@ -10,9 +12,16 @@
 
 #include "slang-file-system.h"
 
+#include "slang-state-serialize.h"
+#include "slang-ir-serialize.h"
+
+#include "../core/slang-type-text-util.h"
+
 #include <assert.h>
 
 namespace Slang {
+
+SlangResult _addLibraryReference(EndToEndCompileRequest* req, Stream* stream);
 
 SlangResult tryReadCommandLineArgumentRaw(DiagnosticSink* sink, char const* option, char const* const**ioCursor, char const* const*end, char const** argOut)
 {
@@ -36,26 +45,6 @@ SlangResult tryReadCommandLineArgument(DiagnosticSink* sink, char const* option,
     SLANG_RETURN_ON_FAIL(tryReadCommandLineArgumentRaw(sink, option, ioCursor, end, &arg));
     argOut = arg;
     return SLANG_OK;
-}
-
-#define SLANG_PASS_THROUGH_TYPES(x) \
-        x(none, NONE) \
-        x(fxc, FXC) \
-        x(dxc, DXC) \
-        x(glslang, GLSLANG) \
-        x(vs, VISUAL_STUDIO) \
-        x(visualstudio, VISUAL_STUDIO) \
-        x(clang, CLANG) \
-        x(gcc, GCC) \
-        x(c, GENERIC_C_CPP) \
-        x(cpp, GENERIC_C_CPP)
-
-static SlangResult _parsePassThrough(const UnownedStringSlice& name, SlangPassThrough& outPassThrough)
-{
-#define SLANG_PASS_THROUGH_TYPE_CHECK(x, y) \
-    if (name == #x) { outPassThrough = SLANG_PASS_THROUGH_##y; return SLANG_OK; }
-    SLANG_PASS_THROUGH_TYPES(SLANG_PASS_THROUGH_TYPE_CHECK)
-    return SLANG_FAIL;
 }
 
 struct OptionsParser
@@ -292,6 +281,8 @@ struct OptionsParser
 
             { ".c",    SLANG_SOURCE_LANGUAGE_C,     SLANG_STAGE_NONE },
             { ".cpp",  SLANG_SOURCE_LANGUAGE_CPP,   SLANG_STAGE_NONE },
+            { ".cu",   SLANG_SOURCE_LANGUAGE_CUDA,  SLANG_STAGE_NONE }
+
         };
 
         for (int i = 0; i < SLANG_COUNT_OF(entries); ++i)
@@ -307,7 +298,8 @@ struct OptionsParser
     }
 
     SlangResult addInputPath(
-        char const*  inPath)
+        char const*  inPath,
+        SourceLanguage langOverride = SourceLanguage::Unknown)
     {
         inputPathCount++;
 
@@ -315,7 +307,7 @@ struct OptionsParser
         // how we should handle it.
         String path = String(inPath);
 
-        if( path.endsWith(".slang") )
+        if( path.endsWith(".slang") || langOverride == SourceLanguage::Slang)
         {
             // Plain old slang code
             addInputSlangPath(path);
@@ -323,8 +315,8 @@ struct OptionsParser
         }
 
         Stage impliedStage = Stage::Unknown;
-        SlangSourceLanguage sourceLanguage = findSourceLanguageFromPath(path, impliedStage);
-        
+        SlangSourceLanguage sourceLanguage = langOverride == SourceLanguage::Unknown ? findSourceLanguageFromPath(path, impliedStage) : SlangSourceLanguage(langOverride);
+
         if (sourceLanguage == SLANG_SOURCE_LANGUAGE_UNKNOWN)
         {
             requestImpl->getSink()->diagnose(SourceLoc(), Diagnostics::cannotDeduceSourceLanguage, inPath);
@@ -349,50 +341,20 @@ struct OptionsParser
     void addOutputPath(char const* inPath)
     {
         String path = String(inPath);
+        String ext = Path::getPathExt(path);
 
-        if (!inPath) {}
-#define CASE(EXT, TARGET)   \
-        else if(path.endsWith(EXT)) do { addOutputPath(path, CodeGenTarget(SLANG_##TARGET)); } while(0)
-
-        CASE(".hlsl", HLSL);
-        CASE(".fx",   HLSL);
-
-        CASE(".dxbc", DXBC);
-        CASE(".dxbc.asm", DXBC_ASM);
-
-        CASE(".dxil", DXIL);
-        CASE(".dxil.asm", DXIL_ASM);
-
-        CASE(".glsl", GLSL);
-        CASE(".vert", GLSL);
-        CASE(".frag", GLSL);
-        CASE(".geom", GLSL);
-        CASE(".tesc", GLSL);
-        CASE(".tese", GLSL);
-        CASE(".comp", GLSL);
-
-        CASE(".spv",        SPIRV);
-        CASE(".spv.asm",    SPIRV_ASM);
-
-        CASE(".c",      C_SOURCE);
-        CASE(".cpp",    CPP_SOURCE);
-
-        CASE(".exe",    EXECUTABLE);
-        CASE(".dll",    SHARED_LIBRARY);
-        CASE(".so",     SHARED_LIBRARY);
-
-#undef CASE
-
-        else if (path.endsWith(".slang-module"))
+        if (ext == "slang-module" || ext == "slang-lib")
         {
             spSetOutputContainerFormat(compileRequest, SLANG_CONTAINER_FORMAT_SLANG_MODULE);
-            requestImpl->containerOutputPath = path;
+            requestImpl->m_containerOutputPath = path;
         }
         else
         {
-            // Allow an unknown-format `-o`, assuming we get a target format
+            const SlangCompileTarget target = TypeTextUtil::findCompileTargetFromExtension(ext.getUnownedSlice());
+            // If the target is not found the value returned is Unknown. This is okay because
+            // we allow an unknown-format `-o`, assuming we get a target format
             // from another argument.
-            addOutputPath(path, CodeGenTarget::Unknown);
+            addOutputPath(path, CodeGenTarget(target));
         }
     }
 
@@ -469,6 +431,8 @@ struct OptionsParser
 
         SlangMatrixLayoutMode defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_MODE_UNKNOWN;
 
+        bool hasLoadedRepro = false;
+
         char const* const* argCursor = &argv[0];
         char const* const* argEnd = &argv[argc];
         while (argCursor != argEnd)
@@ -486,10 +450,108 @@ struct OptionsParser
                 {
                     flags |= SLANG_COMPILE_FLAG_NO_CODEGEN;
                 }
+                else if (argStr == "-dump-intermediates")
+                {
+                    spSetDumpIntermediates(compileRequest, true);
+                }
+                else if (argStr == "-dump-intermediate-prefix")
+                {
+                    String prefix;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, prefix));
+                    requestImpl->getBackEndReq()->m_dumpIntermediatePrefix = prefix;
+                }
                 else if(argStr == "-dump-ir" )
                 {
                     requestImpl->getFrontEndReq()->shouldDumpIR = true;
                     requestImpl->getBackEndReq()->shouldDumpIR = true;
+                }
+                else if (argStr == "-dump-ast")
+                {
+                    requestImpl->getFrontEndReq()->shouldDumpAST = true;
+                }
+                else if (argStr == "-dump-repro")
+                {
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, requestImpl->dumpRepro));
+                    spEnableReproCapture(compileRequest);
+                }
+                else if (argStr == "-dump-repro-on-error")
+                {
+                    requestImpl->dumpReproOnError = true;
+                }
+                else if (argStr == "-extract-repro")
+                {
+                    String reproName;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, reproName));
+
+                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::extractFilesToDirectory(reproName));
+                }
+                else if (argStr == "-module-name")
+                {
+                    String moduleName;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, moduleName));
+
+                    spSetDefaultModuleName(compileRequest, moduleName.getBuffer());
+                }
+                else if(argStr == "-load-repro")
+                {
+                    String reproName;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, reproName));
+
+                    List<uint8_t> buffer;
+                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::loadState(reproName, buffer));
+
+                    auto requestState = StateSerializeUtil::getRequest(buffer);
+                    MemoryOffsetBase base;
+                    base.set(buffer.getBuffer(), buffer.getCount());
+
+                    // If we can find a directory, that exists, we will set up a file system to load from that directory
+                    ComPtr<ISlangFileSystem> fileSystem;
+                    String dirPath;
+                    if (SLANG_SUCCEEDED(StateSerializeUtil::calcDirectoryPathFromFilename(reproName, dirPath)))
+                    {
+                        SlangPathType pathType;
+                        if (SLANG_SUCCEEDED(Path::getPathType(dirPath, &pathType)) && pathType == SLANG_PATH_TYPE_DIRECTORY)
+                        {
+                            fileSystem = new RelativeFileSystem(OSFileSystemExt::getSingleton(), dirPath);
+                        }
+                    }
+
+                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::load(base, requestState, fileSystem, requestImpl));
+
+                    hasLoadedRepro = true;
+                }
+                else if (argStr == "-repro-file-system")
+                {
+                    String reproName;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, reproName));
+
+                    List<uint8_t> buffer;
+                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::loadState(reproName, buffer));
+
+                    auto requestState = StateSerializeUtil::getRequest(buffer);
+                    MemoryOffsetBase base;
+                    base.set(buffer.getBuffer(), buffer.getCount());
+
+                    // If we can find a directory, that exists, we will set up a file system to load from that directory
+                    ComPtr<ISlangFileSystem> dirFileSystem;
+                    String dirPath;
+                    if (SLANG_SUCCEEDED(StateSerializeUtil::calcDirectoryPathFromFilename(reproName, dirPath)))
+                    {
+                        SlangPathType pathType;
+                        if (SLANG_SUCCEEDED(Path::getPathType(dirPath, &pathType)) && pathType == SLANG_PATH_TYPE_DIRECTORY)
+                        {
+                            dirFileSystem = new RelativeFileSystem(OSFileSystemExt::getSingleton(), dirPath, true);
+                        }
+                    }
+
+                    RefPtr<CacheFileSystem> cacheFileSystem;
+                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::loadFileSystem(base, requestState, dirFileSystem, cacheFileSystem));
+
+                    // I might want to make the dir file system the fallback file system...
+                    cacheFileSystem->setInnerFileSystem(dirFileSystem, cacheFileSystem->getUniqueIdentityMode(), cacheFileSystem->getPathStyle());
+
+                    // Set as the file system
+                    spSetFileSystem(compileRequest, cacheFileSystem);
                 }
                 else if (argStr == "-serial-ir")
                 {
@@ -516,12 +578,18 @@ struct OptionsParser
                 {
                     getCurrentTarget()->targetFlags |= SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES;
                 }
+                else if (argStr == "-ir-compression")
+                {
+                    String name;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, name));
+                    SLANG_RETURN_ON_FAIL(IRSerialTypeUtil::parseCompressionType(name.getUnownedSlice(), requestImpl->getLinkage()->irCompressionType));
+                }
                 else if (argStr == "-target")
                 {
                     String name;
                     SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, name));
 
-                    const CodeGenTarget format = calcCodeGenTargetFromName(name.getUnownedSlice());
+                    const CodeGenTarget format = (CodeGenTarget)TypeTextUtil::findCompileTargetFromName(name.getUnownedSlice());
 
                     if (format == CodeGenTarget::Unknown)
                     {
@@ -590,13 +658,33 @@ struct OptionsParser
 
                     rawEntryPoints.add(rawEntryPoint);
                 }
+                else if (argStr == "-lang")
+                {
+                    String name;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, name));
+
+                    const SourceLanguage sourceLanguage = (SourceLanguage)TypeTextUtil::findSourceLanguage(name.getUnownedSlice());
+
+                    if (sourceLanguage == SourceLanguage::Unknown)
+                    {
+                        sink->diagnose(SourceLoc(), Diagnostics::unknownSourceLanguage, name);
+                        return SLANG_FAIL;
+                    }
+                    else
+                    {
+                        while ((*argCursor)[0] != '-' && argCursor != argEnd)
+                        {
+                            SLANG_RETURN_ON_FAIL(addInputPath(*argCursor++, sourceLanguage));
+                        }
+                    }
+                }
                 else if (argStr == "-pass-through")
                 {
                     String name;
                     SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, name));
 
                     SlangPassThrough passThrough = SLANG_PASS_THROUGH_NONE;
-                    if (SLANG_FAILED(_parsePassThrough(name.getUnownedSlice(), passThrough)))
+                    if (SLANG_FAILED(TypeTextUtil::findPassThrough(name.getUnownedSlice(), passThrough)))
                     {
                         sink->diagnose(SourceLoc(), Diagnostics::unknownPassThroughTarget, name);
                         return SLANG_FAIL;
@@ -775,6 +863,10 @@ struct OptionsParser
                 {
                     requestImpl->getBackEndReq()->useUnknownImageFormatAsDefault = true;
                 }
+                else if (argStr == "-obfuscate")
+                {
+                    requestImpl->getLinkage()->m_obfuscateCode = true;
+                }
                 else if (argStr == "-file-system")
                 {
                     String name;
@@ -800,10 +892,53 @@ struct OptionsParser
                         return SLANG_FAIL;
                     }
                 }
+                else if (argStr == "-r")
+                {
+                    String referenceModuleName;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, referenceModuleName));
+
+                    // We need to deserialize and add the modules
+                    FileStream fileStream(referenceModuleName, FileMode::Open, FileAccess::Read, FileShare::ReadWrite);
+
+                    // TODO: probalby near an error when we can't open the file?
+
+                    _addLibraryReference(requestImpl, &fileStream);
+                }
                 else if (argStr == "-v")
                 {
                     sink->diagnoseRaw(Severity::Note, session->getBuildTagString());
                 }
+                else if( argStr == "-emit-spirv-directly" )
+                {
+                    requestImpl->getBackEndReq()->shouldEmitSPIRVDirectly = true;
+                }
+                else if (argStr == "-default-downstream-compiler")
+                {
+                    String sourceLanguageText;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, sourceLanguageText));
+                    String compilerText;
+                    SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, compilerText));
+
+                    SlangSourceLanguage sourceLanguage = TypeTextUtil::findSourceLanguage(sourceLanguageText.getUnownedSlice());
+                    if (sourceLanguage == SLANG_SOURCE_LANGUAGE_UNKNOWN)
+                    {
+                        sink->diagnose(SourceLoc(), Diagnostics::unknownSourceLanguage, sourceLanguageText);
+                        return SLANG_FAIL;
+                    }
+
+                    SlangPassThrough compiler;
+                    if (SLANG_FAILED(TypeTextUtil::findPassThrough(compilerText.getUnownedSlice(), compiler)))
+                    {
+                        sink->diagnose(SourceLoc(), Diagnostics::unknownPassThroughTarget, compilerText);
+                        return SLANG_FAIL;
+                    }
+
+                    if (SLANG_FAILED(session->setDefaultDownstreamCompiler(sourceLanguage, compiler)))
+                    {
+                        sink->diagnose(SourceLoc(), Diagnostics::unableToSetDefaultDownstreamCompiler, compilerText, sourceLanguageText, compilerText);
+                        return SLANG_FAIL;
+                    }
+                }       
                 else if (argStr == "--")
                 {
                     // The `--` option causes us to stop trying to parse options,
@@ -826,7 +961,7 @@ struct OptionsParser
 
                             String slice = argStr.subString(1, index - 1);
                             SlangPassThrough passThrough = SLANG_PASS_THROUGH_NONE;
-                            if (SLANG_SUCCEEDED(_parsePassThrough(slice.getUnownedSlice(), passThrough)))
+                            if (SLANG_SUCCEEDED(TypeTextUtil::findPassThrough(slice.getUnownedSlice(), passThrough)))
                             {
                                 session->setDownstreamCompilerPath(passThrough, name.getBuffer());
                                 continue;
@@ -843,6 +978,15 @@ struct OptionsParser
             {
                 SLANG_RETURN_ON_FAIL(addInputPath(arg));
             }
+        }
+
+        // TODO(JS): This is a restriction because of how setting of state works for load repro
+        // If a repro has been loaded, then many of the following options will overwrite
+        // what was set up. So for now they are ignored, and only parameters set as part
+        // of the loop work if they are after -load-repro
+        if (hasLoadedRepro)
+        {
+            return SLANG_OK;
         }
 
         spSetCompileFlags(compileRequest, flags);

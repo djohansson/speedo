@@ -8,98 +8,209 @@
 
 namespace Slang
 {
-    // BasicExpressionType
 
-    bool BasicExpressionType::EqualsImpl(Type * type)
-    {
-        auto basicType = dynamicCast<const BasicExpressionType>(type);
-        return basicType && basicType->baseType == this->baseType;
-    }
+/* static */const TypeExp TypeExp::empty;
 
-    RefPtr<Type> BasicExpressionType::CreateCanonicalType()
-    {
-        // A basic type is already canonical, in our setup
-        return this;
-    }
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!! DiagnosticSink impls !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-    // Generate dispatch logic and other definitions for all syntax classes
-#define SYNTAX_CLASS(NAME, BASE) /* empty */
-#include "slang-object-meta-begin.h"
-
-#include "slang-syntax-base-defs.h"
-#undef SYNTAX_CLASS
-#undef ABSTRACT_SYNTAX_CLASS
-
-#define ABSTRACT_SYNTAX_CLASS(NAME, BASE)   \
-    template<>                              \
-    SyntaxClassBase::ClassInfo const SyntaxClassBase::Impl<NAME>::kClassInfo = { #NAME, &SyntaxClassBase::Impl<BASE>::kClassInfo, nullptr };
-
-#define SYNTAX_CLASS(NAME, BASE)                                                \
-    void NAME::accept(NAME::Visitor* visitor, void* extra)                      \
-    { visitor->dispatch_##NAME(this, extra); }                                  \
-    template<>                                                                  \
-    void* SyntaxClassBase::Impl<NAME>::createFunc() { return new NAME(); }      \
-    SyntaxClass<NodeBase> NAME::getClass() { return Slang::getClass<NAME>(); }  \
-    template<>                                                                  \
-    SyntaxClassBase::ClassInfo const SyntaxClassBase::Impl<NAME>::kClassInfo = { #NAME, &SyntaxClassBase::Impl<BASE>::kClassInfo, &SyntaxClassBase::Impl<NAME>::createFunc };
-
-template<>
-SyntaxClassBase::ClassInfo const SyntaxClassBase::Impl<RefObject>::kClassInfo = { "RefObject", nullptr, nullptr };
-
-ABSTRACT_SYNTAX_CLASS(NodeBase, RefObject);
-ABSTRACT_SYNTAX_CLASS(SyntaxNodeBase, NodeBase);
-ABSTRACT_SYNTAX_CLASS(SyntaxNode, SyntaxNodeBase);
-ABSTRACT_SYNTAX_CLASS(ModifiableSyntaxNode, SyntaxNode);
-ABSTRACT_SYNTAX_CLASS(DeclBase, ModifiableSyntaxNode);
-ABSTRACT_SYNTAX_CLASS(Decl, DeclBase);
-ABSTRACT_SYNTAX_CLASS(Stmt, ModifiableSyntaxNode);
-ABSTRACT_SYNTAX_CLASS(Val, NodeBase);
-ABSTRACT_SYNTAX_CLASS(Type, Val);
-ABSTRACT_SYNTAX_CLASS(Modifier, SyntaxNodeBase);
-ABSTRACT_SYNTAX_CLASS(Expr, SyntaxNode);
-
-ABSTRACT_SYNTAX_CLASS(Substitutions, SyntaxNode);
-ABSTRACT_SYNTAX_CLASS(GenericSubstitution, Substitutions);
-ABSTRACT_SYNTAX_CLASS(ThisTypeSubstitution, Substitutions);
-ABSTRACT_SYNTAX_CLASS(GlobalGenericParamSubstitution, Substitutions);
-
-#include "slang-expr-defs.h"
-#include "slang-decl-defs.h"
-#include "slang-modifier-defs.h"
-#include "slang-stmt-defs.h"
-#include "slang-type-defs.h"
-#include "slang-val-defs.h"
-#include "slang-object-meta-end.h"
-
-bool SyntaxClassBase::isSubClassOfImpl(SyntaxClassBase const& super) const
+void printDiagnosticArg(StringBuilder& sb, Decl* decl)
 {
-    SyntaxClassBase::ClassInfo const* info = classInfo;
-    while (info)
-    {
-        if (info == super.classInfo)
-            return true;
-
-        info = info->baseClass;
-    }
-
-    return false;
+    sb << getText(decl->getName());
 }
 
-void Type::accept(IValVisitor* visitor, void* extra)
+void printDiagnosticArg(StringBuilder& sb, Type* type)
 {
-    accept((ITypeVisitor*)visitor, extra);
+    sb << type->toString();
+}
+
+void printDiagnosticArg(StringBuilder& sb, Val* val)
+{
+    sb << val->toString();
+}
+
+void printDiagnosticArg(StringBuilder& sb, TypeExp const& type)
+{
+    sb << type.type->toString();
+}
+
+void printDiagnosticArg(StringBuilder& sb, QualType const& type)
+{
+    if (type.type)
+        sb << type.type->toString();
+    else
+        sb << "<null>";
+}
+
+SourceLoc const& getDiagnosticPos(SyntaxNode const* syntax)
+{
+    return syntax->loc;
+}
+
+SourceLoc const& getDiagnosticPos(TypeExp const& typeExp)
+{
+    return typeExp.exp->loc;
+}
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!! BasicExpressionType !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+bool BasicExpressionType::equalsImpl(Type * type)
+{
+    auto basicType = as<BasicExpressionType>(type);
+    return basicType && basicType->baseType == this->baseType;
+}
+
+RefPtr<Type> BasicExpressionType::createCanonicalType()
+{
+    // A basic type is already canonical, in our setup
+    return this;
+}
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!  Free functions !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+const RefPtr<Decl>* adjustFilterCursorImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end)
+{
+    switch (filterStyle)
+    {
+        default:
+        case MemberFilterStyle::All:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                if (decl->getClassInfo().isSubClassOf(clsInfo))
+                {
+                    return ptr;
+                }
+            }
+            break;
+        }
+        case MemberFilterStyle::Instance:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                if (decl->getClassInfo().isSubClassOf(clsInfo) && !decl->hasModifier<HLSLStaticModifier>())
+                {
+                    return ptr;
+                }
+            }
+            break;
+        }
+        case MemberFilterStyle::Static:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                if (decl->getClassInfo().isSubClassOf(clsInfo) && decl->hasModifier<HLSLStaticModifier>())
+                {
+                    return ptr;
+                }
+            }
+            break;
+        }
+    }
+    return end;
+}
+
+const RefPtr<Decl>* getFilterCursorByIndexImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end, Index index)
+{
+    switch (filterStyle)
+    {
+        default:
+        case MemberFilterStyle::All:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                if (decl->getClassInfo().isSubClassOf(clsInfo))
+                {
+                    if (index <= 0)
+                    {
+                        return ptr;
+                    }
+                    index--;
+                }
+            }
+            break;
+        }
+        case MemberFilterStyle::Instance:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                if (decl->getClassInfo().isSubClassOf(clsInfo) && !decl->hasModifier<HLSLStaticModifier>())
+                {
+                    if (index <= 0)
+                    {
+                        return ptr;
+                    }
+                    index--;
+                }
+            }
+            break;
+        }
+        case MemberFilterStyle::Static:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                if (decl->getClassInfo().isSubClassOf(clsInfo) && decl->hasModifier<HLSLStaticModifier>())
+                {
+                    if (index <= 0)
+                    {
+                        return ptr;
+                    }
+                    index--;
+                }
+            }
+            break;
+        }
+    }
+    return nullptr;
+}
+
+Index getFilterCountImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end)
+{
+    Index count = 0;
+    switch (filterStyle)
+    {
+        default:
+        case MemberFilterStyle::All:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                count += Index(decl->getClassInfo().isSubClassOf(clsInfo));
+            }
+            break;
+        }
+        case MemberFilterStyle::Instance:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                count += Index(decl->getClassInfo().isSubClassOf(clsInfo)&& !decl->hasModifier<HLSLStaticModifier>());
+            }
+            break;
+        }
+        case MemberFilterStyle::Static:
+        {
+            for (; ptr != end; ptr++)
+            {
+                Decl* decl = *ptr;
+                count += Index(decl->getClassInfo().isSubClassOf(clsInfo) && decl->hasModifier<HLSLStaticModifier>());
+            }
+            break;
+        }
+    }
+    return count;
 }
 
     // TypeExp
 
-    bool TypeExp::Equals(Type* other)
+    bool TypeExp::equals(Type* other)
     {
-        return type->Equals(other);
-    }
-
-    bool TypeExp::Equals(RefPtr<Type> other)
-    {
-        return type->Equals(other.Ptr());
+        return type->equals(other);
     }
 
     // BasicExpressionType
@@ -121,22 +232,22 @@ void Type::accept(IValVisitor* visitor, void* extra)
         }
     }
 
-    bool Type::Equals(Type * type)
+    bool Type::equals(Type* type)
     {
-        return GetCanonicalType()->EqualsImpl(type->GetCanonicalType());
+        return getCanonicalType()->equalsImpl(type->getCanonicalType());
     }
 
-    bool Type::EqualsVal(Val* val)
+    bool Type::equalsVal(Val* val)
     {
         if (auto type = dynamicCast<Type>(val))
-            return const_cast<Type*>(this)->Equals(type);
+            return const_cast<Type*>(this)->equals(type);
         return false;
     }
 
-    RefPtr<Val> Type::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> Type::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         int diff = 0;
-        auto canSubst = GetCanonicalType()->SubstituteImpl(subst, &diff);
+        auto canSubst = getCanonicalType()->substituteImpl(subst, &diff);
 
         // If nothing changed, then don't drop any sugar that is applied
         if (!diff)
@@ -148,13 +259,13 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return canSubst;
     }
 
-    Type* Type::GetCanonicalType()
+    Type* Type::getCanonicalType()
     {
         Type* et = const_cast<Type*>(this);
         if (!et->canonicalType)
         {
             // TODO(tfoley): worry about thread safety here?
-            auto canType = et->CreateCanonicalType();
+            auto canType = et->createCanonicalType();
             et->canonicalType = canType;
 
             // TODO(js): That this detachs when canType == this is a little surprising. It would seem
@@ -227,7 +338,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     Type* Session::getBuiltinType(BaseType flavor)
     {
-        return RefPtr<Type>(builtinTypes[(int)flavor]);
+        return builtinTypes[int(flavor)];
     }
 
     Type* Session::getInitializerListType()
@@ -315,7 +426,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         RefPtr<ArrayExpressionType> arrayType = new ArrayExpressionType();
         arrayType->setSession(this);
         arrayType->baseType = elementType;
-        arrayType->ArrayLength = elementCount;
+        arrayType->arrayLength = elementCount;
         return arrayType;
     }
 
@@ -330,19 +441,19 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
 
 
-    bool ArrayExpressionType::EqualsImpl(Type* type)
+    bool ArrayExpressionType::equalsImpl(Type* type)
     {
         auto arrType = as<ArrayExpressionType>(type);
         if (!arrType)
             return false;
-        return (areValsEqual(ArrayLength, arrType->ArrayLength) && baseType->Equals(arrType->baseType.Ptr()));
+        return (areValsEqual(arrayLength, arrType->arrayLength) && baseType->equals(arrType->baseType.Ptr()));
     }
 
-    RefPtr<Val> ArrayExpressionType::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> ArrayExpressionType::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         int diff = 0;
-        auto elementType = baseType->SubstituteImpl(subst, &diff).as<Type>();
-        auto arrlen = ArrayLength->SubstituteImpl(subst, &diff).as<IntVal>();
+        auto elementType = baseType->substituteImpl(subst, &diff).as<Type>();
+        auto arrlen = arrayLength->substituteImpl(subst, &diff).as<IntVal>();
         SLANG_ASSERT(arrlen);
         if (diff)
         {
@@ -355,51 +466,51 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return this;
     }
 
-    RefPtr<Type> ArrayExpressionType::CreateCanonicalType()
+    RefPtr<Type> ArrayExpressionType::createCanonicalType()
     {
-        auto canonicalElementType = baseType->GetCanonicalType();
+        auto canonicalElementType = baseType->getCanonicalType();
         auto canonicalArrayType = getArrayType(
             canonicalElementType,
-            ArrayLength);
+            arrayLength);
         return canonicalArrayType;
     }
-    int ArrayExpressionType::GetHashCode()
+    HashCode ArrayExpressionType::getHashCode()
     {
-        if (ArrayLength)
-            return (baseType->GetHashCode() * 16777619) ^ ArrayLength->GetHashCode();
+        if (arrayLength)
+            return (baseType->getHashCode() * 16777619) ^ arrayLength->getHashCode();
         else
-            return baseType->GetHashCode();
+            return baseType->getHashCode();
     }
-    Slang::String ArrayExpressionType::ToString()
+    Slang::String ArrayExpressionType::toString()
     {
-        if (ArrayLength)
-            return baseType->ToString() + "[" + ArrayLength->ToString() + "]";
+        if (arrayLength)
+            return baseType->toString() + "[" + arrayLength->toString() + "]";
         else
-            return baseType->ToString() + "[]";
+            return baseType->toString() + "[]";
     }
 
     // DeclRefType
 
-    String DeclRefType::ToString()
+    String DeclRefType::toString()
     {
         return declRef.toString();
     }
 
-    int DeclRefType::GetHashCode()
+    HashCode DeclRefType::getHashCode()
     {
-        return (declRef.GetHashCode() * 16777619) ^ (int)(typeid(this).hash_code());
+        return (declRef.getHashCode() * 16777619) ^ (HashCode)(typeid(this).hash_code());
     }
 
-    bool DeclRefType::EqualsImpl(Type * type)
+    bool DeclRefType::equalsImpl(Type * type)
     {
         if (auto declRefType = as<DeclRefType>(type))
         {
-            return declRef.Equals(declRefType->declRef);
+            return declRef.equals(declRefType->declRef);
         }
         return false;
     }
 
-    RefPtr<Type> DeclRefType::CreateCanonicalType()
+    RefPtr<Type> DeclRefType::createCanonicalType()
     {
         // A declaration reference is already canonical
         return this;
@@ -449,7 +560,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
                 SLANG_ASSERT(val);
 
                 return RequirementWitness(
-                    val->Substitute(subst));
+                    val->substitute(subst));
             }
         }
     }
@@ -526,7 +637,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return RequirementWitness();
     }
 
-    RefPtr<Val> DeclRefType::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> DeclRefType::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         if (!subst) return this;
 
@@ -544,11 +655,11 @@ void Type::accept(IValVisitor* visitor, void* extra)
                 // the generic decl associated with the substitution list must be
                 // the generic decl that declared this parameter
                 auto genericDecl = genericSubst->genericDecl;
-                if (genericDecl != genericTypeParamDecl->ParentDecl)
+                if (genericDecl != genericTypeParamDecl->parentDecl)
                     continue;
 
                 int index = 0;
-                for (auto m : genericDecl->Members)
+                for (auto m : genericDecl->members)
                 {
                     if (m.Ptr() == genericTypeParamDecl)
                     {
@@ -608,7 +719,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
                 if(!thisSubst)
                     continue;
 
-                if(auto interfaceDecl = as<InterfaceDecl>(substAssocTypeDecl->ParentDecl))
+                if(auto interfaceDecl = as<InterfaceDecl>(substAssocTypeDecl->parentDecl))
                 {
                     if(thisSubst->interfaceDecl == interfaceDecl)
                     {
@@ -680,7 +791,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         for(;;)
         {
             RefPtr<Decl> childDecl = dd;
-            RefPtr<Decl> parentDecl = dd->ParentDecl;
+            RefPtr<Decl> parentDecl = dd->parentDecl;
             if(!parentDecl)
                 break;
 
@@ -737,14 +848,14 @@ void Type::accept(IValVisitor* visitor, void* extra)
     {
         declRef = createDefaultSubstitutionsIfNeeded(session, declRef);
 
-        if (auto builtinMod = declRef.getDecl()->FindModifier<BuiltinTypeModifier>())
+        if (auto builtinMod = declRef.getDecl()->findModifier<BuiltinTypeModifier>())
         {
             auto type = new BasicExpressionType(builtinMod->tag);
             type->setSession(session);
             type->declRef = declRef;
             return type;
         }
-        else if (auto magicMod = declRef.getDecl()->FindModifier<MagicTypeModifier>())
+        else if (auto magicMod = declRef.getDecl()->findModifier<MagicTypeModifier>())
         {
             GenericSubstitution* subst = nullptr;
             for(auto s = declRef.substitutions.substitutions; s; s = s->outer)
@@ -912,115 +1023,115 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // OverloadGroupType
 
-    String OverloadGroupType::ToString()
+    String OverloadGroupType::toString()
     {
         return "overload group";
     }
 
-    bool OverloadGroupType::EqualsImpl(Type * /*type*/)
+    bool OverloadGroupType::equalsImpl(Type * /*type*/)
     {
         return false;
     }
 
-    RefPtr<Type> OverloadGroupType::CreateCanonicalType()
+    RefPtr<Type> OverloadGroupType::createCanonicalType()
     {
         return this;
     }
 
-    int OverloadGroupType::GetHashCode()
+    HashCode OverloadGroupType::getHashCode()
     {
-        return (int)(int64_t)(void*)this;
+        return (HashCode)(size_t(this));
     }
 
     // InitializerListType
 
-    String InitializerListType::ToString()
+    String InitializerListType::toString()
     {
         return "initializer list";
     }
 
-    bool InitializerListType::EqualsImpl(Type * /*type*/)
+    bool InitializerListType::equalsImpl(Type * /*type*/)
     {
         return false;
     }
 
-    RefPtr<Type> InitializerListType::CreateCanonicalType()
+    RefPtr<Type> InitializerListType::createCanonicalType()
     {
         return this;
     }
 
-    int InitializerListType::GetHashCode()
+    HashCode InitializerListType::getHashCode()
     {
-        return (int)(int64_t)(void*)this;
+        return (HashCode)(size_t(this));
     }
 
     // ErrorType
 
-    String ErrorType::ToString()
+    String ErrorType::toString()
     {
         return "error";
     }
 
-    bool ErrorType::EqualsImpl(Type* type)
+    bool ErrorType::equalsImpl(Type* type)
     {
         if (auto errorType = as<ErrorType>(type))
             return true;
         return false;
     }
 
-    RefPtr<Type> ErrorType::CreateCanonicalType()
+    RefPtr<Type> ErrorType::createCanonicalType()
     {
         return this;
     }
 
-    RefPtr<Val> ErrorType::SubstituteImpl(SubstitutionSet /*subst*/, int* /*ioDiff*/)
+    RefPtr<Val> ErrorType::substituteImpl(SubstitutionSet /*subst*/, int* /*ioDiff*/)
     {
         return this;
     }
 
-    int ErrorType::GetHashCode()
+    HashCode ErrorType::getHashCode()
     {
-        return (int)(int64_t)(void*)this;
+        return HashCode(size_t(this));
     }
 
 
     // NamedExpressionType
 
-    String NamedExpressionType::ToString()
+    String NamedExpressionType::toString()
     {
         return getText(declRef.GetName());
     }
 
-    bool NamedExpressionType::EqualsImpl(Type * /*type*/)
+    bool NamedExpressionType::equalsImpl(Type * /*type*/)
     {
         SLANG_UNEXPECTED("unreachable");
         UNREACHABLE_RETURN(false);
     }
 
-    RefPtr<Type> NamedExpressionType::CreateCanonicalType()
+    RefPtr<Type> NamedExpressionType::createCanonicalType()
     {
         if (!innerType)
             innerType = GetType(declRef);
-        return innerType->GetCanonicalType();
+        return innerType->getCanonicalType();
     }
 
-    int NamedExpressionType::GetHashCode()
+    HashCode NamedExpressionType::getHashCode()
     {
         // Type equality is based on comparing canonical types,
         // so the hash code for a type needs to come from the
         // canonical version of the type. This really means
-        // that `Type::GetHashCode()` should dispatch out to
-        // something like `Type::GetHashCodeImpl()` on the
+        // that `Type::getHashCode()` should dispatch out to
+        // something like `Type::getHashCodeImpl()` on the
         // canonical version of a type, but it is less invasive
         // for now (and hopefully equivalent) to just have any
         // named types automaticlaly route hash-code requests
         // to their canonical type.
-        return GetCanonicalType()->GetHashCode();
+        return getCanonicalType()->getHashCode();
     }
 
     // FuncType
 
-    String FuncType::ToString()
+    String FuncType::toString()
     {
         StringBuilder sb;
         sb << "(";
@@ -1028,14 +1139,14 @@ void Type::accept(IValVisitor* visitor, void* extra)
         for (UInt pp = 0; pp < paramCount; ++pp)
         {
             if (pp != 0) sb << ", ";
-            sb << getParamType(pp)->ToString();
+            sb << getParamType(pp)->toString();
         }
         sb << ") -> ";
-        sb << getResultType()->ToString();
+        sb << getResultType()->toString();
         return sb.ProduceString();
     }
 
-    bool FuncType::EqualsImpl(Type * type)
+    bool FuncType::equalsImpl(Type * type)
     {
         if (auto funcType = as<FuncType>(type))
         {
@@ -1048,11 +1159,11 @@ void Type::accept(IValVisitor* visitor, void* extra)
             {
                 auto paramType = getParamType(pp);
                 auto otherParamType = funcType->getParamType(pp);
-                if (!paramType->Equals(otherParamType))
+                if (!paramType->equals(otherParamType))
                     return false;
             }
 
-            if(!resultType->Equals(funcType->resultType))
+            if(!resultType->equals(funcType->resultType))
                 return false;
 
             // TODO: if we ever introduce other kinds
@@ -1063,18 +1174,18 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return false;
     }
 
-    RefPtr<Val> FuncType::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> FuncType::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         int diff = 0;
 
         // result type
-        RefPtr<Type> substResultType = resultType->SubstituteImpl(subst, &diff).as<Type>();
+        RefPtr<Type> substResultType = resultType->substituteImpl(subst, &diff).as<Type>();
 
         // parameter types
         List<RefPtr<Type>> substParamTypes;
         for( auto pp : paramTypes )
         {
-            substParamTypes.add(pp->SubstituteImpl(subst, &diff).as<Type>());
+            substParamTypes.add(pp->substituteImpl(subst, &diff).as<Type>());
         }
 
         // early exit for no change...
@@ -1089,16 +1200,16 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return substType;
     }
 
-    RefPtr<Type> FuncType::CreateCanonicalType()
+    RefPtr<Type> FuncType::createCanonicalType()
     {
         // result type
-        RefPtr<Type> canResultType = resultType->GetCanonicalType();
+        RefPtr<Type> canResultType = resultType->getCanonicalType();
 
         // parameter types
         List<RefPtr<Type>> canParamTypes;
         for( auto pp : paramTypes )
         {
-            canParamTypes.add(pp->GetCanonicalType());
+            canParamTypes.add(pp->getCanonicalType());
         }
 
         RefPtr<FuncType> canType = new FuncType();
@@ -1109,45 +1220,45 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return canType;
     }
 
-    int FuncType::GetHashCode()
+    HashCode FuncType::getHashCode()
     {
-        int hashCode = getResultType()->GetHashCode();
+        HashCode hashCode = getResultType()->getHashCode();
         UInt paramCount = getParamCount();
-        hashCode = combineHash(hashCode, Slang::GetHashCode(paramCount));
+        hashCode = combineHash(hashCode, Slang::getHashCode(paramCount));
         for (UInt pp = 0; pp < paramCount; ++pp)
         {
             hashCode = combineHash(
                 hashCode,
-                getParamType(pp)->GetHashCode());
+                getParamType(pp)->getHashCode());
         }
         return hashCode;
     }
 
     // TypeType
 
-    String TypeType::ToString()
+    String TypeType::toString()
     {
         StringBuilder sb;
-        sb << "typeof(" << type->ToString() << ")";
+        sb << "typeof(" << type->toString() << ")";
         return sb.ProduceString();
     }
 
-    bool TypeType::EqualsImpl(Type * t)
+    bool TypeType::equalsImpl(Type * t)
     {
         if (auto typeType = as<TypeType>(t))
         {
-            return t->Equals(typeType->type);
+            return t->equals(typeType->type);
         }
         return false;
     }
 
-    RefPtr<Type> TypeType::CreateCanonicalType()
+    RefPtr<Type> TypeType::createCanonicalType()
     {
-        auto canType = getTypeType(type->GetCanonicalType());
+        auto canType = getTypeType(type->getCanonicalType());
         return canType;
     }
 
-    int TypeType::GetHashCode()
+    HashCode TypeType::getHashCode()
     {
         SLANG_UNEXPECTED("unreachable");
         UNREACHABLE_RETURN(0);
@@ -1155,27 +1266,56 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // GenericDeclRefType
 
-    String GenericDeclRefType::ToString()
+    String GenericDeclRefType::toString()
     {
         // TODO: what is appropriate here?
         return "<DeclRef<GenericDecl>>";
     }
 
-    bool GenericDeclRefType::EqualsImpl(Type * type)
+    bool GenericDeclRefType::equalsImpl(Type * type)
     {
         if (auto genericDeclRefType = as<GenericDeclRefType>(type))
         {
-            return declRef.Equals(genericDeclRefType->declRef);
+            return declRef.equals(genericDeclRefType->declRef);
         }
         return false;
     }
 
-    int GenericDeclRefType::GetHashCode()
+    HashCode GenericDeclRefType::getHashCode()
     {
-        return declRef.GetHashCode();
+        return declRef.getHashCode();
     }
 
-    RefPtr<Type> GenericDeclRefType::CreateCanonicalType()
+    RefPtr<Type> GenericDeclRefType::createCanonicalType()
+    {
+        return this;
+    }
+
+    // NamespaceType
+
+    String NamespaceType::toString()
+    {
+        String result;
+        result.append("namespace ");
+        result.append(declRef.toString());
+        return result;
+    }
+
+    bool NamespaceType::equalsImpl(Type * type)
+    {
+        if (auto namespaceType = as<NamespaceType>(type))
+        {
+            return declRef.equals(namespaceType->declRef);
+        }
+        return false;
+    }
+
+    HashCode NamespaceType::getHashCode()
+    {
+        return declRef.getHashCode();
+    }
+
+    RefPtr<Type> NamespaceType::createCanonicalType()
     {
         return this;
     }
@@ -1184,10 +1324,10 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // VectorExpressionType
 
-    String VectorExpressionType::ToString()
+    String VectorExpressionType::toString()
     {
         StringBuilder sb;
-        sb << "vector<" << elementType->ToString() << "," << elementCount->ToString() << ">";
+        sb << "vector<" << elementType->toString() << "," << elementCount->toString() << ">";
         return sb.ProduceString();
     }
 
@@ -1210,10 +1350,10 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // MatrixExpressionType
 
-    String MatrixExpressionType::ToString()
+    String MatrixExpressionType::toString()
     {
         StringBuilder sb;
-        sb << "matrix<" << getElementType()->ToString() << "," << getRowCount()->ToString() << "," << getColumnCount()->ToString() << ">";
+        sb << "matrix<" << getElementType()->toString() << "," << getRowCount()->toString() << "," << getColumnCount()->toString() << ">";
         return sb.ProduceString();
     }
 
@@ -1239,11 +1379,11 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     RefPtr<Type> MatrixExpressionType::getRowType()
     {
-        if( !mRowType )
+        if( !rowType )
         {
-            mRowType = getSession()->getVectorType(getElementType(), getColumnCount());
+            rowType = getSession()->getVectorType(getElementType(), getColumnCount());
         }
-        return mRowType;
+        return rowType;
     }
 
     RefPtr<VectorExpressionType> Session::getVectorType(
@@ -1276,26 +1416,26 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // GenericParamIntVal
 
-    bool GenericParamIntVal::EqualsVal(Val* val)
+    bool GenericParamIntVal::equalsVal(Val* val)
     {
         if (auto genericParamVal = as<GenericParamIntVal>(val))
         {
-            return declRef.Equals(genericParamVal->declRef);
+            return declRef.equals(genericParamVal->declRef);
         }
         return false;
     }
 
-    String GenericParamIntVal::ToString()
+    String GenericParamIntVal::toString()
     {
         return getText(declRef.GetName());
     }
 
-    int GenericParamIntVal::GetHashCode()
+    HashCode GenericParamIntVal::getHashCode()
     {
-        return declRef.GetHashCode() ^ 0xFFFF;
+        return declRef.getHashCode() ^ HashCode(0xFFFF);
     }
 
-    RefPtr<Val> GenericParamIntVal::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> GenericParamIntVal::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         // search for a substitution that might apply to us
         for(auto s = subst.substitutions; s; s = s->outer)
@@ -1307,11 +1447,11 @@ void Type::accept(IValVisitor* visitor, void* extra)
             // the generic decl associated with the substitution list must be
             // the generic decl that declared this parameter
             auto genericDecl = genSubst->genericDecl;
-            if (genericDecl != declRef.getDecl()->ParentDecl)
+            if (genericDecl != declRef.getDecl()->parentDecl)
                 continue;
 
             int index = 0;
-            for (auto m : genericDecl->Members)
+            for (auto m : genericDecl->members)
             {
                 if (m.Ptr() == declRef.getDecl())
                 {
@@ -1337,6 +1477,34 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return this;
     }
 
+    // ErrorIntVal
+
+    bool ErrorIntVal::equalsVal(Val* val)
+    {
+        if( auto errorIntVal = as<ErrorIntVal>(val) )
+        {
+            return true;
+        }
+        return false;
+    }
+
+    String ErrorIntVal::toString()
+    {
+        return "<error>";
+    }
+
+    HashCode ErrorIntVal::getHashCode()
+    {
+        return HashCode(typeid(this).hash_code());
+    }
+
+    RefPtr<Val> ErrorIntVal::substituteImpl(SubstitutionSet subst, int* ioDiff)
+    {
+        SLANG_UNUSED(subst);
+        SLANG_UNUSED(ioDiff);
+        return this;
+    }
+
     // Substitutions
 
     RefPtr<Substitutions> GenericSubstitution::applySubstitutionsShallow(SubstitutionSet substSet, RefPtr<Substitutions> substOuter, int* ioDiff)
@@ -1348,7 +1516,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         List<RefPtr<Val>> substArgs;
         for (auto a : args)
         {
-            substArgs.add(a->SubstituteImpl(substSet, &diff));
+            substArgs.add(a->substituteImpl(substSet, &diff));
         }
 
         if (!diff) return this;
@@ -1361,7 +1529,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return substSubst;
     }
 
-    bool GenericSubstitution::Equals(Substitutions* subst)
+    bool GenericSubstitution::equals(Substitutions* subst)
     {
         // both must be NULL, or non-NULL
         if (subst == nullptr)
@@ -1379,14 +1547,14 @@ void Type::accept(IValVisitor* visitor, void* extra)
         SLANG_RELEASE_ASSERT(args.getCount() == genericSubst->args.getCount());
         for (Index aa = 0; aa < argCount; ++aa)
         {
-            if (!args[aa]->EqualsVal(genericSubst->args[aa].Ptr()))
+            if (!args[aa]->equalsVal(genericSubst->args[aa].Ptr()))
                 return false;
         }
 
         if (!outer)
             return !genericSubst->outer;
 
-        if (!outer->Equals(genericSubst->outer.Ptr()))
+        if (!outer->equals(genericSubst->outer.Ptr()))
             return false;
 
         return true;
@@ -1399,7 +1567,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         if(substOuter != outer) diff++;
 
         // NOTE: Must use .as because we must have a smart pointer here to keep in scope.
-        auto substWitness = witness->SubstituteImpl(substSet, &diff).as<SubtypeWitness>();
+        auto substWitness = witness->substituteImpl(substSet, &diff).as<SubtypeWitness>();
         
         if (!diff) return this;
 
@@ -1411,7 +1579,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return substSubst;
     }
 
-    bool ThisTypeSubstitution::Equals(Substitutions* subst)
+    bool ThisTypeSubstitution::equals(Substitutions* subst)
     {
         if (!subst)
             return false;
@@ -1420,14 +1588,25 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
         if (auto thisTypeSubst = as<ThisTypeSubstitution>(subst))
         {
-            return witness->EqualsVal(thisTypeSubst->witness);
+            // For our purposes, two this-type substitutions are
+            // equivalent if they have the same type as `This`,
+            // even if the specific witness values they use
+            // might differ.
+            //
+            if(this->interfaceDecl != thisTypeSubst->interfaceDecl)
+                return false;
+
+            if(!this->witness->sub->equals(thisTypeSubst->witness->sub))
+                return false;
+
+            return true;
         }
         return false;
     }
 
-    int ThisTypeSubstitution::GetHashCode() const
+    HashCode ThisTypeSubstitution::getHashCode() const
     {
-        return witness->GetHashCode();
+        return witness->getHashCode();
     }
 
     RefPtr<Substitutions> GlobalGenericParamSubstitution::applySubstitutionsShallow(SubstitutionSet substSet, RefPtr<Substitutions> substOuter, int* ioDiff)
@@ -1438,14 +1617,14 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
         if(substOuter != outer) diff++;
 
-        auto substActualType = actualType->SubstituteImpl(substSet, &diff).as<Type>();
+        auto substActualType = actualType->substituteImpl(substSet, &diff).as<Type>();
 
         List<ConstraintArg> substConstraintArgs;
         for(auto constraintArg : constraintArgs)
         {
             ConstraintArg substConstraintArg;
             substConstraintArg.decl = constraintArg.decl;
-            substConstraintArg.val = constraintArg.val->SubstituteImpl(substSet, &diff);
+            substConstraintArg.val = constraintArg.val->substituteImpl(substSet, &diff);
 
             substConstraintArgs.add(substConstraintArg);
         }
@@ -1463,7 +1642,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return substSubst;
     }
 
-    bool GlobalGenericParamSubstitution::Equals(Substitutions* subst)
+    bool GlobalGenericParamSubstitution::equals(Substitutions* subst)
     {
         if (!subst)
             return false;
@@ -1474,13 +1653,13 @@ void Type::accept(IValVisitor* visitor, void* extra)
         {
             if (paramDecl != genSubst->paramDecl)
                 return false;
-            if (!actualType->EqualsVal(genSubst->actualType))
+            if (!actualType->equalsVal(genSubst->actualType))
                 return false;
             if (constraintArgs.getCount() != genSubst->constraintArgs.getCount())
                 return false;
             for (Index i = 0; i < constraintArgs.getCount(); i++)
             {
-                if (!constraintArgs[i].val->EqualsVal(genSubst->constraintArgs[i].val))
+                if (!constraintArgs[i].val->equalsVal(genSubst->constraintArgs[i].val))
                     return false;
             }
             return true;
@@ -1503,7 +1682,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
         // Otherwise we need to recurse on the type structure
         // and apply substitutions where it makes sense
-        return type->Substitute(substitutions).as<Type>();
+        return type->substitute(substitutions).as<Type>();
     }
 
     DeclRefBase DeclRefBase::Substitute(DeclRefBase declRef) const
@@ -1536,7 +1715,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
             if(auto interfaceDecl = as<InterfaceDecl>(dd))
                 return interfaceDecl;
 
-            dd = dd->ParentDecl;
+            dd = dd->parentDecl;
         }
         return nullptr;
     }
@@ -1687,7 +1866,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         // nested directly in a generic, then `substToSpecialize` will either start with
         // the corresponding `GenericSubstitution` or there will be *no* generic substitutions
         // corresponding to that decl.
-        for(Decl* ancestorDecl = declToSpecialize; ancestorDecl; ancestorDecl = ancestorDecl->ParentDecl)
+        for(Decl* ancestorDecl = declToSpecialize; ancestorDecl; ancestorDecl = ancestorDecl->parentDecl)
         {
             if(auto ancestorGenericDecl = as<GenericDecl>(ancestorDecl))
             {
@@ -1701,7 +1880,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
                         // keep one matching it in place.
                         int diff = 0;
                         auto restSubst = specializeSubstitutions(
-                            ancestorGenericDecl->ParentDecl,
+                            ancestorGenericDecl->parentDecl,
                             specGenericSubst->outer,
                             substsToApply,
                             &diff);
@@ -1741,7 +1920,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
                     int diff = 0;
                     auto restSubst = specializeSubstitutions(
-                        ancestorGenericDecl->ParentDecl,
+                        ancestorGenericDecl->parentDecl,
                         substsToSpecialize,
                         substsToApply,
                         &diff);
@@ -1771,7 +1950,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
                         // keep one matching it in place.
                         int diff = 0;
                         auto restSubst = specializeSubstitutions(
-                            ancestorInterfaceDecl->ParentDecl,
+                            ancestorInterfaceDecl->parentDecl,
                             specThisTypeSubst->outer,
                             substsToApply,
                             &diff);
@@ -1801,7 +1980,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
                     int diff = 0;
                     auto restSubst = specializeSubstitutions(
-                        ancestorInterfaceDecl->ParentDecl,
+                        ancestorInterfaceDecl->parentDecl,
                         substsToSpecialize,
                         substsToApply,
                         &diff);
@@ -1880,11 +2059,11 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
 
     // Check if this is an equivalent declaration reference to another
-    bool DeclRefBase::Equals(DeclRefBase const& declRef) const
+    bool DeclRefBase::equals(DeclRefBase const& declRef) const
     {
         if (decl != declRef.decl)
             return false;
-        if (!substitutions.Equals(declRef.substitutions))
+        if (!substitutions.equals(declRef.substitutions))
             return false;
 
         return true;
@@ -1907,7 +2086,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         // Can access as method with this->as because it removes any ambiguity.
         using Slang::as;
 
-        auto parentDecl = decl->ParentDecl;
+        auto parentDecl = decl->parentDecl;
         if (!parentDecl)
             return DeclRefBase();
 
@@ -1952,21 +2131,21 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return DeclRefBase(parentDecl, substToApply);
     }
 
-    int DeclRefBase::GetHashCode() const
+    HashCode DeclRefBase::getHashCode() const
     {
-        return combineHash(PointerHash<1>::GetHashCode(decl), substitutions.GetHashCode());
+        return combineHash(PointerHash<1>::getHashCode(decl), substitutions.getHashCode());
     }
 
     // Val
 
-    RefPtr<Val> Val::Substitute(SubstitutionSet subst)
+    RefPtr<Val> Val::substitute(SubstitutionSet subst)
     {
         if (!subst) return this;
         int diff = 0;
-        return SubstituteImpl(subst, &diff);
+        return substituteImpl(subst, &diff);
     }
 
-    RefPtr<Val> Val::SubstituteImpl(SubstitutionSet /*subst*/, int* /*ioDiff*/)
+    RefPtr<Val> Val::substituteImpl(SubstitutionSet /*subst*/, int* /*ioDiff*/)
     {
         // Default behavior is to not substitute at all
         return this;
@@ -1986,21 +2165,21 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // ConstantIntVal
 
-    bool ConstantIntVal::EqualsVal(Val* val)
+    bool ConstantIntVal::equalsVal(Val* val)
     {
         if (auto intVal = as<ConstantIntVal>(val))
             return value == intVal->value;
         return false;
     }
 
-    String ConstantIntVal::ToString()
+    String ConstantIntVal::toString()
     {
         return String(value);
     }
 
-    int ConstantIntVal::GetHashCode()
+    HashCode ConstantIntVal::getHashCode()
     {
-        return (int) value;
+        return (HashCode) value;
     }
 
     //
@@ -2021,7 +2200,15 @@ void Type::accept(IValVisitor* visitor, void* extra)
         RefPtr<Decl>                decl,
         RefPtr<MagicTypeModifier>   modifier)
     {
-        session->magicDecls[modifier->name] = decl.Ptr();
+        // In some cases the modifier will have been applied to the
+        // "inner" declaration of a `GenericDecl`, but what we
+        // actually want to register is the generic itself.
+        //
+        auto declToRegister = decl;
+        if(auto genericDecl = as<GenericDecl>(decl->parentDecl))
+            declToRegister = genericDecl;
+
+        session->magicDecls[modifier->name] = declToRegister.Ptr();
     }
 
     RefPtr<Decl> findMagicDecl(
@@ -2078,7 +2265,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         auto arrayType = new ArrayExpressionType();
         arrayType->setSession(session);
         arrayType->baseType = elementType;
-        arrayType->ArrayLength = elementCount;
+        arrayType->arrayLength = elementCount;
         return arrayType;
     }
 
@@ -2124,13 +2311,13 @@ void Type::accept(IValVisitor* visitor, void* extra)
         {
             auto paramDecl = paramDeclRef.getDecl();
             auto paramType = GetType(paramDeclRef);
-            if( paramDecl->FindModifier<RefModifier>() )
+            if( paramDecl->findModifier<RefModifier>() )
             {
                 paramType = session->getRefType(paramType);
             }
-            else if( paramDecl->FindModifier<OutModifier>() )
+            else if( paramDecl->findModifier<OutModifier>() )
             {
-                if(paramDecl->FindModifier<InOutModifier>() || paramDecl->FindModifier<InModifier>())
+                if(paramDecl->findModifier<InOutModifier>() || paramDecl->findModifier<InModifier>())
                 {
                     paramType = session->getInOutType(paramType);
                 }
@@ -2154,6 +2341,16 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return genericDeclRefType;
     }
 
+    RefPtr<NamespaceType> getNamespaceType(
+        Session*                            session,
+        DeclRef<NamespaceDeclBase> const&   declRef)
+    {
+        auto type = new NamespaceType;
+        type->setSession(session);
+        type->declRef = declRef;
+        return type;
+    }
+
     RefPtr<SamplerStateType> getSamplerStateType(
         Session*        session)
     {
@@ -2164,41 +2361,41 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // TODO: should really have a `type.cpp` and a `witness.cpp`
 
-    bool TypeEqualityWitness::EqualsVal(Val* val)
+    bool TypeEqualityWitness::equalsVal(Val* val)
     {
         auto otherWitness = as<TypeEqualityWitness>(val);
         if (!otherWitness)
             return false;
-        return sub->Equals(otherWitness->sub);
+        return sub->equals(otherWitness->sub);
     }
 
-    RefPtr<Val> TypeEqualityWitness::SubstituteImpl(SubstitutionSet subst, int * ioDiff)
+    RefPtr<Val> TypeEqualityWitness::substituteImpl(SubstitutionSet subst, int * ioDiff)
     {
         RefPtr<TypeEqualityWitness> rs = new TypeEqualityWitness();
-        rs->sub = sub->SubstituteImpl(subst, ioDiff).as<Type>();
-        rs->sup = sup->SubstituteImpl(subst, ioDiff).as<Type>();
+        rs->sub = sub->substituteImpl(subst, ioDiff).as<Type>();
+        rs->sup = sup->substituteImpl(subst, ioDiff).as<Type>();
         return rs;
     }
 
-    String TypeEqualityWitness::ToString()
+    String TypeEqualityWitness::toString()
     {
-        return "TypeEqualityWitness(" + sub->ToString() + ")";
+        return "TypeEqualityWitness(" + sub->toString() + ")";
     }
 
-    int TypeEqualityWitness::GetHashCode()
+    HashCode TypeEqualityWitness::getHashCode()
     {
-        return sub->GetHashCode();
+        return sub->getHashCode();
     }
 
-    bool DeclaredSubtypeWitness::EqualsVal(Val* val)
+    bool DeclaredSubtypeWitness::equalsVal(Val* val)
     {
         auto otherWitness = as<DeclaredSubtypeWitness>(val);
         if(!otherWitness)
             return false;
 
-        return sub->Equals(otherWitness->sub)
-            && sup->Equals(otherWitness->sup)
-            && declRef.Equals(otherWitness->declRef);
+        return sub->equals(otherWitness->sub)
+            && sup->equals(otherWitness->sup)
+            && declRef.equals(otherWitness->declRef);
     }
 
     RefPtr<ThisTypeSubstitution> findThisTypeSubstitution(
@@ -2220,7 +2417,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return nullptr;
     }
 
-    RefPtr<Val> DeclaredSubtypeWitness::SubstituteImpl(SubstitutionSet subst, int * ioDiff)
+    RefPtr<Val> DeclaredSubtypeWitness::substituteImpl(SubstitutionSet subst, int * ioDiff)
     {
         if (auto genConstraintDeclRef = declRef.as<GenericTypeConstraintDecl>())
         {
@@ -2234,12 +2431,12 @@ void Type::accept(IValVisitor* visitor, void* extra)
                     // the generic decl associated with the substitution list must be
                     // the generic decl that declared this parameter
                     auto genericDecl = genericSubst->genericDecl;
-                    if (genericDecl != genConstraintDecl->ParentDecl)
+                    if (genericDecl != genConstraintDecl->parentDecl)
                         continue;
 
                     bool found = false;
                     Index index = 0;
-                    for (auto m : genericDecl->Members)
+                    for (auto m : genericDecl->members)
                     {
                         if (auto constraintParam = as<GenericTypeConstraintDecl>(m))
                         {
@@ -2263,7 +2460,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
                 else if(auto globalGenericSubst = s.as<GlobalGenericParamSubstitution>())
                 {
                     // check if the substitution is really about this global generic type parameter
-                    if (globalGenericSubst->paramDecl != genConstraintDecl->ParentDecl)
+                    if (globalGenericSubst->paramDecl != genConstraintDecl->parentDecl)
                         continue;
 
                     for(auto constraintArg : globalGenericSubst->constraintArgs)
@@ -2280,8 +2477,8 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
         // Perform substitution on the constituent elements.
         int diff = 0;
-        auto substSub = sub->SubstituteImpl(subst, &diff).as<Type>();
-        auto substSup = sup->SubstituteImpl(subst, &diff).as<Type>();
+        auto substSub = sub->substituteImpl(subst, &diff).as<Type>();
+        auto substSup = sup->substituteImpl(subst, &diff).as<Type>();
         auto substDeclRef = declRef.SubstituteImpl(subst, &diff);
         if (!diff)
             return this;
@@ -2300,9 +2497,9 @@ void Type::accept(IValVisitor* visitor, void* extra)
         //
         if (auto substTypeConstraintDecl = as<GenericTypeConstraintDecl>(substDeclRef.decl))
         {
-            if (auto substAssocTypeDecl = as<AssocTypeDecl>(substTypeConstraintDecl->ParentDecl))
+            if (auto substAssocTypeDecl = as<AssocTypeDecl>(substTypeConstraintDecl->parentDecl))
             {
-                if (auto interfaceDecl = as<InterfaceDecl>(substAssocTypeDecl->ParentDecl))
+                if (auto interfaceDecl = as<InterfaceDecl>(substAssocTypeDecl->parentDecl))
                 {
                     // At this point we have a constraint decl for an associated type,
                     // and we nee to see if we are dealing with a concrete substitution
@@ -2339,45 +2536,45 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return rs;
     }
 
-    String DeclaredSubtypeWitness::ToString()
+    String DeclaredSubtypeWitness::toString()
     {
         StringBuilder sb;
         sb << "DeclaredSubtypeWitness(";
-        sb << this->sub->ToString();
+        sb << this->sub->toString();
         sb << ", ";
-        sb << this->sup->ToString();
+        sb << this->sup->toString();
         sb << ", ";
         sb << this->declRef.toString();
         sb << ")";
         return sb.ProduceString();
     }
 
-    int DeclaredSubtypeWitness::GetHashCode()
+    HashCode DeclaredSubtypeWitness::getHashCode()
     {
-        return declRef.GetHashCode();
+        return declRef.getHashCode();
     }
 
     // TransitiveSubtypeWitness
 
-    bool TransitiveSubtypeWitness::EqualsVal(Val* val)
+    bool TransitiveSubtypeWitness::equalsVal(Val* val)
     {
         auto otherWitness = as<TransitiveSubtypeWitness>(val);
         if(!otherWitness)
             return false;
 
-        return sub->Equals(otherWitness->sub)
-            && sup->Equals(otherWitness->sup)
-            && subToMid->EqualsVal(otherWitness->subToMid)
-            && midToSup.Equals(otherWitness->midToSup);
+        return sub->equals(otherWitness->sub)
+            && sup->equals(otherWitness->sup)
+            && subToMid->equalsVal(otherWitness->subToMid)
+            && midToSup.equals(otherWitness->midToSup);
     }
 
-    RefPtr<Val> TransitiveSubtypeWitness::SubstituteImpl(SubstitutionSet subst, int * ioDiff)
+    RefPtr<Val> TransitiveSubtypeWitness::substituteImpl(SubstitutionSet subst, int * ioDiff)
     {
         int diff = 0;
 
-        RefPtr<Type> substSub = sub->SubstituteImpl(subst, &diff).as<Type>();
-        RefPtr<Type> substSup = sup->SubstituteImpl(subst, &diff).as<Type>();
-        RefPtr<SubtypeWitness> substSubToMid = subToMid->SubstituteImpl(subst, &diff).as<SubtypeWitness>();
+        RefPtr<Type> substSub = sub->substituteImpl(subst, &diff).as<Type>();
+        RefPtr<Type> substSup = sup->substituteImpl(subst, &diff).as<Type>();
+        RefPtr<SubtypeWitness> substSubToMid = subToMid->substituteImpl(subst, &diff).as<SubtypeWitness>();
         DeclRef<Decl> substMidToSup = midToSup.SubstituteImpl(subst, &diff);
 
         // If nothing changed, then we can bail out early.
@@ -2412,26 +2609,26 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return result;
     }
 
-    String TransitiveSubtypeWitness::ToString()
+    String TransitiveSubtypeWitness::toString()
     {
         // Note: we only print the constituent
         // witnesses, and rely on them to print
         // the starting and ending types.
         StringBuilder sb;
         sb << "TransitiveSubtypeWitness(";
-        sb << this->subToMid->ToString();
+        sb << this->subToMid->toString();
         sb << ", ";
         sb << this->midToSup.toString();
         sb << ")";
         return sb.ProduceString();
     }
 
-    int TransitiveSubtypeWitness::GetHashCode()
+    HashCode TransitiveSubtypeWitness::getHashCode()
     {
-        auto hash = sub->GetHashCode();
-        hash = combineHash(hash, sup->GetHashCode());
-        hash = combineHash(hash, subToMid->GetHashCode());
-        hash = combineHash(hash, midToSup.GetHashCode());
+        auto hash = sub->getHashCode();
+        hash = combineHash(hash, sup->getHashCode());
+        hash = combineHash(hash, subToMid->getHashCode());
+        hash = combineHash(hash, midToSup.getHashCode());
         return hash;
     }
 
@@ -2448,7 +2645,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return name->text;
     }
 
-    bool SubstitutionSet::Equals(const SubstitutionSet& substSet) const
+    bool SubstitutionSet::equals(const SubstitutionSet& substSet) const
     {
         if (substitutions == substSet.substitutions)
         {
@@ -2458,20 +2655,20 @@ void Type::accept(IValVisitor* visitor, void* extra)
         {
             return false;
         }
-        return substitutions->Equals(substSet.substitutions);
+        return substitutions->equals(substSet.substitutions);
     }
 
-    int SubstitutionSet::GetHashCode() const
+    HashCode SubstitutionSet::getHashCode() const
     {
-        int rs = 0;
+        HashCode rs = 0;
         if (substitutions)
-            rs = combineHash(rs, substitutions->GetHashCode());
+            rs = combineHash(rs, substitutions->getHashCode());
         return rs;
     }
 
     // ExtractExistentialType
 
-    String ExtractExistentialType::ToString()
+    String ExtractExistentialType::toString()
     {
         String result;
         result.append(declRef.toString());
@@ -2479,26 +2676,26 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return result;
     }
 
-    bool ExtractExistentialType::EqualsImpl(Type* type)
+    bool ExtractExistentialType::equalsImpl(Type* type)
     {
         if( auto extractExistential = as<ExtractExistentialType>(type) )
         {
-            return declRef.Equals(extractExistential->declRef);
+            return declRef.equals(extractExistential->declRef);
         }
         return false;
     }
 
-    int ExtractExistentialType::GetHashCode()
+    HashCode ExtractExistentialType::getHashCode()
     {
-        return declRef.GetHashCode();
+        return declRef.getHashCode();
     }
 
-    RefPtr<Type> ExtractExistentialType::CreateCanonicalType()
+    RefPtr<Type> ExtractExistentialType::createCanonicalType()
     {
         return this;
     }
 
-    RefPtr<Val> ExtractExistentialType::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> ExtractExistentialType::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         int diff = 0;
         auto substDeclRef = declRef.SubstituteImpl(subst, &diff);
@@ -2514,16 +2711,16 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
     // ExtractExistentialSubtypeWitness
 
-    bool ExtractExistentialSubtypeWitness::EqualsVal(Val* val)
+    bool ExtractExistentialSubtypeWitness::equalsVal(Val* val)
     {
         if( auto extractWitness = as<ExtractExistentialSubtypeWitness>(val) )
         {
-            return declRef.Equals(extractWitness->declRef);
+            return declRef.equals(extractWitness->declRef);
         }
         return false;
     }
 
-    String ExtractExistentialSubtypeWitness::ToString()
+    String ExtractExistentialSubtypeWitness::toString()
     {
         String result;
         result.append("extractExistentialValue(");
@@ -2532,18 +2729,18 @@ void Type::accept(IValVisitor* visitor, void* extra)
         return result;
     }
 
-    int ExtractExistentialSubtypeWitness::GetHashCode()
+    HashCode ExtractExistentialSubtypeWitness::getHashCode()
     {
-        return declRef.GetHashCode();
+        return declRef.getHashCode();
     }
 
-    RefPtr<Val> ExtractExistentialSubtypeWitness::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> ExtractExistentialSubtypeWitness::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         int diff = 0;
 
         auto substDeclRef = declRef.SubstituteImpl(subst, &diff);
-        auto substSub = sub->SubstituteImpl(subst, &diff).as<Type>();
-        auto substSup = sup->SubstituteImpl(subst, &diff).as<Type>();
+        auto substSub = sub->substituteImpl(subst, &diff).as<Type>();
+        auto substSup = sup->substituteImpl(subst, &diff).as<Type>();
 
         if(!diff)
             return this;
@@ -2561,7 +2758,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
     // TaggedUnionType
     //
 
-    String TaggedUnionType::ToString()
+    String TaggedUnionType::toString()
     {
         String result;
         result.append("__TaggedUnion(");
@@ -2571,13 +2768,13 @@ void Type::accept(IValVisitor* visitor, void* extra)
             if(!first) result.append(", ");
             first = false;
 
-            result.append(caseType->ToString());
+            result.append(caseType->toString());
         }
         result.append(")");
         return result;
     }
 
-    bool TaggedUnionType::EqualsImpl(Type* type)
+    bool TaggedUnionType::equalsImpl(Type* type)
     {
         auto taggedUnion = as<TaggedUnionType>(type);
         if(!taggedUnion)
@@ -2589,44 +2786,44 @@ void Type::accept(IValVisitor* visitor, void* extra)
 
         for( Index ii = 0; ii < caseCount; ++ii )
         {
-            if(!caseTypes[ii]->Equals(taggedUnion->caseTypes[ii]))
+            if(!caseTypes[ii]->equals(taggedUnion->caseTypes[ii]))
                 return false;
         }
         return true;
     }
 
-    int TaggedUnionType::GetHashCode()
+    HashCode TaggedUnionType::getHashCode()
     {
-        int hashCode = 0;
+        HashCode hashCode = 0;
         for( auto caseType : caseTypes )
         {
-            hashCode = combineHash(hashCode, caseType->GetHashCode());
+            hashCode = combineHash(hashCode, caseType->getHashCode());
         }
         return hashCode;
     }
 
-    RefPtr<Type> TaggedUnionType::CreateCanonicalType()
+    RefPtr<Type> TaggedUnionType::createCanonicalType()
     {
         RefPtr<TaggedUnionType> canType = new TaggedUnionType();
         canType->setSession(getSession());
 
         for( auto caseType : caseTypes )
         {
-            auto canCaseType = caseType->GetCanonicalType();
+            auto canCaseType = caseType->getCanonicalType();
             canType->caseTypes.add(canCaseType);
         }
 
         return canType;
     }
 
-    RefPtr<Val> TaggedUnionType::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+    RefPtr<Val> TaggedUnionType::substituteImpl(SubstitutionSet subst, int* ioDiff)
     {
         int diff = 0;
 
         List<RefPtr<Type>> substCaseTypes;
         for( auto caseType : caseTypes )
         {
-            substCaseTypes.add(caseType->SubstituteImpl(subst, &diff).as<Type>());
+            substCaseTypes.add(caseType->substituteImpl(subst, &diff).as<Type>());
         }
         if(!diff)
             return this;
@@ -2644,7 +2841,7 @@ void Type::accept(IValVisitor* visitor, void* extra)
 //
 
 
-bool TaggedUnionSubtypeWitness::EqualsVal(Val* val)
+bool TaggedUnionSubtypeWitness::equalsVal(Val* val)
 {
     auto taggedUnionWitness = as<TaggedUnionSubtypeWitness>(val);
     if(!taggedUnionWitness)
@@ -2656,14 +2853,14 @@ bool TaggedUnionSubtypeWitness::EqualsVal(Val* val)
 
     for(Index ii = 0; ii < caseCount; ++ii)
     {
-        if(!caseWitnesses[ii]->EqualsVal(taggedUnionWitness->caseWitnesses[ii]))
+        if(!caseWitnesses[ii]->equalsVal(taggedUnionWitness->caseWitnesses[ii]))
             return false;
     }
 
     return true;
 }
 
-String TaggedUnionSubtypeWitness::ToString()
+String TaggedUnionSubtypeWitness::toString()
 {
     String result;
     result.append("TaggedUnionSubtypeWitness(");
@@ -2673,32 +2870,32 @@ String TaggedUnionSubtypeWitness::ToString()
         if(!first) result.append(", ");
         first = false;
 
-        result.append(caseWitness->ToString());
+        result.append(caseWitness->toString());
     }
     return result;
 }
 
-int TaggedUnionSubtypeWitness::GetHashCode()
+HashCode TaggedUnionSubtypeWitness::getHashCode()
 {
-    int hash = 0;
+    HashCode hash = 0;
     for( auto caseWitness : caseWitnesses )
     {
-        hash = combineHash(hash, caseWitness->GetHashCode());
+        hash = combineHash(hash, caseWitness->getHashCode());
     }
     return hash;
 }
 
-RefPtr<Val> TaggedUnionSubtypeWitness::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+RefPtr<Val> TaggedUnionSubtypeWitness::substituteImpl(SubstitutionSet subst, int* ioDiff)
 {
     int diff = 0;
 
-    auto substSub = sub->SubstituteImpl(subst, &diff).as<Type>();
-    auto substSup = sup->SubstituteImpl(subst, &diff).as<Type>();
+    auto substSub = sub->substituteImpl(subst, &diff).as<Type>();
+    auto substSup = sup->substituteImpl(subst, &diff).as<Type>();
 
     List<RefPtr<Val>> substCaseWitnesses;
     for( auto caseWitness : caseWitnesses )
     {
-        substCaseWitnesses.add(caseWitness->SubstituteImpl(subst, &diff));
+        substCaseWitnesses.add(caseWitness->substituteImpl(subst, &diff));
     }
 
     if(!diff)
@@ -2715,7 +2912,7 @@ RefPtr<Val> TaggedUnionSubtypeWitness::SubstituteImpl(SubstitutionSet subst, int
 
 Module* getModule(Decl* decl)
 {
-    for( auto dd = decl; dd; dd = dd->ParentDecl )
+    for( auto dd = decl; dd; dd = dd->parentDecl )
     {
         if(auto moduleDecl = as<ModuleDecl>(dd))
             return moduleDecl->module;
@@ -2761,27 +2958,27 @@ char const* getGLSLNameForImageFormat(ImageFormat format)
 // ExistentialSpecializedType
 //
 
-String ExistentialSpecializedType::ToString()
+String ExistentialSpecializedType::toString()
 {
     String result;
     result.append("__ExistentialSpecializedType(");
-    result.append(baseType->ToString());
+    result.append(baseType->toString());
     for( auto arg : args )
     {
         result.append(", ");
-        result.append(arg.val->ToString());
+        result.append(arg.val->toString());
     }
     result.append(")");
     return result;
 }
 
-bool ExistentialSpecializedType::EqualsImpl(Type * type)
+bool ExistentialSpecializedType::equalsImpl(Type * type)
 {
     auto other = as<ExistentialSpecializedType>(type);
     if(!other)
         return false;
 
-    if(!baseType->Equals(other->baseType))
+    if(!baseType->equals(other->baseType))
         return false;
 
     auto argCount = args.getCount();
@@ -2793,7 +2990,7 @@ bool ExistentialSpecializedType::EqualsImpl(Type * type)
         auto arg = args[ii];
         auto otherArg = other->args[ii];
 
-        if(!arg.val->EqualsVal(otherArg.val))
+        if(!arg.val->equalsVal(otherArg.val))
             return false;
 
         if(!areValsEqual(arg.witness, otherArg.witness))
@@ -2802,7 +2999,7 @@ bool ExistentialSpecializedType::EqualsImpl(Type * type)
     return true;
 }
 
-int ExistentialSpecializedType::GetHashCode()
+HashCode ExistentialSpecializedType::getHashCode()
 {
     Hasher hasher;
     hasher.hashObject(baseType);
@@ -2821,19 +3018,19 @@ RefPtr<Val> getCanonicalValue(Val* val)
         return nullptr;
     if(auto type = as<Type>(val))
     {
-        return type->GetCanonicalType();
+        return type->getCanonicalType();
     }
     // TODO: We may eventually need/want some sort of canonicalization
     // for non-type values, but for now there is nothing to do.
     return val;
 }
 
-RefPtr<Type> ExistentialSpecializedType::CreateCanonicalType()
+RefPtr<Type> ExistentialSpecializedType::createCanonicalType()
 {
     RefPtr<ExistentialSpecializedType> canType = new ExistentialSpecializedType();
     canType->setSession(getSession());
 
-    canType->baseType = baseType->GetCanonicalType();
+    canType->baseType = baseType->getCanonicalType();
     for( auto arg : args )
     {
         ExpandedSpecializationArg canArg;
@@ -2847,14 +3044,14 @@ RefPtr<Type> ExistentialSpecializedType::CreateCanonicalType()
 RefPtr<Val> substituteImpl(Val* val, SubstitutionSet subst, int* ioDiff)
 {
     if(!val) return nullptr;
-    return val->SubstituteImpl(subst, ioDiff);
+    return val->substituteImpl(subst, ioDiff);
 }
 
-RefPtr<Val> ExistentialSpecializedType::SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+RefPtr<Val> ExistentialSpecializedType::substituteImpl(SubstitutionSet subst, int* ioDiff)
 {
     int diff = 0;
 
-    auto substBaseType = baseType->SubstituteImpl(subst, &diff).as<Type>();
+    auto substBaseType = baseType->substituteImpl(subst, &diff).as<Type>();
 
     ExpandedSpecializationArgs substArgs;
     for( auto arg : args )
@@ -2874,6 +3071,70 @@ RefPtr<Val> ExistentialSpecializedType::SubstituteImpl(SubstitutionSet subst, in
     substType->setSession(getSession());
     substType->baseType = substBaseType;
     substType->args = substArgs;
+    return substType;
+}
+
+//
+// ThisType
+//
+
+String ThisType::toString()
+{
+    String result;
+    result.append(interfaceDeclRef.toString());
+    result.append(".This");
+    return result;
+}
+
+bool ThisType::equalsImpl(Type * type)
+{
+    auto other = as<ThisType>(type);
+    if(!other)
+        return false;
+
+    if(!interfaceDeclRef.equals(other->interfaceDeclRef))
+        return false;
+
+    return true;
+}
+
+HashCode ThisType::getHashCode()
+{
+    return combineHash(
+        HashCode(typeid(*this).hash_code()),
+        interfaceDeclRef.getHashCode());
+}
+
+RefPtr<Type> ThisType::createCanonicalType()
+{
+    RefPtr<ThisType> canType = new ThisType();
+    canType->setSession(getSession());
+
+    // TODO: need to canonicalize the decl-ref
+    canType->interfaceDeclRef = interfaceDeclRef;
+    return canType;
+}
+
+RefPtr<Val> ThisType::substituteImpl(SubstitutionSet subst, int* ioDiff)
+{
+    int diff = 0;
+
+    auto substInterfaceDeclRef = interfaceDeclRef.SubstituteImpl(subst, &diff);
+
+    auto thisTypeSubst = findThisTypeSubstitution(subst.substitutions, substInterfaceDeclRef.getDecl());
+    if( thisTypeSubst )
+    {
+        return thisTypeSubst->witness->sub;
+    }
+
+    if(!diff)
+        return this;
+
+    (*ioDiff)++;
+
+    RefPtr<ThisType> substType = new ThisType();
+    substType->setSession(getSession());
+    substType->interfaceDeclRef = substInterfaceDeclRef;
     return substType;
 }
 

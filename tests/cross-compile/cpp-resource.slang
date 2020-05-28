@@ -1,4 +1,4 @@
-//TEST(shared-library):CPP_COMPILER_COMPILE: -profile cs_5_0 -entry computeMain -target callable
+//TEST:CPP_COMPILER_COMPILE: -profile cs_5_0 -entry computeMain -target callable
 
 struct Thing
 {
@@ -13,7 +13,7 @@ static int value;
 
 ConstantBuffer<Thing> thing3;
 
-//TEST_INPUT:ubuffer(data=[0 0 0 0], stride=4):dxbinding(0),glbinding(0),out
+//TEST_INPUT:ubuffer(data=[0 0 0 0], stride=4):out
 RWStructuredBuffer<int> outputBuffer;
 
 Texture2D<float> tex;

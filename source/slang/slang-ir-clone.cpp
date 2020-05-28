@@ -228,7 +228,26 @@ IRInst* cloneInst(
     SLANG_ASSERT(builder);
     SLANG_ASSERT(oldInst);
 
-    auto newInst = cloneInstAndOperands(
+    IRInst* newInst = nullptr;
+    if( env->mapOldValToNew.TryGetValue(oldInst, newInst) )
+    {
+        // In this case, somebody is trying to clone an
+        // instruction that already had been cloned
+        // (e.g., trying to clone a `param` in a function
+        // body that had already been mapped to a specialization)
+        // so we will make the operation safer and more
+        // convenient by just returning the registered value.
+        //
+        // TODO: There might be cases where the client doesn't
+        // want this convenience feature (because it could
+        // accidentally mask a bug), so we should consider
+        // having two versions of `cloneInst()` with one
+        // explicitly not including this feature.
+        //
+        return newInst;
+    }
+
+    newInst = cloneInstAndOperands(
         env, builder, oldInst);
 
     env->mapOldValToNew.Add(oldInst, newInst);
@@ -280,13 +299,13 @@ bool IRSimpleSpecializationKey::operator==(IRSimpleSpecializationKey const& othe
     return true;
 }
 
-int IRSimpleSpecializationKey::GetHashCode() const
+HashCode IRSimpleSpecializationKey::getHashCode() const
 {
     auto valCount = vals.getCount();
-    int hash = Slang::GetHashCode(valCount);
+    HashCode hash = Slang::getHashCode(valCount);
     for( Index ii = 0; ii < valCount; ++ii )
     {
-        hash = combineHash(hash, Slang::GetHashCode(vals[ii]));
+        hash = combineHash(hash, Slang::getHashCode(vals[ii]));
     }
     return hash;
 }

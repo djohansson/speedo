@@ -3,6 +3,7 @@
 
 #include "../../source/core/slang-io.h"
 #include "../../source/core/slang-string-util.h"
+#include "../../source/core/slang-shared-library.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,15 +28,6 @@ Result TestContext::init()
 
 TestContext::~TestContext()
 {
-    for (auto& pair : m_sharedLibTools)
-    {
-        const auto& tool = pair.Value;
-        if (tool.m_sharedLibrary)
-        {
-            SharedLibrary::unload(tool.m_sharedLibrary);
-        }
-    }
-
     if (m_session)
     {
         spDestroySession(m_session);
@@ -60,11 +52,13 @@ TestContext::InnerMainFunc TestContext::getInnerMainFunc(const String& dirPath, 
     SharedLibrary::appendPlatformFileName(sharedLibToolBuilder.getUnownedSlice(), builder);
     String path = Path::combine(dirPath, builder);
 
+    DefaultSharedLibraryLoader* loader = DefaultSharedLibraryLoader::getSingleton();
+
     SharedLibraryTool tool = {};
 
-    if (SLANG_SUCCEEDED(SharedLibrary::loadWithPlatformPath(path.begin(), tool.m_sharedLibrary)))
+    if (SLANG_SUCCEEDED(loader->loadPlatformSharedLibrary(path.begin(), tool.m_sharedLibrary.writeRef())))
     {
-        tool.m_func = (InnerMainFunc)SharedLibrary::findFuncByName(tool.m_sharedLibrary, "innerMain");
+        tool.m_func = (InnerMainFunc)tool.m_sharedLibrary->findFuncByName("innerMain");
     }
 
     m_sharedLibTools.Add(name, tool);
@@ -76,12 +70,7 @@ void TestContext::setInnerMainFunc(const String& name, InnerMainFunc func)
     SharedLibraryTool* tool = m_sharedLibTools.TryGetValue(name);
     if (tool)
     {
-        if (tool->m_sharedLibrary)
-        {
-            SharedLibrary::unload(tool->m_sharedLibrary);
-            tool->m_sharedLibrary = nullptr;
-        }
-
+        tool->m_sharedLibrary.setNull();
         tool->m_func = func;
     }
     else
@@ -92,21 +81,32 @@ void TestContext::setInnerMainFunc(const String& name, InnerMainFunc func)
     }
 }
 
-CPPCompilerSet* TestContext::getCPPCompilerSet()
+DownstreamCompilerSet* TestContext::getCompilerSet()
 {
-    if (!cppCompilerSet)
+    if (!compilerSet)
     {
-        cppCompilerSet = new CPPCompilerSet;
+        compilerSet = new DownstreamCompilerSet;
 
-        CPPCompilerUtil::InitializeSetDesc desc;
-        CPPCompilerUtil::initializeSet(desc, cppCompilerSet);
+        DownstreamCompilerLocatorFunc locators[int(SLANG_PASS_THROUGH_COUNT_OF)] = { nullptr };
+
+        DownstreamCompilerUtil::setDefaultLocators(locators);
+        for (Index i = 0; i < Index(SLANG_PASS_THROUGH_COUNT_OF); ++i)
+        {
+            auto locator = locators[i];
+            if (locator)
+            {
+                locator(String(), DefaultSharedLibraryLoader::getSingleton(), compilerSet);
+            }
+        }
+
+        DownstreamCompilerUtil::updateDefaults(compilerSet);
     }
-    return cppCompilerSet;
+    return compilerSet;
 }
 
-Slang::CPPCompiler* TestContext::getDefaultCPPCompiler()
+Slang::DownstreamCompiler* TestContext::getDefaultCompiler(SlangSourceLanguage sourceLanguage)
 {
-    CPPCompilerSet* set = getCPPCompilerSet();
-    return set ? set->getDefaultCompiler() : nullptr;
+    DownstreamCompilerSet* set = getCompilerSet();
+    return set ? set->getDefaultCompiler(sourceLanguage) : nullptr;
 }
 

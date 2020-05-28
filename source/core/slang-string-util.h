@@ -11,35 +11,24 @@
 
 namespace Slang {
 
-/** A blob that uses a `String` for its storage.
-*/
-class StringBlob : public ISlangBlob, public RefObject
-{
-public:
-    // ISlangUnknown
-    SLANG_REF_OBJECT_IUNKNOWN_ALL
-
-        // ISlangBlob
-    SLANG_NO_THROW void const* SLANG_MCALL getBufferPointer() SLANG_OVERRIDE { return m_string.getBuffer(); }
-    SLANG_NO_THROW size_t SLANG_MCALL getBufferSize() SLANG_OVERRIDE { return m_string.getLength(); }
-
-        /// Get the contained string
-    SLANG_FORCE_INLINE const String& getString() const { return m_string; }
-
-    explicit StringBlob(String const& string)
-        : m_string(string)
-    {}
-
-protected:
-    ISlangUnknown* getInterface(const Guid& guid);
-    String m_string;
-};
-
 struct StringUtil
 {
+    typedef bool (*EqualFn)(const UnownedStringSlice& a, const UnownedStringSlice& b);
+
+        /// True if the splits of a and b (via splitChar) are all equal as compared with the equalFn function
+    static bool areAllEqualWithSplit(const UnownedStringSlice& a, const UnownedStringSlice& b, char splitChar, EqualFn equalFn);
+
+        /// True if all slices in match are all equal as compared with the equalFn function
+    static bool areAllEqual(const List<UnownedStringSlice>& a, const List<UnownedStringSlice>& b, EqualFn equalFn);
+
         /// Split in, by specified splitChar into slices out
         /// Slices contents will directly address into in, so contents will only stay valid as long as in does.
     static void split(const UnownedStringSlice& in, char splitChar, List<UnownedStringSlice>& slicesOut);
+
+        /// Splits in into outSlices, up to maxSlices. May not consume all of in (for example if it runs out of space).
+    static Index split(const UnownedStringSlice& in, char splitChar, Index maxSlices, UnownedStringSlice* outSlices);
+        /// Splits into outSlices up to maxSlices. Returns SLANG_OK if of 'in' consumed.
+    static SlangResult split(const UnownedStringSlice& in, char splitChar, Index maxSlices, UnownedStringSlice* outSlices, Index& outSlicesCount);
 
         /// Append the joining of in items, separated by 'separator' onto out
     static void join(const List<String>& in, char separator, StringBuilder& out);

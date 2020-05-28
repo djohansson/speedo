@@ -10,6 +10,15 @@ namespace Slang
 {
     struct IRSpecContext;
 
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!! DiagnosticSink Impls !!!!!!!!!!!!!!!!!!!!!
+
+    SourceLoc const& getDiagnosticPos(IRInst* inst)
+    {
+        return inst->sourceLoc;
+    }
+
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!! DiagnosticSink Impls !!!!!!!!!!!!!!!!!!!!!
+
     IRInst* cloneGlobalValueWithLinkage(
         IRSpecContext*          context,
         IRInst*                 originalVal,
@@ -36,31 +45,14 @@ namespace Slang
     { kIROp_##ID, { #MNEMONIC, ARG_COUNT, FLAGS, } },
 #include "slang-ir-inst-defs.h"
 
-    // Pseudo ops
-#define INST(ID, MNEMONIC, ARG_COUNT, FLAGS)  /* empty */
-#define PSEUDO_INST(ID)  \
-    { kIRPseudoOp_##ID, { #ID, 0, 0 } },
-
-    // First is 'invalid' 
+    // Invalid op sentinel value comes after all the valid ones
     { kIROp_Invalid,{ "invalid", 0, 0 } },
-    // Then all the other psuedo ops
-#include "slang-ir-inst-defs.h"
-
     };
 
     IROpInfo getIROpInfo(IROp opIn)
     {
-        const int op = opIn & kIROpMeta_PseudoOpMask;
-        if ((op & kIROpMeta_IsPseudoOp) && op < kIRPseudoOp_LastPlusOne)
-        {
-            // It's a pseudo op
-            const int index = op - kIRPseudoOp_First;
-            // Pseudo ops start from kIROpcount
-            const auto& entry =  kIROps[kIROpCount + index];
-            SLANG_ASSERT(entry.op == op);
-            return entry.info;
-        }
-        else if (op < kIROpCount)
+        const int op = opIn & kIROpMeta_OpMask;
+        if (op < kIROpCount)
         {
             // It's a main op
             const auto& entry = kIROps[op];
@@ -202,6 +194,24 @@ namespace Slang
         return nullptr;
     }
 
+    IROperandListBase IRInst::getAllAttrs()
+    {
+        // We assume as an invariant that all attributes appear at the end of the operand
+        // list, after all the non-attribute operands.
+        //
+        // We will therefore define a range that ends at the end of the operand list ...
+        //
+        IRUse* end = getOperands() + getOperandCount();
+        //
+        // ... and begins after the last non-attribute operand.
+        //
+        IRUse* cursor = getOperands();
+        while(cursor != end && !as<IRAttr>(cursor->get()))
+            cursor++;
+
+        return IROperandListBase(cursor, end);
+    }
+
     // IRConstant
 
     IRIntegerValue GetIntVal(IRInst* inst)
@@ -243,7 +253,7 @@ namespace Slang
     {
         if( auto rateQualType = as<IRRateQualifiedType>(type) )
         {
-            type = rateQualType->getDataType();
+            type = rateQualType->getValueType();
         }
 
         // The "true" pointers and the pointer-like stdlib types are the easy cases.
@@ -690,6 +700,371 @@ namespace Slang
     {
         if (!inst) return false;
         return isTerminatorInst(inst->op);
+    }
+
+    //
+    // IRTypeLayout
+    //
+
+    IRTypeSizeAttr* IRTypeLayout::findSizeAttr(LayoutResourceKind kind)
+    {
+        // TODO: If we could assume the attributes were sorted
+        // by `kind`, then we could use a binary search here
+        // instead of linear.
+        //
+        // In practice, the number of entries will be very small,
+        // so the cost of the linear search should not be too bad.
+
+        for( auto sizeAttr : getSizeAttrs() )
+        {
+            if(sizeAttr->getResourceKind() == kind)
+                return sizeAttr;
+        }
+        return nullptr;
+    }
+
+    IRTypeLayout* IRTypeLayout::unwrapArray()
+    {
+        auto typeLayout = this;
+        while(auto arrayTypeLayout = as<IRArrayTypeLayout>(typeLayout))
+            typeLayout = arrayTypeLayout->getElementTypeLayout();
+        return typeLayout;
+    }
+
+    IRTypeLayout* IRTypeLayout::getPendingDataTypeLayout()
+    {
+        if(auto attr = findAttr<IRPendingLayoutAttr>())
+            return cast<IRTypeLayout>(attr->getLayout());
+        return nullptr;
+    }
+
+    IROperandList<IRTypeSizeAttr> IRTypeLayout::getSizeAttrs()
+    {
+        return findAttrs<IRTypeSizeAttr>();
+    }
+
+    IRTypeLayout::Builder::Builder(IRBuilder* irBuilder)
+        : m_irBuilder(irBuilder)
+    {}
+
+    void IRTypeLayout::Builder::addResourceUsage(
+        LayoutResourceKind  kind,
+        LayoutSize          size)
+    {
+        auto& resInfo = m_resInfos[Int(kind)];
+        resInfo.kind = kind;
+        resInfo.size += size;
+    }
+
+    void IRTypeLayout::Builder::addResourceUsage(IRTypeSizeAttr* sizeAttr)
+    {
+        addResourceUsage(
+            sizeAttr->getResourceKind(),
+            sizeAttr->getSize());
+    }
+
+    void IRTypeLayout::Builder::addResourceUsageFrom(IRTypeLayout* typeLayout)
+    {
+        for( auto sizeAttr : typeLayout->getSizeAttrs() )
+        {
+            addResourceUsage(sizeAttr);
+        }
+    }
+
+    IRTypeLayout* IRTypeLayout::Builder::build()
+    {
+        IRBuilder* irBuilder = getIRBuilder();
+
+        List<IRInst*> operands;
+
+        addOperands(operands);
+        addAttrs(operands);
+
+        return irBuilder->getTypeLayout(
+            getOp(),
+            operands);
+    }
+
+    void IRTypeLayout::Builder::addOperands(List<IRInst*>& operands)
+    {
+        addOperandsImpl(operands);
+    }
+
+    void IRTypeLayout::Builder::addAttrs(List<IRInst*>& operands)
+    {
+        auto irBuilder = getIRBuilder();
+
+        for(auto resInfo : m_resInfos)
+        {
+            if(resInfo.kind == LayoutResourceKind::None)
+                continue;
+
+            IRInst* sizeAttr = irBuilder->getTypeSizeAttr(
+                resInfo.kind,
+                resInfo.size);
+            operands.add(sizeAttr);
+        }
+
+        if( auto pendingTypeLayout = m_pendingTypeLayout )
+        {
+            operands.add(irBuilder->getPendingLayoutAttr(
+                pendingTypeLayout));
+        }
+
+        addAttrsImpl(operands);
+    }
+
+    //
+    // IRParameterGroupTypeLayout
+    //
+
+    void IRParameterGroupTypeLayout::Builder::addOperandsImpl(List<IRInst*>& ioOperands)
+    {
+        ioOperands.add(m_containerVarLayout);
+        ioOperands.add(m_elementVarLayout);
+        ioOperands.add(m_offsetElementTypeLayout);
+    }
+
+    IRParameterGroupTypeLayout* IRParameterGroupTypeLayout::Builder::build()
+    {
+        return cast<IRParameterGroupTypeLayout>(Super::Builder::build());
+    }
+
+    //
+    // IRStructTypeLayout
+    //
+
+    void IRStructTypeLayout::Builder::addAttrsImpl(List<IRInst*>& ioOperands)
+    {
+        auto irBuilder = getIRBuilder();
+        for(auto field : m_fields)
+        {
+            ioOperands.add(
+                irBuilder->getFieldLayoutAttr(field.key, field.layout));
+        }
+    }
+
+    //
+    // IRArrayTypeLayout
+    //
+
+    void IRArrayTypeLayout::Builder::addOperandsImpl(List<IRInst*>& ioOperands)
+    {
+        ioOperands.add(m_elementTypeLayout);
+    }
+
+    //
+    // IRStreamOutputTypeLayout
+    //
+
+    void IRStreamOutputTypeLayout::Builder::addOperandsImpl(List<IRInst*>& ioOperands)
+    {
+        ioOperands.add(m_elementTypeLayout);
+    }
+
+    //
+    // IRMatrixTypeLayout
+    //
+
+    IRMatrixTypeLayout::Builder::Builder(IRBuilder* irBuilder, MatrixLayoutMode mode)
+        : Super::Builder(irBuilder)
+    {
+        m_modeInst = irBuilder->getIntValue(irBuilder->getIntType(), IRIntegerValue(mode));
+    }
+
+    void IRMatrixTypeLayout::Builder::addOperandsImpl(List<IRInst*>& ioOperands)
+    {
+        ioOperands.add(m_modeInst);
+    }
+
+    //
+    // IRTaggedUnionTypeLayout
+    //
+
+    IRTaggedUnionTypeLayout::Builder::Builder(IRBuilder* irBuilder, LayoutSize tagOffset)
+        : Super::Builder(irBuilder)
+    {
+        m_tagOffset = irBuilder->getIntValue(irBuilder->getIntType(), tagOffset.raw);
+    }
+
+    void IRTaggedUnionTypeLayout::Builder::addCaseTypeLayout(IRTypeLayout* typeLayout)
+    {
+        m_caseTypeLayoutAttrs.add(getIRBuilder()->getCaseTypeLayoutAttr(typeLayout));
+    }
+
+    void IRTaggedUnionTypeLayout::Builder::addOperandsImpl(List<IRInst*>& ioOperands)
+    {
+        ioOperands.add(m_tagOffset);
+    }
+
+    void IRTaggedUnionTypeLayout::Builder::addAttrsImpl(List<IRInst*>& ioOperands)
+    {
+        for(auto attr : m_caseTypeLayoutAttrs)
+            ioOperands.add(attr);
+    }
+
+    //
+    // IRVarLayout
+    //
+
+    bool IRVarLayout::usesResourceKind(LayoutResourceKind kind)
+    {
+        // TODO: basing this check on whether or not the
+        // var layout has an entry for `kind` means that
+        // we can't just optimize away any entry where
+        // the offset is zero (which might be a small
+        // but nice optimization). We could consider shifting
+        // this test to use the entries on the type layout
+        // instead (since non-zero resource consumption
+        // should be an equivalent test).
+
+        return findOffsetAttr(kind) != nullptr;
+    }
+
+    IRSystemValueSemanticAttr* IRVarLayout::findSystemValueSemanticAttr()
+    {
+        return findAttr<IRSystemValueSemanticAttr>();
+    }
+
+    IRVarOffsetAttr* IRVarLayout::findOffsetAttr(LayoutResourceKind kind)
+    {
+        for( auto offsetAttr : getOffsetAttrs() )
+        {
+            if(offsetAttr->getResourceKind() == kind)
+                return offsetAttr;
+        }
+        return nullptr;
+    }
+
+    IROperandList<IRVarOffsetAttr> IRVarLayout::getOffsetAttrs()
+    {
+        return findAttrs<IRVarOffsetAttr>();
+    }
+
+    Stage IRVarLayout::getStage()
+    {
+        if(auto stageAttr = findAttr<IRStageAttr>())
+            return stageAttr->getStage();
+        return Stage::Unknown;
+    }
+
+    IRVarLayout* IRVarLayout::getPendingVarLayout()
+    {
+        if( auto pendingLayoutAttr = findAttr<IRPendingLayoutAttr>() )
+        {
+            return cast<IRVarLayout>(pendingLayoutAttr->getLayout());
+        }
+        return nullptr;
+    }
+
+    IRVarLayout::Builder::Builder(
+        IRBuilder*      irBuilder,
+        IRTypeLayout*   typeLayout)
+        : m_irBuilder(irBuilder)
+        , m_typeLayout(typeLayout)
+    {}
+
+    bool IRVarLayout::Builder::usesResourceKind(LayoutResourceKind kind)
+    {
+        return m_resInfos[Int(kind)].kind != LayoutResourceKind::None;
+    }
+
+    IRVarLayout::Builder::ResInfo* IRVarLayout::Builder::findOrAddResourceInfo(LayoutResourceKind kind)
+    {
+        auto& resInfo = m_resInfos[Int(kind)];
+        resInfo.kind = kind;
+        return &resInfo;
+    }
+
+    void IRVarLayout::Builder::setSystemValueSemantic(String const& name, UInt index)
+    {
+        m_systemValueSemantic = getIRBuilder()->getSystemValueSemanticAttr(name, index);
+    }
+
+    void IRVarLayout::Builder::setUserSemantic(String const& name, UInt index)
+    {
+        m_userSemantic = getIRBuilder()->getUserSemanticAttr(name, index);
+    }
+
+    void IRVarLayout::Builder::setStage(Stage stage)
+    {
+        m_stageAttr = getIRBuilder()->getStageAttr(stage);
+    }
+
+    void IRVarLayout::Builder::cloneEverythingButOffsetsFrom(
+        IRVarLayout* that)
+    {
+        if(auto systemValueSemantic = that->findAttr<IRSystemValueSemanticAttr>())
+            m_systemValueSemantic = systemValueSemantic;
+
+        if(auto userSemantic = that->findAttr<IRUserSemanticAttr>())
+            m_userSemantic = userSemantic;
+
+        if(auto stageAttr = that->findAttr<IRStageAttr>())
+            m_stageAttr = stageAttr;
+    }
+
+    IRVarLayout* IRVarLayout::Builder::build()
+    {
+        SLANG_ASSERT(m_typeLayout);
+
+        IRBuilder* irBuilder = getIRBuilder();
+
+        List<IRInst*> operands;
+
+        operands.add(m_typeLayout);
+
+        for(auto resInfo : m_resInfos)
+        {
+            if(resInfo.kind == LayoutResourceKind::None)
+                continue;
+
+            IRInst* varOffsetAttr = irBuilder->getVarOffsetAttr(
+                resInfo.kind,
+                resInfo.offset,
+                resInfo.space);
+            operands.add(varOffsetAttr);
+        }
+
+        if(auto semanticAttr = m_userSemantic)
+            operands.add(semanticAttr);
+
+        if(auto semanticAttr = m_systemValueSemantic)
+            operands.add(semanticAttr);
+
+        if(auto stageAttr = m_stageAttr)
+            operands.add(stageAttr);
+
+        if(auto pendingVarLayout = m_pendingVarLayout)
+        {
+            IRInst* pendingLayoutAttr = irBuilder->getPendingLayoutAttr(
+                pendingVarLayout);
+            operands.add(pendingLayoutAttr);
+        }
+
+        return irBuilder->getVarLayout(operands);
+    }
+
+    //
+    // IREntryPointLayout
+    //
+
+    IRStructTypeLayout* getScopeStructLayout(IREntryPointLayout* scopeLayout)
+    {
+        auto scopeTypeLayout = scopeLayout->getParamsLayout()->getTypeLayout();
+
+        if( auto constantBufferTypeLayout = as<IRParameterGroupTypeLayout>(scopeTypeLayout) )
+        {
+            scopeTypeLayout = constantBufferTypeLayout->getOffsetElementTypeLayout();
+        }
+
+        if( auto structTypeLayout = as<IRStructTypeLayout>(scopeTypeLayout) )
+        {
+            return structTypeLayout;
+        }
+
+        SLANG_UNEXPECTED("uhandled global-scope binding layout");
+        UNREACHABLE_RETURN(nullptr);
     }
 
     //
@@ -1276,17 +1651,17 @@ namespace Slang
         return true;
     }
 
-    int IRInstKey::GetHashCode()
+    HashCode IRInstKey::getHashCode()
     {
-        auto code = Slang::GetHashCode(inst->op);
-        code = combineHash(code, Slang::GetHashCode(inst->getFullType()));
-        code = combineHash(code, Slang::GetHashCode(inst->getOperandCount()));
+        auto code = Slang::getHashCode(inst->op);
+        code = combineHash(code, Slang::getHashCode(inst->getFullType()));
+        code = combineHash(code, Slang::getHashCode(inst->getOperandCount()));
 
         auto argCount = inst->getOperandCount();
         auto args = inst->getOperands();
         for( UInt aa = 0; aa < argCount; ++aa )
         {
-            code = combineHash(code, Slang::GetHashCode(args[aa].get()));
+            code = combineHash(code, Slang::getHashCode(args[aa].get()));
         }
         return code;
     }
@@ -1306,6 +1681,38 @@ namespace Slang
         {
             return UnownedStringSlice(value.stringVal.chars, value.stringVal.numChars);
         }
+    }
+
+    bool IRConstant::isFinite() const
+    {
+        SLANG_ASSERT(op == kIROp_FloatLit);
+        
+        // Lets check we can analyze as double, at least in principal
+        SLANG_COMPILE_TIME_ASSERT(sizeof(IRFloatingPointValue) == sizeof(double));
+        // We are in effect going to type pun (yay!), lets make sure they are the same size
+        SLANG_COMPILE_TIME_ASSERT(sizeof(IRIntegerValue) == sizeof(IRFloatingPointValue));
+
+        const uint64_t i = uint64_t(value.intVal);
+        int e = int(i >> 52) & 0x7ff;
+        return (e != 0x7ff);
+    }
+
+    IRConstant::FloatKind IRConstant::getFloatKind() const
+    {
+        SLANG_ASSERT(op == kIROp_FloatLit);
+
+        const uint64_t i = uint64_t(value.intVal);
+        int e = int(i >> 52) & 0x7ff;
+        if ( e == 0x7ff)
+        {
+            if (i << 12)
+            {
+                return FloatKind::Nan;
+            }
+            // Sign bit (top bit) will indicate positive or negative nan
+            return value.intVal < 0 ? FloatKind::NegativeInfinity : FloatKind::PositiveInfinity;
+        }
+        return FloatKind::Finite;
     }
 
     bool IRConstant::isValueEqual(IRConstant* rhs)
@@ -1353,10 +1760,10 @@ namespace Slang
         return isValueEqual(rhs) && getFullType() == rhs->getFullType();
     }
 
-    int IRConstant::getHashCode()
+    HashCode IRConstant::getHashCode()
     {
-        auto code = Slang::GetHashCode(op);
-        code = combineHash(code, Slang::GetHashCode(getFullType()));
+        auto code = Slang::getHashCode(op);
+        code = combineHash(code, Slang::getHashCode(getFullType()));
 
         switch (op)
         {
@@ -1366,16 +1773,16 @@ namespace Slang
             {
                 SLANG_COMPILE_TIME_ASSERT(sizeof(IRFloatingPointValue) == sizeof(IRIntegerValue));
                 // ... we can just compare as bits
-                return combineHash(code, Slang::GetHashCode(value.intVal));
+                return combineHash(code, Slang::getHashCode(value.intVal));
             }
             case kIROp_PtrLit:
             {
-                return combineHash(code, Slang::GetHashCode(value.ptrVal));
+                return combineHash(code, Slang::getHashCode(value.ptrVal));
             }
             case kIROp_StringLit:
             {
                 const UnownedStringSlice slice = getStringSlice();
-                return combineHash(code, Slang::GetHashCode(slice.begin(), slice.size()));
+                return combineHash(code, Slang::getHashCode(slice.begin(), slice.getLength()));
             }
             default:
             {
@@ -1439,7 +1846,7 @@ namespace Slang
             {
                 const UnownedStringSlice slice = keyInst.getStringSlice();
 
-                const size_t sliceSize = slice.size();
+                const size_t sliceSize = slice.getLength();
                 const size_t instSize = prefixSize + offsetof(IRConstant::StringValue, chars) + sliceSize; 
 
                 irValue = static_cast<IRConstant*>(createInstWithSizeImpl(builder, keyInst.op, keyInst.getFullType(), instSize));
@@ -1512,7 +1919,7 @@ namespace Slang
         
         IRConstant::StringSliceValue& dstSlice = keyInst.value.transitoryStringVal;
         dstSlice.chars = const_cast<char*>(inSlice.begin());
-        dstSlice.numChars = uint32_t(inSlice.size());
+        dstSlice.numChars = uint32_t(inSlice.getLength());
 
         return static_cast<IRStringLit*>(findOrEmitConstant(this, keyInst));
     }
@@ -1752,6 +2159,13 @@ namespace Slang
         IROp            op)
     {
         return getType(op, 0, nullptr);
+    }
+
+    IRType* IRBuilder::getType(
+        IROp            op,
+        IRInst*         operand0)
+    {
+        return getType(op, 1, &operand0);
     }
 
     IRBasicType* IRBuilder::getBasicType(BaseType baseType)
@@ -2942,12 +3356,13 @@ namespace Slang
         return inst;
     }
 
-    IRGlobalGenericParam* IRBuilder::emitGlobalGenericParam()
+    IRGlobalGenericParam* IRBuilder::emitGlobalGenericParam(
+        IRType* type)
     {
         IRGlobalGenericParam* irGenericParam = createInst<IRGlobalGenericParam>(
             this,
             kIROp_GlobalGenericParam,
-            nullptr);
+            type);
         addGlobalValue(this, irGenericParam);
         return irGenericParam;
     }
@@ -3083,14 +3498,152 @@ namespace Slang
         addDecoration(inst, kIROp_HighLevelDeclDecoration, ptrConst);
     }
 
-    void IRBuilder::addLayoutDecoration(IRInst* inst, Layout* layout)
+    void IRBuilder::addLayoutDecoration(IRInst* value, IRLayout* layout)
     {
-        auto ptrConst = getPtrValue(addRefObjectToFree(layout));
-        addDecoration(inst, kIROp_LayoutDecoration, ptrConst);
+        addDecoration(value, kIROp_LayoutDecoration, layout);
+    }
+
+    IRTypeSizeAttr* IRBuilder::getTypeSizeAttr(
+        LayoutResourceKind kind,
+        LayoutSize size)
+    {
+        auto kindInst = getIntValue(getIntType(), IRIntegerValue(kind));
+        auto sizeInst = getIntValue(getIntType(), IRIntegerValue(size.raw));
+
+        IRInst* operands[] = { kindInst, sizeInst };
+
+        return cast<IRTypeSizeAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_TypeSizeAttr,
+            SLANG_COUNT_OF(operands),
+            operands));
+    }
+
+    IRVarOffsetAttr* IRBuilder::getVarOffsetAttr(
+        LayoutResourceKind  kind,
+        UInt                offset,
+        UInt                space)
+    {
+        IRInst* operands[3];
+        UInt operandCount = 0;
+
+        auto kindInst = getIntValue(getIntType(), IRIntegerValue(kind));
+        operands[operandCount++] = kindInst;
+
+        auto offsetInst = getIntValue(getIntType(), IRIntegerValue(offset));
+        operands[operandCount++] = offsetInst;
+
+        if(space)
+        {
+            auto spaceInst = getIntValue(getIntType(), IRIntegerValue(space));
+            operands[operandCount++] = spaceInst;
+        }
+
+        return cast<IRVarOffsetAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_VarOffsetAttr,
+            operandCount,
+            operands));
+    }
+
+    IRPendingLayoutAttr* IRBuilder::getPendingLayoutAttr(
+        IRLayout* pendingLayout)
+    {
+        IRInst* operands[] = { pendingLayout };
+
+        return cast<IRPendingLayoutAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_PendingLayoutAttr,
+            SLANG_COUNT_OF(operands),
+            operands));
+    }
+
+    IRStructFieldLayoutAttr* IRBuilder::getFieldLayoutAttr(
+        IRStructKey*    key,
+        IRVarLayout*    layout)
+    {
+        IRInst* operands[] = { key, layout };
+
+        return cast<IRStructFieldLayoutAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_StructFieldLayoutAttr,
+            SLANG_COUNT_OF(operands),
+            operands));
+    }
+
+    IRCaseTypeLayoutAttr* IRBuilder::getCaseTypeLayoutAttr(
+        IRTypeLayout*   layout)
+    {
+        IRInst* operands[] = { layout };
+
+        return cast<IRCaseTypeLayoutAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_CaseTypeLayoutAttr,
+            SLANG_COUNT_OF(operands),
+            operands));
+    }
+
+    IRSemanticAttr* IRBuilder::getSemanticAttr(
+        IROp            op,
+        String const&   name,
+        UInt            index)
+    {
+        auto nameInst = getStringValue(name.getUnownedSlice());
+        auto indexInst = getIntValue(getIntType(), index);
+
+        IRInst* operands[] = { nameInst, indexInst };
+
+        return cast<IRSemanticAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            op,
+            SLANG_COUNT_OF(operands),
+            operands));
+    }
+
+    IRStageAttr* IRBuilder::getStageAttr(Stage stage)
+    {
+        auto stageInst = getIntValue(getIntType(), IRIntegerValue(stage));
+        IRInst* operands[] = { stageInst };
+        return cast<IRStageAttr>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_StageAttr,
+            SLANG_COUNT_OF(operands),
+            operands));
+    }
+
+
+    IRTypeLayout* IRBuilder::getTypeLayout(IROp op, List<IRInst*> const& operands)
+    {
+        return cast<IRTypeLayout>(findOrEmitHoistableInst(
+            getVoidType(),
+            op,
+            operands.getCount(),
+            operands.getBuffer()));
+    }
+
+    IRVarLayout* IRBuilder::getVarLayout(List<IRInst*> const& operands)
+    {
+        return cast<IRVarLayout>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_VarLayout,
+            operands.getCount(),
+            operands.getBuffer()));
+    }
+
+    IREntryPointLayout* IRBuilder::getEntryPointLayout(
+        IRVarLayout* paramsLayout,
+        IRVarLayout* resultLayout)
+    {
+        IRInst* operands[] = { paramsLayout, resultLayout };
+
+        return cast<IREntryPointLayout>(findOrEmitHoistableInst(
+            getVoidType(),
+            kIROp_EntryPointLayout,
+            SLANG_COUNT_OF(operands),
+            operands));
     }
 
     //
-
 
     struct IRDumpContext
     {
@@ -3516,26 +4069,6 @@ namespace Slang
     {
         for(auto dd : inst->getDecorations())
         {
-            // Certain decorations aren't helpful to appear
-            // in output dumps, so we will only include them
-            // in the "detailed" dumping mode.
-            //
-            // For all other modes, we will check the opcode
-            // and skip selected decorations.
-            //
-            if(context->mode != IRDumpMode::Detailed)
-            {
-                switch(dd->op)
-                {
-                default:
-                    break;
-
-                case kIROp_HighLevelDeclDecoration:
-                case kIROp_LayoutDecoration:
-                    continue;
-                }
-            }
-
             dump(context, "[");
             dumpInstBody(context, dd);
             dump(context, "]\n");
@@ -3955,8 +4488,8 @@ namespace Slang
             return false;
         }
 
-        const IROp opA = IROp(a->op & kIROpMeta_PseudoOpMask);
-        const IROp opB = IROp(b->op & kIROpMeta_PseudoOpMask);
+        const IROp opA = IROp(a->op & kIROpMeta_OpMask);
+        const IROp opB = IROp(b->op & kIROpMeta_OpMask);
 
         if (opA != opB)
         {
@@ -4004,7 +4537,7 @@ namespace Slang
         {
             // TODO: This is contrived in that we want two types that are the same, but are different
             // pointers to match here.
-            // If we make GetHashCode for IRType* compatible with isTypeEqual, then we should probably use that.
+            // If we make getHashCode for IRType* compatible with isTypeEqual, then we should probably use that.
             return static_cast<IRConstant*>(a)->isValueEqual(static_cast<IRConstant*>(b)) &&
                 isTypeEqual(a->getFullType(), b->getFullType());
         }
@@ -4408,7 +4941,7 @@ namespace Slang
         case kIROp_Sub:
         case kIROp_Mul:
         //case kIROp_Div:   // TODO: We could split out integer vs. floating-point div/mod and assume the floating-point cases have no side effects
-        //case kIROp_Mod:
+        //case kIROp_Rem:
         case kIROp_Lsh:
         case kIROp_Rsh:
         case kIROp_Eql:
@@ -4427,9 +4960,6 @@ namespace Slang
         case kIROp_BitNot:
         case kIROp_Select:
         case kIROp_Dot:
-        case kIROp_Mul_Vector_Matrix:
-        case kIROp_Mul_Matrix_Vector:
-        case kIROp_Mul_Matrix_Matrix:
         case kIROp_MakeExistential:
         case kIROp_ExtractExistentialType:
         case kIROp_ExtractExistentialValue:
@@ -4506,6 +5036,21 @@ namespace Slang
         return val;
     }
 
+    IRGeneric* findSpecializedGeneric(IRSpecialize* specialize)
+    {
+        return as<IRGeneric>(specialize->getBase());
+    }
+
+
+    IRInst* findSpecializeReturnVal(IRSpecialize* specialize)
+    {
+        auto generic = findSpecializedGeneric(specialize);
+        if(!generic)
+            return nullptr;
+
+        return findGenericReturnVal(generic);
+    }
+
     IRInst* getResolvedInstForDecorations(IRInst* inst)
     {
         IRInst* candidate = inst;
@@ -4532,6 +5077,13 @@ namespace Slang
         // the value they return.
         for(;;)
         {
+            // An instruciton marked `[import(...)]` cannot
+            // be a definition, since it is claiming that
+            // the actual body comes from another module.
+            //
+            if(val->findDecoration<IRImportDecoration>())
+                return false;
+
             auto genericInst = as<IRGeneric>(val);
             if(!genericInst)
                 break;
@@ -4543,13 +5095,12 @@ namespace Slang
             val = returnVal;
         }
 
-        // TODO: the logic here should probably
-        // be that anything with an `IRImportDecoration`
-        // is considered to be a declaration rather than definition.
-
+        // Some cases of instructions have structural
+        // rules about when they are considered to have
+        // a definition (e.g., a function must have a body).
+        //
         switch (val->op)
         {
-        case kIROp_WitnessTable:
         case kIROp_Func:
         case kIROp_Generic:
             return val->getFirstChild() != nullptr;
@@ -4557,14 +5108,15 @@ namespace Slang
         case kIROp_GlobalConstant:
             return cast<IRGlobalConstant>(val)->getValue() != nullptr;
 
-        case kIROp_StructType:
-        case kIROp_GlobalVar:
-        case kIROp_GlobalParam:
-            return true;
-
         default:
-            return false;
+            break;
         }
+
+        // In all other cases, if we have an instruciton
+        // that has *not* been marked for import, then
+        // we consider it to be a definition.
+
+        return true;
     }
 
     void markConstExpr(

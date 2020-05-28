@@ -1,10 +1,13 @@
 #include "slang-parser.h"
 
 #include <assert.h>
+#include <float.h>
 
 #include "slang-compiler.h"
 #include "slang-lookup.h"
 #include "slang-visitor.h"
+
+#include "../core/slang-semantic-version.h"
 
 namespace Slang
 {
@@ -106,7 +109,7 @@ namespace Slang
 
         void FillPosition(SyntaxNode * node)
         {
-            node->loc = tokenReader.PeekLoc();
+            node->loc = tokenReader.peekLoc();
         }
         void PushScope(ContainerDecl* containerDecl)
         {
@@ -119,7 +122,7 @@ namespace Slang
 
         void pushScopeAndSetParent(ContainerDecl* containerDecl)
         {
-            containerDecl->ParentDecl = currentScope->containerDecl;
+            containerDecl->parentDecl = currentScope->containerDecl;
             PushScope(containerDecl);
         }
 
@@ -177,17 +180,18 @@ namespace Slang
 
     // Forward Declarations
 
-    static void ParseDeclBody(
-        Parser*						parser,
-        ContainerDecl*				containerDecl,
-        TokenType	                closingToken);
+        /// Parse declarations making up the body of `parent`, up to the matching `closingToken`
+    static void parseDecls(
+        Parser*         parser,
+        ContainerDecl*  parent,
+        TokenType	    closingToken);
+
+        /// Parse a body consisting of declarations enclosed in `{}`, as the children of `parent`.
+    static void parseDeclBody(
+        Parser*         parser,
+        ContainerDecl*  parent);
 
     static RefPtr<Decl> parseEnumDecl(Parser* parser);
-
-    // Parse the `{}`-delimeted body of an aggregate type declaration
-    static void parseAggTypeDeclBody(
-        Parser*             parser,
-        AggTypeDeclBase*    decl);
 
     static RefPtr<Modifier> ParseOptSemantics(
         Parser* parser);
@@ -212,8 +216,8 @@ namespace Slang
         // Don't emit "unexpected token" errors if we are in recovering mode
         if (!parser->isRecovering)
         {
-            parser->sink->diagnose(parser->tokenReader.PeekLoc(), Diagnostics::unexpectedToken,
-                parser->tokenReader.PeekTokenType());
+            parser->sink->diagnose(parser->tokenReader.peekLoc(), Diagnostics::unexpectedToken,
+                parser->tokenReader.peekTokenType());
 
             // Switch into recovery mode, to suppress additional errors
             parser->isRecovering = true;
@@ -227,8 +231,8 @@ namespace Slang
         // Don't emit "unexpected token" errors if we are in recovering mode
         if (!parser->isRecovering)
         {
-            parser->sink->diagnose(parser->tokenReader.PeekLoc(), Diagnostics::unexpectedTokenExpectedTokenName,
-                parser->tokenReader.PeekTokenType(),
+            parser->sink->diagnose(parser->tokenReader.peekLoc(), Diagnostics::unexpectedTokenExpectedTokenName,
+                parser->tokenReader.peekTokenType(),
                 expected);
 
             // Switch into recovery mode, to suppress additional errors
@@ -243,8 +247,8 @@ namespace Slang
         // Don't emit "unexpected token" errors if we are in recovering mode
         if (!parser->isRecovering)
         {
-            parser->sink->diagnose(parser->tokenReader.PeekLoc(), Diagnostics::unexpectedTokenExpectedTokenType,
-                parser->tokenReader.PeekTokenType(),
+            parser->sink->diagnose(parser->tokenReader.peekLoc(), Diagnostics::unexpectedTokenExpectedTokenType,
+                parser->tokenReader.peekTokenType(),
                 expected);
 
             // Switch into recovery mode, to suppress additional errors
@@ -259,7 +263,7 @@ namespace Slang
     static TokenType SkipBalancedToken(
         TokenReader* reader)
     {
-        TokenType tokenType = reader->AdvanceToken().type;
+        TokenType tokenType = reader->advanceToken().type;
         switch (tokenType)
         {
         default:
@@ -279,10 +283,10 @@ namespace Slang
     {
         for (;;)
         {
-            if (reader->IsAtEnd()) return TokenType::EndOfFile;
-            if (reader->PeekTokenType() == tokenType)
+            if (reader->isAtEnd()) return TokenType::EndOfFile;
+            if (reader->peekTokenType() == tokenType)
             {
-                reader->AdvanceToken();
+                reader->advanceToken();
                 return tokenType;
             }
             SkipBalancedToken(reader);
@@ -310,17 +314,17 @@ namespace Slang
     // Expect an identifier token with the given content, and consume it.
     Token Parser::ReadToken(const char* expected)
     {
-        if (tokenReader.PeekTokenType() == TokenType::Identifier
-                && tokenReader.PeekToken().Content == expected)
+        if (tokenReader.peekTokenType() == TokenType::Identifier
+                && tokenReader.peekToken().getContent() == expected)
         {
             isRecovering = false;
-            return tokenReader.AdvanceToken();
+            return tokenReader.advanceToken();
         }
 
         if (!isRecovering)
         {
             Unexpected(this, expected);
-            return tokenReader.PeekToken();
+            return tokenReader.peekToken();
         }
         else
         {
@@ -329,18 +333,18 @@ namespace Slang
             {
                 // The token we expected?
                 // Then exit recovery mode and pretend like all is well.
-                if (tokenReader.PeekTokenType() == TokenType::Identifier
-                    && tokenReader.PeekToken().Content == expected)
+                if (tokenReader.peekTokenType() == TokenType::Identifier
+                    && tokenReader.peekToken().getContent() == expected)
                 {
                     isRecovering = false;
-                    return tokenReader.AdvanceToken();
+                    return tokenReader.advanceToken();
                 }
 
 
                 // Don't skip past any "closing" tokens.
-                if (IsClosingToken(tokenReader.PeekTokenType()))
+                if (IsClosingToken(tokenReader.peekTokenType()))
                 {
-                    return tokenReader.PeekToken();
+                    return tokenReader.peekToken();
                 }
 
                 // Skip balanced tokens and try again.
@@ -351,7 +355,7 @@ namespace Slang
 
     Token Parser::ReadToken()
     {
-        return tokenReader.AdvanceToken();
+        return tokenReader.advanceToken();
     }
 
     static bool TryRecover(
@@ -403,7 +407,7 @@ namespace Slang
         TokenReader* tokenReader = &parser->tokenReader;
         for (;;)
         {
-            TokenType peek = tokenReader->PeekTokenType();
+            TokenType peek = tokenReader->peekTokenType();
 
             // Is the next token in our recover-before set?
             // If so, then we have recovered successfully!
@@ -422,7 +426,7 @@ namespace Slang
             {
                 if (peek == recoverAfter[ii])
                 {
-                    tokenReader->AdvanceToken();
+                    tokenReader->advanceToken();
                     parser->isRecovering = false;
                     return true;
                 }
@@ -495,16 +499,16 @@ namespace Slang
 
     Token Parser::ReadToken(TokenType expected)
     {
-        if (tokenReader.PeekTokenType() == expected)
+        if (tokenReader.peekTokenType() == expected)
         {
             isRecovering = false;
-            return tokenReader.AdvanceToken();
+            return tokenReader.advanceToken();
         }
 
         if (!isRecovering)
         {
             Unexpected(this, expected);
-            return tokenReader.PeekToken();
+            return tokenReader.peekToken();
         }
         else
         {
@@ -512,10 +516,10 @@ namespace Slang
             if (TryRecoverBefore(this, expected))
             {
                 isRecovering = false;
-                return tokenReader.AdvanceToken();
+                return tokenReader.advanceToken();
             }
 
-            return tokenReader.PeekToken();
+            return tokenReader.peekToken();
         }
     }
 
@@ -523,19 +527,19 @@ namespace Slang
     {
         TokenReader r = tokenReader;
         for (int ii = 0; ii < offset; ++ii)
-            r.AdvanceToken();
+            r.advanceToken();
 
-        return r.PeekTokenType() == TokenType::Identifier
-            && r.PeekToken().Content == string;
+        return r.peekTokenType() == TokenType::Identifier
+            && r.peekToken().getContent() == string;
 }
 
     bool Parser::LookAheadToken(TokenType type, int offset)
     {
         TokenReader r = tokenReader;
         for (int ii = 0; ii < offset; ++ii)
-            r.AdvanceToken();
+            r.advanceToken();
 
-        return r.PeekTokenType() == type;
+        return r.peekTokenType() == type;
     }
 
     // Consume a token and return true it if matches, otherwise false
@@ -574,7 +578,7 @@ namespace Slang
         }
         if (AdvanceIf(parser, tokenType))
             return true;
-        if (parser->tokenReader.PeekTokenType() == TokenType::EndOfFile)
+        if (parser->tokenReader.peekTokenType() == TokenType::EndOfFile)
         {
             parser->ReadToken(tokenType);
             return true;
@@ -655,17 +659,17 @@ namespace Slang
     // '::'? identifier ('::' identifier)* 
     static Token parseAttributeName(Parser* parser)
     {
-        const SourceLoc scopedIdSourceLoc = parser->tokenReader.PeekLoc();
+        const SourceLoc scopedIdSourceLoc = parser->tokenReader.peekLoc();
 
         // Strip initial :: if there is one
-        const TokenType initialTokenType = parser->tokenReader.PeekTokenType();
+        const TokenType initialTokenType = parser->tokenReader.peekTokenType();
         if (initialTokenType == TokenType::Scope)
         {
             parser->ReadToken(TokenType::Scope); 
         }
 
         const Token firstIdentifier = parser->ReadToken(TokenType::Identifier);
-        if (initialTokenType != TokenType::Scope && parser->tokenReader.PeekTokenType() != TokenType::Scope)
+        if (initialTokenType != TokenType::Scope && parser->tokenReader.peekTokenType() != TokenType::Scope)
         {
             return firstIdentifier;
         }
@@ -676,15 +680,15 @@ namespace Slang
         {
             scopedIdentifierBuilder.Append('_'); 
         }
-        scopedIdentifierBuilder.Append(firstIdentifier.Content);
+        scopedIdentifierBuilder.Append(firstIdentifier.getContent());
 
-        while (parser->tokenReader.PeekTokenType() == TokenType::Scope)
+        while (parser->tokenReader.peekTokenType() == TokenType::Scope)
         {
             parser->ReadToken(TokenType::Scope);
             scopedIdentifierBuilder.Append('_'); 
             
             const Token nextIdentifier(parser->ReadToken(TokenType::Identifier));
-            scopedIdentifierBuilder.Append(nextIdentifier.Content);
+            scopedIdentifierBuilder.Append(nextIdentifier.getContent());
         }
 
         // Make a 'token'
@@ -696,7 +700,7 @@ namespace Slang
         auto namePool = parser->getNamePool();
 
         // Since it's an Identifier have to set the name.
-        token.ptrValue = namePool->getName(token.Content);
+        token.setName(namePool->getName(token.getContent()));
 
         return token;
     }
@@ -762,7 +766,7 @@ namespace Slang
 
     static TokenType peekTokenType(Parser* parser)
     {
-        return parser->tokenReader.PeekTokenType();
+        return parser->tokenReader.peekTokenType();
     }
 
     static Token advanceToken(Parser* parser)
@@ -772,7 +776,7 @@ namespace Slang
 
     static Token peekToken(Parser* parser)
     {
-        return parser->tokenReader.PeekToken();
+        return parser->tokenReader.peekToken();
     }
 
     static SyntaxDecl* tryLookUpSyntaxDecl(
@@ -867,7 +871,7 @@ namespace Slang
         RefPtr<Modifier>* modifierLink = &modifiers.first;
         for (;;)
         {
-            SourceLoc loc = parser->tokenReader.PeekLoc();
+            SourceLoc loc = parser->tokenReader.peekLoc();
 
             switch (peekTokenType(parser))
             {
@@ -950,7 +954,7 @@ namespace Slang
                 while (AdvanceIf(parser, TokenType::Dot))
                 {
                     sb << "/";
-                    sb << parser->ReadToken(TokenType::Identifier).Content;
+                    sb << parser->ReadToken(TokenType::Identifier).getContent();
                 }
 
                 moduleNameAndLoc.name = getName(parser, sb.ProduceString());
@@ -999,7 +1003,7 @@ namespace Slang
                 if (AdvanceIf(parser, TokenType::Colon))
                 {
                     // Concat : onto ?
-                    nameToken.Content = UnownedStringSlice::fromLiteral("?:"); 
+                    nameToken.setContent(UnownedStringSlice::fromLiteral("?:")); 
                     break;
                 }
                 ;       // fall-thru
@@ -1009,7 +1013,7 @@ namespace Slang
             }
 
             return NameLoc(
-                getName(parser, nameToken.Content),
+                getName(parser, nameToken.getContent()),
                 nameToken.loc);
         }
         else
@@ -1074,10 +1078,8 @@ namespace Slang
     {
         if (container)
         {
-            member->ParentDecl = container.Ptr();
-            container->Members.add(member);
-
-            container->memberDictionaryIsValid = false;
+            member->parentDecl = container.Ptr();
+            container->members.add(member);
         }
     }
 
@@ -1164,7 +1166,7 @@ namespace Slang
         parser->genericDepth--;
         parser->ReadToken(TokenType::OpGreater);
         decl->inner = parseInnerFunc(decl);
-        decl->inner->ParentDecl = decl;
+        decl->inner->parentDecl = decl;
 
         // A generic decl hijacks the name of the declaration
         // it wraps, so that lookup can find it.
@@ -1244,23 +1246,23 @@ namespace Slang
         }
         void visitGenericAppExpr(GenericAppExpr * expr)
         {
-            expr->FunctionExpr->accept(this, nullptr);
-            for (auto arg : expr->Arguments)
+            expr->functionExpr->accept(this, nullptr);
+            for (auto arg : expr->arguments)
                 arg->accept(this, nullptr);
         }
         void visitIndexExpr(IndexExpr * expr)
         {
-            expr->BaseExpression->accept(this, nullptr);
-            expr->IndexExpression->accept(this, nullptr);
+            expr->baseExpression->accept(this, nullptr);
+            expr->indexExpression->accept(this, nullptr);
         }
         void visitMemberExpr(MemberExpr * expr)
         {
-            expr->BaseExpression->accept(this, nullptr);
+            expr->baseExpression->accept(this, nullptr);
             expr->scope = scope;
         }
         void visitStaticMemberExpr(StaticMemberExpr * expr)
         {
-            expr->BaseExpression->accept(this, nullptr);
+            expr->baseExpression->accept(this, nullptr);
             expr->scope = scope;
         }
         void visitExpr(Expr* /*expr*/)
@@ -1308,13 +1310,13 @@ namespace Slang
             replaceScopeVisitor.scope = parser->currentScope;
             declaratorInfo.typeSpec->accept(&replaceScopeVisitor, nullptr);
 
-            decl->ReturnType = TypeExp(declaratorInfo.typeSpec);
+            decl->returnType = TypeExp(declaratorInfo.typeSpec);
 
             parser->PushScope(decl);
 
             parseParameterList(parser, decl);
             ParseOptSemantics(parser, decl.Ptr());
-            decl->Body = parseOptBody(parser);
+            decl->body = parseOptBody(parser);
 
             parser->PopScope();
 
@@ -1390,13 +1392,23 @@ namespace Slang
         decl->initExpr = declaratorInfo.initializer;
     }
 
-    static RefPtr<Declarator> ParseDeclarator(Parser* parser);
+    typedef unsigned int DeclaratorParseOptions;
+    enum
+    {
+        kDeclaratorParseOptions_None = 0,
+        kDeclaratorParseOption_AllowEmpty = 1 << 0,
+    };
 
-    static RefPtr<Declarator> ParseDirectAbstractDeclarator(
-        Parser* parser)
+    static RefPtr<Declarator> parseDeclarator(
+        Parser*                 parser,
+        DeclaratorParseOptions  options);
+
+    static RefPtr<Declarator> parseDirectAbstractDeclarator(
+        Parser*                 parser,
+        DeclaratorParseOptions  options)
     {
         RefPtr<Declarator> declarator;
-        switch( parser->tokenReader.PeekTokenType() )
+        switch( parser->tokenReader.peekTokenType() )
         {
         case TokenType::Identifier:
             {
@@ -1422,31 +1434,48 @@ namespace Slang
                 //
                 // The difference really doesn't matter right now, but we err in
                 // the direction of assuming the second case.
+                //
+                // TODO: We should consider just not supporting this case at all,
+                // since it can't come up in current Slang (no pointer or function-type
+                // support), and we might be able to introduce alternative syntax
+                // to get around these issues when those features come online.
+                //
                 parser->ReadToken(TokenType::LParent);
-                declarator = ParseDeclarator(parser);
+                declarator = parseDeclarator(parser, options);
                 parser->ReadToken(TokenType::RParent);
             }
             break;
 
         default:
-            // an empty declarator is allowed
+            if(options & kDeclaratorParseOption_AllowEmpty)
+            {
+                // an empty declarator is allowed
+            }
+            else
+            {
+                // If an empty declarator is now allowed, then we
+                // will give the user an error message saying that
+                // an identifier was expected.
+                //
+                expectIdentifier(parser);
+            }
             return nullptr;
         }
 
         // postifx additions
         for( ;;)
         {
-            switch( parser->tokenReader.PeekTokenType() )
+            switch( parser->tokenReader.peekTokenType() )
             {
             case TokenType::LBracket:
                 {
                     auto arrayDeclarator = new ArrayDeclarator();
-                    arrayDeclarator->openBracketLoc = parser->tokenReader.PeekLoc();
+                    arrayDeclarator->openBracketLoc = parser->tokenReader.peekLoc();
                     arrayDeclarator->flavor = Declarator::Flavor::Array;
                     arrayDeclarator->inner = declarator;
 
                     parser->ReadToken(TokenType::LBracket);
-                    if( parser->tokenReader.PeekTokenType() != TokenType::RBracket )
+                    if( parser->tokenReader.peekTokenType() != TokenType::RBracket )
                     {
                         arrayDeclarator->elementCountExpr = parser->ParseExpression();
                     }
@@ -1470,51 +1499,54 @@ namespace Slang
     }
 
     // Parse a declarator (or at least as much of one as we support)
-    static RefPtr<Declarator> ParseDeclarator(
-        Parser* parser)
+    static RefPtr<Declarator> parseDeclarator(
+        Parser*                 parser,
+        DeclaratorParseOptions  options)
     {
-        if( parser->tokenReader.PeekTokenType() == TokenType::OpMul )
+        if( parser->tokenReader.peekTokenType() == TokenType::OpMul )
         {
             auto ptrDeclarator = new PointerDeclarator();
-            ptrDeclarator->starLoc = parser->tokenReader.PeekLoc();
+            ptrDeclarator->starLoc = parser->tokenReader.peekLoc();
             ptrDeclarator->flavor = Declarator::Flavor::Pointer;
 
             parser->ReadToken(TokenType::OpMul);
 
             // TODO(tfoley): allow qualifiers like `const` here?
 
-            ptrDeclarator->inner = ParseDeclarator(parser);
+            ptrDeclarator->inner = parseDeclarator(parser, options);
             return ptrDeclarator;
         }
         else
         {
-            return ParseDirectAbstractDeclarator(parser);
+            return parseDirectAbstractDeclarator(parser, options);
         }
     }
 
     // A declarator plus optional semantics and initializer
     struct InitDeclarator
     {
-        RefPtr<Declarator>				declarator;
-        RefPtr<Modifier>				semantics;
-        RefPtr<Expr>	initializer;
+        RefPtr<Declarator>  declarator;
+        RefPtr<Modifier>    semantics;
+        RefPtr<Expr>        initializer;
     };
 
     // Parse a declarator plus optional semantics
-    static InitDeclarator ParseSemanticDeclarator(
-        Parser* parser)
+    static InitDeclarator parseSemanticDeclarator(
+        Parser*                 parser,
+        DeclaratorParseOptions  options)
     {
         InitDeclarator result;
-        result.declarator = ParseDeclarator(parser);
+        result.declarator = parseDeclarator(parser, options);
         result.semantics = ParseOptSemantics(parser);
         return result;
     }
 
     // Parse a declarator plus optional semantics and initializer
-    static InitDeclarator ParseInitDeclarator(
-        Parser* parser)
+    static InitDeclarator parseInitDeclarator(
+        Parser*                 parser,
+        DeclaratorParseOptions  options)
     {
-        InitDeclarator result = ParseSemanticDeclarator(parser);
+        InitDeclarator result = parseSemanticDeclarator(parser, options);
         if (AdvanceIf(parser, TokenType::OpAssign))
         {
             result.initializer = parser->ParseInitExpr();
@@ -1556,8 +1588,8 @@ namespace Slang
 
                     auto arrayTypeExpr = new IndexExpr();
                     arrayTypeExpr->loc = arrayDeclarator->openBracketLoc;
-                    arrayTypeExpr->BaseExpression = ioInfo->typeSpec;
-                    arrayTypeExpr->IndexExpression = arrayDeclarator->elementCountExpr;
+                    arrayTypeExpr->baseExpression = ioInfo->typeSpec;
+                    arrayTypeExpr->indexExpression = arrayDeclarator->elementCountExpr;
                     ioInfo->typeSpec = arrayTypeExpr;
 
                     declarator = arrayDeclarator->inner;
@@ -1658,26 +1690,26 @@ namespace Slang
         RefPtr<GenericAppExpr> genericApp = new GenericAppExpr();
 
         parser->FillPosition(genericApp.Ptr()); // set up scope for lookup
-        genericApp->FunctionExpr = base;
+        genericApp->functionExpr = base;
         parser->ReadToken(TokenType::OpLess);
         parser->genericDepth++;
         // For now assume all generics have at least one argument
-        genericApp->Arguments.add(ParseGenericArg(parser));
+        genericApp->arguments.add(ParseGenericArg(parser));
         while (AdvanceIf(parser, TokenType::Comma))
         {
-            genericApp->Arguments.add(ParseGenericArg(parser));
+            genericApp->arguments.add(ParseGenericArg(parser));
         }
         parser->genericDepth--;
 
-        if (parser->tokenReader.PeekToken().type == TokenType::OpRsh)
+        if (parser->tokenReader.peekToken().type == TokenType::OpRsh)
         {
-            parser->tokenReader.PeekToken().type = TokenType::OpGreater;
-            parser->tokenReader.PeekToken().loc.setRaw(parser->tokenReader.PeekToken().loc.getRaw() + 1);
+            parser->tokenReader.peekToken().type = TokenType::OpGreater;
+            parser->tokenReader.peekToken().loc.setRaw(parser->tokenReader.peekToken().loc.getRaw() + 1);
         }
         else if (parser->LookAheadToken(TokenType::OpGreater))
             parser->ReadToken(TokenType::OpGreater);
         else
-            parser->sink->diagnose(parser->tokenReader.PeekToken(), Diagnostics::tokenTypeExpected, "'>'");
+            parser->sink->diagnose(parser->tokenReader.peekToken(), Diagnostics::tokenTypeExpected, "'>'");
         return genericApp;
     }
 
@@ -1707,8 +1739,8 @@ namespace Slang
 
         // otherwise, we speculate as generics, and fallback to comparison when parsing failed
         TokenSpan tokenSpan;
-        tokenSpan.mBegin = parser->tokenReader.mCursor;
-        tokenSpan.mEnd = parser->tokenReader.mEnd;
+        tokenSpan.m_begin = parser->tokenReader.m_cursor;
+        tokenSpan.m_end = parser->tokenReader.m_end;
         DiagnosticSink newSink(parser->sink->sourceManager);
         Parser newParser(*parser);
         newParser.sink = &newSink;
@@ -1742,7 +1774,7 @@ namespace Slang
         RefPtr<MemberExpr> memberExpr = new MemberExpr();
 
         parser->FillPosition(memberExpr.Ptr());
-        memberExpr->BaseExpression = base;
+        memberExpr->baseExpression = base;
         memberExpr->name = expectIdentifier(parser).name;
         return memberExpr;
     }
@@ -1757,11 +1789,11 @@ namespace Slang
         {
             RefPtr<IndexExpr> arrType = new IndexExpr();
             arrType->loc = typeExpr->loc;
-            arrType->BaseExpression = typeExpr;
+            arrType->baseExpression = typeExpr;
             parser->ReadToken(TokenType::LBracket);
             if (!parser->LookAheadToken(TokenType::RBracket))
             {
-                arrType->IndexExpression = parser->ParseExpression();
+                arrType->indexExpression = parser->ParseExpression();
             }
             parser->ReadToken(TokenType::RBracket);
             typeExpr = arrType;
@@ -1786,6 +1818,24 @@ namespace Slang
         }
 
         return taggedUnionType;
+    }
+
+    static RefPtr<RefObject> parseTaggedUnionType(Parser* parser, void* /*unused*/)
+    {
+        return parseTaggedUnionType(parser);
+    }
+
+        /// Parse a `This` type expression
+    static RefPtr<Expr> parseThisTypeExpr(Parser* parser)
+    {
+        RefPtr<ThisTypeExpr> expr = new ThisTypeExpr();
+        expr->scope = parser->currentScope;
+        return expr;
+    }
+
+    static RefPtr<RefObject> parseThisTypeExpr(Parser* parser, void* /*userData*/)
+    {
+        return parseThisTypeExpr(parser);
     }
 
     static TypeSpec parseTypeSpec(Parser* parser)
@@ -1831,9 +1881,20 @@ namespace Slang
             typeSpec.expr = createDeclRefType(parser, decl);
             return typeSpec;
         }
+        // TODO: This case would not be needed if we had the
+        // code below dispatch into `parseAtomicExpr`, which
+        // already includes logic for keyword lookup.
+        //
+        // Leaving this case here for now to avoid breaking anything.
+        //
         else if(AdvanceIf(parser, "__TaggedUnion"))
         {
             typeSpec.expr = parseTaggedUnionType(parser);
+            return typeSpec;
+        }
+        else if(AdvanceIf(parser, "This"))
+        {
+            typeSpec.expr = parseThisTypeExpr(parser);
             return typeSpec;
         }
 
@@ -1875,7 +1936,7 @@ namespace Slang
         Parser*         parser,
         ContainerDecl*  containerDecl)
     {
-        SourceLoc startPosition = parser->tokenReader.PeekLoc();
+        SourceLoc startPosition = parser->tokenReader.peekLoc();
 
         auto typeSpec = parseTypeSpec(parser);
 
@@ -1949,7 +2010,7 @@ namespace Slang
         }
 
 
-        InitDeclarator initDeclarator = ParseInitDeclarator(parser);
+        InitDeclarator initDeclarator = parseInitDeclarator(parser, kDeclaratorParseOptions_None);
 
         DeclaratorInfo declaratorInfo;
         declaratorInfo.typeSpec = typeSpec.expr;
@@ -1960,8 +2021,8 @@ namespace Slang
         // matter unless we actually decide to support function-type parameters,
         // using C syntax.
         //
-        if ((parser->tokenReader.PeekTokenType() == TokenType::LParent ||
-            parser->tokenReader.PeekTokenType() == TokenType::OpLess)
+        if ((parser->tokenReader.peekTokenType() == TokenType::LParent ||
+            parser->tokenReader.peekTokenType() == TokenType::OpLess)
 
             // Only parse as a function if we didn't already see mutually-exclusive
             // constructs when parsing the declarator.
@@ -2037,7 +2098,7 @@ namespace Slang
             }
 
             // expect another variable declaration...
-            initDeclarator = ParseInitDeclarator(parser);
+            initDeclarator = parseInitDeclarator(parser, kDeclaratorParseOptions_None);
         }
     }
 
@@ -2220,7 +2281,7 @@ namespace Slang
         // declaration is made to be "transparent" so that lookup
         // will see through it to the members inside.
 
-        auto bufferWrapperTypeNamePos = parser->tokenReader.PeekLoc();
+        auto bufferWrapperTypeNamePos = parser->tokenReader.peekLoc();
 
         // We are going to represent each buffer as a pair of declarations.
         // The first is a type declaration that holds all the members, while
@@ -2240,8 +2301,8 @@ namespace Slang
         addModifier(bufferVarDecl, reflectionNameModifier);
 
         // Both the buffer variable and its type need to have names generated
-        bufferVarDecl->nameAndLoc.name = generateName(parser, "parameterGroup_" + String(reflectionNameToken.Content));
-        bufferDataTypeDecl->nameAndLoc.name = generateName(parser, "ParameterGroup_" + String(reflectionNameToken.Content));
+        bufferVarDecl->nameAndLoc.name = generateName(parser, "parameterGroup_" + String(reflectionNameToken.getContent()));
+        bufferDataTypeDecl->nameAndLoc.name = generateName(parser, "ParameterGroup_" + String(reflectionNameToken.getContent()));
 
         addModifier(bufferDataTypeDecl, new ImplicitParameterGroupElementTypeModifier());
         addModifier(bufferVarDecl, new ImplicitParameterGroupVariableModifier());
@@ -2270,8 +2331,8 @@ namespace Slang
         // which is the wrapper type applied to the data type
         auto bufferVarTypeExpr = new GenericAppExpr();
         bufferVarTypeExpr->loc = bufferVarDecl->loc;
-        bufferVarTypeExpr->FunctionExpr = bufferWrapperTypeExpr;
-        bufferVarTypeExpr->Arguments.add(bufferDataTypeExpr);
+        bufferVarTypeExpr->functionExpr = bufferWrapperTypeExpr;
+        bufferVarTypeExpr->arguments.add(bufferDataTypeExpr);
 
         bufferVarDecl->type.exp = bufferVarTypeExpr;
 
@@ -2280,7 +2341,7 @@ namespace Slang
         ParseOptSemantics(parser, bufferVarDecl.Ptr());
 
         // The declarations in the body belong to the data type.
-        parseAggTypeDeclBody(parser, bufferDataTypeDecl.Ptr());
+        parseDeclBody(parser, bufferDataTypeDecl.Ptr());
 
         // All HLSL buffer declarations are "transparent" in that their
         // members are implicitly made visible in the parent scope.
@@ -2341,7 +2402,7 @@ namespace Slang
         parser->FillPosition(decl.Ptr());
         decl->targetType = parser->ParseTypeExp();
         parseOptionalInheritanceClause(parser, decl);
-        parseAggTypeDeclBody(parser, decl.Ptr());
+        parseDeclBody(parser, decl.Ptr());
 
         return decl;
     }
@@ -2386,7 +2447,7 @@ namespace Slang
         return assocTypeDecl;
     }
 
-    RefPtr<RefObject> parseGlobalGenericParamDecl(Parser * parser, void *)
+    RefPtr<RefObject> parseGlobalGenericTypeParamDecl(Parser * parser, void *)
     {
         RefPtr<GlobalGenericParamDecl> genParamDecl = new GlobalGenericParamDecl();
         auto nameToken = parser->ReadToken(TokenType::Identifier);
@@ -2397,6 +2458,27 @@ namespace Slang
         return genParamDecl;
     }
 
+    RefPtr<RefObject> parseGlobalGenericValueParamDecl(Parser * parser, void *)
+    {
+        RefPtr<GlobalGenericValueParamDecl> genericParamDecl = new GlobalGenericValueParamDecl();
+        auto nameToken = parser->ReadToken(TokenType::Identifier);
+        genericParamDecl->nameAndLoc = NameLoc(nameToken);
+        genericParamDecl->loc = nameToken.loc;
+
+        if(AdvanceIf(parser, TokenType::Colon))
+        {
+            genericParamDecl->type = parser->ParseTypeExp();
+        }
+
+        if(AdvanceIf(parser, TokenType::OpAssign))
+        {
+            genericParamDecl->initExpr = parser->ParseInitExpr();
+        }
+
+        parser->ReadToken(TokenType::Semicolon);
+        return genericParamDecl;
+    }
+
     static RefPtr<RefObject> parseInterfaceDecl(Parser* parser, void* /*userData*/)
     {
         RefPtr<InterfaceDecl> decl = new InterfaceDecl();
@@ -2405,15 +2487,135 @@ namespace Slang
 
         parseOptionalInheritanceClause(parser, decl.Ptr());
 
-        parseAggTypeDeclBody(parser, decl.Ptr());
+        parseDeclBody(parser, decl.Ptr());
 
         return decl;
+    }
+
+    static RefPtr<RefObject> parseNamespaceDecl(Parser* parser, void* /*userData*/)
+    {
+        // We start by parsing the name of the namespace that is being opened.
+        //
+        // TODO: We should eventually support a qualified name for
+        // a namespace declaration:
+        //
+        //      namespace A.B { ... }
+        //
+        // which should expand as if the user had written nested
+        // namespace declarations:
+        //
+        //      namespace A { namespace B { ... } }
+        //
+        // TODO: Support we also support the degenerate case of
+        // a namesapce without a name? Should that be treated as
+        // an anonymous (and implicitly imported) namespace, or
+        // something else?
+        //
+        // TODO: Should we support a shorthand syntax for putting
+        // the rest of the current scope/file into a namespace:
+        //
+        //      namespace A.B;
+        //
+        //      ...
+        //
+        NameLoc nameAndLoc = NameLoc(parser->ReadToken(TokenType::Identifier));
+
+        // Once we have the name for the namespace, we face a challenge:
+        // either the namespace hasn't been seen before (in which case
+        // we need to create it and start filling it in), or we've seen
+        // the same namespace before inside the same module, such that
+        // we should be adding the declarations we parse to the existing
+        // declarations (so that they share a common scope/parent).
+        //
+        // In each case we will find a namespace that we want to fill in,
+        // but depending on the case we may or may not want to return
+        // a declaration to the caller (since they will try to add
+        // any non-null pointer we return to the AST).
+        //
+        RefPtr<NamespaceDecl> namespaceDecl;
+        RefPtr<RefObject> result;
+        //
+        // In order to find out what case we are in, we start by looking
+        // for a namespace declaration of the same name in the parent
+        // declaration.
+        //
+        {
+            auto parentDecl = parser->currentScope->containerDecl;
+            SLANG_ASSERT(parentDecl);
+
+            // We meed to make sure that the member dictionary of
+            // the parent declaration has been built/rebuilt so that
+            // lookup by name will work.
+            //
+            // TODO: The current way we rebuild the member dictionary
+            // would make for O(N^2) parsing time in a file that
+            // consisted of N back-to-back `namespace`s, since each
+            // would trigger a rebuild of the member dictionary that
+            // would take O(N) time.
+            //
+            // Eventually we should make `builtMemberDictionary()`
+            // incremental, so that it only has to process members
+            // added since the last time it was invoked.
+            //
+            buildMemberDictionary(parentDecl);
+
+            // There might be multiple members of the same name
+            // (if we define a namespace `foo` after an overloaded
+            // function `foo` has been defined), and direct member
+            // lookup will only give us the first.
+            //
+            Decl* firstDecl = nullptr;
+            parentDecl->memberDictionary.TryGetValue(nameAndLoc.name, firstDecl);
+            //
+            // We will search through the declarations of the name
+            // and find the first that is a namespace (if any).
+            //
+            // Note: we do not issue diagnostics here based on
+            // the potential conflicts between these declarations,
+            // because we want to do as little semantic analysis
+            // as possible in the parser, and we'd rather be
+            // as permissive as possible right now.
+            //
+            for(Decl* d = firstDecl; d; d = d->nextInContainerWithSameName)
+            {
+                namespaceDecl = as<NamespaceDecl>(d);
+                if(namespaceDecl)
+                    break;
+            }
+
+            // If we didn't find a pre-existing namespace, then
+            // we will go ahead and create one now.
+            //
+            if( !namespaceDecl )
+            {
+                namespaceDecl = new NamespaceDecl();
+                namespaceDecl->nameAndLoc = nameAndLoc;
+
+                // In the case where we are creating the first
+                // declaration of the given namesapce, we need
+                // to use it as the return value of the parsing
+                // callback, so that it is appropriately added
+                // to the parent declaration.
+                //
+                result = namespaceDecl;
+            }
+        }
+
+        // Now that we have a namespace declaration to fill in
+        // (whether a new or existing one), we can parse the
+        // `{}`-enclosed body to add declarations as children
+        // of the namespace.
+        //
+        parseDeclBody(parser, namespaceDecl.Ptr());
+
+        return result;
     }
 
     static RefPtr<RefObject> parseConstructorDecl(Parser* parser, void* /*userData*/)
     {
         RefPtr<ConstructorDecl> decl = new ConstructorDecl();
         parser->FillPosition(decl.Ptr());
+        parser->PushScope(decl);
 
         // TODO: we need to make sure that all initializers have
         // the same name, but that this name doesn't conflict
@@ -2427,8 +2629,9 @@ namespace Slang
 
         parseParameterList(parser, decl);
 
-        decl->Body = parseOptBody(parser);
+        decl->body = parseOptBody(parser);
 
+        parser->PopScope();
         return decl;
     }
 
@@ -2457,9 +2660,9 @@ namespace Slang
 
         AddModifiers(decl, modifiers.first);
 
-        if( parser->tokenReader.PeekTokenType() == TokenType::LBrace )
+        if( parser->tokenReader.peekTokenType() == TokenType::LBrace )
         {
-            decl->Body = parser->parseBlockStatement();
+            decl->body = parser->parseBlockStatement();
         }
         else
         {
@@ -2473,6 +2676,7 @@ namespace Slang
     {
         RefPtr<SubscriptDecl> decl = new SubscriptDecl();
         parser->FillPosition(decl.Ptr());
+        parser->PushScope(decl);
 
         // TODO: the use of this name here is a bit magical...
         decl->nameAndLoc.name = getName(parser, "operator[]");
@@ -2481,7 +2685,7 @@ namespace Slang
 
         if( AdvanceIf(parser, TokenType::RightArrow) )
         {
-            decl->ReturnType = parser->ParseTypeExp();
+            decl->returnType = parser->ParseTypeExp();
         }
 
         if( AdvanceIf(parser, TokenType::LBrace) )
@@ -2500,6 +2704,7 @@ namespace Slang
             // empty body should be treated like `{ get; }`
         }
 
+        parser->PopScope();
         return decl;
     }
 
@@ -2596,9 +2801,9 @@ namespace Slang
             parseModernParamList(parser, decl);
             if(AdvanceIf(parser, TokenType::RightArrow))
             {
-                decl->ReturnType = parser->ParseTypeExp();
+                decl->returnType = parser->ParseTypeExp();
             }
-            decl->Body = parseOptBody(parser);
+            decl->body = parseOptBody(parser);
             parser->PopScope();
             return decl;
         });
@@ -2628,7 +2833,7 @@ namespace Slang
     // the class of AST node to construct.
     static RefPtr<RefObject> parseSimpleSyntax(Parser* /*parser*/, void* userData)
     {
-        SyntaxClassBase syntaxClass((SyntaxClassBase::ClassInfo*) userData);
+        SyntaxClassBase syntaxClass((ReflectClassInfo*) userData);
         return (RefObject*) syntaxClass.createInstanceImpl();
     }
 
@@ -2848,7 +3053,7 @@ namespace Slang
     {
         RefPtr<DeclBase> decl;
 
-        auto loc = parser->tokenReader.PeekLoc();
+        auto loc = parser->tokenReader.peekLoc();
 
         switch (peekTokenType(parser))
         {
@@ -2953,8 +3158,7 @@ namespace Slang
     }
 
 
-    // Parse a body consisting of declarations
-    static void ParseDeclBody(
+    static void parseDecls(
         Parser*         parser,
         ContainerDecl*  containerDecl,
         TokenType       closingToken)
@@ -2965,22 +3169,14 @@ namespace Slang
         }
     }
 
-    // Parse the `{}`-delimeted body of an aggregate type declaration
-    static void parseAggTypeDeclBody(
-        Parser*             parser,
-        AggTypeDeclBase*    decl)
+    static void parseDeclBody(
+        Parser*         parser,
+        ContainerDecl*  parent)
     {
-        // TODO: the scope used for the body might need to be
-        // slightly specialized to deal with the complexity
-        // of how `this` works.
-        //
-        // Alternatively, that complexity can be pushed down
-        // to semantic analysis so that it doesn't clutter
-        // things here.
-        parser->PushScope(decl);
+        parser->PushScope(parent);
 
         parser->ReadToken(TokenType::LBrace);
-        ParseDeclBody(parser, decl, TokenType::RBrace);
+        parseDecls(parser, parent, TokenType::RBrace);
 
         parser->PopScope();
     }
@@ -2994,9 +3190,25 @@ namespace Slang
         }
 
         PushScope(program);
-        program->loc = tokenReader.PeekLoc();
-        program->scope = currentScope;
-        ParseDeclBody(this, program, TokenType::EndOfFile);
+
+        // A single `ModuleDecl` might span multiple source files, so it
+        // is possible that we are parsing a new source file into a module
+        // that has already been created and filled in for a previous
+        // source file.
+        //
+        // If this is the first source file for the module then we expect
+        // its location information to be invalid, and we will set it to
+        // refer to the start of the first source file.
+        //
+        // This convention is reasonable for any single-source-file module,
+        // and about as good as possible for multiple-file modules.
+        //
+        if(!program->loc.isValid())
+        {
+            program->loc = tokenReader.peekLoc();
+        }
+
+        parseDecls(this, program, TokenType::EndOfFile);
         PopScope();
 
         SLANG_RELEASE_ASSERT(currentScope == outerScope);
@@ -3017,7 +3229,7 @@ namespace Slang
             // We allow for an inheritance clause on a `struct`
             // so that it can conform to interfaces.
             parseOptionalInheritanceClause(this, rs.Ptr());
-            parseAggTypeDeclBody(this, rs.Ptr());
+            parseDeclBody(this, rs.Ptr());
             return rs;
         });
     }
@@ -3031,7 +3243,7 @@ namespace Slang
 
         parseOptionalInheritanceClause(this, rs.Ptr());
 
-        parseAggTypeDeclBody(this, rs.Ptr());
+        parseDeclBody(this, rs.Ptr());
         return rs;
     }
 
@@ -3146,7 +3358,7 @@ namespace Slang
         if(!parser->LookAheadToken(TokenType::Identifier))
             return false;
 
-        auto name = parser->tokenReader.PeekToken().getName();
+        auto name = parser->tokenReader.peekToken().getName();
         return isTypeName(parser, name);
     }
 
@@ -3218,8 +3430,6 @@ namespace Slang
         RefPtr<Stmt> statement;
         if (LookAheadToken(TokenType::LBrace))
             statement = parseBlockStatement();
-        else if (peekTypeName(this))
-            statement = parseVarDeclrStatement(modifiers);
         else if (LookAheadToken("if"))
             statement = parseIfStatement();
         else if (LookAheadToken("for"))
@@ -3257,16 +3467,49 @@ namespace Slang
             // expression statement, and we need to figure out which.
             //
             // We'll solve this with backtracking for now.
+            //
+            // TODO: This should not require backtracking at all.
 
             TokenReader::ParsingCursor startPos = tokenReader.getCursor();
 
             // Try to parse a type (knowing that the type grammar is
             // a subset of the expression grammar, and so this should
             // always succeed).
+            //
+            // HACK: The type grammar that `ParseType` supports is *not*
+            // a subset of the expression grammar because it includes
+            // type specififers like `struct` and `enum` declarations
+            // which should always be the start of a declaration.
+            //
+            // TODO: Before launching into this attempt to parse a type,
+            // this logic should really be looking up the `SyntaxDecl`,
+            // if any, assocaited with the identifier. If a piece of
+            // syntax is discovered, then it should dictate the next
+            // steps of parsing, and only in the case where the lookahead
+            // isn't a keyword should we fall back to the approach
+            // here.
+            //
             RefPtr<Expr> type = ParseType();
+
             // We don't actually care about the type, though, so
             // don't retain it
+            //
+            // TODO: There is no reason to throw away the work we
+            // did parsing the `type` expression. Once we disambiguate
+            // what to do, we should be able to use the expression
+            // we already parsed as a starting point for whatever we
+            // parse next. E.g., if we have `A.b` and the lookahead is `+`
+            // then we can use `A.b` as the left-hand-side expression
+            // when starting to parse an infix expression.
+            //
             type = nullptr;
+
+            // TODO: If we decide to intermix parsing of statement bodies
+            // with semantic checking (by delaying the parsing of bodies
+            // until semantic context is available), then we could look
+            // at the *type* of `type` to disambiguate what to do next,
+            // which might result in a nice simplification (at the cost
+            // of definitely making the grammar context-dependent).
 
             // If the next token after we parsed a type looks like
             // we are going to declare a variable, then lets guess
@@ -3275,6 +3518,15 @@ namespace Slang
             // TODO(tfoley): this wouldn't be robust for more
             // general kinds of declarators (notably pointer declarators),
             // so we'll need to be careful about this.
+            //
+            // If the lookahead token is `*`, then we have to decide
+            // whether to parse a pointer declarator or a multiply
+            // expression. In this context it makes sense to disambiguate
+            // in favor of a pointer over a multiply, since a multiply
+            // expression can't appear at the start of a statement
+            // with any side effects.
+            //
+            //
             if (LookAheadToken(TokenType::Identifier))
             {
                 // Reset the cursor and try to parse a declaration now.
@@ -3324,7 +3576,7 @@ namespace Slang
 
         RefPtr<Stmt> body;
 
-        if(!tokenReader.IsAtEnd())
+        if(!tokenReader.isAtEnd())
         {
             FillPosition(blockStatement.Ptr());
         }
@@ -3382,13 +3634,13 @@ namespace Slang
         FillPosition(ifStatement.Ptr());
         ReadToken("if");
         ReadToken(TokenType::LParent);
-        ifStatement->Predicate = ParseExpression();
+        ifStatement->predicate = ParseExpression();
         ReadToken(TokenType::RParent);
-        ifStatement->PositiveStatement = ParseStatement();
+        ifStatement->positiveStatement = ParseStatement();
         if (LookAheadToken("else"))
         {
             ReadToken("else");
-            ifStatement->NegativeStatement = ParseStatement();
+            ifStatement->negativeStatement = ParseStatement();
         }
         return ifStatement;
     }
@@ -3427,13 +3679,13 @@ namespace Slang
         ReadToken(TokenType::LParent);
         if (peekTypeName(this))
         {
-            stmt->InitialStatement = parseVarDeclrStatement(Modifiers());
+            stmt->initialStatement = parseVarDeclrStatement(Modifiers());
         }
         else
         {
             if (!LookAheadToken(TokenType::Semicolon))
             {
-                stmt->InitialStatement = ParseExpressionStatement();
+                stmt->initialStatement = ParseExpressionStatement();
             }
             else
             {
@@ -3441,12 +3693,12 @@ namespace Slang
             }
         }
         if (!LookAheadToken(TokenType::Semicolon))
-            stmt->PredicateExpression = ParseExpression();
+            stmt->predicateExpression = ParseExpression();
         ReadToken(TokenType::Semicolon);
         if (!LookAheadToken(TokenType::RParent))
-            stmt->SideEffectExpression = ParseExpression();
+            stmt->sideEffectExpression = ParseExpression();
         ReadToken(TokenType::RParent);
-        stmt->Statement = ParseStatement();
+        stmt->statement = ParseStatement();
 
         if (!brokenScoping)
             PopScope();
@@ -3460,9 +3712,9 @@ namespace Slang
         FillPosition(whileStatement.Ptr());
         ReadToken("while");
         ReadToken(TokenType::LParent);
-        whileStatement->Predicate = ParseExpression();
+        whileStatement->predicate = ParseExpression();
         ReadToken(TokenType::RParent);
-        whileStatement->Statement = ParseStatement();
+        whileStatement->statement = ParseStatement();
         return whileStatement;
     }
 
@@ -3471,10 +3723,10 @@ namespace Slang
         RefPtr<DoWhileStmt> doWhileStatement = new DoWhileStmt();
         FillPosition(doWhileStatement.Ptr());
         ReadToken("do");
-        doWhileStatement->Statement = ParseStatement();
+        doWhileStatement->statement = ParseStatement();
         ReadToken("while");
         ReadToken(TokenType::LParent);
-        doWhileStatement->Predicate = ParseExpression();
+        doWhileStatement->predicate = ParseExpression();
         ReadToken(TokenType::RParent);
         ReadToken(TokenType::Semicolon);
         return doWhileStatement;
@@ -3504,7 +3756,7 @@ namespace Slang
         FillPosition(returnStatement.Ptr());
         ReadToken("return");
         if (!LookAheadToken(TokenType::Semicolon))
-            returnStatement->Expression = ParseExpression();
+            returnStatement->expression = ParseExpression();
         ReadToken(TokenType::Semicolon);
         return returnStatement;
     }
@@ -3514,7 +3766,7 @@ namespace Slang
         RefPtr<ExpressionStmt> statement = new ExpressionStmt();
 
         FillPosition(statement.Ptr());
-        statement->Expression = ParseExpression();
+        statement->expression = ParseExpression();
 
         ReadToken(TokenType::Semicolon);
         return statement;
@@ -3528,7 +3780,7 @@ namespace Slang
         DeclaratorInfo declaratorInfo;
         declaratorInfo.typeSpec = ParseType();
 
-        InitDeclarator initDeclarator = ParseInitDeclarator(this);
+        InitDeclarator initDeclarator = parseInitDeclarator(this, kDeclaratorParseOption_AllowEmpty);
         UnwrapDeclarator(initDeclarator, &declaratorInfo);
 
         // Assume it is a variable-like declarator
@@ -3637,11 +3889,11 @@ namespace Slang
     static RefPtr<Expr> parseOperator(Parser* parser)
     {
         Token opToken;
-        switch(parser->tokenReader.PeekTokenType())
+        switch(parser->tokenReader.peekTokenType())
         {
         case TokenType::QuestionMark:
             opToken = parser->ReadToken();
-            opToken.Content = UnownedStringSlice::fromLiteral("?:");
+            opToken.setContent(UnownedStringSlice::fromLiteral("?:"));
             break;
 
         default:
@@ -3650,7 +3902,7 @@ namespace Slang
         }
 
         auto opExpr = new VarExpr();
-        opExpr->name = getName(parser, opToken.Content);
+        opExpr->name = getName(parser, opToken.getContent());
         opExpr->scope = parser->currentScope;
         opExpr->loc = opToken.loc;
 
@@ -3666,9 +3918,9 @@ namespace Slang
     {
         RefPtr<InfixExpr> expr = new InfixExpr();
         expr->loc = op->loc;
-        expr->FunctionExpr = op;
-        expr->Arguments.add(left);
-        expr->Arguments.add(right);
+        expr->functionExpr = op;
+        expr->arguments.add(left);
+        expr->arguments.add(right);
         return expr;
     }
 
@@ -3680,7 +3932,7 @@ namespace Slang
         auto expr = inExpr;
         for(;;)
         {
-            auto opTokenType = parser->tokenReader.PeekTokenType();
+            auto opTokenType = parser->tokenReader.peekTokenType();
             auto opPrec = GetOpLevel(parser, opTokenType);
             if(opPrec < prec)
                 break;
@@ -3693,13 +3945,13 @@ namespace Slang
             {
                 RefPtr<SelectExpr> select = new SelectExpr();
                 select->loc = op->loc;
-                select->FunctionExpr = op;
+                select->functionExpr = op;
 
-                select->Arguments.add(expr);
+                select->arguments.add(expr);
 
-                select->Arguments.add(parser->ParseExpression(opPrec));
+                select->arguments.add(parser->ParseExpression(opPrec));
                 parser->ReadToken(TokenType::Colon);
-                select->Arguments.add(parser->ParseExpression(opPrec));
+                select->arguments.add(parser->ParseExpression(opPrec));
 
                 expr = select;
                 continue;
@@ -3709,7 +3961,7 @@ namespace Slang
 
             for(;;)
             {
-                auto nextOpPrec = GetOpLevel(parser, parser->tokenReader.PeekTokenType());
+                auto nextOpPrec = GetOpLevel(parser, parser->tokenReader.peekTokenType());
 
                 if((GetAssociativityFromLevel(nextOpPrec) == Associativity::Right) ? (nextOpPrec < opPrec) : (nextOpPrec <= opPrec))
                     break;
@@ -3839,13 +4091,180 @@ namespace Slang
         return parseBoolLitExpr(parser, false);
     }
 
+    static bool _isFinite(double value)
+    {
+        // Lets type pun double to uint64_t, so we can detect special double values
+        union
+        {
+            double d;
+            uint64_t i;
+        } u = { value };
+        // Detects nan and +-inf
+        const uint64_t i = u.i;
+        int e = int(i >> 52) & 0x7ff;
+        return (e != 0x7ff);
+    }
+
+    enum class FloatFixKind
+    {
+        None,               ///< No modification was made
+        Unrepresentable,    ///< Unrepresentable
+        Zeroed,             ///< Too close to 0
+        Truncated,          ///< Truncated to a non zero value
+    };
+
+    static FloatFixKind _fixFloatLiteralValue(BaseType type, IRFloatingPointValue value, IRFloatingPointValue& outValue)
+    {
+        IRFloatingPointValue epsilon = 1e-10f;
+
+        // Check the value is finite for checking narrowing to literal type losing information
+        if (_isFinite(value))
+        {
+            switch (type)
+            {
+                case BaseType::Float:
+                {
+                    // Fix out of range
+                    if (value > FLT_MAX)
+                    {
+                        if (Math::AreNearlyEqual(value, FLT_MAX, epsilon))
+                        {
+                            outValue = FLT_MAX;
+                            return FloatFixKind::Truncated;
+                        }
+                        else
+                        {
+                            outValue = float(INFINITY);
+                            return FloatFixKind::Unrepresentable;
+                        }
+                    }
+                    else if (value < -FLT_MAX)
+                    {
+                        if (Math::AreNearlyEqual(-value, FLT_MAX, epsilon))
+                        {
+                            outValue = -FLT_MAX;
+                            return FloatFixKind::Truncated;
+                        }
+                        else
+                        {
+                            outValue = -float(INFINITY);
+                            return FloatFixKind::Unrepresentable;
+                        }
+                    }
+                    else if (value && float(value) == 0.0f)
+                    {
+                        outValue = 0.0f;
+                        return FloatFixKind::Zeroed;
+                    }
+                    break;
+                }
+                case BaseType::Double:
+                {
+                    // All representable
+                    break;
+                }
+                case BaseType::Half:
+                {
+                    // Fix out of range
+                    if (value > SLANG_HALF_MAX)
+                    {
+                        if (Math::AreNearlyEqual(value, FLT_MAX, epsilon))
+                        {
+                            outValue = SLANG_HALF_MAX;
+                            return FloatFixKind::Truncated;
+                        }
+                        else
+                        {
+                            outValue = float(INFINITY);
+                            return FloatFixKind::Unrepresentable;
+                        }
+                    }
+                    else if (value < -SLANG_HALF_MAX)
+                    {
+                        if (Math::AreNearlyEqual(-value, FLT_MAX, epsilon))
+                        {
+                            outValue = -SLANG_HALF_MAX;
+                            return FloatFixKind::Truncated;
+                        }
+                        else
+                        {
+                            outValue = -float(INFINITY);
+                            return FloatFixKind::Unrepresentable;
+                        }
+                    }
+                    else if (value && Math::Abs(value) < SLANG_HALF_SUB_NORMAL_MIN)
+                    {
+                        outValue = 0.0f;
+                        return FloatFixKind::Zeroed;
+                    }
+                    break;
+                }
+                default: break;
+            }
+        }
+
+        outValue = value;
+        return FloatFixKind::None;
+    }
+
+    static IntegerLiteralValue _fixIntegerLiteral(BaseType baseType, IntegerLiteralValue value, Token* token, DiagnosticSink* sink)
+    {
+        // TODO(JS):
+        // It is worth noting here that because of the way that the lexer works, that literals
+        // are always handled as if they are positive (a preceding - is taken as a negate on a
+        // positive value).
+        // The code here is designed to work with positive and negative values, as this behavior
+        // might change in the future, and is arguably more 'correct'.
+
+        const BaseTypeInfo& info = BaseTypeInfo::getInfo(baseType);
+        SLANG_ASSERT(info.flags & BaseTypeInfo::Flag::Integer);
+        SLANG_COMPILE_TIME_ASSERT(sizeof(value) == sizeof(uint64_t));
+
+        // If the type is 64 bits, do nothing, we'll assume all is good
+        if (baseType != BaseType::Void && info.sizeInBytes != sizeof(value))
+        {
+            const IntegerLiteralValue signBit = IntegerLiteralValue(1) << (8 * info.sizeInBytes - 1);
+            // Same as (~IntegerLiteralValue(0)) << (8 * info.sizeInBytes);, without the need for variable shift
+            const IntegerLiteralValue mask = -(signBit + signBit);
+
+            IntegerLiteralValue truncatedValue = value;
+            // If it's signed, and top bit is set, sign extend it negative
+            if (info.flags & BaseTypeInfo::Flag::Signed)
+            {
+                // Sign extend
+                truncatedValue = (value & signBit) ? (value | mask) : (value & ~mask);
+            }
+            else
+            {
+                // 0 top bits
+                truncatedValue = value & ~mask;
+            }
+
+            const IntegerLiteralValue maskedValue = value & mask;
+
+            // If the masked value is 0 or equal to the mask, we 'assume' no information is
+            // lost
+            // This allows for example -1u, to give 0xffffffff
+            // It also means 0xfffffffffffffffffu will give 0xffffffff, without a warning.
+            if ((!(maskedValue == 0 || maskedValue == mask)) && sink && token)
+            {
+                // Output a warning that number has been altered
+                sink->diagnose(*token, Diagnostics::integerLiteralTruncated, token->getContent(), BaseTypeInfo::asText(baseType), truncatedValue);
+            }
+
+            value = truncatedValue;
+        }
+
+        return value;
+    }
+
     static RefPtr<Expr> parseAtomicExpr(Parser* parser)
     {
         switch( peekTokenType(parser) )
         {
         default:
             // TODO: should this return an error expression instead of NULL?
-            parser->sink->diagnose(parser->tokenReader.PeekLoc(), Diagnostics::syntaxError);
+            parser->sink->diagnose(parser->tokenReader.peekLoc(), Diagnostics::syntaxError);
             return nullptr;
 
         // Either:
@@ -3863,11 +4282,11 @@ namespace Slang
                 {
                     RefPtr<TypeCastExpr> tcexpr = new ExplicitCastExpr();
                     parser->FillPosition(tcexpr.Ptr());
-                    tcexpr->FunctionExpr = parser->ParseType();
+                    tcexpr->functionExpr = parser->ParseType();
                     parser->ReadToken(TokenType::RParent);
 
                     auto arg = parsePrefixExpr(parser);
-                    tcexpr->Arguments.add(arg);
+                    tcexpr->arguments.add(arg);
 
                     return tcexpr;
                 }
@@ -3919,7 +4338,7 @@ namespace Slang
                 RefPtr<IntegerLiteralExpr> constExpr = new IntegerLiteralExpr();
                 parser->FillPosition(constExpr.Ptr());
 
-                auto token = parser->tokenReader.AdvanceToken();
+                auto token = parser->tokenReader.advanceToken();
                 constExpr->token = token;
 
                 UnownedStringSlice suffix;
@@ -3929,9 +4348,14 @@ namespace Slang
                 char const* suffixCursor = suffix.begin();
                 const char*const suffixEnd = suffix.end();
 
-                RefPtr<Type> suffixType = nullptr;
+                // If no suffix is defined go with the default
+                BaseType suffixBaseType = BaseType::Int;
+
                 if( suffixCursor < suffixEnd )
                 {
+                    // Mark as void, taken as an error
+                    suffixBaseType = BaseType::Void;
+
                     int lCount = 0;
                     int uCount = 0;
                     int unknownCount = 0;
@@ -3956,35 +4380,40 @@ namespace Slang
                     if(unknownCount)
                     {
                         parser->sink->diagnose(token, Diagnostics::invalidIntegerLiteralSuffix, suffix);
-                        suffixType = parser->getSession()->getErrorType();
+                        suffixBaseType = BaseType::Void;
                     }
                     // `u` or `ul` suffix -> `uint`
                     else if(uCount == 1 && (lCount <= 1))
                     {
-                        suffixType = parser->getSession()->getUIntType();
+                        suffixBaseType = BaseType::UInt;
                     }
                     // `l` suffix on integer -> `int` (== `long`)
                     else if(lCount == 1 && !uCount)
                     {
-                        suffixType = parser->getSession()->getIntType();
+                        suffixBaseType = BaseType::Int; 
                     }
                     // `ull` suffix -> `uint64_t`
                     else if(uCount == 1 && lCount == 2)
                     {
-                        suffixType = parser->getSession()->getUInt64Type();
+                        suffixBaseType = BaseType::UInt64;
                     }
                     // `ll` suffix -> `int64_t`
                     else if(uCount == 0 && lCount == 2)
                     {
-                        suffixType = parser->getSession()->getInt64Type();
+                        suffixBaseType = BaseType::Int64;
                     }
                     // TODO: do we need suffixes for smaller integer types?
                     else
                     {
                         parser->sink->diagnose(token, Diagnostics::invalidIntegerLiteralSuffix, suffix);
-                        suffixType = parser->getSession()->getErrorType();
+                        suffixBaseType = BaseType::Void;
                     }
                 }
+
+                value = _fixIntegerLiteral(suffixBaseType, value, &token, parser->sink);
+            
+                auto session = parser->getSession();
+                Type* suffixType = (suffixBaseType == BaseType::Void) ? session->getErrorType() : session->getBuiltinType(suffixBaseType);
 
                 constExpr->value = value;
                 constExpr->type = QualType(suffixType);
@@ -3998,7 +4427,7 @@ namespace Slang
                 RefPtr<FloatingPointLiteralExpr> constExpr = new FloatingPointLiteralExpr();
                 parser->FillPosition(constExpr.Ptr());
 
-                auto token = parser->tokenReader.AdvanceToken();
+                auto token = parser->tokenReader.advanceToken();
                 constExpr->token = token;
 
                 UnownedStringSlice suffix;
@@ -4008,7 +4437,8 @@ namespace Slang
                 char const* suffixCursor = suffix.begin();
                 const char*const suffixEnd = suffix.end();
 
-                RefPtr<Type> suffixType = nullptr;
+                // Default is Float
+                BaseType suffixBaseType = BaseType::Float;
                 if( suffixCursor < suffixEnd )
                 {
                     int fCount = 0;
@@ -4040,32 +4470,67 @@ namespace Slang
                     if (unknownCount)
                     {
                         parser->sink->diagnose(token, Diagnostics::invalidFloatingPointLiteralSuffix, suffix);
-                        suffixType = parser->getSession()->getErrorType();
+                        suffixBaseType = BaseType::Void;
                     }
                     // `f` suffix -> `float`
                     if(fCount == 1 && !lCount && !hCount)
                     {
-                        suffixType = parser->getSession()->getFloatType();
+                        suffixBaseType = BaseType::Float;
                     }
                     // `l` or `lf` suffix on floating-point literal -> `double`
                     else if(lCount == 1 && (fCount <= 1))
                     {
-                        suffixType = parser->getSession()->getDoubleType();
+                        suffixBaseType = BaseType::Double;
                     }
                     // `h` or `hf` suffix on floating-point literal -> `half`
                     else if(hCount == 1 && (fCount <= 1))
                     {
-                        suffixType = parser->getSession()->getHalfType();
+                        suffixBaseType = BaseType::Half;
                     }
                     // TODO: are there other suffixes we need to handle?
                     else
                     {
                         parser->sink->diagnose(token, Diagnostics::invalidFloatingPointLiteralSuffix, suffix);
-                        suffixType = parser->getSession()->getErrorType();
+                        suffixBaseType = BaseType::Void;
                     }
                 }
 
-                constExpr->value = value;
+                // TODO(JS):
+                // It is worth noting here that because of the way that the lexer works, that literals
+                // are always handled as if they are positive (a preceding - is taken as a negate on a
+                // positive value).
+                // The code here is designed to work with positive and negative values, as this behavior
+                // might change in the future, and is arguably more 'correct'.
+
+                FloatingPointLiteralValue fixedValue = value;
+                auto fixType = _fixFloatLiteralValue(suffixBaseType, value, fixedValue);
+
+                switch (fixType)
+                {
+                    case FloatFixKind::Truncated: 
+                    case FloatFixKind::None:
+                    {
+                        // No warning.
+                        // The truncation allowed must be very small. When Truncated the value *is* changed though.
+                        break;
+                    }
+                    case FloatFixKind::Zeroed:
+                    {
+                        parser->sink->diagnose(token, Diagnostics::floatLiteralTooSmall, BaseTypeInfo::asText(suffixBaseType), token.getContent(), fixedValue);
+                        break;
+                    }
+                    case FloatFixKind::Unrepresentable:
+                    {
+                        parser->sink->diagnose(token, Diagnostics::floatLiteralUnrepresentable, BaseTypeInfo::asText(suffixBaseType), token.getContent(), fixedValue);
+                        break;
+                    }
+                }
+
+                Session* session = parser->getSession();
+
+                Type* suffixType = (suffixBaseType == BaseType::Void) ? session->getErrorType() : session->getBuiltinType(suffixBaseType);
+
+                constExpr->value = fixedValue;
                 constExpr->type = QualType(suffixType);
 
                 return constExpr;
@@ -4074,7 +4539,7 @@ namespace Slang
         case TokenType::StringLiteral:
             {
                 RefPtr<StringLiteralExpr> constExpr = new StringLiteralExpr();
-                auto token = parser->tokenReader.AdvanceToken();
+                auto token = parser->tokenReader.advanceToken();
                 constExpr->token = token;
                 parser->FillPosition(constExpr.Ptr());
 
@@ -4089,7 +4554,7 @@ namespace Slang
                     sb << getStringLiteralTokenValue(token);
                     while (parser->LookAheadToken(TokenType::StringLiteral))
                     {
-                        token = parser->tokenReader.AdvanceToken();
+                        token = parser->tokenReader.advanceToken();
                         sb << getStringLiteralTokenValue(token);
                     }
                     constExpr->value = sb.ProduceString();
@@ -4148,8 +4613,8 @@ namespace Slang
                 {
                     RefPtr<OperatorExpr> postfixExpr = new PostfixExpr();
                     parser->FillPosition(postfixExpr.Ptr());
-                    postfixExpr->FunctionExpr = parseOperator(parser);
-                    postfixExpr->Arguments.add(expr);
+                    postfixExpr->functionExpr = parseOperator(parser);
+                    postfixExpr->arguments.add(expr);
 
                     expr = postfixExpr;
                 }
@@ -4159,13 +4624,13 @@ namespace Slang
             case TokenType::LBracket:
                 {
                     RefPtr<IndexExpr> indexExpr = new IndexExpr();
-                    indexExpr->BaseExpression = expr;
+                    indexExpr->baseExpression = expr;
                     parser->FillPosition(indexExpr.Ptr());
                     parser->ReadToken(TokenType::LBracket);
                     // TODO: eventually we may want to support multiple arguments inside the `[]`
                     if (!parser->LookAheadToken(TokenType::RBracket))
                     {
-                        indexExpr->IndexExpression = parser->ParseExpression();
+                        indexExpr->indexExpression = parser->ParseExpression();
                     }
                     parser->ReadToken(TokenType::RBracket);
 
@@ -4177,13 +4642,13 @@ namespace Slang
             case TokenType::LParent:
                 {
                     RefPtr<InvokeExpr> invokeExpr = new InvokeExpr();
-                    invokeExpr->FunctionExpr = expr;
+                    invokeExpr->functionExpr = expr;
                     parser->FillPosition(invokeExpr.Ptr());
                     parser->ReadToken(TokenType::LParent);
-                    while (!parser->tokenReader.IsAtEnd())
+                    while (!parser->tokenReader.isAtEnd())
                     {
                         if (!parser->LookAheadToken(TokenType::RParent))
-                            invokeExpr->Arguments.add(parser->ParseArgExpr());
+                            invokeExpr->arguments.add(parser->ParseArgExpr());
                         else
                         {
                             break;
@@ -4207,7 +4672,7 @@ namespace Slang
                 staticMemberExpr->scope = parser->currentScope.Ptr();
 
                 parser->FillPosition(staticMemberExpr.Ptr());
-                staticMemberExpr->BaseExpression = expr;
+                staticMemberExpr->baseExpression = expr;
                 parser->ReadToken(TokenType::Scope);
                 staticMemberExpr->name = expectIdentifier(parser).name;
 
@@ -4227,7 +4692,7 @@ namespace Slang
                     memberExpr->scope = parser->currentScope.Ptr();
 
                     parser->FillPosition(memberExpr.Ptr());
-                    memberExpr->BaseExpression = expr;
+                    memberExpr->baseExpression = expr;
                     parser->ReadToken(TokenType::Dot);
                     memberExpr->name = expectIdentifier(parser).name;
 
@@ -4241,26 +4706,92 @@ namespace Slang
         }
     }
 
+    static IRIntegerValue _foldIntegerPrefixOp(TokenType tokenType, IRIntegerValue value)
+    {
+        switch (tokenType)
+        {
+            case TokenType::OpBitNot:   return ~value;
+            case TokenType::OpAdd:      return value;
+            case TokenType::OpSub:      return -value;
+            default:
+            {
+                SLANG_ASSERT(!"Unexpected op");
+                return value;
+            }
+        }
+    }
+
+    static IRFloatingPointValue _foldFloatPrefixOp(TokenType tokenType, IRFloatingPointValue value)
+    {
+        switch (tokenType)
+        {
+            case TokenType::OpAdd:      return value;
+            case TokenType::OpSub:      return -value;
+            default:
+            {
+                SLANG_ASSERT(!"Unexpected op");
+                return value;
+            }
+        }
+    }
+
     static RefPtr<Expr> parsePrefixExpr(Parser* parser)
     {
-        switch( peekTokenType(parser) )
+        auto tokenType = peekTokenType(parser);
+        switch( tokenType )
         {
         default:
             return parsePostfixExpr(parser);
 
+        case TokenType::OpNot:
         case TokenType::OpInc:
         case TokenType::OpDec:
-        case TokenType::OpNot:
+        {
+            RefPtr<PrefixExpr> prefixExpr = new PrefixExpr();
+            parser->FillPosition(prefixExpr.Ptr());
+            prefixExpr->functionExpr = parseOperator(parser);
+
+            auto arg = parsePrefixExpr(parser);
+
+            prefixExpr->arguments.add(arg);
+            return prefixExpr;
+        }
         case TokenType::OpBitNot:
         case TokenType::OpAdd:
         case TokenType::OpSub:
             {
                 RefPtr<PrefixExpr> prefixExpr = new PrefixExpr();
                 parser->FillPosition(prefixExpr.Ptr());
-                prefixExpr->FunctionExpr = parseOperator(parser);
-                prefixExpr->Arguments.add(parsePrefixExpr(parser));
+                prefixExpr->functionExpr = parseOperator(parser);
+
+                auto arg = parsePrefixExpr(parser);
+
+                if (auto intLit = as<IntegerLiteralExpr>(arg))
+                {
+                    RefPtr<IntegerLiteralExpr> newLiteral = new IntegerLiteralExpr(*intLit);
+
+                    IRIntegerValue value = _foldIntegerPrefixOp(tokenType, newLiteral->value);
+
+                    // Need to get the basic type, so we can fit to underlying type
+                    if (auto basicExprType = as<BasicExpressionType>(intLit->type.type))
+                    {
+                        value = _fixIntegerLiteral(basicExprType->baseType, value, nullptr, nullptr);
+                    }
+
+                    newLiteral->value = value;
+                    return newLiteral;
+                }
+                else if (auto floatLit = as<FloatingPointLiteralExpr>(arg))
+                {
+                    RefPtr<FloatingPointLiteralExpr> newLiteral = new FloatingPointLiteralExpr(*floatLit);
+                    newLiteral->value = _foldFloatPrefixOp(tokenType, floatLit->value);
+                    return newLiteral;
+                }
+
+                prefixExpr->arguments.add(arg);
                 return prefixExpr;
             }
+        
             break;
         }
     }
@@ -4270,7 +4801,7 @@ namespace Slang
         return parsePrefixExpr(this);
     }
 
-    RefPtr<Expr> parseTypeFromSourceFile(
+    RefPtr<Expr> parseTermFromSourceFile(
         Session*                        session,
         TokenSpan const&                tokens,
         DiagnosticSink*                 sink,
@@ -4282,7 +4813,7 @@ namespace Slang
         parser.currentScope = outerScope;
         parser.namePool = namePool;
         parser.sourceLanguage = sourceLanguage;
-        return parser.ParseType();
+        return parser.ParseExpression();
     }
 
     // Parse a source file into an existing translation unit
@@ -4362,17 +4893,17 @@ namespace Slang
         {
             if (AdvanceIf(parser, TokenType::OpSub))
             {
-                modifier->op = IROp(-StringToInt(parser->ReadToken().Content));
+                modifier->op = IROp(-StringToInt(parser->ReadToken().getContent()));
             }
             else if (parser->LookAheadToken(TokenType::IntegerLiteral))
             {
-                modifier->op = IROp(StringToInt(parser->ReadToken().Content));
+                modifier->op = IROp(StringToInt(parser->ReadToken().getContent()));
             }
             else
             {
                 modifier->opToken = parser->ReadToken(TokenType::Identifier);
 
-                modifier->op = findIROp(modifier->opToken.Content);
+                modifier->op = findIROp(modifier->opToken.getContent());
 
                 if (modifier->op == kIROp_Invalid)
                 {
@@ -4446,9 +4977,69 @@ namespace Slang
         return modifier;
     }
 
+
+    static SlangResult parseSemanticVersion(Parser* parser, Token& outToken, SemanticVersion& outVersion)
+    {
+        parser->ReadToken(TokenType::LParent);
+        outToken = parser->ReadToken();
+        parser->ReadToken(TokenType::RParent);
+
+        UnownedStringSlice content = outToken.getContent();
+        // We allow specified as major.minor or as a string (in quotes)
+        switch (outToken.type)
+        {
+            case TokenType::FloatingPointLiteral:
+            {
+                break;
+            }
+            case TokenType::StringLiteral:
+            {
+                // We need to trim quotes if needed
+                SLANG_ASSERT(content.getLength() >= 2 && content[0] == '"' && content[content.getLength() - 1] == '"');
+                content = UnownedStringSlice(content.begin() + 1, content.end() - 1);
+                break;
+            }
+            default:
+            {
+                return SLANG_FAIL;
+            }
+        }
+        return SemanticVersion::parse(content, outVersion);
+    }
+
+    static RefPtr<RefObject> parseSPIRVVersionModifier(Parser* parser, void* /*userData*/)
+    {
+        Token token;
+        SemanticVersion version;
+        if (SLANG_SUCCEEDED(parseSemanticVersion(parser, token, version)))
+        {
+            auto modifier = new RequiredSPIRVVersionModifier();
+            modifier->version = version;
+            return modifier;
+        }
+        parser->sink->diagnose(token, Diagnostics::invalidSPIRVVersion);
+        return RefPtr<RefObject>();
+    }
+
+    static RefPtr<RefObject> parseCUDASMVersionModifier(Parser* parser, void* /*userData*/)
+    {
+        Token token;
+        SemanticVersion version;
+        if (SLANG_SUCCEEDED(parseSemanticVersion(parser, token, version)))
+        {
+            auto modifier = new RequiredCUDASMVersionModifier();
+            modifier->version = version;
+            return modifier;
+        }
+        parser->sink->diagnose(token, Diagnostics::invalidCUDASMVersion);
+        return RefPtr<RefObject>();
+    }
+
     static RefPtr<RefObject> parseLayoutModifier(Parser* parser, void* /*userData*/)
     {
         ModifierListBuilder listBuilder;
+
+        RefPtr<UncheckedAttribute> numThreadsAttrib;
 
         listBuilder.add(new GLSLLayoutModifierGroupBegin());
         
@@ -4458,7 +5049,41 @@ namespace Slang
             auto nameAndLoc = expectIdentifier(parser);
             const String& nameText = nameAndLoc.name->text;
 
-            if (nameText == "binding" ||
+            const char localSizePrefix[] = "local_size_";
+
+            int localSizeIndex = -1;
+            if (nameText.startsWith(localSizePrefix) && nameText.getLength() == SLANG_COUNT_OF(localSizePrefix) - 1 + 1)
+            {
+                char lastChar = nameText[SLANG_COUNT_OF(localSizePrefix) - 1];
+                localSizeIndex = (lastChar >= 'x' && lastChar <= 'z') ? (lastChar - 'x') : -1;
+            }
+
+            if (localSizeIndex >= 0)
+            {
+                if (!numThreadsAttrib)
+                {
+                    numThreadsAttrib = new UncheckedAttribute;
+                    numThreadsAttrib->args.setCount(3);
+
+                    // Just mark the loc and name from the first in the list
+                    numThreadsAttrib->name = getName(parser, "numthreads");
+                    numThreadsAttrib->loc = nameAndLoc.loc;
+                    numThreadsAttrib->scope = parser->currentScope;
+                }
+
+                if (AdvanceIf(parser, TokenType::OpAssign))
+                {
+                    auto expr = parseAtomicExpr(parser);
+                    //SLANG_ASSERT(expr);
+                    if (!expr)
+                    {
+                        return nullptr;
+                    }
+
+                    numThreadsAttrib->args[localSizeIndex] = expr;
+                }
+            }
+            else if (nameText == "binding" ||
                 nameText == "set")
             {
                 GLSLBindingAttribute* attr = listBuilder.find<GLSLBindingAttribute>();
@@ -4473,21 +5098,19 @@ namespace Slang
                 // If the token asked for is not returned found will put in recovering state, and return token found
                 Token valToken = parser->ReadToken(TokenType::IntegerLiteral);
                 // If wasn't the desired IntegerLiteral return that couldn't parse
-                if (valToken.type != TokenType::IntegerLiteral)
+                if (valToken.type == TokenType::IntegerLiteral)
                 {
-                    return nullptr;
-                }
+                    // Work out the value
+                    auto value = getIntegerLiteralValue(valToken);
 
-                // Work out the value
-                auto value = getIntegerLiteralValue(valToken);
-
-                if (nameText == "binding")
-                {
-                    attr->binding = int32_t(value);
-                }
-                else
-                {
-                    attr->set = int32_t(value);
+                    if (nameText == "binding")
+                    {
+                        attr->binding = int32_t(value);
+                    }
+                    else
+                    {
+                        attr->set = int32_t(value);
+                    }
                 }
             }
             else
@@ -4499,9 +5122,6 @@ namespace Slang
                 CASE(shaderRecordNV, ShaderRecordAttribute)
                 CASE(constant_id,   GLSLConstantIDLayoutModifier) 
                 CASE(location, GLSLLocationLayoutModifier) 
-                CASE(local_size_x, GLSLLocalSizeXLayoutModifier) 
-                CASE(local_size_y, GLSLLocalSizeYLayoutModifier) 
-                CASE(local_size_z, GLSLLocalSizeZLayoutModifier)
                 {
                     modifier = new GLSLUnparsedLayoutModifier();
                 }
@@ -4528,6 +5148,11 @@ namespace Slang
             parser->ReadToken(TokenType::Comma);
         }
 
+        if (numThreadsAttrib)
+        {
+            listBuilder.add(numThreadsAttrib);
+        }
+
         listBuilder.add(new GLSLLayoutModifierGroupEnd());
 
         return listBuilder.getFirst();
@@ -4537,7 +5162,7 @@ namespace Slang
     {
         RefPtr<BuiltinTypeModifier> modifier = new BuiltinTypeModifier();
         parser->ReadToken(TokenType::LParent);
-        modifier->tag = BaseType(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).Content));
+        modifier->tag = BaseType(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).getContent()));
         parser->ReadToken(TokenType::RParent);
 
         return modifier;
@@ -4547,10 +5172,10 @@ namespace Slang
     {
         RefPtr<MagicTypeModifier> modifier = new MagicTypeModifier();
         parser->ReadToken(TokenType::LParent);
-        modifier->name = parser->ReadToken(TokenType::Identifier).Content;
+        modifier->name = parser->ReadToken(TokenType::Identifier).getContent();
         if (AdvanceIf(parser, TokenType::Comma))
         {
-            modifier->tag = uint32_t(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).Content));
+            modifier->tag = uint32_t(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).getContent()));
         }
         parser->ReadToken(TokenType::RParent);
 
@@ -4561,10 +5186,10 @@ namespace Slang
     {
         RefPtr<IntrinsicTypeModifier> modifier = new IntrinsicTypeModifier();
         parser->ReadToken(TokenType::LParent);
-        modifier->irOp = uint32_t(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).Content));
+        modifier->irOp = uint32_t(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).getContent()));
         while( AdvanceIf(parser, TokenType::Comma) )
         {
-            auto operand = uint32_t(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).Content));
+            auto operand = uint32_t(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).getContent()));
             modifier->irOperands.add(operand);
         }
         parser->ReadToken(TokenType::RParent);
@@ -4578,7 +5203,7 @@ namespace Slang
         ConversionCost cost = kConversionCost_Default;
         if( AdvanceIf(parser, TokenType::LParent) )
         {
-            cost = ConversionCost(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).Content));
+            cost = ConversionCost(StringToInt(parser->ReadToken(TokenType::IntegerLiteral).getContent()));
             parser->ReadToken(TokenType::RParent);
         }
         modifier->cost = cost;
@@ -4611,7 +5236,7 @@ namespace Slang
         addBuiltinSyntax<Decl>(session, scope, #KEYWORD, &CALLBACK)
         DECL(typedef,         ParseTypeDef);
         DECL(associatedtype,  parseAssocType);
-        DECL(type_param,    parseGlobalGenericParamDecl);
+        DECL(type_param,    parseGlobalGenericTypeParamDecl);
         DECL(cbuffer,         parseHLSLCBufferDecl);
         DECL(tbuffer,         parseHLSLTBufferDecl);
         DECL(__generic,       ParseGenericDecl);
@@ -4628,6 +5253,8 @@ namespace Slang
         DECL(var,             parseVarDecl);
         DECL(func,            parseFuncDecl);
         DECL(typealias,       parseTypeAliasDecl);
+        DECL(__generic_value_param, parseGlobalGenericValueParamDecl);
+        DECL(namespace,       parseNamespaceDecl);
 
     #undef DECL
 
@@ -4697,6 +5324,8 @@ namespace Slang
         MODIFIER(__specialized_for_target,    parseSpecializedForTargetModifier);
         MODIFIER(__glsl_extension,  parseGLSLExtensionModifier);
         MODIFIER(__glsl_version,    parseGLSLVersionModifier);
+        MODIFIER(__spirv_version,   parseSPIRVVersionModifier);
+        MODIFIER(__cuda_sm_version, parseCUDASMVersionModifier);
 
         MODIFIER(__builtin_type,    parseBuiltinTypeModifier);
         MODIFIER(__magic_type,      parseMagicTypeModifier);
@@ -4713,8 +5342,10 @@ namespace Slang
         addBuiltinSyntax<Expr>(session, scope, #KEYWORD, &CALLBACK)
 
         EXPR(this,  parseThisExpr);
+        EXPR(This,  parseThisTypeExpr);
         EXPR(true,  parseTrueExpr);
         EXPR(false, parseFalseExpr);
+        EXPR(__TaggedUnion, parseTaggedUnionType);
 
     #undef EXPR
 

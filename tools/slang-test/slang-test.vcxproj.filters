@@ -44,6 +44,9 @@
     <ClCompile Include="test-reporter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="unit-offset-container.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="unit-test-byte-encode.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -54,6 +57,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="unit-test-path.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="unit-test-riff.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="unit-test-string.cpp">

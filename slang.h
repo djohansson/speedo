@@ -517,6 +517,8 @@ extern "C"
         SLANG_EXECUTABLE,           ///< Executable (for hosting CPU/OS)
         SLANG_SHARED_LIBRARY,       ///< A shared library/Dll (for hosting CPU/OS)
         SLANG_HOST_CALLABLE,        ///< A CPU target that makes the compiled code available to be run immediately
+        SLANG_CUDA_SOURCE,          ///< Cuda source
+        SLANG_PTX,                  ///< PTX 
         SLANG_TARGET_COUNT_OF,
     };
 
@@ -534,8 +536,8 @@ extern "C"
         SLANG_CONTAINER_FORMAT_SLANG_MODULE,
     };
 
-    typedef int SlangPassThrough;
-    enum
+    typedef int SlangPassThroughIntegral;
+    enum SlangPassThrough : SlangPassThroughIntegral
     {
         SLANG_PASS_THROUGH_NONE,
         SLANG_PASS_THROUGH_FXC,
@@ -545,6 +547,7 @@ extern "C"
         SLANG_PASS_THROUGH_VISUAL_STUDIO,           ///< Visual studio C/C++ compiler
         SLANG_PASS_THROUGH_GCC,                     ///< GCC C/C++ compiler
         SLANG_PASS_THROUGH_GENERIC_C_CPP,           ///< Generic C or C++ compiler, which is decided by the source type
+        SLANG_PASS_THROUGH_NVRTC,                   ///< NVRTC Cuda compiler
         SLANG_PASS_THROUGH_COUNT_OF,
     };
 
@@ -559,6 +562,9 @@ extern "C"
 
         /* Skip code generation step, just check the code and generate layout */
         SLANG_COMPILE_FLAG_NO_CODEGEN           = 1 << 4,
+
+        /* Obfuscate shader names on release products */
+        SLANG_COMPILE_FLAG_OBFUSCATE = 1 << 5,
 
         /* Deprecated flags: kept around to allow existing applications to
         compile. Note that the relevant features will still be left in
@@ -603,8 +609,8 @@ extern "C"
         SLANG_LINE_DIRECTIVE_MODE_GLSL,         /**< Emit GLSL-style directives with file *number* instead of name */
     };
 
-    typedef int SlangSourceLanguage;
-    enum
+    typedef int SlangSourceLanguageIntegral;
+    enum SlangSourceLanguage : SlangSourceLanguageIntegral
     {
         SLANG_SOURCE_LANGUAGE_UNKNOWN,
         SLANG_SOURCE_LANGUAGE_SLANG,
@@ -612,6 +618,8 @@ extern "C"
         SLANG_SOURCE_LANGUAGE_GLSL,
         SLANG_SOURCE_LANGUAGE_C,
         SLANG_SOURCE_LANGUAGE_CPP,
+        SLANG_SOURCE_LANGUAGE_CUDA,
+        SLANG_SOURCE_LANGUAGE_COUNT_OF,
     };
 
     typedef unsigned int SlangProfileID;
@@ -644,6 +652,8 @@ extern "C"
         SLANG_STAGE_CLOSEST_HIT,
         SLANG_STAGE_MISS,
         SLANG_STAGE_CALLABLE,
+        SLANG_STAGE_MESH,
+        SLANG_STAGE_AMPLIFICATION,
 
         // alias:
         SLANG_STAGE_PIXEL = SLANG_STAGE_FRAGMENT,
@@ -1002,6 +1012,20 @@ extern "C"
 
         /** Clears any cached information */
         virtual SLANG_NO_THROW void SLANG_MCALL clearCache() = 0;
+
+        /** Write the data specified with data and size to the specified path.
+
+        Note that for normal slang operation it doesn't write files so this can return SLANG_E_NOT_IMPLEMENTED.
+
+        @param path The path for data to be saved to
+        @param data The data to be saved
+        @param size The size of the data
+        @returns SLANG_OK if successful (SLANG_E_NOT_IMPLEMENTED if not implemented, or some other error code)
+        */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL saveFile(
+            const char* path,
+            const void* data,
+            size_t size) = 0;
     };
 
     #define SLANG_UUID_ISlangFileSystemExt { 0x5fb632d2, 0x979d, 0x4481, { 0x9f, 0xee, 0x66, 0x3c, 0x3f, 0x14, 0x49, 0xe1 } }
@@ -1180,6 +1204,10 @@ extern "C"
         SlangCompileRequest*    request,
         int                     enable);
 
+    SLANG_API void spSetDumpIntermediatePrefix(
+        SlangCompileRequest*    request,
+        const char* prefix);
+
     /*!
     @brief Set whether (and how) `#line` directives should be output.
     */
@@ -1310,13 +1338,21 @@ extern "C"
 
     /** Add a distinct translation unit to the compilation request
 
-    `name` is optional.
+    `name` is optional. 
     Returns the zero-based index of the translation unit created.
     */
     SLANG_API int spAddTranslationUnit(
         SlangCompileRequest*    request,
         SlangSourceLanguage     language,
         char const*             name);
+
+    
+    /** Set a default module name. Translation units will default to this module name if one is not
+    passed. If not set each translation unit will get a unique name. 
+    */
+    SLANG_API void spSetDefaultModuleName(
+        SlangCompileRequest*    request,
+        const char* defaultModuleName);
 
     /** Add a preprocessor definition that is scoped to a single translation unit.
 
@@ -1367,6 +1403,18 @@ extern "C"
         char const*             path,
         char const*             source);
 
+
+    /** Add a slang library - such that its contents can be referenced during linking.
+    This is equivalent to the -r command line option.
+
+    @param request The compile request
+    @param libData The library data
+    @param libDataSize The size of the library data
+    */
+    SLANG_API SlangResult spAddLibraryReference(
+        SlangCompileRequest*    request,
+        const void* libData,
+        size_t libDataSize);
 
     /** Add a source string to the given translation unit.
 
@@ -1589,16 +1637,107 @@ extern "C"
 
     /** Get the output bytecode associated with an entire compile request.
 
-    The lifetime of the output pointer is the same as `request`.
+    The lifetime of the output pointer is the same as `request` and the last spCompile.
 
-    DEPRECIATED: No longer outputs anything. 
+    @param request          The request
+    @param outSize          The size of the containers contents in bytes. Will be zero if there is no code available.
+    @returns                Pointer to start of the contained data, or nullptr if there is no code available.
     */
     SLANG_API void const* spGetCompileRequestCode(
         SlangCompileRequest*    request,
         size_t*                 outSize);
 
+    /** Return the container code as a blob. The container blob is created as part of a compilation (with spCompile),
+    and a container is produced with a suitable ContainerFormat. 
 
+    @param request          The request
+    @param outSize          The blob containing the container data. 
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spGetContainerCode(
+        SlangCompileRequest*    request,
+        ISlangBlob**            outBlob);
 
+    /** Load repro from memory specified.
+
+    Should only be performed on a newly created request.
+
+    NOTE! When using the fileSystem, files will be loaded via their `unique names` as if they are part of the flat file system. This
+    mechanism is described more fully in docs/repro.md.
+
+    @param request          The request
+    @param fileSystem       An (optional) filesystem. Pass nullptr to just use contents of repro held in data.
+    @param data             The data to load from.
+    @param size             The size of the data to load from. 
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spLoadRepro(
+        SlangCompileRequest* request,
+        ISlangFileSystem* fileSystem,
+        const void* data,
+        size_t size);
+
+    /** Save repro state. Should *typically* be performed after spCompile, so that everything
+    that is needed for a compilation is available. 
+
+    @param request          The request 
+    @param outBlob          Blob that will hold the serialized state
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spSaveRepro(
+        SlangCompileRequest* request,
+        ISlangBlob** outBlob
+    );
+
+    /** Enable repro capture.
+
+    Should be set after any ISlangFileSystem has been set, but before any compilation. It ensures that everything
+    that the ISlangFileSystem accesses will be correctly recorded.
+    Note that if a ISlangFileSystem/ISlangFileSystemExt isn't explicitly set (ie the default is used), then the
+    request will automatically be set up to record everything appropriate. 
+
+    @param request          The request
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spEnableReproCapture(
+        SlangCompileRequest* request);
+
+    /** Extract contents of a repro.
+
+    Writes the contained files and manifest with their 'unique' names into fileSystem. For more details read the
+    docs/repro.md documentation. 
+
+    @param session          The slang session
+    @param reproData        Holds the repro data
+    @param reproDataSize    The size of the repro data
+    @param fileSystem       File system that the contents of the repro will be written to
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spExtractRepro(
+        SlangSession* session,
+        const void* reproData,
+        size_t reproDataSize,
+        ISlangFileSystemExt* fileSystem);
+
+    /* Turns a repro into a file system.
+
+    Makes the contents of the repro available as a file system - that is able to access the files with the same
+    paths as were used on the original repro file system. 
+
+    @param session          The slang session
+    @param reproData        The repro data
+    @param reproDataSize    The size of the repro data
+    @param replaceFileSystem  Will attempt to load by unique names from this file system before using contents of the repro. Optional.
+    @param outFileSystem    The file system that can be used to access contents
+    @returns                A `SlangResult` to indicate success or failure.
+    */
+    SLANG_API SlangResult spLoadReproAsFileSystem(
+        SlangSession* session,
+        const void* reproData,
+        size_t reproDataSize,
+        ISlangFileSystem* replaceFileSystem,
+        ISlangFileSystemExt** outFileSystem);
+    
     /*
     Forward declarations of types used in the reflection interface;
     */
@@ -1849,12 +1988,14 @@ extern "C"
 
     SLANG_API SlangReflectionType* spReflectionTypeLayout_GetType(SlangReflectionTypeLayout* type);
     SLANG_API size_t spReflectionTypeLayout_GetSize(SlangReflectionTypeLayout* type, SlangParameterCategory category);
+    SLANG_API int32_t spReflectionTypeLayout_getAlignment(SlangReflectionTypeLayout* type, SlangParameterCategory category);
 
     SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_GetFieldByIndex(SlangReflectionTypeLayout* type, unsigned index);
 
     SLANG_API size_t spReflectionTypeLayout_GetElementStride(SlangReflectionTypeLayout* type, SlangParameterCategory category);
     SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_GetElementTypeLayout(SlangReflectionTypeLayout* type);
     SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_GetElementVarLayout(SlangReflectionTypeLayout* type);
+    SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getContainerVarLayout(SlangReflectionTypeLayout* type);
 
     SLANG_API SlangParameterCategory spReflectionTypeLayout_GetParameterCategory(SlangReflectionTypeLayout* type);
 
@@ -1935,6 +2076,9 @@ extern "C"
     SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(
         SlangReflectionEntryPoint* entryPoint);
 
+    SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getResultVarLayout(
+        SlangReflectionEntryPoint* entryPoint);
+
     SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
         SlangReflectionEntryPoint* entryPoint);
 
@@ -1969,6 +2113,21 @@ extern "C"
         SlangInt                    specializationArgCount,
         SlangReflectionType* const* specializationArgs,
         ISlangBlob**                outDiagnostics);
+
+        /// Get the number of hashed strings
+    SLANG_API SlangUInt spReflection_getHashedStringCount(
+        SlangReflection*  reflection);
+
+        /// Get a hashed string. The number of chars is written in outCount.
+        /// The count does *NOT* including terminating 0. The returned string will be 0 terminated. 
+    SLANG_API const char* spReflection_getHashedString(
+        SlangReflection*  reflection,
+        SlangUInt index,
+        size_t* outCount);
+
+        /// Compute a string hash.
+        /// Count should *NOT* include terminating zero.
+    SLANG_API int spComputeStringHash(const char* chars, size_t count);
 
 #ifdef __cplusplus
 }
@@ -2028,6 +2187,7 @@ namespace slang
             ParameterBlock = SLANG_TYPE_KIND_PARAMETER_BLOCK,
             GenericTypeParameter = SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER,
             Interface = SLANG_TYPE_KIND_INTERFACE,
+            OutputStream = SLANG_TYPE_KIND_OUTPUT_STREAM,
             Specialized = SLANG_TYPE_KIND_SPECIALIZED,
         };
 
@@ -2043,6 +2203,10 @@ namespace slang
             Float16 = SLANG_SCALAR_TYPE_FLOAT16,
             Float32 = SLANG_SCALAR_TYPE_FLOAT32,
             Float64 = SLANG_SCALAR_TYPE_FLOAT64,
+            Int8    = SLANG_SCALAR_TYPE_INT8,
+            UInt8   = SLANG_SCALAR_TYPE_UINT8,
+            Int16   = SLANG_SCALAR_TYPE_INT16,
+            UInt16  = SLANG_SCALAR_TYPE_UINT16,
         };
 
         Kind getKind()
@@ -2194,6 +2358,11 @@ namespace slang
             return spReflectionTypeLayout_GetSize((SlangReflectionTypeLayout*) this, category);
         }
 
+        int32_t getAlignment(SlangParameterCategory category = SLANG_PARAMETER_CATEGORY_UNIFORM)
+        {
+            return spReflectionTypeLayout_getAlignment((SlangReflectionTypeLayout*) this, category);
+        }
+
         unsigned int getFieldCount()
         {
             return getType()->getFieldCount();
@@ -2240,6 +2409,11 @@ namespace slang
         VariableLayoutReflection* getElementVarLayout()
         {
             return (VariableLayoutReflection*)spReflectionTypeLayout_GetElementVarLayout((SlangReflectionTypeLayout*) this);
+        }
+
+        VariableLayoutReflection* getContainerVarLayout()
+        {
+            return (VariableLayoutReflection*)spReflectionTypeLayout_getContainerVarLayout((SlangReflectionTypeLayout*) this);
         }
 
         // How is this type supposed to be bound?
@@ -2484,6 +2658,11 @@ namespace slang
             return getVarLayout()->getTypeLayout();
         }
 
+        VariableLayoutReflection* getResultVarLayout()
+        {
+            return (VariableLayoutReflection*) spReflectionEntryPoint_getResultVarLayout((SlangReflectionEntryPoint*) this);
+        }
+
         bool hasDefaultConstantBuffer()
         {
             return spReflectionEntryPoint_hasDefaultConstantBuffer((SlangReflectionEntryPoint*) this) != 0;
@@ -2607,6 +2786,13 @@ namespace slang
                 (SlangReflectionType* const*) specializationArgs,
                 outDiagnostics);
         }
+
+        SlangUInt getHashedStringCount() const { return spReflection_getHashedStringCount((SlangReflection*)this); }
+
+        const char* getHashedString(SlangUInt index, size_t* outCount) const
+        {
+            return spReflection_getHashedString((SlangReflection*)this, index, outCount);
+        }
     };
 
     typedef ISlangBlob IBlob;
@@ -2670,6 +2856,14 @@ namespace slang
             SlangPassThrough passThrough,
             const char* preludeText) = 0;
 
+            /** Get the 'prelude' for generated code for a 'downstream compiler'.
+            @param passThrough The downstream compiler for generated code that will have the prelude applied to it. 
+            @param outPrelude  On exit holds a blob that holds the string of the prelude.
+            */
+        virtual SLANG_NO_THROW void SLANG_MCALL getDownstreamCompilerPrelude(
+            SlangPassThrough passThrough,
+            ISlangBlob** outPrelude) = 0;
+
             /** Get the build version 'tag' string. The string is the same as produced via `git describe --tags`
             for the project. If Slang is built separately from the automated build scripts
             the contents will by default be 'unknown'. Any string can be set by changing the
@@ -2678,6 +2872,25 @@ namespace slang
             @return The build tag string
             */
         virtual SLANG_NO_THROW const char* SLANG_MCALL getBuildTagString() = 0;
+
+            /* For a given source language set the default compiler.
+            If a default cannot be chosen (for example the target cannot be achieved by the default),
+            the default will not be used. 
+
+            @param sourceLanguage the source language 
+            @param defaultCompiler the default compiler for that language
+            @return 
+            */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL setDefaultDownstreamCompiler(
+            SlangSourceLanguage sourceLanguage,
+            SlangPassThrough defaultCompiler) = 0;
+
+            /* For a source type get the default compiler 
+
+            @param sourceLanguage the source language 
+            @return The downstream compiler for that source language */
+        virtual SlangPassThrough SLANG_MCALL getDefaultDownstreamCompiler(
+            SlangSourceLanguage sourceLanguage) = 0;
     };
 
     #define SLANG_UUID_IGlobalSession { 0xc140b5fd, 0xc78, 0x452e, { 0xba, 0x7c, 0x1a, 0x1e, 0x70, 0xc7, 0xf7, 0x1c } };
@@ -2820,9 +3033,10 @@ namespace slang
             It is an error to create a composite component type that recursively
             aggregates the a single module more than once.
             */
-        virtual SLANG_NO_THROW IComponentType* SLANG_MCALL createCompositeComponentType(
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL createCompositeComponentType(
             IComponentType* const*  componentTypes,
             SlangInt                componentTypeCount,
+            IComponentType**        outCompositeComponentType,
             ISlangBlob**            outDiagnostics = nullptr) = 0;
 
             /** Specialize a type based on type arguments.
@@ -2965,16 +3179,44 @@ namespace slang
             The `specializationArgs` array must have `specializationArgCount` entries, and
             this must match the number of specialization parameters on this component type.
 
-            If the specialization arguments are not valid, then the function will return null.
-
             If any diagnostics (error or warnings) are produced, they will be written to `outDiagnostics`.
             */
-        virtual SLANG_NO_THROW IComponentType* SLANG_MCALL specialize(
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL specialize(
             SpecializationArg const*    specializationArgs,
             SlangInt                    specializationArgCount,
+            IComponentType**            outSpecializedComponentType,
             ISlangBlob**                outDiagnostics = nullptr) = 0;
+
+            /** Link this component type against all of its unsatisifed dependencies.
+            
+            A component type may have unsatisfied dependencies. For example, a module
+            depends on any other modules it `import`s, and an entry point depends
+            on the module that defined it.
+
+            A user can manually satisfy dependencies by creating a composite
+            component type, and when doing so they retain full control over
+            the relative ordering of shader parameters in the resulting layout.
+
+            It is an error to try to generate/access compiled kernel code for
+            a component type with unresolved dependencies, so if dependencies
+            remain after whatever manual composition steps an application
+            cares to peform, the `link()` function can be used to automatically
+            compose in any remaining dependencies. The order of parameters
+            (and hence the global layout) that results will be deterministic,
+            but is not currently documented.
+            */
+            virtual SLANG_NO_THROW SlangResult SLANG_MCALL link(
+                IComponentType**            outLinkedComponentType,
+                ISlangBlob**                outDiagnostics = nullptr) = 0;
     };
     #define SLANG_UUID_IComponentType { 0x5bc42be8, 0x5c50, 0x4929, { 0x9e, 0x5e, 0xd1, 0x5e, 0x7c, 0x24, 0x1, 0x5f } };
+
+    struct IEntryPoint : public IComponentType
+    {
+    public:
+    };
+
+    #define SLANG_UUID_IEntryPoint { 0x8f241361, 0xf5bd, 0x4ca0, { 0xa3, 0xac, 0x2, 0xf7, 0xfa, 0x24, 0x2, 0xb8 } }
 
         /** A module is the granularity of shader code compilation and loading.
 
@@ -2992,13 +3234,12 @@ namespace slang
     struct IModule : public IComponentType
     {
     public:
-        /** Note: eventually operations for looking up types or entry
-        points by name should appear here.
-        */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL findEntryPointByName(
+            char const*     name,
+            IEntryPoint**   outEntryPoint) = 0;
     };
     
     #define SLANG_UUID_IModule { 0xc720e64, 0x8722, 0x4d31, { 0x89, 0x90, 0x63, 0x8a, 0x98, 0xb1, 0xc2, 0x79 } }
-
 
         /** Argument used for specialization to types/values.
         */
@@ -3035,11 +3276,50 @@ namespace slang
     }
 }
 
-/**
+/** Get the (linked) program for a compile request.
+
+The linked program will include all of the global-scope modules for the
+translation units in the program, plus any modules that they `import`
+(transitively), specialized to any global specialization arguments that
+were provided via the API.
 */
 SLANG_API SlangResult spCompileRequest_getProgram(
     SlangCompileRequest*    request,
     slang::IComponentType** outProgram);
+
+/** Get the (partially linked) component type for an entry point.
+
+The returned component type will include the entry point at the
+given index, and will be specialized using any specialization arguments
+that were provided for it via the API.
+
+The returned component will *not* include the modules representing
+the global scope and its dependencies/specialization, so a client
+program will typically want to compose this component type with
+the one returned by `spCompileRequest_getProgram` to get a complete
+and usable component type from which kernel code can be requested.
+*/
+SLANG_API SlangResult spCompileRequest_getEntryPoint(
+    SlangCompileRequest*    request,
+    SlangInt                entryPointIndex,
+    slang::IComponentType** outEntryPoint);
+
+/** Get the (un-linked) module for a translation unit.
+
+The returned module will not be linked against any dependencies,
+nor against any entry points (even entry points declared inside
+the module). Similarly, the module will not be specialized
+to the arguments that might have been provided via the API.
+
+This function provides an atomic unit of loaded code that
+is suitable for looking up types and entry points in the
+given module, and for linking together to produce a composite
+program that matches the needs of an application.
+*/
+SLANG_API SlangResult spCompileRequest_getModule(
+    SlangCompileRequest*    request,
+    SlangInt                translationUnitIndex,
+    slang::IModule**        outModule);
 
 #endif
 

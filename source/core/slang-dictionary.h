@@ -54,10 +54,16 @@ namespace Slang
 			Value = that.Value;
 			return *this;
 		}
-		int GetHashCode()
+		HashCode getHashCode()
 		{
-			return GetHashCode(Key);
+            return combineHash(
+                Slang::getHashCode(Key),
+                Slang::getHashCode(Value));
 		}
+        bool operator==(const KeyValuePair<TKey, TValue>& that) const
+        {
+            return (Key == that.Key) && (Value == that.Value);
+        }
 	};
 
 	template<typename TKey, typename TValue>
@@ -129,8 +135,10 @@ namespace Slang
 
 		};
 		inline int GetHashPos(TKey& key) const
-		{
-			return ((unsigned int)(GetHashCode(key) * 2654435761)) % bucketSizeMinusOne;
+        {
+            SLANG_ASSERT(bucketSizeMinusOne > 0);
+            const unsigned int hash = (unsigned int)getHashCode(key);
+            return (hash * 2654435761u) % (unsigned int)(bucketSizeMinusOne);
 		}
 		FindPositionResult FindPosition(const TKey& key) const
 		{
@@ -160,7 +168,7 @@ namespace Slang
 			}
 			if (insertPos != -1)
 				return FindPositionResult(-1, insertPos);
-			throw InvalidOperationException("Hash map is full. This indicates an error in Key::Equal or Key::GetHashCode.");
+			throw InvalidOperationException("Hash map is full. This indicates an error in Key::Equal or Key::getHashCode.");
 		}
 		TValue & _Insert(KeyValuePair<TKey, TValue>&& kvPair, int pos)
 		{

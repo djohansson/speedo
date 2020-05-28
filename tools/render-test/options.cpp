@@ -11,11 +11,14 @@
 
 #include "../../source/core/slang-list.h"
 #include "../../source/core/slang-string-util.h"
+//#include "../../source/core/slang-downstream-compiler.h"
+
+#include "../../source/core/slang-type-text-util.h"
 
 namespace renderer_test {
 using namespace Slang;
 
-static const Options gDefaultOptions;
+static const Options gDefaultOptions = Options();
 
 Options gOptions;
 
@@ -24,11 +27,12 @@ static gfx::RendererType _toRenderType(Slang::RenderApiType apiType)
     using namespace Slang;
     switch (apiType)
     {
-    case RenderApiType::D3D11: return gfx::RendererType::DirectX11;
-    case RenderApiType::D3D12: return gfx::RendererType::DirectX12;
+    case RenderApiType::D3D11:  return gfx::RendererType::DirectX11;
+    case RenderApiType::D3D12:  return gfx::RendererType::DirectX12;
     case RenderApiType::OpenGl: return gfx::RendererType::OpenGl;
     case RenderApiType::Vulkan: return gfx::RendererType::Vulkan;
     case RenderApiType::CPU:    return gfx::RendererType::CPU;
+    case RenderApiType::CUDA:   return gfx::RendererType::CUDA;
     default: return gfx::RendererType::Unknown;
     }
 }
@@ -148,6 +152,10 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
         {
             gOptions.shaderType = ShaderProgramType::GraphicsCompute;
         }
+        else if (strcmp(arg, "-rt") == 0)
+        {
+            gOptions.shaderType = ShaderProgramType::RayTracing;
+        }
         else if( strcmp(arg, "-use-dxil") == 0 )
         {
             gOptions.useDXIL = true;
@@ -155,6 +163,23 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
         else if (strcmp(arg, "-only-startup") == 0)
         {
             gOptions.onlyStartup = true;
+        }
+        else if (strcmp(arg, "-compile-arg") == 0)
+        {
+            if (argCursor == argEnd)
+            {
+                stdError.print("expected argument for '%s' option\n", arg);
+                return SLANG_FAIL;
+            }
+
+            CommandLine::Arg arg;
+            arg.type = CommandLine::ArgType::Escaped;
+            arg.value = *argCursor++;
+            gOptions.compileArgs.add(arg);
+        }
+        else if (strcmp(arg, "-performance-profile") == 0)
+        {
+            gOptions.performanceProfile = true;
         }
         else if (strcmp(arg, "-adapter") == 0)
         {
@@ -166,11 +191,65 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
 
             gOptions.adapter = *argCursor++;
         }
+        else if (strcmp(arg, "-output-using-type") == 0)
+        {
+            gOptions.outputUsingType = true;
+        }
+        else if (strcmp(arg, "-compute-dispatch") == 0)
+        {
+            if (argCursor == argEnd)
+            {
+                stdError.print("error: expecting a comma separated compute dispatch size for '%s'\n", arg);
+                return SLANG_FAIL;
+            }
+            List<UnownedStringSlice> slices;
+            StringUtil::split(UnownedStringSlice(*argCursor++), ',', slices);
+            if (slices.getCount() != 3)
+            {
+                stdError.print("error: expected 3 comma separated integers for compute dispatch size for '%s'\n", arg);
+                return SLANG_FAIL;
+            }
+           
+            String string;
+            for (Index i = 0; i < 3; ++i)
+            {
+                string = slices[i];
+                int v = StringToInt(string);
+                if (v < 1)
+                {
+                    stdError.print("error: expected 3 comma positive integers for compute dispatch size for '%s'\n", arg);
+                    return SLANG_FAIL;
+                }
+                gOptions.computeDispatchSize[i] = v;
+            }
+        }
+        else if (strcmp(arg, "-source-language") == 0)
+        {
+            if (argCursor == argEnd)
+            {
+                stdError.print("error: expecting a source language name for '%s'\n", arg);
+                return SLANG_FAIL;
+            }
+            UnownedStringSlice sourceLanguageText(*argCursor++);
+
+            SlangSourceLanguage sourceLanguage = TypeTextUtil::findSourceLanguage(sourceLanguageText);
+            if (sourceLanguage == SLANG_SOURCE_LANGUAGE_UNKNOWN)
+            {
+                stdError.print("error: expecting unknown source language name '%s' for '%s'\n", String(sourceLanguageText).getBuffer(), arg);
+                return SLANG_FAIL;
+            }
+
+            gOptions.sourceLanguage = sourceLanguage;
+        }
+        else if( strcmp(arg, "-no-default-entry-point") == 0 )
+        {
+            gOptions.dontAddDefaultEntryPoints = true;
+        }
         else
         {
             // Lookup
             Slang::UnownedStringSlice argSlice(arg);
-            if (argSlice.size() && argSlice[0] == '-')
+            if (argSlice.getLength() && argSlice[0] == '-')
             {
                 // Look up the rendering API if set
                 UnownedStringSlice argName = UnownedStringSlice(argSlice.begin() + 1, argSlice.end());
@@ -187,7 +266,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 if (languageRenderType != RendererType::Unknown)
                 {
                     gOptions.targetLanguageRendererType = languageRenderType;
-                    gOptions.inputLanguageID = (argName == "hlsl" || argName == "glsl") ?  InputLanguageID::Native : InputLanguageID::Slang;
+                    gOptions.inputLanguageID = (argName == "hlsl" || argName == "glsl" || argName == "cpp" || argName == "cxx" || argName == "c") ?  InputLanguageID::Native : InputLanguageID::Slang;
                     continue;
                 }
             }

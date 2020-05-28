@@ -9,7 +9,9 @@
 #include "../../source/core/slang-dictionary.h"
 #include "../../source/core/slang-test-tool-util.h"
 #include "../../source/core/slang-render-api-util.h"
-#include "../../source/core/slang-cpp-compiler.h"
+#include "../../source/core/slang-downstream-compiler.h"
+
+#include "../../slang-com-ptr.h"
 
 #include "options.h"
 
@@ -25,6 +27,7 @@ struct PassThroughFlag
         GCC = 1 << int(SLANG_PASS_THROUGH_GCC),
         Clang = 1 << int(SLANG_PASS_THROUGH_CLANG),
         Generic_C_CPP = 1 << int(SLANG_PASS_THROUGH_GENERIC_C_CPP),
+        NVRTC = 1 << int(SLANG_PASS_THROUGH_NVRTC)
     };
 };
 
@@ -32,20 +35,21 @@ struct PassThroughFlag
 /// back-end availability 
 struct TestRequirements
 {
-    TestRequirements& addUsed(SlangPassThrough type)
-    {
-        if (type != SLANG_PASS_THROUGH_NONE)
-        {
-            usedBackendFlags |= PassThroughFlags(1) << int(type);
-        }
-        return *this;
-    }
-    TestRequirements& addUsed(Slang::RenderApiType type)
+    
+    TestRequirements& addUsedRenderApi(Slang::RenderApiType type)
     {
         using namespace Slang;
         if (type != RenderApiType::Unknown)
         {
             usedRenderApiFlags |=RenderApiFlags(1) << int(type);
+        }
+        return *this;
+    }
+    TestRequirements& addUsedBackEnd(SlangPassThrough type)
+    {
+        if (type != SLANG_PASS_THROUGH_NONE)
+        {
+            usedBackendFlags |= PassThroughFlags(1) << int(type);
         }
         return *this;
     }
@@ -91,9 +95,9 @@ class TestContext
         /// If set, then tests are executed
     bool isExecuting() const { return testRequirements == nullptr; }
 
-        /// Get compiler factory
-    Slang::CPPCompilerSet* getCPPCompilerSet();
-    Slang::CPPCompiler* getDefaultCPPCompiler();
+        /// Get compiler set
+    Slang::DownstreamCompilerSet* getCompilerSet();
+    Slang::DownstreamCompiler* getDefaultCompiler(SlangSourceLanguage sourceLanguage);
 
         /// Ctor
     TestContext();
@@ -111,12 +115,12 @@ class TestContext
     Slang::RenderApiFlags availableRenderApiFlags = 0;
     bool isAvailableRenderApiFlagsValid = false;
 
-    Slang::RefPtr<Slang::CPPCompilerSet> cppCompilerSet;
+    Slang::RefPtr<Slang::DownstreamCompilerSet> compilerSet;
 
 protected:
     struct SharedLibraryTool
     {
-        Slang::SharedLibrary::Handle m_sharedLibrary;
+        Slang::ComPtr<ISlangSharedLibrary> m_sharedLibrary;
         InnerMainFunc m_func;
     };
 

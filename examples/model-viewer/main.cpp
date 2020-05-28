@@ -18,7 +18,7 @@
 //
 #include "gfx/model.h"
 #include "gfx/render.h"
-#include "gfx/render-d3d11.h"
+#include "gfx/d3d11/render-d3d11.h"
 #include "gfx/vector-math.h"
 #include "gfx/window.h"
 #include "gfx/gui.h"
@@ -1017,13 +1017,13 @@ struct ShaderCache : RefObject
             return true;
         }
 
-        UInt GetHashCode() const
+        Slang::HashCode getHashCode() const
         {
-            auto hash = ::GetHashCode(effect);
-            hash = combineHash(hash, ::GetHashCode(parameterBlockCount));
+            auto hash = ::getHashCode(effect);
+            hash = combineHash(hash, ::getHashCode(parameterBlockCount));
             for( UInt ii = 0; ii < parameterBlockCount; ++ii )
             {
-                hash = combineHash(hash, ::GetHashCode(parameterBlockLayouts[ii]));
+                hash = combineHash(hash, ::getHashCode(parameterBlockLayouts[ii]));
             }
             return hash;
         }

@@ -11,15 +11,15 @@ namespace Slang
 	class File
 	{
 	public:
-		static bool exists(const Slang::String& fileName);
-		static Slang::String readAllText(const Slang::String& fileName);
-		static Slang::List<unsigned char> readAllBytes(const Slang::String& fileName);
-		static void writeAllText(const Slang::String& fileName, const Slang::String& text);
+		static bool exists(const String& fileName);
+		static String readAllText(const String& fileName);
+		static List<unsigned char> readAllBytes(const String& fileName);
+		static void writeAllText(const String& fileName, const String& text);
         static SlangResult remove(const String& fileName);
 
         static SlangResult makeExecutable(const String& fileName);
 
-        static SlangResult generateTemporary(const UnownedStringSlice& prefix, Slang::String& outFileName);
+        static SlangResult generateTemporary(const UnownedStringSlice& prefix, String& outFileName);
 	};
 
 	class Path
@@ -27,12 +27,19 @@ namespace Slang
 	public:
 		static const char kPathDelimiter = '/';
 
-		static String truncateExt(const String& path);
+
+            /// Returns -1 if no separator is found
+        static Index findLastSeparatorIndex(String const& path);
+            /// Finds the index of the last dot in a path, else returns -1
+        static Index findExtIndex(String const& path);
+
 		static String replaceExt(const String& path, const char* newExt);
 		static String getFileName(const String& path);
-		static String getFileNameWithoutExt(const String& path);
-		static String getFileExt(const String& path);
+		static String getPathWithoutExt(const String& path);
+		static String getPathExt(const String& path);
 		static String getParentDirectory(const String& path);
+
+        static String getFileNameWithoutExt(const String& path);
 
 		static String combine(const String& path1, const String& path2);
 		static String combine(const String& path1, const String& path2, const String& path3);
@@ -91,8 +98,12 @@ namespace Slang
 	};
 
     // Helper class to clean up temporary files on dtor
-    struct TemporaryFileSet
+    class TemporaryFileSet: public RefObject
     {
+    public:
+        typedef RefObject Super;
+        typedef TemporaryFileSet ThisType;
+
         void remove(const String& path)
         {
             if (const Index index = m_paths.indexOf(path) >= 0)
@@ -119,6 +130,12 @@ namespace Slang
         {
             m_paths.clear();
         }
+
+        void swapWith(ThisType& rhs)
+        {
+            m_paths.swapWith(rhs.m_paths);
+        }
+
         ~TemporaryFileSet()
         {
             for (const auto& path : m_paths)
@@ -126,7 +143,15 @@ namespace Slang
                 File::remove(path);
             }
         }
+            /// Default Ctor
+        TemporaryFileSet() {}
+
         List<String> m_paths;
+    
+    private:
+        // Disable ctor/assignment
+        TemporaryFileSet(const ThisType& rhs) = delete;
+        void operator=(const ThisType& rhs) = delete;
     };
 }
 

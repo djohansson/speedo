@@ -41,7 +41,7 @@ interpretation for that lex/parse.
 struct PathInfo
 {
         /// To be more rigorous about where a path comes from, the type identifies what a paths origin is
-    enum class Type
+    enum class Type : uint8_t
     {
         Unknown,                    ///< The path is not known
         Normal,                     ///< Normal has both path and uniqueIdentity
@@ -79,6 +79,7 @@ struct PathInfo
 class SourceLoc
 {
 public:
+    typedef SourceLoc ThisType;
     typedef uint32_t RawValue;
 
 private:
@@ -108,6 +109,7 @@ public:
     {
         return raw != 0;
     }
+    SourceLoc& operator=(const ThisType& rhs) = default;
 };
 
 inline SourceLoc operator+(SourceLoc loc, Int offset)
@@ -371,9 +373,13 @@ struct SourceManager
 
         /// Allocate a string slice
     UnownedStringSlice allocateStringSlice(const UnownedStringSlice& slice);
-    
+
+        /// Get all of the source files
+    const List<SourceFile*>& getSourceFiles() const { return m_sourceFiles; }
+
     SourceManager() :
-        m_memoryArena(2048)
+        m_memoryArena(2048),
+        m_slicePool(StringSlicePool::Style::Default)
     {}
     ~SourceManager();
 
