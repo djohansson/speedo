@@ -298,6 +298,8 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     }
 
     VK_CHECK(vkQueueSubmit(submitInfo.queue, pendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
+
+    enqueueSubmitted(std::move(pendingCommands), maxSignalValue);
     
     return maxSignalValue;
 }
