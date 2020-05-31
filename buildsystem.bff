@@ -1,0 +1,369 @@
+#include "clang-config.bff"
+#include "vulkan-config.bff"
+
+.BuildRootPath = '$_WORKING_DIR_$' // should be '$_CURRENT_BFF_DIR_$' but that seems broken...
+.IntermediateFilePath = '$BuildRootPath$/build.intermediate'
+.BuildOutputPath = '$BuildRootPath$/build.output'
+
+.ProjectCommon = 
+[
+	.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(ProjectName)-^$(Configuration)'
+	.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(ProjectName)-^$(Configuration)'
+	.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide Clean-^$(ProjectName)-^$(Configuration)'
+	.ProjectBasePath  = '$BuildRootPath$'
+	.OutputDirectory = '$BuildOutputPath$'
+	.IntermediateDirectory = '$IntermediateFilePath$'
+	.Platform = 'x64'
+	.PlatformToolset = 'llvm'
+	.Dependencies = { 'none-vcxproj' }
+]	
+
+.UnityCommon = 
+[
+	.UnityOutputPath = '$IntermediateFilePath$'
+]
+
+.ObjectListCommon = 
+[
+	Using(.UnityCommon)
+    Using(.ProjectCommon)
+
+    .ProjectType = 'obj'
+    .PreBuildDependencies = { }
+	.DependencyTasks = { }
+	.OutputFilePrefix = ''
+	.OutputFileSuffix = ''
+	.CompilerInputFiles = { }
+	.CompilerInputUnity = { }
+	.ConfigDependentCompilerOptions = { }
+]
+
+.LibraryCommon = 
+[
+	Using(.ObjectListCommon)
+
+    .ProjectType = 'lib'
+	.OutputFilePrefix = .LibPrefix
+	.OutputFileSuffix = .LibSuffix
+]
+
+.DllCommon = 
+[
+	Using(.ProjectCommon)
+
+    .ProjectType = 'dll'
+    .PreBuildDependencies = { }
+	.DependencyObjectLists = { }
+	.DependencyLibraries = { }
+	.Libraries = { }
+	.OutputFilePrefix = .DllPrefix
+	.OutputFileSuffix = .DllSuffix
+]
+
+.ExecutableCommon = 
+[
+	Using(.ProjectCommon)
+
+    .ProjectType = 'exe'
+    .PreBuildDependencies = { }
+	.DependencyObjectLists = { }
+	.DependencyLibraries = { }
+	.DependencyDLLs = { }
+	.Libraries = { }
+	.OutputFilePrefix = ''
+	.OutputFileSuffix = .ExeSuffix
+]
+
+.TestCommon = 
+[
+	Using(.ProjectCommon)
+
+    .ProjectType = 'test'
+    .PreBuildDependencies = { }
+    .DependencyExecutables = { }
+]
+
+.TaskCommon = 
+[
+	Using(.ProjectCommon)
+    
+    .ProjectType = 'task'
+    .PreBuildDependencies = { }
+	.DependencyExecutables = { }
+	.ExecOutput = ''
+]
+
+.GlobalContext =
+[
+    .Targets = { }
+    .ReturnValues = { }
+]
+
+function PrintArray(.ArrayName .Array)
+{
+    ForEach(.Object in .Array)
+	{
+        Print('$ArrayName$:$Object$')
+    }
+}
+
+function AddUnities(.UnityObject)
+{
+    Using(.UnityObject)
+
+    ^ReturnValues = { }
+        
+    ForEach (.Unity in .CompilerInputUnity)
+    {
+        If(.Unity not in .Targets)
+	    {
+            Print('AddUnities:$Unity$')
+            Unity('$Unity$') {}
+            ^Targets + .Unity
+        }
+
+        ^ReturnValues + '$Unity$'
+    }
+}
+
+function AddObjectList(.ObjectList .CompilerConfig)
+{
+    .LocalObjectList = 
+    [
+        Using(.ObjectList)
+        Using(.CompilerConfig)
+
+        .ObjectListName = '$Name$-obj-$ConfigName$'
+
+        ForEach(.Task in .DependencyTasks)
+        {
+            ^ReturnValues = { }
+            AddTask(.Task .CompilerConfig)
+            ^PreBuildDependencies + .ReturnValues
+        }
+
+        .CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
+            + .ObjectListCompilerOptions
+
+        ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
+        {
+            ^CompilerOptions + '$CompilerOption$$ConfigName$'
+        }
+
+        .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
+    ]
+
+	Using(.LocalObjectList)
+
+	If(.ObjectListName not in .Targets)
+	{
+        ^ReturnValues = { }
+        AddUnities(.LocalObjectList)
+
+		Print('AddObjectList:$ObjectListName$')
+        PrintArray('AddObjectList:PrebuildDependencies:' .PreBuildDependencies)
+		ObjectList('$ObjectListName$') {}
+        ^Targets + .ObjectListName
+	}
+
+    ^ReturnValues = { '$ObjectListName$' }
+}
+
+function AddLibrary(.Library .CompilerConfig)
+{
+    .LocalLibrary = 
+    [
+        Using(.Library)
+        Using(.CompilerConfig)
+
+        .LibraryName = '$Name$-lib-$ConfigName$'
+
+        ForEach(.Task in .DependencyTasks)
+        {
+            ^ReturnValues = { }
+            AddTask(.Task .CompilerConfig)
+            ^PreBuildDependencies + .ReturnValues
+        }
+
+        .CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
+            + .LibraryCompilerOptions
+
+        ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
+        {
+            ^CompilerOptions + '$CompilerOption$$ConfigName$'
+        }
+
+        .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
+
+        .LibrarianOutput = '$OutputDirectory$/$ConfigName$/$OutputFilePrefix$$Name$$OutputFileSuffix$'
+    ]
+
+	Using(.LocalLibrary)
+
+    If(.LibraryName not in .Targets)
+	{
+        ^ReturnValues = { }
+        AddUnities(.LocalLibrary)
+
+        Print('AddLibrary:$LibraryName$')
+        PrintArray('AddLibrary:PrebuildDependencies:' .PreBuildDependencies)
+		Library('$LibraryName$') {}
+        ^Targets + .LibraryName
+	}
+
+    ^ReturnValues = { '$LibraryName$' }
+}
+
+function AddDLL(.DLL .CompilerConfig)
+{
+    .LocalDLL = 
+    [
+        Using(.DLL)
+        Using(.CompilerConfig)
+
+        .DLLName = '$Name$-dll-$ConfigName$'
+
+        .LinkerOptions + .DLLLinkerOptions
+        .LinkerOutput = '$OutputDirectory$/$ConfigName$/$OutputFilePrefix$$Name$$OutputFileSuffix$'
+    ]
+
+	Using(.LocalDLL)
+
+    If(.DLLName not in .Targets)
+	{
+		ForEach(.ObjectList in .DependencyObjectLists)
+		{
+            ^ReturnValues = { }
+            AddObjectList(.ObjectList .CompilerConfig)
+            ^Libraries + .ReturnValues
+        }
+
+		ForEach(.Library in .DependencyLibraries)
+		{
+            ^ReturnValues = { }
+            AddLibrary(.Library .CompilerConfig)
+            ^Libraries + .ReturnValues
+        }
+
+		Print('AddDLL:$DLLName$')
+        PrintArray('AddDLL:Libraries:' .Libraries)
+        PrintArray('AddDLL:PrebuildDependencies:' .PreBuildDependencies)
+		DLL('$DLLName$') {}
+        ^Targets + .DLLName
+	}
+
+    ^ReturnValues = { '$DLLName$' }
+}
+
+function AddExecutable(.Executable .CompilerConfig)
+{
+    .LocalExecutable = 
+    [
+        Using(.Executable)
+        Using(.CompilerConfig)
+
+        .ExecutableName = '$Name$-exe-$ConfigName$'
+
+        .LinkerOptions + .ExecutableLinkerOptions
+        .LinkerOutput = '$BuildOutputPath$/$ConfigName$/$Name$$OutputFileSuffix$'
+    ]
+
+	Using(.LocalExecutable)
+
+    If(.ExecutableName not in .Targets)
+	{
+		ForEach(.ObjectList in .DependencyObjectLists)
+		{
+            ^ReturnValues = { }
+            AddObjectList(.ObjectList .CompilerConfig)
+            ^Libraries + .ReturnValues
+		}
+
+		ForEach(.Library in .DependencyLibraries)
+		{
+            ^ReturnValues = { }
+            AddLibrary(.Library .CompilerConfig)
+            ^Libraries + .ReturnValues
+		}
+
+		ForEach(.DLL in .DependencyDLLs)
+		{
+            ^ReturnValues = { }
+            AddDLL(.DLL .CompilerConfig)
+            ^Libraries + .ReturnValues
+		}
+
+		Print('AddExecutable:$ExecutableName$')
+        PrintArray('AddExecutable:Libraries:' .Libraries)
+        PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
+		Executable('$ExecutableName$') {}
+        ^Targets + .ExecutableName
+	}
+
+    ^ReturnValues = { '$ExecutableName$' }
+}
+
+function AddTest(.Test .CompilerConfig)
+{
+    .LocalTest = 
+    [
+        Using(.Test)
+        Using(.CompilerConfig)
+
+        .TestName = '$Name$-test-$ConfigName$'
+        .TestExecutable = '$Name$-exe-$ConfigName$'
+        .TestWorkingDir = '$IntermediateDirectory$/$Name$/$ConfigName$'
+        .TestOutput = '$TestWorkingDir$$TestOutput$'
+    ]
+
+	Using(.LocalTest)
+
+    If(.TestName not in .Targets)
+	{
+        ForEach(.Executable in .DependencyExecutables)
+        {
+            ^ReturnValues = { }
+            AddExecutable(.Executable .CompilerConfig)
+        }
+        
+		Print('AddTest:$TestName$')
+        PrintArray('AddTest:PrebuildDependencies:' .PreBuildDependencies)
+	 	Test('$TestName$') {}
+        ^Targets + .TestName
+	}
+
+    ^ReturnValues = { '$TestName$' }
+}
+
+function AddTask(.Task .CompilerConfig)
+{
+    .LocalTask = 
+    [
+        Using(.Task)
+        Using(.CompilerConfig)
+
+        .TaskName = '$Name$-task-$ConfigName$'
+
+        .ExecExecutable = '$Name$-exe-$ConfigName$'
+        .ExecWorkingDir = '$IntermediateDirectory$/$Name$/$ConfigName$'
+        .ExecOutput = '$ExecWorkingDir$$ExecOutput$'
+    ]
+
+	Using(.LocalTask)
+
+    If(.TaskName not in .Targets)
+	{
+        ForEach(.Executable in .DependencyExecutables)
+        {
+            ^ReturnValues = { }
+            AddExecutable(.Executable .CompilerConfig)
+        }
+
+		Print('AddTask:$TaskName$')
+        PrintArray('AddTask:PrebuildDependencies:' .PreBuildDependencies)
+	 	Exec('$TaskName$') {}
+        ^Targets + .TaskName
+	}
+
+    ^ReturnValues = { '$TaskName$' }
+}
