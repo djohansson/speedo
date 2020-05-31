@@ -185,15 +185,15 @@ int __cdecl CrtReportHook(int nReportType, char* szMsg, int* pnRet)
 }
 #endif
 
-std::tuple<bool, char*> getCmdOption(char** begin, char** end, const char* option)
+const char* getCmdOption(const char*const* begin, const char*const* end, const char* option)
 {
-    char** it = std::find(begin, end, option);
-	char* next = nullptr;
-	bool exist = it != end;
-    if (exist && ++it != end)
-        next = *it;
+	while (begin != end)
+	{
+		if (strcmp(*begin++, option) == 0)
+			return *begin;
+	}
     
-    return std::make_tuple(exist, next);
+    return nullptr;
 }
 
 int main(int argc, char** argv)
@@ -243,8 +243,8 @@ int main(int argc, char** argv)
 		window,
 		g_window.width,
 		g_window.height,
-		std::get<1>(getCmdOption(argv, argv + argc, "-r")),
-		std::get<1>(getCmdOption(argv, argv + argc, "-u")));
+		getCmdOption(argv, argv + argc, R"(-r)"),
+		getCmdOption(argv, argv + argc, R"(-u)"));
 
 	glfwSetWindowTitle(window, volcano_getAppName());
 
