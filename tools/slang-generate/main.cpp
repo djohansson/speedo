@@ -1,8 +1,12 @@
 // main.cpp
 
+#include <direct.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <string>
+
 #include "../../source/core/slang-secure-crt.h"
 
 #include "../../source/core/slang-list.h"
@@ -671,7 +675,7 @@ void emitTemplateNodes(
 
 void usage(char const* appName)
 {
-    fprintf(stderr, "usage: %s <input>\n", appName);
+    fprintf(stderr, "usage: %s [-o <outputDir>] <input> \n", appName);
 }
 
 SlangResult readAllText(char const * fileName, String& stringOut)
@@ -797,6 +801,17 @@ SourceFile* parseSourceFile(char const* path)
     return sourceFile;
 }
 
+const char* getCmdOption(const char*const* begin, const char*const* end, const char* option)
+{
+	while (begin != end)
+	{
+		if (strcmp(*begin++, option) == 0)
+			return *begin;
+	}
+    
+    return nullptr;
+}
+
 List<SourceFile*> gSourceFiles;
 
 int main(
@@ -806,6 +821,7 @@ int main(
     // Parse command-line arguments.
     List<const char*> inputPaths;
     char const* appName = "slang-generate";
+    const char* outputDir = nullptr;
 
     {
         const char*const* argCursor = argv;
@@ -815,6 +831,12 @@ int main(
         {
             appName = *argCursor++;
         }
+
+        if ((outputDir = getCmdOption(argCursor, argCursor + 2, "-o")))
+        {
+            argCursor += 2;
+        }
+        
         // Copy the input paths
         for (; argCursor != argEnd; ++argCursor)
         {
@@ -846,9 +868,20 @@ int main(
         auto inputPath = sourceFile->inputPath;
         auto node = sourceFile->node;
 
+        std::string inputPathStr = std::string(inputPath);
+        std::size_t lastSlash = inputPathStr.find_last_of("/\\");
+        std::string inputFileStr = inputPathStr.substr(lastSlash + 1);
+        std::string outputDirStr = std::string(outputDir);
+        if (outputDirStr.find_last_of("/\\") != (outputDirStr.size() - 1))
+            outputDirStr.append("\\");
+
+        _mkdir(outputDirStr.c_str());
+
+        auto outputPathStr = (outputDir ? outputDirStr.append(inputFileStr).c_str() : inputPath);
+        
         // write output to a temporary file first
         StringBuilder outputPath;
-        outputPath << inputPath << ".temp.h";
+        outputPath << outputPathStr << ".temp.h";
 
         FILE* outputStream;
         fopen_s(&outputStream, outputPath.getBuffer(), "w");
@@ -859,7 +892,7 @@ int main(
 
         // update final output only when content has changed
         StringBuilder outputPathFinal;
-        outputPathFinal << inputPath << ".h";
+        outputPathFinal << outputPathStr << ".h";
 
         String allTextOld, allTextNew;
         readAllText(outputPathFinal.getBuffer(), allTextOld);
