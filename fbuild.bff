@@ -332,20 +332,24 @@
 		.CompilerInputPath = '$BuildRootPath$/external/glslang/OGLCompilersDLL'
 	]
 
-	// right now the glslang unity has problems.
-	// - it likely links the wrong symbols during parsing of builtins somehow. and perhaps more.
-	// .GlslangGlslangUnity = 
-	// [
-	// 	.UnityInputPath = '$BuildRootPath$/external/glslang/glslang'
-	// 	.UnityInputPattern = "*.cpp"
-	// 	.UnityInputExcludePath = '$BuildRootPath$/external/glslang/glslang/OSDependent'
-	// 	.UnityOutputPath = '$IntermediateFilePath$/external/glslang/glslang'
-	// 	.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
-	// ]
+	.GlslangGlslangUnity = 
+	[
+		.UnityInputPath = {
+			'$BuildRootPath$/external/glslang/glslang/GenericCodeGen',
+			'$BuildRootPath$/external/glslang/glslang/MachineIndependent',
+			'$BuildRootPath$/external/glslang/glslang/OGLCompilersDLL',
+		}
+		.UnityInputPattern = "*.cpp"
+		.UnityInputExcludedFiles = {
+			'$BuildRootPath$/external/glslang/glslang/MachineIndependent/glslang_tab.cpp'
+		}
+		.UnityOutputPath = '$IntermediateFilePath$/external/glslang/glslang'
+		.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
+	]
 	.GlslangGlslangObjectList =
 	[
 		Using(.ObjectListCommon)
-		//Using(.GlslangGlslangUnity)
+		Using(.GlslangGlslangUnity)
 
 		.Name = 'glslang-glslang'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
@@ -355,12 +359,12 @@
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
 				+ ' -DNV_EXTENSIONS'
-		//.CompilerInputUnity = '$Name$-unity'
+		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputPath = {
-			'$BuildRootPath$/external/glslang/glslang/GenericCodeGen',
-			'$BuildRootPath$/external/glslang/glslang/MachineIndependent',
 			'$BuildRootPath$/external/glslang/glslang/OSDependent',
-			'$BuildRootPath$/external/glslang/glslang/OGLCompilersDLL',
+		}
+		.CompilerInputFiles = {
+			'$BuildRootPath$/external/glslang/glslang/MachineIndependent/glslang_tab.cpp'
 		}
 	#if !__WINDOWS__
 	 	.CompilerInputExcludePath = '$BuildRootPath$/external/glslang/glslang/OSDependent/Windows'
