@@ -2,7 +2,11 @@
 #include "slang-compiler.h"
 
 // This file implements support for invoking the `dxcompiler`
-// library to translate HLSL to DXIL.
+// library to translate HLSL to DXIL or SPIRV.
+
+#if !defined(SLANG_ENABLE_DXC_SUPPORT)
+#  define SLANG_ENABLE_DXC_SUPPORT 1
+#endif
 
 #if defined(_WIN32)
 #  if !defined(SLANG_ENABLE_DXIL_SUPPORT)
@@ -45,17 +49,8 @@ namespace Slang
         return UnownedStringSlice();
     }
 
-    SlangResult emitDXILForEntryPointUsingDXC(
-        BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq,
-        List<uint8_t>&          outCode)
+    SlangResult createDXCInstance(Slang::Session* session, Slang::DiagnosticSink* sink, ComPtr<IDxcCompiler>& dxcCompiler, ComPtr<IDxcLibrary>& dxcLibrary)
     {
-        auto session = compileRequest->getSession();
-        auto sink = compileRequest->getSink();
-
         // First deal with all the rigamarole of loading
         // the `dxcompiler` library, and creating the
         // top-level COM objects that will be used to
@@ -67,28 +62,38 @@ namespace Slang
             return SLANG_FAIL;
         }
 
-        ComPtr<IDxcCompiler> dxcCompiler;
         SLANG_RETURN_ON_FAIL(dxcCreateInstance(
             CLSID_DxcCompiler,
             __uuidof(dxcCompiler),
             (LPVOID*)dxcCompiler.writeRef()));
 
-        ComPtr<IDxcLibrary> dxcLibrary;
         SLANG_RETURN_ON_FAIL(dxcCreateInstance(
             CLSID_DxcLibrary,
             __uuidof(dxcLibrary),
             (LPVOID*)dxcLibrary.writeRef()));
 
-        // Now let's go ahead and generate HLSL for the entry
-        // point, since we'll need that to feed into dxc.
-        SourceResult source;
-        SLANG_RETURN_ON_FAIL(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, CodeGenTarget::HLSL, endToEndReq, source));
+        return SLANG_OK;
+    }
 
-        const auto& hlslCode = source.source;
+    SlangResult compileUsingDXC(
+        IDxcCompiler*   dxcCompiler,
+        IDxcLibrary*    dxcLibrary,
+        DiagnosticSink* sink,
+        EntryPoint*     entryPoint,
+        Profile&        profile,
+        const String&   hlslCode,
+        const wchar_t*  sourceName,
+        LPCWSTR*        args,
+        UINT32          argCount,
+        List<uint8_t>&  outCode)
+    {
+        ComPtr<IDxcOperationResult> dxcResult;
 
-        maybeDumpIntermediate(compileRequest, hlslCode.getBuffer(), CodeGenTarget::HLSL);
+        String entryPointName = getText(entryPoint->getName());
+        String profileName = GetHLSLProfileName(profile);
 
-        // Wrap the 
+        OSString wideEntryPointName = entryPointName.toWString();
+        OSString wideProfileName = profileName.toWString();
 
         // Create blob from the string
         ComPtr<IDxcBlobEncoding> dxcSourceBlob;
@@ -98,103 +103,8 @@ namespace Slang
             0,
             dxcSourceBlob.writeRef()));
 
-        WCHAR const* args[16];
-        UINT32 argCount = 0;
-
-        // TODO: deal with
-        bool treatWarningsAsErrors = false;
-        if (treatWarningsAsErrors)
-        {
-            args[argCount++] = L"-WX";
-        }
-
-        switch( targetReq->getDefaultMatrixLayoutMode() )
-        {
-        default:
-            break;
-
-        case kMatrixLayoutMode_RowMajor:
-            args[argCount++] = L"-Zpr";
-            break;
-        }
-
-        switch( targetReq->getFloatingPointMode() )
-        {
-        default:
-            break;
-
-        case FloatingPointMode::Precise:
-            args[argCount++] = L"-Gis"; // "force IEEE strictness"
-            break;
-        }
-
-        auto linkage = compileRequest->getLinkage();
-        switch( linkage->optimizationLevel )
-        {
-        default:
-            break;
-
-        case OptimizationLevel::None:       args[argCount++] = L"-Od"; break;
-        case OptimizationLevel::Default:    args[argCount++] = L"-O1"; break;
-        case OptimizationLevel::High:       args[argCount++] = L"-O2"; break;
-        case OptimizationLevel::Maximal:    args[argCount++] = L"-O3"; break;
-        }
-
-        switch( linkage->debugInfoLevel )
-        {
-        case DebugInfoLevel::None:
-            break;
-
-        default:
-            args[argCount++] = L"-Zi";
-            break;
-        }
-
-        // Slang strives to produce correct code, and by default
-        // we do not show the user warnings produced by a downstream
-        // compiler. When the downstream compiler *does* produce an
-        // error, then we dump its entire diagnostic log, which can
-        // include many distracting spurious warnings that have nothing
-        // to do with the user's code, and just relate to the idiomatic
-        // way that Slang outputs HLSL.
-        //
-        // It would be nice to use fine-grained flags to disable specific
-        // warnings here, so that we keep ourselves honest (e.g., only
-        // use `-Wno-parentheses` to eliminate that class of false positives),
-        // but alas dxc doesn't support these options even though they
-        // work on mainline Clang. Thus the only option we have available
-        // is the big hammer of turning off *all* warnings coming from dxc.
-        //
-        args[argCount++] = L"-no-warnings";
-
-        String entryPointName = getText(entryPoint->getName());
-        OSString wideEntryPointName = entryPointName.toWString();
-
-        auto profile = getEffectiveProfile(entryPoint, targetReq);
-        String profileName = GetHLSLProfileName(profile);
-        OSString wideProfileName = profileName.toWString();
-
-        // We will enable the flag to generate proper code for 16-bit types
-        // by default, as long as the user is requesting a sufficiently
-        // high shader model.
-        //
-        // TODO: Need to check that this is safe to enable in all cases,
-        // or if it will make a shader demand hardware features that
-        // aren't always present.
-        //
-        // TODO: Ideally the dxc back-end should be passed some information
-        // on the "capabilities" that were used and/or requested in the code.
-        //
-        if( profile.GetVersion() >= ProfileVersion::DX_6_2 )
-        {
-            args[argCount++] = L"-enable-16bit-types";
-        }
-
-        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
-
-        ComPtr<IDxcOperationResult> dxcResult;
         SLANG_RETURN_ON_FAIL(dxcCompiler->Compile(dxcSourceBlob,
-            sourcePath.toWString().begin(),
+            sourceName,
             profile.GetStage() == Stage::Unknown ? L"" : wideEntryPointName.begin(),
             wideProfileName.begin(),
             args,
@@ -226,8 +136,9 @@ namespace Slang
             // into a string for safety.
             //
 
-            reportExternalCompileError("dxc", resultCode, _getSlice(dxcErrorBlob), compileRequest->getSink());
-            return resultCode;
+            reportExternalCompileError("dxc", resultCode, _getSlice(dxcErrorBlob), sink);
+            
+            return SLANG_FAIL;
         }
 
         // Okay, the compile supposedly succeeded, so we
@@ -239,7 +150,128 @@ namespace Slang
             (uint8_t const*)dxcResultBlob->GetBufferPointer(),
             (int)           dxcResultBlob->GetBufferSize());
 
-        return SLANG_OK;
+            return SLANG_OK;
+    }
+
+    void setupDefaultCommandlineUsingDXC(TargetRequest* targetReq, Linkage* linkage, Profile& profile, LPCWSTR* outArgs, UINT32& outArgCount)
+    {
+        // TODO: deal with
+        bool treatWarningsAsErrors = false;
+        if (treatWarningsAsErrors)
+        {
+            outArgs[outArgCount++] = L"-WX";
+        }
+
+        switch( targetReq->getDefaultMatrixLayoutMode() )
+        {
+        default:
+            break;
+
+        case kMatrixLayoutMode_RowMajor:
+            outArgs[outArgCount++] = L"-Zpr";
+            break;
+        }
+
+        switch( targetReq->getFloatingPointMode() )
+        {
+        default:
+            break;
+
+        case FloatingPointMode::Precise:
+            outArgs[outArgCount++] = L"-Gis"; // "force IEEE strictness"
+            break;
+        }
+
+        switch( linkage->optimizationLevel )
+        {
+        default:
+            break;
+
+        case OptimizationLevel::None:       outArgs[outArgCount++] = L"-Od"; break;
+        case OptimizationLevel::Default:    outArgs[outArgCount++] = L"-O1"; break;
+        case OptimizationLevel::High:       outArgs[outArgCount++] = L"-O2"; break;
+        case OptimizationLevel::Maximal:    outArgs[outArgCount++] = L"-O3"; break;
+        }
+
+        switch( linkage->debugInfoLevel )
+        {
+        case DebugInfoLevel::None:
+            break;
+
+        default:
+            outArgs[outArgCount++] = L"-Zi";
+            break;
+        }
+
+        // Slang strives to produce correct code, and by default
+        // we do not show the user warnings produced by a downstream
+        // compiler. When the downstream compiler *does* produce an
+        // error, then we dump its entire diagnostic log, which can
+        // include many distracting spurious warnings that have nothing
+        // to do with the user's code, and just relate to the idiomatic
+        // way that Slang outputs HLSL.
+        //
+        // It would be nice to use fine-grained flags to disable specific
+        // warnings here, so that we keep ourselves honest (e.g., only
+        // use `-Wno-parentheses` to eliminate that class of false positives),
+        // but alas dxc doesn't support these options even though they
+        // work on mainline Clang. Thus the only option we have available
+        // is the big hammer of turning off *all* warnings coming from dxc.
+        //
+        outArgs[outArgCount++] = L"-no-warnings";
+
+        // We will enable the flag to generate proper code for 16-bit types
+        // by default, as long as the user is requesting a sufficiently
+        // high shader model.
+        //
+        // TODO: Need to check that this is safe to enable in all cases,
+        // or if it will make a shader demand hardware features that
+        // aren't always present.
+        //
+        // TODO: Ideally the dxc back-end should be passed some information
+        // on the "capabilities" that were used and/or requested in the code.
+        //
+        if( profile.GetVersion() >= ProfileVersion::DX_6_2 )
+        {
+            outArgs[outArgCount++] = L"-enable-16bit-types";
+        }
+    }
+
+
+    SlangResult emitDXILForEntryPointUsingDXC(
+        BackEndCompileRequest*  compileRequest,
+        EntryPoint*             entryPoint,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq,
+        List<uint8_t>&          outCode)
+    {
+        auto session = compileRequest->getSession();
+        auto sink = compileRequest->getSink();
+        auto linkage = compileRequest->getLinkage();
+        auto profile = getEffectiveProfile(entryPoint, targetReq);
+
+        ComPtr<IDxcCompiler> dxcCompiler;
+        ComPtr<IDxcLibrary> dxcLibrary;
+        SLANG_RETURN_ON_FAIL(createDXCInstance(session, sink, dxcCompiler, dxcLibrary));
+
+        // Now let's go ahead and generate HLSL for the entry
+        // point, since we'll need that to feed into dxc.
+        SourceResult source;
+        SLANG_RETURN_ON_FAIL(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, CodeGenTarget::HLSL, endToEndReq, source));
+
+        const auto& hlslCode = source.source;
+
+        maybeDumpIntermediate(compileRequest, hlslCode.getBuffer(), CodeGenTarget::HLSL);
+
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
+        const wchar_t* sourceName = sourcePath.toWString().begin();
+
+        LPCWSTR args[16];
+        UINT32 argCount = 0;
+        setupDefaultCommandlineUsingDXC(targetReq, linkage, profile, args, argCount);
+
+        return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
     }
 
     SlangResult dissassembleDXILUsingDXC(
@@ -251,22 +283,76 @@ namespace Slang
         stringOut = String();
         auto session = compileRequest->getSession();
         auto sink = compileRequest->getSink();
+        
+        ComPtr<IDxcCompiler> dxcCompiler;
+        ComPtr<IDxcLibrary> dxcLibrary;
+        SLANG_RETURN_ON_FAIL(createDXCInstance(session, sink, dxcCompiler, dxcLibrary));
+        
+        // Create blob from the input data
+        ComPtr<IDxcBlobEncoding> dxcSourceBlob;
+        SLANG_RETURN_ON_FAIL(dxcLibrary->CreateBlobWithEncodingFromPinned((LPBYTE) data, (UINT32) size, 0, dxcSourceBlob.writeRef()));
 
-        // First deal with all the rigamarole of loading
-        // the `dxcompiler` library, and creating the
-        // top-level COM objects that will be used to
-        // compile things.
+        ComPtr<IDxcBlobEncoding> dxcResultBlob;
+        SLANG_RETURN_ON_FAIL(dxcCompiler->Disassemble(dxcSourceBlob, dxcResultBlob.writeRef()));
 
-        auto dxcCreateInstance = (DxcCreateInstanceProc)session->getSharedLibraryFunc(Session::SharedLibraryFuncType::Dxc_DxcCreateInstance, sink);
-        if (!dxcCreateInstance)
-        {
-            return SLANG_FAIL;
-        }
+        stringOut = _getSlice(dxcResultBlob);
+        
+        return SLANG_OK;
+    }
+
+    SlangResult emitSPIRVForEntryPointUsingDXC(
+        BackEndCompileRequest*  compileRequest,
+        EntryPoint*             entryPoint,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq,
+        List<uint8_t>&          outCode)
+    {
+        auto session = compileRequest->getSession();
+        auto sink = compileRequest->getSink();
+        auto linkage = compileRequest->getLinkage();
+        auto profile = getEffectiveProfile(entryPoint, targetReq);
 
         ComPtr<IDxcCompiler> dxcCompiler;
-        SLANG_RETURN_ON_FAIL(dxcCreateInstance(CLSID_DxcCompiler, __uuidof(dxcCompiler), (LPVOID*) dxcCompiler.writeRef()));
         ComPtr<IDxcLibrary> dxcLibrary;
-        SLANG_RETURN_ON_FAIL(dxcCreateInstance(CLSID_DxcLibrary, __uuidof(dxcLibrary), (LPVOID*) dxcLibrary.writeRef()));
+        SLANG_RETURN_ON_FAIL(createDXCInstance(session, sink, dxcCompiler, dxcLibrary));
+
+        // Now let's go ahead and generate HLSL for the entry
+        // point, since we'll need that to feed into dxc.
+        SourceResult source;
+        SLANG_RETURN_ON_FAIL(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, CodeGenTarget::HLSL, endToEndReq, source));
+
+        const auto& hlslCode = source.source;
+
+        maybeDumpIntermediate(compileRequest, hlslCode.getBuffer(), CodeGenTarget::HLSL);
+
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
+        const wchar_t* sourceName = sourcePath.toWString().begin();
+
+        LPCWSTR args[16];
+        UINT32 argCount = 0;
+        setupDefaultCommandlineUsingDXC(targetReq, linkage, profile, args, argCount);
+
+        args[argCount++] = L"-spirv";
+        args[argCount++] = L"-fspv-target-env=vulkan1.1";
+        args[argCount++] = L"-fvk-use-scalar-layout";
+
+        return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
+    }
+
+    SlangResult dissassembleSPIRVUsingDXC(
+        BackEndCompileRequest*  compileRequest,
+        void const*             data,
+        size_t                  size,
+        String&                 stringOut)
+    {
+        stringOut = String();
+        auto session = compileRequest->getSession();
+        auto sink = compileRequest->getSink();
+        
+        ComPtr<IDxcCompiler> dxcCompiler;
+        ComPtr<IDxcLibrary> dxcLibrary;
+        SLANG_RETURN_ON_FAIL(createDXCInstance(session, sink, dxcCompiler, dxcLibrary));
         
         // Create blob from the input data
         ComPtr<IDxcBlobEncoding> dxcSourceBlob;

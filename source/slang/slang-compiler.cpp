@@ -26,6 +26,12 @@
 
 #include "slang-ir-serialize.h"
 
+// Enable calling through to `dxc` on
+// all platforms.
+#ifndef SLANG_ENABLE_DXC_SUPPORT
+    #define SLANG_ENABLE_DXC_SUPPORT 1
+#endif
+
 // Enable calling through to `fxc` or `dxc` to
 // generate code on Windows.
 #ifdef _WIN32
@@ -1083,6 +1089,20 @@ SlangResult dissassembleDXILUsingDXC(
     size_t                  size, 
     String&                 stringOut);
 
+SlangResult emitSPIRVForEntryPointUsingDXC(
+    BackEndCompileRequest*  compileRequest,
+    EntryPoint*             entryPoint,
+    Int                     entryPointIndex,
+    TargetRequest*          targetReq,
+    EndToEndCompileRequest* endToEndReq,
+    List<uint8_t>&          outCode);
+
+SlangResult dissassembleSPIRVUsingDXC(
+    BackEndCompileRequest*  compileRequest,
+    void const*             data,
+    size_t                  size, 
+    String&                 stringOut);
+
 #endif
 
 #if SLANG_ENABLE_GLSLANG_SUPPORT
@@ -1139,7 +1159,7 @@ SlangResult dissassembleDXILUsingDXC(
         return SLANG_OK;
     }
 
-    SlangResult dissassembleSPIRV(
+    SlangResult dissassembleSPIRVUsingGLSL(
         BackEndCompileRequest*  slangRequest,
         void const*             data,
         size_t                  size, 
@@ -1173,6 +1193,60 @@ SlangResult dissassembleDXILUsingDXC(
         stringOut = output;
         return SLANG_OK;
     }
+
+    SlangResult emitSPIRVForEntryPointViaGLSL(
+        BackEndCompileRequest*  slangRequest,
+        EntryPoint*             entryPoint,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq,
+        List<uint8_t>&          spirvOut)
+    {
+        spirvOut.clear();
+
+        SourceResult source;
+
+        SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, CodeGenTarget::GLSL, endToEndReq, source));
+
+        const auto& rawGLSL = source.source;
+
+        maybeDumpIntermediate(slangRequest, rawGLSL.getBuffer(), CodeGenTarget::GLSL);
+
+        auto outputFunc = [](void const* data, size_t size, void* userData)
+        {
+            ((List<uint8_t>*)userData)->addRange((uint8_t*)data, size);
+        };
+
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
+
+        glslang_CompileRequest_1_1 request;
+        memset(&request, 0, sizeof(request));
+        request.sizeInBytes = sizeof(request);
+
+        request.action = GLSLANG_ACTION_COMPILE_GLSL_TO_SPIRV;
+        request.sourcePath = sourcePath.getBuffer();
+        request.slangStage = (SlangStage)entryPoint->getStage();
+
+        request.inputBegin  = rawGLSL.begin();
+        request.inputEnd    = rawGLSL.end();
+
+        if (GLSLExtensionTracker* tracker = as<GLSLExtensionTracker>(source.extensionTracker.Ptr()))
+        {
+            request.spirvTargetName = nullptr;
+            auto spirvLanguageVersion = tracker->getSPIRVVersion();
+
+            request.spirvVersion.major = spirvLanguageVersion.m_major;
+            request.spirvVersion.minor = spirvLanguageVersion.m_minor;
+            request.spirvVersion.patch = spirvLanguageVersion.m_patch;
+        }
+
+        request.outputFunc = outputFunc;
+        request.outputUserData = &spirvOut;
+
+        SLANG_RETURN_ON_FAIL(invokeGLSLCompiler(slangRequest, request));
+        return SLANG_OK;
+    }
+#endif
 
     SlangResult emitWithDownstreamForEntryPoint(
         BackEndCompileRequest*  slangRequest,
@@ -1539,59 +1613,6 @@ SlangResult dissassembleDXILUsingDXC(
         TargetRequest*          targetReq,
         List<uint8_t>&          spirvOut);
 
-    SlangResult emitSPIRVForEntryPointViaGLSL(
-        BackEndCompileRequest*  slangRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq,
-        List<uint8_t>&          spirvOut)
-    {
-        spirvOut.clear();
-
-        SourceResult source;
-
-        SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, CodeGenTarget::GLSL, endToEndReq, source));
-
-        const auto& rawGLSL = source.source;
-
-        maybeDumpIntermediate(slangRequest, rawGLSL.getBuffer(), CodeGenTarget::GLSL);
-
-        auto outputFunc = [](void const* data, size_t size, void* userData)
-        {
-            ((List<uint8_t>*)userData)->addRange((uint8_t*)data, size);
-        };
-
-        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
-
-        glslang_CompileRequest_1_1 request;
-        memset(&request, 0, sizeof(request));
-        request.sizeInBytes = sizeof(request);
-
-        request.action = GLSLANG_ACTION_COMPILE_GLSL_TO_SPIRV;
-        request.sourcePath = sourcePath.getBuffer();
-        request.slangStage = (SlangStage)entryPoint->getStage();
-
-        request.inputBegin  = rawGLSL.begin();
-        request.inputEnd    = rawGLSL.end();
-
-        if (GLSLExtensionTracker* tracker = as<GLSLExtensionTracker>(source.extensionTracker.Ptr()))
-        {
-            request.spirvTargetName = nullptr;
-            auto spirvLanguageVersion = tracker->getSPIRVVersion();
-
-            request.spirvVersion.major = spirvLanguageVersion.m_major;
-            request.spirvVersion.minor = spirvLanguageVersion.m_minor;
-            request.spirvVersion.patch = spirvLanguageVersion.m_patch;
-        }
-
-        request.outputFunc = outputFunc;
-        request.outputUserData = &spirvOut;
-
-        SLANG_RETURN_ON_FAIL(invokeGLSLCompiler(slangRequest, request));
-        return SLANG_OK;
-    }
-
     SlangResult emitSPIRVForEntryPoint(
         BackEndCompileRequest*  slangRequest,
         EntryPoint*             entryPoint,
@@ -1608,9 +1629,10 @@ SlangResult dissassembleDXILUsingDXC(
                 targetReq,
                 spirvOut);
         }
-        else
+#if SLANG_ENABLE_DXIL_SUPPORT
+        if (slangRequest->shouldUseDXC)
         {
-            return emitSPIRVForEntryPointViaGLSL(
+            return emitSPIRVForEntryPointUsingDXC(
                 slangRequest,
                 entryPoint,
                 entryPointIndex,
@@ -1618,6 +1640,33 @@ SlangResult dissassembleDXILUsingDXC(
                 endToEndReq,
                 spirvOut);
         }
+#endif
+#if SLANG_ENABLE_GLSLANG_SUPPORT
+        return emitSPIRVForEntryPointViaGLSL(
+            slangRequest,
+            entryPoint,
+            entryPointIndex,
+            targetReq,
+            endToEndReq,
+            spirvOut);
+#endif
+    }
+
+    SlangResult dissassembleSPIRV(
+        BackEndCompileRequest*  slangRequest,
+        void const*             data,
+        size_t                  size, 
+        String&                 stringOut)
+    {
+#if SLANG_ENABLE_DXIL_SUPPORT
+        if (false && slangRequest->shouldUseDXC) // todo: investigate crash in Disassemble
+        {
+            return dissassembleSPIRVUsingDXC(slangRequest, data, size, stringOut);
+        }
+#endif
+#if SLANG_ENABLE_GLSLANG_SUPPORT
+        return dissassembleSPIRVUsingGLSL(slangRequest, data, size, stringOut);
+#endif
     }
 
     SlangResult emitSPIRVAssemblyForEntryPoint(
@@ -1642,7 +1691,6 @@ SlangResult dissassembleDXILUsingDXC(
 
         return dissassembleSPIRV(slangRequest, spirv.begin(), spirv.getCount(), assemblyOut);
     }
-#endif
 
     // Do emit logic for a single entry point
     CompileResult emitEntryPoint(

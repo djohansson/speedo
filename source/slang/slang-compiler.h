@@ -1737,6 +1737,8 @@ namespace Slang
             /// Should SPIR-V be generated directly from Slang IR rather than via translation to GLSL?
         bool shouldEmitSPIRVDirectly = false;
 
+        bool shouldUseDXC = false;
+
         String m_dumpIntermediatePrefix;
 
     private:

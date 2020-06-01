@@ -406,19 +406,17 @@ Profile getEffectiveProfile(EntryPoint* entryPoint, TargetRequest* target)
     switch(target->target)
     {
     default:
+    case CodeGenTarget::SPIRV:
+    case CodeGenTarget::SPIRVAssembly:
         break;
-
     case CodeGenTarget::GLSL:
     case CodeGenTarget::GLSL_Vulkan:
     case CodeGenTarget::GLSL_Vulkan_OneDesc:
-    case CodeGenTarget::SPIRV:
-    case CodeGenTarget::SPIRVAssembly:
         if(targetProfile.getFamily() != ProfileFamily::GLSL)
         {
             targetProfile.setVersion(ProfileVersion::GLSL_110);
         }
         break;
-
     case CodeGenTarget::HLSL:
     case CodeGenTarget::DXBytecode:
     case CodeGenTarget::DXBytecodeAssembly:

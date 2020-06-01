@@ -105,6 +105,7 @@ void HLSLSourceEmitter::_emitHLSLRegisterSemantic(LayoutResourceKind kind, EmitV
                 case LayoutResourceKind::ConstantBuffer:
                     m_writer->emit("b");
                     break;
+                case LayoutResourceKind::DescriptorTableSlot:
                 case LayoutResourceKind::ShaderResource:
                     m_writer->emit("t");
                     break;
