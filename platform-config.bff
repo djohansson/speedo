@@ -16,7 +16,7 @@
 #import WINDOWS_SDK_VERSION
 .WindowsSDKVersion = '$WINDOWS_SDK_VERSION$'
 #else
-.WindowsSDKVersion = '10.0.18362.0'
+.WindowsSDKVersion = '10.0.19041.0'
 #endif
 .WindowsLibPath = '$WindowsSDKBasePath$\Lib\$WindowsSDKVersion$\um\x86'
 .WindowsIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\um'
