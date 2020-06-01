@@ -111,8 +111,8 @@ public:
 
     // Ctor
     ScopeRefObjectBlob(ISlangBlob* blob, RefObject* scope) :
-        m_blob(blob),
-        m_scope(scope)
+        m_scope(scope),
+        m_blob(blob)
     {
     }
 

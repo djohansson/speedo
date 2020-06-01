@@ -97,7 +97,7 @@ namespace Slang
 
     public:
         List()
-            : m_buffer(nullptr), m_count(0), m_capacity(0)
+            : m_buffer(nullptr), m_capacity(0), m_count(0)
         {
         }
         template<typename... Args>
@@ -106,12 +106,12 @@ namespace Slang
             _init(val, args...);
         }
         List(const List<T>& list)
-            : m_buffer(nullptr), m_count(0), m_capacity(0)
+            : m_buffer(nullptr), m_capacity(0), m_count(0)
         {
             this->operator=(list);
         }
         List(List<T>&& list)
-            : m_buffer(nullptr), m_count(0), m_capacity(0)
+            : m_buffer(nullptr), m_capacity(0), m_count(0)
         {
             this->operator=(static_cast<List<T>&&>(list));
         }
