@@ -182,17 +182,6 @@ namespace Slang
             break;
         }
 
-        switch( linkage->optimizationLevel )
-        {
-        default:
-            break;
-
-        case OptimizationLevel::None:       outArgs[outArgCount++] = L"-Od"; break;
-        case OptimizationLevel::Default:    outArgs[outArgCount++] = L"-O1"; break;
-        case OptimizationLevel::High:       outArgs[outArgCount++] = L"-O2"; break;
-        case OptimizationLevel::Maximal:    outArgs[outArgCount++] = L"-O3"; break;
-        }
-
         switch( linkage->debugInfoLevel )
         {
         case DebugInfoLevel::None:
@@ -271,6 +260,17 @@ namespace Slang
         UINT32 argCount = 0;
         setupDefaultCommandlineUsingDXC(targetReq, linkage, profile, args, argCount);
 
+        switch( linkage->optimizationLevel )
+        {
+        default:
+            break;
+
+        case OptimizationLevel::None:       args[argCount++] = L"-Od"; break;
+        case OptimizationLevel::Default:    args[argCount++] = L"-O1"; break;
+        case OptimizationLevel::High:       args[argCount++] = L"-O2"; break;
+        case OptimizationLevel::Maximal:    args[argCount++] = L"-O3"; break;
+        }
+
         return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
     }
 
@@ -335,35 +335,22 @@ namespace Slang
 
         args[argCount++] = L"-spirv";
         args[argCount++] = L"-fspv-target-env=vulkan1.1";
-        args[argCount++] = L"-fvk-use-scalar-layout";
+
+        switch (linkage->optimizationLevel)
+        {
+        case OptimizationLevel::None:
+        default:
+            break;
+        case OptimizationLevel::Default:
+        case OptimizationLevel::High:
+        case OptimizationLevel::Maximal:
+            args[argCount++] = L"(-Oconfig=-O,--loop-unroll)";
+        }
+        
+        if (targetReq->targetFlags & SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT)
+            args[argCount++] = L"-fvk-use-scalar-layout";
 
         return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
-    }
-
-    SlangResult dissassembleSPIRVUsingDXC(
-        BackEndCompileRequest*  compileRequest,
-        void const*             data,
-        size_t                  size,
-        String&                 stringOut)
-    {
-        stringOut = String();
-        auto session = compileRequest->getSession();
-        auto sink = compileRequest->getSink();
-        
-        ComPtr<IDxcCompiler> dxcCompiler;
-        ComPtr<IDxcLibrary> dxcLibrary;
-        SLANG_RETURN_ON_FAIL(createDXCInstance(session, sink, dxcCompiler, dxcLibrary));
-        
-        // Create blob from the input data
-        ComPtr<IDxcBlobEncoding> dxcSourceBlob;
-        SLANG_RETURN_ON_FAIL(dxcLibrary->CreateBlobWithEncodingFromPinned((LPBYTE) data, (UINT32) size, 0, dxcSourceBlob.writeRef()));
-
-        ComPtr<IDxcBlobEncoding> dxcResultBlob;
-        SLANG_RETURN_ON_FAIL(dxcCompiler->Disassemble(dxcSourceBlob, dxcResultBlob.writeRef()));
-
-        stringOut = _getSlice(dxcResultBlob);
-        
-        return SLANG_OK;
     }
 
 

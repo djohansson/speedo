@@ -1097,12 +1097,6 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
     EndToEndCompileRequest* endToEndReq,
     List<uint8_t>&          outCode);
 
-SlangResult dissassembleSPIRVUsingDXC(
-    BackEndCompileRequest*  compileRequest,
-    void const*             data,
-    size_t                  size, 
-    String&                 stringOut);
-
 #endif
 
 #if SLANG_ENABLE_GLSLANG_SUPPORT
@@ -1658,14 +1652,10 @@ SlangResult dissassembleSPIRVUsingDXC(
         size_t                  size, 
         String&                 stringOut)
     {
-#if SLANG_ENABLE_DXIL_SUPPORT
-        if (false && slangRequest->shouldUseDXC) // todo: investigate crash in Disassemble
-        {
-            return dissassembleSPIRVUsingDXC(slangRequest, data, size, stringOut);
-        }
-#endif
 #if SLANG_ENABLE_GLSLANG_SUPPORT
         return dissassembleSPIRVUsingGLSL(slangRequest, data, size, stringOut);
+#else
+        return SLANG_FAIL;
 #endif
     }
 

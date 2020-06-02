@@ -578,6 +578,9 @@ extern "C"
     typedef unsigned int SlangTargetFlags;
     enum
     {
+        /* Use scalar memory layout for Vulkan resources. dxc.exe -fvk-use-scalar-layout */
+        SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT = 1 << 0,
+
         /* When compiling for a D3D Shader Model 5.1 or higher target, allocate
            distinct register spaces for parameter blocks.
 
