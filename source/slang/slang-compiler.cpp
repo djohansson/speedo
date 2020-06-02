@@ -1624,8 +1624,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
                 spirvOut);
         }
 #if SLANG_ENABLE_DXIL_SUPPORT
-        if (slangRequest->shouldUseDXC)
-        {
+        if (targetReq->targetProfile.getFamily() == ProfileFamily::DX)
             return emitSPIRVForEntryPointUsingDXC(
                 slangRequest,
                 entryPoint,
@@ -1633,7 +1632,6 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
                 targetReq,
                 endToEndReq,
                 spirvOut);
-        }
 #endif
 #if SLANG_ENABLE_GLSLANG_SUPPORT
         return emitSPIRVForEntryPointViaGLSL(
