@@ -462,10 +462,21 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 
 		case RendererType::Vulkan:
 			input.target = SLANG_SPIRV;
-            input.profile = "glsl_430";
-			nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
-            slangPassThrough = SLANG_PASS_THROUGH_GLSLANG;
+            
+            if (gOptions.useDxcSpirv)
+            {
+                input.profile = "sm_6_0";
+                nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
+                slangPassThrough = SLANG_PASS_THROUGH_DXC;
+            }
+            else
+            {
+                input.profile = "glsl_430";
+                nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
+                slangPassThrough = SLANG_PASS_THROUGH_GLSLANG;
+            }
 			break;
+
         case RendererType::CPU:
             input.target = SLANG_HOST_CALLABLE;
             input.profile = "";

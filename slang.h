@@ -581,6 +581,12 @@ extern "C"
         /* Use scalar memory layout for Vulkan resources. dxc.exe -fvk-use-scalar-layout */
         SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT = 1 << 0,
 
+        /* Use dx memory layout for Vulkan resources. dxc.exe -fvk-use-dx-layout */
+        SLANG_TARGET_FLAG_VK_USE_DX_LAYOUT = 1 << 1,
+
+        /* Use gl memory layout for Vulkan resources. dxc.exe -fvk-use-gl-layout */
+        SLANG_TARGET_FLAG_VK_USE_GL_LAYOUT = 1 << 2,
+
         /* When compiling for a D3D Shader Model 5.1 or higher target, allocate
            distinct register spaces for parameter blocks.
 

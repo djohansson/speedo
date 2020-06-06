@@ -260,6 +260,13 @@ namespace Slang
         UINT32 argCount = 0;
         setupDefaultCommandlineUsingDXC(targetReq, linkage, profile, args, argCount);
 
+        StringBuilder targetProfileOption;
+        targetProfileOption << "-T ";
+        targetProfileOption << targetReq->targetProfile.getName();
+        auto targetProfileOptionString = targetProfileOption.toWString();
+        
+        args[argCount++] = targetProfileOptionString.begin();
+
         switch( linkage->optimizationLevel )
         {
         default:
@@ -329,9 +336,16 @@ namespace Slang
         const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
         const wchar_t* sourceName = sourcePath.toWString().begin();
 
-        LPCWSTR args[16];
+        LPCWSTR args[32];
         UINT32 argCount = 0;
         setupDefaultCommandlineUsingDXC(targetReq, linkage, profile, args, argCount);
+
+        StringBuilder targetProfileOption;
+        targetProfileOption << "-T ";
+        targetProfileOption << targetReq->targetProfile.getName();
+        auto targetProfileOptionString = targetProfileOption.toWString();
+        
+        args[argCount++] = targetProfileOptionString.begin();
 
         args[argCount++] = L"-spirv";
         args[argCount++] = L"-fspv-target-env=vulkan1.1";
@@ -349,6 +363,10 @@ namespace Slang
         
         if (targetReq->targetFlags & SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT)
             args[argCount++] = L"-fvk-use-scalar-layout";
+        if (targetReq->targetFlags & SLANG_TARGET_FLAG_VK_USE_DX_LAYOUT)
+            args[argCount++] = L"-fvk-use-dx-layout";
+        if (targetReq->targetFlags & SLANG_TARGET_FLAG_VK_USE_GL_LAYOUT)
+            args[argCount++] = L"-fvk-use-gl-layout";
 
         return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
     }

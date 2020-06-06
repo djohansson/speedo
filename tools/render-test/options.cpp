@@ -160,6 +160,10 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
         {
             gOptions.useDXIL = true;
         }
+        else if( strcmp(arg, "-use-dxc-spirv") == 0 )
+        {
+            gOptions.useDxcSpirv = true;
+        }
         else if (strcmp(arg, "-only-startup") == 0)
         {
             gOptions.onlyStartup = true;

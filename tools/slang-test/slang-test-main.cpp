@@ -567,6 +567,7 @@ static SlangResult _extractRenderTestRequirements(const CommandLine& cmdLine, Te
     // and render-test will have to be kept in sync.
 
     bool useDxil = cmdLine.findArgIndex(UnownedStringSlice::fromLiteral("-use-dxil")) >= 0;
+    bool useDxcSpirv = cmdLine.findArgIndex(UnownedStringSlice::fromLiteral("-use-dxc-spirv")) >= 0;
 
     bool usePassthru = false;
 
@@ -645,9 +646,19 @@ static SlangResult _extractRenderTestRequirements(const CommandLine& cmdLine, Te
             break;
         case RenderApiType::Vulkan:
             target = SLANG_SPIRV;
-            nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
-            passThru = SLANG_PASS_THROUGH_GLSLANG;
+
+            if (useDxcSpirv)
+            {
+                nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
+                passThru = SLANG_PASS_THROUGH_DXC;
+            }
+            else
+            {
+                nativeLanguage = SLANG_SOURCE_LANGUAGE_GLSL;
+                passThru = SLANG_PASS_THROUGH_GLSLANG;
+            }
             break;
+            
         case RenderApiType::CPU:
             target = SLANG_HOST_CALLABLE;
             nativeLanguage = SLANG_SOURCE_LANGUAGE_CPP;
