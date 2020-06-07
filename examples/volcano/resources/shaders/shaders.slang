@@ -6,48 +6,59 @@ cbuffer g_view
 Texture2D g_texture;
 SamplerState g_sampler;
 
-struct AssembledVertex
+struct InputStream
 {
     float3 position : POSITION;
     float3 color : COLOR;
     float2 texCoord : TEXCOORD0;
 };
 
-struct CoarseVertex
+struct Interpolants
 {
     float3 color;
     float2 texCoord;
 };
 
-struct Fragment
+struct VSOutput
 {
-    float4 color;
+    Interpolants data : Interpolants;
+    float4 hPos : SV_Position;
 };
 
-struct VertexStageOutput
+VSOutput vertexMain(InputStream input)
 {
-    CoarseVertex coarseVertex : CoarseVertex;
-    float4 sv_position : SV_Position;
-};
+    VSOutput output;
 
-VertexStageOutput vertexMain(AssembledVertex assembledVertex)
-{
-    VertexStageOutput output;
+    float3 position = input.position;
+    float3 color = input.color;
+    float2 texCoord = input.texCoord;
 
-    float3 position = assembledVertex.position;
-    float3 color = assembledVertex.color;
-    float2 texCoord = assembledVertex.texCoord;
-
-    output.coarseVertex.color = color;
-    output.coarseVertex.texCoord = texCoord;
-    output.sv_position = mul(viewProj, float4(position, 1.0));
+    output.data.color = color;
+    output.data.texCoord = texCoord;
+    output.hPos = mul(viewProj, float4(position, 1.0));
 
     return output;
 }
 
-float4 fragmentMain(CoarseVertex coarseVertex : CoarseVertex) : SV_Target
+struct FSOutput
 {
-    float3 color = g_texture.Sample(g_sampler, coarseVertex.texCoord).rgb;
+    float4 color : SV_Target;
+};
 
-    return float4(color, 1.0);
+FSOutput fragmentMain(Interpolants input : Interpolants)
+{
+    FSOutput output;
+    
+    float3 color = g_texture.Sample(g_sampler, input.texCoord).rgb;
+
+    output.color = float4(color, 1.0);
+
+    return output;
+}
+
+RWStructuredBuffer<float4> colorTarget;
+
+[numthreads(1, 1, 1)]
+void computeMain(uint3 threadIds : SV_DispatchThreadID)
+{
 }

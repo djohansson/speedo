@@ -28,6 +28,9 @@ template <GraphicsBackend B>
 using Extent2d = std::conditional_t<B == GraphicsBackend::Vulkan, VkExtent2D, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using Extent3d = std::conditional_t<B == GraphicsBackend::Vulkan, VkExtent3D, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using ObjectType = std::conditional_t<B == GraphicsBackend::Vulkan, VkObjectType, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -82,6 +85,24 @@ template <GraphicsBackend B>
 using FramebufferHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkFramebuffer, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using AttachmentDescription = std::conditional_t<B == GraphicsBackend::Vulkan, VkAttachmentDescription, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using AttachmentReference = std::conditional_t<B == GraphicsBackend::Vulkan, VkAttachmentReference, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using SubpassDescription = std::conditional_t<B == GraphicsBackend::Vulkan, VkSubpassDescription, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using SubpassDependency = std::conditional_t<B == GraphicsBackend::Vulkan, VkSubpassDependency, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using AttachmentLoadOp = std::conditional_t<B == GraphicsBackend::Vulkan, VkAttachmentLoadOp, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using AttachmentStoreOp = std::conditional_t<B == GraphicsBackend::Vulkan, VkAttachmentStoreOp, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using DescriptorSetLayoutBinding =
 	std::conditional_t<B == GraphicsBackend::Vulkan, VkDescriptorSetLayoutBinding, std::nullptr_t>;
 
@@ -126,6 +147,9 @@ template <GraphicsBackend B>
 using RenderPassHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkRenderPass, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using SubpassContents = std::conditional_t<B == GraphicsBackend::Vulkan, VkSubpassContents, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using PipelineHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkPipeline, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -133,6 +157,9 @@ using PipelineCacheHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkP
 
 template <GraphicsBackend B>
 using SamplerHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSampler, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using SamplerCreateInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkSamplerCreateInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using VertexInputBindingDescription = std::conditional_t<
@@ -160,6 +187,9 @@ using SemaphoreHandle = std::conditional_t<B == GraphicsBackend::Vulkan, VkSemap
 
 template <GraphicsBackend B>
 using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ClearAttachment = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearAttachment, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using CommandBufferBeginInfo = std::conditional_t<B == GraphicsBackend::Vulkan, VkCommandBufferBeginInfo, std::nullptr_t>;

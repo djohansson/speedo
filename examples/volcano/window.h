@@ -19,6 +19,7 @@ template <GraphicsBackend B>
 struct WindowCreateDesc
 {
 	Extent2d<B> windowExtent = {};
+	Extent2d<B> framebufferExtent = {};
 	Extent2d<B> splitScreenGrid = {};
 	ClearValue<B> clearValue = {};
 	bool clearEnable = true;
@@ -49,15 +50,13 @@ public:
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
-	const auto& getRenderPass() const { return myRenderPass; }
 
 	void onResize(Extent2d<B> extent) { myDesc.windowExtent = extent; }
 
-	auto& depthTexture() { return *myDepthTexture; }
 	auto& frames() { return myFrames; }
 	auto& commandContexts() { return myCommandContexts; }
 
-	void createFrameObjects();
+	void createFrameObjects(Extent2d<B> frameBufferExtent);
 	void destroyFrameObjects();
 	
 	void updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex);
@@ -82,14 +81,11 @@ private:
 	std::shared_ptr<DeviceContext<B>> myDeviceContext; // todo: make window into a deviceresource
 	WindowCreateDesc<B> myDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
-	std::unique_ptr<Texture<B>> myDepthTexture;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<std::shared_ptr<Frame<B>>> myFrames;
 	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommandContexts;
 	std::vector<std::chrono::high_resolution_clock::time_point> myFrameTimestamps;
-	RenderPassHandle<B> myRenderPass = 0;
-	RenderPassHandle<B> myUIRenderPass = 0;
 	std::vector<std::function<void()>> myIMGUIDrawCallbacks;
 };

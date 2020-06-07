@@ -143,6 +143,18 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescripto
 	return outDescriptorSets;
 }
 
+VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32_t* codePtr)
+{
+	VkShaderModuleCreateInfo info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+	info.codeSize = codeSize;
+	info.pCode = codePtr;
+
+	VkShaderModule vkShaderModule;
+	VK_CHECK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
+
+	return vkShaderModule;
+};
+
 VkDescriptorSetLayout createDescriptorSetLayout(
 	VkDevice device, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount)
 {
@@ -424,6 +436,40 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
+		newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+	{
+		barrier.srcAccessMask = 
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL &&
+		newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+	{
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		barrier.dstAccessMask = 
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+		newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+	{
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	}
 	else
 	{
 		assert(false); // not implemented yet
@@ -537,7 +583,7 @@ VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, V
 	return outImageView;
 }
 
-VkSampler createTextureSampler(VkDevice device)
+VkSampler createSampler(VkDevice device)
 {
 	VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -579,6 +625,26 @@ VkFramebuffer createFramebuffer(
 	VK_CHECK(vkCreateFramebuffer(device, &info, nullptr, &outFramebuffer));
 
 	return outFramebuffer;
+}
+
+VkRenderPass createRenderPass(
+	VkDevice device,
+	const std::vector<VkAttachmentDescription>& attachments,
+	const std::vector<VkSubpassDescription>& subpasses,
+	const std::vector<VkSubpassDependency>& subpassDependencies)
+{
+    VkRenderPassCreateInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    renderPassInfo.pAttachments = attachments.data();
+    renderPassInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
+    renderPassInfo.pSubpasses = subpasses.data();
+    renderPassInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
+    renderPassInfo.pDependencies = subpassDependencies.data();
+
+    VkRenderPass outRenderPass;
+    VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
+
+    return outRenderPass;
 }
 
 VkRenderPass createRenderPass(
@@ -643,18 +709,7 @@ VkRenderPass createRenderPass(
     dependency.srcAccessMask = 0;
     dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-    VkRenderPassCreateInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-    renderPassInfo.pAttachments = attachments.data();
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
-
-    VkRenderPass outRenderPass;
-    VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
-
-    return outRenderPass;
+    return createRenderPass(device, attachments, make_vector(subpass), make_vector(dependency));
 }
 
 VkSurfaceKHR createSurface(VkInstance instance,	void* view)

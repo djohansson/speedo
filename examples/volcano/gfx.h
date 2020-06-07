@@ -16,12 +16,16 @@
 #include <utility>
 #include <vector>
 
+
+#include <slang.h>
+
 template <GraphicsBackend B>
 struct PipelineLayoutContext
 {
 	std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> shaders;
 	std::unique_ptr<DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>
 		descriptorSetLayouts;
+	std::unique_ptr<SamplerHandle<B>[], ArrayDeleter<SamplerHandle<B>>> immutableSamplers;
 
 	PipelineLayoutHandle<B> layout = 0;
 };
@@ -40,19 +44,11 @@ struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBindin
 template <GraphicsBackend B>
 struct SerializableShaderReflectionModule
 {
-	using ShaderEntryVector = std::vector<ShaderEntry>;
-	using BindingsMap =
-		std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
+	using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
 
-	template <class Archive>
-	void serialize(Archive& ar)
-	{
-		ar(shaders);
-		ar(bindings);
-	}
-
-	ShaderEntryVector shaders;
+	std::vector<ShaderEntry> shaders;
 	BindingsMap bindings;
+	std::vector<SamplerCreateInfo<B>> immutableSamplers;
 };
 
 template <GraphicsBackend B>
@@ -87,16 +83,10 @@ template <GraphicsBackend B>
 bool isCacheValid(const PipelineCacheHeader<B>& header, const PhysicalDeviceProperties<B>& physicalDeviceProperties);
 
 template <GraphicsBackend B>
-SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
-
-template <GraphicsBackend B>
-PhysicalDeviceInfo<B> getPhysicalDeviceInfo(
-	SurfaceHandle<B> surface,
-	InstanceHandle<B> instance,
-	PhysicalDeviceHandle<B> device);
-
-template <GraphicsBackend B>
 std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile);
+
+template <GraphicsBackend B>
+void createLayoutBindings(slang::VariableLayoutReflection* parameter, typename SerializableShaderReflectionModule<B>::BindingsMap& bindings);
 
 template <GraphicsBackend B>
 PipelineLayoutContext<B> createPipelineLayoutContext(DeviceHandle<B> device, const SerializableShaderReflectionModule<B>& slangModule);
@@ -121,6 +111,22 @@ template <GraphicsBackend B>
 std::vector<std::byte> getPipelineCacheData(DeviceHandle<B> device,	PipelineCacheHandle<B> pipelineCache);
 
 template <GraphicsBackend B>
+PipelineHandle<B> createGraphicsPipeline(
+	DeviceHandle<B> device,
+	PipelineCacheHandle<B> pipelineCache,
+	const PipelineConfiguration<B>& pipelineConfig);
+
+
+template <GraphicsBackend B>
+SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
+
+template <GraphicsBackend B>
+PhysicalDeviceInfo<B> getPhysicalDeviceInfo(
+	SurfaceHandle<B> surface,
+	InstanceHandle<B> instance,
+	PhysicalDeviceHandle<B> device);
+
+template <GraphicsBackend B>
 AllocatorHandle<B> createAllocator(
 	InstanceHandle<B> instance,
 	DeviceHandle<B> device,
@@ -129,11 +135,6 @@ AllocatorHandle<B> createAllocator(
 template <GraphicsBackend B>
 DescriptorPoolHandle<B> createDescriptorPool(DeviceHandle<B> device);
 
-template <GraphicsBackend B>
-PipelineHandle<B> createGraphicsPipeline(
-	DeviceHandle<B> device,
-	PipelineCacheHandle<B> pipelineCache,
-	const PipelineConfiguration<B>& pipelineConfig);
 
 #include "gfx.inl"
 #include "gfx-vulkan.inl"

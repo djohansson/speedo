@@ -12,7 +12,6 @@ template <GraphicsBackend B>
 struct TextureCreateDesc : DeviceResourceCreateDesc<B>
 {
     Extent2d<B> extent = {};
-    uint32_t channelCount = 0;
     Format<B> format = {};
     Flags<B> usage = 0;
 };

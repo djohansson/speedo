@@ -90,7 +90,9 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
     initInfo.CheckVkResultFn = checkResult;
-    ImGui_ImplVulkan_Init(&initInfo, myWindow->getRenderPass());
+    ImGui_ImplVulkan_Init(
+        &initInfo,
+        myDefaultResources->renderTarget->getRenderPass());
 
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -162,13 +164,37 @@ void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::createFrameObjects()
+void Application<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsBackend::Vulkan> frameBufferExtent)
 {
     ZoneScopedN("createFrameObjects");
 
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
-    auto& frame = myWindow->frames()[myLastFrameIndex];
-    myDefaultResources->renderTarget = std::static_pointer_cast<RenderTarget<GraphicsBackend::Vulkan>>(frame);
+
+    auto colorTexture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+        myDevice,
+        TextureCreateDesc<GraphicsBackend::Vulkan>{
+            {"rtColorTexture"},
+            frameBufferExtent,
+            myDevice->getDesc().swapchainConfiguration->surfaceFormat.format,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT});
+    auto depthStencilTexture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+        myDevice,
+        TextureCreateDesc<GraphicsBackend::Vulkan>{
+            {"rtDepthTexture"},
+            frameBufferExtent,
+            findSupportedFormat(
+                myDevice->getPhysicalDevice(),
+                {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT});
+    
+    myRenderTexture = std::make_shared<RenderTexture<GraphicsBackend::Vulkan>>(
+        myDevice,
+        "RenderTexture", 
+        make_vector(colorTexture),
+        depthStencilTexture);
+
+    myDefaultResources->renderTarget = myRenderTexture;
 
     // for (all referenced resources/shaders)
     // {
@@ -270,7 +296,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         myInstance->getPhysicalDeviceInfos()[myDevice->getDesc().physicalDeviceIndex].deviceProperties);
 
     myDefaultResources = std::make_shared<GraphicsPipelineResourceView<GraphicsBackend::Vulkan>>();
-    myDefaultResources->sampler = createTextureSampler(myDevice->getDevice());
+    myDefaultResources->sampler = createSampler(myDevice->getDevice());
 
     auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang"));
 
@@ -310,6 +336,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                 myDevice,    
                 WindowCreateDesc<GraphicsBackend::Vulkan>{
                     {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                    {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
                     {3, 2}});
         }
 
@@ -326,9 +353,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &signalTimelineValue});
     }
 
-    createFrameObjects();
-
-    //auto renderTexture = RenderTexture<GraphicsBackend::Vulkan>(myDevice, "RenderTexture", 0, {}, nullptr);
+    createFrameObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
     
     // stuff that needs to be initialized on graphics queue
     {
@@ -836,7 +861,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
         myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
     
-        myDefaultResources->renderTarget = frame;
+        myDefaultResources->renderTarget = myRenderTexture;
 
         myLastFrameTimelineValue = myWindow->submitFrame(
             frameIndex,
@@ -903,9 +928,14 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
         VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
     }
 
+    uint32_t physicalDeviceIndex = myDevice->getDesc().physicalDeviceIndex;
+    myInstance->updateSurfaceCapabilities(physicalDeviceIndex);
+    auto frameBufferExtent = 
+        myInstance->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
+
     destroyFrameObjects();
     myWindow->destroyFrameObjects();
-    myWindow->createFrameObjects();
-    createFrameObjects();
+    myWindow->createFrameObjects(frameBufferExtent);
+    createFrameObjects(frameBufferExtent);
     updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
 }

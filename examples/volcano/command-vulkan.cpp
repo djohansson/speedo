@@ -15,7 +15,7 @@ static auto createArray(
 
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     cmdInfo.commandPool = desc.pool;
-    cmdInfo.level = static_cast<VkCommandBufferLevel>(desc.level);
+    cmdInfo.level = desc.level;
     cmdInfo.commandBufferCount = CommandBufferArray<GraphicsBackend::Vulkan>::kCommandBufferCount;
     VK_CHECK(vkAllocateCommandBuffers(
         deviceContext->getDevice(),

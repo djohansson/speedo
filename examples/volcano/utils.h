@@ -9,6 +9,7 @@
 #include <cstring>
 #include <functional>
 #include <future>
+#include <vector>
 #include <tuple>
 
 #if PROFILING_ENABLED
@@ -96,3 +97,13 @@ private:
 	void *operator new(size_t);
     void *operator new[](size_t);
 };
+
+template <class T0, class... Ts>
+auto make_vector(T0&& first, Ts&&... args)
+{
+    using first_type = std::decay_t<T0>;
+    return std::vector<first_type>{
+        std::forward<T0>(first),
+        std::forward<Ts>(args)...
+    };
+}

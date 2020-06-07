@@ -196,6 +196,8 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
+
+    // TODO: use proper detection using VkPhysicalDeviceFeatures2
     if (!myConfig.useHostQueryReset)
     {
         if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
@@ -224,6 +226,36 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         }
     }
 
+    if (!myConfig.useScalarBlockLayout)
+    {
+        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
+            [](const char* extension) { return strcmp(extension, VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME) == 0; });
+            it != deviceExtensions.end())
+        {
+            myConfig.useScalarBlockLayout = std::make_optional(true);
+        }
+        else
+        {
+            myConfig.useScalarBlockLayout = std::make_optional(false);
+        }
+    }
+
+    if (!myConfig.useShaderFloat16)
+    {
+        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
+            [](const char* extension) { return strcmp(extension, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME) == 0; });
+            it != deviceExtensions.end())
+        {
+            myConfig.useShaderFloat16 = std::make_optional(true);
+        }
+        else
+        {
+            myConfig.useShaderFloat16 = std::make_optional(false);
+        }
+    }
+    // end todo
+    
+
     VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
     physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 
@@ -233,6 +265,10 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     VkPhysicalDeviceTimelineSemaphoreFeatures timelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
     timelineFeatures.pNext = &hostQueryResetFeatures;
     timelineFeatures.timelineSemaphore = myConfig.useTimelineSemaphores.value();
+
+    // VkPhysicalDeviceFloat16Int8FeaturesKHR float16Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR };
+    // timelineFeatures.pNext = &timelineFeatures;
+    // float16Features.shaderFloat16 = myConfig.useShaderFloat16.value();
 
     VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     physicalDeviceFeatures2.pNext = &timelineFeatures;

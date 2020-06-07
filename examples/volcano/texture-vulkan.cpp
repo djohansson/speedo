@@ -68,10 +68,12 @@ load(
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = textureFile.filename().u8string();
 
-    auto loadPBin = [&descAndInitialData, &size, &deviceContext](std::istream& stream) {
+    int channelCount = 0;
+
+    auto loadPBin = [&descAndInitialData, &channelCount, &size, &deviceContext](std::istream& stream) {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(desc.extent.width, desc.extent.height, desc.channelCount, size);
+        pbin(desc.extent.width, desc.extent.height, channelCount, size);
 
         std::string debugString;
         debugString.append(desc.name);
@@ -91,10 +93,10 @@ load(
         memoryHandle = locMemoryHandle;
     };
 
-    auto savePBin = [&descAndInitialData, &size, &deviceContext](std::ostream& stream) {
+    auto savePBin = [&descAndInitialData, &channelCount, &size, &deviceContext](std::ostream& stream) {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(desc.extent.width, desc.extent.height, desc.channelCount, size);
+        pbin(desc.extent.width, desc.extent.height, channelCount, size);
 
         std::byte* data;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
@@ -102,16 +104,16 @@ load(
         vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
     };
 
-    auto loadImage = [&descAndInitialData, &size, &deviceContext](std::istream& stream) {
+    auto loadImage = [&descAndInitialData, &channelCount, &size, &deviceContext](std::istream& stream) {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         stbi_io_callbacks callbacks;
         callbacks.read = &stbi_istream_callbacks::read;
         callbacks.skip = &stbi_istream_callbacks::skip;
         callbacks.eof = &stbi_istream_callbacks::eof;
         stbi_uc* stbiImageData =
-            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.extent.width, (int*)&desc.extent.height, (int*)&desc.channelCount, STBI_rgb_alpha);
+            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.extent.width, (int*)&desc.extent.height, &channelCount, STBI_rgb_alpha);
 
-        bool hasAlpha = desc.channelCount == 4;
+        bool hasAlpha = channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
         size = hasAlpha ? desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
 
@@ -160,7 +162,7 @@ load(
     loadCachedSourceFile(
         textureFile, textureFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
-    desc.format = desc.channelCount == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
+    desc.format = channelCount == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
     desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
     uint32_t pixelSizeBytesDivisor;

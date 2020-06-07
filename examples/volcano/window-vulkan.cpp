@@ -43,14 +43,9 @@ void Window<GraphicsBackend::Vulkan>::renderIMGUI()
 
 // todo: remove dependency on external CommandContext (since we will not be uploading any data anyways). need to add another constructor to Texture to facilitate
 template <>
-void Window<GraphicsBackend::Vulkan>::createFrameObjects()
+void Window<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsBackend::Vulkan> frameBufferExtent)
 {
     ZoneScopedN("createFrameObjects");
-
-    uint32_t physicalDeviceIndex = myDeviceContext->getDesc().physicalDeviceIndex;
-    myInstanceContext->updateSurfaceCapabilities(physicalDeviceIndex);
-    auto frameBufferExtent = 
-        myInstanceContext->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
 
     mySwapchainContext = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
         myDeviceContext,
@@ -58,19 +53,6 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
             {"mySwapchain"},
             frameBufferExtent,
             mySwapchainContext ? mySwapchainContext->getSwapchain() : nullptr});
-
-    // todo: append stencil bit for depthstencil composite formats
-    myDepthTexture = std::make_unique<Texture<GraphicsBackend::Vulkan>>(
-        myDeviceContext,
-        TextureCreateDesc<GraphicsBackend::Vulkan>{
-            {"myDepthTexture"},
-            frameBufferExtent,
-            1,
-            findSupportedFormat(
-                myDeviceContext->getPhysicalDevice(),
-                {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT});
 
     myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
         myDeviceContext,
@@ -92,32 +74,6 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
         view.updateAll();
     }
 
-    myRenderPass = createRenderPass(
-        myDeviceContext->getDevice(),
-        myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
-        VK_ATTACHMENT_LOAD_OP_CLEAR,
-        VK_ATTACHMENT_STORE_OP_STORE,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        myDepthTexture->getDesc().format,
-        VK_ATTACHMENT_LOAD_OP_CLEAR,
-        VK_ATTACHMENT_STORE_OP_STORE,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-
-    myUIRenderPass = createRenderPass(
-        myDeviceContext->getDevice(),
-        myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
-        VK_ATTACHMENT_LOAD_OP_LOAD,
-        VK_ATTACHMENT_STORE_OP_STORE,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        myDepthTexture->getDesc().format,
-        VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-
     uint32_t imageCount;
     VK_CHECK(vkGetSwapchainImagesKHR(myDeviceContext->getDevice(), mySwapchainContext->getSwapchain(), &imageCount, nullptr));
     
@@ -132,12 +88,9 @@ void Window<GraphicsBackend::Vulkan>::createFrameObjects()
             myDeviceContext,
             FrameCreateDesc<GraphicsBackend::Vulkan>{
                 {{"Frame"},
-                myRenderPass,
-                frameBufferExtent,
-                myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format,
-                {colorImages[frameIt]},
-                myDepthTexture->getDesc().format,
-                myDepthTexture->getImage()},
+                { frameBufferExtent.width, frameBufferExtent.height },
+                make_vector(myDeviceContext->getDesc().swapchainConfiguration->surfaceFormat.format),
+                make_vector(colorImages[frameIt])},
                 frameIt}));
 }
 
@@ -149,20 +102,7 @@ void Window<GraphicsBackend::Vulkan>::destroyFrameObjects()
     myFrames.clear();
     myFrameTimestamps.clear();
     mySwapchainContext.reset();
-    myDepthTexture.reset();
     myViewBuffer.reset();
-
-    if (myRenderPass)
-    {
-        vkDestroyRenderPass(myDeviceContext->getDevice(), myRenderPass, nullptr);
-        myRenderPass = 0;
-    }
-
-    if (myUIRenderPass)
-    {
-        vkDestroyRenderPass(myDeviceContext->getDevice(), myUIRenderPass, nullptr);
-        myUIRenderPass = 0;
-    }
 }
 
 template <>
@@ -278,7 +218,7 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
 
     std::future<void> renderIMGUIFuture(std::async(
         std::launch::async,
-        [this, &frame](uint32_t commandContextIndex)
+        [this, &config, &frame](uint32_t commandContextIndex)
     {
         renderIMGUI();
 
@@ -287,8 +227,8 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
             ZoneScopedN("drawIMGUI");
 
             CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-            inherit.renderPass = myUIRenderPass;
-            inherit.framebuffer = frame->getFrameBuffer();
+            inherit.renderPass = config.resources->renderTarget->getRenderPass();
+            inherit.framebuffer = config.resources->renderTarget->getFrameBuffer();
 
             CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
             secBeginInfo.flags =
@@ -343,8 +283,8 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
                 
                 CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-                inherit.renderPass = myRenderPass;
-                inherit.framebuffer = frame->getFrameBuffer();
+                inherit.renderPass = config.resources->renderTarget->getRenderPass();
+                inherit.framebuffer = config.resources->renderTarget->getFrameBuffer();
 
                 CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
                 secBeginInfo.flags =
@@ -449,38 +389,79 @@ uint64_t Window<GraphicsBackend::Vulkan>::submitFrame(
         //     primaryCommands, "executeCommands");
 
         VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-        beginInfo.renderPass = myRenderPass;
-        beginInfo.framebuffer = frame->getFrameBuffer();
+        beginInfo.renderPass = config.resources->renderTarget->getRenderPass();
+        beginInfo.framebuffer = config.resources->renderTarget->getFrameBuffer();
         beginInfo.renderArea.offset = {0, 0};
-        beginInfo.renderArea.extent = {frame->getDesc().imageExtent.width, frame->getDesc().imageExtent.height};
+        beginInfo.renderArea.extent = {
+            config.resources->renderTarget->getRenderTargetDesc().imageExtent.width,
+            config.resources->renderTarget->getRenderTargetDesc().imageExtent.height};
         beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         beginInfo.pClearValues = clearValues.data();
-
-
-        // views
+        
         {
             vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-            // call secondary command buffers
+            // views
             for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
-            {
                 primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
-                //vkCmdNextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-            }
 
-            vkCmdEndRenderPass(primaryCommands);
-        }
+            config.resources->renderTarget->nextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-        // ui
-        {
-            beginInfo.renderPass = myUIRenderPass;
-
-            vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
+            // ui
             primaryCommandContext->execute(*commandContexts()[frameIndex][0]);
-            
+
             vkCmdEndRenderPass(primaryCommands);
         }
+
+        VkOffset3D blitSize;
+        blitSize.x = beginInfo.renderArea.extent.width;
+        blitSize.y = beginInfo.renderArea.extent.height;
+        blitSize.z = 1;
+        VkImageBlit imageBlitRegion{};
+        imageBlitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBlitRegion.srcSubresource.layerCount = 1;
+        imageBlitRegion.srcOffsets[1] = blitSize;
+        imageBlitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBlitRegion.dstSubresource.layerCount = 1;
+        imageBlitRegion.dstOffsets[1] = blitSize;
+
+        transitionImageLayout(
+            primaryCommands,
+            config.resources->renderTarget->getRenderTargetDesc().colorImages[0],
+            config.resources->renderTarget->getRenderTargetDesc().colorImageFormats[0],
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+        transitionImageLayout(
+            primaryCommands,
+            frame->getRenderTargetDesc().colorImages[0],
+            frame->getRenderTargetDesc().colorImageFormats[0],
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        vkCmdBlitImage(
+            primaryCommands,
+            config.resources->renderTarget->getRenderTargetDesc().colorImages[0],
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            frame->getRenderTargetDesc().colorImages[0],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1,
+            &imageBlitRegion,
+            VK_FILTER_NEAREST);
+
+        transitionImageLayout(
+            primaryCommands,
+            config.resources->renderTarget->getRenderTargetDesc().colorImages[0],
+            config.resources->renderTarget->getRenderTargetDesc().colorImageFormats[0],
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+        transitionImageLayout(
+            primaryCommands,
+            frame->getRenderTargetDesc().colorImages[0],
+            frame->getRenderTargetDesc().colorImageFormats[0],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
 
     {
@@ -657,7 +638,7 @@ Window<GraphicsBackend::Vulkan>::Window(
 {
     ZoneScopedN("Window()");
 
-    createFrameObjects();
+    createFrameObjects(desc.framebufferExtent);
 
     for (const auto& frame : myFrames)
     {

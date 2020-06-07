@@ -4,33 +4,36 @@ namespace rendertexture
 template <GraphicsBackend B>
 RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
     const char* name,
-    RenderPassHandle<B> renderPass,
     const std::vector<std::shared_ptr<Texture<B>>>& colorTextures,
-    std::shared_ptr<Texture<B>> depthTexture)
+    const std::shared_ptr<Texture<B>>& depthStencilTexture)
 {
     RenderTargetCreateDesc<B> outDesc = {};
 
     assertf(colorTextures.size(), "colorTextures cannot be empty");
 
+    auto firstColorTextureExtent = colorTextures.front()->getDesc().extent;
+
     outDesc.name = name;
-    outDesc.imageExtent = colorTextures.front()->getDesc().extent;
-    outDesc.colorImageFormat = colorTextures.front()->getDesc().format;
+    outDesc.imageExtent = {firstColorTextureExtent.width, firstColorTextureExtent.height };
+    outDesc.colorImageFormats.reserve(colorTextures.size());
     outDesc.colorImages.reserve(colorTextures.size());
     
     for (const auto& texture : colorTextures)
     {
         assertf(outDesc.imageExtent.width == texture->getDesc().extent.width, "all colorTextures needs to have same width");
         assertf(outDesc.imageExtent.height == texture->getDesc().extent.height, "all colorTextures needs to have same height");
-        assertf(outDesc.colorImageFormat == texture->getDesc().format, "all colorTextures needs to have same format");
 
+        outDesc.colorImageFormats.emplace_back(texture->getDesc().format);
         outDesc.colorImages.emplace_back(texture->getImage());
     }
 
-    if (depthTexture)
+    if (depthStencilTexture)
     {
-        outDesc.depthImageFormat = depthTexture->getDesc().format;
-        outDesc.depthImage = depthTexture->getImage();
+        outDesc.depthStencilImageFormat = depthStencilTexture->getDesc().format;
+        outDesc.depthStencilImage = depthStencilTexture->getImage();
     }
+
+    outDesc.layerCount = 1;
 
     return outDesc;
 }
@@ -39,13 +42,29 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 
 template <GraphicsBackend B>
 RenderTexture<B>::RenderTexture(
-    std::shared_ptr<DeviceContext<B>> deviceContext,
+    const std::shared_ptr<DeviceContext<B>>& deviceContext,
     const char* name,
-    RenderPassHandle<B> renderPass,
     const std::vector<std::shared_ptr<Texture<B>>>& colorTextures,
-    std::shared_ptr<Texture<B>> depthTexture)
-: BaseType(deviceContext, rendertexture::createRenderTargetCreateDesc(name, renderPass, colorTextures, depthTexture))
+    std::shared_ptr<Texture<B>> depthStencilTexture)
+: BaseType(deviceContext, rendertexture::createRenderTargetCreateDesc(name, colorTextures, depthStencilTexture))
 , myColorTextures(colorTextures)
-, myDepthTexture(depthTexture)
+, myDepthStencilTexture(depthStencilTexture)
+{
+}
+
+template <GraphicsBackend B>
+RenderTexture<B>::RenderTexture(
+    const std::shared_ptr<DeviceContext<B>>& deviceContext,
+    const char* name,
+    std::vector<std::shared_ptr<Texture<B>>>&& colorTextures,
+    std::shared_ptr<Texture<B>>&& depthStencilTexture)
+: BaseType(deviceContext, rendertexture::createRenderTargetCreateDesc(name, colorTextures, depthStencilTexture))
+, myColorTextures(std::move(colorTextures))
+, myDepthStencilTexture(std::move(depthStencilTexture))
+{
+}
+
+template <GraphicsBackend B>
+RenderTexture<B>::~RenderTexture()
 {
 }

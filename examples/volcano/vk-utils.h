@@ -36,6 +36,8 @@ VkCommandPool createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags,
 std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPool pool,
 													VkCommandBufferLevel level, uint32_t count);
 
+VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32_t* codePtr);
+
 VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount);
 
 std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,
@@ -71,12 +73,18 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
-VkSampler createTextureSampler(VkDevice device);
+VkSampler createSampler(VkDevice device);
 
 VkFramebuffer createFramebuffer(
 	VkDevice device, VkRenderPass renderPass,
 	uint32_t attachmentCount, const VkImageView* attachments,
 	uint32_t width, uint32_t height, uint32_t layers);
+
+VkRenderPass createRenderPass(
+	VkDevice device,
+	const std::vector<VkAttachmentDescription>& attachments,
+	const std::vector<VkSubpassDescription>& subpasses,
+	const std::vector<VkSubpassDependency>& subpassDependencies);
 
 VkRenderPass createRenderPass(
 	VkDevice device,

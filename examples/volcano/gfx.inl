@@ -8,7 +8,13 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
-#include <slang.h>
+
+template <class Archive, GraphicsBackend B>
+void serialize(Archive& ar, SerializableShaderReflectionModule<B>& module)
+{
+	ar(cereal::make_nvp("shaders", module.shaders));
+	ar(cereal::make_nvp("bindings", module.bindings));
+}
 
 template <GraphicsBackend B>
 std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
@@ -28,14 +34,21 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 
 	auto loadSlang = [&slangModule, &slangFile](std::istream& stream) {
 		SlangSession* slangSession = spCreateSession(NULL);
+		
+		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, "D:\\github\\hlsl.bin\\RelWithDebInfo\\bin");
+		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
+		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
 		spSetDumpIntermediates(slangRequest, true);
+		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
 
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
-		(void)targetIndex;
-		int translationUnitIndex =
-			spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+		
+		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
+		spSetTargetFlags(slangRequest, targetIndex, SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT);
+		
+		int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
 
 		std::string shaderString(
 			(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
@@ -45,8 +58,8 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 			shaderString.c_str(), shaderString.c_str() + shaderString.size());
 
 		// temp
-		const char* epStrings[] = {"vertexMain", "fragmentMain"};
-		const SlangStage epStages[] = {SLANG_STAGE_VERTEX, SLANG_STAGE_FRAGMENT};
+		const char* epStrings[] = {"vertexMain", "fragmentMain", "computeMain"};
+		const SlangStage epStages[] = {SLANG_STAGE_VERTEX, SLANG_STAGE_FRAGMENT, SLANG_STAGE_COMPUTE};
 		// end temp
 
 		static_assert(sizeof_array(epStrings) == sizeof_array(epStages));
@@ -87,8 +100,7 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 		for (const auto& ep : entryPoints)
 		{
 			ISlangBlob* blob = nullptr;
-			if (SLANG_FAILED(
-					spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
+			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
 			{
 				spDestroyCompileRequest(slangRequest);
 				spDestroySession(slangSession);
@@ -104,176 +116,17 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 			blob->release();
 		}
 
-		auto& bindings = slangModule->bindings;
-
-		auto createLayoutBinding = [&bindings](slang::VariableLayoutReflection* parameter) {
-			slang::TypeLayoutReflection* typeLayout = parameter->getTypeLayout();
-
-			std::cout << "name: " << parameter->getName()
-						<< ", index: " << parameter->getBindingIndex()
-						<< ", space: " << parameter->getBindingSpace()
-						<< ", stage: " << parameter->getStage()
-						<< ", kind: " << (int)typeLayout->getKind()
-						<< ", typeName: " << typeLayout->getName();
-
-			unsigned categoryCount = parameter->getCategoryCount();
-			for (unsigned cc = 0; cc < categoryCount; cc++)
-			{
-				slang::ParameterCategory category = parameter->getCategoryByIndex(cc);
-
-				size_t offsetForCategory = parameter->getOffset(category);
-				size_t spaceForCategory = parameter->getBindingSpace(category);
-
-				std::cout << ", category: " << category
-							<< ", offsetForCategory: " << offsetForCategory
-							<< ", spaceForCategory: " << spaceForCategory;
-
-				if (category == slang::ParameterCategory::DescriptorTableSlot)
-				{
-					using MapType = std::remove_reference_t<decltype(bindings)>;
-					using VectorType = typename MapType::mapped_type;
-					using BindingType = typename VectorType::value_type;
-
-					BindingType binding;
-					binding.binding = parameter->getBindingIndex();
-					binding.descriptorCount =
-						typeLayout->isArray() ? typeLayout->getElementCount() : 1;
-					binding.stageFlags =
-						VK_SHADER_STAGE_ALL; // todo: have not find a good way to get a good
-												// value for this yet
-					binding.pImmutableSamplers = nullptr; // todo;
-
-					switch (parameter->getStage())
-					{
-					case SLANG_STAGE_VERTEX:
-						binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-						break;
-					case SLANG_STAGE_FRAGMENT:
-						binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-						break;
-					case SLANG_STAGE_HULL:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_DOMAIN:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_GEOMETRY:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_COMPUTE:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_RAY_GENERATION:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_INTERSECTION:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_ANY_HIT:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_CLOSEST_HIT:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_MISS:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_CALLABLE:
-						assert(false); // please implement me!
-						break;
-					case SLANG_STAGE_NONE:
-						// assert(false); // this seems to be returned for my constant buffer.
-						// investigate why. perhaps that it is reused by multiple shaders? skip
-						// assert for now.
-						break;
-					default:
-						assert(false); // please implement me!
-						break;
-					}
-
-					switch (typeLayout->getKind())
-					{
-					case slang::TypeReflection::Kind::ConstantBuffer:
-						binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-						break;
-					case slang::TypeReflection::Kind::Resource:
-						binding.descriptorType =
-							VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; // "resource" might be more
-																// generic tho...
-						break;
-					case slang::TypeReflection::Kind::SamplerState:
-						binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-						break;
-					case slang::TypeReflection::Kind::None:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::Struct:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::Array:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::Matrix:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::Vector:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::Scalar:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::TextureBuffer:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::ShaderStorageBuffer:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::ParameterBlock:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::GenericTypeParameter:
-						assert(false); // please implement me!
-						break;
-					case slang::TypeReflection::Kind::Interface:
-						assert(false); // please implement me!
-						break;
-					default:
-						assert(false); // please implement me!
-						break;
-					}
-
-					bindings[parameter->getBindingSpace()].push_back(binding);
-				}
-			}
-
-			std::cout << std::endl;
-
-			unsigned fieldCount = typeLayout->getFieldCount();
-			for (unsigned ff = 0; ff < fieldCount; ff++)
-			{
-				slang::VariableLayoutReflection* field = typeLayout->getFieldByIndex(ff);
-
-				std::cout << "  name: " << field->getName()
-							<< ", index: " << field->getBindingIndex()
-							<< ", space: " << field->getBindingSpace(field->getCategory())
-							<< ", offset: " << field->getOffset(field->getCategory())
-							<< ", kind: " << (int)field->getType()->getKind()
-							<< ", typeName: " << field->getType()->getName() << std::endl;
-			}
-		};
-
 		slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
 
 		for (unsigned pp = 0; pp < shaderReflection->getParameterCount(); pp++)
-			createLayoutBinding(shaderReflection->getParameterByIndex(pp));
+			createLayoutBindings<GraphicsBackend::Vulkan>(shaderReflection->getParameterByIndex(pp), slangModule->bindings);
 
 		for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 		{
-			slang::EntryPointReflection* epReflection =
-				shaderReflection->getEntryPointByIndex(epIndex);
+			slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
 
 			for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
-				createLayoutBinding(epReflection->getParameterByIndex(pp));
+				createLayoutBindings<GraphicsBackend::Vulkan>(epReflection->getParameterByIndex(pp), slangModule->bindings);
 		}
 
 		spDestroyCompileRequest(slangRequest);

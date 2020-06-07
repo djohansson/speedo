@@ -86,7 +86,7 @@ private:
 		const std::filesystem::path& userProfilePath) const;
 	void shutdownIMGUI();
 
-	void createFrameObjects();
+	void createFrameObjects(Extent2d<B> frameBufferExtent);
 	void destroyFrameObjects();
 
 	void collectGarbage(uint64_t frameLastSubmitTimelineValue);

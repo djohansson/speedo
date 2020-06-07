@@ -37,6 +37,8 @@ struct DeviceConfiguration
     std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
     std::optional<bool> useHostQueryReset;
     std::optional<bool> useTimelineSemaphores;
+    std::optional<bool> useScalarBlockLayout;
+    std::optional<bool> useShaderFloat16;
 
     template <class Archive>
     void serialize(Archive& archive)
@@ -45,7 +47,8 @@ struct DeviceConfiguration
             CEREAL_NVP(physicalDeviceIndex),
             CEREAL_NVP(swapchainConfiguration),
             CEREAL_NVP(useHostQueryReset),
-            CEREAL_NVP(useTimelineSemaphores)
+            CEREAL_NVP(useTimelineSemaphores),
+            CEREAL_NVP(useShaderFloat16)
         );
     }
 };

@@ -14,20 +14,27 @@ public:
 
 	RenderTexture(RenderTexture<B>&& other) : BaseType(std::move(other)) {}
     RenderTexture(
-        std::shared_ptr<DeviceContext<B>> deviceContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}
     RenderTexture(
-        std::shared_ptr<DeviceContext<B>> deviceContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const char* name,
-        RenderPassHandle<B> renderPass,
         const std::vector<std::shared_ptr<Texture<B>>>& colorTextures,
-        std::shared_ptr<Texture<B>> depthTexture = nullptr);
-	virtual ~RenderTexture() {}
+        std::shared_ptr<Texture<B>> depthStencilTexture = nullptr);
+    RenderTexture(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const char* name,
+        std::vector<std::shared_ptr<Texture<B>>>&& colorTextures,
+        std::shared_ptr<Texture<B>>&& depthStencilTexture = nullptr);
+	virtual ~RenderTexture();
+
+    const auto& getColorTextures() const { return myColorTextures; }
+    const auto& getDepthStencilTexture() const { return myDepthStencilTexture; }
 
 private:
 
     std::vector<std::shared_ptr<Texture<B>>> myColorTextures;
-    std::shared_ptr<Texture<B>> myDepthTexture;
+    std::shared_ptr<Texture<B>> myDepthStencilTexture;
 };
 
 #include "rendertexture.inl"

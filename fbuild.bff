@@ -182,6 +182,7 @@
 			+ ' -Wno-macro-redefined'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-invalid-offsetof'
+			+ ' -Wno-unknown-escape-sequence'
 			+ ' -DSLANG_DYNAMIC_EXPORT'
 		.ConfigDependentCompilerOptions = {
 			' -I$IntermediateFilePath$/slang-generate/',
