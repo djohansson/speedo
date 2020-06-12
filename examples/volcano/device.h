@@ -84,8 +84,8 @@ public:
     const auto& getDesc() const { return myConfig; }
     const auto& getDevice() const { return myDevice; }
     const auto& getPhysicalDevice() const
-    { return myInstanceContext->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
-    const auto& getSurface() const { return myInstanceContext->getSurface(); }
+    { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
+    const auto& getSurface() const { return myInstance->getSurface(); }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
@@ -116,7 +116,7 @@ public:
 
 private:
 
-    std::shared_ptr<InstanceContext<B>> myInstanceContext;
+    std::shared_ptr<InstanceContext<B>> myInstance;
     ScopedFileObject<DeviceConfiguration<B>> myConfig;
     DeviceHandle<B> myDevice = 0;
 

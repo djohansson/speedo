@@ -95,7 +95,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending(CommandBufferLev
             "CommandBufferArray");
             
         myPendingCommands[level].emplace_back(std::make_pair(CommandBufferArray<GraphicsBackend::Vulkan>(
-            myDeviceContext,
+            myDevice,
             CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>{
                 {stringBuffer},
                 myDesc.pool,
@@ -141,7 +141,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&
 
     myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
 
-    myDeviceContext->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
+    myDevice->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
     {
         ZoneScopedN("cmdReset");
 
@@ -172,7 +172,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList
 
     mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(commands));
 
-    myDeviceContext->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
+    myDevice->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
     {
         ZoneScopedN("cmdReset");
 
@@ -321,7 +321,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<Graphic
 			vkCmdExecuteCommands(cmd, secPendingCommands.first.head(), secPendingCommands.first.data());
 	}
 
-    auto timelineValue = myDeviceContext->timelineValue().load(std::memory_order_relaxed);
+    auto timelineValue = myDevice->timelineValue().load(std::memory_order_relaxed);
 
 	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
     
@@ -361,7 +361,7 @@ template <>
 CommandContext<GraphicsBackend::Vulkan>::CommandContext(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     CommandContextCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: myDeviceContext(deviceContext)
+: myDevice(deviceContext)
 , myDesc(std::move(desc))
 , myPendingCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
 , myFreeCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
@@ -376,7 +376,7 @@ CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
 
     if (!mySubmittedCommands.empty())
     {
-        myDeviceContext->wait(mySubmittedCommands.back().second.first);
-        myDeviceContext->collectGarbage(mySubmittedCommands.back().second.first);
+        myDevice->wait(mySubmittedCommands.back().second.first);
+        myDevice->collectGarbage(mySubmittedCommands.back().second.first);
     }
 }

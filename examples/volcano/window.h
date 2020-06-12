@@ -27,7 +27,7 @@ struct WindowCreateDesc
 };
 
 template <GraphicsBackend B>
-class Window
+class WindowContext
 {
 public:
 
@@ -39,25 +39,29 @@ public:
 		glm::mat4 pad2;
 	};
 
-	Window(
+	WindowContext(
 		const std::shared_ptr<InstanceContext<B>>& instanceContext,
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		WindowCreateDesc<B>&& desc);
-	~Window();
 
 	const auto& getDesc() const { return myDesc; }
-	const auto& getSwapchainContext() const { return *mySwapchainContext; }
+	const auto& getSwapchainContext() const { return *mySwapchain; }
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
 
-	void onResize(Extent2d<B> extent) { myDesc.windowExtent = extent; }
+	void onResizeWindow(Extent2d<B> windowExtent)
+	{
+		myDesc.windowExtent = windowExtent;
+	}
+	void onResizeFramebuffer(Extent2d<B> framebufferExtent)
+	{
+		myDesc.framebufferExtent = framebufferExtent;
+		createFrameObjects(framebufferExtent);
+	}
 
 	auto& frames() { return myFrames; }
-	auto& commandContexts() { return myCommandContexts; }
-
-	void createFrameObjects(Extent2d<B> frameBufferExtent);
-	void destroyFrameObjects();
+	auto& commandContexts() { return myCommands; }
 	
 	void updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex);
 
@@ -77,15 +81,18 @@ private:
 	void renderIMGUI();
 	void updateViewBuffer(uint32_t frameIndex) const;
 
-	std::shared_ptr<InstanceContext<B>> myInstanceContext;
-	std::shared_ptr<DeviceContext<B>> myDeviceContext; // todo: make window into a deviceresource
+	void createFrameObjects(Extent2d<B> frameBufferExtent);
+	void destroyFrameObjects();
+
+	std::shared_ptr<InstanceContext<B>> myInstance;
+	std::shared_ptr<DeviceContext<B>> myDevice; // todo: make window into a deviceresource
 	WindowCreateDesc<B> myDesc = {};
-	std::unique_ptr<SwapchainContext<B>> mySwapchainContext;
+	std::unique_ptr<SwapchainContext<B>> mySwapchain;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<std::shared_ptr<Frame<B>>> myFrames;
-	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommandContexts;
+	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommands;
 	std::vector<std::chrono::high_resolution_clock::time_point> myFrameTimestamps;
 	std::vector<std::function<void()>> myIMGUIDrawCallbacks;
 };

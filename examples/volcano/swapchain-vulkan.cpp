@@ -41,9 +41,6 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
         static_cast<int>(swapchainStr.size()),
         swapchainStr.data());
     addObject(VK_OBJECT_TYPE_SWAPCHAIN_KHR, reinterpret_cast<uint64_t>(mySwapchain), stringBuffer);
-
-    if (myDesc.previous)
-        vkDestroySwapchainKHR(getDeviceContext()->getDevice(), myDesc.previous, nullptr);
 }
 
 template <>

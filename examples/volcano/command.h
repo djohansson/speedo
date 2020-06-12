@@ -162,7 +162,7 @@ public:
 
 protected:
 
-    const auto& getDeviceContext() const { return myDeviceContext; }
+    const auto& getDeviceContext() const { return myDevice; }
 
 private:
 
@@ -175,7 +175,7 @@ private:
     void enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue);
     void enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue);
 
-    std::shared_ptr<DeviceContext<B>> myDeviceContext;
+    std::shared_ptr<DeviceContext<B>> myDevice;
     const CommandContextCreateDesc<B> myDesc = {};
     std::vector<CommandBufferList> myPendingCommands;
     CommandBufferList myExecutedCommands;

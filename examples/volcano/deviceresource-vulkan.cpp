@@ -61,7 +61,7 @@ template <>
 DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     const DeviceResourceCreateDesc<GraphicsBackend::Vulkan>& desc)
-: myDeviceContext(deviceContext)
+: myDevice(deviceContext)
 , myName(std::move(desc.name))
 {
 }

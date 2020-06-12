@@ -44,7 +44,7 @@ protected:
         ObjectType<B> objectType,
         const uint64_t* objectHandles);
 
-    const auto& getDeviceContext() const { return myDeviceContext; }
+    const auto& getDeviceContext() const { return myDevice; }
 
     void addObject(
         ObjectType<B> objectType,
@@ -61,7 +61,7 @@ private:
     static void incrementTypeCount(ObjectType<B> type, uint32_t count);
     static void decrementTypeCount(ObjectType<B> type, uint32_t count);
 
-    std::shared_ptr<DeviceContext<B>> myDeviceContext;
+    std::shared_ptr<DeviceContext<B>> myDevice;
     std::string myName;
     std::list<Object> myObjects;
 

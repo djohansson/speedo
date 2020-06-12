@@ -2,13 +2,14 @@
 // wip: specialize on graphics backend
 // wip: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 // wip: move stuff from headers into compilation units
+// wip: graph based GUI
 // todo: extract descriptor sets
 // todo: resource loading / manager
-// todo: graph based GUI
 // todo: frame graph
 // todo: compute pipeline
 // todo: clustered forward shading
 // todo: shader graph
+// todo: remove "gfx" and specialize
 
 // done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
@@ -19,10 +20,11 @@
 #include "command.h"
 #include "device.h"
 #include "file.h"
-#include "gfx.h" // replace with "gfx-types.h" once all types have been encapsulated
+#include "gfx-types.h"
 #include "glm.h"
 #include "instance.h"
 #include "nodegraph.h"
+#include "pipeline.h"
 #include "rendertexture.h"
 #include "window.h"
 
@@ -33,6 +35,7 @@
 #	include <sdkddkver.h>
 #endif
 
+// todo: clean up!
 #include <array>
 #include <cmath>
 #include <codecvt>
@@ -50,6 +53,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+// 
 
 #include <nfd.h>
 
@@ -86,17 +90,10 @@ private:
 		const std::filesystem::path& userProfilePath) const;
 	void shutdownIMGUI();
 
-	void createFrameObjects(Extent2d<B> frameBufferExtent);
-	void destroyFrameObjects();
+	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
+	void initializeWindowDependentObjects(CommandBufferHandle<B> cmd) const;
 
 	void collectGarbage(uint64_t frameLastSubmitTimelineValue);
-
-	// todo: encapsulate in PipelineConfiguration?
-	auto createPipelineConfig(DeviceHandle<B> device,
-		DescriptorPoolHandle<B> descriptorPool, PipelineCacheHandle<B> pipelineCache,
-        std::shared_ptr<PipelineLayoutContext<B>> layoutContext, std::shared_ptr<GraphicsPipelineResourceView<B>> resources) const;
-	void updateDescriptorSets(const Window<B>& window, const PipelineConfiguration<B>& pipelineConfig) const;
-	//
 
 	std::filesystem::path myResourcePath;
 	std::filesystem::path myUserProfilePath;
@@ -107,23 +104,16 @@ private:
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
-	std::shared_ptr<Window<B>> myWindow;
-	uint32_t myLastFrameIndex = 0;
-	uint64_t myLastFrameTimelineValue = 0;
-
-	// todo: figure out best way of organizing these
-	PipelineCacheHandle<B> myPipelineCache = 0;
-	std::shared_ptr<GraphicsPipelineResourceView<B>> myDefaultResources;
-	std::shared_ptr<PipelineLayoutContext<B>> myGraphicsPipelineLayout;
-	std::shared_ptr<PipelineConfiguration<B>> myGraphicsPipelineConfig;
-	//
-
-	std::shared_ptr<CommandContext<B>> myTransferCommandContext;
-	uint64_t myLastTransferTimelineValue = 0;
-
+	std::shared_ptr<WindowContext<B>> myWindow;
+	std::shared_ptr<CommandContext<B>> myTransferCommands;
+	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
 	std::shared_ptr<RenderTexture<B>> myRenderTexture;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
+
+	uint32_t myLastFrameIndex = 0;
+	uint64_t myLastFrameTimelineValue = 0;
+	uint64_t myLastTransferTimelineValue = 0;
 
 	bool myRequestExit = false;
 };

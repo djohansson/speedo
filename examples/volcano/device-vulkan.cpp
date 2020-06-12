@@ -8,6 +8,11 @@
 #include <tuple>
 #include <utility>
 
+static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
+{
+	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;
+}
+
 template <>
 uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() const
 {
@@ -77,13 +82,13 @@ template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
     ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
-: myInstanceContext(instanceContext)
+: myInstance(instanceContext)
 , myConfig(std::move(config))
 {
     ZoneScopedN("DeviceContext()");
 
     const auto& physicalDeviceInfo =
-        myInstanceContext->getPhysicalDeviceInfos()[myConfig.physicalDeviceIndex];
+        myInstance->getPhysicalDeviceInfos()[myConfig.physicalDeviceIndex];
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
     if (!myConfig.swapchainConfiguration)
@@ -319,7 +324,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     }
 
     myAllocator = createAllocator<GraphicsBackend::Vulkan>(
-        myInstanceContext->getInstance(),
+        myInstance->getInstance(),
         myDevice,
         getPhysicalDevice());
 

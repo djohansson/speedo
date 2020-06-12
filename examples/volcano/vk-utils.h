@@ -102,9 +102,3 @@ VkRenderPass createRenderPass(
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
 
 VkResult checkFlipOrPresentResult(VkResult result);
-
-
-static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
-{
-	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;
-}

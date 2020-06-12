@@ -11,7 +11,7 @@ public:
         CreateDescType&& desc);
 	virtual ~RenderTargetImpl();
 
-    virtual const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& getRenderTargetDesc() const override { return myDesc; };
+    virtual const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& getRenderTargetDesc() const final { return myDesc; };
 
     const auto& getDesc() const { return myDesc; }
 

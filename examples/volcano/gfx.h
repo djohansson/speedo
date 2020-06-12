@@ -16,19 +16,8 @@
 #include <utility>
 #include <vector>
 
-
 #include <slang.h>
 
-template <GraphicsBackend B>
-struct PipelineLayoutContext
-{
-	std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> shaders;
-	std::unique_ptr<DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>
-		descriptorSetLayouts;
-	std::unique_ptr<SamplerHandle<B>[], ArrayDeleter<SamplerHandle<B>>> immutableSamplers;
-
-	PipelineLayoutHandle<B> layout = 0;
-};
 
 using EntryPoint = std::pair<std::string, uint32_t>;
 using ShaderBinary = std::vector<std::byte>;
@@ -52,12 +41,23 @@ struct SerializableShaderReflectionModule
 };
 
 template <GraphicsBackend B>
+struct PipelineLayoutContext
+{
+	std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> shaders;
+	std::unique_ptr<DescriptorSetLayoutHandle<B>[], ArrayDeleter<DescriptorSetLayoutHandle<B>>>
+		descriptorSetLayouts;
+	std::unique_ptr<SamplerHandle<B>[], ArrayDeleter<SamplerHandle<B>>> immutableSamplers;
+
+	PipelineLayoutHandle<B> layout = 0;
+};
+
+template <GraphicsBackend B>
 struct PipelineCacheHeader
 {
 };
 
 template <GraphicsBackend B>
-struct GraphicsPipelineResourceView
+struct PipelineResourceView
 {	
 	// begin temp
 	std::shared_ptr<Model<B>> model;
@@ -71,7 +71,7 @@ struct GraphicsPipelineResourceView
 template <GraphicsBackend B>
 struct PipelineConfiguration
 {
-	std::shared_ptr<GraphicsPipelineResourceView<B>> resources;
+	std::shared_ptr<PipelineResourceView<B>> resources;
 	std::shared_ptr<PipelineLayoutContext<B>> layout;
 
 	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"

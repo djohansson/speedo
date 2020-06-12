@@ -6,6 +6,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 #include <tuple>
 
@@ -54,8 +55,15 @@ protected:
 
 private:
 
+    using RenderPassFramebufferTuple = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
+    using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
+
+    uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const;    
     void internalInitializeDefault(const RenderTargetCreateDesc<B>& desc);
-    void internalCreateRenderPassAndFrameBuffer(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
+    void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
+
+    RenderPassFramebufferTuple
+    internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
 
     std::vector<ImageViewHandle<B>> myAttachments;
     std::vector<AttachmentDescription<B>> myAttachmentsDescs;
@@ -63,9 +71,8 @@ private:
     std::vector<SubpassDescription<B>> mySubPassDescs;
     std::vector<SubpassDependency<B>> mySubPassDependencies;
 
-    std::map<uint64_t, std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>> myMap;
-    uint64_t myKey = 0;
-    bool myIsDirty = false;
+    RenderPassFramebufferTupleMap myMap;
+    std::optional<typename RenderPassFramebufferTupleMap::const_iterator> myCurrent;
 
     static constexpr std::string_view sc_colorImageViewStr = "_ColorImageView";
     static constexpr std::string_view sc_depthImageViewStr = "_DepthImageView";

@@ -83,7 +83,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.Device = myDevice->getDevice();
     initInfo.QueueFamily = myDevice->getGraphicsQueueFamilyIndex();
     initInfo.Queue = myDevice->getPrimaryGraphicsQueue();
-    initInfo.PipelineCache = myPipelineCache;
+    initInfo.PipelineCache = myGraphicsPipeline->getCache();
     initInfo.DescriptorPool = myDevice->getDescriptorPool();
     initInfo.MinImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
     initInfo.ImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
@@ -92,7 +92,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.CheckVkResultFn = checkResult;
     ImGui_ImplVulkan_Init(
         &initInfo,
-        myDefaultResources->renderTarget->getRenderPass());
+        myGraphicsPipeline->getConfig()->resources->renderTarget->getRenderPass());
 
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -117,56 +117,10 @@ void Application<GraphicsBackend::Vulkan>::shutdownIMGUI()
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::updateDescriptorSets(
-    const Window<GraphicsBackend::Vulkan>& window,
-    const PipelineConfiguration<GraphicsBackend::Vulkan>& pipelineConfig) const
+void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
+    Extent2d<GraphicsBackend::Vulkan> frameBufferExtent)
 {
-    ZoneScopedN("updateDescriptorSets");
-
-    // todo: use reflection
-    
-    VkDescriptorBufferInfo bufferInfo = {};
-    bufferInfo.buffer = window.getViewBuffer().getBuffer();
-    bufferInfo.offset = 0;
-    bufferInfo.range = VK_WHOLE_SIZE;
-
-    VkDescriptorImageInfo imageInfo = {};
-    imageInfo.imageLayout = pipelineConfig.resources->texture->getImageLayout();
-    imageInfo.imageView = pipelineConfig.resources->textureView;
-    imageInfo.sampler = pipelineConfig.resources->sampler;
-
-    std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
-    descriptorWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[0].dstSet = pipelineConfig.descriptorSets[0];
-    descriptorWrites[0].dstBinding = 0;
-    descriptorWrites[0].dstArrayElement = 0;
-    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descriptorWrites[0].descriptorCount = 1;
-    descriptorWrites[0].pBufferInfo = &bufferInfo;
-    descriptorWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[1].dstSet = pipelineConfig.descriptorSets[0];
-    descriptorWrites[1].dstBinding = 1;
-    descriptorWrites[1].dstArrayElement = 0;
-    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    descriptorWrites[1].descriptorCount = 1;
-    descriptorWrites[1].pImageInfo = &imageInfo;
-    descriptorWrites[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[2].dstSet = pipelineConfig.descriptorSets[0];
-    descriptorWrites[2].dstBinding = 2;
-    descriptorWrites[2].dstArrayElement = 0;
-    descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    descriptorWrites[2].descriptorCount = 1;
-    descriptorWrites[2].pImageInfo = &imageInfo;
-
-    vkUpdateDescriptorSets(
-        myDevice->getDevice(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(),
-        0, nullptr);
-}
-
-template <>
-void Application<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsBackend::Vulkan> frameBufferExtent)
-{
-    ZoneScopedN("createFrameObjects");
+    ZoneScopedN("createWindowDependentObjects");
 
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
 
@@ -176,7 +130,8 @@ void Application<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsB
             {"rtColorTexture"},
             frameBufferExtent,
             myDevice->getDesc().swapchainConfiguration->surfaceFormat.format,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT});
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
+    
     auto depthStencilTexture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
         myDevice,
         TextureCreateDesc<GraphicsBackend::Vulkan>{
@@ -185,8 +140,8 @@ void Application<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsB
             findSupportedFormat(
                 myDevice->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT});
+                VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
     
     myRenderTexture = std::make_shared<RenderTexture<GraphicsBackend::Vulkan>>(
         myDevice,
@@ -194,26 +149,61 @@ void Application<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsB
         make_vector(colorTexture),
         depthStencilTexture);
 
-    myDefaultResources->renderTarget = myRenderTexture;
-
-    // for (all referenced resources/shaders)
-    // {
-        myGraphicsPipelineConfig = std::make_shared<PipelineConfiguration<GraphicsBackend::Vulkan>>();
-        *myGraphicsPipelineConfig = createPipelineConfig(
-            myDevice->getDevice(),
-            myDevice->getDescriptorPool(),
-            myPipelineCache,
-            myGraphicsPipelineLayout,
-            myDefaultResources);
-    //}
+    myGraphicsPipeline->getConfig()->resources->renderTarget = myRenderTexture;
+    myGraphicsPipeline->createGraphicsPipeline();
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::destroyFrameObjects()
+void Application<GraphicsBackend::Vulkan>::initializeWindowDependentObjects(
+    CommandBufferHandle<GraphicsBackend::Vulkan> cmd) const
 {
-    ZoneScopedN("destroyFrameObjects");
+    ZoneScopedN("initializeWindowDependentObjects");
 
-    vkDestroyPipeline(myDevice->getDevice(), myGraphicsPipelineConfig->graphicsPipeline, nullptr);
+    for (const auto& colorTexture : myRenderTexture->getColorTextures())
+    {
+        colorTexture->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        
+        VkClearColorValue colorClearValue = { { 1.0f, 0.0f, 0.0f, 0.0f } };
+        VkImageSubresourceRange colorRange = {
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            0,
+            VK_REMAINING_MIP_LEVELS,
+            0,
+            VK_REMAINING_ARRAY_LAYERS};
+
+        vkCmdClearColorImage(
+            cmd,
+            colorTexture->getImage(),
+            colorTexture->getImageLayout(),
+            &colorClearValue,
+            1,
+            &colorRange);
+
+        colorTexture->transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+
+    if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
+    {
+        depthStencilTexture->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        VkClearDepthStencilValue clearDepthStencilValue = { 1.0f, 0 };
+        VkImageSubresourceRange depthStencilRange = {
+            VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
+            0,
+            VK_REMAINING_MIP_LEVELS,
+            0,
+            VK_REMAINING_ARRAY_LAYERS};
+
+        vkCmdClearDepthStencilImage(
+            cmd,
+            depthStencilTexture->getImage(),
+            depthStencilTexture->getImageLayout(),
+            &clearDepthStencilValue,
+            1,
+            &depthStencilRange);
+        
+        depthStencilTexture->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    }
 }
 
 template <>
@@ -238,7 +228,7 @@ void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubm
         //     auto primaryCommands = primaryCommandContext->beginScope();
 
         //     TracyVkCollect(
-        //         myTransferCommandContext->userData<command_vulkan::UserData>().tracyContext,
+        //         myTransferCommands->userData<command_vulkan::UserData>().tracyContext,
         //         primaryCommands);
         // }
     }
@@ -290,48 +280,45 @@ Application<GraphicsBackend::Vulkan>::Application(
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
 
-    myPipelineCache = loadPipelineCache<GraphicsBackend::Vulkan>(
-        std::filesystem::absolute(myUserProfilePath / "pipeline.cache"),
-        myDevice->getDevice(),
-        myInstance->getPhysicalDeviceInfos()[myDevice->getDesc().physicalDeviceIndex].deviceProperties);
-
-    myDefaultResources = std::make_shared<GraphicsPipelineResourceView<GraphicsBackend::Vulkan>>();
-    myDefaultResources->sampler = createSampler(myDevice->getDevice());
-
     auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang"));
 
-    myGraphicsPipelineLayout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>();
-    *myGraphicsPipelineLayout = createPipelineLayoutContext(myDevice->getDevice(), *slangShaders);
+    myGraphicsPipeline = std::make_shared<PipelineContext<GraphicsBackend::Vulkan>>(
+        myInstance,
+        myDevice,
+        *slangShaders,
+        myUserProfilePath,
+        PipelineCreateDesc<GraphicsBackend::Vulkan>{});
+    //
 
     // if (commandBufferLevel == 0)
     //     std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
     //         TracyVkContext(
-    //             myDeviceContext->getPhysicalDevice(),
-    //             myDeviceContext->getDevice(),
+    //             myDevice->getPhysicalDevice(),
+    //             myDevice->getDevice(),
     //             queue,
     //             commands());
 
     // if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
     //     TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
 
-    myTransferCommandContext = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
+    myTransferCommands = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
         {
-            auto transferCommands = myTransferCommandContext->beginScope();
+            auto transferCommands = myTransferCommands->beginScope();
 
-            myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
-                myTransferCommandContext,
+                myTransferCommands,
                 std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
-            myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
                 myDevice,
-                myTransferCommandContext,
+                myTransferCommands,
                 std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
-            myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+            myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
-            myWindow = std::make_shared<Window<GraphicsBackend::Vulkan>>(
+            myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
                 myInstance,
                 myDevice,    
                 WindowCreateDesc<GraphicsBackend::Vulkan>{
@@ -342,7 +329,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         // submit transfers.
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastTransferTimelineValue = myTransferCommandContext->submit({
+        myLastTransferTimelineValue = myTransferCommands->submit({
             myDevice->getPrimaryTransferQueue(),
             0,
             nullptr,
@@ -353,18 +340,22 @@ Application<GraphicsBackend::Vulkan>::Application(
             &signalTimelineValue});
     }
 
-    createFrameObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
+    createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
     
     // stuff that needs to be initialized on graphics queue
     {
         auto& frame = myWindow->frames()[myLastFrameIndex];
         auto& primaryCommandContext = myWindow->commandContexts()[frame->getDesc().index][0];
+        
         {
             auto primaryCommands = primaryCommandContext->beginScope();
-            myDefaultResources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            initIMGUI(myDevice, primaryCommands, myUserProfilePath);
-        }
 
+            initializeWindowDependentObjects(primaryCommands);
+            initIMGUI(myDevice, primaryCommands, myUserProfilePath);
+
+            myGraphicsPipeline->getConfig()->resources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
@@ -381,7 +372,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         frame->setLastSubmitTimelineValue(myLastFrameTimelineValue); // todo: remove
     }
 
-    updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
 
     auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
@@ -397,21 +388,21 @@ Application<GraphicsBackend::Vulkan>::Application(
         VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
         {
-            auto transferCommands = myTransferCommandContext->beginScope();
+            auto transferCommands = myTransferCommands->beginScope();
 
-            myDefaultResources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
-                myTransferCommandContext,
+                myTransferCommands,
                 std::filesystem::absolute(openFilePath));
         }
 
-        updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+        myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
 
         // submit transfers.
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastFrameTimelineValue = myTransferCommandContext->submit({
+        myLastFrameTimelineValue = myTransferCommands->submit({
             myDevice->getPrimaryTransferQueue(),
             1,
             &myDevice->getTimelineSemaphore(),
@@ -420,8 +411,6 @@ Application<GraphicsBackend::Vulkan>::Application(
             1,
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
-
-        // todo: resource transition?
     };
 
     // auto loadTexture = [this](nfdchar_t* openFilePath)
@@ -430,24 +419,22 @@ Application<GraphicsBackend::Vulkan>::Application(
     //     VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
 
     //     {
-    //         auto transferCommands = myTransferCommandContext->beginScope();
+    //         auto transferCommands = myTransferCommands->beginScope();
 
-    //         myDefaultResources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+    //         myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
     //             myDevice,
-    //             myTransferCommandContext,
+    //             myTransferCommands,
     //             std::filesystem::absolute(openFilePath));
     //     }
 
-    //     vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
-    //     myDefaultResources->textureView = myDefaultResources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+    //     vkDestroyImageView(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->textureView, nullptr);
+    //     myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
-    //     updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+    //     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
 
     //     // submit transfers.
     //     myLastTransferTimelineValue = myTransferCommandContext->submit({
     //         myDevice->getPrimaryTransferQueue()});
-
-    //     // todo: resource transition
     // };
 
     myWindow->addIMGUIDrawCallback([this, openFileDialogue, loadModel]
@@ -790,15 +777,6 @@ Application<GraphicsBackend::Vulkan>::~Application()
     
     shutdownIMGUI();
 
-    savePipelineCache<GraphicsBackend::Vulkan>(
-        myUserProfilePath / "pipeline.cache",
-        myDevice->getDevice(),
-        myInstance->getPhysicalDeviceInfos()[myDevice->getDesc().physicalDeviceIndex].deviceProperties,
-        myPipelineCache);
-    
-    vkDestroyPipelineCache(myDevice->getDevice(), myPipelineCache, nullptr);
-    vkDestroyPipelineLayout(myDevice->getDevice(), myGraphicsPipelineLayout->layout, nullptr);
-
 #ifdef PROFILING_ENABLE
     char* allocatorStatsJSON = nullptr;
     vmaBuildStatsString(myDevice->getAllocator(), &allocatorStatsJSON, true);
@@ -806,11 +784,9 @@ Application<GraphicsBackend::Vulkan>::~Application()
     vmaFreeStatsString(myDevice->getAllocator(), allocatorStatsJSON);
 #endif
 
-    destroyFrameObjects();
-
     // todo: work on a resourcetable of some sort, and automatically delete all resources from it.
-    vkDestroyImageView(myDevice->getDevice(), myDefaultResources->textureView, nullptr);
-    vkDestroySampler(myDevice->getDevice(), myDefaultResources->sampler, nullptr);
+    vkDestroyImageView(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->textureView, nullptr);
+    vkDestroySampler(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->sampler, nullptr);
 }
 
 template <>
@@ -846,8 +822,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     ZoneScopedN("draw");
 
     auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
-    auto& frame = myWindow->frames()[frameIndex];
-    uint64_t frameLastSubmitTimelineValue = frame->getLastSubmitTimelineValue();
+    uint64_t frameLastSubmitTimelineValue = myWindow->frames()[frameIndex]->getLastSubmitTimelineValue();
 
     if (flipSuccess)
     {
@@ -860,13 +835,11 @@ bool Application<GraphicsBackend::Vulkan>::draw()
         }
 
         myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
-    
-        myDefaultResources->renderTarget = myRenderTexture;
 
         myLastFrameTimelineValue = myWindow->submitFrame(
             frameIndex,
             myLastFrameIndex,
-            *myGraphicsPipelineConfig,
+            *myGraphicsPipeline->getConfig(),
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
@@ -901,7 +874,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
     auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-    myLastTransferTimelineValue = myTransferCommandContext->submit({
+    myLastTransferTimelineValue = myTransferCommands->submit({
         myDevice->getPrimaryTransferQueue(),
         1,
         &myDevice->getTimelineSemaphore(),
@@ -930,12 +903,30 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
 
     uint32_t physicalDeviceIndex = myDevice->getDesc().physicalDeviceIndex;
     myInstance->updateSurfaceCapabilities(physicalDeviceIndex);
-    auto frameBufferExtent = 
+    auto framebufferExtent = 
         myInstance->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
+    
+    myWindow->onResizeFramebuffer(framebufferExtent);
+    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
 
-    destroyFrameObjects();
-    myWindow->destroyFrameObjects();
-    myWindow->createFrameObjects(frameBufferExtent);
-    createFrameObjects(frameBufferExtent);
-    updateDescriptorSets(*myWindow, *myGraphicsPipelineConfig);
+    createWindowDependentObjects(framebufferExtent);
+    
+    auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
+    initializeWindowDependentObjects(primaryCommandContext->beginScope());
+
+    SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[1] = { myDevice->getTimelineSemaphore() };
+    Flags<GraphicsBackend::Vulkan> waitDstStageMasks[1] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+    uint64_t waitTimelineValues[1] = { std::max(myLastTransferTimelineValue, myLastFrameTimelineValue) };
+    SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[1] = {
+        myDevice->getTimelineSemaphore() };
+    uint64_t signalTimelineValues[1] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed) };
+    myLastFrameTimelineValue = primaryCommandContext->submit({
+        myDevice->getPrimaryGraphicsQueue(),
+        sizeof_array(waitSemaphores),
+        waitSemaphores,
+        waitDstStageMasks,
+        waitTimelineValues,
+        sizeof_array(signalSemaphores),
+        signalSemaphores,
+        signalTimelineValues});
 }

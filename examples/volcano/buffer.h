@@ -39,6 +39,7 @@ public:
     
     // todo: create scoped wrapper for the view handle
     BufferViewHandle<B> createView(Format<B> format, DeviceSize<B> offset, DeviceSize<B> range);
+    //
 
 private:
 

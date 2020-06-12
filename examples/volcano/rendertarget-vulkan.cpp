@@ -3,12 +3,12 @@
 
 #include <core/slang-secure-crt.h>
 
-#include <xxhash.h>
+#include <xxh3.h>
 
 namespace rendertarget_vulkan
 {
     
-thread_local static std::unique_ptr<XXH64_state_t, XXH_errorcode(*)(XXH64_state_t*)> t_xxhState(XXH64_createState(), XXH64_freeState);
+thread_local static std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> t_xxhState(XXH3_createState(), XXH3_freeState);
 
 }
 
@@ -47,7 +47,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefault(const Rend
         VkAttachmentDescription& colorAttachment = myAttachmentsDescs.emplace_back();
         colorAttachment.format = desc.colorImageFormats[attachmentIt];
         colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -155,12 +155,43 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefault(const Rend
         dep0.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         dep0.dependencyFlags = 0;
     }
-
-    myIsDirty = true;
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+uint64_t RenderTarget<GraphicsBackend::Vulkan>::internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const
+{
+    using namespace rendertarget_vulkan;
+
+    assert(t_xxhState.get());
+
+    constexpr XXH64_hash_t seed = 42;
+    auto result = XXH3_64bits_reset_withSeed(t_xxhState.get(), seed);
+    assert(result != XXH_ERROR);
+
+    result = XXH3_64bits_update(t_xxhState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
+    assert(result != XXH_ERROR);
+
+    result = XXH3_64bits_update(t_xxhState.get(), myAttachmentsDescs.data(), myAttachmentsDescs.size() * sizeof(myAttachmentsDescs.front()));
+    assert(result != XXH_ERROR);
+
+    result = XXH3_64bits_update(t_xxhState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
+    assert(result != XXH_ERROR);
+
+    result = XXH3_64bits_update(t_xxhState.get(), mySubPassDescs.data(), mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
+    assert(result != XXH_ERROR);
+
+    result = XXH3_64bits_update(t_xxhState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
+    assert(result != XXH_ERROR);
+
+    result = XXH3_64bits_update(t_xxhState.get(), &desc.imageExtent, sizeof(desc.imageExtent));
+    assert(result != XXH_ERROR);
+
+    return XXH3_64bits_digest(t_xxhState.get());
+}
+
+template <>
+RenderTarget<GraphicsBackend::Vulkan>::RenderPassFramebufferTuple
+RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
 {
     auto renderPass = createRenderPass(
         getDeviceContext()->getDevice(),
@@ -177,40 +208,6 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuff
         desc.imageExtent.height,
         desc.layerCount);
 
-    auto calculateHashKey = [this](const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
-    {
-        using namespace rendertarget_vulkan;
-
-        assert(t_xxhState.get());
-
-        constexpr XXH64_hash_t seed = 42;
-        auto result = XXH64_reset(t_xxhState.get(), seed);
-        assert(result != XXH_ERROR);
-
-        result = XXH64_update(t_xxhState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
-        assert(result != XXH_ERROR);
-
-        result = XXH64_update(t_xxhState.get(), myAttachmentsDescs.data(), myAttachmentsDescs.size() * sizeof(myAttachmentsDescs.front()));
-        assert(result != XXH_ERROR);
-
-        result = XXH64_update(t_xxhState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
-        assert(result != XXH_ERROR);
-
-        result = XXH64_update(t_xxhState.get(), mySubPassDescs.data(), mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
-        assert(result != XXH_ERROR);
-
-        result = XXH64_update(t_xxhState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
-        assert(result != XXH_ERROR);
-
-        result = XXH64_update(t_xxhState.get(), &desc.imageExtent, sizeof(desc.imageExtent));
-        assert(result != XXH_ERROR);
-
-        return XXH64_digest(t_xxhState.get());
-    };
-
-    myKey = calculateHashKey(desc);
-    myMap[myKey] = std::make_tuple(renderPass, frameBuffer);
-
     char stringBuffer[128];
 
     sprintf_s(
@@ -221,7 +218,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuff
         getName().c_str(),
         static_cast<int>(sc_renderPassStr.size()),
         sc_renderPassStr.data(),
-        myKey);
+        hashKey);
 
     addObject(
         VK_OBJECT_TYPE_RENDER_PASS,
@@ -236,14 +233,14 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuff
         getName().c_str(),
         static_cast<int>(sc_framebufferStr.size()),
         sc_framebufferStr.data(),
-        myKey);
+        hashKey);
 
     addObject(
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
         stringBuffer);
 
-    myIsDirty = false;
+    return std::make_tuple(renderPass, frameBuffer);
 }
 
 template <>
@@ -283,21 +280,37 @@ void RenderTarget<GraphicsBackend::Vulkan>::nextSubpass(
 }
 
 template <>
+void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+{
+    if (!myCurrent)
+    {
+        auto hashKey = internalCalculateHashKey(desc);
+        auto emplaceResult = myMap.emplace(
+            std::make_pair(
+                hashKey,
+                std::make_tuple(
+                    RenderPassHandle<GraphicsBackend::Vulkan>{},
+                    FramebufferHandle<GraphicsBackend::Vulkan>{})));
+
+        if (emplaceResult.second)
+            emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
+
+        myCurrent = std::make_optional(emplaceResult.first);
+    }
+}
+
+template <>
 const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getRenderPass()
 {
-    if (myIsDirty)
-        internalCreateRenderPassAndFrameBuffer(getRenderTargetDesc());
-
-    return std::get<0>(myMap.at(myKey));
+    internalUpdateMap(getRenderTargetDesc());
+    return std::get<0>((*myCurrent)->second);
 }
 
 template <>
 const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getFrameBuffer()
 {
-    if (myIsDirty)
-        internalCreateRenderPassAndFrameBuffer(getRenderTargetDesc());
-
-    return std::get<1>(myMap.at(myKey));
+    internalUpdateMap(getRenderTargetDesc());
+    return std::get<1>((*myCurrent)->second);
 }
 
 template <>
@@ -318,7 +331,7 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
     ZoneScopedN("RenderTarget()");
 
     internalInitializeDefault(desc);
-    internalCreateRenderPassAndFrameBuffer(desc);
+    internalUpdateMap(desc);
 }
 
 template <>

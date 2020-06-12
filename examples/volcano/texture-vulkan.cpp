@@ -296,5 +296,4 @@ Texture<GraphicsBackend::Vulkan>::~Texture()
         [allocator = getDeviceContext()->getAllocator(), image = getImage(), imageMemory = getImageMemory()](uint64_t){
             vmaDestroyImage(allocator, image, imageMemory);
     });
-    
 }

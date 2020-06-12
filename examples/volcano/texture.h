@@ -45,6 +45,7 @@ public:
 
     // todo: create scoped wrapper for the view handle
     ImageViewHandle<B> createView(Flags<B> aspectFlags);
+    //
 
     void transition(CommandBufferHandle<B> commands, ImageLayout<B> layout);
     
