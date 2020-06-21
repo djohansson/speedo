@@ -362,6 +362,7 @@
 				+ ' -DNV_EXTENSIONS'
 		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputPath = {
+			'$BuildRootPath$/external/glslang/glslang/HLSL',
 			'$BuildRootPath$/external/glslang/glslang/OSDependent',
 		}
 		.CompilerInputFiles = {
