@@ -93,7 +93,7 @@ private:
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 	void initializeWindowDependentObjects(CommandBufferHandle<B> cmd) const;
 
-	void collectGarbage(uint64_t frameLastSubmitTimelineValue);
+	void processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue);
 
 	std::filesystem::path myResourcePath;
 	std::filesystem::path myUserProfilePath;

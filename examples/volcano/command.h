@@ -160,6 +160,9 @@ public:
     uint64_t execute(CommandContext<B>& callee);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
 
+    // these will be complete when the timeline value is reached of the command buffer they are submitted in
+    void addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback);
+
 protected:
 
     const auto& getDeviceContext() const { return myDevice; }
@@ -184,4 +187,5 @@ private:
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
     CommandBufferHandle<B> myLastCommands;
+    std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };

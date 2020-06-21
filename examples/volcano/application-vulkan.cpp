@@ -97,7 +97,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
     
-    deviceContext->addGarbageCollectCallback([](uint64_t){
+    deviceContext->addTimelineCompletionCallback([](uint64_t){
         ImGui_ImplVulkan_DestroyFontUploadObjects();
     });
 
@@ -207,7 +207,7 @@ void Application<GraphicsBackend::Vulkan>::initializeWindowDependentObjects(
 }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubmitTimelineValue)
+void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue)
 {
     if (myLastTransferTimelineValue)
     {
@@ -217,7 +217,7 @@ void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubm
             myDevice->wait(myLastTransferTimelineValue);
         }
 
-        myDevice->collectGarbage(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
+        myDevice->processTimelineCallbacks(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
         
         myLastTransferTimelineValue = 0;
 
@@ -234,7 +234,7 @@ void Application<GraphicsBackend::Vulkan>::collectGarbage(uint64_t frameLastSubm
     }
     else
     {
-        myDevice->collectGarbage(frameLastSubmitTimelineValue);
+        myDevice->processTimelineCallbacks(frameLastSubmitTimelineValue);
     }
 }
 
@@ -384,33 +384,31 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        // todo: replace with other sync method. garbage collect resource?
-        VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
-
+        std::shared_ptr<Model<GraphicsBackend::Vulkan>> model;
         {
             auto transferCommands = myTransferCommands->beginScope();
-
-            myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
                 myTransferCommands,
                 std::filesystem::absolute(openFilePath));
         }
 
-        myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
-
-        // submit transfers.
-        Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastFrameTimelineValue = myTransferCommands->submit({
+        myLastTransferTimelineValue = myTransferCommands->submit({
             myDevice->getPrimaryTransferQueue(),
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMask,
-            &waitTimelineValue,
+            0,
+            nullptr,
+            nullptr,
+            nullptr,
             1,
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
+
+        myDevice->addTimelineCompletionCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
+        {
+            myGraphicsPipeline->getConfig()->resources->model = model;
+            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
+        });
     };
 
     // auto loadTexture = [this](nfdchar_t* openFilePath)
@@ -827,7 +825,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     if (flipSuccess)
     {
         {
-            ZoneScopedN("wait");
+            ZoneScopedN("waitGPU");
             
             assert(frameIndex != myLastFrameIndex);
 
@@ -843,10 +841,10 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
-    auto garbageCollectFuture(
+    auto processTimelineCallbacksFuture(
         std::async(
             std::launch::async,
-            &Application<GraphicsBackend::Vulkan>::collectGarbage,
+            &Application<GraphicsBackend::Vulkan>::processTimelineCallbacks,
             this,
             frameLastSubmitTimelineValue));
 
@@ -855,9 +853,9 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
     // wait for garbage collect
     {
-        ZoneScopedN("waitGarbageCollect");
+        ZoneScopedN("waitProcessTimelineCallbacks");
 
-        garbageCollectFuture.get();
+        processTimelineCallbacksFuture.get();
     }
 
     // record transfers
@@ -895,10 +893,9 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
     ZoneScopedN("resizeFramebuffer");
 
     {
-        ZoneScopedN("deviceWaitIdle");
+        ZoneScopedN("waitGPU");
 
-        // todo: replace with frame & transfer timline sync
-        VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
+        myDevice->wait(std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
     uint32_t physicalDeviceIndex = myDevice->getDesc().physicalDeviceIndex;
@@ -914,18 +911,14 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
     auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
     initializeWindowDependentObjects(primaryCommandContext->beginScope());
 
-    SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[1] = { myDevice->getTimelineSemaphore() };
-    Flags<GraphicsBackend::Vulkan> waitDstStageMasks[1] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
-    uint64_t waitTimelineValues[1] = { std::max(myLastTransferTimelineValue, myLastFrameTimelineValue) };
-    SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[1] = {
-        myDevice->getTimelineSemaphore() };
+    SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[1] = { myDevice->getTimelineSemaphore() };
     uint64_t signalTimelineValues[1] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed) };
     myLastFrameTimelineValue = primaryCommandContext->submit({
         myDevice->getPrimaryGraphicsQueue(),
-        sizeof_array(waitSemaphores),
-        waitSemaphores,
-        waitDstStageMasks,
-        waitTimelineValues,
+        0,
+        nullptr,
+        nullptr,
+        nullptr,
         sizeof_array(signalSemaphores),
         signalSemaphores,
         signalTimelineValues});

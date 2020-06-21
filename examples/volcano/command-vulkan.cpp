@@ -141,7 +141,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&
 
     myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
 
-    myDevice->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
+    myDevice->addTimelineCompletionCallback(timelineValue, [this](uint64_t timelineValue)
     {
         ZoneScopedN("cmdReset");
 
@@ -165,6 +165,12 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&
 }
 
 template <>
+void CommandContext<GraphicsBackend::Vulkan>::addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback)
+{
+    mySubmitFinishedCallbacks.emplace_back(std::move(callback));
+}
+
+template <>
 void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue)
 {
     for (auto& cmd : commands)
@@ -172,7 +178,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList
 
     mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(commands));
 
-    myDevice->addGarbageCollectCallback(timelineValue, [this](uint64_t timelineValue)
+    addSubmitFinishedCallback([this](uint64_t timelineValue)
     {
         ZoneScopedN("cmdReset");
 
@@ -189,6 +195,9 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList
 
         onResetCommands(mySubmittedCommands, myFreeCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY], timelineValue);
     });
+
+    myDevice->addTimelineCompletionCallbacks(timelineValue, mySubmitFinishedCallbacks);
+    mySubmitFinishedCallbacks.clear();
 }
 
 template <>
@@ -377,6 +386,6 @@ CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
     if (!mySubmittedCommands.empty())
     {
         myDevice->wait(mySubmittedCommands.back().second.first);
-        myDevice->collectGarbage(mySubmittedCommands.back().second.first);
+        myDevice->processTimelineCallbacks(mySubmittedCommands.back().second.first);
     }
 }

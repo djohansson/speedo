@@ -88,7 +88,7 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
             std::get<0>(descAndInitialData).memoryFlags,
             std::get<0>(descAndInitialData).name.c_str())))
 {
-    deviceContext->addGarbageCollectCallback([deviceContext, descAndInitialData](uint64_t){
+    commandContext->addSubmitFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
 }
@@ -96,7 +96,7 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
-    getDeviceContext()->addGarbageCollectCallback(
+    getDeviceContext()->addTimelineCompletionCallback(
         [allocator = getDeviceContext()->getAllocator(), buffer = getBuffer(), bufferMemory = getBufferMemory()](uint64_t){
             vmaDestroyBuffer(allocator, buffer, bufferMemory);
     });

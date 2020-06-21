@@ -110,9 +110,12 @@ public:
     auto& timelineValue() { return myTimelineValue; }
     bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
-    void collectGarbage(std::optional<uint64_t> timelineValue = std::nullopt);
-    void addGarbageCollectCallback(std::function<void(uint64_t)>&& callback);
-    void addGarbageCollectCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
+    void addTimelineCompletionCallback(std::function<void(uint64_t)>&& callback);
+    void addTimelineCompletionCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
+    void addTimelineCompletionCallbacks(
+        uint64_t timelineValue,
+        const std::list<std::function<void(uint64_t)>>& callbacks);
+    void processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
 
 private:
 
@@ -130,6 +133,8 @@ private:
 
     SemaphoreHandle<B> myTimelineSemaphore = 0;
     std::atomic_uint64_t myTimelineValue = 0;
-    std::shared_mutex myGarbageCollectCallbacksMutex;
-    std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myGarbageCollectCallbacks;
+
+    // todo: make to an atomic queue!!
+    std::shared_mutex myTimelineCompletionCallbacksMutex;
+    std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCompletionCallbacks;
 };
