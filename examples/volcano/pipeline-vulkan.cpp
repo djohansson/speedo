@@ -148,9 +148,11 @@ void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = myConfig->layout->layout;
     pipelineInfo.renderPass = myConfig->resources->renderTarget->getRenderPass();
-    pipelineInfo.subpass = 0;
+    pipelineInfo.subpass = myConfig->resources->renderTarget->getSubpass().value_or(0);
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;
+
+    //myPipelineMap.emplace()
 
     VK_CHECK(vkCreateGraphicsPipelines(
         getDeviceContext()->getDevice(),
@@ -216,7 +218,7 @@ PipelineContext<GraphicsBackend::Vulkan>::PipelineContext(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     const SerializableShaderReflectionModule<GraphicsBackend::Vulkan>& shaders,
     const std::filesystem::path& userProfilePath,
-    PipelineCreateDesc<GraphicsBackend::Vulkan>&& desc)
+    PipelineContextCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : DeviceResource(deviceContext, desc)
 , myDesc(std::move(desc))
 , myInstance(instanceContext)
@@ -248,6 +250,7 @@ PipelineContext<GraphicsBackend::Vulkan>::~PipelineContext()
         myCache);
     
     vkDestroyPipeline(getDeviceContext()->getDevice(), myConfig->graphicsPipeline, nullptr);
+
     vkDestroyPipelineCache(getDeviceContext()->getDevice(), myCache, nullptr);
     vkDestroyPipelineLayout(getDeviceContext()->getDevice(), myConfig->layout->layout, nullptr);
 }

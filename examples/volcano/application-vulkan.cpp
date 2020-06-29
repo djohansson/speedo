@@ -287,7 +287,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice,
         *slangShaders,
         myUserProfilePath,
-        PipelineCreateDesc<GraphicsBackend::Vulkan>{});
+        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{});
     //
 
     // if (commandBufferLevel == 0)

@@ -19,6 +19,7 @@ struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
     Format<B> depthStencilImageFormat = {};
     ImageHandle<B> depthStencilImage = 0; // optional
     uint32_t layerCount = 1;
+    bool useDefaultInitialization = true; // create default render passes & framebuffer objects
 };
 
 template <GraphicsBackend B>
@@ -33,18 +34,20 @@ public:
     const auto& getAttachments() const { return myAttachments; }
     const RenderPassHandle<B>& getRenderPass();
     const FramebufferHandle<B>& getFrameBuffer();
+    const auto& getSubpass() const { return myCurrentSubpass; }
 
     void clear(CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const;
     void clearAll(CommandBufferHandle<B> cmd, const ClearValue<B>& color = {}, const ClearValue<B>& depthStencil = {}) const;
-    void nextSubpass(CommandBufferHandle<B> cmd, SubpassContents<B> contents) const;
+    
+    void addSubpassDescription(SubpassDescription<B>&& description);
+    void addSubpassDependency(SubpassDependency<B>&& dependency);
+    void nextSubpass(CommandBufferHandle<B> cmd, SubpassContents<B> contents);
+    void resetSubpasses();
 
-    // void setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<B> op);
-    // void setColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<B> op);
-    // void setDepthAttachmentLoadOp(AttachmentLoadOp<B> op);
-    // void setDepthAttachmentStoreOp(AttachmentStoreOp<B> op);
-    // void setStencilAttachmentLoadOp(AttachmentLoadOp<B> op);
-    // void setDepthAttachmentStoreOp(AttachmentStoreOp<B> op);
-    // void addSubpass(...)
+    void setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<B> op);
+    void setColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<B> op);
+    void setDepthStencilAttachmentLoadOp(AttachmentLoadOp<B> op);
+    void setDepthStencilAttachmentStoreOp(AttachmentStoreOp<B> op);
 
 protected:
 
@@ -59,7 +62,8 @@ private:
     using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
 
     uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const;    
-    void internalInitializeDefault(const RenderTargetCreateDesc<B>& desc);
+    void internalInitializeAttachments(const RenderTargetCreateDesc<B>& desc);
+    void internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
     RenderPassFramebufferTuple
@@ -73,6 +77,7 @@ private:
 
     RenderPassFramebufferTupleMap myMap;
     std::optional<typename RenderPassFramebufferTupleMap::const_iterator> myCurrent;
+    std::optional<uint32_t> myCurrentSubpass;
 
     static constexpr std::string_view sc_colorImageViewStr = "_ColorImageView";
     static constexpr std::string_view sc_depthImageViewStr = "_DepthImageView";
@@ -84,4 +89,5 @@ template <typename CreateDescType, GraphicsBackend B>
 class RenderTargetImpl : public RenderTarget<B>
 { };
 
+#include "rendertarget.inl"
 #include "rendertarget-vulkan.inl"

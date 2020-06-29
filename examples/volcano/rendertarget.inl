@@ -1,0 +1,54 @@
+template <GraphicsBackend B>
+void RenderTarget<B>::addSubpassDescription(SubpassDescription<B>&& description)
+{
+    mySubPassDescs.emplace_back(std::move(description));
+    if (!myCurrentSubpass)
+        myCurrentSubpass = std::make_optional<uint32_t>();
+}
+
+template <GraphicsBackend B>
+void RenderTarget<B>::addSubpassDependency(SubpassDependency<B>&& dependency)
+{
+    mySubPassDependencies.emplace_back(std::move(dependency));
+}
+
+template <GraphicsBackend B>
+void RenderTarget<B>::resetSubpasses()
+{
+    myCurrent.reset();
+    mySubPassDescs.clear();
+    mySubPassDependencies.clear();
+    myCurrentSubpass.reset();
+}
+
+template <GraphicsBackend B>
+void RenderTarget<B>::setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<B> op)
+{
+    assert(index < getRenderTargetDesc().colorImages.size());
+    
+    myCurrent.reset();
+    myAttachmentsDescs[index].loadOp = op;
+}
+
+template <GraphicsBackend B>
+void RenderTarget<B>::setColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<B> op)
+{
+    assert(index < getRenderTargetDesc().colorImages.size());
+    
+    myCurrent.reset();
+    myAttachmentsDescs[index].storeOp = op;
+}
+
+template <GraphicsBackend B>
+void RenderTarget<B>::setDepthStencilAttachmentLoadOp(AttachmentLoadOp<B> op)
+{
+    myCurrent.reset();
+    myAttachmentsDescs[myAttachmentsDescs.size() - 1].loadOp = op;
+}
+
+template <GraphicsBackend B>
+void RenderTarget<B>::setDepthStencilAttachmentStoreOp(AttachmentStoreOp<B> op)
+{
+    myCurrent.reset();
+    myAttachmentsDescs[myAttachmentsDescs.size() - 1].storeOp = op;
+}

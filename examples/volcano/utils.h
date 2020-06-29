@@ -9,8 +9,11 @@
 #include <cstring>
 #include <functional>
 #include <future>
+#include <memory>
 #include <vector>
 #include <tuple>
+
+#include <xxh3.h>
 
 #if PROFILING_ENABLED
 #ifndef TRACY_ENABLE
@@ -18,6 +21,7 @@
 #endif
 #endif
 #include <Tracy.hpp>
+
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
 #define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
@@ -107,3 +111,5 @@ auto make_vector(T0&& first, Ts&&... args)
         std::forward<Ts>(args)...
     };
 }
+    
+thread_local extern std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> t_xxhState;

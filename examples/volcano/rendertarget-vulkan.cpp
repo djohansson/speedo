@@ -3,17 +3,9 @@
 
 #include <core/slang-secure-crt.h>
 
-#include <xxh3.h>
-
-namespace rendertarget_vulkan
-{
-    
-thread_local static std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> t_xxhState(XXH3_createState(), XXH3_freeState);
-
-}
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefault(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
 {
     char stringBuffer[128];
     
@@ -103,50 +95,76 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefault(const Rend
     }
 
     assert(attachmentIt == myAttachmentsReferences.size());
+}
 
+template <>
+void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+{
     uint32_t subPassIt = 0;
 
     if (desc.depthStencilImage)
     {
-        VkSubpassDescription& colorAndDepth = mySubPassDescs.emplace_back();
+        // VkSubpassDescription depth = {};
+        // depth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        // depth.colorAttachmentCount = 0;
+        // depth.pColorAttachments = nullptr;
+        // depth.pDepthStencilAttachment = &myAttachmentsReferences.back();
+        // addSubpassDescription(std::move(depth));
+
+        // VkSubpassDependency dep0 = {};
+        // dep0.srcSubpass = subPassIt;
+        // dep0.dstSubpass = ++subPassIt;
+        // dep0.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        // dep0.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        // dep0.srcAccessMask = 0;
+        // dep0.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        // dep0.dependencyFlags = 0;
+        // addSubpassDependency(std::move(dep0));
+
+        VkSubpassDescription colorAndDepth = {};
         colorAndDepth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         colorAndDepth.colorAttachmentCount = myAttachmentsReferences.size() - 1;
         colorAndDepth.pColorAttachments = myAttachmentsReferences.data();
         colorAndDepth.pDepthStencilAttachment = &myAttachmentsReferences.back();
+        addSubpassDescription(std::move(colorAndDepth));
 
-        VkSubpassDependency& dep0 = mySubPassDependencies.emplace_back();
-        dep0.srcSubpass = VK_SUBPASS_EXTERNAL;
-        dep0.dstSubpass = subPassIt;
-        dep0.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dep0.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dep0.srcAccessMask = 0;
-        dep0.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        dep0.dependencyFlags = 0;
+        VkSubpassDependency dep1 = {};
+        dep1.srcSubpass = VK_SUBPASS_EXTERNAL;
+        dep1.dstSubpass = subPassIt;
+        dep1.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dep1.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dep1.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        dep1.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        dep1.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        addSubpassDependency(std::move(dep1));
 
-        VkSubpassDescription& color = mySubPassDescs.emplace_back();
+        VkSubpassDescription color = {};
         color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         color.colorAttachmentCount = myAttachmentsReferences.size() - 1;
         color.pColorAttachments = myAttachmentsReferences.data();
         color.pDepthStencilAttachment = nullptr;
+        addSubpassDescription(std::move(color));
 
-        VkSubpassDependency& dep1 = mySubPassDependencies.emplace_back();
-        dep1.srcSubpass = subPassIt;
-        dep1.dstSubpass = ++subPassIt;
-        dep1.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep1.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep1.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-        dep1.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dep1.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        VkSubpassDependency dep2 = {};
+        dep2.srcSubpass = subPassIt;
+        dep2.dstSubpass = ++subPassIt;
+        dep2.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dep2.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dep2.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+        dep2.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dep2.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        addSubpassDependency(std::move(dep2));
     }
     else
     {
-        VkSubpassDescription& color = mySubPassDescs.emplace_back();
+        VkSubpassDescription color = {};
         color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         color.colorAttachmentCount = myAttachmentsReferences.size();
         color.pColorAttachments = myAttachmentsReferences.data();
         color.pDepthStencilAttachment = nullptr;
+        addSubpassDescription(std::move(color));
 
-        VkSubpassDependency& dep0 = mySubPassDependencies.emplace_back();
+        VkSubpassDependency dep0 = {};
         dep0.srcSubpass = VK_SUBPASS_EXTERNAL;
         dep0.dstSubpass = subPassIt;
         dep0.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -154,14 +172,13 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefault(const Rend
         dep0.srcAccessMask = 0;
         dep0.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         dep0.dependencyFlags = 0;
+        addSubpassDependency(std::move(dep0));
     }
 }
 
 template <>
 uint64_t RenderTarget<GraphicsBackend::Vulkan>::internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const
 {
-    using namespace rendertarget_vulkan;
-
     assert(t_xxhState.get());
 
     constexpr XXH64_hash_t seed = 42;
@@ -274,9 +291,11 @@ void RenderTarget<GraphicsBackend::Vulkan>::clearAll(
 template <>
 void RenderTarget<GraphicsBackend::Vulkan>::nextSubpass(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    SubpassContents<GraphicsBackend::Vulkan> contents) const
+    SubpassContents<GraphicsBackend::Vulkan> contents)
 {
     vkCmdNextSubpass(cmd, contents);
+
+    (*myCurrentSubpass)++;
 }
 
 template <>
@@ -303,6 +322,7 @@ template <>
 const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getRenderPass()
 {
     internalUpdateMap(getRenderTargetDesc());
+
     return std::get<0>((*myCurrent)->second);
 }
 
@@ -310,6 +330,7 @@ template <>
 const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getFrameBuffer()
 {
     internalUpdateMap(getRenderTargetDesc());
+    
     return std::get<1>((*myCurrent)->second);
 }
 
@@ -330,8 +351,13 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
 {
     ZoneScopedN("RenderTarget()");
 
-    internalInitializeDefault(desc);
-    internalUpdateMap(desc);
+    internalInitializeAttachments(desc);
+    
+    if (desc.useDefaultInitialization)
+    {
+        internalInitializeDefaultRenderPasses(desc);
+        internalUpdateMap(desc);
+    }
 }
 
 template <>

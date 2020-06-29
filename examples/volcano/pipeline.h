@@ -9,7 +9,7 @@
 
 
 template <GraphicsBackend B>
-struct PipelineCreateDesc : DeviceResourceCreateDesc<B>
+struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
 {
 };
 
@@ -27,7 +27,7 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const SerializableShaderReflectionModule<B>& shaders,
         const std::filesystem::path& userProfilePath,
-        PipelineCreateDesc<B>&& desc);
+        PipelineContextCreateDesc<B>&& desc);
     ~PipelineContext();
 
     const auto& getConfig() const { return myConfig; }
@@ -40,12 +40,17 @@ public:
 
 private:
 
-    const PipelineCreateDesc<B> myDesc = {};
-	std::shared_ptr<PipelineConfiguration<B>> myConfig;
+    using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
+
+    const PipelineContextCreateDesc<B> myDesc = {};
     PipelineCacheHandle<B> myCache = 0;
+    PipelineMap myPipelineMap;
+    std::optional<typename PipelineMap::const_iterator> myCurrent;
 
 
     // temp crap
     std::shared_ptr<InstanceContext<B>> myInstance;
+    std::shared_ptr<PipelineConfiguration<B>> myConfig;
     std::filesystem::path myUserProfilePath;
+    //
 };
