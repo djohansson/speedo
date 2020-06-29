@@ -1,5 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
+#include <clocale>
 
 #include <algorithm>
 #include <string>
@@ -7,6 +8,10 @@
 
 #if defined(_DEBUG) && defined(__WINDOWS__)
 #include <crtdbg.h>
+#ifndef _AMD64_
+#define _AMD64_ 1
+#endif
+#include <debugapi.h>
 #endif
 
 #define GLFW_INCLUDE_NONE
@@ -145,45 +150,23 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
     }
 }
 
-#if defined(_DEBUG) && defined(__WINDOWS__)
-int __cdecl CrtReportHook(int nReportType, char* szMsg, int* pnRet)
-{
-	int nRet = 0;
+// #if defined(_DEBUG) && defined(__WINDOWS__)
+// int __cdecl CrtReportHook(int nReportType, char* szMsg, int* pnRet)
+// {
+// 	int nRet = 0;
 
-	printf("CRT report type is \"");
-	switch (nReportType)
-	{
-	case _CRT_ASSERT: {
-		printf("_CRT_ASSERT");
-		// nRet = TRUE;   // Always stop for this type of report
-		break;
-	}
+// 	size_t wszMsgSize;
+// 	wchar_t wszMsg[1024];
+// 	mbstowcs_s(&wszMsgSize, wszMsg, sizeof_array(wszMsg), szMsg, strnlen_s(szMsg, 1024));
 
-	case _CRT_WARN: {
-		printf("_CRT_WARN");
-		break;
-	}
+// 	OutputDebugString(wszMsg);
 
-	case _CRT_ERROR: {
-		printf("_CRT_ERROR");
-		break;
-	}
+// 	if (pnRet)
+// 		*pnRet = 0;
 
-	default: {
-		printf("???Unknown???");
-		break;
-	}
-	}
-
-	printf("\".\nCRT report message is:\n\t");
-	printf_s(szMsg);
-
-	if (pnRet)
-		*pnRet = 0;
-
-	return nRet;
-}
-#endif
+// 	return nRet;
+// }
+// #endif
 
 const char* getCmdOption(const char*const* begin, const char*const* end, const char* option)
 {
@@ -198,11 +181,16 @@ const char* getCmdOption(const char*const* begin, const char*const* end, const c
 
 int main(int argc, char** argv)
 {
+	_CrtMemState programStartMemState;
+	_CrtMemCheckpoint(&programStartMemState);
+
+	setlocale(LC_ALL, "");
+	
 #if defined(_DEBUG) && defined(__WINDOWS__)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-	int nRet = _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
-	printf("_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook) returned %d\n", nRet);
+	// _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+	// int nRet = _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
+	// printf("_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook) returned %d\n", nRet);
 #endif
 
 	// Setup window
@@ -250,6 +238,8 @@ int main(int argc, char** argv)
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 
+	
+	uint64_t frameIndex = 0;
 	do
 	{
 		FrameMark;
@@ -264,6 +254,12 @@ int main(int argc, char** argv)
 			ZoneScopedN("imgui");
 			ImGui_ImplGlfw_NewFrame();
 		}
+
+		_CrtMemState drawLoopMemState, diffMemState;
+		_CrtMemCheckpoint(&drawLoopMemState);
+
+		if ((++frameIndex % 10000 == 0) && _CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
+   			_CrtMemDumpStatistics(&diffMemState);
 
 	} while (!glfwWindowShouldClose(window) && !volcano_draw());
 
