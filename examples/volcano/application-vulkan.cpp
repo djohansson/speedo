@@ -153,58 +153,24 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
     myGraphicsPipeline->createGraphicsPipeline();
 }
 
-template <>
-void Application<GraphicsBackend::Vulkan>::initializeWindowDependentObjects(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd) const
-{
-    ZoneScopedN("initializeWindowDependentObjects");
+// template <>
+// void Application<GraphicsBackend::Vulkan>::initializeWindowDependentObjects(
+//     CommandBufferHandle<GraphicsBackend::Vulkan> cmd) const
+// {
+//     ZoneScopedN("initializeWindowDependentObjects");
 
-    for (const auto& colorTexture : myRenderTexture->getColorTextures())
-    {
-        colorTexture->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        
-        VkClearColorValue colorClearValue = { { 1.0f, 0.0f, 0.0f, 0.0f } };
-        VkImageSubresourceRange colorRange = {
-            VK_IMAGE_ASPECT_COLOR_BIT,
-            0,
-            VK_REMAINING_MIP_LEVELS,
-            0,
-            VK_REMAINING_ARRAY_LAYERS};
+//     for (const auto& colorTexture : myRenderTexture->getColorTextures())
+//     {
+//         colorTexture->clearColor(cmd, { { 1.0f, 0.0f, 0.0f, 0.0f } });
+//         colorTexture->transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+//     }
 
-        vkCmdClearColorImage(
-            cmd,
-            colorTexture->getImage(),
-            colorTexture->getImageLayout(),
-            &colorClearValue,
-            1,
-            &colorRange);
-
-        colorTexture->transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-
-    if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
-    {
-        depthStencilTexture->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-        VkClearDepthStencilValue clearDepthStencilValue = { 1.0f, 0 };
-        VkImageSubresourceRange depthStencilRange = {
-            VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
-            0,
-            VK_REMAINING_MIP_LEVELS,
-            0,
-            VK_REMAINING_ARRAY_LAYERS};
-
-        vkCmdClearDepthStencilImage(
-            cmd,
-            depthStencilTexture->getImage(),
-            depthStencilTexture->getImageLayout(),
-            &clearDepthStencilValue,
-            1,
-            &depthStencilRange);
-        
-        depthStencilTexture->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    }
-}
+//     if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
+//     {
+//         depthStencilTexture->clearDepthStencil(cmd, { 1.0f, 0 });
+//         depthStencilTexture->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+//     }
+// }
 
 template <>
 void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue)
@@ -265,7 +231,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
         ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
-            std::filesystem::absolute(myUserProfilePath / "instance.json"),
+            myUserProfilePath / "instance.json",
             "instanceConfiguration"),
         view);
 
@@ -276,11 +242,11 @@ Application<GraphicsBackend::Vulkan>::Application(
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         myInstance,
         ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
-            std::filesystem::absolute(myUserProfilePath / "device.json"),
+            myUserProfilePath / "device.json",
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
 
-    auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(std::filesystem::absolute(myResourcePath / "shaders" / "shaders.slang"));
+    auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(myResourcePath / "shaders" / "shaders.slang");
 
     myGraphicsPipeline = std::make_shared<PipelineContext<GraphicsBackend::Vulkan>>(
         myInstance,
@@ -306,16 +272,16 @@ Application<GraphicsBackend::Vulkan>::Application(
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
         {
-            auto transferCommands = myTransferCommands->beginScope();
+            auto transferCommands = myTransferCommands->commands();
 
             myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
                 myTransferCommands,
-                std::filesystem::absolute(myResourcePath / "models" / "gallery.obj"));
+                myResourcePath / "models" / "gallery.obj");
             myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
                 myDevice,
                 myTransferCommands,
-                std::filesystem::absolute(myResourcePath / "images" / "gallery.jpg"));
+                myResourcePath / "images" / "gallery.jpg");
             myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
             myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
@@ -348,9 +314,9 @@ Application<GraphicsBackend::Vulkan>::Application(
         auto& primaryCommandContext = myWindow->commandContexts()[frame->getDesc().index][0];
         
         {
-            auto primaryCommands = primaryCommandContext->beginScope();
+            auto primaryCommands = primaryCommandContext->commands();
 
-            initializeWindowDependentObjects(primaryCommands);
+            //initializeWindowDependentObjects(primaryCommands);
             initIMGUI(myDevice, primaryCommands, myUserProfilePath);
 
             myGraphicsPipeline->getConfig()->resources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -386,11 +352,11 @@ Application<GraphicsBackend::Vulkan>::Application(
     {
         std::shared_ptr<Model<GraphicsBackend::Vulkan>> model;
         {
-            auto transferCommands = myTransferCommands->beginScope();
+            auto transferCommands = myTransferCommands->commands();
             model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
                 myTransferCommands,
-                std::filesystem::absolute(openFilePath));
+                openFilePath);
         }
 
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
@@ -422,7 +388,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     //         myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
     //             myDevice,
     //             myTransferCommands,
-    //             std::filesystem::absolute(openFilePath));
+    //             openFilePath);
     //     }
 
     //     vkDestroyImageView(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->textureView, nullptr);
@@ -464,7 +430,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                         ImGuiInputTextFlags_EnterReturnsTrue|ImGuiInputTextFlags_CallbackAlways,
                         [](ImGuiInputTextCallbackData* data)
                         {
-                            PopClipRect();
+                            //PopClipRect();
                             PopItemWidth();
 
                             auto textSize = std::max(
@@ -587,11 +553,13 @@ Application<GraphicsBackend::Vulkan>::Application(
                 // attributes
                 if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                 {
-                    auto rowCount = std::max(inOutNode->inputAttributes().size(), inOutNode->inputAttributes().size());
+                    auto rowCount = std::max(inOutNode->inputAttributes().size(), inOutNode->outputAttributes().size());
+
                     for (uint32_t rowIt = 0; rowIt < rowCount; rowIt++)
                     {
                         float inputTextWidth = 0.0f;
-                        if (rowIt < inOutNode->inputAttributes().size())
+                        bool hasInputPin = rowIt < inOutNode->inputAttributes().size();
+                        if (hasInputPin)
                         {
                             auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
                             sprintf_s(buffer, sizeof(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
@@ -616,16 +584,19 @@ Application<GraphicsBackend::Vulkan>::Application(
                             auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
                             sprintf_s(buffer, sizeof(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
 
+                            if (hasInputPin)
+                                ImGui::SameLine();
+
                             imnodes::BeginOutputAttribute(outputAttribute.id);
 
                             float outputTextWidth = CalcTextSize(
                                 outputAttribute.name.c_str(),
                                 outputAttribute.name.c_str() + outputAttribute.name.size()).x;
 
-                            // if (rowIt < inOutNode->inputAttributes().size())
-                            //     ImGui::SameLine();
-
-                            Indent(std::max(titleBarTextWidth, inputTextWidth + outputTextWidth) - outputTextWidth);
+                            if (hasInputPin)
+                                Indent(std::max(titleBarTextWidth, inputTextWidth + outputTextWidth) - outputTextWidth);
+                            else
+                                Indent(std::max(titleBarTextWidth, outputTextWidth + 80.0f) - outputTextWidth);
 
                             editableTextField(
                                 outputAttribute.id,
@@ -834,6 +805,16 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
         myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
 
+        if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
+        {
+            auto& frame = myWindow->frames()[frameIndex];
+            auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
+            auto primaryCommands = primaryCommandContext->commands();
+
+            depthStencilTexture->clearDepthStencil(primaryCommands, { 1.0f, 0 });
+            depthStencilTexture->transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        }
+
         myLastFrameTimelineValue = myWindow->submitFrame(
             frameIndex,
             myLastFrameIndex,
@@ -908,18 +889,17 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
 
     createWindowDependentObjects(framebufferExtent);
     
-    auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
-    initializeWindowDependentObjects(primaryCommandContext->beginScope());
-
-    SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[1] = { myDevice->getTimelineSemaphore() };
-    uint64_t signalTimelineValues[1] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed) };
-    myLastFrameTimelineValue = primaryCommandContext->submit({
-        myDevice->getPrimaryGraphicsQueue(),
-        0,
-        nullptr,
-        nullptr,
-        nullptr,
-        sizeof_array(signalSemaphores),
-        signalSemaphores,
-        signalTimelineValues});
+    //auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
+    //initializeWindowDependentObjects(primaryCommandContext->beginScope());
+    // SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[1] = { myDevice->getTimelineSemaphore() };
+    // uint64_t signalTimelineValues[1] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed) };
+    // myLastFrameTimelineValue = primaryCommandContext->submit({
+    //     myDevice->getPrimaryGraphicsQueue(),
+    //     0,
+    //     nullptr,
+    //     nullptr,
+    //     nullptr,
+    //     sizeof_array(signalSemaphores),
+    //     signalSemaphores,
+    //     signalTimelineValues});
 }

@@ -21,8 +21,6 @@ struct WindowCreateDesc
 	Extent2d<B> windowExtent = {};
 	Extent2d<B> framebufferExtent = {};
 	Extent2d<B> splitScreenGrid = {};
-	ClearValue<B> clearValue = {};
-	bool clearEnable = true;
 	uint8_t maxViewCommandContextCount = 4;
 };
 

@@ -199,14 +199,60 @@ Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspe
 
 template <>
 void Texture<GraphicsBackend::Vulkan>::transition(
-    CommandBufferHandle<GraphicsBackend::Vulkan> commands,
+    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     ImageLayout<GraphicsBackend::Vulkan> layout)
 {
     if (getImageLayout() != layout)
     {
-        transitionImageLayout(commands, getImage(), myDesc.format, getImageLayout(), layout);
+        transitionImageLayout(cmd, getImage(), myDesc.format, getImageLayout(), layout);
         std::get<2>(myData) = layout;
     }
+}
+
+template <>
+void Texture<GraphicsBackend::Vulkan>::clearColor(
+    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
+    const ClearColorValue<GraphicsBackend::Vulkan>& color)
+{
+    transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        
+    VkImageSubresourceRange colorRange = {
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        0,
+        VK_REMAINING_MIP_LEVELS,
+        0,
+        VK_REMAINING_ARRAY_LAYERS};
+
+    vkCmdClearColorImage(
+        cmd,
+        getImage(),
+        getImageLayout(),
+        &color,
+        1,
+        &colorRange);
+}
+
+template <>
+void Texture<GraphicsBackend::Vulkan>::clearDepthStencil(
+    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
+    const ClearDepthStencilValue<GraphicsBackend::Vulkan>& depthStencil)
+{
+    transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkImageSubresourceRange depthStencilRange = {
+        VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
+        0,
+        VK_REMAINING_MIP_LEVELS,
+        0,
+        VK_REMAINING_ARRAY_LAYERS};
+
+    vkCmdClearDepthStencilImage(
+        cmd,
+        getImage(),
+        getImageLayout(),
+        &depthStencil,
+        1,
+        &depthStencilRange);
 }
 
 template <>

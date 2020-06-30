@@ -91,7 +91,7 @@ private:
 	void shutdownIMGUI();
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
-	void initializeWindowDependentObjects(CommandBufferHandle<B> cmd) const;
+	//void initializeWindowDependentObjects(CommandBufferHandle<B> cmd) const;
 
 	void processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue);
 

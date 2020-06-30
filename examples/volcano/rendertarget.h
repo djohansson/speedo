@@ -36,8 +36,11 @@ public:
     const FramebufferHandle<B>& getFrameBuffer();
     const auto& getSubpass() const { return myCurrentSubpass; }
 
-    void clear(CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const;
-    void clearAll(CommandBufferHandle<B> cmd, const ClearValue<B>& color = {}, const ClearValue<B>& depthStencil = {}) const;
+    void clearSingle(CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const;
+    void clearAll(
+        CommandBufferHandle<B> cmd,
+        const ClearColorValue<B>& color = {},
+        const ClearDepthStencilValue<B>& depthStencil = {}) const;
     
     void addSubpassDescription(SubpassDescription<B>&& description);
     void addSubpassDependency(SubpassDependency<B>&& dependency);

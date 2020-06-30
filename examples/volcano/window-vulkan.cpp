@@ -205,10 +205,6 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         updateViewBuffer(frameIndex);
     }));
 
-    std::array<ClearValue<GraphicsBackend::Vulkan>, 2> clearValues = {};
-    clearValues[0] = myDesc.clearValue;
-    clearValues[1].depthStencil = {1.0f, 0};
-
     std::future<void> renderIMGUIFuture(std::async(
         std::launch::async,
         [this, &config, &frame](uint32_t commandContextIndex)
@@ -231,7 +227,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             secBeginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 
             auto& commandContext = commandContexts()[frame->getDesc().index][commandContextIndex];
-            auto cmd = commandContext->beginScope(secBeginInfo);
+            auto cmd = commandContext->commands(std::move(secBeginInfo));
 
             // TracyVkZone(
             //     commandContext->userData<command_vulkan::UserData>().tracyContext,
@@ -287,7 +283,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                 secBeginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
                     
                 auto& commandContext = commandContexts()[frame->getDesc().index][threadIt];
-                auto cmd = commandContext->beginScope(secBeginInfo);
+                auto cmd = commandContext->commands(std::move(secBeginInfo));
 
                 // TracyVkZone(
                 //     commandContext->userData<command_vulkan::UserData>().tracyContext,
@@ -362,6 +358,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
                     drawIt = drawAtomic++;
                 }
+
+                commandContext->endCommands();
             });
     }
 
@@ -375,7 +373,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
     {
         ZoneScopedN("executeCommands");
 
-        auto primaryCommands = primaryCommandContext->beginScope();
+        auto primaryCommands = primaryCommandContext->commands();
 
         // TracyVkZone(
         //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
@@ -388,8 +386,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         beginInfo.renderArea.extent = {
             config.resources->renderTarget->getRenderTargetDesc().imageExtent.width,
             config.resources->renderTarget->getRenderTargetDesc().imageExtent.height};
-        beginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-        beginInfo.pClearValues = clearValues.data();
+        beginInfo.clearValueCount = 0;
+        beginInfo.pClearValues = nullptr;
         
         {
             vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);

@@ -189,6 +189,12 @@ template <GraphicsBackend B>
 using ClearValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearValue, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using ClearColorValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearColorValue, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ClearDepthStencilValue = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearDepthStencilValue, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using ClearAttachment = std::conditional_t<B == GraphicsBackend::Vulkan, VkClearAttachment, std::nullptr_t>;
 
 template <GraphicsBackend B>

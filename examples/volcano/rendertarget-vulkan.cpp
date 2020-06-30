@@ -80,7 +80,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
         VkAttachmentDescription& depthStencilAttachment = myAttachmentsDescs.emplace_back();
 		depthStencilAttachment.format = desc.depthStencilImageFormat;
 		depthStencilAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-		depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthStencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthStencilAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -261,7 +261,7 @@ RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(ui
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::clear(
+void RenderTarget<GraphicsBackend::Vulkan>::clearSingle(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     const ClearAttachment<GraphicsBackend::Vulkan>& clearAttachment) const
 {
@@ -272,18 +272,26 @@ void RenderTarget<GraphicsBackend::Vulkan>::clear(
 template <>
 void RenderTarget<GraphicsBackend::Vulkan>::clearAll(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    const ClearValue<GraphicsBackend::Vulkan>& color,
-    const ClearValue<GraphicsBackend::Vulkan>& depthStencil) const
+    const ClearColorValue<GraphicsBackend::Vulkan>& color,
+    const ClearDepthStencilValue<GraphicsBackend::Vulkan>& depthStencil) const
 {
     uint32_t attachmentIt = 0;
     VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().imageExtent }, 0, getRenderTargetDesc().layerCount };
-    std::vector<VkClearAttachment> clearAttachments(myAttachments.size(), { VK_IMAGE_ASPECT_COLOR_BIT, attachmentIt, color });
+    std::vector<VkClearAttachment> clearAttachments(
+        myAttachments.size(), {
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            attachmentIt,
+            { .color = color } });
 
     for (auto& attachment : clearAttachments)
         attachment.colorAttachment = attachmentIt++;
 
     if (getRenderTargetDesc().depthStencilImage)
-        clearAttachments.emplace_back(VkClearAttachment{ VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, attachmentIt++, depthStencil });
+        clearAttachments.emplace_back(
+            VkClearAttachment{
+                 VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+                 attachmentIt++,
+                 { .depthStencil = depthStencil } });
     
     vkCmdClearAttachments(cmd, clearAttachments.size(), clearAttachments.data(), 1, &rect);
 }

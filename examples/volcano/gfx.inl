@@ -54,7 +54,7 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 			(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
 		spAddTranslationUnitSourceStringSpan(
-			slangRequest, translationUnitIndex, slangFile.u8string().c_str(),
+			slangRequest, translationUnitIndex, std::filesystem::absolute(slangFile).u8string().c_str(),
 			shaderString.c_str(), shaderString.c_str() + shaderString.size());
 
 		// temp

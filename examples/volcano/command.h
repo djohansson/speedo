@@ -10,6 +10,7 @@
 #include <functional>
 #include <list>
 #include <memory>
+#include <optional>
 #include <shared_mutex>
 #include <utility>
 #include <vector>
@@ -75,37 +76,6 @@ private:
 };
 
 template <GraphicsBackend B>
-class CommandBufferAccessScope : Noncopyable, Nondynamic
-{
-public:
-
-    CommandBufferAccessScope(CommandBufferAccessScope<B>&& other) = default;
-    CommandBufferAccessScope(CommandBufferAccessScope<B> const&& other)
-    : myArray(other.myArray)
-    , myIndex(other.myIndex) {};
-    CommandBufferAccessScope(CommandBufferArray<B>& array, const CommandBufferBeginInfo<B>& beginInfo)
-    : myArray(array)
-    , myIndex(myArray.begin(beginInfo)) {}
-    ~CommandBufferAccessScope()
-    {
-        if (myArray.recording(myIndex))
-            end();
-    }
-
-    void end()
-    {
-        myArray.end(myIndex);
-    }
-
-    operator CommandBufferHandle<B>() const { return myArray[myIndex]; }
-
-private:
-
-    CommandBufferArray<B>& myArray;
-    uint8_t myIndex = 0;
-};
-
-template <GraphicsBackend B>
 struct CommandContextCreateDesc
 {
     CommandPoolHandle<B> pool = 0;
@@ -131,6 +101,59 @@ struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
     CommandContextBeginInfo();
     
     CommandBufferLevel<B> level = {};
+
+    bool operator==(const CommandContextBeginInfo& other) const
+    {
+        return 
+            //static_cast<CommandBufferBeginInfo<B>>(other) == static_cast<CommandBufferBeginInfo<B>>(*this) &&
+            other.level == level;
+    }
+};
+
+
+template <GraphicsBackend B>
+class CommandBufferAccessScope : Noncopyable, Nondynamic
+{
+public:
+
+    CommandBufferAccessScope(CommandBufferAccessScope<B>&& other)
+    : myArray(other.myArray)
+    , myIndex(other.myIndex)
+    , myBeginInfo(std::move(other.myBeginInfo))
+    {
+        other.myIndex = std::nullopt;
+    };
+    CommandBufferAccessScope(CommandBufferAccessScope<B> const&& other)
+    : myArray(other.myArray)
+    , myIndex(other.myIndex)
+    , myBeginInfo(std::move(other.myBeginInfo))
+    {
+        other.myIndex = std::nullopt;
+    };
+    CommandBufferAccessScope(CommandBufferArray<B>& array, CommandContextBeginInfo<B>&& beginInfo)
+    : myArray(array)
+    , myIndex(std::make_optional(myArray.begin(beginInfo)))
+    , myBeginInfo(std::move(beginInfo)) {}
+    ~CommandBufferAccessScope()
+    {
+        if (myIndex && myArray.recording(*myIndex))
+            end();
+    }
+
+    const auto& getBeginInfo() const { return myBeginInfo; }
+
+    void end()
+    {
+        myArray.end(*myIndex);
+    }
+
+    operator CommandBufferHandle<B>() const { return myArray[*myIndex]; }
+
+private:
+
+    CommandBufferArray<B>& myArray;
+    std::optional<uint8_t> myIndex;
+    CommandContextBeginInfo<B> myBeginInfo = {};
 };
 
 template <GraphicsBackend B>
@@ -146,15 +169,23 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto beginScope(const CommandContextBeginInfo<B>& beginInfo = {}) 
+    auto commands(CommandContextBeginInfo<B>&& beginInfo = {})
     {
-        std::unique_lock writeLock(myCommandsMutex);
-        return internalBeginScope(beginInfo);
+        if (myLastCommands && (*myLastCommands).getBeginInfo() == beginInfo)
+        {
+            std::shared_lock readLock(myCommandsMutex);
+            return internalCommands();
+        }
+        else
+        {
+            std::unique_lock writeLock(myCommandsMutex);
+            return internalBeginScope(std::move(beginInfo));
+        }
     }
-    auto commands()
+    void endCommands()
     {
-        std::shared_lock readLock(myCommandsMutex);
-        return internalCommands();
+        if (myLastCommands)
+            myLastCommands = std::nullopt;
     }
     
     uint64_t execute(CommandContext<B>& callee);
@@ -169,7 +200,7 @@ protected:
 
 private:
 
-    CommandBufferAccessScope<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
+    CommandBufferHandle<B> internalBeginScope(CommandContextBeginInfo<B>&& beginInfo);
     CommandBufferHandle<B> internalCommands() const;
 
     using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
@@ -186,6 +217,6 @@ private:
     std::vector<CommandBufferList> myFreeCommands;
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
-    CommandBufferHandle<B> myLastCommands;
+    std::optional<CommandBufferAccessScope<B>> myLastCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };

@@ -114,23 +114,22 @@ CommandContextBeginInfo<GraphicsBackend::Vulkan>::CommandContextBeginInfo()
 }
 
 template <>
-CommandBufferAccessScope<GraphicsBackend::Vulkan>
-CommandContext<GraphicsBackend::Vulkan>::internalBeginScope(const CommandContextBeginInfo<GraphicsBackend::Vulkan>& beginInfo)
+CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalBeginScope(
+    CommandContextBeginInfo<GraphicsBackend::Vulkan>&& beginInfo)
 {
     if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
         enqueueOnePending(beginInfo.level);
 
-    auto scope = CommandBufferAccessScope<GraphicsBackend::Vulkan>(myPendingCommands[beginInfo.level].back().first, beginInfo);
+    myLastCommands.emplace(
+        CommandBufferAccessScope<GraphicsBackend::Vulkan>(myPendingCommands[beginInfo.level].back().first, std::move(beginInfo)));
 
-    myLastCommands = scope;
-
-    return scope;
+    return (*myLastCommands);
 }
     
 template <>
 CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalCommands() const
 {
-    return myLastCommands;
+    return (*myLastCommands);
 }
 
 template <>
@@ -204,9 +203,11 @@ template <>
 uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
 {
+    ZoneScopedN("submit");
+
     std::unique_lock writeLock(myCommandsMutex);
 
-    ZoneScopedN("submit");
+    endCommands();
 
     auto& pendingCommands = myPendingCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 

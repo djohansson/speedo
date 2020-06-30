@@ -47,7 +47,10 @@ public:
     ImageViewHandle<B> createView(Flags<B> aspectFlags);
     //
 
-    void transition(CommandBufferHandle<B> commands, ImageLayout<B> layout);
+    void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color);
+    void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil);
+
+    void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
     
 private:
 
