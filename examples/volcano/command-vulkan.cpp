@@ -373,8 +373,8 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(
     CommandContextCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : myDevice(deviceContext)
 , myDesc(std::move(desc))
-, myPendingCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
-, myFreeCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
+, myPendingCommands(2)
+, myFreeCommands(2)
 {
     ZoneScopedN("CommandContext()");
 }
