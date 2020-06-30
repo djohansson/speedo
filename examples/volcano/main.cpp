@@ -181,12 +181,11 @@ const char* getCmdOption(const char*const* begin, const char*const* end, const c
 
 int main(int argc, char** argv)
 {
+	setlocale(LC_ALL, "");
+
+#if defined(_DEBUG) && defined(__WINDOWS__)
 	_CrtMemState programStartMemState;
 	_CrtMemCheckpoint(&programStartMemState);
-
-	setlocale(LC_ALL, "");
-	
-#if defined(_DEBUG) && defined(__WINDOWS__)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 	// _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
 	// int nRet = _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
@@ -255,11 +254,13 @@ int main(int argc, char** argv)
 			ImGui_ImplGlfw_NewFrame();
 		}
 
+	#if defined(_DEBUG) && defined(__WINDOWS__)
 		_CrtMemState drawLoopMemState, diffMemState;
 		_CrtMemCheckpoint(&drawLoopMemState);
 
 		if ((++frameIndex % 10000 == 0) && _CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
    			_CrtMemDumpStatistics(&diffMemState);
+	#endif
 
 	} while (!glfwWindowShouldClose(window) && !volcano_draw());
 

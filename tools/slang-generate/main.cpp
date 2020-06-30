@@ -879,10 +879,8 @@ int main(
         std::size_t lastSlash = inputPathStr.find_last_of("/\\");
         std::string inputFileStr = inputPathStr.substr(lastSlash + 1);
         std::string outputDirStr = std::string(outputDir);
-        if (outputDirStr.find_last_of("/\\") != (outputDirStr.size() - 1))
-            outputDirStr.append("\\");
 
-        mkdir(outputDirStr.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+        outputDirStr = outputDirStr.substr(0, outputDirStr.find_last_of("/\\") + 1);
 
         auto outputPathStr = (outputDir ? outputDirStr.append(inputFileStr).c_str() : inputPath);
         

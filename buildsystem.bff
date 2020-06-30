@@ -147,7 +147,7 @@ function AddObjectList(.ObjectList .CompilerConfig)
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
-            ^CompilerOptions + '$CompilerOption$$ConfigName$'
+            ^CompilerOptions + '$CompilerOption$/$ConfigName$'
         }
 
         .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
@@ -190,7 +190,7 @@ function AddLibrary(.Library .CompilerConfig)
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
-            ^CompilerOptions + '$CompilerOption$$ConfigName$'
+            ^CompilerOptions + '$CompilerOption$/$ConfigName$'
         }
 
         .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'

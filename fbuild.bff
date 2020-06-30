@@ -74,6 +74,7 @@
 		.ExecInputPattern = '*.meta.slang'
 		.ExecInputPath = '$BuildRootPath$/source/slang'
 		.ExecArguments = '-o %2 %1'
+		.ExecOutput + '/meta.slang'
 		.ExecUseStdOutAsOutput = true
 	]
 
@@ -185,8 +186,8 @@
 			+ ' -Wno-unknown-escape-sequence'
 			+ ' -DSLANG_DYNAMIC_EXPORT'
 		.ConfigDependentCompilerOptions = {
-			' -I$IntermediateFilePath$/slang-generate/',
-			' -I$IntermediateFilePath$/slang-cpp-extractor/',
+			' -I$IntermediateFilePath$/slang-generate',
+			' -I$IntermediateFilePath$/slang-cpp-extractor',
 		}
 		.CompilerInputUnity = '$Name$-unity'
 	]
@@ -458,7 +459,6 @@
 				+ ' -I$BuildRootPath$/external/spirv-headers/include'
 				+ ' -I$BuildRootPath$/external/spirv-tools'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
-				+ ' -I$BuildRootPath$/external/spirv-tools/build'
 				+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputFiles = {
@@ -1041,8 +1041,10 @@
 			AddDLL(.SlangGlslangDLL .CompilerConfig)
 			AddExecutable(.SlangCExecutable .CompilerConfig)
 			AddExecutable(.TracyExecutable .CompilerConfig)
+		#if __WINDOWS__
 			AddExecutable(.HelloWorldExecutable .CompilerConfig)
 			AddExecutable(.ModelViewerExecutable .CompilerConfig)
+		#endif
 			AddExecutable(.VolcanoExecutable .CompilerConfig)
 			AddTest(.MioTest .CompilerConfig)
 

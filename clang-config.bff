@@ -14,7 +14,11 @@
 	.ClangPath = '$LLVMBasePath$'
 	.Executable = '$ClangPath$/clang$ExeSuffix$'
 	.CompilerInfo  = 'Clang'
+#if __WINDOWS__
     .Librarian = '$LLVMBasePath$/llvm-ar$ExeSuffix$'
+#else
+	.Librarian = '$LLVMBasePath$/ar$ExeSuffix$'
+#endif
 	.Linker = '$ClangPath$/clang$ExeSuffix$'
 #if __WINDOWS__
 	.PlatformInfo = 'Windows'
@@ -69,6 +73,7 @@
 //	+ ' -rpath @executable_path/(something)'
 //#endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
+	.LibrarianType = 'ar'
 	.CompilerDebugOptimizations = ' -O0'
 	.CompilerReleaseOptimizations = ' -O3 -flto=thin'
 	.LibrarianDebugOptimizations = ''
