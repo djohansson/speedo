@@ -1,6 +1,13 @@
 // main.cpp
-
+#ifdef _WIN32
 #include <direct.h>
+#define mkdir(a, b) _mkdir(a)
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -875,7 +882,7 @@ int main(
         if (outputDirStr.find_last_of("/\\") != (outputDirStr.size() - 1))
             outputDirStr.append("\\");
 
-        _mkdir(outputDirStr.c_str());
+        mkdir(outputDirStr.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 
         auto outputPathStr = (outputDir ? outputDirStr.append(inputFileStr).c_str() : inputPath);
         
