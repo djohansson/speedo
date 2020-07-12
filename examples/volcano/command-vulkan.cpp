@@ -223,95 +223,82 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         sizeof(uint64_t) * waitSemaphoreCount +
         sizeof(SemaphoreHandle<GraphicsBackend::Vulkan>) * waitSemaphoreCount +
         sizeof(Flags<GraphicsBackend::Vulkan>) * waitSemaphoreCount +
-        sizeof(VkTimelineSemaphoreSubmitInfo) * pendingCommands.size() + 
-        sizeof(VkSubmitInfo) * pendingCommands.size());
+        sizeof(CommandBufferHandle<GraphicsBackend::Vulkan>) * pendingCommands.size() * CommandBufferArray<GraphicsBackend::Vulkan>::kCommandBufferCount);
 
     auto writePtr = myScratchMemory.data();
 
     auto waitSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
     {
-        auto waitSemaphoresPtr = waitSemaphoresBegin;
-        for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
-            *waitSemaphoresPtr++ = submitInfo.waitSemaphores[i];
-
-        writePtr = reinterpret_cast<std::byte*>(waitSemaphoresPtr);
+        std::copy_n(submitInfo.waitSemaphores, submitInfo.waitSemaphoreCount, waitSemaphoresBegin);
+        writePtr = reinterpret_cast<std::byte*>(waitSemaphoresBegin + submitInfo.waitSemaphoreCount);
     }
 
     auto waitDstStageMasksBegin = reinterpret_cast<Flags<GraphicsBackend::Vulkan>*>(writePtr);
     {
-        auto waitDstStageMasksPtr = waitDstStageMasksBegin;
-        for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
-            *waitDstStageMasksPtr++ = submitInfo.waitDstStageMasks[i];
-
-        writePtr = reinterpret_cast<std::byte*>(waitDstStageMasksPtr);
+        std::copy_n(submitInfo.waitDstStageMasks, submitInfo.waitSemaphoreCount, waitDstStageMasksBegin);
+        writePtr = reinterpret_cast<std::byte*>(waitDstStageMasksBegin + submitInfo.waitSemaphoreCount);
     }
 
     auto waitSemaphoreValuesBegin = reinterpret_cast<uint64_t*>(writePtr);
     {
-        auto waitSemaphoreValuesPtr = waitSemaphoreValuesBegin;
-        for (uint32_t i = 0; i < submitInfo.waitSemaphoreCount; i++)
-            *waitSemaphoreValuesPtr++ = submitInfo.waitSemaphoreValues[i];
-
-        writePtr = reinterpret_cast<std::byte*>(waitSemaphoreValuesPtr);
+        std::copy_n(submitInfo.waitSemaphoreValues, submitInfo.waitSemaphoreCount, waitSemaphoreValuesBegin);
+        writePtr = reinterpret_cast<std::byte*>(waitSemaphoreValuesBegin + submitInfo.waitSemaphoreCount);
     }
     
     auto signalSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
     {
-        auto signalSemaphoresPtr = signalSemaphoresBegin;
-        for (uint32_t i = 0; i < submitInfo.signalSemaphoreCount; i++)
-            *signalSemaphoresPtr++ = submitInfo.signalSemaphores[i];
-
-        writePtr = reinterpret_cast<std::byte*>(signalSemaphoresPtr);
+        std::copy_n(submitInfo.signalSemaphores, submitInfo.signalSemaphoreCount, signalSemaphoresBegin);
+        writePtr = reinterpret_cast<std::byte*>(signalSemaphoresBegin + submitInfo.signalSemaphoreCount);
     }
 
-    uint64_t maxSignalValue = 0;
     auto signalSemaphoreValuesBegin = reinterpret_cast<uint64_t*>(writePtr);
     {
-        auto signalSemaphoreValuesPtr = signalSemaphoreValuesBegin;
-        for (uint32_t i = 0; i < submitInfo.signalSemaphoreCount; i++)
-        {
-            uint64_t signalValue = submitInfo.signalSemaphoreValues[i];
-            maxSignalValue = std::max(maxSignalValue, signalValue);
-            *signalSemaphoreValuesPtr++ = signalValue;
-        }
-
-        writePtr = reinterpret_cast<std::byte*>(signalSemaphoreValuesPtr);
+        std::copy_n(submitInfo.signalSemaphoreValues, submitInfo.signalSemaphoreCount, signalSemaphoreValuesBegin);
+        writePtr = reinterpret_cast<std::byte*>(signalSemaphoreValuesBegin + submitInfo.signalSemaphoreCount);
     }
 
-    auto timelineSemaphoreSubmitInfoBegin = reinterpret_cast<VkTimelineSemaphoreSubmitInfo*>(writePtr);
-    auto timelineSemaphoreSubmitInfoPtr = timelineSemaphoreSubmitInfoBegin;
-    auto submitInfoBegin = reinterpret_cast<VkSubmitInfo*>(writePtr + sizeof(VkTimelineSemaphoreSubmitInfo) * pendingCommands.size());
-    auto submitInfoPtr = submitInfoBegin;
-
-    for (auto& cmd : pendingCommands)
+    uint32_t commandBufferHandlesCount = 0;
+    auto commandBufferHandlesBegin = reinterpret_cast<CommandBufferHandle<GraphicsBackend::Vulkan>*>(writePtr);
     {
-        assert(!cmd.first.recordingFlags());
-
-        VkTimelineSemaphoreSubmitInfo& timelineInfo = *timelineSemaphoreSubmitInfoPtr++;
-        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timelineInfo.pNext = nullptr;
-        timelineInfo.waitSemaphoreValueCount = waitSemaphoreCount;
-        timelineInfo.pWaitSemaphoreValues = waitSemaphoreValuesBegin;
-        timelineInfo.signalSemaphoreValueCount = signalSemaphoreCount;
-        timelineInfo.pSignalSemaphoreValues = signalSemaphoreValuesBegin;
-        
-        VkSubmitInfo& vkSubmitInfo = *submitInfoPtr++;
-        vkSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        vkSubmitInfo.pNext = &timelineInfo;
-        vkSubmitInfo.waitSemaphoreCount = waitSemaphoreCount;
-        vkSubmitInfo.pWaitSemaphores = waitSemaphoresBegin;
-        vkSubmitInfo.pWaitDstStageMask = waitDstStageMasksBegin;
-        vkSubmitInfo.signalSemaphoreCount  = signalSemaphoreCount;
-        vkSubmitInfo.pSignalSemaphores = signalSemaphoresBegin;
-        vkSubmitInfo.commandBufferCount = cmd.first.head();
-        vkSubmitInfo.pCommandBuffers = cmd.first.data();
+        auto commandBufferHandlesPtr = commandBufferHandlesBegin;
+        for (auto& cmdSegment : pendingCommands)
+        {
+            assert(!cmdSegment.first.recordingFlags());
+            auto cmdCount = cmdSegment.first.head();
+            commandBufferHandlesCount += cmdCount;
+            std::copy_n(cmdSegment.first.data(), cmdCount, commandBufferHandlesPtr);
+            commandBufferHandlesPtr += cmdCount;
+        }
     }
 
-    VK_CHECK(vkQueueSubmit(submitInfo.queue, pendingCommands.size(), submitInfoBegin, submitInfo.signalFence));
-
-    enqueueSubmitted(std::move(pendingCommands), maxSignalValue);
+    VkTimelineSemaphoreSubmitInfo timelineInfo;
+    timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timelineInfo.pNext = nullptr;
+    timelineInfo.waitSemaphoreValueCount = waitSemaphoreCount;
+    timelineInfo.pWaitSemaphoreValues = waitSemaphoreValuesBegin;
+    timelineInfo.signalSemaphoreValueCount = signalSemaphoreCount;
+    timelineInfo.pSignalSemaphoreValues = signalSemaphoreValuesBegin;
     
-    return maxSignalValue;
+    VkSubmitInfo vkSubmitInfo;
+    vkSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    vkSubmitInfo.pNext = &timelineInfo;
+    vkSubmitInfo.waitSemaphoreCount = waitSemaphoreCount;
+    vkSubmitInfo.pWaitSemaphores = waitSemaphoresBegin;
+    vkSubmitInfo.pWaitDstStageMask = waitDstStageMasksBegin;
+    vkSubmitInfo.signalSemaphoreCount  = signalSemaphoreCount;
+    vkSubmitInfo.pSignalSemaphores = signalSemaphoresBegin;
+    vkSubmitInfo.commandBufferCount = commandBufferHandlesCount;
+    vkSubmitInfo.pCommandBuffers = commandBufferHandlesBegin;
+
+    VK_CHECK(vkQueueSubmit(submitInfo.queue, 1, &vkSubmitInfo, submitInfo.signalFence));
+
+    const auto [minSignalValue, maxSignalValue] = std::minmax_element(
+        &submitInfo.signalSemaphoreValues[0],
+        &submitInfo.signalSemaphoreValues[submitInfo.signalSemaphoreCount - 1]);
+
+    enqueueSubmitted(std::move(pendingCommands), *maxSignalValue);
+    
+    return *maxSignalValue;
 }
 
 template <>
