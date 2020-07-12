@@ -813,6 +813,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
             depthStencilTexture->clearDepthStencil(primaryCommands, { 1.0f, 0 });
             depthStencilTexture->transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            myRenderTexture->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
         }
 
         myLastFrameTimelineValue = myWindow->submitFrame(

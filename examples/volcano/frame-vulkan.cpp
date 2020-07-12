@@ -54,6 +54,8 @@ Frame<GraphicsBackend::Vulkan>::Frame(
         newImageAcquiredSemaphoreStr.data());
 
     addObject(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore), stringBuffer);
+
+    myImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 template <>
@@ -63,4 +65,18 @@ Frame<GraphicsBackend::Vulkan>::~Frame()
    
     vkDestroySemaphore(getDeviceContext()->getDevice(), myRenderCompleteSemaphore, nullptr);
     vkDestroySemaphore(getDeviceContext()->getDevice(), myNewImageAcquiredSemaphore, nullptr);
+}
+
+template <>
+ImageLayout<GraphicsBackend::Vulkan> Frame<GraphicsBackend::Vulkan>::getColorImageLayout(uint32_t index) const
+{
+    return myImageLayout;
+}
+
+template <>
+ImageLayout<GraphicsBackend::Vulkan> Frame<GraphicsBackend::Vulkan>::getDepthStencilImageLayout() const
+{
+    assert(false);
+    
+    return VK_IMAGE_LAYOUT_UNDEFINED;
 }

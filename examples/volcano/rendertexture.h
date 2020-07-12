@@ -31,6 +31,11 @@ public:
     const auto& getColorTextures() const { return myColorTextures; }
     const auto& getDepthStencilTexture() const { return myDepthStencilTexture; }
 
+protected:
+
+    virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
+    virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+
 private:
 
     std::vector<std::shared_ptr<Texture<B>>> myColorTextures;

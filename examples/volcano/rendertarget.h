@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <shared_mutex>
 #include <vector>
 #include <tuple>
 
@@ -15,11 +16,19 @@ struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 {
     Extent2d<B> imageExtent = {};
 	std::vector<Format<B>> colorImageFormats;
+    std::vector<ImageLayout<B>> colorImageLayouts;
     std::vector<ImageHandle<B>> colorImages;
     Format<B> depthStencilImageFormat = {};
+    ImageLayout<B> depthStencilImageLayout = {};
     ImageHandle<B> depthStencilImage = 0; // optional
     uint32_t layerCount = 1;
     bool useDefaultInitialization = true; // create default render passes & framebuffer objects
+};
+
+template <GraphicsBackend B>
+struct RenderTargetBeginInfo
+{
+    SubpassContents<B> contents;
 };
 
 template <GraphicsBackend B>
@@ -33,10 +42,15 @@ public:
 
     const auto& getAttachments() const { return myAttachments; }
     const RenderPassHandle<B>& getRenderPass();
-    const FramebufferHandle<B>& getFrameBuffer();
+    const FramebufferHandle<B>& getFramebuffer();
     const auto& getSubpass() const { return myCurrentSubpass; }
 
-    void clearSingle(CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const;
+    void begin(CommandBufferHandle<B> cmd, RenderTargetBeginInfo<B>&& beginInfo = {});
+    void end(CommandBufferHandle<B> cmd);
+
+    void clearSingle(
+        CommandBufferHandle<B> cmd,
+        const ClearAttachment<B>& clearAttachment) const;
     void clearAll(
         CommandBufferHandle<B> cmd,
         const ClearColorValue<B>& color = {},
@@ -59,14 +73,21 @@ protected:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
 
+    virtual ImageLayout<B> getColorImageLayout(uint32_t index) const = 0;
+    virtual ImageLayout<B> getDepthStencilImageLayout() const = 0;
+
 private:
 
     using RenderPassFramebufferTuple = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
     using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
 
     uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const;    
+    
     void internalInitializeAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<B>& desc);
+    
+    void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
+    void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
     RenderPassFramebufferTuple
@@ -79,8 +100,12 @@ private:
     std::vector<SubpassDependency<B>> mySubPassDependencies;
 
     RenderPassFramebufferTupleMap myMap;
+
+    std::optional<RenderTargetBeginInfo<B>> myCurrentPassInfo;
     std::optional<typename RenderPassFramebufferTupleMap::const_iterator> myCurrent;
     std::optional<uint32_t> myCurrentSubpass;
+
+    std::shared_mutex myMutex;
 
     static constexpr std::string_view sc_colorImageViewStr = "_ColorImageView";
     static constexpr std::string_view sc_depthImageViewStr = "_DepthImageView";
