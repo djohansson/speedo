@@ -15,7 +15,7 @@
 	url = https://github.com/glfw/glfw.git
 [submodule "external/cereal"]
 	path = external/cereal
-	url = https://github.com/USCiLab/cereal.git
+	url = https://github.com/djohansson/cereal.git
 [submodule "external/VulkanMemoryAllocator"]
 	path = external/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
