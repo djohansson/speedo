@@ -51,16 +51,16 @@
 	url = https://github.com/skaslev/gl3w.git
 [submodule "external/freetype2"]
 	path = external/freetype2
-	url = https://github.com/djohansson/freetype2
+	url = https://github.com/djohansson/freetype2.git
 [submodule "external/nativefiledialog"]
 	path = external/nativefiledialog
-	url = https://github.com/mlabbe/nativefiledialog.git
+	url = https://github.com/djohansson/nativefiledialog.git
 [submodule "external/zstd"]
 	path = external/zstd
 	url = https://github.com/facebook/zstd.git
 [submodule "external/capstone"]
 	path = external/capstone
-	url = https://github.com/aquynh/capstone
+	url = https://github.com/aquynh/capstone.git
 [submodule "external/concurrentqueue"]
 	path = external/concurrentqueue
 	url = https://github.com/cameron314/concurrentqueue.git
@@ -69,7 +69,7 @@
 	url = https://github.com/Nelarius/imnodes.git
 [submodule "external/slang-binaries"]
 	path = external/slang-binaries
-	url = https://github.com/shader-slang/slang-binaries
+	url = https://github.com/shader-slang/slang-binaries.git
 [submodule "external/spirv-tools"]
 	path = external/spirv-tools
 	url = https://github.com/KhronosGroup/SPIRV-Tools.git
