@@ -52,15 +52,12 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
     deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     deviceInfo.deviceFeatures.pNext = nullptr;
     
-    vkGetPhysicalDeviceProperties(device, &deviceInfo.deviceProperties.properties);
-	auto _vkGetPhysicalDeviceProperties2 =
+    auto _vkGetPhysicalDeviceProperties2 =
         (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(
             instance, "vkGetPhysicalDeviceProperties2");
     assert(_vkGetPhysicalDeviceProperties2 != nullptr);
     _vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 	
-    vkGetPhysicalDeviceFeatures(device, &deviceInfo.deviceFeatures.features);
-    
     auto _vkGetPhysicalDeviceFeatures2 =
         (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(
             instance, "vkGetPhysicalDeviceFeatures2");
