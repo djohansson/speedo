@@ -381,6 +381,9 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         //     primaryCommands, "executeCommands");
 
         config.resources->renderTarget->begin(primaryCommands, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
+
+        // config.resources->renderTarget->clearSingle(primaryCommands, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
+        // config.resources->renderTarget->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
         
         // views
         for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
