@@ -344,6 +344,7 @@
 		.UnityInputPattern = "*.cpp"
 		.UnityInputExcludedFiles = {
 			'$BuildRootPath$/external/glslang/glslang/MachineIndependent/glslang_tab.cpp'
+			'$BuildRootPath$/external/glslang/glslang/MachineIndependent/glslang_angle_tab.cpp'
 		}
 		.UnityOutputPath = '$IntermediateFilePath$/external/glslang/glslang'
 		.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
@@ -459,6 +460,7 @@
 				+ ' -I$BuildRootPath$/external/spirv-headers/include'
 				+ ' -I$BuildRootPath$/external/spirv-tools'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
+				+ ' -I$BuildRootPath$/external/spirv-tools-generated'
 				+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputFiles = {
