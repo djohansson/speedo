@@ -38,36 +38,36 @@ void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCompletionCallback(std::function<void(uint64_t)>&& callback)
+void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
 {
-    std::unique_lock<decltype(myTimelineCompletionCallbacksMutex)> writeLock(myTimelineCompletionCallbacksMutex);
+    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
-    myTimelineCompletionCallbacks.emplace_back(
+    myTimelineCallbacks.emplace_back(
         std::make_pair(
             myTimelineValue.load(std::memory_order_relaxed),
             std::move(callback)));
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCompletionCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
+void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
 {
-    std::unique_lock<decltype(myTimelineCompletionCallbacksMutex)> writeLock(myTimelineCompletionCallbacksMutex);
+    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
     
-    myTimelineCompletionCallbacks.emplace_back(
+    myTimelineCallbacks.emplace_back(
         std::make_pair(
             timelineValue,
             std::move(callback)));
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCompletionCallbacks(
+void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallbacks(
     uint64_t timelineValue,
     const std::list<std::function<void(uint64_t)>>& callbacks)
 {
-    std::unique_lock<decltype(myTimelineCompletionCallbacksMutex)> writeLock(myTimelineCompletionCallbacksMutex);
+    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
     
     for (const auto& callback : callbacks)
-        myTimelineCompletionCallbacks.emplace_back(
+        myTimelineCallbacks.emplace_back(
             std::make_pair(
                 timelineValue,
                 std::move(callback)));
@@ -76,19 +76,19 @@ void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCompletionCallbacks(
 template <>
 void DeviceContext<GraphicsBackend::Vulkan>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
 {
-    std::unique_lock<decltype(myTimelineCompletionCallbacksMutex)> writeLock(myTimelineCompletionCallbacksMutex);
+    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
     ZoneScopedN("processTimelineCallbacks");
 
-    while (!myTimelineCompletionCallbacks.empty())
+    while (!myTimelineCallbacks.empty())
     {
-        uint64_t commandBufferTimelineValue = myTimelineCompletionCallbacks.begin()->first;
+        uint64_t commandBufferTimelineValue = myTimelineCallbacks.begin()->first;
 
         if (timelineValue && commandBufferTimelineValue > timelineValue.value())
             return;
 
-        myTimelineCompletionCallbacks.begin()->second(commandBufferTimelineValue);
-        myTimelineCompletionCallbacks.pop_front();
+        myTimelineCallbacks.begin()->second(commandBufferTimelineValue);
+        myTimelineCallbacks.pop_front();
     }
 }
 

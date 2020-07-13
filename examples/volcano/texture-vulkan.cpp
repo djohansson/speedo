@@ -338,7 +338,7 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 template <>
 Texture<GraphicsBackend::Vulkan>::~Texture()
 {
-    getDeviceContext()->addTimelineCompletionCallback(
+    getDeviceContext()->addTimelineCallback(
         [allocator = getDeviceContext()->getAllocator(), image = getImage(), imageMemory = getImageMemory()](uint64_t){
             vmaDestroyImage(allocator, image, imageMemory);
     });

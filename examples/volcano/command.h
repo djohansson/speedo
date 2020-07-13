@@ -123,6 +123,7 @@ public:
     {
         other.myIndex = std::nullopt;
     };
+    
     CommandBufferAccessScope(CommandBufferAccessScope<B> const&& other)
     : myArray(other.myArray)
     , myIndex(other.myIndex)
@@ -130,22 +131,19 @@ public:
     {
         other.myIndex = std::nullopt;
     };
+    
     CommandBufferAccessScope(CommandBufferArray<B>& array, CommandContextBeginInfo<B>&& beginInfo)
     : myArray(array)
     , myIndex(std::make_optional(myArray.begin(beginInfo)))
     , myBeginInfo(std::move(beginInfo)) {}
+    
     ~CommandBufferAccessScope()
     {
         if (myIndex && myArray.recording(*myIndex))
-            end();
+            myArray.end(*myIndex);
     }
 
     const auto& getBeginInfo() const { return myBeginInfo; }
-
-    void end()
-    {
-        myArray.end(*myIndex);
-    }
 
     operator CommandBufferHandle<B>() const { return myArray[*myIndex]; }
 
@@ -169,24 +167,8 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto commands(CommandContextBeginInfo<B>&& beginInfo = {})
-    {
-        if (myLastCommands && (*myLastCommands).getBeginInfo() == beginInfo)
-        {
-            std::shared_lock readLock(myCommandsMutex);
-            return internalCommands();
-        }
-        else
-        {
-            std::unique_lock writeLock(myCommandsMutex);
-            return internalBeginScope(std::move(beginInfo));
-        }
-    }
-    void endCommands()
-    {
-        if (myLastCommands)
-            myLastCommands = std::nullopt;
-    }
+    auto commands(CommandContextBeginInfo<B>&& beginInfo = {});
+    void endCommands(); // only needed for commands recorded as secondary command buffers.
     
     uint64_t execute(CommandContext<B>& callee);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
@@ -217,6 +199,8 @@ private:
     std::vector<CommandBufferList> myFreeCommands;
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
-    std::optional<CommandBufferAccessScope<B>> myLastCommands;
+    std::optional<CommandBufferAccessScope<B>> myRecordingCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };
+
+#include "command.inl"

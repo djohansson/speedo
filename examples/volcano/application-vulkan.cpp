@@ -97,7 +97,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
     
-    deviceContext->addTimelineCompletionCallback([](uint64_t){
+    deviceContext->addTimelineCallback([](uint64_t){
         ImGui_ImplVulkan_DestroyFontUploadObjects();
     });
 
@@ -271,27 +271,23 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
-        {
-            auto transferCommands = myTransferCommands->commands();
+        myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            myResourcePath / "models" / "gallery.obj");
+        myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            myResourcePath / "images" / "gallery.jpg");
+        myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
 
-            myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                myDevice,
-                myTransferCommands,
-                myResourcePath / "models" / "gallery.obj");
-            myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
-                myDevice,
-                myTransferCommands,
-                myResourcePath / "images" / "gallery.jpg");
-            myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
-
-            myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
-                myInstance,
-                myDevice,    
-                WindowCreateDesc<GraphicsBackend::Vulkan>{
-                    {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                    {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                    {3, 2}});
-        }
+        myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
+            myInstance,
+            myDevice,
+            WindowCreateDesc<GraphicsBackend::Vulkan>{
+                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                {3, 2}});
 
         // submit transfers.
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
@@ -350,14 +346,10 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        std::shared_ptr<Model<GraphicsBackend::Vulkan>> model;
-        {
-            auto transferCommands = myTransferCommands->commands();
-            model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                myDevice,
-                myTransferCommands,
-                openFilePath);
-        }
+        auto model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            openFilePath);
 
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommands->submit({
@@ -370,7 +362,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
 
-        myDevice->addTimelineCompletionCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
+        myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
             myGraphicsPipeline->getConfig()->resources->model = model;
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
@@ -807,7 +799,6 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
         if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
         {
-            auto& frame = myWindow->frames()[frameIndex];
             auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
             auto primaryCommands = primaryCommandContext->commands();
 
