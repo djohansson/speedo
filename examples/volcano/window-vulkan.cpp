@@ -91,6 +91,7 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
                 {{"Frame"},
                 { frameBufferExtent.width, frameBufferExtent.height },
                 make_vector(myDevice->getDesc().swapchainConfiguration->surfaceFormat.format),
+                make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
                 make_vector(colorImages[frameIt])},
                 frameIt}));
 
@@ -217,7 +218,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
             CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
             inherit.renderPass = config.resources->renderTarget->getRenderPass();
-            inherit.framebuffer = config.resources->renderTarget->getFrameBuffer();
+            inherit.framebuffer = config.resources->renderTarget->getFramebuffer();
 
             CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
             secBeginInfo.flags =
@@ -273,7 +274,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                 
                 CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                 inherit.renderPass = config.resources->renderTarget->getRenderPass();
-                inherit.framebuffer = config.resources->renderTarget->getFrameBuffer();
+                inherit.framebuffer = config.resources->renderTarget->getFramebuffer();
 
                 CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
                 secBeginInfo.flags =
@@ -379,35 +380,27 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
         //     primaryCommands, "executeCommands");
 
-        VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-        beginInfo.renderPass = config.resources->renderTarget->getRenderPass();
-        beginInfo.framebuffer = config.resources->renderTarget->getFrameBuffer();
-        beginInfo.renderArea.offset = {0, 0};
-        beginInfo.renderArea.extent = {
-            config.resources->renderTarget->getRenderTargetDesc().imageExtent.width,
-            config.resources->renderTarget->getRenderTargetDesc().imageExtent.height};
-        beginInfo.clearValueCount = 0;
-        beginInfo.pClearValues = nullptr;
+        config.resources->renderTarget->begin(primaryCommands, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
+
+        // config.resources->renderTarget->clearSingle(primaryCommands, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
+        // config.resources->renderTarget->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
         
-        {
-            vkCmdBeginRenderPass(primaryCommands, &beginInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        // views
+        for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
+            primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
 
-            // views
-            for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
-                primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
+        config.resources->renderTarget->nextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-            config.resources->renderTarget->nextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        // ui
+        primaryCommandContext->execute(*commandContexts()[frameIndex][0]);
 
-            // ui
-            primaryCommandContext->execute(*commandContexts()[frameIndex][0]);
-
-            vkCmdEndRenderPass(primaryCommands);
-        }
+        config.resources->renderTarget->end(primaryCommands);
 
         VkOffset3D blitSize;
-        blitSize.x = beginInfo.renderArea.extent.width;
-        blitSize.y = beginInfo.renderArea.extent.height;
+        blitSize.x = config.resources->renderTarget->getRenderTargetDesc().imageExtent.width;
+        blitSize.y = config.resources->renderTarget->getRenderTargetDesc().imageExtent.height;
         blitSize.z = 1;
+        
         VkImageBlit imageBlitRegion{};
         imageBlitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         imageBlitRegion.srcSubresource.layerCount = 1;

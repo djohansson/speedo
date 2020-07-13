@@ -36,17 +36,17 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
 
-        VkAttachmentDescription& colorAttachment = myAttachmentsDescs.emplace_back();
+        auto& colorAttachment = myAttachmentsDescs.emplace_back();
         colorAttachment.format = desc.colorImageFormats[attachmentIt];
         colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
         colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachment.initialLayout = desc.colorImageLayouts[attachmentIt];
         colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        VkAttachmentReference& colorAttachmentRef = myAttachmentsReferences.emplace_back();
+        auto& colorAttachmentRef = myAttachmentsReferences.emplace_back();
         colorAttachmentRef.attachment = 0;
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     }
@@ -77,17 +77,17 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
 
-        VkAttachmentDescription& depthStencilAttachment = myAttachmentsDescs.emplace_back();
+        auto& depthStencilAttachment = myAttachmentsDescs.emplace_back();
 		depthStencilAttachment.format = desc.depthStencilImageFormat;
 		depthStencilAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthStencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthStencilAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		depthStencilAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthStencilAttachment.initialLayout = desc.depthStencilImageLayout;
 		depthStencilAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-        VkAttachmentReference& depthStencilAttachmentRef = myAttachmentsReferences.emplace_back();
+        auto& depthStencilAttachmentRef = myAttachmentsReferences.emplace_back();
         depthStencilAttachmentRef.attachment = attachmentIt;
         depthStencilAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
@@ -261,6 +261,59 @@ RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(ui
 }
 
 template <>
+void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+{
+    if (!myCurrent)
+    {
+        auto hashKey = internalCalculateHashKey(desc);
+        auto emplaceResult = myMap.emplace(
+            std::make_pair(
+                hashKey,
+                std::make_tuple(
+                    RenderPassHandle<GraphicsBackend::Vulkan>{},
+                    FramebufferHandle<GraphicsBackend::Vulkan>{})));
+
+        if (emplaceResult.second)
+            emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
+
+        myCurrent = std::make_optional(emplaceResult.first);
+    }
+}
+
+template <>
+void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateRenderPasses(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+{
+
+}
+
+template <>
+void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateAttachments(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+{
+    uint32_t attachmentIt = 0;
+    for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
+    {
+        auto& colorAttachment = myAttachmentsDescs[attachmentIt];
+
+        if (auto layout = getColorImageLayout(attachmentIt); layout != colorAttachment.initialLayout)
+        {
+            myCurrent.reset();
+            colorAttachment.initialLayout = layout;
+        }
+    }
+
+    if (desc.depthStencilImage)
+    {
+        auto& depthStencilAttachment = myAttachmentsDescs[attachmentIt];
+
+        if (auto layout = getDepthStencilImageLayout(); layout != depthStencilAttachment.initialLayout)
+        {
+            myCurrent.reset();
+            depthStencilAttachment.initialLayout = layout;
+        }
+    }
+}
+
+template <>
 void RenderTarget<GraphicsBackend::Vulkan>::clearSingle(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     const ClearAttachment<GraphicsBackend::Vulkan>& clearAttachment) const
@@ -307,39 +360,61 @@ void RenderTarget<GraphicsBackend::Vulkan>::nextSubpass(
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
-{
-    if (!myCurrent)
-    {
-        auto hashKey = internalCalculateHashKey(desc);
-        auto emplaceResult = myMap.emplace(
-            std::make_pair(
-                hashKey,
-                std::make_tuple(
-                    RenderPassHandle<GraphicsBackend::Vulkan>{},
-                    FramebufferHandle<GraphicsBackend::Vulkan>{})));
-
-        if (emplaceResult.second)
-            emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
-
-        myCurrent = std::make_optional(emplaceResult.first);
-    }
-}
-
-template <>
 const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getRenderPass()
 {
+    std::unique_lock writeLock(myMutex);
+
+    internalUpdateAttachments(getRenderTargetDesc());
+    internalUpdateRenderPasses(getRenderTargetDesc());
     internalUpdateMap(getRenderTargetDesc());
 
     return std::get<0>((*myCurrent)->second);
 }
 
 template <>
-const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getFrameBuffer()
+const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getFramebuffer()
 {
+    std::unique_lock writeLock(myMutex);
+
+    internalUpdateAttachments(getRenderTargetDesc());
+    internalUpdateRenderPasses(getRenderTargetDesc());
     internalUpdateMap(getRenderTargetDesc());
     
     return std::get<1>((*myCurrent)->second);
+}
+
+template <>
+void RenderTarget<GraphicsBackend::Vulkan>::begin(
+    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
+    RenderTargetBeginInfo<GraphicsBackend::Vulkan>&& beginInfo)
+{
+    {
+        std::unique_lock writeLock(myMutex);
+
+        myCurrentPassInfo = std::make_optional(std::move(beginInfo));
+    }
+
+    VkRenderPassBeginInfo renderPassBeginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    renderPassBeginInfo.renderPass = getRenderPass();
+    renderPassBeginInfo.framebuffer = getFramebuffer();
+    renderPassBeginInfo.renderArea.offset = {0, 0};
+    renderPassBeginInfo.renderArea.extent = { getRenderTargetDesc().imageExtent.width, getRenderTargetDesc().imageExtent.height };
+    renderPassBeginInfo.clearValueCount = 0;
+    renderPassBeginInfo.pClearValues = nullptr;
+
+    vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, myCurrentPassInfo->contents);
+}
+
+template <>
+void RenderTarget<GraphicsBackend::Vulkan>::end(CommandBufferHandle<GraphicsBackend::Vulkan> cmd)
+{   
+    vkCmdEndRenderPass(cmd);
+
+    {
+        std::unique_lock writeLock(myMutex);
+
+        myCurrentPassInfo = std::nullopt;
+    }
 }
 
 template <>

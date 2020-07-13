@@ -173,7 +173,7 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
 // }
 
 template <>
-void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue)
+void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t timelineValue)
 {
     if (myLastTransferTimelineValue)
     {
@@ -183,7 +183,7 @@ void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t fra
             myDevice->wait(myLastTransferTimelineValue);
         }
 
-        myDevice->processTimelineCallbacks(std::min(frameLastSubmitTimelineValue, myLastTransferTimelineValue));
+        myDevice->processTimelineCallbacks(std::min(timelineValue, myLastTransferTimelineValue));
         
         myLastTransferTimelineValue = 0;
 
@@ -200,7 +200,7 @@ void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t fra
     }
     else
     {
-        myDevice->processTimelineCallbacks(frameLastSubmitTimelineValue);
+        myDevice->processTimelineCallbacks(timelineValue);
     }
 }
 
@@ -783,7 +783,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     ZoneScopedN("draw");
 
     auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
-    uint64_t frameLastSubmitTimelineValue = myWindow->frames()[frameIndex]->getLastSubmitTimelineValue();
+    uint64_t flippedFrameLastTimelineValue = myWindow->frames()[frameIndex]->getLastSubmitTimelineValue();
 
     if (flipSuccess)
     {
@@ -792,7 +792,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             
             assert(frameIndex != myLastFrameIndex);
 
-            myDevice->wait(frameLastSubmitTimelineValue);
+            myDevice->wait(flippedFrameLastTimelineValue);
         }
 
         myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
@@ -818,7 +818,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             std::launch::async,
             &Application<GraphicsBackend::Vulkan>::processTimelineCallbacks,
             this,
-            frameLastSubmitTimelineValue));
+            flippedFrameLastTimelineValue));
 
     if (flipSuccess)
         myWindow->presentFrame(frameIndex);
@@ -879,18 +879,4 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
 
     createWindowDependentObjects(framebufferExtent);
-    
-    //auto& primaryCommandContext = myWindow->commandContexts()[myLastFrameIndex][0];
-    //initializeWindowDependentObjects(primaryCommandContext->beginScope());
-    // SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[1] = { myDevice->getTimelineSemaphore() };
-    // uint64_t signalTimelineValues[1] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed) };
-    // myLastFrameTimelineValue = primaryCommandContext->submit({
-    //     myDevice->getPrimaryGraphicsQueue(),
-    //     0,
-    //     nullptr,
-    //     nullptr,
-    //     nullptr,
-    //     sizeof_array(signalSemaphores),
-    //     signalSemaphores,
-    //     signalTimelineValues});
 }

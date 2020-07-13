@@ -31,10 +31,16 @@ public:
 
 	void setLastSubmitTimelineValue(uint64_t timelineValue) { myLastSubmitTimelineValue = timelineValue; };
 
+protected:
+
+    virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
+    virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+
 private:
 
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
+	ImageLayout<B> myImageLayout = {};
 	uint64_t myLastSubmitTimelineValue = 0;
 };
 

@@ -5,7 +5,6 @@
 #include "StandAlone/ResourceLimits.h"
 #include "StandAlone/Worklist.h"
 #include "glslang/Include/ShHandle.h"
-#include "glslang/Include/revision.h"
 #include "glslang/Public/ShaderLang.h"
 #include "SPIRV/GlslangToSpv.h"
 #include "SPIRV/GLSL.std.450.h"
