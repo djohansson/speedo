@@ -7,7 +7,7 @@
 #include "glm.h"
 #include "state.h"
 #include "swapchain.h"
-#include "texture.h"
+#include "image.h"
 #include "view.h"
 
 #include <chrono>
@@ -66,7 +66,7 @@ public:
 	template <typename T>
 	void addIMGUIDrawCallback(T callback) { myIMGUIDrawCallbacks.emplace_back(callback); }
 
-    std::tuple<bool, uint32_t> flipFrame(uint32_t lastFrameIndex) const;
+    std::tuple<bool, uint32_t, uint64_t> flipFrame(uint32_t lastFrameIndex) const;
 	uint64_t submitFrame(
 		uint32_t frameIndex,
 		uint32_t lastFrameIndex,

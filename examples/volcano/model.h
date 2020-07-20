@@ -32,7 +32,7 @@ public:
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
-        const std::filesystem::path& textureFile);
+        const std::filesystem::path& modelFile);
 
 	const auto& getDesc() const { return myDesc; }
 	const auto& getBuffer() const { return myBuffer; }

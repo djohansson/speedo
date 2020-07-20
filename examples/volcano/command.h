@@ -19,9 +19,6 @@ template <GraphicsBackend B>
 class CommandContext;
 
 template <GraphicsBackend B>
-class CommandBufferAccessScope;
-
-template <GraphicsBackend B>
 struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
 {
     CommandPoolHandle<B> pool = 0;
@@ -99,61 +96,10 @@ template <GraphicsBackend B>
 struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
 {
     CommandContextBeginInfo();
-    
+
+    bool operator==(const CommandContextBeginInfo& other) const;
+
     CommandBufferLevel<B> level = {};
-
-    bool operator==(const CommandContextBeginInfo& other) const
-    {
-        return 
-            //static_cast<CommandBufferBeginInfo<B>>(other) == static_cast<CommandBufferBeginInfo<B>>(*this) &&
-            other.level == level;
-    }
-};
-
-
-template <GraphicsBackend B>
-class CommandBufferAccessScope : Noncopyable, Nondynamic
-{
-public:
-
-    CommandBufferAccessScope(CommandBufferAccessScope<B>&& other)
-    : myArray(other.myArray)
-    , myIndex(other.myIndex)
-    , myBeginInfo(std::move(other.myBeginInfo))
-    {
-        other.myIndex = std::nullopt;
-    };
-    CommandBufferAccessScope(CommandBufferAccessScope<B> const&& other)
-    : myArray(other.myArray)
-    , myIndex(other.myIndex)
-    , myBeginInfo(std::move(other.myBeginInfo))
-    {
-        other.myIndex = std::nullopt;
-    };
-    CommandBufferAccessScope(CommandBufferArray<B>& array, CommandContextBeginInfo<B>&& beginInfo)
-    : myArray(array)
-    , myIndex(std::make_optional(myArray.begin(beginInfo)))
-    , myBeginInfo(std::move(beginInfo)) {}
-    ~CommandBufferAccessScope()
-    {
-        if (myIndex && myArray.recording(*myIndex))
-            end();
-    }
-
-    const auto& getBeginInfo() const { return myBeginInfo; }
-
-    void end()
-    {
-        myArray.end(*myIndex);
-    }
-
-    operator CommandBufferHandle<B>() const { return myArray[*myIndex]; }
-
-private:
-
-    CommandBufferArray<B>& myArray;
-    std::optional<uint8_t> myIndex;
-    CommandContextBeginInfo<B> myBeginInfo = {};
 };
 
 template <GraphicsBackend B>
@@ -200,6 +146,45 @@ protected:
 
 private:
 
+    class CommandBufferAccessScope : Noncopyable, Nondynamic
+    {
+    public:
+
+        CommandBufferAccessScope(CommandBufferAccessScope&& other)
+        : myArray(other.myArray)
+        , myIndex(other.myIndex)
+        , myBeginInfo(std::move(other.myBeginInfo))
+        {
+            other.myIndex = std::nullopt;
+        };
+        CommandBufferAccessScope(CommandBufferAccessScope const&& other)
+        : myArray(other.myArray)
+        , myIndex(other.myIndex)
+        , myBeginInfo(std::move(other.myBeginInfo))
+        {
+            other.myIndex = std::nullopt;
+        };
+        CommandBufferAccessScope(CommandBufferArray<B>& array, CommandContextBeginInfo<B>&& beginInfo)
+        : myArray(array)
+        , myIndex(std::make_optional(myArray.begin(beginInfo)))
+        , myBeginInfo(std::move(beginInfo)) {}
+        ~CommandBufferAccessScope()
+        {
+            if (myIndex && myArray.recording(*myIndex))
+                myArray.end(*myIndex);
+        }
+
+        const auto& getBeginInfo() const { return myBeginInfo; }
+
+        operator CommandBufferHandle<B>() const { return myArray[*myIndex]; }
+
+    private:
+
+        CommandBufferArray<B>& myArray;
+        std::optional<uint8_t> myIndex;
+        CommandContextBeginInfo<B> myBeginInfo = {};
+    };
+
     CommandBufferHandle<B> internalBeginScope(CommandContextBeginInfo<B>&& beginInfo);
     CommandBufferHandle<B> internalCommands() const;
 
@@ -217,6 +202,6 @@ private:
     std::vector<CommandBufferList> myFreeCommands;
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
-    std::optional<CommandBufferAccessScope<B>> myLastCommands;
+    std::optional<CommandBufferAccessScope> myLastCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };

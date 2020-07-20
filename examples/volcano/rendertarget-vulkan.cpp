@@ -179,31 +179,29 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefaultRenderPasse
 template <>
 uint64_t RenderTarget<GraphicsBackend::Vulkan>::internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const
 {
-    assert(t_xxhState.get());
-
     constexpr XXH64_hash_t seed = 42;
-    auto result = XXH3_64bits_reset_withSeed(t_xxhState.get(), seed);
+    auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(t_xxhState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
+    result = XXH3_64bits_update(myXXHState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(t_xxhState.get(), myAttachmentsDescs.data(), myAttachmentsDescs.size() * sizeof(myAttachmentsDescs.front()));
+    result = XXH3_64bits_update(myXXHState.get(), myAttachmentsDescs.data(), myAttachmentsDescs.size() * sizeof(myAttachmentsDescs.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(t_xxhState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
+    result = XXH3_64bits_update(myXXHState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(t_xxhState.get(), mySubPassDescs.data(), mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
+    result = XXH3_64bits_update(myXXHState.get(), mySubPassDescs.data(), mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(t_xxhState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
+    result = XXH3_64bits_update(myXXHState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(t_xxhState.get(), &desc.imageExtent, sizeof(desc.imageExtent));
+    result = XXH3_64bits_update(myXXHState.get(), &desc.imageExtent, sizeof(desc.imageExtent));
     assert(result != XXH_ERROR);
 
-    return XXH3_64bits_digest(t_xxhState.get());
+    return XXH3_64bits_digest(myXXHState.get());
 }
 
 template <>
@@ -388,11 +386,9 @@ void RenderTarget<GraphicsBackend::Vulkan>::begin(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     RenderTargetBeginInfo<GraphicsBackend::Vulkan>&& beginInfo)
 {
-    {
-        std::unique_lock writeLock(myMutex);
+    assert(myCurrentPassInfo == std::nullopt);
 
-        myCurrentPassInfo = std::make_optional(std::move(beginInfo));
-    }
+    myCurrentPassInfo = std::make_optional(std::move(beginInfo));
 
     VkRenderPassBeginInfo renderPassBeginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
     renderPassBeginInfo.renderPass = getRenderPass();
@@ -407,14 +403,12 @@ void RenderTarget<GraphicsBackend::Vulkan>::begin(
 
 template <>
 void RenderTarget<GraphicsBackend::Vulkan>::end(CommandBufferHandle<GraphicsBackend::Vulkan> cmd)
-{   
+{
+    assert(myCurrentPassInfo != std::nullopt);
+
     vkCmdEndRenderPass(cmd);
 
-    {
-        std::unique_lock writeLock(myMutex);
-
-        myCurrentPassInfo = std::nullopt;
-    }
+    myCurrentPassInfo = std::nullopt;
 }
 
 template <>
@@ -423,6 +417,7 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
 : DeviceResource<GraphicsBackend::Vulkan>(std::move(other))
 , myAttachments(std::move(other.myAttachments))
 , myMap(std::move(other.myMap))
+, myXXHState(std::move(other.myXXHState))
 {
 }
 

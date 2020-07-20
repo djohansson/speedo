@@ -177,8 +177,8 @@ void PipelineContext<GraphicsBackend::Vulkan>::updateDescriptorSets(BufferHandle
     bufferInfo.range = VK_WHOLE_SIZE;
 
     VkDescriptorImageInfo imageInfo = {};
-    imageInfo.imageLayout = myConfig->resources->texture->getImageLayout();
-    imageInfo.imageView = myConfig->resources->textureView;
+    imageInfo.imageLayout = myConfig->resources->image->getImageLayout();
+    imageInfo.imageView = myConfig->resources->imageView->getImageViewHandle();
     imageInfo.sampler = myConfig->resources->sampler;
 
     std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};

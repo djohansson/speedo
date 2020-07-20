@@ -13,7 +13,6 @@
 #include <vector>
 #include <tuple>
 
-#include <xxh3.h>
 
 #if PROFILING_ENABLED
 #ifndef TRACY_ENABLE
@@ -111,5 +110,3 @@ auto make_vector(T0&& first, Ts&&... args)
         std::forward<Ts>(args)...
     };
 }
-    
-thread_local extern std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> t_xxhState;

@@ -7,7 +7,7 @@
 #include "glm.h"
 #include "model.h"
 #include "rendertarget.h"
-#include "texture.h"
+#include "image.h"
 
 #include <filesystem>
 #include <map>
@@ -61,8 +61,8 @@ struct PipelineResourceView
 {	
 	// begin temp
 	std::shared_ptr<Model<B>> model;
-	std::shared_ptr<Texture<B>> texture;
-	ImageViewHandle<B> textureView = 0;
+	std::shared_ptr<Image<B>> image;
+	std::shared_ptr<ImageView<B>> imageView;
 	SamplerHandle<B> sampler = 0;
 	// end temp
 	std::shared_ptr<RenderTarget<B>> renderTarget;

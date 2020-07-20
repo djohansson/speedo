@@ -567,6 +567,7 @@
 			+ ' -I$BuildRootPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DGLM_FORCE_AVX2'
+			+ ' -Wno-unused-function'
 		// .CompilerInputUnity = 'volcano-unity'
 		.CompilerInputPath = '$BuildRootPath$/examples/volcano'
 	]

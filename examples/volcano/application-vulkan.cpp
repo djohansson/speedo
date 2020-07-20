@@ -124,18 +124,18 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
 
     myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
 
-    auto colorTexture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+    auto colorImage = std::make_shared<Image<GraphicsBackend::Vulkan>>(
         myDevice,
-        TextureCreateDesc<GraphicsBackend::Vulkan>{
-            {"rtColorTexture"},
+        ImageCreateDesc<GraphicsBackend::Vulkan>{
+            {"rtColorImage"},
             frameBufferExtent,
             myDevice->getDesc().swapchainConfiguration->surfaceFormat.format,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
     
-    auto depthStencilTexture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+    auto depthStencilImage = std::make_shared<Image<GraphicsBackend::Vulkan>>(
         myDevice,
-        TextureCreateDesc<GraphicsBackend::Vulkan>{
-            {"rtDepthTexture"},
+        ImageCreateDesc<GraphicsBackend::Vulkan>{
+            {"rtDepthImage"},
             frameBufferExtent,
             findSupportedFormat(
                 myDevice->getPhysicalDevice(),
@@ -143,34 +143,15 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
     
-    myRenderTexture = std::make_shared<RenderTexture<GraphicsBackend::Vulkan>>(
+    myRenderImageSet = std::make_shared<RenderImageSet<GraphicsBackend::Vulkan>>(
         myDevice,
-        "RenderTexture", 
-        make_vector(colorTexture),
-        depthStencilTexture);
+        "RenderImageSet", 
+        make_vector(colorImage),
+        depthStencilImage);
 
-    myGraphicsPipeline->getConfig()->resources->renderTarget = myRenderTexture;
+    myGraphicsPipeline->getConfig()->resources->renderTarget = myRenderImageSet;
     myGraphicsPipeline->createGraphicsPipeline();
 }
-
-// template <>
-// void Application<GraphicsBackend::Vulkan>::initializeWindowDependentObjects(
-//     CommandBufferHandle<GraphicsBackend::Vulkan> cmd) const
-// {
-//     ZoneScopedN("initializeWindowDependentObjects");
-
-//     for (const auto& colorTexture : myRenderTexture->getColorTextures())
-//     {
-//         colorTexture->clearColor(cmd, { { 1.0f, 0.0f, 0.0f, 0.0f } });
-//         colorTexture->transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-//     }
-
-//     if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
-//     {
-//         depthStencilTexture->clearDepthStencil(cmd, { 1.0f, 0 });
-//         depthStencilTexture->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-//     }
-// }
 
 template <>
 void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t timelineValue)
@@ -254,7 +235,6 @@ Application<GraphicsBackend::Vulkan>::Application(
         *slangShaders,
         myUserProfilePath,
         PipelineContextCreateDesc<GraphicsBackend::Vulkan>{});
-    //
 
     // if (commandBufferLevel == 0)
     //     std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
@@ -272,17 +252,18 @@ Application<GraphicsBackend::Vulkan>::Application(
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
         {
-            auto transferCommands = myTransferCommands->commands();
-
             myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
                 myDevice,
                 myTransferCommands,
                 myResourcePath / "models" / "gallery.obj");
-            myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->getConfig()->resources->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
                 myDevice,
                 myTransferCommands,
                 myResourcePath / "images" / "gallery.jpg");
-            myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+            myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
+                myDevice,
+                *(myGraphicsPipeline->getConfig()->resources->image),
+                VK_IMAGE_ASPECT_COLOR_BIT);
 
             myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
                 myInstance,
@@ -316,10 +297,9 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             auto primaryCommands = primaryCommandContext->commands();
 
-            //initializeWindowDependentObjects(primaryCommands);
             initIMGUI(myDevice, primaryCommands, myUserProfilePath);
 
-            myGraphicsPipeline->getConfig()->resources->texture->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            myGraphicsPipeline->getConfig()->resources->image->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
         
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -338,7 +318,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         frame->setLastSubmitTimelineValue(myLastFrameTimelineValue); // todo: remove
     }
 
-    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
+    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
 
     auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
@@ -350,14 +330,10 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        std::shared_ptr<Model<GraphicsBackend::Vulkan>> model;
-        {
-            auto transferCommands = myTransferCommands->commands();
-            model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                myDevice,
-                myTransferCommands,
-                openFilePath);
-        }
+        std::shared_ptr<Model<GraphicsBackend::Vulkan>> model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            openFilePath);
 
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommands->submit({
@@ -373,35 +349,44 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice->addTimelineCompletionCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
             myGraphicsPipeline->getConfig()->resources->model = model;
-            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
+
+            // this will make the validation layer scream - fix by wrap and refcount descriptor sets
+            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
     };
 
-    // auto loadTexture = [this](nfdchar_t* openFilePath)
-    // {
-    //     // todo: replace with other sync method
-    //     VK_CHECK(vkQueueWaitIdle(myDevice->getPrimaryTransferQueue()));
+    auto loadImage = [this](nfdchar_t* openFilePath)
+    {
+        std::shared_ptr<Image<GraphicsBackend::Vulkan>> image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            openFilePath);
 
-    //     {
-    //         auto transferCommands = myTransferCommands->beginScope();
+        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
+        myLastTransferTimelineValue = myTransferCommands->submit({
+            myDevice->getPrimaryTransferQueue(),
+            0,
+            nullptr,
+            nullptr,
+            nullptr,
+            1,
+            &myDevice->getTimelineSemaphore(),
+            &signalTimelineValue});
 
-    //         myGraphicsPipeline->getConfig()->resources->texture = std::make_shared<Texture<GraphicsBackend::Vulkan>>(
-    //             myDevice,
-    //             myTransferCommands,
-    //             openFilePath);
-    //     }
+        myDevice->addTimelineCompletionCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
+        {
+            myGraphicsPipeline->getConfig()->resources->image = image;
+            myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
+                myDevice,
+                *image,
+                VK_IMAGE_ASPECT_COLOR_BIT);
 
-    //     vkDestroyImageView(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->textureView, nullptr);
-    //     myGraphicsPipeline->getConfig()->resources->textureView = myGraphicsPipeline->getConfig()->resources->texture->createView(VK_IMAGE_ASPECT_COLOR_BIT);
+            // this will make the validation layer scream - fix by wrap and refcount image views and descriptor sets
+            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
+        });
+    };
 
-    //     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
-
-    //     // submit transfers.
-    //     myLastTransferTimelineValue = myTransferCommandContext->submit({
-    //         myDevice->getPrimaryTransferQueue()});
-    // };
-
-    myWindow->addIMGUIDrawCallback([this, openFileDialogue, loadModel]
+    myWindow->addIMGUIDrawCallback([this, openFileDialogue, loadModel, loadImage]
     {
         using namespace ImGui;
 
@@ -701,8 +686,10 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Open OBJ...", "CTRL+O") && !myOpenFileFuture.valid())
+                if (ImGui::MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+                if (ImGui::MenuItem("Open Image...") && !myOpenFileFuture.valid())
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "jpg,png", loadImage);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -754,7 +741,6 @@ Application<GraphicsBackend::Vulkan>::~Application()
 #endif
 
     // todo: work on a resourcetable of some sort, and automatically delete all resources from it.
-    vkDestroyImageView(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->textureView, nullptr);
     vkDestroySampler(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->sampler, nullptr);
 }
 
@@ -790,8 +776,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 {
     ZoneScopedN("draw");
 
-    auto [flipSuccess, frameIndex] = myWindow->flipFrame(myLastFrameIndex);
-    uint64_t flippedFrameLastTimelineValue = myWindow->frames()[frameIndex]->getLastSubmitTimelineValue();
+    auto [flipSuccess, frameIndex, frameTimelineValue] = myWindow->flipFrame(myLastFrameIndex);
 
     if (flipSuccess)
     {
@@ -800,19 +785,18 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             
             assert(frameIndex != myLastFrameIndex);
 
-            myDevice->wait(flippedFrameLastTimelineValue);
+            myDevice->wait(frameTimelineValue);
         }
 
         myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
 
-        if (const auto& depthStencilTexture = myRenderTexture->getDepthStencilTexture(); depthStencilTexture)
+        if (const auto& depthStencilImage = myRenderImageSet->getDepthStencilImages(); depthStencilImage)
         {
-            auto& frame = myWindow->frames()[frameIndex];
             auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
             auto primaryCommands = primaryCommandContext->commands();
 
-            depthStencilTexture->clearDepthStencil(primaryCommands, { 1.0f, 0 });
-            depthStencilTexture->transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            depthStencilImage->clearDepthStencil(primaryCommands, { 1.0f, 0 });
+            depthStencilImage->transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         }
 
         myLastFrameTimelineValue = myWindow->submitFrame(
@@ -827,12 +811,12 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             std::launch::async,
             &Application<GraphicsBackend::Vulkan>::processTimelineCallbacks,
             this,
-            flippedFrameLastTimelineValue));
+            frameTimelineValue));
 
     if (flipSuccess)
         myWindow->presentFrame(frameIndex);
 
-    // wait for garbage collect
+    // wait for timeline callbacks
     {
         ZoneScopedN("waitProcessTimelineCallbacks");
 
@@ -885,7 +869,7 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
         myInstance->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
     
     myWindow->onResizeFramebuffer(framebufferExtent);
-    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBuffer());
+    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
 
     createWindowDependentObjects(framebufferExtent);
 }

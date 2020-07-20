@@ -1,4 +1,4 @@
-#include "texture.h"
+#include "image.h"
 #include "file.h"
 #include "vk-utils.h"
 
@@ -45,28 +45,28 @@ int eof(void* user)
 }
 } // namespace stbi_istream_callbacks
 
-namespace texture
+namespace image
 {
 
 std::tuple<
-    TextureCreateDesc<GraphicsBackend::Vulkan>,
+    ImageCreateDesc<GraphicsBackend::Vulkan>,
     BufferHandle<GraphicsBackend::Vulkan>,
     AllocationHandle<GraphicsBackend::Vulkan>>
 load(
-    const std::filesystem::path& textureFile,
+    const std::filesystem::path& imageFile,
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
 {
-    ZoneScopedN("texture::load()");
+    ZoneScopedN("image::load()");
 
     DeviceSize<GraphicsBackend::Vulkan> size = 0;
 
     std::tuple<
-        TextureCreateDesc<GraphicsBackend::Vulkan>,
+        ImageCreateDesc<GraphicsBackend::Vulkan>,
         BufferHandle<GraphicsBackend::Vulkan>,
         AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
 
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = textureFile.filename().u8string();
+    desc.name = imageFile.filename().u8string();
 
     int channelCount = 0;
 
@@ -160,7 +160,7 @@ load(
     };
 
     loadCachedSourceFile(
-        textureFile, textureFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
+        imageFile, imageFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
     desc.format = channelCount == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
     desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -174,43 +174,44 @@ load(
 
 }
 
-template <>
-ImageViewHandle<GraphicsBackend::Vulkan>
-Texture<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags)
-{
-    auto view = createImageView2D(getDeviceContext()->getDevice(), getImage(), myDesc.format, aspectFlags);
+// template <>
+// ImageView<GraphicsBackend::Vulkan>
+// Image<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags)
+// {
+//     auto view = createImageView2D(getDeviceContext()->getDevice(), getImageHandle(), myDesc.format, aspectFlags);
     
-    static std::atomic_uint32_t viewIndex = 0;
-    char stringBuffer[256];
-    static constexpr std::string_view imageViewStr = "_ImageView";
-    sprintf_s(
-        stringBuffer,
-        sizeof(stringBuffer),
-        "%.*s%.*s%u",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(imageViewStr.size()),
-        imageViewStr.data(),
-        viewIndex++);
-    addObject(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(view), stringBuffer);
+//     static std::atomic_uint32_t viewIndex = 0;
+//     char stringBuffer[256];
+//     static constexpr std::string_view imageViewStr = "_View";
+//     sprintf_s(
+//         stringBuffer,
+//         sizeof(stringBuffer),
+//         "%.*s%.*s%u",
+//         getName().size(),
+//         getName().c_str(),
+//         static_cast<int>(imageViewStr.size()),
+//         imageViewStr.data(),
+//         viewIndex++);
+        
+//     addObject(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(view), stringBuffer);
     
-    return view;
-}
+//     return view;
+// }
 
 template <>
-void Texture<GraphicsBackend::Vulkan>::transition(
+void Image<GraphicsBackend::Vulkan>::transition(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     ImageLayout<GraphicsBackend::Vulkan> layout)
 {
     if (getImageLayout() != layout)
     {
-        transitionImageLayout(cmd, getImage(), myDesc.format, getImageLayout(), layout);
+        transitionImageLayout(cmd, getImageHandle(), myDesc.format, getImageLayout(), layout);
         std::get<2>(myData) = layout;
     }
 }
 
 template <>
-void Texture<GraphicsBackend::Vulkan>::clearColor(
+void Image<GraphicsBackend::Vulkan>::clearColor(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     const ClearColorValue<GraphicsBackend::Vulkan>& color)
 {
@@ -225,7 +226,7 @@ void Texture<GraphicsBackend::Vulkan>::clearColor(
 
     vkCmdClearColorImage(
         cmd,
-        getImage(),
+        getImageHandle(),
         getImageLayout(),
         &color,
         1,
@@ -233,7 +234,7 @@ void Texture<GraphicsBackend::Vulkan>::clearColor(
 }
 
 template <>
-void Texture<GraphicsBackend::Vulkan>::clearDepthStencil(
+void Image<GraphicsBackend::Vulkan>::clearDepthStencil(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
     const ClearDepthStencilValue<GraphicsBackend::Vulkan>& depthStencil)
 {
@@ -248,7 +249,7 @@ void Texture<GraphicsBackend::Vulkan>::clearDepthStencil(
 
     vkCmdClearDepthStencilImage(
         cmd,
-        getImage(),
+        getImageHandle(),
         getImageLayout(),
         &depthStencil,
         1,
@@ -256,10 +257,10 @@ void Texture<GraphicsBackend::Vulkan>::clearDepthStencil(
 }
 
 template <>
-Texture<GraphicsBackend::Vulkan>::Texture(
+Image<GraphicsBackend::Vulkan>::Image(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     std::tuple<
-        TextureCreateDesc<GraphicsBackend::Vulkan>,
+        ImageCreateDesc<GraphicsBackend::Vulkan>,
         ImageHandle<GraphicsBackend::Vulkan>,
         AllocationHandle<GraphicsBackend::Vulkan>,
         ImageLayout<GraphicsBackend::Vulkan>>&& descAndData)
@@ -275,10 +276,10 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 }
 
 template <>
-Texture<GraphicsBackend::Vulkan>::Texture(
+Image<GraphicsBackend::Vulkan>::Image(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    TextureCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: Texture(
+    ImageCreateDesc<GraphicsBackend::Vulkan>&& desc)
+: Image(
     deviceContext,
     std::tuple_cat(
         std::make_tuple(std::move(desc)),
@@ -296,14 +297,14 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 }
 
 template <>
-Texture<GraphicsBackend::Vulkan>::Texture(
+Image<GraphicsBackend::Vulkan>::Image(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
     std::tuple<
-        TextureCreateDesc<GraphicsBackend::Vulkan>,
+        ImageCreateDesc<GraphicsBackend::Vulkan>,
         BufferHandle<GraphicsBackend::Vulkan>,
         AllocationHandle<GraphicsBackend::Vulkan>>&& descAndInitialData)
-: Texture(
+: Image(
     deviceContext,
     std::tuple_cat(
         std::make_tuple(std::move(std::get<0>(descAndInitialData))),
@@ -327,19 +328,56 @@ Texture<GraphicsBackend::Vulkan>::Texture(
 }
 
 template <>
-Texture<GraphicsBackend::Vulkan>::Texture(
+Image<GraphicsBackend::Vulkan>::Image(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
-    const std::filesystem::path& textureFile)
-: Texture(deviceContext, commandContext, texture::load(textureFile, deviceContext))
+    const std::filesystem::path& imageFile)
+: Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
 {
 }
 
 template <>
-Texture<GraphicsBackend::Vulkan>::~Texture()
+Image<GraphicsBackend::Vulkan>::~Image()
 {
-    getDeviceContext()->addTimelineCompletionCallback(
-        [allocator = getDeviceContext()->getAllocator(), image = getImage(), imageMemory = getImageMemory()](uint64_t){
-            vmaDestroyImage(allocator, image, imageMemory);
-    });
+    if (auto image = getImageHandle(); image)
+        getDeviceContext()->addTimelineCompletionCallback(
+            [allocator = getDeviceContext()->getAllocator(), image, imageMemory = getImageMemory()](uint64_t){
+                vmaDestroyImage(allocator, image, imageMemory);
+        });
+}
+
+template <>
+ImageView<GraphicsBackend::Vulkan>::ImageView(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    ImageViewHandle<GraphicsBackend::Vulkan>&& imageView)
+: DeviceResource<GraphicsBackend::Vulkan>(
+    deviceContext,
+    {"_View"},
+    1,
+    VK_OBJECT_TYPE_IMAGE_VIEW,
+    reinterpret_cast<uint64_t*>(&imageView))
+, myImageView(std::move(imageView))
+{
+}
+
+template <>
+ImageView<GraphicsBackend::Vulkan>::ImageView(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const Image<GraphicsBackend::Vulkan>& image,
+    Flags<GraphicsBackend::Vulkan> aspectFlags)
+: ImageView<GraphicsBackend::Vulkan>(
+    deviceContext,
+    createImageView2D(
+        deviceContext->getDevice(),
+        image.getImageHandle(),
+        image.getDesc().format,
+        aspectFlags))
+{
+}
+
+template <>
+ImageView<GraphicsBackend::Vulkan>::~ImageView()
+{
+    if (myImageView)
+        vkDestroyImageView(getDeviceContext()->getDevice(), myImageView, nullptr);
 }

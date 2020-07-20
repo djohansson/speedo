@@ -114,6 +114,25 @@ CommandContextBeginInfo<GraphicsBackend::Vulkan>::CommandContextBeginInfo()
 }
 
 template <>
+bool CommandContextBeginInfo<GraphicsBackend::Vulkan>::operator==(const CommandContextBeginInfo& other) const
+{
+    bool result = other.flags == flags && other.level == level;
+    if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+    {
+        assert(pInheritanceInfo);
+        result &= 
+            other.pInheritanceInfo->renderPass == pInheritanceInfo->renderPass &&
+            other.pInheritanceInfo->subpass == pInheritanceInfo->subpass &&
+            other.pInheritanceInfo->framebuffer == pInheritanceInfo->framebuffer &&
+            other.pInheritanceInfo->occlusionQueryEnable == pInheritanceInfo->occlusionQueryEnable &&
+            other.pInheritanceInfo->queryFlags == pInheritanceInfo->queryFlags && 
+            other.pInheritanceInfo->pipelineStatistics == pInheritanceInfo->pipelineStatistics;
+    }
+
+    return result;
+}
+
+template <>
 CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalBeginScope(
     CommandContextBeginInfo<GraphicsBackend::Vulkan>&& beginInfo)
 {
@@ -121,7 +140,9 @@ CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vul
         enqueueOnePending(beginInfo.level);
 
     myLastCommands.emplace(
-        CommandBufferAccessScope<GraphicsBackend::Vulkan>(myPendingCommands[beginInfo.level].back().first, std::move(beginInfo)));
+        CommandBufferAccessScope(
+            myPendingCommands[beginInfo.level].back().first,
+            std::move(beginInfo)));
 
     return (*myLastCommands);
 }

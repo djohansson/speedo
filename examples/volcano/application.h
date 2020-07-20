@@ -25,7 +25,7 @@
 #include "instance.h"
 #include "nodegraph.h"
 #include "pipeline.h"
-#include "rendertexture.h"
+#include "renderimageset.h"
 #include "window.h"
 
 #include "state.h" // temp - remove & clean up
@@ -91,7 +91,6 @@ private:
 	void shutdownIMGUI();
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
-	//void initializeWindowDependentObjects(CommandBufferHandle<B> cmd) const;
 
 	void processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue);
 
@@ -107,7 +106,7 @@ private:
 	std::shared_ptr<WindowContext<B>> myWindow;
 	std::shared_ptr<CommandContext<B>> myTransferCommands;
 	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
-	std::shared_ptr<RenderTexture<B>> myRenderTexture;
+	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 

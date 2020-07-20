@@ -13,7 +13,7 @@ Buffer<GraphicsBackend::Vulkan>::createView(
     DeviceSize<GraphicsBackend::Vulkan> offset,
     DeviceSize<GraphicsBackend::Vulkan> range)
 {
-    auto view = createBufferView(getDeviceContext()->getDevice(), getBuffer(), 0, format, offset, range);
+    auto view = createBufferView(getDeviceContext()->getDevice(), getBufferHandle(), 0, format, offset, range);
     
     static std::atomic_uint32_t viewIndex = 0;
     char stringBuffer[256];
@@ -96,8 +96,9 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
-    getDeviceContext()->addTimelineCompletionCallback(
-        [allocator = getDeviceContext()->getAllocator(), buffer = getBuffer(), bufferMemory = getBufferMemory()](uint64_t){
-            vmaDestroyBuffer(allocator, buffer, bufferMemory);
-    });
+    if (auto buffer = getBufferHandle(); buffer)
+        getDeviceContext()->addTimelineCompletionCallback(
+            [allocator = getDeviceContext()->getAllocator(), buffer, bufferMemory = getBufferMemory()](uint64_t){
+                vmaDestroyBuffer(allocator, buffer, bufferMemory);
+        });
 }

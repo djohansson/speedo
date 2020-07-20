@@ -22,8 +22,6 @@
 #include <imgui.h>
 #include <examples/imgui_impl_vulkan.h>
 
-#include <blockingconcurrentqueue.h>
-
 
 template <>
 void WindowContext<GraphicsBackend::Vulkan>::renderIMGUI()
@@ -126,7 +124,7 @@ void WindowContext<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameInde
 }
 
 template <>
-std::tuple<bool, uint32_t> WindowContext<GraphicsBackend::Vulkan>::flipFrame(uint32_t lastFrameIndex) const
+std::tuple<bool, uint32_t, uint64_t> WindowContext<GraphicsBackend::Vulkan>::flipFrame(uint32_t lastFrameIndex) const
 {
     ZoneScoped;
 
@@ -160,7 +158,7 @@ std::tuple<bool, uint32_t> WindowContext<GraphicsBackend::Vulkan>::flipFrame(uin
         // todo: print error code
         //ZoneText(failedStr, sizeof_array(failedStr));
 
-        return std::make_tuple(false, lastFrameIndex);
+        return std::make_tuple(false, lastFrameIndex, lastFrame->getLastSubmitTimelineValue());
     }
 
     char flipFrameWithNumberStr[flipFrameStr.size()+2];
@@ -168,8 +166,10 @@ std::tuple<bool, uint32_t> WindowContext<GraphicsBackend::Vulkan>::flipFrame(uin
         static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), frameIndex);
 
     ZoneName(flipFrameWithNumberStr, sizeof_array(flipFrameWithNumberStr));
+
+    auto& frame = myFrames[frameIndex];
     
-    return std::make_tuple(true, frameIndex);
+    return std::make_tuple(true, frameIndex, frame->getLastSubmitTimelineValue());
 }
 
 template <>
@@ -296,11 +296,11 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                     // bind pipeline and vertex/index buffers
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
 
-                    VkBuffer vertexBuffers[] = {config.resources->model->getBuffer().getBuffer()};
+                    VkBuffer vertexBuffers[] = {config.resources->model->getBuffer().getBufferHandle()};
                     VkDeviceSize vertexOffsets[] = {config.resources->model->getVertexOffset()};
 
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, config.resources->model->getBuffer().getBuffer(),
+                    vkCmdBindIndexBuffer(cmd, config.resources->model->getBuffer().getBufferHandle(),
                         config.resources->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 

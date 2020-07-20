@@ -134,7 +134,7 @@ private:
     SemaphoreHandle<B> myTimelineSemaphore = 0;
     std::atomic_uint64_t myTimelineValue = 0;
 
-    // todo: make to an atomic queue!!
-    std::shared_mutex myTimelineCompletionCallbacksMutex;
+    // todo: make to an atomic queue to avoid excessive locking
+    std::recursive_mutex myTimelineCompletionCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCompletionCallbacks;
 };

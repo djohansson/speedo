@@ -11,6 +11,10 @@
 #include <vector>
 #include <tuple>
 
+#define XXH_INLINE_ALL
+#include <xxh3.h>
+
+
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 {
@@ -106,6 +110,8 @@ private:
     std::optional<uint32_t> myCurrentSubpass;
 
     std::shared_mutex myMutex;
+    
+    std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 
     static constexpr std::string_view sc_colorImageViewStr = "_ColorImageView";
     static constexpr std::string_view sc_depthImageViewStr = "_DepthImageView";
