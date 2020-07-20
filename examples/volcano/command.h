@@ -115,24 +115,8 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto commands(CommandContextBeginInfo<B>&& beginInfo = {})
-    {
-        if (myLastCommands && (*myLastCommands).getBeginInfo() == beginInfo)
-        {
-            std::shared_lock readLock(myCommandsMutex);
-            return internalCommands();
-        }
-        else
-        {
-            std::unique_lock writeLock(myCommandsMutex);
-            return internalBeginScope(std::move(beginInfo));
-        }
-    }
-    void endCommands()
-    {
-        if (myLastCommands)
-            myLastCommands = std::nullopt;
-    }
+    auto commands(CommandContextBeginInfo<B>&& beginInfo = {});
+    void endCommands(); // only needed for commands recorded as secondary command buffers.
     
     uint64_t execute(CommandContext<B>& callee);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
@@ -202,6 +186,8 @@ private:
     std::vector<CommandBufferList> myFreeCommands;
     std::shared_mutex myCommandsMutex;
     std::vector<std::byte> myScratchMemory;
-    std::optional<CommandBufferAccessScope> myLastCommands;
+    std::optional<CommandBufferAccessScope> myRecordingCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };
+
+#include "command.inl"

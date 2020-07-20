@@ -110,9 +110,9 @@ public:
     auto& timelineValue() { return myTimelineValue; }
     bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
-    void addTimelineCompletionCallback(std::function<void(uint64_t)>&& callback);
-    void addTimelineCompletionCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
-    void addTimelineCompletionCallbacks(
+    void addTimelineCallback(std::function<void(uint64_t)>&& callback);
+    void addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
+    void addTimelineCallbacks(
         uint64_t timelineValue,
         const std::list<std::function<void(uint64_t)>>& callbacks);
     void processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
@@ -135,6 +135,6 @@ private:
     std::atomic_uint64_t myTimelineValue = 0;
 
     // todo: make to an atomic queue to avoid excessive locking
-    std::recursive_mutex myTimelineCompletionCallbacksMutex;
-    std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCompletionCallbacks;
+    std::recursive_mutex myTimelineCallbacksMutex;
+    std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
 };

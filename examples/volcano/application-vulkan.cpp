@@ -97,7 +97,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
     
-    deviceContext->addTimelineCompletionCallback([](uint64_t){
+    deviceContext->addTimelineCallback([](uint64_t){
         ImGui_ImplVulkan_DestroyFontUploadObjects();
     });
 
@@ -251,29 +251,27 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
-        {
-            myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
-                myDevice,
-                myTransferCommands,
-                myResourcePath / "models" / "gallery.obj");
-            myGraphicsPipeline->getConfig()->resources->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
-                myDevice,
-                myTransferCommands,
-                myResourcePath / "images" / "gallery.jpg");
-            myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
-                myDevice,
-                *(myGraphicsPipeline->getConfig()->resources->image),
-                VK_IMAGE_ASPECT_COLOR_BIT);
+        myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            myResourcePath / "models" / "gallery.obj");
+        myGraphicsPipeline->getConfig()->resources->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
+            myDevice,
+            myTransferCommands,
+            myResourcePath / "images" / "gallery.jpg");
+        myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
+            myDevice,
+            *(myGraphicsPipeline->getConfig()->resources->image),
+            VK_IMAGE_ASPECT_COLOR_BIT);
 
-            myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
-                myInstance,
-                myDevice,    
-                WindowCreateDesc<GraphicsBackend::Vulkan>{
-                    {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                    {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                    {3, 2}});
-        }
-
+        myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
+            myInstance,
+            myDevice,    
+            WindowCreateDesc<GraphicsBackend::Vulkan>{
+                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                {3, 2}});
+        
         // submit transfers.
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommands->submit({
@@ -330,7 +328,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        std::shared_ptr<Model<GraphicsBackend::Vulkan>> model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+        auto model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
             myDevice,
             myTransferCommands,
             openFilePath);
@@ -346,7 +344,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
 
-        myDevice->addTimelineCompletionCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
+        myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
             myGraphicsPipeline->getConfig()->resources->model = model;
 
@@ -373,7 +371,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
 
-        myDevice->addTimelineCompletionCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
+        myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
         {
             myGraphicsPipeline->getConfig()->resources->image = image;
             myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(

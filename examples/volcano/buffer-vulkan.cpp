@@ -97,7 +97,7 @@ template <>
 Buffer<GraphicsBackend::Vulkan>::~Buffer()
 {
     if (auto buffer = getBufferHandle(); buffer)
-        getDeviceContext()->addTimelineCompletionCallback(
+        getDeviceContext()->addTimelineCallback(
             [allocator = getDeviceContext()->getAllocator(), buffer, bufferMemory = getBufferMemory()](uint64_t){
                 vmaDestroyBuffer(allocator, buffer, bufferMemory);
         });

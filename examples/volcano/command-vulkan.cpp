@@ -139,18 +139,18 @@ CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vul
     if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
         enqueueOnePending(beginInfo.level);
 
-    myLastCommands.emplace(
+    myRecordingCommands.emplace(
         CommandBufferAccessScope(
             myPendingCommands[beginInfo.level].back().first,
             std::move(beginInfo)));
 
-    return (*myLastCommands);
+    return (*myRecordingCommands);
 }
     
 template <>
 CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalCommands() const
 {
-    return (*myLastCommands);
+    return (*myRecordingCommands);
 }
 
 template <>
@@ -161,7 +161,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&
 
     myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
 
-    myDevice->addTimelineCompletionCallback(timelineValue, [this](uint64_t timelineValue)
+    myDevice->addTimelineCallback(timelineValue, [this](uint64_t timelineValue)
     {
         ZoneScopedN("cmdReset");
 
@@ -216,7 +216,7 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList
         onResetCommands(mySubmittedCommands, myFreeCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY], timelineValue);
     });
 
-    myDevice->addTimelineCompletionCallbacks(timelineValue, mySubmitFinishedCallbacks);
+    myDevice->addTimelineCallbacks(timelineValue, mySubmitFinishedCallbacks);
     mySubmitFinishedCallbacks.clear();
 }
 

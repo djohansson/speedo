@@ -340,7 +340,7 @@ template <>
 Image<GraphicsBackend::Vulkan>::~Image()
 {
     if (auto image = getImageHandle(); image)
-        getDeviceContext()->addTimelineCompletionCallback(
+        getDeviceContext()->addTimelineCallback(
             [allocator = getDeviceContext()->getAllocator(), image, imageMemory = getImageMemory()](uint64_t){
                 vmaDestroyImage(allocator, image, imageMemory);
         });
