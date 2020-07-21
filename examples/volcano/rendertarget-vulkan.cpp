@@ -16,6 +16,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
     {
         myAttachments.emplace_back(createImageView2D(
             getDeviceContext()->getDevice(),
+            0,
             desc.colorImages[attachmentIt],
             desc.colorImageFormats[attachmentIt],
             VK_IMAGE_ASPECT_COLOR_BIT));
@@ -59,6 +60,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
 
         myAttachments.emplace_back(createImageView2D(
             getDeviceContext()->getDevice(),
+            0,
             desc.depthStencilImage,
             desc.depthStencilImageFormat,
             depthAspectFlags));

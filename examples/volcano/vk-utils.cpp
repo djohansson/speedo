@@ -597,9 +597,10 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
     return std::make_tuple(outImage, outImageMemory);
 }
 
-VkImageView createImageView2D(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
 {	
 	VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+	viewInfo.flags = flags;
 	viewInfo.image = image;
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	viewInfo.format = format;

@@ -33,10 +33,6 @@ public:
     const auto& getDesc() const { return myDesc; }
     const auto& getBufferHandle() const { return std::get<0>(myData); }
     const auto& getBufferMemory() const { return std::get<1>(myData); }
-    
-    // todo: create scoped wrapper for the view handle
-    BufferViewHandle<B> createView(Format<B> format, DeviceSize<B> offset, DeviceSize<B> range);
-    //
 
 private:
 
@@ -46,4 +42,29 @@ private:
 
     const BufferCreateDesc<B> myDesc = {};
     std::tuple<BufferHandle<B>, AllocationHandle<B>> myData = {};
+};
+
+template <GraphicsBackend B>
+class BufferView : public DeviceResource<B>
+{
+public:
+    
+    BufferView(BufferView&& other) = default;
+    BufferView( // creates a view from buffer
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const Buffer<B>& buffer,
+        Format<B> format,
+        DeviceSize<B> offset,
+        DeviceSize<B> range);
+    ~BufferView();
+
+    auto getBufferViewHandle() const { return myBufferView; }
+
+private:
+
+    BufferView( // uses provided image view
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        BufferViewHandle<B>&& bufferView);
+
+    BufferViewHandle<B> myBufferView = 0;
 };

@@ -121,7 +121,8 @@ public:
     uint64_t execute(CommandContext<B>& callee);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
 
-    // these will be complete when the timeline value is reached of the command buffer they are submitted in
+    // these will be complete when the timeline value is reached of the command buffer they are submitted in.
+    // useful for ensuring that dependencies are respected when releasing resources. do not remove.
     void addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback);
 
 protected:

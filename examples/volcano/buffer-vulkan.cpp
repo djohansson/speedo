@@ -7,32 +7,6 @@
 
 
 template <>
-BufferViewHandle<GraphicsBackend::Vulkan>
-Buffer<GraphicsBackend::Vulkan>::createView(
-    Format<GraphicsBackend::Vulkan> format,
-    DeviceSize<GraphicsBackend::Vulkan> offset,
-    DeviceSize<GraphicsBackend::Vulkan> range)
-{
-    auto view = createBufferView(getDeviceContext()->getDevice(), getBufferHandle(), 0, format, offset, range);
-    
-    static std::atomic_uint32_t viewIndex = 0;
-    char stringBuffer[256];
-    static constexpr std::string_view bufferViewStr = "_BufferView";
-    sprintf_s(
-        stringBuffer,
-        sizeof(stringBuffer),
-        "%.*s%.*s%u",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(bufferViewStr.size()),
-        bufferViewStr.data(),
-        viewIndex++);
-    addObject(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(view), stringBuffer);
-    
-    return view;
-}
-
-template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     std::tuple<
@@ -100,5 +74,48 @@ Buffer<GraphicsBackend::Vulkan>::~Buffer()
         getDeviceContext()->addTimelineCallback(
             [allocator = getDeviceContext()->getAllocator(), buffer, bufferMemory = getBufferMemory()](uint64_t){
                 vmaDestroyBuffer(allocator, buffer, bufferMemory);
+        });
+}
+
+template <>
+BufferView<GraphicsBackend::Vulkan>::BufferView(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    BufferViewHandle<GraphicsBackend::Vulkan>&& bufferView)
+: DeviceResource<GraphicsBackend::Vulkan>(
+    deviceContext,
+    {"_View"},
+    1,
+    VK_OBJECT_TYPE_BUFFER_VIEW,
+    reinterpret_cast<uint64_t*>(&bufferView))
+, myBufferView(std::move(bufferView))
+{
+}
+
+template <>
+BufferView<GraphicsBackend::Vulkan>::BufferView(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const Buffer<GraphicsBackend::Vulkan>& buffer,
+    Format<GraphicsBackend::Vulkan> format,
+    DeviceSize<GraphicsBackend::Vulkan> offset,
+    DeviceSize<GraphicsBackend::Vulkan> range)
+: BufferView<GraphicsBackend::Vulkan>(
+    deviceContext,
+    createBufferView(
+        deviceContext->getDevice(),
+        buffer.getBufferHandle(),
+        0, // "reserved for future use"
+        format,
+        offset,
+        range))
+{
+}
+
+template <>
+BufferView<GraphicsBackend::Vulkan>::~BufferView()
+{
+    if (auto bufferView = getBufferViewHandle(); bufferView)
+        getDeviceContext()->addTimelineCallback(
+            [device = getDeviceContext()->getDevice(), bufferView](uint64_t){
+                vkDestroyBufferView(device, bufferView, nullptr);
         });
 }

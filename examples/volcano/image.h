@@ -43,10 +43,6 @@ public:
     const auto& getImageMemory() const { return std::get<1>(myData); }
     const auto& getImageLayout() const { return std::get<2>(myData); }
 
-    // todo: create scoped wrapper for the view handle
-    //ImageView<B> createView(Flags<B> aspectFlags);
-    //
-
     void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color);
     void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil);
 

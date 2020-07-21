@@ -174,30 +174,6 @@ load(
 
 }
 
-// template <>
-// ImageView<GraphicsBackend::Vulkan>
-// Image<GraphicsBackend::Vulkan>::createView(Flags<GraphicsBackend::Vulkan> aspectFlags)
-// {
-//     auto view = createImageView2D(getDeviceContext()->getDevice(), getImageHandle(), myDesc.format, aspectFlags);
-    
-//     static std::atomic_uint32_t viewIndex = 0;
-//     char stringBuffer[256];
-//     static constexpr std::string_view imageViewStr = "_View";
-//     sprintf_s(
-//         stringBuffer,
-//         sizeof(stringBuffer),
-//         "%.*s%.*s%u",
-//         getName().size(),
-//         getName().c_str(),
-//         static_cast<int>(imageViewStr.size()),
-//         imageViewStr.data(),
-//         viewIndex++);
-        
-//     addObject(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(view), stringBuffer);
-    
-//     return view;
-// }
-
 template <>
 void Image<GraphicsBackend::Vulkan>::transition(
     CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
@@ -369,6 +345,7 @@ ImageView<GraphicsBackend::Vulkan>::ImageView(
     deviceContext,
     createImageView2D(
         deviceContext->getDevice(),
+        0, // "reserved for future use"
         image.getImageHandle(),
         image.getDesc().format,
         aspectFlags))
@@ -378,6 +355,9 @@ ImageView<GraphicsBackend::Vulkan>::ImageView(
 template <>
 ImageView<GraphicsBackend::Vulkan>::~ImageView()
 {
-    if (myImageView)
-        vkDestroyImageView(getDeviceContext()->getDevice(), myImageView, nullptr);
+    if (auto imageView = getImageViewHandle(); imageView)
+        getDeviceContext()->addTimelineCallback(
+            [device = getDeviceContext()->getDevice(), imageView](uint64_t){
+                vkDestroyImageView(device, imageView, nullptr);
+        });
 }
