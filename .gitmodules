@@ -66,7 +66,7 @@
 	url = https://github.com/cameron314/concurrentqueue.git
 [submodule "external/imnodes"]
 	path = external/imnodes
-	url = https://github.com/Nelarius/imnodes.git
+	url = https://github.com/djohansson/imnodes.git
 [submodule "external/slang-binaries"]
 	path = external/slang-binaries
 	url = https://github.com/shader-slang/slang-binaries.git
