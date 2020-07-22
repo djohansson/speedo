@@ -183,21 +183,21 @@ void PipelineContext<GraphicsBackend::Vulkan>::updateDescriptorSets(BufferHandle
 
     std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
     descriptorWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[0].dstSet = myConfig->descriptorSets[0];
+    descriptorWrites[0].dstSet = myConfig->descriptorSets->getDescriptorSetHandles()[0];
     descriptorWrites[0].dstBinding = 0;
     descriptorWrites[0].dstArrayElement = 0;
     descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     descriptorWrites[0].descriptorCount = 1;
     descriptorWrites[0].pBufferInfo = &bufferInfo;
     descriptorWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[1].dstSet = myConfig->descriptorSets[0];
+    descriptorWrites[1].dstSet = myConfig->descriptorSets->getDescriptorSetHandles()[0];
     descriptorWrites[1].dstBinding = 1;
     descriptorWrites[1].dstArrayElement = 0;
     descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptorWrites[1].descriptorCount = 1;
     descriptorWrites[1].pImageInfo = &imageInfo;
     descriptorWrites[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[2].dstSet = myConfig->descriptorSets[0];
+    descriptorWrites[2].dstSet = myConfig->descriptorSets->getDescriptorSetHandles()[0];
     descriptorWrites[2].dstBinding = 2;
     descriptorWrites[2].dstArrayElement = 0;
     descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -228,9 +228,8 @@ PipelineContext<GraphicsBackend::Vulkan>::PipelineContext(
     myConfig->resources = std::make_shared<PipelineResourceView<GraphicsBackend::Vulkan>>();
     myConfig->layout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>(createPipelineLayoutContext(deviceContext->getDevice(), shaders));
     myConfig->resources->sampler = createSampler(deviceContext->getDevice());
-    myConfig->descriptorSets = allocateDescriptorSets(
-        deviceContext->getDevice(),
-        deviceContext->getDescriptorPool(),
+    myConfig->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+        deviceContext,
         myConfig->layout->descriptorSetLayouts.get(),
         myConfig->layout->descriptorSetLayouts.get_deleter().getSize());
 

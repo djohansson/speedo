@@ -1,6 +1,7 @@
 #pragma once
 
 #include "buffer.h"
+#include "descriptorset.h"
 #include "device.h"
 #include "file.h"
 #include "gfx-types.h"
@@ -73,10 +74,9 @@ struct PipelineConfiguration
 {
 	std::shared_ptr<PipelineResourceView<B>> resources;
 	std::shared_ptr<PipelineLayoutContext<B>> layout;
+	std::shared_ptr<DescriptorSetVector<B>> descriptorSets;
 
 	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"
-
-	std::vector<DescriptorSetHandle<B>> descriptorSets;
 };
 
 template <GraphicsBackend B>

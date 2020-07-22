@@ -470,6 +470,8 @@ Application<GraphicsBackend::Vulkan>::Application(
                 Text("Fences: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FENCE));
                 Text("Semaphores: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
                 Text("Command Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+                Text("Descriptor Set Layouts: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
+                Text("Descriptor Sets: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
                 Text("Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER));
                 Text("Buffer Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
                 Text("Images: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE));

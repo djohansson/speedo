@@ -11,7 +11,7 @@ template <>
 std::map<ObjectType<GraphicsBackend::Vulkan>, uint32_t> DeviceResource<GraphicsBackend::Vulkan>::gObjectTypeCounts{};
 
 template <>
-void DeviceResource<GraphicsBackend::Vulkan>::internalAddObject(
+void DeviceResource<GraphicsBackend::Vulkan>::internalAddOwnedObject(
     ObjectType<GraphicsBackend::Vulkan> objectType,
     uint64_t objectHandle,
     const char* objectName)
@@ -31,7 +31,7 @@ void DeviceResource<GraphicsBackend::Vulkan>::internalAddObject(
 
     VK_CHECK(vkSetDebugUtilsObjectNameEXT(device, &imageNameInfo));
 
-    myObjects.emplace_back(Object{objectName, objectType, objectHandle});
+    myOwnedObjects.emplace_back(Object{objectType, objectHandle, objectName});
 }
 
 template <>
@@ -47,12 +47,12 @@ void DeviceResource<GraphicsBackend::Vulkan>::decrementTypeCount(ObjectType<Grap
 }
 
 template <>
-void DeviceResource<GraphicsBackend::Vulkan>::addObject(
+void DeviceResource<GraphicsBackend::Vulkan>::addOwnedObject(
     ObjectType<GraphicsBackend::Vulkan> objectType,
     uint64_t objectHandle,
     const char* objectName)
 {
-    internalAddObject(objectType, objectHandle, objectName);
+    internalAddOwnedObject(objectType, objectHandle, objectName);
     std::unique_lock writelock(gObjectTypeCountsMutex);
     incrementTypeCount(objectType, 1);
 }
@@ -87,7 +87,7 @@ DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
             2,
             objectIt);
 
-        internalAddObject(
+        internalAddOwnedObject(
             objectType,
             objectHandles[objectIt],
             stringBuffer);
@@ -101,7 +101,7 @@ template <>
 DeviceResource<GraphicsBackend::Vulkan>::~DeviceResource()
 {
     std::unique_lock writeLock(gObjectTypeCountsMutex);
-    for (const auto& object : myObjects)
+    for (const auto& object : myOwnedObjects)
         decrementTypeCount(object.type, 1);
 }
 

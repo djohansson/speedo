@@ -350,8 +350,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
                         drawModel(
-                            cmd, config.resources->model->getDesc().indexCount, config.descriptorSets.size(),
-                            config.descriptorSets.data(), config.layout->layout);
+                            cmd, config.resources->model->getDesc().indexCount, config.descriptorSets->getDescriptorSetHandles().size(),
+                            config.descriptorSets->getDescriptorSetHandles().data(), config.layout->layout);
 
                     };
 

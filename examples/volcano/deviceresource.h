@@ -28,9 +28,9 @@ protected:
 
     struct Object
     {
-        std::string name;
         ObjectType<B> type = {};
         uint64_t handle = 0;
+        std::string name;
     };
 
     DeviceResource(DeviceResource<B>&& other) = default;
@@ -46,14 +46,14 @@ protected:
 
     const auto& getDeviceContext() const { return myDevice; }
 
-    void addObject(
+    void addOwnedObject(
         ObjectType<B> objectType,
         uint64_t objectHandle,
         const char* objectName);
 
 private:
 
-    void internalAddObject(
+    void internalAddOwnedObject(
         ObjectType<B> objectType,
         uint64_t objectHandle,
         const char* objectName);
@@ -63,7 +63,7 @@ private:
 
     std::shared_ptr<DeviceContext<B>> myDevice;
     std::string myName;
-    std::list<Object> myObjects;
+    std::list<Object> myOwnedObjects;
 
     static std::shared_mutex gObjectTypeCountsMutex;
     static std::map<ObjectType<B>, uint32_t> gObjectTypeCounts;

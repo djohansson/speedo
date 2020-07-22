@@ -32,7 +32,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
             1,
             attachmentIt);
 
-        addObject(
+        addOwnedObject(
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -74,7 +74,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
             static_cast<int>(sc_depthImageViewStr.size()),
             sc_depthImageViewStr.data());
 
-        addObject(
+        addOwnedObject(
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -237,7 +237,7 @@ RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(ui
         sc_renderPassStr.data(),
         hashKey);
 
-    addObject(
+    addOwnedObject(
         VK_OBJECT_TYPE_RENDER_PASS,
         reinterpret_cast<uint64_t>(renderPass),
         stringBuffer);
@@ -252,7 +252,7 @@ RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(ui
         sc_framebufferStr.data(),
         hashKey);
 
-    addObject(
+    addOwnedObject(
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
         stringBuffer);

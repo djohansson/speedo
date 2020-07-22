@@ -40,7 +40,7 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
         getName().c_str(),
         static_cast<int>(swapchainStr.size()),
         swapchainStr.data());
-    addObject(VK_OBJECT_TYPE_SWAPCHAIN_KHR, reinterpret_cast<uint64_t>(mySwapchain), stringBuffer);
+    addOwnedObject(VK_OBJECT_TYPE_SWAPCHAIN_KHR, reinterpret_cast<uint64_t>(mySwapchain), stringBuffer);
 }
 
 template <>
