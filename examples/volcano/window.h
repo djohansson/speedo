@@ -29,21 +29,14 @@ class WindowContext
 {
 public:
 
-	struct ViewBufferData // todo: needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment. right now uses manual padding.
-	{
-		glm::mat4 viewProj = glm::mat4(1.0f);
-		glm::mat4 pad0;
-		glm::mat4 pad1;
-		glm::mat4 pad2;
-	};
-
+	WindowContext(WindowContext<B>&& other) noexcept = default;
 	WindowContext(
 		const std::shared_ptr<InstanceContext<B>>& instanceContext,
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		WindowCreateDesc<B>&& desc);
 
 	const auto& getDesc() const { return myDesc; }
-	const auto& getSwapchainContext() const { return *mySwapchain; }
+	const auto& getSwapchain() const { return *mySwapchain; }
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
@@ -73,6 +66,14 @@ public:
 		const PipelineConfiguration<B>& config,
 		uint64_t waitTimelineValue);
 	void presentFrame(uint32_t frameIndex) const;
+
+	struct ViewBufferData // todo: needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment. right now uses manual padding.
+	{
+		glm::mat4 viewProj = glm::mat4(1.0f);
+		glm::mat4 pad0;
+		glm::mat4 pad1;
+		glm::mat4 pad2;
+	};
 
 private:
 

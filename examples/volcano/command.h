@@ -33,7 +33,7 @@ public:
     static constexpr uint32_t kHeadBitCount = 2;
     static constexpr uint32_t kCommandBufferCount = (1 << kHeadBitCount);
 
-    CommandBufferArray(CommandBufferArray<B>&& other) = default;
+    CommandBufferArray(CommandBufferArray<B>&& other) noexcept = default;
     CommandBufferArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::tuple<CommandBufferArrayCreateDesc<B>, std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
@@ -107,7 +107,7 @@ class CommandContext
 {
 public:
 
-    CommandContext(CommandContext<B>&& other) = default;
+    CommandContext(CommandContext<B>&& other) noexcept = default;
     CommandContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandContextCreateDesc<B>&& desc);

@@ -2,6 +2,7 @@
 
 #include "device.h"
 #include "gfx-types.h"
+#include "utils.h"
 
 #include <list>
 #include <string>
@@ -33,7 +34,7 @@ protected:
         std::string name;
     };
 
-    DeviceResource(DeviceResource<B>&& other) = default;
+    DeviceResource(DeviceResource<B>&& other) noexcept = default;
     DeviceResource( // no object names are set
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const DeviceResourceCreateDesc<B>& desc);

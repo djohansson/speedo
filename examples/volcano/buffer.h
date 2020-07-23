@@ -20,7 +20,7 @@ class Buffer : public DeviceResource<B>
 {
 public:
 
-    Buffer(Buffer&& other) = default;
+    Buffer(Buffer&& other) noexcept = default;
     Buffer( // creates uninitialized buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferCreateDesc<B>&& desc);
@@ -49,7 +49,7 @@ class BufferView : public DeviceResource<B>
 {
 public:
     
-    BufferView(BufferView&& other) = default;
+    BufferView(BufferView&& other) noexcept = default;
     BufferView( // creates a view from buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Buffer<B>& buffer,

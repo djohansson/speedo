@@ -19,7 +19,7 @@ class SwapchainContext : public DeviceResource<B>
 {
 public:
 
-	SwapchainContext(SwapchainContext&& other) = default;
+	SwapchainContext(SwapchainContext&& other) noexcept = default;
 	SwapchainContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		SwapchainCreateDesc<B>&& desc);

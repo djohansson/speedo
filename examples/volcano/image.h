@@ -24,7 +24,7 @@ class Image : public DeviceResource<B>
 {
 public:
 
-    Image(Image&& other) = default;
+    Image(Image&& other) noexcept = default;
     Image( // creates uninitialized image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
@@ -65,7 +65,7 @@ class ImageView : public DeviceResource<B>
 {
 public:
     
-    ImageView(ImageView&& other) = default;
+    ImageView(ImageView&& other) noexcept = default;
     ImageView( // creates a view from image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,

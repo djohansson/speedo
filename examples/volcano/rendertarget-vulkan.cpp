@@ -415,16 +415,6 @@ void RenderTarget<GraphicsBackend::Vulkan>::end(CommandBufferHandle<GraphicsBack
 
 template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
-    RenderTarget<GraphicsBackend::Vulkan>&& other)
-: DeviceResource<GraphicsBackend::Vulkan>(std::move(other))
-, myAttachments(std::move(other.myAttachments))
-, myMap(std::move(other.myMap))
-, myXXHState(std::move(other.myXXHState))
-{
-}
-
-template <>
-RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
 : DeviceResource<GraphicsBackend::Vulkan>(deviceContext, desc)
@@ -454,9 +444,6 @@ RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
     for (const auto& colorView : myAttachments)
         vkDestroyImageView(getDeviceContext()->getDevice(), colorView, nullptr);
 }
-
-template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
 
 template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,

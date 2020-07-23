@@ -24,7 +24,7 @@ class Model
 {
 public:
 
-	Model(Model&& other) = default;
+	Model(Model&& other) noexcept = default;
 	Model( // copies the initial buffer into a new one. buffer gets garbage collected when finished copying.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,

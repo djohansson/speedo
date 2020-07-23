@@ -21,7 +21,7 @@ class PipelineContext : public DeviceResource<B>
 {
 public:
 
-    PipelineContext(PipelineContext&& other) = default;
+    PipelineContext(PipelineContext&& other) noexcept = default;
     PipelineContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

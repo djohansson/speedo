@@ -10,7 +10,7 @@ class DescriptorSetLayout : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetLayout(DescriptorSetLayout&& other) = default;
+    DescriptorSetLayout(DescriptorSetLayout&& other) noexcept = default;
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::vector<DescriptorSetLayoutBinding<B>>& bindings);
@@ -34,7 +34,7 @@ class DescriptorSetVector : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetVector(DescriptorSetVector&& other) = default;
+    DescriptorSetVector(DescriptorSetVector&& other) noexcept = default;
     DescriptorSetVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const DescriptorSetLayoutHandle<B>* layoutHandles,
