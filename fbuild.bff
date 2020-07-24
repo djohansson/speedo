@@ -1,6 +1,8 @@
 #include "platform-config.bff"
 #include "clang-config.bff"
 #include "python-config.bff"
+#include "vulkan-config.bff"
+
 #include "buildsystem.bff"
 
 .BuildName = 'slang'
