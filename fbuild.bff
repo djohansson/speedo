@@ -253,7 +253,7 @@
 		Using(.TaskCommon)
 
 		.Name = 'gl3w-generate'
-		.ExecExecutable = 'C:\Program Files\Python38\python.exe'
+		.ExecExecutable = '$PythonExecutable$'
 		.ExecInput = '$BuildRootPath$/external/gl3w/gl3w_gen.py'
 		.ExecArguments = '%1'
 		.ExecOutput + '/src/gl3w.c'
@@ -362,6 +362,17 @@
 		.CompilerInputPath = '$BuildRootPath$/external/glslang/OGLCompilersDLL'
 	]
 
+	.GlslangGenerateTask =
+	[
+		Using(.TaskCommon)
+
+		.Name = 'glslang-generate'
+		.ExecExecutable = '$PythonExecutable$'
+		.ExecInput = '$BuildRootPath$/external/glslang/build_info.py'
+		.ExecArguments = '%1 $BuildRootPath$/external/glslang -i $BuildRootPath$/external/glslang/build_info.h.tmpl -o %2'
+		.ExecOutput + '/glslang/build_info.h'
+	]
+
 	.GlslangGlslangUnity = 
 	[
 		.UnityInputPath = {
@@ -383,6 +394,7 @@
 		Using(.GlslangGlslangUnity)
 
 		.Name = 'glslang-glslang'
+		.DependencyTasks = { .GlslangGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$BuildRootPath$/external/glslang'
 				+ ' -I$BuildRootPath$/external/glslang/OGLCompilersDLL'
@@ -390,6 +402,9 @@
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
 				+ ' -DNV_EXTENSIONS'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/glslang-generate',
+		}
 		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputPath = {
 			'$BuildRootPath$/external/glslang/glslang/HLSL',
@@ -418,12 +433,16 @@
 		Using(.GlslangHlslUnity)
 
 		.Name = 'glslang-hlsl'
+		.DependencyTasks = { .GlslangGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$BuildRootPath$/external/glslang'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
 				+ ' -DNV_EXTENSIONS'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/glslang-generate',
+		}
 		.CompilerInputUnity = '$Name$-unity'
 	]
 
@@ -440,6 +459,7 @@
 		Using(.GlslangSPIRVUnity)
 		
 		.Name = 'glslang-SPIRV'
+		.DependencyTasks = { .GlslangGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$BuildRootPath$/external/glslang'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
@@ -448,6 +468,9 @@
 				+ ' -DAMD_EXTENSIONS'
 				+ ' -DNV_EXTENSIONS'
 				+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/glslang-generate',
+		}
 		.CompilerInputUnity = '$Name$-unity'
 	]
 

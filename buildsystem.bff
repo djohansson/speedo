@@ -149,6 +149,7 @@ function AddObjectList(.ObjectList .CompilerConfig)
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
+            ^CompilerOptions + '$CompilerOption$/$ConfigName$'
             ^CompilerOptions + '$CompilerOption$/$ConfigName$/include'
         }
 
@@ -197,6 +198,7 @@ function AddLibrary(.Library .CompilerConfig)
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
+            ^CompilerOptions + '$CompilerOption$/$ConfigName$'
             ^CompilerOptions + '$CompilerOption$/$ConfigName$/include'
         }
 
