@@ -1,3 +1,6 @@
+#include "platform-config.bff"
+#include "clang-config.bff"
+#include "python-config.bff"
 #include "buildsystem.bff"
 
 .BuildName = 'slang'
@@ -41,9 +44,6 @@
 		.Name = 'slang-generate'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp 
 			+ ' -I$BuildRootPath$/tools/slang-generate'
-		.CompilerInputPath = {
-			'$BuildRootPath$/tools/slang-generate',
-		}
 		.CompilerInputPath = '$BuildRootPath$/tools/slang-generate'
 	]
 
@@ -74,7 +74,7 @@
 		.ExecInputPattern = '*.meta.slang'
 		.ExecInputPath = '$BuildRootPath$/source/slang'
 		.ExecArguments = '-o %2 %1'
-		.ExecOutput + '/meta.slang'
+		.ExecOutput + '/include/meta.slang'
 		.ExecUseStdOutAsOutput = true
 	]
 
@@ -101,9 +101,7 @@
 			+ ' -Wno-unused-function'
 			+ ' -Wno-invalid-offsetof'
 			+ ' -DSLANG_STATIC'
-		.CompilerInputPath = {
-			'$BuildRootPath$/tools/slang-cpp-extractor',
-		}
+		.CompilerInputPath = '$BuildRootPath$/tools/slang-cpp-extractor'
 		.CompilerInputFiles = {
 			'$BuildRootPath$/source/slang/slang-lexer.cpp',
 			'$BuildRootPath$/source/slang/slang-source-loc.cpp',
@@ -148,7 +146,7 @@
 			'$BuildRootPath$/source/slang/slang-ast-val.h',
 		}
 		.ExecArguments = '-o %2 %1 -strip-prefix slang-ast- -output-fields'
-		.ExecOutput + '/slang-ast-generated'
+		.ExecOutput + '/include/slang-ast-generated'
 		.ExecUseStdOutAsOutput = true
 	]
 
@@ -250,6 +248,33 @@
 		}
 	]
 
+	.Gl3wGenerateTask =
+	[
+		Using(.TaskCommon)
+
+		.Name = 'gl3w-generate'
+		.ExecExecutable = 'C:\Program Files\Python38\python.exe'
+		.ExecInput = '$BuildRootPath$/external/gl3w/gl3w_gen.py'
+		.ExecArguments = '%1'
+		.ExecOutput + '/src/gl3w.c'
+	]
+
+	.Gl3wLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.Name = 'gl3w'
+		.DependencyTasks = { .Gl3wGenerateTask }
+		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -I$BuildRootPath$/external/gl3w/include'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/gl3w-generate',
+		}
+		.CompilerInputPattern = '*.c'
+		.CompilerInputPath = '$IntermediateFilePath$/gl3w-generate'
+		.UseConfigDependentInputPath = true
+	]
+
 	.TracyClientObjectList =
 	[
 		Using(.ObjectListCommon)
@@ -300,10 +325,10 @@
 		Using(.TracyUnity)
 		
 		.Name = 'tracy'
+		.DependencyTasks = { .Gl3wGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/tracy/profiler'
 			+ ' -I$BuildRootPath$/external/capstone/include'
-			+ ' -I$BuildRootPath$/external/gl3w/include'
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/freetype2/include'
 			+ ' -I$BuildRootPath$/external/nativefiledialog/src/include'
@@ -314,6 +339,9 @@
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/gl3w-generate',
+		}
 		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputFiles = {
 			'$BuildRootPath$/external/tracy/server/TracyMicroArchitecture.cpp'
@@ -772,30 +800,21 @@
 		Using(.ImguiUnity)
 
 		.Name = 'imgui'
+		.DependencyTasks = { .Gl3wGenerateTask }
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/imgui'
 			+ ' -I$BuildRootPath$/external/imnodes'
-			+ ' -I$BuildRootPath$/external/gl3w/include'
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/freetype2/include'
 			+ ' -I$VulkanSDKPath$/include'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/gl3w-generate',
+		}
 		.CompilerInputUnity = '$Name$-unity'
 		.CompilerInputFiles = {
 			'$BuildRootPath$/external/imgui/examples/imgui_impl_opengl3.cpp',
 			'$BuildRootPath$/external/imgui/examples/imgui_impl_glfw.cpp',
 			'$BuildRootPath$/external/imgui/examples/imgui_impl_vulkan.cpp'
-		}
-	]
-
-	.Gl3wLibrary =
-	[
-		Using(.LibraryCommon)
-
-		.Name = 'gl3w'
-		.LibraryCompilerOptions = .CompilerOptionsC
-			+ ' -I$BuildRootPath$/external/gl3w/include'
-		.CompilerInputFiles = {
-			'$BuildRootPath$/external/gl3w/src/gl3w.c',
 		}
 	]
 
@@ -825,6 +844,21 @@
 			'$BuildRootPath$/external/nativefiledialog/src/nfd_gtk.c',
 		}
 	#endif
+	]
+
+	.CapstoneLibrary = 
+	[
+		Using(.LibraryCommon)
+
+		.Name = 'capstone'
+		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -I$BuildRootPath$/external/capstone/include'
+		.CompilerInputPathRecurse = false
+		.CompilerInputPath = {
+			'$BuildRootPath$/external/capstone'
+			'$BuildRootPath$/external/capstone/arch'
+		}
+		.CompilerInputPattern = '*.c'
 	]
 
 	.SlangDLL = 
@@ -902,11 +936,11 @@
 			.ImguiLibrary,
 			.Freetype2Library,
 			.NFDLibrary,
+			.CapstoneLibrary,
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
 	#if __WINDOWS__
-			+ ' -L$BuildRootPath$/external/capstone/build/Release'
 			+ ' -ladvapi32'
 			+ ' -lgdi32'
 			+ ' -lshell32'
@@ -915,11 +949,9 @@
 			+ ' -lvulkan-1'
 			+ ' -lopengl32'
 			+ ' -lglu32'
-			+ ' -lcapstone'
 	#endif //__WINDOWS__
 	#if __OSX__
 		 	+ ' -lvulkan'
-		 	+ ' -lcapstone'
 			+ ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'

@@ -36,6 +36,7 @@
 	.CompilerInputFiles = { }
 	.CompilerInputUnity = { }
 	.ConfigDependentCompilerOptions = { }
+    .UseConfigDependentInputPath = false
 ]
 
 .LibraryCommon = 
@@ -90,6 +91,7 @@
     .ProjectType = 'task'
     .PreBuildDependencies = { }
 	.DependencyExecutables = { }
+    .ExecExecutable = ''
 	.ExecOutput = ''
 ]
 
@@ -147,7 +149,12 @@ function AddObjectList(.ObjectList .CompilerConfig)
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
-            ^CompilerOptions + '$CompilerOption$/$ConfigName$'
+            ^CompilerOptions + '$CompilerOption$/$ConfigName$/include'
+        }
+
+        If (.UseConfigDependentInputPath)
+        {
+            ^CompilerInputPath + '/$ConfigName$'
         }
 
         .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
@@ -190,7 +197,12 @@ function AddLibrary(.Library .CompilerConfig)
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
-            ^CompilerOptions + '$CompilerOption$/$ConfigName$'
+            ^CompilerOptions + '$CompilerOption$/$ConfigName$/include'
+        }
+
+        If (.UseConfigDependentInputPath)
+        {
+            ^CompilerInputPath + '/$ConfigName$'
         }
 
         .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
@@ -344,7 +356,12 @@ function AddTask(.Task .CompilerConfig)
 
         .TaskName = '$Name$-task-$ConfigName$'
 
-        .ExecExecutable = '$Name$-exe-$ConfigName$'
+        .EmptyString = ''
+        If (.ExecExecutable == .EmptyString)
+        {
+            ^ExecExecutable = '$Name$-exe-$ConfigName$'
+        }
+
         .ExecWorkingDir = '$IntermediateDirectory$/$Name$/$ConfigName$'
         .ExecOutput = '$ExecWorkingDir$$ExecOutput$'
     ]

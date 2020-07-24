@@ -6,11 +6,26 @@
 .DllPrefix = ''
 .DllSuffix = '.dll'
 .ExeSuffix = '.exe'
-#if exists(WINDOWS_SDK)
-#import WINDOWS_SDK
-.WindowsSDKBasePath = '$WINDOWS_SDK$'
+
+#if exists(VISUAL_STUDIO_PATH)
+#import VISUAL_STUDIO_PATH
+.VisualStudioPath = '$VISUAL_STUDIO_PATH$'
 #else
-.WindowsSDKBasePath = 'C:\Program Files (x86)\Windows Kits\10'
+.VisualStudioPath = 'C:/Program Files (x86)/Microsoft Visual Studio/2019/Community'
+#endif
+
+#if exists(VISUAL_STUDIO_TOOLCHAIN_VERSION)
+#import VISUAL_STUDIO_TOOLCHAIN_VERSION
+.VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VISUAL_STUDIO_TOOLCHAIN_VERSION$'
+#else
+.VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/14.26.28801'
+#endif
+
+#if exists(WINDOWS_SDK_PATH)
+#import WINDOWS_SDK_PATH
+.WindowsSDKBasePath = '$WINDOWS_SDK_PATH$'
+#else
+.WindowsSDKBasePath = 'C:/Program Files (x86)/Windows Kits/10'
 #endif
 #if exists(WINDOWS_SDK_VERSION)
 #import WINDOWS_SDK_VERSION
@@ -18,11 +33,16 @@
 #else
 .WindowsSDKVersion = '10.0.19041.0'
 #endif
-.WindowsLibPath = '$WindowsSDKBasePath$\Lib\$WindowsSDKVersion$\um\x86'
-.WindowsIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\um'
-.WindowsUcrtLibPath = '$WindowsSDKBasePath$\Lib\$WindowsSDKVersion$\ucrt\x86'
-.WindowsUcrtIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\ucrt'
-.WindowsSharedIncludePath = '$WindowsSDKBasePath$\Include\$WindowsSDKVersion$\shared'
+
+.WindowsLibPath = '$WindowsSDKBasePath$/Lib/$WindowsSDKVersion$/um/x86'
+.WindowsIncludePath = '$WindowsSDKBasePath$/Include/$WindowsSDKVersion$/um'
+.WindowsUcrtLibPath = '$WindowsSDKBasePath$/Lib/$WindowsSDKVersion$/ucrt/x86'
+.WindowsUcrtIncludePath = '$WindowsSDKBasePath$/Include/$WindowsSDKVersion$/ucrt'
+.WindowsSharedIncludePath = '$WindowsSDKBasePath$/Include/$WindowsSDKVersion$/shared'
+.VisualStudioIncludePath = '$VisualStudioToolchainPath$/include'
+.VisualStudioATLMFCIncludePath = '$VisualStudioToolchainPath$/ATLMFC/include'
+.VisualStudioLibPath = '$VisualStudioToolchainPath$/lib/x64'
+
 Settings
 {
 	#import TMP
@@ -32,13 +52,16 @@ Settings
 		'TMP=$TMP$',
 		'SystemRoot=$windir$'
 	}
-	.CachePath = '$TMP$\.fbuild.cache'
+	.CachePath = '$TMP$/.fbuild.cache'
 }
-.BaseIncludePaths = ' -I"$WindowsIncludePath$"'
-    + ' -I"$WindowsUcrtIncludePath$"'
-	+ ' -I"$WindowsSharedIncludePath$"'
-.BaseLibPaths = ' -L"$WindowsLibPath$"'
+.PlatformIncludePaths = ' -isystem "$VisualStudioIncludePath$"'
+	+ ' -isystem "$VisualStudioATLMFCIncludePath$"'
+	+ ' -isystem "$WindowsIncludePath$"'
+    + ' -isystem "$WindowsUcrtIncludePath$"'
+	+ ' -isystem "$WindowsSharedIncludePath$"'
+.PlatformLibPaths = ' -L"$WindowsLibPath$"'
     + ' -L"$WindowsUcrtLibPath$"'
+	+ ' -L"$VisualStudioLibPath$"'
 #endif //__WINDOWS__
 #if __OSX__
 .LibPrefix = 'lib'
@@ -50,8 +73,8 @@ Settings
 {
 	.CachePath = "/tmp/.fbuild.cache"
 }
-.BaseIncludePaths = ' -I/usr/include'
-.BaseLibPaths = ' -L/usr/lib'
+.PlatformIncludePaths = ' -I/usr/include'
+.PlatformLibPaths = ' -L/usr/lib'
 #endif //__OSX__
 #if __LINUX__
 .LibPrefix = 'lib'
@@ -63,6 +86,6 @@ Settings
 {
 	.CachePath = "/tmp/.fbuild.cache"
 }
-.BaseIncludePaths = ' -I/usr/include'
-.BaseLibPaths = ' -L/usr/lib'
+.PlatformIncludePaths = ' -I/usr/include'
+.PlatformLibPaths = ' -L/usr/lib'
 #endif //__LINUX__
