@@ -68,9 +68,13 @@ DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
 template <>
 DescriptorSetVector<GraphicsBackend::Vulkan>::~DescriptorSetVector()
 {
-    vkFreeDescriptorSets(
-        getDeviceContext()->getDevice(),
-        getDeviceContext()->getDescriptorPool(),
-        myDescriptorSetVector.size(),
-        myDescriptorSetVector.data());
+    if (!myDescriptorSetVector.empty())
+        getDeviceContext()->addTimelineCallback(
+            [device = getDeviceContext()->getDevice(), pool = getDeviceContext()->getDescriptorPool(), descriptorSetHandles = std::move(myDescriptorSetVector)](uint64_t){
+                vkFreeDescriptorSets(
+                    device,
+                    pool,
+                    descriptorSetHandles.size(),
+                    descriptorSetHandles.data());
+        });
 }

@@ -346,9 +346,17 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
-            myGraphicsPipeline->getConfig()->resources->model = model;
+            const auto& config = myGraphicsPipeline->getConfig();
+            const auto& resources = config->resources;
+            const auto& layout = config->layout;
+            
+            resources->model = model;
+            
+            config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+                myDevice,
+                layout->descriptorSetLayouts.get(),
+                layout->descriptorSetLayouts.get_deleter().getSize());
 
-            // this will make the validation layer scream - fix by wrap and refcount descriptor sets
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
     };
@@ -373,13 +381,21 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
         {
-            myGraphicsPipeline->getConfig()->resources->image = image;
-            myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
+            const auto& config = myGraphicsPipeline->getConfig();
+            const auto& resources = config->resources;
+            const auto& layout = config->layout;
+
+            resources->image = image;
+            resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
                 myDevice,
                 *image,
                 VK_IMAGE_ASPECT_COLOR_BIT);
 
-            // this will make the validation layer scream - fix by wrap and refcount image views and descriptor sets
+            config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+                myDevice,
+                layout->descriptorSetLayouts.get(),
+                layout->descriptorSetLayouts.get_deleter().getSize());
+
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
     };
