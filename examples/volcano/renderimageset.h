@@ -12,7 +12,7 @@ class RenderImageSet : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>
 
 public:
 
-	RenderImageSet(RenderImageSet<B>&& other) : BaseType(std::move(other)) {}
+	RenderImageSet(RenderImageSet<B>&& other) noexcept = default;
     RenderImageSet(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}

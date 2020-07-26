@@ -63,7 +63,7 @@ class InstanceContext
 {
 public:
 
-    InstanceContext(InstanceContext&& other) = default;
+    InstanceContext(InstanceContext&& other) noexcept = default;
     InstanceContext(ScopedFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
     ~InstanceContext();
 

@@ -1,23 +1,30 @@
 #once
-#include "platform-config.bff"
 
 .Clang_BaseConfig = [
-#if __WINDOWS__
-	.LLVMBasePath = 'C:\Program Files\LLVM\bin'
-#endif //__WINDOWS__
-#if __OSX__
-	.LLVMBasePath = '/usr/bin'
-#endif //__OSX__
-#if __LINUX__
-	.LLVMBasePath = '/usr/bin'
-#endif //__LINUX__
-	.ClangPath = '$LLVMBasePath$'
-	.Executable = '$ClangPath$/clang$ExeSuffix$'
-	.CompilerInfo  = 'Clang'
-#if __WINDOWS__
-    .Librarian = '$LLVMBasePath$/llvm-ar$ExeSuffix$'
+#if exists(LLVM_PATH)
+#import LLVM_PATH
+	.LLVMPath = '$LLVM_PATH$'
 #else
-	.Librarian = '$LLVMBasePath$/ar$ExeSuffix$'
+#if __WINDOWS__
+	.LLVMPath = 'C:/Program Files/LLVM'
+#else
+	.LLVMPath = '/usr'
+#endif
+#endif
+#if exists(LLVM_VERSION)
+#import LLVM_VERSION
+	.LLVMVersion = '$LLVM_VERSION$'
+#else
+	.LLVMVersion = '10.0.0'
+#endif
+	.LLVMBinPath = '$LLVMPath$/bin'
+	.ClangPath = '$LLVMBinPath$'
+	.Executable = '$ClangPath$/clang$ExeSuffix$'
+	.CompilerInfo = 'Clang'
+#if __WINDOWS__
+    .Librarian = '$LLVMBinPath$/llvm-ar$ExeSuffix$'
+#else
+	.Librarian = '$LLVMBinPath$/ar$ExeSuffix$'
 #endif
 	.Linker = '$ClangPath$/clang$ExeSuffix$'
 #if __WINDOWS__
@@ -31,7 +38,10 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -frtti -Wall'
-		+ .BaseIncludePaths
+#if __WINDOWS__
+		+ ' -isystem "$LLVMPath$/lib/clang/$LLVMVersion$/include"'
+#endif //__WINDOWS__
+		+ .PlatformIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'
@@ -61,7 +71,7 @@
 		+ ' -stdlib=libc++'
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
-		+ .BaseLibPaths
+		+ .PlatformLibPaths
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
 #endif

@@ -21,13 +21,6 @@ protected:
 };
 
 template <typename CreateDescType>
-RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::RenderTargetImpl(RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>&& other)
-: BaseType(std::move(other))
-, myDesc(std::move(other.myDesc))
-{
-}
-
-template <typename CreateDescType>
 RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     CreateDescType&& desc)
@@ -40,9 +33,6 @@ template <typename CreateDescType>
 RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::~RenderTargetImpl()
 {
 }
-
-extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>&& other);
 
 extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext, RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc);

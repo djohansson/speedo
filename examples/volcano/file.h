@@ -138,7 +138,7 @@ public:
     {
     }
 
-    ScopedFileObject(ScopedFileObject&& other)
+    ScopedFileObject(ScopedFileObject&& other) noexcept
     : T(std::move(other))
     , myFilePath(std::exchange(other.myFilePath, {}))
     , myName(std::exchange(other.myName, {}))

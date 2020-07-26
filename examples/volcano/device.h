@@ -75,7 +75,7 @@ class DeviceContext
 {
 public:
 
-    DeviceContext(DeviceContext<B>&& other) = default;
+    DeviceContext(DeviceContext<B>&& other) noexcept = default;
 	DeviceContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
         ScopedFileObject<DeviceConfiguration<B>>&& config);

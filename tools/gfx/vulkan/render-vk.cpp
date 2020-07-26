@@ -2336,7 +2336,7 @@ Result VKRenderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc& de
 
     Slang::List<VkDescriptorSetLayoutBinding> dstBindings;
 
-    uint32_t descriptorCountForTypes[VK_DESCRIPTOR_TYPE_RANGE_SIZE] = { 0, };
+    uint32_t descriptorCountForTypes[11] = { 0, };
 
     UInt rangeCount = desc.slotRangeCount;
     for(UInt rr = 0; rr < rangeCount; ++rr)
@@ -2370,7 +2370,7 @@ Result VKRenderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc& de
 
     // Create a pool while we are at it, to allocate descriptor sets of this type.
 
-    VkDescriptorPoolSize poolSizes[VK_DESCRIPTOR_TYPE_RANGE_SIZE];
+    VkDescriptorPoolSize poolSizes[11];
     uint32_t poolSizeCount = 0;
     for (int ii = 0; ii < SLANG_COUNT_OF(descriptorCountForTypes); ++ii)
     {

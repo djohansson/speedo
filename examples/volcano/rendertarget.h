@@ -72,7 +72,7 @@ public:
 
 protected:
 
-    RenderTarget(RenderTarget<B>&& other);
+    RenderTarget(RenderTarget<B>&& other) noexcept = default;
     RenderTarget(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
@@ -120,7 +120,7 @@ private:
 };
 
 template <typename CreateDescType, GraphicsBackend B>
-class RenderTargetImpl : public RenderTarget<B>
+class RenderTargetImpl : protected RenderTarget<B>
 { };
 
 #include "rendertarget.inl"
