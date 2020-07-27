@@ -796,6 +796,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
     if (flipSuccess)
     {
+        if (frameTimelineValue)
         {
             ZoneScopedN("waitFrameGPUCommands");
             

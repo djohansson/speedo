@@ -341,6 +341,9 @@
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
+#if !__WINDOWS__
+			+ ' -DNO_PARALLEL_SORT'
+#endif
 		.ConfigDependentCompilerOptions = {
 			' -I$IntermediateFilePath$/gl3w-generate',
 		}
@@ -619,7 +622,6 @@
 			+ ' -I$BuildRootPath$/external/tracy/nfd'
 			+ ' -I$BuildRootPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
-			+ ' -DGLM_FORCE_AVX2'
 			+ ' -Wno-unused-function'
 		// .CompilerInputUnity = 'volcano-unity'
 		.CompilerInputPath = '$BuildRootPath$/examples/volcano'

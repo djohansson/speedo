@@ -7,26 +7,36 @@
 #else
 #if __WINDOWS__
 	.LLVMPath = 'C:/Program Files/LLVM'
-#else
+#endif
+#if __OSX__
+	.LLVMPath = '/usr/local/opt/llvm'
+#endif
+#if __LINUX__
 	.LLVMPath = '/usr'
 #endif
-#endif
+#endif // exists(LLVM_PATH)
 #if exists(LLVM_VERSION)
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
 	.LLVMVersion = '10.0.0'
-#endif
-	.LLVMBinPath = '$LLVMPath$/bin'
-	.ClangPath = '$LLVMBinPath$'
-	.Executable = '$ClangPath$/clang$ExeSuffix$'
-	.CompilerInfo = 'Clang'
-#if __WINDOWS__
-    .Librarian = '$LLVMBinPath$/llvm-ar$ExeSuffix$'
+#endif // exists(LLVM_VERSION)
+#if exists(CLANG_PATH)
+#import CLANG_PATH
+	.ClangPath = '$CLANG_PATH$'
 #else
-	.Librarian = '$LLVMBinPath$/ar$ExeSuffix$'
+#if __WINDOWS__
+	.ClangPath = '$LLVMPath$/lib/clang/$LLVMVersion$'
+#else
+	.ClangPath = '$LLVMPath$'
 #endif
-	.Linker = '$ClangPath$/clang$ExeSuffix$'
+#endif // exists(CLANG_PATH)
+	.LLVMBinPath = '$LLVMPath$/bin'
+	.ClangBinPath = '$LLVMBinPath$'
+	.Executable = '$ClangBinPath$/clang$ExeSuffix$'
+	.CompilerInfo = 'Clang'
+    .Librarian = '$LLVMBinPath$/llvm-ar$ExeSuffix$'
+	.Linker = '$ClangBinPath$/clang$ExeSuffix$'
 #if __WINDOWS__
 	.PlatformInfo = 'Windows'
 #endif //__WINDOWS__
@@ -38,9 +48,7 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -frtti -Wall'
-#if __WINDOWS__
-		+ ' -isystem "$LLVMPath$/lib/clang/$LLVMVersion$/include"'
-#endif //__WINDOWS__
+		+ ' -isystem $ClangPath$/include'
 		+ .PlatformIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
@@ -53,7 +61,6 @@
 		+ ' -D_WIN32_LEAN_AND_MEAN'
 		+ ' -DNOMINMAX'
 		+ ' -gcodeview'
-		+ ' -fuse-ld=lld'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -71,6 +78,7 @@
 		+ ' -stdlib=libc++'
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
+		+ ' -L$ClangPath$/lib -Wl,-rpath,$ClangPath$/lib'
 		+ .PlatformLibPaths
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
@@ -79,17 +87,20 @@
 #if !__WINDOWS__
 		+ ' -lc++'
 #endif
-//#if __OSX__
-//	+ ' -rpath @executable_path/(something)'
-//#endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
 	.CompilerDebugOptimizations = ' -O0'
-	.CompilerReleaseOptimizations = ' -O3 -flto=thin'
+	.CompilerReleaseOptimizations = ' -O3'
+#if __WINDOWS__
+		+ ' -flto=thin'
+#endif
 	.LibrarianDebugOptimizations = ''
 	.LibrarianReleaseOptimizations = ''
 	.LinkerDebugOptimizations = ''
-	.LinkerReleaseOptimizations = ' -flto=thin'
+	.LinkerReleaseOptimizations = ''
+#if __WINDOWS__
+		+ ' -flto=thin'
+#endif
 	.ProfilingEnabled = '0'
 ]
 .Clang_x64_BaseConfig = [
