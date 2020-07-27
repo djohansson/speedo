@@ -89,7 +89,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::processTimelineCallbacks(std::optio
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
-    AutoReadWriteJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
+    AutoSaveJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
 : myInstance(instanceContext)
 , myConfig(std::move(config))
 {

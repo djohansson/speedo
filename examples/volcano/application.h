@@ -97,7 +97,7 @@ private:
 	std::filesystem::path myResourcePath;
 	std::filesystem::path myUserProfilePath;
 
-	AutoReadWriteJSONFileObject<NodeGraph> myNodeGraph;
+	AutoSaveJSONFileObject<NodeGraph> myNodeGraph;
 
 	InputState myInput = {};
 

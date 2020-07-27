@@ -78,7 +78,7 @@ public:
     DeviceContext(DeviceContext<B>&& other) noexcept = default;
 	DeviceContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
-        AutoReadWriteJSONFileObject<DeviceConfiguration<B>>&& config);
+        AutoSaveJSONFileObject<DeviceConfiguration<B>>&& config);
     ~DeviceContext();
 
     const auto& getDesc() const { return myConfig; }
@@ -119,7 +119,7 @@ public:
 private:
 
     std::shared_ptr<InstanceContext<B>> myInstance;
-    AutoReadWriteJSONFileObject<DeviceConfiguration<B>> myConfig;
+    AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
     DeviceHandle<B> myDevice = 0;
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;

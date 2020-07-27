@@ -178,4 +178,4 @@ template <typename T>
 using ReadWriteJSONFileObject = FileObject<T, FileAccessMode::ReadWrite>;
 
 template <typename T>
-using AutoReadWriteJSONFileObject = FileObject<T, FileAccessMode::ReadWrite, cereal::JSONInputArchive, cereal::JSONOutputArchive, true>;
+using AutoSaveJSONFileObject = FileObject<T, FileAccessMode::ReadWrite, cereal::JSONInputArchive, cereal::JSONOutputArchive, true>;

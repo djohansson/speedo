@@ -211,7 +211,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     ZoneScopedN("Application()");
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
-        AutoReadWriteJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
+        AutoSaveJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
             myUserProfilePath / "instance.json",
             "instanceConfiguration"),
         view);
@@ -222,7 +222,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         myInstance,
-        AutoReadWriteJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
+        AutoSaveJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
             myUserProfilePath / "device.json",
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
