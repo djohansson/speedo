@@ -106,4 +106,8 @@ VkPipelineLayout createPipelineLayout(
 
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
 
+VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice);
+
+VkDescriptorPool createDescriptorPool(VkDevice device);
+
 VkResult checkFlipOrPresentResult(VkResult result);

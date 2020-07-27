@@ -7,89 +7,6 @@
 #include <tuple>
 #include <utility>
 
-static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
-{
-	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;
-}
-
-template <>
-AllocatorHandle<GraphicsBackend::Vulkan>
-createAllocator<GraphicsBackend::Vulkan>(
-	InstanceHandle<GraphicsBackend::Vulkan> instance,
-    DeviceHandle<GraphicsBackend::Vulkan> device,
-    PhysicalDeviceHandle<GraphicsBackend::Vulkan> physicalDevice)
-{
-    auto vkGetBufferMemoryRequirements2KHR =
-        (PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
-            instance, "vkGetBufferMemoryRequirements2KHR");
-    assert(vkGetBufferMemoryRequirements2KHR != nullptr);
-
-    auto vkGetImageMemoryRequirements2KHR =
-        (PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(
-            instance, "vkGetImageMemoryRequirements2KHR");
-    assert(vkGetImageMemoryRequirements2KHR != nullptr);
-
-    VmaVulkanFunctions functions = {};
-    functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
-    functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
-    functions.vkAllocateMemory = vkAllocateMemory;
-    functions.vkFreeMemory = vkFreeMemory;
-    functions.vkMapMemory = vkMapMemory;
-    functions.vkUnmapMemory = vkUnmapMemory;
-    functions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
-    functions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
-    functions.vkBindBufferMemory = vkBindBufferMemory;
-    functions.vkBindImageMemory = vkBindImageMemory;
-    functions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
-    functions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
-    functions.vkCreateBuffer = vkCreateBuffer;
-    functions.vkDestroyBuffer = vkDestroyBuffer;
-    functions.vkCreateImage = vkCreateImage;
-    functions.vkDestroyImage = vkDestroyImage;
-    functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
-    functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
-
-    VmaAllocator allocator;
-    VmaAllocatorCreateInfo allocatorInfo = {};
-    allocatorInfo.instance = instance;
-    allocatorInfo.physicalDevice = physicalDevice;
-    allocatorInfo.device = device;
-    allocatorInfo.pVulkanFunctions = &functions;
-    vmaCreateAllocator(&allocatorInfo, &allocator);
-
-    return allocator;
-}
-
-template <>
-DescriptorPoolHandle<GraphicsBackend::Vulkan>
-createDescriptorPool<GraphicsBackend::Vulkan>(DeviceHandle<GraphicsBackend::Vulkan> device)
-{
-    constexpr uint32_t maxDescriptorCount = 1000;
-    VkDescriptorPoolSize poolSizes[] = {
-        {VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount}};
-
-    VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-    poolInfo.poolSizeCount = static_cast<uint32_t>(sizeof_array(poolSizes));
-    poolInfo.pPoolSizes = poolSizes;
-    poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(sizeof_array(poolSizes));
-    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-
-    DescriptorPoolHandle<GraphicsBackend::Vulkan> outDescriptorPool;
-    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &outDescriptorPool));
-
-    return outDescriptorPool;
-}
-
 template <>
 uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() const
 {
@@ -208,10 +125,13 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 requestSurfaceImageFormat[request_i],
                 requestSurfaceColorSpace
             };
-            auto formatIt = std::find(
+            auto formatIt = std::find_if(
                 swapchainInfo.formats.begin(),
                 swapchainInfo.formats.end(),
-                requestedFormat);
+                [&requestedFormat](VkSurfaceFormatKHR format)
+                {
+                    return requestedFormat.format == format.format && requestedFormat.colorSpace == format.colorSpace;
+                });
             if (formatIt != swapchainInfo.formats.end())
             {
                 myConfig.swapchainConfiguration->surfaceFormat = *formatIt;
@@ -417,12 +337,12 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         }
     }
 
-    myAllocator = createAllocator<GraphicsBackend::Vulkan>(
+    myAllocator = createAllocator(
         myInstance->getInstance(),
         myDevice,
         getPhysicalDevice());
 
-    myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
+    myDescriptorPool = createDescriptorPool(myDevice);
 
     VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;

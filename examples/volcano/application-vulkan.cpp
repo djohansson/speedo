@@ -37,7 +37,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // auto& platformIo = ImGui::GetPlatformIO();
     // platformIo.Platform_CreateVkSurface = ...
 
-    auto surfaceCapabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(myInstance->getSurface(), myDevice->getPhysicalDevice());
+    auto surfaceCapabilities = myInstance->getSurfaceCapabilities(myDevice->getPhysicalDevice());
 
     float dpiScaleX = 
         static_cast<float>(surfaceCapabilities.currentExtent.width) / myWindow->getDesc().windowExtent.width;
@@ -175,7 +175,7 @@ void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t tim
         //     auto primaryCommands = primaryCommandContext->beginScope();
 
         //     TracyVkCollect(
-        //         myTransferCommands->userData<command_vulkan::UserData>().tracyContext,
+        //         myTransferCommands->userData<command::UserData>().tracyContext,
         //         primaryCommands);
         // }
     }
@@ -237,15 +237,15 @@ Application<GraphicsBackend::Vulkan>::Application(
         PipelineContextCreateDesc<GraphicsBackend::Vulkan>{});
 
     // if (commandBufferLevel == 0)
-    //     std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
+    //     std::any_cast<command::UserData>(&myUserData)->tracyContext =
     //         TracyVkContext(
     //             myDevice->getPhysicalDevice(),
     //             myDevice->getDevice(),
     //             queue,
     //             commands());
 
-    // if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
-    //     TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
+    // if (std::any_cast<command::UserData>(&myUserData)->tracyContext)
+    //     TracyVkDestroy(std::any_cast<command::UserData>(&myUserData)->tracyContext);
 
     myTransferCommands = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,

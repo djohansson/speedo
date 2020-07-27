@@ -73,6 +73,7 @@ public:
     const auto& getPhysicalDevices() const { return myPhysicalDevices; }
     const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
     const auto& getGraphicsDeviceCandidates() const { return myGraphicsDeviceCandidates; }
+    SurfaceCapabilities<B> getSurfaceCapabilities(PhysicalDeviceHandle<B> device);
 
     void updateSurfaceCapabilities(uint32_t physicalDeviceIndex);
 
@@ -86,14 +87,5 @@ private:
     std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };
-
-template <GraphicsBackend B>
-SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
-
-template <GraphicsBackend B>
-PhysicalDeviceInfo<B> getPhysicalDeviceInfo(
-	SurfaceHandle<B> surface,
-	InstanceHandle<B> instance,
-	PhysicalDeviceHandle<B> device);
 
 #include "instance-vulkan.inl"

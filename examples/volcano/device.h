@@ -137,12 +137,3 @@ private:
     std::recursive_mutex myTimelineCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
 };
-
-template <GraphicsBackend B>
-AllocatorHandle<B> createAllocator(
-	InstanceHandle<B> instance,
-	DeviceHandle<B> device,
-	PhysicalDeviceHandle<B> physicalDevice);
-
-template <GraphicsBackend B>
-DescriptorPoolHandle<B> createDescriptorPool(DeviceHandle<B> device);

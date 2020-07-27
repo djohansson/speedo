@@ -4,9 +4,12 @@
 #include <algorithm>
 #include <vector>
 
-template <>
-SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities<GraphicsBackend::Vulkan>(
-    SurfaceHandle<GraphicsBackend::Vulkan> surface, PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+namespace instance
+{
+
+SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities(
+    SurfaceHandle<GraphicsBackend::Vulkan> surface,
+    PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
     SurfaceCapabilities<GraphicsBackend::Vulkan> capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
@@ -14,8 +17,7 @@ SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities<GraphicsBack
     return capabilities;
 }
 
-template <>
-PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
+PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo(
 	SurfaceHandle<GraphicsBackend::Vulkan> surface,
     InstanceHandle<GraphicsBackend::Vulkan> instance,
 	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
@@ -39,7 +41,7 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
     assert(_vkGetPhysicalDeviceFeatures2 != nullptr);
     _vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
     
-	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);
+	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities(surface, device);
 
 	uint32_t formatCount;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
@@ -73,9 +75,6 @@ PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBacken
     
 	return deviceInfo;
 }
-
-namespace instance_vulkan
-{
 
 struct UserData
 {
@@ -148,10 +147,17 @@ InstanceConfiguration<GraphicsBackend::Vulkan>::InstanceConfiguration()
 }
 
 template <>
+SurfaceCapabilities<GraphicsBackend::Vulkan> InstanceContext<GraphicsBackend::Vulkan>::getSurfaceCapabilities(
+    PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+{
+    return instance::getSurfaceCapabilities(mySurface, device);
+}
+
+template <>
 void InstanceContext<GraphicsBackend::Vulkan>::updateSurfaceCapabilities(uint32_t physicalDeviceIndex)
 {
     myPhysicalDeviceInfos[physicalDeviceIndex].swapchainInfo.capabilities = 
-        getSurfaceCapabilities<GraphicsBackend::Vulkan>(mySurface, myPhysicalDevices[physicalDeviceIndex]);
+        getSurfaceCapabilities(myPhysicalDevices[physicalDeviceIndex]);
 }
 
 template <>
@@ -269,7 +275,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
     for (uint32_t deviceIt = 0; deviceIt < myPhysicalDevices.size(); deviceIt++)
     {
         myPhysicalDeviceInfos.emplace_back(
-            getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
+            instance::getPhysicalDeviceInfo(
                 mySurface,
                 myInstance,
                 myPhysicalDevices[deviceIt]));
@@ -298,12 +304,12 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
             deviceTypePriority[myPhysicalDeviceInfos[rhs.first].deviceProperties.properties.deviceType];
     });
 
-    myUserData = instance_vulkan::UserData();
+    myUserData = instance::UserData();
 
     if constexpr(PROFILING_ENABLED)
     {
-        std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger =
-            instance_vulkan::createDebugUtilsMessenger(myInstance);
+        std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger =
+            instance::createDebugUtilsMessenger(myInstance);
     }
 }
 
@@ -316,7 +322,7 @@ InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
     {
         auto vkDestroyDebugUtilsMessengerEXT =
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
-        vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
+        vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
     }
 
     vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
