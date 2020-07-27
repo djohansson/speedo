@@ -6,28 +6,36 @@
 #include <vector>
 
 template <GraphicsBackend B>
-class DescriptorSetLayout : public DeviceResource<B>
+struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<B>
+{
+	using BaseType = DescriptorSetLayoutBinding<B>;
+};
+
+template <GraphicsBackend B>
+using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
+
+template <GraphicsBackend B>
+class DescriptorSetLayoutVector : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetLayout(DescriptorSetLayout&& other) noexcept = default;
-    DescriptorSetLayout(
+    DescriptorSetLayoutVector(DescriptorSetLayoutVector&& other) noexcept = default;
+    DescriptorSetLayoutVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::vector<DescriptorSetLayoutBinding<B>>& bindings);
-    ~DescriptorSetLayout();
+        const BindingsMap<B>& bindings);
+    ~DescriptorSetLayoutVector();
 
-    auto getDescrioptorSetLayoutHandle() const { return myDescriptorSetLayout; }
+    auto size() const { return myDescriptorSetLayoutVector.size(); }
+    auto data() const { return myDescriptorSetLayoutVector.data(); }
 
 private:
 
-    DescriptorSetLayout( // uses provided set handle
+    DescriptorSetLayoutVector( // uses provided vector
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        DescriptorSetLayoutHandle<B>&& descriptorSetLayout);
+        std::vector<DescriptorSetLayoutHandle<B>>&& descriptorSetLayoutVector);
 
-	DescriptorSetLayoutHandle<B> myDescriptorSetLayout = 0;
+	std::vector<DescriptorSetLayoutHandle<B>> myDescriptorSetLayoutVector;
 };
-
-
 
 template <GraphicsBackend B>
 class DescriptorSetVector : public DeviceResource<B>
@@ -37,11 +45,15 @@ public:
     DescriptorSetVector(DescriptorSetVector&& other) noexcept = default;
     DescriptorSetVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const DescriptorSetLayoutVector<B>& layouts);
+    DescriptorSetVector(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const DescriptorSetLayoutHandle<B>* layoutHandles,
         uint32_t layoutHandleCount);
     ~DescriptorSetVector();
 
-    const auto& getDescriptorSetHandles() const { return myDescriptorSetVector; }
+    auto size() const { return myDescriptorSetVector.size(); }
+    auto data() const { return myDescriptorSetVector.data(); }
 
 private:
 

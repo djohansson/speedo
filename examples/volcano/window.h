@@ -3,11 +3,11 @@
 #include "buffer.h"
 #include "device.h"
 #include "frame.h"
-#include "gfx.h"
 #include "glm.h"
+#include "image.h"
+#include "pipeline.h"
 #include "state.h"
 #include "swapchain.h"
-#include "image.h"
 #include "view.h"
 
 #include <chrono>

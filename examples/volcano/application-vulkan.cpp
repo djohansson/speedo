@@ -232,7 +232,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     myGraphicsPipeline = std::make_shared<PipelineContext<GraphicsBackend::Vulkan>>(
         myInstance,
         myDevice,
-        *slangShaders,
+        slangShaders,
         myUserProfilePath,
         PipelineContextCreateDesc<GraphicsBackend::Vulkan>{});
 
@@ -354,8 +354,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             
             config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
                 myDevice,
-                layout->descriptorSetLayouts.get(),
-                layout->descriptorSetLayouts.get_deleter().getSize());
+                layout->getDescriptorSetLayouts());
 
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
@@ -393,8 +392,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
             config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
                 myDevice,
-                layout->descriptorSetLayouts.get(),
-                layout->descriptorSetLayouts.get_deleter().getSize());
+                layout->getDescriptorSetLayouts());
 
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
@@ -488,6 +486,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                 Text("Command Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
                 Text("Descriptor Set Layouts: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
                 Text("Descriptor Sets: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
+                Text("Pipeline Layouts: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
                 Text("Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER));
                 Text("Buffer Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
                 Text("Images: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE));

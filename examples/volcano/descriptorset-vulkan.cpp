@@ -1,39 +1,52 @@
 #include "descriptorset.h"
 #include "vk-utils.h"
 
+namespace descriptorset
+{
+
+std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> createDescriptorSetLayouts(
+	DeviceHandle<GraphicsBackend::Vulkan> device,
+	const BindingsMap<GraphicsBackend::Vulkan>& bindings)
+{
+    std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> outLayouts;
+    outLayouts.reserve(bindings.size());
+	for (auto& [space, layoutBindings] : bindings)
+	    outLayouts.emplace_back(createDescriptorSetLayout(device, layoutBindings.data(), layoutBindings.size()));
+	return outLayouts;
+}
+
+}
 
 template <>
-DescriptorSetLayout<GraphicsBackend::Vulkan>::DescriptorSetLayout(
+DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>&& descriptorSetLayout)
+    std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>>&& descriptorSetLayoutVector)
 : DeviceResource<GraphicsBackend::Vulkan>(
     deviceContext,
     {"_DescriptorSetLayout"},
-    1,
+    descriptorSetLayoutVector.size(),
     VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-    reinterpret_cast<uint64_t*>(&descriptorSetLayout))
-, myDescriptorSetLayout(std::move(descriptorSetLayout))
+    reinterpret_cast<uint64_t*>(descriptorSetLayoutVector.data()))
+, myDescriptorSetLayoutVector(std::move(descriptorSetLayoutVector))
 {
 }
 
 template <>
-DescriptorSetLayout<GraphicsBackend::Vulkan>::DescriptorSetLayout(
+DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const std::vector<DescriptorSetLayoutBinding<GraphicsBackend::Vulkan>>& bindings)
-: DescriptorSetLayout<GraphicsBackend::Vulkan>(
+    const BindingsMap<GraphicsBackend::Vulkan>& bindings)
+: DescriptorSetLayoutVector<GraphicsBackend::Vulkan>(
     deviceContext,
-    createDescriptorSetLayout(
-        deviceContext->getDevice(),
-        bindings.data(),
-        bindings.size()))
+    descriptorset::createDescriptorSetLayouts(deviceContext->getDevice(), bindings))
 {
 }
 
 template <>
-DescriptorSetLayout<GraphicsBackend::Vulkan>::~DescriptorSetLayout()
+DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::~DescriptorSetLayoutVector()
 {
-    if (myDescriptorSetLayout)
-        vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), myDescriptorSetLayout, nullptr);
+    if (myDescriptorSetLayoutVector.size())
+        for (auto layout : myDescriptorSetLayoutVector)
+            vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), layout, nullptr);
 }
 
 template <>
@@ -53,7 +66,7 @@ DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
 template <>
 DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-     const DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>* layoutHandles,
+    const DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>* layoutHandles,
     uint32_t layoutHandleCount)
 : DescriptorSetVector<GraphicsBackend::Vulkan>(
     deviceContext,
@@ -62,6 +75,17 @@ DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
         deviceContext->getDescriptorPool(),
         layoutHandles,
         layoutHandleCount))
+{
+}
+
+template <>
+DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const DescriptorSetLayoutVector<GraphicsBackend::Vulkan>& layouts)
+: DescriptorSetVector<GraphicsBackend::Vulkan>(
+    deviceContext,
+    layouts.data(),
+    layouts.size())
 {
 }
 

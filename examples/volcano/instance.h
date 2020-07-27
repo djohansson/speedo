@@ -68,8 +68,8 @@ public:
     ~InstanceContext();
 
     const auto& getConfig() const { return myConfig; }
-    const auto& getInstance() const { return myInstance; }
-    const auto& getSurface() const { return mySurface; }
+    auto getInstance() const { return myInstance; }
+    auto getSurface() const { return mySurface; }
     const auto& getPhysicalDevices() const { return myPhysicalDevices; }
     const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
     const auto& getGraphicsDeviceCandidates() const { return myGraphicsDeviceCandidates; }
@@ -86,3 +86,14 @@ private:
     std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };
+
+template <GraphicsBackend B>
+SurfaceCapabilities<B> getSurfaceCapabilities(SurfaceHandle<B> surface, PhysicalDeviceHandle<B> device);
+
+template <GraphicsBackend B>
+PhysicalDeviceInfo<B> getPhysicalDeviceInfo(
+	SurfaceHandle<B> surface,
+	InstanceHandle<B> instance,
+	PhysicalDeviceHandle<B> device);
+
+#include "instance-vulkan.inl"

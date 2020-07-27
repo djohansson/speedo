@@ -749,6 +749,23 @@ VkRenderPass createRenderPass(
     return createRenderPass(device, attachments, make_vector(subpass), make_vector(dependency));
 }
 
+VkPipelineLayout createPipelineLayout(
+	VkDevice device,
+	const VkDescriptorSetLayout* descriptorSetLayouts,
+	uint32_t descriptorSetLayoutCount)
+{
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+	pipelineLayoutInfo.setLayoutCount = descriptorSetLayoutCount;
+	pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts;
+	pipelineLayoutInfo.pushConstantRangeCount = 0;
+	pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+	VkPipelineLayout layout;
+	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &layout));
+
+	return layout;
+}
+
 VkSurfaceKHR createSurface(VkInstance instance,	void* view)
 {
     VkSurfaceKHR surface;

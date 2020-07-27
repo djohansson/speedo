@@ -1,12 +1,74 @@
 #pragma once
 
-#include "file.h"
+#include "descriptorset.h"
 #include "device.h"
 #include "deviceresource.h"
-#include "gfx.h" // remove
+#include "file.h"
+#include "gfx-types.h"
+#include "image.h"
+#include "model.h"
+#include "rendertarget.h"
+#include "shader.h"
 
-#include <memory>
+template <GraphicsBackend B>
+struct PipelineCacheHeader
+{
+};
 
+template <GraphicsBackend B>
+class PipelineLayoutContext : public DeviceResource<B>
+{
+public:
+
+    PipelineLayoutContext(PipelineLayoutContext<B>&& other) noexcept = default;
+    PipelineLayoutContext(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
+    ~PipelineLayoutContext();
+
+    const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
+    const auto& getShaders() const { return myShaders; }
+    const auto& getImmutableSamplers() const { return myImmutableSamplers; }
+    auto getLayout() const { return myLayout; }
+
+private:
+
+    PipelineLayoutContext(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        DescriptorSetLayoutVector<B>&& descriptorSetLayouts);
+
+    PipelineLayoutContext(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        DescriptorSetLayoutVector<B>&& descriptorSetLayouts,
+        PipelineLayoutHandle<B>&& layout);
+
+	DescriptorSetLayoutVector<B> myDescriptorSetLayouts;
+    std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> myShaders;
+    std::unique_ptr<SamplerHandle<B>[], ArrayDeleter<SamplerHandle<B>>> myImmutableSamplers;
+	PipelineLayoutHandle<B> myLayout = 0;
+};
+
+template <GraphicsBackend B>
+struct PipelineResourceView
+{	
+	// begin temp
+	std::shared_ptr<Model<B>> model;
+	std::shared_ptr<Image<B>> image;
+	std::shared_ptr<ImageView<B>> imageView;
+	SamplerHandle<B> sampler = 0;
+	// end temp
+	std::shared_ptr<RenderTarget<B>> renderTarget;
+};
+
+template <GraphicsBackend B>
+struct PipelineConfiguration
+{
+	std::shared_ptr<PipelineResourceView<B>> resources;
+	std::shared_ptr<PipelineLayoutContext<B>> layout;
+	std::shared_ptr<DescriptorSetVector<B>> descriptorSets;
+
+	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"
+};
 
 template <GraphicsBackend B>
 struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
@@ -21,11 +83,11 @@ class PipelineContext : public DeviceResource<B>
 {
 public:
 
-    PipelineContext(PipelineContext&& other) noexcept = default;
+    PipelineContext(PipelineContext<B>&& other) noexcept = default;
     PipelineContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const SerializableShaderReflectionModule<B>& shaders,
+        const std::shared_ptr<SerializableShaderReflectionModule<GraphicsBackend::Vulkan>>& shaderModule,
         const std::filesystem::path& userProfilePath,
         PipelineContextCreateDesc<B>&& desc);
     ~PipelineContext();

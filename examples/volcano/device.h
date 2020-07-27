@@ -82,10 +82,9 @@ public:
     ~DeviceContext();
 
     const auto& getDesc() const { return myConfig; }
-    const auto& getDevice() const { return myDevice; }
-    const auto& getPhysicalDevice() const
-    { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
-    const auto& getSurface() const { return myInstance->getSurface(); }
+    auto getDevice() const { return myDevice; }
+    auto getPhysicalDevice() const { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
+    auto getSurface() const { return myInstance->getSurface(); }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
@@ -101,8 +100,8 @@ public:
     const auto& getComputeCommandPools() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].commandPools; }
     //
 
-    const auto& getAllocator() const { return myAllocator; }
-    const auto& getDescriptorPool() const { return myDescriptorPool; }
+    auto getAllocator() const { return myAllocator; }
+    auto getDescriptorPool() const { return myDescriptorPool; }
 
     const auto& getTimelineSemaphore() const { return myTimelineSemaphore; }
     uint64_t getTimelineSemaphoreValue() const;
@@ -138,3 +137,12 @@ private:
     std::recursive_mutex myTimelineCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
 };
+
+template <GraphicsBackend B>
+AllocatorHandle<B> createAllocator(
+	InstanceHandle<B> instance,
+	DeviceHandle<B> device,
+	PhysicalDeviceHandle<B> physicalDevice);
+
+template <GraphicsBackend B>
+DescriptorPoolHandle<B> createDescriptorPool(DeviceHandle<B> device);

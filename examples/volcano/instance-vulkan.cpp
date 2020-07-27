@@ -1,10 +1,78 @@
 #include "instance.h"
-#include "gfx.h"
 #include "vk-utils.h"
 
 #include <algorithm>
 #include <vector>
 
+template <>
+SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities<GraphicsBackend::Vulkan>(
+    SurfaceHandle<GraphicsBackend::Vulkan> surface, PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+{
+    SurfaceCapabilities<GraphicsBackend::Vulkan> capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
+
+    return capabilities;
+}
+
+template <>
+PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
+	SurfaceHandle<GraphicsBackend::Vulkan> surface,
+    InstanceHandle<GraphicsBackend::Vulkan> instance,
+	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+{
+    PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
+    VkPhysicalDeviceTimelineSemaphoreProperties timelineProperties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES };
+    deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    deviceInfo.deviceProperties.pNext = &timelineProperties;
+    deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    deviceInfo.deviceFeatures.pNext = nullptr;
+    
+    auto _vkGetPhysicalDeviceProperties2 =
+        (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(
+            instance, "vkGetPhysicalDeviceProperties2");
+    assert(_vkGetPhysicalDeviceProperties2 != nullptr);
+    _vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+	
+    auto _vkGetPhysicalDeviceFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(
+            instance, "vkGetPhysicalDeviceFeatures2");
+    assert(_vkGetPhysicalDeviceFeatures2 != nullptr);
+    _vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
+    
+	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(surface, device);
+
+	uint32_t formatCount;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+	if (formatCount != 0)
+	{
+		deviceInfo.swapchainInfo.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
+											 deviceInfo.swapchainInfo.formats.data());
+	}
+
+	uint32_t presentModeCount;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+	if (presentModeCount != 0)
+	{
+		deviceInfo.swapchainInfo.presentModes.resize(presentModeCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
+												  deviceInfo.swapchainInfo.presentModes.data());
+	}
+
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+    if (queueFamilyCount != 0)
+	{
+        deviceInfo.queueFamilyProperties.resize(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, deviceInfo.queueFamilyProperties.data());
+
+        deviceInfo.queueFamilyPresentSupport.resize(queueFamilyCount);
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < queueFamilyCount; queueFamilyIt++)
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, queueFamilyIt, surface, &deviceInfo.queueFamilyPresentSupport[queueFamilyIt]);
+    }
+    
+	return deviceInfo;
+}
 
 namespace instance_vulkan
 {
