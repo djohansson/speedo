@@ -95,7 +95,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::processTimelineCallbacks(std::optio
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
-    ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
+    AutoReadWriteJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
 : myInstance(instanceContext)
 , myConfig(std::move(config))
 {

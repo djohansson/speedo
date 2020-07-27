@@ -88,7 +88,7 @@ void InstanceContext<GraphicsBackend::Vulkan>::updateSurfaceCapabilities(uint32_
 
 template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
-    ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>&& config,
+    AutoReadWriteJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>&& config,
     void* surfaceHandle)
 : myConfig(std::move(config))
 {

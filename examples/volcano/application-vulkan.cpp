@@ -211,7 +211,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     ZoneScopedN("Application()");
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
-        ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
+        AutoReadWriteJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
             myUserProfilePath / "instance.json",
             "instanceConfiguration"),
         view);
@@ -222,7 +222,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         myInstance,
-        ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
+        AutoReadWriteJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
             myUserProfilePath / "device.json",
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
@@ -318,11 +318,11 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
 
-    auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
+    auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePath = std::filesystem::absolute(myResourcePath).u8string();
+        std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
         nfdchar_t* openFilePath;
-        return std::make_tuple(NFD_OpenDialog(filterList, resourcePath.c_str(), &openFilePath),
+        return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));
     };
 
@@ -703,9 +703,9 @@ Application<GraphicsBackend::Vulkan>::Application(
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", std::move(loadModel));
                 if (ImGui::MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "jpg,png", loadImage);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", std::move(loadImage));
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -797,7 +797,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     if (flipSuccess)
     {
         {
-            ZoneScopedN("waitGPU");
+            ZoneScopedN("waitFrameGPUCommands");
             
             assert(frameIndex != myLastFrameIndex);
 
@@ -832,6 +832,8 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     if (flipSuccess)
         myWindow->presentFrame(frameIndex);
 
+    myLastFrameIndex = frameIndex;
+
     // wait for timeline callbacks
     {
         ZoneScopedN("waitProcessTimelineCallbacks");
@@ -839,31 +841,41 @@ bool Application<GraphicsBackend::Vulkan>::draw()
         processTimelineCallbacksFuture.get();
     }
 
-    // record transfers
-    if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
+    // record and submit transfers
     {
-        ZoneScopedN("openFileCallback");
+        ZoneScopedN("transfers");
 
-        const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
-        if (openFileResult == NFD_OKAY)
-            onCompletionCallback(openFilePath);
+        uint32_t transferCount = 0;
+
+        if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
+        {
+            ZoneScopedN("openFileCallback");
+
+            const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
+            if (openFileResult == NFD_OKAY)
+            {
+                onCompletionCallback(openFilePath);
+                free(openFilePath);
+                ++transferCount;
+            }
+        }
+
+        if (transferCount)
+        {
+            Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+            auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
+            myLastTransferTimelineValue = myTransferCommands->submit({
+                myDevice->getPrimaryTransferQueue(),
+                1,
+                &myDevice->getTimelineSemaphore(),
+                &waitDstStageMask,
+                &waitTimelineValue,
+                1,
+                &myDevice->getTimelineSemaphore(),
+                &signalTimelineValue});
+        }
     }
-
-    // submit transfers.
-    Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-    auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-    myLastTransferTimelineValue = myTransferCommands->submit({
-        myDevice->getPrimaryTransferQueue(),
-        1,
-        &myDevice->getTimelineSemaphore(),
-        &waitDstStageMask,
-        &waitTimelineValue,
-        1,
-        &myDevice->getTimelineSemaphore(),
-        &signalTimelineValue});
-
-    myLastFrameIndex = frameIndex;
 
     return myRequestExit;
 }

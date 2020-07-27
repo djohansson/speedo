@@ -81,7 +81,7 @@ void loadCachedSourceFile(
     LoadFileFn loadBinaryCacheFn,
     SaveFileFn saveBinaryCacheFn);
 
-template <typename T, typename Archive = cereal::JSONInputArchive>
+template <typename T, typename Archive>
 T loadObject(std::istream& stream, const std::string& name)
 {
     Archive archive(stream);
@@ -90,14 +90,14 @@ T loadObject(std::istream& stream, const std::string& name)
     return std::move(outValue);
 };
 
-template <typename T, typename Archive = cereal::JSONOutputArchive>
+template <typename T, typename Archive>
 void saveObject(const T& object, std::ostream& stream, const std::string& name)
 {
     Archive json(stream);
     json(cereal::make_nvp(name, object));
 };
 
-template <typename T, typename Archive = cereal::JSONInputArchive>
+template <typename T, typename Archive>
 std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name)
 {
     auto fileStatus = std::filesystem::status(filePath);
@@ -110,7 +110,7 @@ std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& 
     return std::make_tuple(std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
 }
 
-template <typename T, typename Archive = cereal::JSONOutputArchive>
+template <typename T, typename Archive>
 void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
 {
     mio::mmap_ostreambuf fileStreamBuf(filePath.string());
@@ -118,45 +118,66 @@ void saveObject(const T& object, const std::filesystem::path& filePath, const st
     saveObject<T, Archive>(object, fileStream, name);
 }
 
-template <typename T, typename InputArchive = cereal::JSONInputArchive, typename OutputArchive = cereal::JSONOutputArchive>
-class ScopedFileObject : public Noncopyable, public T
+enum class FileAccessMode
+{
+    ReadOnly,
+    ReadWrite
+};
+
+template <typename T, FileAccessMode Mode, typename InputArchive = cereal::JSONInputArchive, typename OutputArchive = cereal::JSONOutputArchive, bool SaveOnClose = false>
+class FileObject : public Noncopyable, public T
 {
     // todo: implement mechanism to only write changes when contents have changed.
 
 public:
 
-    ScopedFileObject(
+    FileObject(
         const std::filesystem::path& filePath,
         const std::string& name,
-        T&& defaultObject = T{},
-        bool saveOnClose = true)
-    : T(std::get<0>(
-        loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
+        T&& defaultObject = T{})
+    : T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
     , myFilePath(filePath)
     , myName(name)
-    , mySaveOnClose(saveOnClose)
     {
     }
 
-    ScopedFileObject(ScopedFileObject&& other) noexcept
+    FileObject(FileObject&& other) noexcept
     : T(std::move(other))
     , myFilePath(std::exchange(other.myFilePath, {}))
     , myName(std::exchange(other.myName, {}))
-    , mySaveOnClose(other.mySaveOnClose)
     {
     }
 
-    void save() const { saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName); }
-
-    ~ScopedFileObject()
+    void reload()
     {
-        if (mySaveOnClose && !myFilePath.empty())
-            save();
+        static_cast<T&>(*this) = std::get<0>(
+            loadObject<T, InputArchive>(myFilePath, myName)).value_or(std::move(static_cast<T&>(*this)));
+    }
+
+    template <FileAccessMode M = Mode>
+    typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type save() const
+    {
+        saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName);
+    }
+
+    ~FileObject()
+    {
+        if constexpr(SaveOnClose)
+            if (!myFilePath.empty())
+                save();
     }
 
 private:
 
     std::filesystem::path myFilePath;
     std::string myName;
-    bool mySaveOnClose = true;
 };
+
+template <typename T>
+using ReadOnlyJSONFileObject = FileObject<T, FileAccessMode::ReadOnly>;
+
+template <typename T>
+using ReadWriteJSONFileObject = FileObject<T, FileAccessMode::ReadWrite>;
+
+template <typename T>
+using AutoReadWriteJSONFileObject = FileObject<T, FileAccessMode::ReadWrite, cereal::JSONInputArchive, cereal::JSONOutputArchive, true>;

@@ -59,9 +59,9 @@ Settings
 	+ ' -isystem "$WindowsIncludePath$"'
     + ' -isystem "$WindowsUcrtIncludePath$"'
 	+ ' -isystem "$WindowsSharedIncludePath$"'
-.PlatformLibPaths = ' -L"$WindowsLibPath$"'
+.PlatformLibPaths = ' -L"$VisualStudioLibPath$"'
+	+ ' -L"$WindowsLibPath$"'
     + ' -L"$WindowsUcrtLibPath$"'
-	+ ' -L"$VisualStudioLibPath$"'
 #endif //__WINDOWS__
 #if __OSX__
 .LibPrefix = 'lib'

@@ -64,7 +64,7 @@ class InstanceContext
 public:
 
     InstanceContext(InstanceContext&& other) noexcept = default;
-    InstanceContext(ScopedFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
+    InstanceContext(AutoReadWriteJSONFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
     ~InstanceContext();
 
     const auto& getConfig() const { return myConfig; }
@@ -78,7 +78,7 @@ public:
 
 private:
 
-    ScopedFileObject<InstanceConfiguration<B>> myConfig;
+    AutoReadWriteJSONFileObject<InstanceConfiguration<B>> myConfig;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
