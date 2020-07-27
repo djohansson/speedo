@@ -23,6 +23,12 @@ enum class FileState : uint8_t
     Valid,
 };
 
+enum class FileAccessMode : uint8_t
+{
+    ReadOnly,
+    ReadWrite
+};
+
 struct FileInfo
 {
     std::string path;
@@ -117,12 +123,6 @@ void saveObject(const T& object, const std::filesystem::path& filePath, const st
 	std::ostream fileStream(&fileStreamBuf);
     saveObject<T, Archive>(object, fileStream, name);
 }
-
-enum class FileAccessMode
-{
-    ReadOnly,
-    ReadWrite
-};
 
 template <typename T, FileAccessMode Mode, typename InputArchive = cereal::JSONInputArchive, typename OutputArchive = cereal::JSONOutputArchive, bool SaveOnClose = false>
 class FileObject : public Noncopyable, public T

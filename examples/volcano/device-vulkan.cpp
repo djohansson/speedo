@@ -364,7 +364,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
-    ZoneScopedN("DeviceContext()");
+    ZoneScopedN("~DeviceContext()");
 
     processTimelineCallbacks();
 
