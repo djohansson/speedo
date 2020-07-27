@@ -14,8 +14,6 @@
 
 #include <mio/mmap_streambuf.hpp>
 
-#include <picosha2.h>
-
 enum class FileState : uint8_t
 {
     Missing,
