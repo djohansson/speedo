@@ -629,7 +629,7 @@ WindowContext<GraphicsBackend::Vulkan>::WindowContext(
         auto& frameCommandContexts = myCommands.emplace_back();
         const auto& frameCommandPools = myDevice->getGraphicsCommandPools()[frame->getDesc().index];
 
-        uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myDesc.maxViewCommandContextCount) + 1;
+        uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myDesc.maxViewCommandContextCount);
         frameCommandContexts.reserve(commandContextCount);
 
         for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
