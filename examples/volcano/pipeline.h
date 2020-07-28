@@ -15,15 +15,15 @@ struct PipelineCacheHeader
 };
 
 template <GraphicsBackend B>
-class PipelineLayoutContext : public DeviceResource<B>
+class PipelineLayout : public DeviceResource<B>
 {
 public:
 
-    PipelineLayoutContext(PipelineLayoutContext<B>&& other) = default;
-    PipelineLayoutContext(
+    PipelineLayout(PipelineLayout<B>&& other) = default;
+    PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
-    ~PipelineLayoutContext();
+    ~PipelineLayout();
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
@@ -32,11 +32,11 @@ public:
 
 private:
 
-    PipelineLayoutContext(
+    PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutVector<B>&& descriptorSetLayouts);
 
-    PipelineLayoutContext(
+    PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutVector<B>&& descriptorSetLayouts,
         PipelineLayoutHandle<B>&& layout);
@@ -60,20 +60,9 @@ struct PipelineResourceView
 };
 
 template <GraphicsBackend B>
-struct PipelineConfiguration
-{
-	std::shared_ptr<PipelineResourceView<B>> resources;
-	std::shared_ptr<PipelineLayoutContext<B>> layout;
-	std::shared_ptr<DescriptorSetVector<B>> descriptorSets;
-
-    // temp - this should perhaps be an iterator into PipelineContext:s map
-	PipelineHandle<B> graphicsPipeline = 0;
-    //
-};
-
-template <GraphicsBackend B>
 struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
 {
+    std::filesystem::path userProfilePath;
 };
 
 // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
@@ -86,19 +75,19 @@ public:
 
     PipelineContext(PipelineContext<B>&& other) = default;
     PipelineContext(
-        const std::shared_ptr<InstanceContext<B>>& instanceContext,
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<SerializableShaderReflectionModule<GraphicsBackend::Vulkan>>& shaderModule,
-        const std::filesystem::path& userProfilePath,
         PipelineContextCreateDesc<B>&& desc);
     ~PipelineContext();
 
-    const auto& getConfig() const { return myConfig; }
-    const auto getCache() const { return myCache; }
+    auto getCache() const { return myCache; }
+    auto getPipeline() const { return myCurrent.value()->second; }
 
     // temp!
-    void updateDescriptorSets(BufferHandle<GraphicsBackend::Vulkan> buffer) const;
+    void updateDescriptorSets(BufferHandle<GraphicsBackend::Vulkan> buffer);
     void createGraphicsPipeline();
+    auto& resources() { return myResources; }
+    auto& layout() { return myLayout; }
+    auto& descriptorSets() { return myDescriptorSets; }
     //
 
 private:
@@ -110,10 +99,9 @@ private:
     PipelineMap myPipelineMap;
     std::optional<typename PipelineMap::const_iterator> myCurrent;
 
-
-    // temp crap
-    std::shared_ptr<InstanceContext<B>> myInstance;
-    std::shared_ptr<PipelineConfiguration<B>> myConfig;
-    std::filesystem::path myUserProfilePath;
+    // temp
+    std::shared_ptr<PipelineResourceView<B>> myResources;
+	std::shared_ptr<PipelineLayout<B>> myLayout;
+	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
 };

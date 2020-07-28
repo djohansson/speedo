@@ -278,11 +278,10 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTarget
     {
         auto hashKey = internalCalculateHashKey(desc);
         auto emplaceResult = myMap.emplace(
-            std::make_pair(
-                hashKey,
-                std::make_tuple(
-                    RenderPassHandle<GraphicsBackend::Vulkan>{},
-                    FramebufferHandle<GraphicsBackend::Vulkan>{})));
+            hashKey,
+            std::make_tuple(
+                RenderPassHandle<GraphicsBackend::Vulkan>{},
+                FramebufferHandle<GraphicsBackend::Vulkan>{}));
 
         if (emplaceResult.second)
             emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);

@@ -63,7 +63,7 @@ public:
 	uint64_t submitFrame(
 		uint32_t frameIndex,
 		uint32_t lastFrameIndex,
-		const PipelineConfiguration<B>& config,
+		const std::shared_ptr<PipelineContext<B>>& pipeline,
 		uint64_t waitTimelineValue);
 	void presentFrame(uint32_t frameIndex) const;
 
@@ -84,7 +84,7 @@ private:
 	void destroyFrameObjects();
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
-	std::shared_ptr<DeviceContext<B>> myDevice; // todo: make window into a deviceresource
+	std::shared_ptr<DeviceContext<B>> myDevice;
 	WindowCreateDesc<B> myDesc = {};
 	std::unique_ptr<SwapchainContext<B>> mySwapchain;
 	std::vector<View> myViews;

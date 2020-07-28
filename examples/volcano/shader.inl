@@ -18,6 +18,7 @@ void serialize(Archive& ar, SerializableShaderReflectionModule<B>& module)
 
 template <GraphicsBackend B>
 std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
+	const std::filesystem::path& compilerPath,
 	const std::filesystem::path& slangFile)
 {
 	auto slangModule = std::make_shared<SerializableShaderReflectionModule<B>>();
@@ -32,10 +33,10 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 		pbin(*slangModule);
 	};
 
-	auto loadSlang = [&slangModule, &slangFile](std::istream& stream) {
+	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream) {
 		SlangSession* slangSession = spCreateSession(NULL);
 		
-		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, "D:\\github\\hlsl.bin\\RelWithDebInfo\\bin");
+		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath.u8string().c_str());
 		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);

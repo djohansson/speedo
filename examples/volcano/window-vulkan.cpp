@@ -175,7 +175,7 @@ template <>
 uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
     uint32_t frameIndex,
     uint32_t lastFrameIndex,
-    const PipelineConfiguration<GraphicsBackend::Vulkan>& config,
+    const std::shared_ptr<PipelineContext<GraphicsBackend::Vulkan>>& pipeline,
     uint64_t waitTimelineValue)
 {
     ZoneScopedN("submitFrame");
@@ -207,7 +207,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
     std::future<void> renderIMGUIFuture(std::async(
         std::launch::async,
-        [this, &config, &frame](uint32_t commandContextIndex)
+        [this, &pipeline, &frame](uint32_t commandContextIndex)
     {
         renderIMGUI();
 
@@ -216,8 +216,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             ZoneScopedN("drawIMGUI");
 
             CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-            inherit.renderPass = config.resources->renderTarget->getRenderPass();
-            inherit.framebuffer = config.resources->renderTarget->getFramebuffer();
+            inherit.renderPass = pipeline->resources()->renderTarget->getRenderPass();
+            inherit.framebuffer = pipeline->resources()->renderTarget->getFramebuffer();
 
             CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
             secBeginInfo.flags =
@@ -256,7 +256,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             std::execution::par,
 #endif
             seq.begin(), drawThreadCount,
-            [this, &config, &frame, &drawAtomic, &drawCount](uint32_t threadIt)
+            [this, &pipeline, &frame, &drawAtomic, &drawCount](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -272,8 +272,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
                 
                 CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-                inherit.renderPass = config.resources->renderTarget->getRenderPass();
-                inherit.framebuffer = config.resources->renderTarget->getFramebuffer();
+                inherit.renderPass = pipeline->resources()->renderTarget->getRenderPass();
+                inherit.framebuffer = pipeline->resources()->renderTarget->getFramebuffer();
 
                 CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
                 secBeginInfo.flags =
@@ -291,16 +291,15 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             
                 // bind pipeline and inputs
                 {
-                    
                     // bind pipeline and vertex/index buffers
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, config.graphicsPipeline);
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
 
-                    VkBuffer vertexBuffers[] = {config.resources->model->getBuffer().getBufferHandle()};
-                    VkDeviceSize vertexOffsets[] = {config.resources->model->getVertexOffset()};
+                    VkBuffer vertexBuffers[] = { pipeline->resources()->model->getBuffer().getBufferHandle() };
+                    VkDeviceSize vertexOffsets[] = { pipeline->resources()->model->getVertexOffset() };
 
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, config.resources->model->getBuffer().getBufferHandle(),
-                        config.resources->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(cmd, pipeline->resources()->model->getBuffer().getBufferHandle(),
+                        pipeline->resources()->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
                 uint32_t dx = frame->getDesc().imageExtent.width / myDesc.splitScreenGrid.width;
@@ -308,7 +307,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
                 while (drawIt < drawCount)
                 {
-                    auto drawView = [this, &drawCount, &frame, &config, &cmd, &dx, &dy](uint32_t viewIt)
+                    auto drawView = [this, &drawCount, &frame, &pipeline, &cmd, &dx, &dy](uint32_t viewIt)
                     {
                         uint32_t i = viewIt % myDesc.splitScreenGrid.width;
                         uint32_t j = viewIt / myDesc.splitScreenGrid.width;
@@ -349,8 +348,11 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
                         drawModel(
-                            cmd, config.resources->model->getDesc().indexCount, config.descriptorSets->size(),
-                            config.descriptorSets->data(), config.layout->getLayout());
+                            cmd,
+                            pipeline->resources()->model->getDesc().indexCount,
+                            pipeline->descriptorSets()->size(),
+                            pipeline->descriptorSets()->data(),
+                            pipeline->layout()->getLayout());
 
                     };
 
@@ -379,7 +381,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
         //     primaryCommands, "executeCommands");
 
-        config.resources->renderTarget->begin(primaryCommands, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
+        pipeline->resources()->renderTarget->begin(primaryCommands, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
 
         // config.resources->renderTarget->clearSingle(primaryCommands, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
         // config.resources->renderTarget->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
@@ -388,16 +390,16 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
             primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
 
-        config.resources->renderTarget->nextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        pipeline->resources()->renderTarget->nextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
         // ui
         primaryCommandContext->execute(*commandContexts()[frameIndex][0]);
 
-        config.resources->renderTarget->end(primaryCommands);
+        pipeline->resources()->renderTarget->end(primaryCommands);
 
         VkOffset3D blitSize;
-        blitSize.x = config.resources->renderTarget->getRenderTargetDesc().imageExtent.width;
-        blitSize.y = config.resources->renderTarget->getRenderTargetDesc().imageExtent.height;
+        blitSize.x = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent.width;
+        blitSize.y = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent.height;
         blitSize.z = 1;
         
         VkImageBlit imageBlitRegion{};
@@ -410,8 +412,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
         transitionImageLayout(
             primaryCommands,
-            config.resources->renderTarget->getRenderTargetDesc().colorImages[0],
-            config.resources->renderTarget->getRenderTargetDesc().colorImageFormats[0],
+            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
+            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImageFormats[0],
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
@@ -424,7 +426,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
         vkCmdBlitImage(
             primaryCommands,
-            config.resources->renderTarget->getRenderTargetDesc().colorImages[0],
+            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             frame->getDesc().colorImages[0],
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -434,8 +436,8 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
         transitionImageLayout(
             primaryCommands,
-            config.resources->renderTarget->getRenderTargetDesc().colorImages[0],
-            config.resources->renderTarget->getRenderTargetDesc().colorImageFormats[0],
+            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
+            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImageFormats[0],
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 

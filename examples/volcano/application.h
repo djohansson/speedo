@@ -106,6 +106,7 @@ private:
 	std::shared_ptr<WindowContext<B>> myWindow;
 	std::shared_ptr<CommandContext<B>> myTransferCommands;
 	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
+	std::shared_ptr<PipelineLayout<B>> myGraphicsPipelineLayout;
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;

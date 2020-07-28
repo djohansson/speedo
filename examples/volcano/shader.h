@@ -26,7 +26,9 @@ struct SerializableShaderReflectionModule
 };
 
 template <GraphicsBackend B>
-std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(const std::filesystem::path& slangFile);
+std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
+	const std::filesystem::path& compilerPath,
+	const std::filesystem::path& slangFile);
 
 template <GraphicsBackend B>
 void createLayoutBindings(slang::VariableLayoutReflection* parameter, DescriptorSetLayoutBindingsMap<B>& bindings);

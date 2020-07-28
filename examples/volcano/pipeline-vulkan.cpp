@@ -123,7 +123,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 }
 
 template <>
-PipelineLayoutContext<GraphicsBackend::Vulkan>::PipelineLayoutContext(
+PipelineLayout<GraphicsBackend::Vulkan>::PipelineLayout(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     DescriptorSetLayoutVector<GraphicsBackend::Vulkan>&& descriptorSetLayouts,
     PipelineLayoutHandle<GraphicsBackend::Vulkan>&& layout)
@@ -139,10 +139,10 @@ PipelineLayoutContext<GraphicsBackend::Vulkan>::PipelineLayoutContext(
 }
 
 template <>
-PipelineLayoutContext<GraphicsBackend::Vulkan>::PipelineLayoutContext(
+PipelineLayout<GraphicsBackend::Vulkan>::PipelineLayout(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     DescriptorSetLayoutVector<GraphicsBackend::Vulkan>&& descriptorSetLayouts)
-: PipelineLayoutContext(
+: PipelineLayout(
     deviceContext,
     std::move(descriptorSetLayouts),
     createPipelineLayout(
@@ -153,10 +153,10 @@ PipelineLayoutContext<GraphicsBackend::Vulkan>::PipelineLayoutContext(
 }
 
 template <>
-PipelineLayoutContext<GraphicsBackend::Vulkan>::PipelineLayoutContext(
+PipelineLayout<GraphicsBackend::Vulkan>::PipelineLayout(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     const std::shared_ptr<SerializableShaderReflectionModule<GraphicsBackend::Vulkan>>& slangModule)
-: PipelineLayoutContext(
+: PipelineLayout(
     deviceContext,
     DescriptorSetLayoutVector<GraphicsBackend::Vulkan>(
         deviceContext,
@@ -205,7 +205,7 @@ PipelineLayoutContext<GraphicsBackend::Vulkan>::PipelineLayoutContext(
 }
 
 template <>
-PipelineLayoutContext<GraphicsBackend::Vulkan>::~PipelineLayoutContext()
+PipelineLayout<GraphicsBackend::Vulkan>::~PipelineLayout()
 {
     if (myLayout)
         vkDestroyPipelineLayout(getDeviceContext()->getDevice(), myLayout, nullptr);
@@ -214,13 +214,9 @@ PipelineLayoutContext<GraphicsBackend::Vulkan>::~PipelineLayoutContext()
 template <>
 void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
 {
-    // todo: internal pipeline cache
-    if (myConfig->graphicsPipeline)
-        vkDestroyPipeline(getDeviceContext()->getDevice(), myConfig->graphicsPipeline, nullptr);
-
     VkPipelineShaderStageCreateInfo vsStageInfo = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vsStageInfo.module = myConfig->layout->getShaders()[0];
+    vsStageInfo.module = myLayout->getShaders()[0];
     vsStageInfo.pName = "vertexMain"; // todo: get from named VkShaderModule object
 
     // struct AlphaTestSpecializationData
@@ -249,24 +245,24 @@ void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
 
     VkPipelineShaderStageCreateInfo fsStageInfo = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     fsStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fsStageInfo.module = myConfig->layout->getShaders()[1];
+    fsStageInfo.module = myLayout->getShaders()[1];
     fsStageInfo.pName = "fragmentMain"; // todo: get from named VkShaderModule object
     fsStageInfo.pSpecializationInfo = nullptr; //&specializationInfo;
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vsStageInfo, fsStageInfo};
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-    vertexInputInfo.vertexBindingDescriptionCount = myConfig->resources->model->getBindings().size();
-    vertexInputInfo.pVertexBindingDescriptions = myConfig->resources->model->getBindings().data();
+    vertexInputInfo.vertexBindingDescriptionCount = myResources->model->getBindings().size();
+    vertexInputInfo.pVertexBindingDescriptions = myResources->model->getBindings().data();
     vertexInputInfo.vertexAttributeDescriptionCount =
-        static_cast<uint32_t>(myConfig->resources->model->getDesc().attributes.size());
-    vertexInputInfo.pVertexAttributeDescriptions = myConfig->resources->model->getDesc().attributes.data();
+        static_cast<uint32_t>(myResources->model->getDesc().attributes.size());
+    vertexInputInfo.pVertexAttributeDescriptions = myResources->model->getDesc().attributes.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    const auto& imageExtent = myConfig->resources->renderTarget->getRenderTargetDesc().imageExtent;
+    const auto& imageExtent = myResources->renderTarget->getRenderTargetDesc().imageExtent;
 
     VkViewport viewport = {};
     viewport.x = 0.0f;
@@ -356,49 +352,64 @@ void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
     pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = myConfig->layout->getLayout();
-    pipelineInfo.renderPass = myConfig->resources->renderTarget->getRenderPass();
-    pipelineInfo.subpass = myConfig->resources->renderTarget->getSubpass().value_or(0);
+    pipelineInfo.layout = myLayout->getLayout();
+    pipelineInfo.renderPass = myResources->renderTarget->getRenderPass();
+    pipelineInfo.subpass = myResources->renderTarget->getSubpass().value_or(0);
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;
 
-    //myPipelineMap.emplace()
+    if (!myCurrent)
+    {
+        uint64_t hashKey = 0; //internalCalculateHashKey(desc);
+        auto emplaceResult = myPipelineMap.emplace(hashKey, VkPipeline{});
 
-    VK_CHECK(vkCreateGraphicsPipelines(
-        getDeviceContext()->getDevice(),
-        myCache,
-        1,
-        &pipelineInfo,
-        nullptr,
-        &myConfig->graphicsPipeline));
+        if (emplaceResult.second)
+        {
+            VkPipeline pipelineHandle;
+            VK_CHECK(vkCreateGraphicsPipelines(
+                getDeviceContext()->getDevice(),
+                myCache,
+                1,
+                &pipelineInfo,
+                nullptr,
+                &pipelineHandle));
+            emplaceResult.first->second = pipelineHandle;
 
-    char stringBuffer[128];
+            char stringBuffer[128];
     
-    static constexpr std::string_view pipelineStr = "_Pipeline";
-    static constexpr uint32_t hashKey = 0;
+            static constexpr std::string_view pipelineStr = "_Pipeline";
+            
+            sprintf_s(
+                stringBuffer,
+                sizeof(stringBuffer),
+                "%.*s%.*s%u",
+                getName().size(),
+                getName().c_str(),
+                static_cast<int>(pipelineStr.size()),
+                pipelineStr.data(),
+                hashKey);
 
-    sprintf_s(
-        stringBuffer,
-        sizeof(stringBuffer),
-        "%.*s%.*s%u",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(pipelineStr.size()),
-        pipelineStr.data(),
-        hashKey);
+            getDeviceContext()->addOwnedObject(
+                this,
+                VK_OBJECT_TYPE_PIPELINE,
+                reinterpret_cast<uint64_t>(pipelineHandle),
+                stringBuffer);
+        }
 
-    getDeviceContext()->addOwnedObject(
-        this,
-        VK_OBJECT_TYPE_PIPELINE,
-        reinterpret_cast<uint64_t>(myConfig->graphicsPipeline),
-        stringBuffer);
+        myCurrent = std::make_optional(emplaceResult.first);
+    }
 }
 
 
 template <>
-void PipelineContext<GraphicsBackend::Vulkan>::updateDescriptorSets(BufferHandle<GraphicsBackend::Vulkan> buffer) const
+void PipelineContext<GraphicsBackend::Vulkan>::updateDescriptorSets(BufferHandle<GraphicsBackend::Vulkan> buffer)
 {
     ZoneScopedN("updateDescriptorSets");
+
+    if (!myDescriptorSets)
+        myDescriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+            getDeviceContext(),
+            myLayout->getDescriptorSetLayouts());
 
     // todo: use reflection
     
@@ -408,27 +419,27 @@ void PipelineContext<GraphicsBackend::Vulkan>::updateDescriptorSets(BufferHandle
     bufferInfo.range = VK_WHOLE_SIZE;
 
     VkDescriptorImageInfo imageInfo = {};
-    imageInfo.imageLayout = myConfig->resources->image->getImageLayout();
-    imageInfo.imageView = myConfig->resources->imageView->getImageViewHandle();
-    imageInfo.sampler = myConfig->resources->sampler;
+    imageInfo.imageLayout = myResources->image->getImageLayout();
+    imageInfo.imageView = myResources->imageView->getImageViewHandle();
+    imageInfo.sampler = myResources->sampler;
 
     std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
     descriptorWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[0].dstSet = myConfig->descriptorSets->data()[0];
+    descriptorWrites[0].dstSet = myDescriptorSets->data()[0];
     descriptorWrites[0].dstBinding = 0;
     descriptorWrites[0].dstArrayElement = 0;
     descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     descriptorWrites[0].descriptorCount = 1;
     descriptorWrites[0].pBufferInfo = &bufferInfo;
     descriptorWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[1].dstSet = myConfig->descriptorSets->data()[0];
+    descriptorWrites[1].dstSet = myDescriptorSets->data()[0];
     descriptorWrites[1].dstBinding = 1;
     descriptorWrites[1].dstArrayElement = 0;
     descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     descriptorWrites[1].descriptorCount = 1;
     descriptorWrites[1].pImageInfo = &imageInfo;
     descriptorWrites[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[2].dstSet = myConfig->descriptorSets->data()[0];
+    descriptorWrites[2].dstSet = myDescriptorSets->data()[0];
     descriptorWrites[2].dstBinding = 2;
     descriptorWrites[2].dstArrayElement = 0;
     descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -445,25 +456,15 @@ void PipelineContext<GraphicsBackend::Vulkan>::updateDescriptorSets(BufferHandle
 
 template<>
 PipelineContext<GraphicsBackend::Vulkan>::PipelineContext(
-    const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const std::shared_ptr<SerializableShaderReflectionModule<GraphicsBackend::Vulkan>>& shaderModule,
-    const std::filesystem::path& userProfilePath,
     PipelineContextCreateDesc<GraphicsBackend::Vulkan>&& desc)
 : DeviceResource(deviceContext, desc)
 , myDesc(std::move(desc))
-, myInstance(instanceContext)
-, myUserProfilePath(userProfilePath) // temp af
 {
-    myConfig = std::make_shared<PipelineConfiguration<GraphicsBackend::Vulkan>>();
-    myConfig->resources = std::make_shared<PipelineResourceView<GraphicsBackend::Vulkan>>();
-    myConfig->layout = std::make_shared<PipelineLayoutContext<GraphicsBackend::Vulkan>>(
-        deviceContext,
-        shaderModule);
-    
-    myConfig->resources->sampler = createSampler(deviceContext->getDevice());
-
     char stringBuffer[128];
+
+    myResources = std::make_shared<PipelineResourceView<GraphicsBackend::Vulkan>>();
+    myResources->sampler = createSampler(deviceContext->getDevice());
 
     static constexpr std::string_view samplerStr = "_Sampler";
 
@@ -479,17 +480,13 @@ PipelineContext<GraphicsBackend::Vulkan>::PipelineContext(
     deviceContext->addOwnedObject(
         this,
         VK_OBJECT_TYPE_SAMPLER,
-        reinterpret_cast<uint64_t>(myConfig->resources->sampler),
+        reinterpret_cast<uint64_t>(myResources->sampler),
         stringBuffer);
-    
-    myConfig->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
-        deviceContext,
-        myConfig->layout->getDescriptorSetLayouts());
 
     myCache = pipeline::loadPipelineCache(
-        std::filesystem::absolute(myUserProfilePath / "pipeline.cache"),
+        std::filesystem::absolute(myDesc.userProfilePath / "pipeline.cache"),
         deviceContext->getDevice(),
-        instanceContext->getPhysicalDeviceInfo(deviceContext->getPhysicalDevice()).deviceProperties);
+        deviceContext->getPhysicalDeviceInfo().deviceProperties);
     
     static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
 
@@ -513,12 +510,14 @@ template<>
 PipelineContext<GraphicsBackend::Vulkan>::~PipelineContext()
 {
     pipeline::savePipelineCache(
-        myUserProfilePath / "pipeline.cache",
+        myDesc.userProfilePath / "pipeline.cache",
         getDeviceContext()->getDevice(),
-        myInstance->getPhysicalDeviceInfo(getDeviceContext()->getPhysicalDevice()).deviceProperties,
+        getDeviceContext()->getPhysicalDeviceInfo().deviceProperties,
         myCache);
+
+    for (const auto& pipelineIt : myPipelineMap)
+        vkDestroyPipeline(getDeviceContext()->getDevice(), pipelineIt.second, nullptr);
     
-    vkDestroyPipeline(getDeviceContext()->getDevice(), myConfig->graphicsPipeline, nullptr);
     vkDestroyPipelineCache(getDeviceContext()->getDevice(), myCache, nullptr);
-    vkDestroySampler(getDeviceContext()->getDevice(), myConfig->resources->sampler, nullptr);
+    vkDestroySampler(getDeviceContext()->getDevice(), myResources->sampler, nullptr);
 }

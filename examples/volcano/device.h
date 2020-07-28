@@ -89,6 +89,7 @@ public:
     const auto& getDesc() const { return myConfig; }
     auto getDevice() const { return myDevice; }
     auto getPhysicalDevice() const { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
+    const auto& getPhysicalDeviceInfo() const { return myInstance->getPhysicalDeviceInfo(getPhysicalDevice()); }
     auto getSurface() const { return myInstance->getSurface(); }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }

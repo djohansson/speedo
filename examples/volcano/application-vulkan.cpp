@@ -92,7 +92,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.CheckVkResultFn = checkResult;
     ImGui_ImplVulkan_Init(
         &initInfo,
-        myGraphicsPipeline->getConfig()->resources->renderTarget->getRenderPass());
+        myGraphicsPipeline->resources()->renderTarget->getRenderPass());
 
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -149,7 +149,7 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
         make_vector(colorImage),
         depthStencilImage);
 
-    myGraphicsPipeline->getConfig()->resources->renderTarget = myRenderImageSet;
+    myGraphicsPipeline->resources()->renderTarget = myRenderImageSet;
     myGraphicsPipeline->createGraphicsPipeline();
 }
 
@@ -227,14 +227,19 @@ Application<GraphicsBackend::Vulkan>::Application(
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
 
-    auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(myResourcePath / "shaders" / "shaders.slang");
+    auto shaderModule = loadSlangShaders<GraphicsBackend::Vulkan>(
+        std::filesystem::path("D:\\github\\hlsl.bin\\RelWithDebInfo\\bin"),
+        myResourcePath / "shaders" / "shaders.slang");
 
     myGraphicsPipeline = std::make_shared<PipelineContext<GraphicsBackend::Vulkan>>(
-        myInstance,
         myDevice,
-        slangShaders,
-        myUserProfilePath,
-        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{});
+        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{ { "PipelineContext" }, myUserProfilePath });
+
+    myGraphicsPipelineLayout = std::make_shared<PipelineLayout<GraphicsBackend::Vulkan>>(
+        myDevice,
+        shaderModule);
+
+    myGraphicsPipeline->layout() = myGraphicsPipelineLayout;
 
     // if (commandBufferLevel == 0)
     //     std::any_cast<command::UserData>(&myUserData)->tracyContext =
@@ -251,17 +256,17 @@ Application<GraphicsBackend::Vulkan>::Application(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
-        myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+        myGraphicsPipeline->resources()->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
             myDevice,
             myTransferCommands,
             myResourcePath / "models" / "gallery.obj");
-        myGraphicsPipeline->getConfig()->resources->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
+        myGraphicsPipeline->resources()->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
             myDevice,
             myTransferCommands,
             myResourcePath / "images" / "gallery.jpg");
-        myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
+        myGraphicsPipeline->resources()->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
             myDevice,
-            *(myGraphicsPipeline->getConfig()->resources->image),
+            *(myGraphicsPipeline->resources()->image),
             VK_IMAGE_ASPECT_COLOR_BIT);
 
         myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
@@ -297,7 +302,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
             initIMGUI(myDevice, primaryCommands, myUserProfilePath);
 
-            myGraphicsPipeline->getConfig()->resources->image->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            myGraphicsPipeline->resources()->image->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
         
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -346,13 +351,12 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
-            const auto& config = myGraphicsPipeline->getConfig();
-            const auto& resources = config->resources;
-            const auto& layout = config->layout;
+            const auto& resources = myGraphicsPipeline->resources();
+            const auto& layout = myGraphicsPipeline->layout();
             
             resources->model = model;
             
-            config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
                 myDevice,
                 layout->getDescriptorSetLayouts());
 
@@ -380,9 +384,8 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
         {
-            const auto& config = myGraphicsPipeline->getConfig();
-            const auto& resources = config->resources;
-            const auto& layout = config->layout;
+            const auto& resources = myGraphicsPipeline->resources();
+            const auto& layout = myGraphicsPipeline->layout();
 
             resources->image = image;
             resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
@@ -390,7 +393,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                 *image,
                 VK_IMAGE_ASPECT_COLOR_BIT);
 
-            config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
                 myDevice,
                 layout->getDescriptorSetLayouts());
 
@@ -829,7 +832,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
         myLastFrameTimelineValue = myWindow->submitFrame(
             frameIndex,
             myLastFrameIndex,
-            *myGraphicsPipeline->getConfig(),
+            myGraphicsPipeline,
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
