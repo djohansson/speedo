@@ -39,7 +39,7 @@ Frame<GraphicsBackend::Vulkan>::Frame(
         static_cast<int>(renderCompleteSemaphoreStr.size()),
         renderCompleteSemaphoreStr.data());
 
-    addOwnedObject(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myRenderCompleteSemaphore), stringBuffer);
+    deviceContext->addOwnedObject(this, VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myRenderCompleteSemaphore), stringBuffer);
 
     sprintf_s(
         stringBuffer,
@@ -50,7 +50,7 @@ Frame<GraphicsBackend::Vulkan>::Frame(
         static_cast<int>(newImageAcquiredSemaphoreStr.size()),
         newImageAcquiredSemaphoreStr.data());
 
-    addOwnedObject(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore), stringBuffer);
+    deviceContext->addOwnedObject(this, VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore), stringBuffer);
 
     myImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 }

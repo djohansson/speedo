@@ -4,7 +4,7 @@
 template <>
 void createLayoutBindings<GraphicsBackend::Vulkan>(
     slang::VariableLayoutReflection* parameter,
-    BindingsMap<GraphicsBackend::Vulkan>& bindings)
+    DescriptorSetLayoutBindingsMap<GraphicsBackend::Vulkan>& bindings)
 {
 	slang::TypeLayoutReflection* typeLayout = parameter->getTypeLayout();
 

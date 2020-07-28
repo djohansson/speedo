@@ -2,8 +2,7 @@
 
 #include "command.h"
 #include "device.h"
-#include "deviceresource.h"
-#include "gfx-types.h"
+#include "types.h"
 
 #include <memory>
 #include <filesystem>
@@ -24,7 +23,7 @@ class Image : public DeviceResource<B>
 {
 public:
 
-    Image(Image&& other) noexcept = default;
+    Image(Image&& other) = default;
     Image( // creates uninitialized image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
@@ -65,7 +64,7 @@ class ImageView : public DeviceResource<B>
 {
 public:
     
-    ImageView(ImageView&& other) noexcept = default;
+    ImageView(ImageView&& other) = default;
     ImageView( // creates a view from image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,

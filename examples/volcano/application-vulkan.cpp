@@ -37,7 +37,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // auto& platformIo = ImGui::GetPlatformIO();
     // platformIo.Platform_CreateVkSurface = ...
 
-    auto surfaceCapabilities = myInstance->getSurfaceCapabilities(myDevice->getPhysicalDevice());
+    const auto& surfaceCapabilities = myInstance->getPhysicalDeviceInfo(myDevice->getPhysicalDevice()).swapchainInfo.capabilities;
 
     float dpiScaleX = 
         static_cast<float>(surfaceCapabilities.currentExtent.width) / myWindow->getDesc().windowExtent.width;
@@ -481,20 +481,34 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             if (Begin("Statistics", &showStatistics))
             {
-                Text("Fences: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FENCE));
-                Text("Semaphores: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
-                Text("Command Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
-                Text("Descriptor Set Layouts: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
-                Text("Descriptor Sets: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
-                Text("Pipeline Layouts: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
-                Text("Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER));
-                Text("Buffer Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
-                Text("Images: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE));
-                Text("Image Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
-                Text("Framebuffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
-                Text("Command Pools: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
-                Text("Surfaces: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
-                Text("Swapchains: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
+                // Text("Unknowns: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
+                // Text("Instances: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
+                // Text("Physical Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
+                Text("Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE));
+                Text("Queues: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_QUEUE));
+                Text("Semaphores: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
+                Text("Command Buffers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+                Text("Fences: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_FENCE));
+                Text("Device Memory: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE_MEMORY));
+                Text("Buffers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER));
+                Text("Images: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE));
+                Text("Events: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_EVENT));
+                Text("Query Pools: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_QUERY_POOL));
+                Text("Buffer Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
+                Text("Image Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
+                Text("Shader Modules: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
+                Text("Pipeline Caches: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
+                Text("Pipeline Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
+                Text("Render Passes: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
+                Text("Pipelines: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE));
+                Text("Descriptor Set Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
+                Text("Samplers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SAMPLER));
+                Text("Descriptor Pools: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
+                Text("Descriptor Sets: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
+                Text("Framebuffers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
+                Text("Command Pools: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
+                Text("Surfaces: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
+                Text("Swapchains: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
             }
             End();
         }
@@ -754,9 +768,6 @@ Application<GraphicsBackend::Vulkan>::~Application()
     std::cout << allocatorStatsJSON << std::endl;
     vmaFreeStatsString(myDevice->getAllocator(), allocatorStatsJSON);
 #endif
-
-    // todo: work on a resourcetable of some sort, and automatically delete all resources from it.
-    vkDestroySampler(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->sampler, nullptr);
 }
 
 template <>
@@ -891,10 +902,10 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
         myDevice->wait(std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
-    uint32_t physicalDeviceIndex = myDevice->getDesc().physicalDeviceIndex;
-    myInstance->updateSurfaceCapabilities(physicalDeviceIndex);
+    auto physicalDevice = myDevice->getPhysicalDevice();
+    myInstance->updateSurfaceCapabilities(physicalDevice);
     auto framebufferExtent = 
-        myInstance->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
+        myInstance->getPhysicalDeviceInfo(physicalDevice).swapchainInfo.capabilities.currentExtent;
     
     myWindow->onResizeFramebuffer(framebufferExtent);
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());

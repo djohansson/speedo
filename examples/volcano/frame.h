@@ -1,8 +1,8 @@
 #pragma once
 
-#include "gfx-types.h"
 #include "command.h"
 #include "rendertarget.h"
+#include "types.h"
 
 #include <atomic>
 #include <memory>
@@ -21,7 +21,7 @@ class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
 
 public:
 
-	Frame(Frame<B>&& other) noexcept = default;
+	Frame(Frame<B>&& other) = default;
     Frame(const std::shared_ptr<DeviceContext<B>>& deviceContext, FrameCreateDesc<B>&& desc);
 	virtual ~Frame();
 

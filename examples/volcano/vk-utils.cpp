@@ -774,7 +774,7 @@ VkSurfaceKHR createSurface(VkInstance instance,	void* view)
     return surface;
 }
 
-VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice)
+VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice, VkFlags flags)
 {
     auto vkGetBufferMemoryRequirements2KHR =
         (PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
@@ -807,11 +807,12 @@ VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDev
     functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
 
     VmaAllocator allocator;
-    VmaAllocatorCreateInfo allocatorInfo = {};
-    allocatorInfo.instance = instance;
+    VmaAllocatorCreateInfo allocatorInfo = {}; 
+	allocatorInfo.flags = flags;
     allocatorInfo.physicalDevice = physicalDevice;
     allocatorInfo.device = device;
     allocatorInfo.pVulkanFunctions = &functions;
+	allocatorInfo.instance = instance;
     vmaCreateAllocator(&allocatorInfo, &allocator);
 
     return allocator;

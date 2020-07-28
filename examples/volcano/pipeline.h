@@ -2,13 +2,12 @@
 
 #include "descriptorset.h"
 #include "device.h"
-#include "deviceresource.h"
 #include "file.h"
-#include "gfx-types.h"
 #include "image.h"
 #include "model.h"
 #include "rendertarget.h"
 #include "shader.h"
+#include "types.h"
 
 template <GraphicsBackend B>
 struct PipelineCacheHeader
@@ -20,7 +19,7 @@ class PipelineLayoutContext : public DeviceResource<B>
 {
 public:
 
-    PipelineLayoutContext(PipelineLayoutContext<B>&& other) noexcept = default;
+    PipelineLayoutContext(PipelineLayoutContext<B>&& other) = default;
     PipelineLayoutContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
@@ -67,7 +66,9 @@ struct PipelineConfiguration
 	std::shared_ptr<PipelineLayoutContext<B>> layout;
 	std::shared_ptr<DescriptorSetVector<B>> descriptorSets;
 
-	PipelineHandle<B> graphicsPipeline = 0; // ~ "PSO"
+    // temp - this should perhaps be an iterator into PipelineContext:s map
+	PipelineHandle<B> graphicsPipeline = 0;
+    //
 };
 
 template <GraphicsBackend B>
@@ -83,7 +84,7 @@ class PipelineContext : public DeviceResource<B>
 {
 public:
 
-    PipelineContext(PipelineContext<B>&& other) noexcept = default;
+    PipelineContext(PipelineContext<B>&& other) = default;
     PipelineContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

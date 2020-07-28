@@ -1,8 +1,7 @@
 #pragma once
 
 #include "device.h"
-#include "deviceresource.h"
-#include "gfx-types.h"
+#include "types.h"
 
 #include <memory>
 #include <vector>
@@ -19,7 +18,7 @@ class SwapchainContext : public DeviceResource<B>
 {
 public:
 
-	SwapchainContext(SwapchainContext&& other) noexcept = default;
+	SwapchainContext(SwapchainContext&& other) = default;
 	SwapchainContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		SwapchainCreateDesc<B>&& desc);

@@ -1,13 +1,15 @@
 #pragma once
 
-#include "gfx-types.h"
 #include "instance.h"
+#include "types.h"
 
 #include <atomic>
 #include <list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <shared_mutex>
+#include <string>
 #include <vector>
 
 
@@ -35,20 +37,24 @@ struct DeviceConfiguration
 {
     uint32_t physicalDeviceIndex = 0;
     std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
-    std::optional<bool> useHostQueryReset;
-    std::optional<bool> useTimelineSemaphores;
-    std::optional<bool> useScalarBlockLayout;
-    std::optional<bool> useShaderFloat16;
+    // std::optional<bool> useShaderFloat16;
+    // std::optional<bool> useDescriptorIndexing;
+    // std::optional<bool> useScalarBlockLayout;
+    // std::optional<bool> useHostQueryReset;
+    // std::optional<bool> useTimelineSemaphores;
+    // std::optional<bool> useBufferDeviceAddress;
 
     template <class Archive>
     void serialize(Archive& archive)
     {
         archive(
-            CEREAL_NVP(physicalDeviceIndex),
-            CEREAL_NVP(swapchainConfiguration),
-            CEREAL_NVP(useHostQueryReset),
-            CEREAL_NVP(useTimelineSemaphores),
-            CEREAL_NVP(useShaderFloat16)
+            CEREAL_NVP(swapchainConfiguration)
+            // CEREAL_NVP(useShaderFloat16),
+            // CEREAL_NVP(useDescriptorIndexing),
+            // CEREAL_NVP(useScalarBlockLayout),
+            // CEREAL_NVP(useHostQueryReset),
+            // CEREAL_NVP(useTimelineSemaphores),
+            // CEREAL_NVP(useBufferDeviceAddress)
         );
     }
 };
@@ -75,7 +81,6 @@ class DeviceContext
 {
 public:
 
-    DeviceContext(DeviceContext<B>&& other) noexcept = default;
 	DeviceContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
         AutoSaveJSONFileObject<DeviceConfiguration<B>>&& config);
@@ -116,6 +121,12 @@ public:
         const std::list<std::function<void(uint64_t)>>& callbacks);
     void processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
 
+    void addOwnedObject(void* owner, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
+    void clearOwnedObjects(void* owner);
+    void moveOwnedObjects(void* owner, void* newOwner);
+
+    uint32_t getTypeCount(ObjectType<B> type);
+
 private:
 
     std::shared_ptr<InstanceContext<B>> myInstance;
@@ -136,4 +147,51 @@ private:
     // todo: make to an atomic queue to avoid excessive locking
     std::recursive_mutex myTimelineCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
+
+    struct Object
+    {
+        ObjectType<B> type = {};
+        uint64_t handle = 0;
+        std::string name;
+    };
+
+    std::shared_mutex myObjectsMutex;
+    std::map<uintptr_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
+    std::map<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
+};
+
+template <GraphicsBackend B>
+struct DeviceResourceCreateDesc
+{
+    std::string name;
+};
+
+template <GraphicsBackend B>
+class DeviceResource
+{
+public:
+
+    virtual ~DeviceResource();
+
+    const auto& getName() const { return myName; }
+
+protected:
+
+    DeviceResource(DeviceResource<B>&& other);
+    DeviceResource( // no object names are set
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const DeviceResourceCreateDesc<B>& desc);
+    DeviceResource( // uses desc.name and one objectType for all objectHandles
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const DeviceResourceCreateDesc<B>& desc,
+        uint32_t objectCount,
+        ObjectType<B> objectType,
+        const uint64_t* objectHandles);
+
+    const auto& getDeviceContext() const { return myDevice; }
+
+private:
+
+    std::shared_ptr<DeviceContext<B>> myDevice;
+    std::string myName;
 };

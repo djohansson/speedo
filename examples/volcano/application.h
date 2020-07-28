@@ -20,12 +20,12 @@
 #include "command.h"
 #include "device.h"
 #include "file.h"
-#include "gfx-types.h"
 #include "glm.h"
 #include "instance.h"
 #include "nodegraph.h"
 #include "pipeline.h"
 #include "renderimageset.h"
+#include "types.h"
 #include "window.h"
 
 #include "state.h" // temp - remove & clean up

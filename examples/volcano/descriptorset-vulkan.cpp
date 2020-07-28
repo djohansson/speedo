@@ -6,7 +6,7 @@ namespace descriptorset
 
 std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> createDescriptorSetLayouts(
 	DeviceHandle<GraphicsBackend::Vulkan> device,
-	const BindingsMap<GraphicsBackend::Vulkan>& bindings)
+	const DescriptorSetLayoutBindingsMap<GraphicsBackend::Vulkan>& bindings)
 {
     std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> outLayouts;
     outLayouts.reserve(bindings.size());
@@ -34,7 +34,7 @@ DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
 template <>
 DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const BindingsMap<GraphicsBackend::Vulkan>& bindings)
+    const DescriptorSetLayoutBindingsMap<GraphicsBackend::Vulkan>& bindings)
 : DescriptorSetLayoutVector<GraphicsBackend::Vulkan>(
     deviceContext,
     descriptorset::createDescriptorSetLayouts(deviceContext->getDevice(), bindings))

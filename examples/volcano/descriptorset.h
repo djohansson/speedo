@@ -1,7 +1,7 @@
 #pragma once
 
-#include "deviceresource.h"
-#include "gfx-types.h"
+#include "device.h"
+#include "types.h"
 
 #include <vector>
 
@@ -12,17 +12,17 @@ struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBindin
 };
 
 template <GraphicsBackend B>
-using BindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
+using DescriptorSetLayoutBindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
 
 template <GraphicsBackend B>
 class DescriptorSetLayoutVector : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetLayoutVector(DescriptorSetLayoutVector&& other) noexcept = default;
+    DescriptorSetLayoutVector(DescriptorSetLayoutVector&& other) = default;
     DescriptorSetLayoutVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const BindingsMap<B>& bindings);
+        const DescriptorSetLayoutBindingsMap<B>& bindings);
     ~DescriptorSetLayoutVector();
 
     auto size() const { return myDescriptorSetLayoutVector.size(); }
@@ -42,7 +42,7 @@ class DescriptorSetVector : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetVector(DescriptorSetVector&& other) noexcept = default;
+    DescriptorSetVector(DescriptorSetVector&& other) = default;
     DescriptorSetVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const DescriptorSetLayoutVector<B>& layouts);

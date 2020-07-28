@@ -2,8 +2,7 @@
 
 #include "command.h"
 #include "device.h"
-#include "deviceresource.h"
-#include "gfx-types.h"
+#include "types.h"
 
 #include <memory>
 
@@ -20,7 +19,7 @@ class Buffer : public DeviceResource<B>
 {
 public:
 
-    Buffer(Buffer&& other) noexcept = default;
+    Buffer(Buffer&& other) = default;
     Buffer( // creates uninitialized buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferCreateDesc<B>&& desc);
@@ -49,7 +48,7 @@ class BufferView : public DeviceResource<B>
 {
 public:
     
-    BufferView(BufferView&& other) noexcept = default;
+    BufferView(BufferView&& other) = default;
     BufferView( // creates a view from buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Buffer<B>& buffer,

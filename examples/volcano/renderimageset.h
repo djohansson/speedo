@@ -1,8 +1,8 @@
 #pragma once
 
-#include "gfx-types.h"
 #include "rendertarget.h"
 #include "image.h"
+#include "types.h"
 
 
 template <GraphicsBackend B>
@@ -12,7 +12,7 @@ class RenderImageSet : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>
 
 public:
 
-	RenderImageSet(RenderImageSet<B>&& other) noexcept = default;
+	RenderImageSet(RenderImageSet<B>&& other) = default;
     RenderImageSet(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}

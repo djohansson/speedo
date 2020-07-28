@@ -1,8 +1,7 @@
 #pragma once
 
 #include "device.h"
-#include "deviceresource.h"
-#include "gfx-types.h"
+#include "types.h"
 
 #include <atomic>
 #include <array>
@@ -26,14 +25,14 @@ struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class CommandBufferArray : DeviceResource<B>
+class CommandBufferArray : public DeviceResource<B>
 {
 public:
 
     static constexpr uint32_t kHeadBitCount = 2;
     static constexpr uint32_t kCommandBufferCount = (1 << kHeadBitCount);
 
-    CommandBufferArray(CommandBufferArray<B>&& other) noexcept = default;
+    CommandBufferArray(CommandBufferArray<B>&& other) = default;
     CommandBufferArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::tuple<CommandBufferArrayCreateDesc<B>, std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
@@ -107,7 +106,7 @@ class CommandContext
 {
 public:
 
-    CommandContext(CommandContext<B>&& other) noexcept = default;
+    CommandContext(CommandContext<B>&& other) = default;
     CommandContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandContextCreateDesc<B>&& desc);
