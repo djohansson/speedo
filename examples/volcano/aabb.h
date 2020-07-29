@@ -34,9 +34,6 @@ public:
 		: myMin(static_cast<VectorType>(other.myMin))
 		, myMax(static_cast<VectorType>(other.myMax)) {}
 
-	AABB(const Type& other) = default;
-	AABB(Type&& other) noexcept = default;
-
 	template <typename U = ScalarType>
 	AABB(const OtherVectorType<U>& aMin, const OtherVectorType<U>& aMax)
 		: myMin(static_cast<VectorType>(aMin))
@@ -50,14 +47,6 @@ public:
 	bool operator!() const
 	{
 		return (myMax < myMin) != 0;
-	}
-
-	Type& operator=(const Type& other)
-	{
-		myMin = other.myMin;
-		myMax = other.myMax;
-
-		return *this;
 	}
 
 	template <typename U = ScalarType>
