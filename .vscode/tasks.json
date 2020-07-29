@@ -18,7 +18,7 @@
 			"args": [
 			//	"-showcmds",
 				"-cache",
-				"-cacheverbose",
+			//	"-cacheverbose",
 				"-summary",
 			//	"all"
 				"debug"

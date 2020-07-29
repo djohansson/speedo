@@ -76,8 +76,7 @@
 		.ExecInputPattern = '*.meta.slang'
 		.ExecInputPath = '$BuildRootPath$/source/slang'
 		.ExecArguments = '-o %2 %1'
-		.ExecOutput + '/include/meta.slang'
-		.ExecUseStdOutAsOutput = true
+		.ExecOutput + '/include/core.meta.slang.h'
 	]
 
 	.SlangCPPExtractorObjectList = 
@@ -148,8 +147,7 @@
 			'$BuildRootPath$/source/slang/slang-ast-val.h',
 		}
 		.ExecArguments = '-o %2 %1 -strip-prefix slang-ast- -output-fields'
-		.ExecOutput + '/include/slang-ast-generated'
-		.ExecUseStdOutAsOutput = true
+		.ExecOutput + '/include/slang-ast-generated.h'
 	]
 
 	.SlangUnity = 
@@ -500,6 +498,7 @@
 			'$BuildRootPath$/external/spirv-tools/source/opt/local_single_block_elim_pass.cpp',
 			'$BuildRootPath$/external/spirv-tools/source/opt/mem_pass.cpp',
 			'$BuildRootPath$/external/spirv-tools/source/opt/pass.cpp',
+			'$BuildRootPath$/external/spirv-tools/source/opt/scalar_replacement_pass.cpp',
 			'$BuildRootPath$/external/spirv-tools/source/opt/ssa_rewrite_pass.cpp',
 			'$BuildRootPath$/external/spirv-tools/source/opt/vector_dce.cpp',
 			'$BuildRootPath$/external/spirv-tools/source/reduce/structured_loop_to_selection_reduction_opportunity.cpp',
@@ -516,28 +515,10 @@
 				+ ' -I$BuildRootPath$/external/spirv-headers/include'
 				+ ' -I$BuildRootPath$/external/spirv-tools'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
-				+ ' -I$BuildRootPath$/external/spirv-tools-generated'
+				+ ' -I$BuildRootPath$/external/spirv-tools-generated' // todo: - add code generation step
 				+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 		.CompilerInputUnity = '$Name$-unity'
-		.CompilerInputFiles = {
-			'$BuildRootPath$/external/spirv-tools/source/operand.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/spirv_reducer_options.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/amd_ext_to_khr.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/basic_block.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/copy_prop_arrays.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/folding_rules.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/instruction.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/ir_context.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/loop_unswitch_pass.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/local_access_chain_convert_pass.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/local_single_block_elim_pass.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/mem_pass.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/pass.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/ssa_rewrite_pass.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/opt/vector_dce.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/reduce/structured_loop_to_selection_reduction_opportunity.cpp',
-			'$BuildRootPath$/external/spirv-tools/source/reduce/structured_loop_to_selection_reduction_opportunity_finder.cpp',
-		}
+		.CompilerInputFiles = .UnityInputExcludedFiles
 	]
 
 	.SlangGlslangUnity = 

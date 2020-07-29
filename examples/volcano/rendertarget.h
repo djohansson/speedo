@@ -1,8 +1,7 @@
 #pragma once
 
 #include "device.h"
-#include "deviceresource.h"
-#include "gfx-types.h"
+#include "types.h"
 
 #include <map>
 #include <memory>
@@ -72,7 +71,7 @@ public:
 
 protected:
 
-    RenderTarget(RenderTarget<B>&& other) noexcept = default;
+    RenderTarget(RenderTarget<B>&& other) = default;
     RenderTarget(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
@@ -112,11 +111,6 @@ private:
     std::shared_mutex myMutex;
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
-
-    static constexpr std::string_view sc_colorImageViewStr = "_ColorImageView";
-    static constexpr std::string_view sc_depthImageViewStr = "_DepthImageView";
-    static constexpr std::string_view sc_framebufferStr = "_FrameBuffer";
-    static constexpr std::string_view sc_renderPassStr = "_RenderPass";
 };
 
 template <typename CreateDescType, GraphicsBackend B>

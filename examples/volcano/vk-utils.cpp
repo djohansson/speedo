@@ -749,12 +749,101 @@ VkRenderPass createRenderPass(
     return createRenderPass(device, attachments, make_vector(subpass), make_vector(dependency));
 }
 
+VkPipelineLayout createPipelineLayout(
+	VkDevice device,
+	const VkDescriptorSetLayout* descriptorSetLayouts,
+	uint32_t descriptorSetLayoutCount)
+{
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+	pipelineLayoutInfo.setLayoutCount = descriptorSetLayoutCount;
+	pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts;
+	pipelineLayoutInfo.pushConstantRangeCount = 0;
+	pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+	VkPipelineLayout layout;
+	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &layout));
+
+	return layout;
+}
+
 VkSurfaceKHR createSurface(VkInstance instance,	void* view)
 {
     VkSurfaceKHR surface;
     VK_CHECK(glfwCreateWindowSurface(instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
 
     return surface;
+}
+
+VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice, VkFlags flags)
+{
+    auto vkGetBufferMemoryRequirements2KHR =
+        (PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
+            instance, "vkGetBufferMemoryRequirements2KHR");
+    assert(vkGetBufferMemoryRequirements2KHR != nullptr);
+
+    auto vkGetImageMemoryRequirements2KHR =
+        (PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(
+            instance, "vkGetImageMemoryRequirements2KHR");
+    assert(vkGetImageMemoryRequirements2KHR != nullptr);
+
+    VmaVulkanFunctions functions = {};
+    functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+    functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+    functions.vkAllocateMemory = vkAllocateMemory;
+    functions.vkFreeMemory = vkFreeMemory;
+    functions.vkMapMemory = vkMapMemory;
+    functions.vkUnmapMemory = vkUnmapMemory;
+    functions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+    functions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+    functions.vkBindBufferMemory = vkBindBufferMemory;
+    functions.vkBindImageMemory = vkBindImageMemory;
+    functions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+    functions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+    functions.vkCreateBuffer = vkCreateBuffer;
+    functions.vkDestroyBuffer = vkDestroyBuffer;
+    functions.vkCreateImage = vkCreateImage;
+    functions.vkDestroyImage = vkDestroyImage;
+    functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
+    functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
+
+    VmaAllocator allocator;
+    VmaAllocatorCreateInfo allocatorInfo = {}; 
+	allocatorInfo.flags = flags;
+    allocatorInfo.physicalDevice = physicalDevice;
+    allocatorInfo.device = device;
+    allocatorInfo.pVulkanFunctions = &functions;
+	allocatorInfo.instance = instance;
+    vmaCreateAllocator(&allocatorInfo, &allocator);
+
+    return allocator;
+}
+
+VkDescriptorPool createDescriptorPool(VkDevice device)
+{
+    constexpr uint32_t maxDescriptorCount = 1000;
+    VkDescriptorPoolSize poolSizes[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount}};
+
+    VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    poolInfo.poolSizeCount = static_cast<uint32_t>(sizeof_array(poolSizes));
+    poolInfo.pPoolSizes = poolSizes;
+    poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(sizeof_array(poolSizes));
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+
+    VkDescriptorPool outDescriptorPool;
+    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &outDescriptorPool));
+
+    return outDescriptorPool;
 }
 
 VkResult checkFlipOrPresentResult(VkResult result)

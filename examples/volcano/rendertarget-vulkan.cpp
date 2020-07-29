@@ -8,6 +8,9 @@ template <>
 void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
 {
     char stringBuffer[128];
+
+    static constexpr std::string_view colorImageViewStr = "_ColorImageView";
+    static constexpr std::string_view depthImageViewStr = "_DepthImageView";
     
     myAttachments.clear();
     
@@ -27,12 +30,13 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
             "%.*s%.*s%.*u",
             getName().size(),
             getName().c_str(),
-            static_cast<int>(sc_colorImageViewStr.size()),
-            sc_colorImageViewStr.data(),
+            static_cast<int>(colorImageViewStr.size()),
+            colorImageViewStr.data(),
             1,
             attachmentIt);
 
-        addOwnedObject(
+        getDeviceContext()->addOwnedObject(
+            this,
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -71,10 +75,11 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
             "%.*s%.*s",
             getName().size(),
             getName().c_str(),
-            static_cast<int>(sc_depthImageViewStr.size()),
-            sc_depthImageViewStr.data());
+            static_cast<int>(depthImageViewStr.size()),
+            depthImageViewStr.data());
 
-        addOwnedObject(
+        getDeviceContext()->addOwnedObject(
+            this,
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -210,11 +215,33 @@ template <>
 RenderTarget<GraphicsBackend::Vulkan>::RenderPassFramebufferTuple
 RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
 {
+    char stringBuffer[128];
+    
+    static constexpr std::string_view renderPassStr = "_RenderPass";
+
     auto renderPass = createRenderPass(
         getDeviceContext()->getDevice(),
         myAttachmentsDescs,
         mySubPassDescs,
         mySubPassDependencies);
+
+    sprintf_s(
+        stringBuffer,
+        sizeof(stringBuffer),
+        "%.*s%.*s%u",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(renderPassStr.size()),
+        renderPassStr.data(),
+        hashKey);
+
+    getDeviceContext()->addOwnedObject(
+        this,
+        VK_OBJECT_TYPE_RENDER_PASS,
+        reinterpret_cast<uint64_t>(renderPass),
+        stringBuffer);
+
+    static constexpr std::string_view framebufferStr = "_FrameBuffer";
     
     auto frameBuffer = createFramebuffer(
         getDeviceContext()->getDevice(),
@@ -225,34 +252,18 @@ RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(ui
         desc.imageExtent.height,
         desc.layerCount);
 
-    char stringBuffer[128];
-
     sprintf_s(
         stringBuffer,
         sizeof(stringBuffer),
         "%.*s%.*s%u",
         getName().size(),
         getName().c_str(),
-        static_cast<int>(sc_renderPassStr.size()),
-        sc_renderPassStr.data(),
+        static_cast<int>(framebufferStr.size()),
+        framebufferStr.data(),
         hashKey);
 
-    addOwnedObject(
-        VK_OBJECT_TYPE_RENDER_PASS,
-        reinterpret_cast<uint64_t>(renderPass),
-        stringBuffer);
-
-    sprintf_s(
-        stringBuffer,
-        sizeof(stringBuffer),
-        "%.*s%.*s%u",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(sc_framebufferStr.size()),
-        sc_framebufferStr.data(),
-        hashKey);
-
-    addOwnedObject(
+    getDeviceContext()->addOwnedObject(
+        this,
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
         stringBuffer);
@@ -267,11 +278,10 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTarget
     {
         auto hashKey = internalCalculateHashKey(desc);
         auto emplaceResult = myMap.emplace(
-            std::make_pair(
-                hashKey,
-                std::make_tuple(
-                    RenderPassHandle<GraphicsBackend::Vulkan>{},
-                    FramebufferHandle<GraphicsBackend::Vulkan>{})));
+            hashKey,
+            std::make_tuple(
+                RenderPassHandle<GraphicsBackend::Vulkan>{},
+                FramebufferHandle<GraphicsBackend::Vulkan>{}));
 
         if (emplaceResult.second)
             emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);

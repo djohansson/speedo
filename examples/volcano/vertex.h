@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gfx-types.h"
+#include "types.h"
 #include "utils.h"
 
 #include <stack>

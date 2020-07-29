@@ -4,7 +4,7 @@
 #include <core/slang-secure-crt.h>
 
 
-namespace commandbufferarray_vulkan
+namespace commandbufferarray
 {
 
 static auto createArray(
@@ -49,7 +49,7 @@ template <>
 CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: CommandBufferArray(deviceContext, std::make_tuple(std::move(desc), commandbufferarray_vulkan::createArray(deviceContext, desc)))
+: CommandBufferArray(deviceContext, std::make_tuple(std::move(desc), commandbufferarray::createArray(deviceContext, desc)))
 {
 }
 

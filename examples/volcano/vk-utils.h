@@ -99,6 +99,15 @@ VkRenderPass createRenderPass(
 	VkImageLayout depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
+VkPipelineLayout createPipelineLayout(
+	VkDevice device,
+	const VkDescriptorSetLayout* descriptorSetLayouts,
+	uint32_t descriptorSetLayoutCount);
+
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
+
+VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice, VkFlags flags);
+
+VkDescriptorPool createDescriptorPool(VkDevice device);
 
 VkResult checkFlipOrPresentResult(VkResult result);

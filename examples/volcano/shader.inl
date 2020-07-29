@@ -18,6 +18,7 @@ void serialize(Archive& ar, SerializableShaderReflectionModule<B>& module)
 
 template <GraphicsBackend B>
 std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
+	const std::filesystem::path& compilerPath,
 	const std::filesystem::path& slangFile)
 {
 	auto slangModule = std::make_shared<SerializableShaderReflectionModule<B>>();
@@ -32,10 +33,10 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 		pbin(*slangModule);
 	};
 
-	auto loadSlang = [&slangModule, &slangFile](std::istream& stream) {
+	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream) {
 		SlangSession* slangSession = spCreateSession(NULL);
 		
-		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, "D:\\github\\hlsl.bin\\RelWithDebInfo\\bin");
+		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath.u8string().c_str());
 		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
@@ -140,67 +141,4 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 		throw std::runtime_error("Failed to load shaders.");
 
 	return slangModule;
-}
-
-template <GraphicsBackend B>
-PipelineCacheHandle<B> loadPipelineCache(
-	const std::filesystem::path& cacheFilePath,
-	DeviceHandle<B> device,
-	PhysicalDeviceProperties<B> physicalDeviceProperties)
-{
-	std::vector<std::byte> cacheData;
-
-	auto loadCacheOp = [&physicalDeviceProperties, &cacheData](std::istream& stream)
-	{
-		cereal::BinaryInputArchive bin(stream);
-		bin(cacheData);
-
-		const PipelineCacheHeader<B>* header =
-			reinterpret_cast<const PipelineCacheHeader<B>*>(cacheData.data());
-		
-		if (cacheData.empty() || !isCacheValid(*header, physicalDeviceProperties))
-		{
-			std::cout << "Invalid pipeline cache, creating new." << std::endl;
-			cacheData.clear();
-			return;
-		}
-	};
-
-	auto [sourceFileState, sourceFileInfo] = getFileInfo(cacheFilePath, false);
-	if (sourceFileState != FileState::Missing)
-		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
-
-	return createPipelineCache<B>(device, cacheData);
-}
-
-template <GraphicsBackend B>
-std::tuple<FileState, FileInfo> savePipelineCache(
-	const std::filesystem::path& cacheFilePath,
-	DeviceHandle<B> device,
-	PhysicalDeviceProperties<B> physicalDeviceProperties,
-	PipelineCacheHandle<B> pipelineCache)
-{
-	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream& stream)
-	{
-		auto cacheData = getPipelineCacheData<B>(device, pipelineCache);
-		if (!cacheData.empty())
-		{
-			const PipelineCacheHeader<B>* header =
-				reinterpret_cast<const PipelineCacheHeader<B>*>(cacheData.data());
-
-			if (cacheData.empty() || !isCacheValid(*header, physicalDeviceProperties))
-			{
-				std::cout << "Invalid pipeline cache, something is seriously wrong. Exiting." << std::endl;
-				return;
-			}
-			
-			cereal::BinaryOutputArchive bin(stream);
-			bin(cacheData);
-		}
-		else
-			assertf(false, "Failed to get pipeline cache.");
-	};
-
-	return saveBinaryFile(cacheFilePath, saveCacheOp, false);
 }

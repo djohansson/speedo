@@ -1,9 +1,10 @@
 #pragma once
 
 #include "file.h"
-#include "gfx-types.h"
+#include "types.h"
 
 #include <any>
+#include <map>
 #include <vector>
 
 
@@ -53,7 +54,9 @@ struct PhysicalDeviceInfo
 {
     SwapchainInfo<B> swapchainInfo = {};
     PhysicalDeviceProperties<B> deviceProperties = {};
-    PhysicalDeviceFeautures<B> deviceFeatures = {};
+    PhysicalDevicePropertiesEx<B> devicePropertiesEx = {};
+    PhysicalDeviceFeatures<B> deviceFeatures = {};
+    PhysicalDeviceFeaturesEx<B> deviceFeaturesEx = {};
     std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
     std::vector<uint32_t> queueFamilyPresentSupport;
 };
@@ -64,25 +67,27 @@ class InstanceContext
 public:
 
     InstanceContext(InstanceContext&& other) noexcept = default;
-    InstanceContext(ScopedFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
+    InstanceContext(AutoSaveJSONFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
     ~InstanceContext();
 
     const auto& getConfig() const { return myConfig; }
-    const auto& getInstance() const { return myInstance; }
-    const auto& getSurface() const { return mySurface; }
+    auto getInstance() const { return myInstance; }
+    auto getSurface() const { return mySurface; }
     const auto& getPhysicalDevices() const { return myPhysicalDevices; }
-    const auto& getPhysicalDeviceInfos() const { return myPhysicalDeviceInfos; }
+    const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<B> device) { return myPhysicalDeviceInfos[device]; }
     const auto& getGraphicsDeviceCandidates() const { return myGraphicsDeviceCandidates; }
 
-    void updateSurfaceCapabilities(uint32_t physicalDeviceIndex);
+    void updateSurfaceCapabilities(PhysicalDeviceHandle<B> device);
 
 private:
 
-    ScopedFileObject<InstanceConfiguration<B>> myConfig;
+    AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
-    std::vector<PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
+    std::map<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
     std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };
+
+#include "instance-vulkan.inl"

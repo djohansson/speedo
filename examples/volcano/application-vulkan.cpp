@@ -37,7 +37,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     // auto& platformIo = ImGui::GetPlatformIO();
     // platformIo.Platform_CreateVkSurface = ...
 
-    auto surfaceCapabilities = getSurfaceCapabilities<GraphicsBackend::Vulkan>(myInstance->getSurface(), myDevice->getPhysicalDevice());
+    const auto& surfaceCapabilities = myInstance->getPhysicalDeviceInfo(myDevice->getPhysicalDevice()).swapchainInfo.capabilities;
 
     float dpiScaleX = 
         static_cast<float>(surfaceCapabilities.currentExtent.width) / myWindow->getDesc().windowExtent.width;
@@ -92,7 +92,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.CheckVkResultFn = checkResult;
     ImGui_ImplVulkan_Init(
         &initInfo,
-        myGraphicsPipeline->getConfig()->resources->renderTarget->getRenderPass());
+        myGraphicsPipeline->resources()->renderTarget->getRenderPass());
 
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -149,7 +149,7 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
         make_vector(colorImage),
         depthStencilImage);
 
-    myGraphicsPipeline->getConfig()->resources->renderTarget = myRenderImageSet;
+    myGraphicsPipeline->resources()->renderTarget = myRenderImageSet;
     myGraphicsPipeline->createGraphicsPipeline();
 }
 
@@ -175,7 +175,7 @@ void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t tim
         //     auto primaryCommands = primaryCommandContext->beginScope();
 
         //     TracyVkCollect(
-        //         myTransferCommands->userData<command_vulkan::UserData>().tracyContext,
+        //         myTransferCommands->userData<command::UserData>().tracyContext,
         //         primaryCommands);
         // }
     }
@@ -211,7 +211,7 @@ Application<GraphicsBackend::Vulkan>::Application(
     ZoneScopedN("Application()");
     
     myInstance = std::make_shared<InstanceContext<GraphicsBackend::Vulkan>>(
-        ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
+        AutoSaveJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>(
             myUserProfilePath / "instance.json",
             "instanceConfiguration"),
         view);
@@ -222,46 +222,51 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myDevice = std::make_shared<DeviceContext<GraphicsBackend::Vulkan>>(
         myInstance,
-        ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
+        AutoSaveJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>(
             myUserProfilePath / "device.json",
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
 
-    auto slangShaders = loadSlangShaders<GraphicsBackend::Vulkan>(myResourcePath / "shaders" / "shaders.slang");
+    auto shaderModule = loadSlangShaders<GraphicsBackend::Vulkan>(
+        std::filesystem::path("D:\\github\\hlsl.bin\\RelWithDebInfo\\bin"),
+        myResourcePath / "shaders" / "shaders.slang");
 
     myGraphicsPipeline = std::make_shared<PipelineContext<GraphicsBackend::Vulkan>>(
-        myInstance,
         myDevice,
-        *slangShaders,
-        myUserProfilePath,
-        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{});
+        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{ { "PipelineContext" }, myUserProfilePath });
+
+    myGraphicsPipelineLayout = std::make_shared<PipelineLayout<GraphicsBackend::Vulkan>>(
+        myDevice,
+        shaderModule);
+
+    myGraphicsPipeline->layout() = myGraphicsPipelineLayout;
 
     // if (commandBufferLevel == 0)
-    //     std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext =
+    //     std::any_cast<command::UserData>(&myUserData)->tracyContext =
     //         TracyVkContext(
     //             myDevice->getPhysicalDevice(),
     //             myDevice->getDevice(),
     //             queue,
     //             commands());
 
-    // if (std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext)
-    //     TracyVkDestroy(std::any_cast<command_vulkan::UserData>(&myUserData)->tracyContext);
+    // if (std::any_cast<command::UserData>(&myUserData)->tracyContext)
+    //     TracyVkDestroy(std::any_cast<command::UserData>(&myUserData)->tracyContext);
 
     myTransferCommands = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
         CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
     {
-        myGraphicsPipeline->getConfig()->resources->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
+        myGraphicsPipeline->resources()->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
             myDevice,
             myTransferCommands,
             myResourcePath / "models" / "gallery.obj");
-        myGraphicsPipeline->getConfig()->resources->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
+        myGraphicsPipeline->resources()->image = std::make_shared<Image<GraphicsBackend::Vulkan>>(
             myDevice,
             myTransferCommands,
             myResourcePath / "images" / "gallery.jpg");
-        myGraphicsPipeline->getConfig()->resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
+        myGraphicsPipeline->resources()->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
             myDevice,
-            *(myGraphicsPipeline->getConfig()->resources->image),
+            *(myGraphicsPipeline->resources()->image),
             VK_IMAGE_ASPECT_COLOR_BIT);
 
         myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
@@ -297,7 +302,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
             initIMGUI(myDevice, primaryCommands, myUserProfilePath);
 
-            myGraphicsPipeline->getConfig()->resources->image->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            myGraphicsPipeline->resources()->image->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
         
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -318,11 +323,11 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
 
-    auto openFileDialogue = [this](const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
+    auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePath = std::filesystem::absolute(myResourcePath).u8string();
+        std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
         nfdchar_t* openFilePath;
-        return std::make_tuple(NFD_OpenDialog(filterList, resourcePath.c_str(), &openFilePath),
+        return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));
     };
 
@@ -346,16 +351,14 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
-            const auto& config = myGraphicsPipeline->getConfig();
-            const auto& resources = config->resources;
-            const auto& layout = config->layout;
+            const auto& resources = myGraphicsPipeline->resources();
+            const auto& layout = myGraphicsPipeline->layout();
             
             resources->model = model;
             
-            config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
                 myDevice,
-                layout->descriptorSetLayouts.get(),
-                layout->descriptorSetLayouts.get_deleter().getSize());
+                layout->getDescriptorSetLayouts());
 
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
@@ -381,9 +384,8 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
         {
-            const auto& config = myGraphicsPipeline->getConfig();
-            const auto& resources = config->resources;
-            const auto& layout = config->layout;
+            const auto& resources = myGraphicsPipeline->resources();
+            const auto& layout = myGraphicsPipeline->layout();
 
             resources->image = image;
             resources->imageView = std::make_shared<ImageView<GraphicsBackend::Vulkan>>(
@@ -391,10 +393,9 @@ Application<GraphicsBackend::Vulkan>::Application(
                 *image,
                 VK_IMAGE_ASPECT_COLOR_BIT);
 
-            config->descriptorSets = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
+            myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<GraphicsBackend::Vulkan>>(
                 myDevice,
-                layout->descriptorSetLayouts.get(),
-                layout->descriptorSetLayouts.get_deleter().getSize());
+                layout->getDescriptorSetLayouts());
 
             myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
         });
@@ -483,19 +484,34 @@ Application<GraphicsBackend::Vulkan>::Application(
         {
             if (Begin("Statistics", &showStatistics))
             {
-                Text("Fences: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FENCE));
-                Text("Semaphores: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
-                Text("Command Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
-                Text("Descriptor Set Layouts: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
-                Text("Descriptor Sets: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
-                Text("Buffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER));
-                Text("Buffer Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
-                Text("Images: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE));
-                Text("Image Views: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
-                Text("Framebuffers: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
-                Text("Command Pools: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
-                Text("Surfaces: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
-                Text("Swapchains: %u", DeviceResource<GraphicsBackend::Vulkan>::getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
+                // Text("Unknowns: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
+                // Text("Instances: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
+                // Text("Physical Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
+                Text("Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE));
+                Text("Queues: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_QUEUE));
+                Text("Semaphores: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
+                Text("Command Buffers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+                Text("Fences: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_FENCE));
+                Text("Device Memory: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE_MEMORY));
+                Text("Buffers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER));
+                Text("Images: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE));
+                Text("Events: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_EVENT));
+                Text("Query Pools: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_QUERY_POOL));
+                Text("Buffer Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
+                Text("Image Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
+                Text("Shader Modules: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
+                Text("Pipeline Caches: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
+                Text("Pipeline Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
+                Text("Render Passes: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
+                Text("Pipelines: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE));
+                Text("Descriptor Set Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
+                Text("Samplers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SAMPLER));
+                Text("Descriptor Pools: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
+                Text("Descriptor Sets: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
+                Text("Framebuffers: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
+                Text("Command Pools: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
+                Text("Surfaces: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
+                Text("Swapchains: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
             }
             End();
         }
@@ -703,9 +719,9 @@ Application<GraphicsBackend::Vulkan>::Application(
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "obj", loadModel);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", std::move(loadModel));
                 if (ImGui::MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, "jpg,png", loadImage);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", std::move(loadImage));
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -755,9 +771,6 @@ Application<GraphicsBackend::Vulkan>::~Application()
     std::cout << allocatorStatsJSON << std::endl;
     vmaFreeStatsString(myDevice->getAllocator(), allocatorStatsJSON);
 #endif
-
-    // todo: work on a resourcetable of some sort, and automatically delete all resources from it.
-    vkDestroySampler(myDevice->getDevice(), myGraphicsPipeline->getConfig()->resources->sampler, nullptr);
 }
 
 template <>
@@ -798,7 +811,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     {
         if (frameTimelineValue)
         {
-            ZoneScopedN("waitGPU");
+            ZoneScopedN("waitFrameGPUCommands");
             
             assert(frameIndex != myLastFrameIndex);
 
@@ -819,7 +832,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
         myLastFrameTimelineValue = myWindow->submitFrame(
             frameIndex,
             myLastFrameIndex,
-            *myGraphicsPipeline->getConfig(),
+            myGraphicsPipeline,
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
@@ -833,6 +846,8 @@ bool Application<GraphicsBackend::Vulkan>::draw()
     if (flipSuccess)
         myWindow->presentFrame(frameIndex);
 
+    myLastFrameIndex = frameIndex;
+
     // wait for timeline callbacks
     {
         ZoneScopedN("waitProcessTimelineCallbacks");
@@ -840,31 +855,41 @@ bool Application<GraphicsBackend::Vulkan>::draw()
         processTimelineCallbacksFuture.get();
     }
 
-    // record transfers
-    if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
+    // record and submit transfers
     {
-        ZoneScopedN("openFileCallback");
+        ZoneScopedN("transfers");
 
-        const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
-        if (openFileResult == NFD_OKAY)
-            onCompletionCallback(openFilePath);
+        uint32_t transferCount = 0;
+
+        if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
+        {
+            ZoneScopedN("openFileCallback");
+
+            const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
+            if (openFileResult == NFD_OKAY)
+            {
+                onCompletionCallback(openFilePath);
+                free(openFilePath);
+                ++transferCount;
+            }
+        }
+
+        if (transferCount)
+        {
+            Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
+            auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
+            myLastTransferTimelineValue = myTransferCommands->submit({
+                myDevice->getPrimaryTransferQueue(),
+                1,
+                &myDevice->getTimelineSemaphore(),
+                &waitDstStageMask,
+                &waitTimelineValue,
+                1,
+                &myDevice->getTimelineSemaphore(),
+                &signalTimelineValue});
+        }
     }
-
-    // submit transfers.
-    Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-    auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-    myLastTransferTimelineValue = myTransferCommands->submit({
-        myDevice->getPrimaryTransferQueue(),
-        1,
-        &myDevice->getTimelineSemaphore(),
-        &waitDstStageMask,
-        &waitTimelineValue,
-        1,
-        &myDevice->getTimelineSemaphore(),
-        &signalTimelineValue});
-
-    myLastFrameIndex = frameIndex;
 
     return myRequestExit;
 }
@@ -880,10 +905,10 @@ void Application<GraphicsBackend::Vulkan>::resizeFramebuffer(int, int)
         myDevice->wait(std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
-    uint32_t physicalDeviceIndex = myDevice->getDesc().physicalDeviceIndex;
-    myInstance->updateSurfaceCapabilities(physicalDeviceIndex);
+    auto physicalDevice = myDevice->getPhysicalDevice();
+    myInstance->updateSurfaceCapabilities(physicalDevice);
     auto framebufferExtent = 
-        myInstance->getPhysicalDeviceInfos()[physicalDeviceIndex].swapchainInfo.capabilities.currentExtent;
+        myInstance->getPhysicalDeviceInfo(physicalDevice).swapchainInfo.capabilities.currentExtent;
     
     myWindow->onResizeFramebuffer(framebufferExtent);
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());

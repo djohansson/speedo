@@ -69,7 +69,3 @@ examples/volcano/test-file
 
 # user profile files
 examples/volcano/.profile/*
-
-# generated files
-*.meta.slang.h
-slang-ast-generated*

@@ -1,17 +1,126 @@
 #include "instance.h"
-#include "gfx.h"
 #include "vk-utils.h"
 
 #include <algorithm>
 #include <vector>
 
-
-namespace instance_vulkan
+namespace instance
 {
+
+static PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2 = {};
+static PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2 = {};
+
+SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities(
+    SurfaceHandle<GraphicsBackend::Vulkan> surface,
+    PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+{
+    SurfaceCapabilities<GraphicsBackend::Vulkan> capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
+
+    return capabilities;
+}
+
+PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo(
+	SurfaceHandle<GraphicsBackend::Vulkan> surface,
+    InstanceHandle<GraphicsBackend::Vulkan> instance,
+	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+{
+    PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
+
+    instance::vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+        vkGetInstanceProcAddr(
+            instance,
+            "vkGetPhysicalDeviceFeatures2"));
+    deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeaturesEx;
+    instance::vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
+
+    instance::vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+        vkGetInstanceProcAddr(
+            instance,
+            "vkGetPhysicalDeviceProperties2"));
+    deviceInfo.devicePropertiesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+    deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    deviceInfo.deviceProperties.pNext = &deviceInfo.devicePropertiesEx;
+    instance::vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+    
+	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities(surface, device);
+
+	uint32_t formatCount;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+	if (formatCount != 0)
+	{
+		deviceInfo.swapchainInfo.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
+											 deviceInfo.swapchainInfo.formats.data());
+	}
+
+	uint32_t presentModeCount;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+	if (presentModeCount != 0)
+	{
+		deviceInfo.swapchainInfo.presentModes.resize(presentModeCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
+												  deviceInfo.swapchainInfo.presentModes.data());
+	}
+
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+    if (queueFamilyCount != 0)
+	{
+        deviceInfo.queueFamilyProperties.resize(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, deviceInfo.queueFamilyProperties.data());
+
+        deviceInfo.queueFamilyPresentSupport.resize(queueFamilyCount);
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < queueFamilyCount; queueFamilyIt++)
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, queueFamilyIt, surface, &deviceInfo.queueFamilyPresentSupport[queueFamilyIt]);
+    }
+    
+	return deviceInfo;
+}
 
 struct UserData
 {
     VkDebugUtilsMessengerEXT debugUtilsMessenger = 0;
+};
+
+VkBool32 debugUtilsMessengerCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+    void* pUserData)
+{
+    for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
+    {
+        std::cout << "Object " << objectIt;
+
+        if (pCallbackData->pObjects[objectIt].pObjectName)
+            std::cout << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
+        
+        std::cout << ": ";
+    }
+
+    if (pCallbackData->pMessageIdName)
+        std::cout << pCallbackData->pMessageIdName << ": ";
+
+    std::cout << pCallbackData->pMessage << std::endl;
+
+    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        __debugbreak();
+
+    return VK_FALSE;
+}
+
+VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo =
+{
+    VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+    nullptr,
+    0,
+    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
+    VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+    debugUtilsMessengerCallback,
+    nullptr
 };
 
 VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
@@ -20,46 +129,8 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
         (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
     assert(vkCreateDebugUtilsMessengerEXT != nullptr);
 
-    auto callback = static_cast<PFN_vkDebugUtilsMessengerCallbackEXT>([](
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData) -> VkBool32
-    {
-        for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
-        {
-            std::cout << "Object " << objectIt;
-
-            if (pCallbackData->pObjects[objectIt].pObjectName)
-                std::cout << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
-            
-            std::cout << ": ";
-        }
-
-        if (pCallbackData->pMessageIdName)
-            std::cout << pCallbackData->pMessageIdName << ": ";
-
-        std::cout << pCallbackData->pMessage << std::endl;
-
-        if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-            __debugbreak();
-    
-        return VK_FALSE;
-    });
-
-    VkDebugUtilsMessengerCreateInfoEXT callbackCreateInfo =
-    {
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        nullptr,
-        0,
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-        callback,
-        nullptr
-    };
-
     VkDebugUtilsMessengerEXT messenger;
-    VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &callbackCreateInfo, nullptr, &messenger));
+    VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsMessengerCallbackCreateInfo, nullptr, &messenger));
 
     return messenger;
 }
@@ -80,15 +151,14 @@ InstanceConfiguration<GraphicsBackend::Vulkan>::InstanceConfiguration()
 }
 
 template <>
-void InstanceContext<GraphicsBackend::Vulkan>::updateSurfaceCapabilities(uint32_t physicalDeviceIndex)
+void InstanceContext<GraphicsBackend::Vulkan>::updateSurfaceCapabilities(PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
 {
-    myPhysicalDeviceInfos[physicalDeviceIndex].swapchainInfo.capabilities = 
-        getSurfaceCapabilities<GraphicsBackend::Vulkan>(mySurface, myPhysicalDevices[physicalDeviceIndex]);
+    myPhysicalDeviceInfos[device].swapchainInfo.capabilities = instance::getSurfaceCapabilities(mySurface, device);
 }
 
 template <>
 InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
-    ScopedFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>&& config,
+    AutoSaveJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>&& config,
     void* surfaceHandle)
 : myConfig(std::move(config))
 {
@@ -177,6 +247,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+    info.pNext = &instance::debugUtilsMessengerCallbackCreateInfo;
     info.pApplicationInfo = &myConfig.appInfo;
     info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
     info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
@@ -195,21 +266,28 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
     myPhysicalDevices.resize(physicalDeviceCount);
     VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
 
-    myPhysicalDeviceInfos.reserve(myPhysicalDevices.size());
     myGraphicsDeviceCandidates.reserve(myPhysicalDevices.size());
     
     for (uint32_t deviceIt = 0; deviceIt < myPhysicalDevices.size(); deviceIt++)
     {
-        myPhysicalDeviceInfos.emplace_back(
-            getPhysicalDeviceInfo<GraphicsBackend::Vulkan>(
+        auto physicalDevice = myPhysicalDevices[deviceIt];
+        auto infoInsertNode = myPhysicalDeviceInfos.emplace(
+            physicalDevice,
+            instance::getPhysicalDeviceInfo(
                 mySurface,
                 myInstance,
-                myPhysicalDevices[deviceIt]));
+                physicalDevice));
+        
+        auto& physicalDeviceInfo = infoInsertNode.first->second;
+        // pointers set up in instance::getPhysicalDeviceInfo will be invalid (pointing to the stack), so patch these up here
+        physicalDeviceInfo.deviceProperties.pNext = &physicalDeviceInfo.devicePropertiesEx;
+        physicalDeviceInfo.deviceFeatures.pNext = &physicalDeviceInfo.deviceFeaturesEx;
+        //
 
-        for (uint32_t queueFamilyIt = 0; queueFamilyIt < myPhysicalDeviceInfos.back().queueFamilyProperties.size(); queueFamilyIt++)
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
         {
-            const auto& queueFamilyProperties = myPhysicalDeviceInfos.back().queueFamilyProperties[queueFamilyIt];
-            const auto& queueFamilyPresentSupport = myPhysicalDeviceInfos.back().queueFamilyPresentSupport[queueFamilyIt];
+            const auto& queueFamilyProperties = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
+            const auto& queueFamilyPresentSupport = physicalDeviceInfo.queueFamilyPresentSupport[queueFamilyIt];
 
             if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
                 myGraphicsDeviceCandidates.emplace_back(std::make_pair(deviceIt, queueFamilyIt));
@@ -226,16 +304,16 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
             3,//VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
             0x7FFFFFFF//VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
         };
-        return deviceTypePriority[myPhysicalDeviceInfos[lhs.first].deviceProperties.properties.deviceType] < 
-            deviceTypePriority[myPhysicalDeviceInfos[rhs.first].deviceProperties.properties.deviceType];
+        return deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[lhs.first]].deviceProperties.properties.deviceType] < 
+            deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[rhs.first]].deviceProperties.properties.deviceType];
     });
 
-    myUserData = instance_vulkan::UserData();
+    myUserData = instance::UserData();
 
     if constexpr(PROFILING_ENABLED)
     {
-        std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger =
-            instance_vulkan::createDebugUtilsMessenger(myInstance);
+        std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger =
+            instance::createDebugUtilsMessenger(myInstance);
     }
 }
 
@@ -248,7 +326,7 @@ InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
     {
         auto vkDestroyDebugUtilsMessengerEXT =
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
-        vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance_vulkan::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
+        vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
     }
 
     vkDestroySurfaceKHR(myInstance, mySurface, nullptr);

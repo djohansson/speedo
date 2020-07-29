@@ -1,6 +1,4 @@
 #include "device.h"
-#include "frame.h"
-#include "gfx.h"
 #include "vk-utils.h"
 
 #include <algorithm>
@@ -8,9 +6,14 @@
 #include <tuple>
 #include <utility>
 
-static inline bool operator==(VkSurfaceFormatKHR lhs, const VkSurfaceFormatKHR& rhs)
+#include <core/slang-secure-crt.h>
+
+
+namespace device
 {
-	return lhs.format == rhs.format && lhs.colorSpace == rhs.colorSpace;
+
+static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT = {};
+
 }
 
 template <>
@@ -93,16 +96,64 @@ void DeviceContext<GraphicsBackend::Vulkan>::processTimelineCallbacks(std::optio
 }
 
 template <>
+void DeviceContext<GraphicsBackend::Vulkan>::addOwnedObject(
+    void* owner,
+    ObjectType<GraphicsBackend::Vulkan> objectType,
+    uint64_t objectHandle,
+    const char* objectName)
+{
+    auto imageNameInfo = VkDebugUtilsObjectNameInfoEXT{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+        nullptr,
+        objectType,
+        objectHandle,
+        objectName};
+
+    VK_CHECK(device::vkSetDebugUtilsObjectNameEXT(myDevice, &imageNameInfo));
+
+    {
+        std::unique_lock writelock(myObjectsMutex);
+        myOwnerToDeviceObjectsMap[reinterpret_cast<uintptr_t>(owner)].emplace_back(Object{objectType, objectHandle, objectName});
+        myObjectTypeToCountMap[objectType]++;
+    }
+}
+
+template <>
+void DeviceContext<GraphicsBackend::Vulkan>::clearOwnedObjects(void* owner)
+{
+    std::unique_lock writelock(myObjectsMutex);
+    auto& objects = myOwnerToDeviceObjectsMap[reinterpret_cast<uintptr_t>(owner)];
+    for (const auto& object : objects)
+        myObjectTypeToCountMap[object.type]--;
+    objects.clear();
+}
+
+template <>
+void DeviceContext<GraphicsBackend::Vulkan>::moveOwnedObjects(void* owner, void* newOwner)
+{
+    std::unique_lock writelock(myObjectsMutex);
+    auto nodeHandle = myOwnerToDeviceObjectsMap.extract(reinterpret_cast<uintptr_t>(owner));
+    nodeHandle.key() = reinterpret_cast<uintptr_t>(newOwner); 
+    myOwnerToDeviceObjectsMap.insert(std::move(nodeHandle));
+}
+
+template <>
+uint32_t DeviceContext<GraphicsBackend::Vulkan>::getTypeCount(ObjectType<GraphicsBackend::Vulkan> type)
+{
+    std::shared_lock readlock(myObjectsMutex);
+    return myObjectTypeToCountMap[type];
+}
+
+template <>
 DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
-    ScopedFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
+    AutoSaveJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
 : myInstance(instanceContext)
 , myConfig(std::move(config))
 {
     ZoneScopedN("DeviceContext()");
 
-    const auto& physicalDeviceInfo =
-        myInstance->getPhysicalDeviceInfos()[myConfig.physicalDeviceIndex];
+    const auto& physicalDeviceInfo = myInstance->getPhysicalDeviceInfo(getPhysicalDevice());
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
     if (!myConfig.swapchainConfiguration)
@@ -131,10 +182,13 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 requestSurfaceImageFormat[request_i],
                 requestSurfaceColorSpace
             };
-            auto formatIt = std::find(
+            auto formatIt = std::find_if(
                 swapchainInfo.formats.begin(),
                 swapchainInfo.formats.end(),
-                requestedFormat);
+                [&requestedFormat](VkSurfaceFormatKHR format)
+                {
+                    return requestedFormat.format == format.format && requestedFormat.colorSpace == format.colorSpace;
+                });
             if (formatIt != swapchainInfo.formats.end())
             {
                 myConfig.swapchainConfiguration->surfaceFormat = *formatIt;
@@ -218,98 +272,73 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
-
-    // TODO: use proper detection using VkPhysicalDeviceFeatures2
-    if (!myConfig.useHostQueryReset)
-    {
-        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
-            [](const char* extension) { return strcmp(extension, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME) == 0; });
-            it != deviceExtensions.end())
-        {
-            myConfig.useHostQueryReset = std::make_optional(true);
-        }
-        else
-        {
-            myConfig.useHostQueryReset = std::make_optional(false);
-        }
-    }
-
-    if (!myConfig.useTimelineSemaphores)
-    {
-        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
-            [](const char* extension) { return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0; });
-            it != deviceExtensions.end())
-        {
-            myConfig.useTimelineSemaphores = std::make_optional(true);
-        }
-        else
-        {
-            myConfig.useTimelineSemaphores = std::make_optional(false);
-        }
-    }
-
-    if (!myConfig.useScalarBlockLayout)
-    {
-        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
-            [](const char* extension) { return strcmp(extension, VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME) == 0; });
-            it != deviceExtensions.end())
-        {
-            myConfig.useScalarBlockLayout = std::make_optional(true);
-        }
-        else
-        {
-            myConfig.useScalarBlockLayout = std::make_optional(false);
-        }
-    }
-
-    if (!myConfig.useShaderFloat16)
-    {
-        if (auto it = std::find_if(deviceExtensions.begin(), deviceExtensions.end(),
-            [](const char* extension) { return strcmp(extension, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME) == 0; });
-            it != deviceExtensions.end())
-        {
-            myConfig.useShaderFloat16 = std::make_optional(true);
-        }
-        else
-        {
-            myConfig.useShaderFloat16 = std::make_optional(false);
-        }
-    }
-    // end todo
-    
-
-    VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
-    physicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
-
-    VkPhysicalDeviceHostQueryResetFeatures hostQueryResetFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
-    hostQueryResetFeatures.hostQueryReset = myConfig.useHostQueryReset.value();
-
-    VkPhysicalDeviceTimelineSemaphoreFeatures timelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
-    timelineFeatures.pNext = &hostQueryResetFeatures;
-    timelineFeatures.timelineSemaphore = myConfig.useTimelineSemaphores.value();
-
-    // VkPhysicalDeviceFloat16Int8FeaturesKHR float16Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR };
-    // timelineFeatures.pNext = &timelineFeatures;
-    // float16Features.shaderFloat16 = myConfig.useShaderFloat16.value();
-
-    VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-    physicalDeviceFeatures2.pNext = &timelineFeatures;
-    physicalDeviceFeatures2.features = physicalDeviceFeatures;
+    // auto& deviceFeaturesEx = physicalDeviceInfo.deviceFeaturesEx;
+    // deviceFeaturesEx.shaderFloat16 = myConfig.useShaderFloat16.value();
+    // deviceFeaturesEx.descriptorIndexing = myConfig.useDescriptorIndexing.value();
+    // deviceFeaturesEx.scalarBlockLayout = myConfig.useScalarBlockLayout.value();
+    // deviceFeaturesEx.hostQueryReset = myConfig.useHostQueryReset.value();
+    // deviceFeaturesEx.timelineSemaphore = myConfig.useTimelineSemaphores.value();
+    // deviceFeaturesEx.bufferDeviceAddress = myConfig.useBufferDeviceAddress.value();
 
     VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-    deviceCreateInfo.pNext = &physicalDeviceFeatures2;
+    deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
     deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
     deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
-    deviceCreateInfo.enabledExtensionCount =
-        static_cast<uint32_t>(requiredDeviceExtensions.size());
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size());
     deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
     VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
+
+    device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+        vkGetDeviceProcAddr(
+            myDevice,
+            "vkSetDebugUtilsObjectNameEXT"));
+
+    // addOwnedObject(
+    //     myInstance.get(),
+    //     VK_OBJECT_TYPE_INSTANCE,
+    //     reinterpret_cast<uint64_t>(myInstance->getInstance()),
+    //     "Instance");
+
+    addOwnedObject(
+        myInstance.get(),
+        VK_OBJECT_TYPE_SURFACE_KHR,
+        reinterpret_cast<uint64_t>(myInstance->getSurface()),
+        "Instance_Surface");
+
+    char stringBuffer[256];
+
+    // for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < myInstance->getPhysicalDevices().size(); physicalDeviceIt++)
+    // {
+    //     const auto& physicalDevice = myInstance->getPhysicalDevices()[physicalDeviceIt];
+
+    //     static constexpr std::string_view physicalDeviceStr = "Instance_PhysicalDevice";
+
+    //     sprintf_s(
+    //         stringBuffer,
+    //         sizeof(stringBuffer),
+    //         "%s_%u",
+    //         physicalDeviceStr.data(),
+    //         physicalDeviceIt);
+
+    //     addOwnedObject(
+    //         myInstance.get(),
+    //         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
+    //         reinterpret_cast<uint64_t>(physicalDevice),
+    //         stringBuffer);
+    // }
+
+    addOwnedObject(
+        this,
+        VK_OBJECT_TYPE_DEVICE,
+        reinterpret_cast<uint64_t>(myDevice),
+        "Device");
 
     VkCommandPoolCreateFlags cmdPoolCreateFlags =
         VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
     myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
+    
     for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
     {
         const auto& queueFamilyProperty = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
@@ -322,7 +351,26 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
             queueFamilyDesc.flags |= QueueFamilyFlags::Present;
 
         for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
-            vkGetDeviceQueue(myDevice, queueFamilyIt, queueIt, &queueFamilyDesc.queues[queueIt]);
+        {
+            auto& queue = queueFamilyDesc.queues[queueIt];
+
+            vkGetDeviceQueue(myDevice, queueFamilyIt, queueIt, &queue);
+
+            static constexpr std::string_view queueStr = "Device_Queue";
+
+            sprintf_s(
+                stringBuffer,
+                sizeof(stringBuffer),
+                "%s_%u",
+                queueStr.data(),
+                queueIt);
+
+            addOwnedObject(
+                this,
+                VK_OBJECT_TYPE_QUEUE,
+                reinterpret_cast<uint64_t>(queue),
+                stringBuffer);
+        }
 
         uint32_t frameCount = queueFamilyPresentSupport ? myConfig.swapchainConfiguration->imageCount : 1;
 
@@ -333,40 +381,73 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
             auto& frameCommandPools = queueFamilyDesc.commandPools[frameIt];
             frameCommandPools.resize(queueFamilyProperty.queueCount);
             for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
+            {
                 frameCommandPools[queueIt] = createCommandPool(
                     myDevice,
                     cmdPoolCreateFlags,
                     queueFamilyIt);
+
+                static constexpr std::string_view commandPoolStr = "Device_CommandPool";
+
+                sprintf_s(
+                    stringBuffer,
+                    sizeof(stringBuffer),
+                    "%s_qf%u_f%u_q%u",
+                    commandPoolStr.data(),
+                    queueFamilyIt,
+                    frameIt,
+                    queueIt);
+
+                addOwnedObject(
+                    this,
+                    VK_OBJECT_TYPE_COMMAND_POOL,
+                    reinterpret_cast<uint64_t>(frameCommandPools[queueIt]),
+                    stringBuffer);
+            }
         }
     }
 
-    myAllocator = createAllocator<GraphicsBackend::Vulkan>(
+    myAllocator = createAllocator(
         myInstance->getInstance(),
         myDevice,
-        getPhysicalDevice());
+        getPhysicalDevice(),
+        VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT);
 
-    myDescriptorPool = createDescriptorPool<GraphicsBackend::Vulkan>(myDevice);
+    myDescriptorPool = createDescriptorPool(myDevice);
+
+    addOwnedObject(
+        this,
+        VK_OBJECT_TYPE_DESCRIPTOR_POOL,
+        reinterpret_cast<uint64_t>(myDescriptorPool),
+        "Device_DescriptorPool");
 
     VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     timelineCreateInfo.initialValue = 0;
 
-    bool useTimelineSemaphores = myConfig.useTimelineSemaphores.value();
-
     VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-    semaphoreCreateInfo.pNext = useTimelineSemaphores ? &timelineCreateInfo : nullptr;
+    semaphoreCreateInfo.pNext = &timelineCreateInfo;
     semaphoreCreateInfo.flags = 0;
 
     VK_CHECK(vkCreateSemaphore(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
+
+    addOwnedObject(
+        this,
+        VK_OBJECT_TYPE_SEMAPHORE,
+        reinterpret_cast<uint64_t>(myTimelineSemaphore),
+        "Device_TimelineSemaphore");
 }
 
 template <>
 DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 {
-    ZoneScopedN("DeviceContext()");
+    ZoneScopedN("~DeviceContext()");
 
     processTimelineCallbacks();
+
+    clearOwnedObjects(this);
+    clearOwnedObjects(myInstance.get());
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
     
@@ -380,4 +461,53 @@ DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
                 vkDestroyCommandPool(myDevice, commandPool, nullptr);
 
     vkDestroyDevice(myDevice, nullptr);
+}
+
+template <> 
+DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(DeviceResource<GraphicsBackend::Vulkan>&& other)
+: myDevice(std::exchange(other.myDevice, {}))
+, myName(std::exchange(other.myName, {}))
+{
+    myDevice->moveOwnedObjects(&other, this);
+}
+
+template <> 
+DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const DeviceResourceCreateDesc<GraphicsBackend::Vulkan>& desc)
+: myDevice(deviceContext)
+, myName(std::move(desc.name))
+{
+}
+
+template <> 
+DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const DeviceResourceCreateDesc<GraphicsBackend::Vulkan>& desc,
+    uint32_t objectCount,
+    ObjectType<GraphicsBackend::Vulkan> objectType,
+    const uint64_t* objectHandles)
+: DeviceResource(deviceContext, desc)
+{
+    char stringBuffer[256];
+    for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
+    {
+        sprintf_s(
+            stringBuffer,
+            sizeof(stringBuffer),
+            "%.*s%.*u",
+            getName().size(),
+            getName().c_str(),
+            2,
+            objectIt);
+
+        deviceContext->addOwnedObject(this, objectType, objectHandles[objectIt], stringBuffer);
+    }
+}
+
+template <>
+DeviceResource<GraphicsBackend::Vulkan>::~DeviceResource()
+{
+    if (myDevice)
+        myDevice->clearOwnedObjects(this);
 }
