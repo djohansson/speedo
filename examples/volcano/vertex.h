@@ -6,23 +6,14 @@
 #include <stack>
 #include <vector>
 
+#include <cereal/cereal.hpp>
+
 #include <xxhash.h>
 
 template <GraphicsBackend B>
 struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>
 {
 	using BaseType = VertexInputAttributeDescription<B>;
-
-	template <class Archive, GraphicsBackend Backend = B>
-	typename std::enable_if_t<Backend == GraphicsBackend::Vulkan, void> serialize(Archive& ar)
-	{
-		static_assert(sizeof(*this) == sizeof(BaseType));
-
-		ar(BaseType::location);
-		ar(BaseType::binding);
-		ar(BaseType::format);
-		ar(BaseType::offset);
-	}
 };
 
 // todo: make sure that it will work between multiple ScopedVertexAllocation scopes
@@ -101,10 +92,10 @@ public:
 	void clear();
 
 	template <class Archive>
-	void serialize(Archive& ar)
+	void serialize(Archive& archive)
 	{
-		ar(myData);
-		ar(myStride);
+		archive(myData);
+		archive(myStride);
 	}
 
 private:
@@ -195,3 +186,5 @@ private:
 	VertexAllocator& myAllocatorRef;
 	ScopedVertexAllocation* const myPrevScope = nullptr;
 };
+
+#include "vertex-vulkan.inl"

@@ -4,7 +4,6 @@
 #include "types.h"
 
 #include <memory>
-#include <vector>
 
 template <GraphicsBackend B>
 struct SwapchainCreateDesc : DeviceResourceCreateDesc<B>

@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <type_traits>
 
-
 enum class GraphicsBackend
 {
 	Vulkan

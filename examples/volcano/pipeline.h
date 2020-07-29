@@ -9,6 +9,10 @@
 #include "shader.h"
 #include "types.h"
 
+#include <map>
+#include <memory>
+#include <optional>
+
 template <GraphicsBackend B>
 struct PipelineCacheHeader
 {

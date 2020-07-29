@@ -1,10 +1,9 @@
+#include "utils.h"
+#include "volcano.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <clocale>
-
-#include <algorithm>
-#include <string>
-#include <tuple>
 
 #if defined(_DEBUG) && defined(__WINDOWS__)
 #include <crtdbg.h>
@@ -19,9 +18,6 @@
 
 #include <imgui.h>
 #include <examples/imgui_impl_glfw.h>
-
-#include "utils.h"
-#include "volcano.h"
 
 static MouseState g_mouse = { -1.0, -1.0, 0, 0, 0, false };
 static KeyboardState g_keyboard = { 0, 0, 0, 0 };

@@ -4,6 +4,8 @@
 #include "image.h"
 #include "types.h"
 
+#include <vector>
+#include <memory>
 
 template <GraphicsBackend B>
 class RenderImageSet : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>

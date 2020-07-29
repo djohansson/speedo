@@ -1,10 +1,7 @@
 #include "buffer.h"
 #include "vk-utils.h"
 
-#include <string>
-
 #include <core/slang-secure-crt.h>
-
 
 template <>
 Buffer<GraphicsBackend::Vulkan>::Buffer(

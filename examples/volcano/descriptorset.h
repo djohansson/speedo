@@ -3,6 +3,8 @@
 #include "device.h"
 #include "types.h"
 
+#include <map>
+#include <memory>
 #include <vector>
 
 template <GraphicsBackend B>

@@ -1,3 +1,5 @@
+#include <cereal/cereal.hpp>
+
 template <class Archive>
 void serialize(Archive& archive, ApplicationInfo<GraphicsBackend::Vulkan>& desc)
 {

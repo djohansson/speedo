@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <tuple>
 
 #define STBI_NO_STDIO
 #define STB_IMAGE_IMPLEMENTATION
@@ -22,7 +23,6 @@
 #include <cereal/types/string.hpp>
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
-
 
 namespace stbi_istream_callbacks
 {
@@ -66,7 +66,7 @@ load(
         AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
 
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = imageFile.filename().u8string();
+    desc.name = imageFile.filename().generic_string();
 
     int channelCount = 0;
 

@@ -31,7 +31,6 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
-
 namespace model
 {
 
@@ -95,7 +94,7 @@ load(
 		AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = modelFile.filename().u8string();
+    desc.name = modelFile.filename().generic_string();
 	
 	auto loadPBin = [&descAndInitialData, &deviceContext](std::istream& stream) {
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;

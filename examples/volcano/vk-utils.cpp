@@ -15,7 +15,6 @@
 #include <array>
 #include <iostream>
 
-
 uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 {
 	outDivisor = 1;

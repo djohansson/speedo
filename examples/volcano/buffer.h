@@ -5,6 +5,7 @@
 #include "types.h"
 
 #include <memory>
+#include <tuple>
 
 template <GraphicsBackend B>
 struct BufferCreateDesc : DeviceResourceCreateDesc<B>

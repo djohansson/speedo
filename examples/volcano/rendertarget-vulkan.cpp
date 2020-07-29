@@ -3,7 +3,6 @@
 
 #include <core/slang-secure-crt.h>
 
-
 template <>
 void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
 {

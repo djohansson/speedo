@@ -3,7 +3,6 @@
 
 #include <core/slang-secure-crt.h>
 
-
 template <>
 SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
@@ -15,16 +14,16 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
 
     VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
     info.surface = getDeviceContext()->getSurface();
-    info.minImageCount = getDeviceContext()->getDesc().swapchainConfiguration->imageCount;
-    info.imageFormat = getDeviceContext()->getDesc().swapchainConfiguration->surfaceFormat.format;
-    info.imageColorSpace = getDeviceContext()->getDesc().swapchainConfiguration->surfaceFormat.colorSpace;
+    info.minImageCount = getDeviceContext()->getDesc().swapchainConfig->imageCount;
+    info.imageFormat = getDeviceContext()->getDesc().swapchainConfig->surfaceFormat.format;
+    info.imageColorSpace = getDeviceContext()->getDesc().swapchainConfig->surfaceFormat.colorSpace;
     info.imageExtent = myDesc.imageExtent;
     info.imageArrayLayers = 1;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    info.presentMode = getDeviceContext()->getDesc().swapchainConfiguration->presentMode;
+    info.presentMode = getDeviceContext()->getDesc().swapchainConfig->presentMode;
     info.clipped = VK_TRUE;
     info.oldSwapchain = myDesc.previous;
 

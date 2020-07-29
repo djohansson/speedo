@@ -3,6 +3,23 @@
 #include <cereal/types/string.hpp>
 #include <cereal/types/vector.hpp>
 
+namespace std
+{
+    namespace filesystem
+    {
+        template<class Archive>
+        void CEREAL_LOAD_MINIMAL_FUNCTION_NAME(const Archive&, path& out, const std::string& in)
+        {
+            out = in;
+        }
+
+        template<class Archive>
+        std::string CEREAL_SAVE_MINIMAL_FUNCTION_NAME(const Archive& ar, const path& p)
+        {
+            return p.generic_string();
+        }
+    }
+}
 
 template <class Archive>
 void serialize(Archive& archive, Attribute& attribute)
@@ -16,10 +33,10 @@ template <class Archive>
 void serialize(Archive& archive, InputOutputNode& node)
 {
     archive(
-        cereal::make_nvp("name", node.name_),
-        cereal::make_nvp("id", node.id_),
-        cereal::make_nvp("inputAttributes", node.inputAttributes_),
-        cereal::make_nvp("outputAttributes", node.outputAttributes_));
+        cereal::make_nvp("name", node.name()),
+        cereal::make_nvp("id", node.id()),
+        cereal::make_nvp("inputAttributes", node.inputAttributes()),
+        cereal::make_nvp("outputAttributes", node.outputAttributes()));
 }
 
 template <class Archive>
@@ -35,7 +52,7 @@ void serialize(Archive& archive, SlangShaderNode& node)
 {
     archive(
         cereal::virtual_base_class<InputOutputNode>(&node),
-        cereal::make_nvp("path", node.path_));
+        cereal::make_nvp("path", node.path()));
 }
 
 template <class Archive>

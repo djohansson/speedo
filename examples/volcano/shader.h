@@ -11,7 +11,6 @@
 
 #include <slang.h>
 
-
 using EntryPoint = std::pair<std::string, uint32_t>;
 using ShaderBinary = std::vector<std::byte>;
 using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;

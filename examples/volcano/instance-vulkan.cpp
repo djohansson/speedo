@@ -241,10 +241,10 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
     std::sort(requiredExtensions.begin(), requiredExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
-    assert(std::includes(
+    assertf(std::includes(
         instanceExtensions.begin(), instanceExtensions.end(), requiredExtensions.begin(),
         requiredExtensions.end(),
-        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
+        [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }), "Can't find required Vulkan extensions.");
 
     VkInstanceCreateInfo info = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     info.pNext = &instance::debugUtilsMessengerCallbackCreateInfo;

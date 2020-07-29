@@ -3,9 +3,7 @@
 #include "device.h"
 #include "types.h"
 
-#include <atomic>
 #include <array>
-#include <cassert>
 #include <functional>
 #include <list>
 #include <memory>

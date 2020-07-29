@@ -5,6 +5,9 @@
 #include "device.h"
 #include "vertex.h"
 
+#include <memory>
+#include <tuple>
+#include <vector>
 
 template <GraphicsBackend B>
 struct ModelCreateDesc : DeviceResourceCreateDesc<B>

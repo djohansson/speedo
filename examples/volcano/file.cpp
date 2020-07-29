@@ -6,7 +6,6 @@
 
 #include <picosha2.h>
 
-
 std::string getFileTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;

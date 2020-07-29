@@ -12,7 +12,6 @@
 
 #include <xxh3.h>
 
-
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 {
@@ -114,10 +113,6 @@ private:
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };
-
-template <typename CreateDescType, GraphicsBackend B>
-class RenderTargetImpl : protected RenderTarget<B>
-{ };
 
 #include "rendertarget.inl"
 #include "rendertarget-vulkan.inl"

@@ -1,17 +1,20 @@
 #pragma once
 
+#include "file.h"
 #include "instance.h"
 #include "types.h"
+#include "utils.h"
 
 #include <atomic>
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
 #include <vector>
-
 
 template <GraphicsBackend B>
 struct SwapchainConfiguration
@@ -19,44 +22,19 @@ struct SwapchainConfiguration
     SurfaceFormat<B> surfaceFormat = {};
 	PresentMode<B> presentMode;
 	uint8_t imageCount = 0;
-
-    template <class Archive>
-    void serialize(Archive& archive)
-    {
-        archive(
-            CEREAL_NVP(surfaceFormat.format),
-            CEREAL_NVP(surfaceFormat.colorSpace),
-            CEREAL_NVP(presentMode),
-            CEREAL_NVP(imageCount)
-        );
-    }
 };
 
 template <GraphicsBackend B>
 struct DeviceConfiguration
 {
     uint32_t physicalDeviceIndex = 0;
-    std::optional<SwapchainConfiguration<B>> swapchainConfiguration = {};
+    std::optional<SwapchainConfiguration<B>> swapchainConfig = {};
     // std::optional<bool> useShaderFloat16;
     // std::optional<bool> useDescriptorIndexing;
     // std::optional<bool> useScalarBlockLayout;
     // std::optional<bool> useHostQueryReset;
     // std::optional<bool> useTimelineSemaphores;
     // std::optional<bool> useBufferDeviceAddress;
-
-    template <class Archive>
-    void serialize(Archive& archive)
-    {
-        archive(
-            CEREAL_NVP(swapchainConfiguration)
-            // CEREAL_NVP(useShaderFloat16),
-            // CEREAL_NVP(useDescriptorIndexing),
-            // CEREAL_NVP(useScalarBlockLayout),
-            // CEREAL_NVP(useHostQueryReset),
-            // CEREAL_NVP(useTimelineSemaphores),
-            // CEREAL_NVP(useBufferDeviceAddress)
-        );
-    }
 };
 
 enum QueueFamilyFlags : uint8_t
@@ -77,7 +55,7 @@ struct QueueFamilyDesc
 };
 
 template <GraphicsBackend B>
-class DeviceContext
+class DeviceContext : public Noncopyable
 {
 public:
 
@@ -198,3 +176,5 @@ private:
     std::shared_ptr<DeviceContext<B>> myDevice;
     std::string myName;
 };
+
+#include "device.inl"

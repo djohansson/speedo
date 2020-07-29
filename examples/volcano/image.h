@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <filesystem>
+#include <tuple>
 
 template <GraphicsBackend B>
 struct ImageCreateDesc : DeviceResourceCreateDesc<B>
