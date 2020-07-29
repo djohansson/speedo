@@ -168,7 +168,7 @@ struct DeviceResourceCreateDesc
 };
 
 template <GraphicsBackend B>
-class DeviceResource
+class DeviceResource : public Noncopyable
 {
 public:
 
@@ -188,6 +188,8 @@ protected:
         uint32_t objectCount,
         ObjectType<B> objectType,
         const uint64_t* objectHandles);
+
+    DeviceResource& operator=(DeviceResource&& other);
 
     const auto& getDeviceContext() const { return myDevice; }
 

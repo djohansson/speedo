@@ -29,6 +29,8 @@ public:
         std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     ~Buffer();
 
+    Buffer& operator=(Buffer&& other) = default;
+
     const auto& getDesc() const { return myDesc; }
     const auto& getBufferHandle() const { return std::get<0>(myData); }
     const auto& getBufferMemory() const { return std::get<1>(myData); }
@@ -56,6 +58,8 @@ public:
         DeviceSize<B> offset,
         DeviceSize<B> range);
     ~BufferView();
+
+    BufferView& operator=(BufferView&& other) = default;
 
     auto getBufferViewHandle() const { return myBufferView; }
 

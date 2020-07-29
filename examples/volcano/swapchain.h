@@ -24,6 +24,8 @@ public:
 		SwapchainCreateDesc<B>&& desc);
     ~SwapchainContext();
 
+	SwapchainContext& operator=(SwapchainContext&& other) = default;
+
     const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
 

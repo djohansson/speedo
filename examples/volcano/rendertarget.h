@@ -10,7 +10,6 @@
 #include <vector>
 #include <tuple>
 
-#define XXH_INLINE_ALL
 #include <xxh3.h>
 
 
@@ -76,6 +75,8 @@ protected:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
 
+    RenderTarget& operator=(RenderTarget&& other) = default;
+
     virtual ImageLayout<B> getColorImageLayout(uint32_t index) const = 0;
     virtual ImageLayout<B> getDepthStencilImageLayout() const = 0;
 
@@ -93,8 +94,9 @@ private:
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
-    RenderPassFramebufferTuple
-    internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
+    RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
+        uint64_t hashKey,
+        const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
 
     std::vector<ImageViewHandle<B>> myAttachments;
     std::vector<AttachmentDescription<B>> myAttachmentsDescs;

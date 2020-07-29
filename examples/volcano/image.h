@@ -37,6 +37,8 @@ public:
         const std::filesystem::path& imageFile);
     ~Image();
 
+    Image& operator=(Image&& other) = default;
+
     const auto& getDesc() const { return myDesc; }
     const auto& getImageHandle() const { return std::get<0>(myData); }
     const auto& getImageMemory() const { return std::get<1>(myData); }
@@ -70,6 +72,8 @@ public:
         const Image<B>& image,
         Flags<GraphicsBackend::Vulkan> aspectFlags);
     ~ImageView();
+
+    ImageView& operator=(ImageView&& other) = default;
 
     auto getImageViewHandle() const { return myImageView; }
 

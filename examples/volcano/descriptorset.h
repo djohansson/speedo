@@ -25,6 +25,8 @@ public:
         const DescriptorSetLayoutBindingsMap<B>& bindings);
     ~DescriptorSetLayoutVector();
 
+    DescriptorSetLayoutVector& operator=(DescriptorSetLayoutVector&& other) = default;
+
     auto size() const { return myDescriptorSetLayoutVector.size(); }
     auto data() const { return myDescriptorSetLayoutVector.data(); }
 
@@ -51,6 +53,8 @@ public:
         const DescriptorSetLayoutHandle<B>* layoutHandles,
         uint32_t layoutHandleCount);
     ~DescriptorSetVector();
+
+    DescriptorSetVector& operator=(DescriptorSetVector&& other) = default;
 
     auto size() const { return myDescriptorSetVector.size(); }
     auto data() const { return myDescriptorSetVector.data(); }

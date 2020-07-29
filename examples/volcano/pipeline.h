@@ -25,6 +25,8 @@ public:
         const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
     ~PipelineLayout();
 
+    PipelineLayout& operator=(PipelineLayout&& other) = default;
+
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
     const auto& getImmutableSamplers() const { return myImmutableSamplers; }
@@ -78,6 +80,8 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         PipelineContextCreateDesc<B>&& desc);
     ~PipelineContext();
+
+    PipelineContext& operator=(PipelineContext&& other) = default;
 
     auto getCache() const { return myCache; }
     auto getPipeline() const { return myCurrent.value()->second; }

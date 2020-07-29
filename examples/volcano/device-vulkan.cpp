@@ -511,3 +511,9 @@ DeviceResource<GraphicsBackend::Vulkan>::~DeviceResource()
     if (myDevice)
         myDevice->clearOwnedObjects(this);
 }
+
+template <>
+DeviceResource<GraphicsBackend::Vulkan>& DeviceResource<GraphicsBackend::Vulkan>::operator=(DeviceResource&& other)
+{
+    myDevice->moveOwnedObjects(&other, this);
+}

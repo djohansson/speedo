@@ -41,6 +41,8 @@ public:
         CommandBufferArrayCreateDesc<B>&& desc);
     ~CommandBufferArray();
 
+    CommandBufferArray& operator=(CommandBufferArray&& other) = default;
+
     const auto& getDesc() const { return myDesc; }
 
     uint8_t begin(const CommandBufferBeginInfo<B>& beginInfo);

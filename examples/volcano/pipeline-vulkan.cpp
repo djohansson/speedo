@@ -2,6 +2,8 @@
 #include "shader.h"
 #include "vk-utils.h"
 
+#include <core/slang-secure-crt.h>
+
 
 #pragma pack(push, 1)
 template <>
