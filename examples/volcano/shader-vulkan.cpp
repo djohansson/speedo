@@ -1,6 +1,5 @@
 #include "shader.h"
 
-
 template <>
 void createLayoutBindings<GraphicsBackend::Vulkan>(
     slang::VariableLayoutReflection* parameter,

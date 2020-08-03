@@ -5,6 +5,7 @@
 #include "types.h"
 
 #include <memory>
+#include <tuple>
 
 template <GraphicsBackend B>
 struct BufferCreateDesc : DeviceResourceCreateDesc<B>
@@ -28,6 +29,8 @@ public:
         const std::shared_ptr<CommandContext<B>>& commandContext,
         std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     ~Buffer();
+
+    Buffer& operator=(Buffer&& other) = default;
 
     const auto& getDesc() const { return myDesc; }
     const auto& getBufferHandle() const { return std::get<0>(myData); }
@@ -56,6 +59,8 @@ public:
         DeviceSize<B> offset,
         DeviceSize<B> range);
     ~BufferView();
+
+    BufferView& operator=(BufferView&& other) = default;
 
     auto getBufferViewHandle() const { return myBufferView; }
 

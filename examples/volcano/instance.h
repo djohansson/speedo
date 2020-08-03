@@ -2,11 +2,12 @@
 
 #include "file.h"
 #include "types.h"
+#include "utils.h"
 
 #include <any>
 #include <map>
 #include <vector>
-
+#include <string>
 
 template <GraphicsBackend B>
 struct InstanceConfiguration
@@ -16,29 +17,6 @@ struct InstanceConfiguration
     std::string applicationName = "volcano";
     std::string engineName = "magma";
     ApplicationInfo<B> appInfo = {};
-
-    template <class Archive>
-    void load(Archive& archive)
-    {
-        archive(
-            CEREAL_NVP(applicationName),
-            CEREAL_NVP(engineName),
-            CEREAL_NVP(appInfo)
-        );
-
-        appInfo.pApplicationName = applicationName.c_str();
-        appInfo.pEngineName = engineName.c_str();
-    }
-
-    template <class Archive>
-    void save(Archive& archive) const
-    {
-        archive(
-            CEREAL_NVP(applicationName),
-            CEREAL_NVP(engineName),
-            CEREAL_NVP(appInfo)
-        );
-    }
 };
 
 template <GraphicsBackend B>
@@ -62,11 +40,10 @@ struct PhysicalDeviceInfo
 };
 
 template <GraphicsBackend B>
-class InstanceContext
+class InstanceContext : public Noncopyable
 {
 public:
 
-    InstanceContext(InstanceContext&& other) noexcept = default;
     InstanceContext(AutoSaveJSONFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
     ~InstanceContext();
 
@@ -90,4 +67,5 @@ private:
     std::any myUserData;
 };
 
+#include "instance.inl"
 #include "instance-vulkan.inl"

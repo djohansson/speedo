@@ -7,44 +7,45 @@
 CEREAL_REGISTER_POLYMORPHIC_RELATION(INode, InputOutputNode)
 
 InputOutputNode::InputOutputNode(int id, std::string&& name)
-: id_(id)
-, name_(name)
+: myId(id)
+, myName(std::move(name))
 {
 }
 
-const int& InputOutputNode::getId() const
+int& InputOutputNode::id()
 {
-    return id_;
+    return myId;
 }
 
 std::string& InputOutputNode::name()
 {
-    return name_;
+    return myName;
 }
 
 std::any& InputOutputNode::userData()
 {
-    return userData_;
+    return myUserData;
 }
 
 std::vector<Attribute>& InputOutputNode::inputAttributes()
 {
-    return inputAttributes_;
+    return myInputAttributes;
 }
 
 std::vector<Attribute>& InputOutputNode::outputAttributes()
 {
-    return outputAttributes_;
+    return myOutputAttributes;
 }
 
 CEREAL_REGISTER_TYPE(SlangShaderNode);
 
-SlangShaderNode::SlangShaderNode(int id, std::string&& name)
-: InputOutputNode{id, std::move(name)}
+SlangShaderNode::SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path)
+: InputOutputNode(id, std::move(name))
+, myPath(std::move(path))
 {
 };
 
-std::string& SlangShaderNode::path()
+std::filesystem::path& SlangShaderNode::path()
 {
-    return path_;
+    return myPath;
 }

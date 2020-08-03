@@ -1,3 +1,7 @@
+template <typename CreateDescType, GraphicsBackend B>
+class RenderTargetImpl : public RenderTarget<B>
+{ };
+
 template <GraphicsBackend B>
 void RenderTarget<B>::addSubpassDescription(SubpassDescription<B>&& description)
 {

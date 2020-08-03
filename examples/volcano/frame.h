@@ -4,9 +4,7 @@
 #include "rendertarget.h"
 #include "types.h"
 
-#include <atomic>
 #include <memory>
-#include <vector>
 
 template <GraphicsBackend B>
 struct FrameCreateDesc : RenderTargetCreateDesc<B>
@@ -24,6 +22,8 @@ public:
 	Frame(Frame<B>&& other) = default;
     Frame(const std::shared_ptr<DeviceContext<B>>& deviceContext, FrameCreateDesc<B>&& desc);
 	virtual ~Frame();
+
+	Frame& operator=(Frame&& other) = default;
 
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }

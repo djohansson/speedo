@@ -3,8 +3,9 @@
 #include "rendertarget.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <string_view>
 
+#include <core/slang-secure-crt.h>
 
 template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,

@@ -8,12 +8,11 @@
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 
-
 template <class Archive, GraphicsBackend B>
-void serialize(Archive& ar, SerializableShaderReflectionModule<B>& module)
+void serialize(Archive& archive, SerializableShaderReflectionModule<B>& module)
 {
-	ar(cereal::make_nvp("shaders", module.shaders));
-	ar(cereal::make_nvp("bindings", module.bindings));
+	archive(cereal::make_nvp("shaders", module.shaders));
+	archive(cereal::make_nvp("bindings", module.bindings));
 }
 
 template <GraphicsBackend B>
@@ -36,7 +35,7 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream) {
 		SlangSession* slangSession = spCreateSession(NULL);
 		
-		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath.u8string().c_str());
+		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath.generic_string().c_str());
 		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
@@ -55,7 +54,7 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 			(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
 		spAddTranslationUnitSourceStringSpan(
-			slangRequest, translationUnitIndex, std::filesystem::absolute(slangFile).u8string().c_str(),
+			slangRequest, translationUnitIndex, std::filesystem::absolute(slangFile).generic_string().c_str(),
 			shaderString.c_str(), shaderString.c_str() + shaderString.size());
 
 		// temp

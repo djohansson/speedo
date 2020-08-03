@@ -8,11 +8,9 @@
 #include <optional>
 #include <tuple>
 
-#include <cereal/cereal.hpp>
-#include <cereal/archives/json.hpp>
-#include <cereal/types/optional.hpp>
-
 #include <mio/mmap_streambuf.hpp>
+
+#include <cereal/archives/json.hpp>
 
 enum class FileState : uint8_t
 {
@@ -33,17 +31,6 @@ struct FileInfo
     int64_t size = 0;
     std::string timeStamp;
     std::vector<unsigned char> sha2;
-
-    template <class Archive>
-    void serialize(Archive& archive)
-    {
-        archive(
-            CEREAL_NVP(path),
-            CEREAL_NVP(size),
-            CEREAL_NVP(timeStamp),
-            CEREAL_NVP(sha2));
-    }
-
 };
 
 std::string getFileTimeStamp(const std::filesystem::path &filePath);
@@ -86,43 +73,18 @@ void loadCachedSourceFile(
     SaveFileFn saveBinaryCacheFn);
 
 template <typename T, typename Archive>
-T loadObject(std::istream& stream, const std::string& name)
-{
-    Archive archive(stream);
-    T outValue = {};
-    archive(cereal::make_nvp(name, outValue));
-    return std::move(outValue);
-};
+T loadObject(std::istream& stream, const std::string& name);
 
 template <typename T, typename Archive>
-void saveObject(const T& object, std::ostream& stream, const std::string& name)
-{
-    Archive json(stream);
-    json(cereal::make_nvp(name, object));
-};
+void saveObject(const T& object, std::ostream& stream, const std::string& name);
 
 template <typename T, typename Archive>
-std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name)
-{
-    auto fileStatus = std::filesystem::status(filePath);
-	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return std::make_tuple(std::nullopt, FileState::Missing);
-
-    mio::mmap_istreambuf fileStreamBuf(filePath.string());
-    std::istream fileStream(&fileStreamBuf);
-
-    return std::make_tuple(std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
-}
+std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name);
 
 template <typename T, typename Archive>
-void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
-{
-    mio::mmap_ostreambuf fileStreamBuf(filePath.string());
-	std::ostream fileStream(&fileStreamBuf);
-    saveObject<T, Archive>(object, fileStream, name);
-}
+void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name);
 
-template <typename T, FileAccessMode Mode, typename InputArchive = cereal::JSONInputArchive, typename OutputArchive = cereal::JSONOutputArchive, bool SaveOnClose = false>
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose = false>
 class FileObject : public Noncopyable, public T
 {
     // todo: implement mechanism to only write changes when contents have changed.
@@ -132,38 +94,16 @@ public:
     FileObject(
         const std::filesystem::path& filePath,
         const std::string& name,
-        T&& defaultObject = T{})
-    : T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
-    , myFilePath(filePath)
-    , myName(name)
-    {
-    }
+        T&& defaultObject = T{});
+    FileObject(FileObject&& other) noexcept;
+    ~FileObject();
 
-    FileObject(FileObject&& other) noexcept
-    : T(std::move(other))
-    , myFilePath(std::exchange(other.myFilePath, {}))
-    , myName(std::exchange(other.myName, {}))
-    {
-    }
+    FileObject& operator=(FileObject&& other) noexcept;
 
-    void reload()
-    {
-        static_cast<T&>(*this) = std::get<0>(
-            loadObject<T, InputArchive>(myFilePath, myName)).value_or(std::move(static_cast<T&>(*this)));
-    }
+    void reload();
 
     template <FileAccessMode M = Mode>
-    typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type save() const
-    {
-        saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName);
-    }
-
-    ~FileObject()
-    {
-        if constexpr(SaveOnClose)
-            if (!myFilePath.empty())
-                save();
-    }
+    typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type save() const;
 
 private:
 
@@ -172,10 +112,12 @@ private:
 };
 
 template <typename T>
-using ReadOnlyJSONFileObject = FileObject<T, FileAccessMode::ReadOnly>;
+using ReadOnlyJSONFileObject = FileObject<T, FileAccessMode::ReadOnly, cereal::JSONInputArchive, cereal::JSONOutputArchive>;
 
 template <typename T>
-using ReadWriteJSONFileObject = FileObject<T, FileAccessMode::ReadWrite>;
+using ReadWriteJSONFileObject = FileObject<T, FileAccessMode::ReadWrite, cereal::JSONInputArchive, cereal::JSONOutputArchive>;
 
 template <typename T>
 using AutoSaveJSONFileObject = FileObject<T, FileAccessMode::ReadWrite, cereal::JSONInputArchive, cereal::JSONOutputArchive, true>;
+
+#include "file.inl"

@@ -2,12 +2,9 @@
 #include "vk-utils.h"
 
 #include <algorithm>
-#include <stdexcept>
-#include <tuple>
 #include <utility>
 
 #include <core/slang-secure-crt.h>
-
 
 namespace device
 {
@@ -156,9 +153,9 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
     const auto& physicalDeviceInfo = myInstance->getPhysicalDeviceInfo(getPhysicalDevice());
     const auto& swapchainInfo = physicalDeviceInfo.swapchainInfo;
 
-    if (!myConfig.swapchainConfiguration)
+    if (!myConfig.swapchainConfig)
     {
-        myConfig.swapchainConfiguration = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
+        myConfig.swapchainConfig = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
 
         const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
             VK_FORMAT_B8G8R8A8_UNORM,
@@ -191,7 +188,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 });
             if (formatIt != swapchainInfo.formats.end())
             {
-                myConfig.swapchainConfiguration->surfaceFormat = *formatIt;
+                myConfig.swapchainConfig->surfaceFormat = *formatIt;
                 break;
             }
         }
@@ -206,15 +203,15 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 requestPresentMode[request_i]);
             if (modeIt != swapchainInfo.presentModes.end())
             {
-                myConfig.swapchainConfiguration->presentMode = *modeIt;
+                myConfig.swapchainConfig->presentMode = *modeIt;
 
-                switch (myConfig.swapchainConfiguration->presentMode)
+                switch (myConfig.swapchainConfig->presentMode)
                 {
                 case VK_PRESENT_MODE_MAILBOX_KHR:
-                    myConfig.swapchainConfiguration->imageCount = 3;
+                    myConfig.swapchainConfig->imageCount = 3;
                     break;
                 default:
-                    myConfig.swapchainConfiguration->imageCount = 2;
+                    myConfig.swapchainConfig->imageCount = 2;
                     break;
                 }
 
@@ -372,7 +369,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 stringBuffer);
         }
 
-        uint32_t frameCount = queueFamilyPresentSupport ? myConfig.swapchainConfiguration->imageCount : 1;
+        uint32_t frameCount = queueFamilyPresentSupport ? myConfig.swapchainConfig->imageCount : 1;
 
         queueFamilyDesc.commandPools.resize(frameCount);
 
@@ -510,4 +507,12 @@ DeviceResource<GraphicsBackend::Vulkan>::~DeviceResource()
 {
     if (myDevice)
         myDevice->clearOwnedObjects(this);
+}
+
+template <>
+DeviceResource<GraphicsBackend::Vulkan>& DeviceResource<GraphicsBackend::Vulkan>::operator=(DeviceResource&& other)
+{
+    myDevice->moveOwnedObjects(&other, this);
+
+    return *this;
 }

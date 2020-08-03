@@ -14,7 +14,6 @@
 
 #include <imnodes.h>
 
-
 template <>
 void Application<GraphicsBackend::Vulkan>::initIMGUI(
     const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
@@ -28,7 +27,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     IMGUI_CHECKVERSION();
     CreateContext();
     auto& io = GetIO();
-    static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").u8string();
+    static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").generic_string();
     io.IniFilename = iniFilePath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.FontAllowUserScaling = true;
@@ -68,7 +67,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     {
         fontPath.replace_filename(font);
         defaultFont = io.Fonts->AddFontFromFileTTF(
-            fontPath.u8string().c_str(), 16.0f,
+            fontPath.generic_string().c_str(), 16.0f,
             &config);
     }
 
@@ -85,8 +84,8 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.Queue = myDevice->getPrimaryGraphicsQueue();
     initInfo.PipelineCache = myGraphicsPipeline->getCache();
     initInfo.DescriptorPool = myDevice->getDescriptorPool();
-    initInfo.MinImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
-    initInfo.ImageCount = myDevice->getDesc().swapchainConfiguration->imageCount;
+    initInfo.MinImageCount = myDevice->getDesc().swapchainConfig->imageCount;
+    initInfo.ImageCount = myDevice->getDesc().swapchainConfig->imageCount;
     initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
     initInfo.CheckVkResultFn = checkResult;
@@ -122,14 +121,14 @@ void Application<GraphicsBackend::Vulkan>::createWindowDependentObjects(
 {
     ZoneScopedN("createWindowDependentObjects");
 
-    myLastFrameIndex = myDevice->getDesc().swapchainConfiguration->imageCount - 1;
+    myLastFrameIndex = myDevice->getDesc().swapchainConfig->imageCount - 1;
 
     auto colorImage = std::make_shared<Image<GraphicsBackend::Vulkan>>(
         myDevice,
         ImageCreateDesc<GraphicsBackend::Vulkan>{
             {"rtColorImage"},
             frameBufferExtent,
-            myDevice->getDesc().swapchainConfiguration->surfaceFormat.format,
+            myDevice->getDesc().swapchainConfig->surfaceFormat.format,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
     
     auto depthStencilImage = std::make_shared<Image<GraphicsBackend::Vulkan>>(
@@ -270,7 +269,6 @@ Application<GraphicsBackend::Vulkan>::Application(
             VK_IMAGE_ASPECT_COLOR_BIT);
 
         myWindow = std::make_shared<WindowContext<GraphicsBackend::Vulkan>>(
-            myInstance,
             myDevice,    
             WindowCreateDesc<GraphicsBackend::Vulkan>{
                 {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
@@ -325,7 +323,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
+        std::string resourcePathStr = std::filesystem::absolute(resourcePath).generic_string();
         nfdchar_t* openFilePath;
         return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));
@@ -548,15 +546,15 @@ Application<GraphicsBackend::Vulkan>::Application(
 
                 char buffer[64];
 
-                imnodes::BeginNode(node->getId());
+                imnodes::BeginNode(node->id());
 
                 // title bar
-                sprintf_s(buffer, sizeof(buffer), "##node%.*u", 4, node->getId());
+                sprintf_s(buffer, sizeof(buffer), "##node%.*u", 4, node->id());
 
                 imnodes::BeginNodeTitleBar();
 
                 float titleBarTextWidth = editableTextField(
-                    node->getId(),
+                    node->id(),
                     buffer,
                     node->name(),
                     160.0f,
@@ -565,7 +563,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                 imnodes::EndNodeTitleBar();
 
                 if (IsItemClicked() && IsMouseDoubleClicked(0))
-                    std::any_cast<NodeUserData&>(node->userData()).inputId = node->getId();
+                    std::any_cast<NodeUserData&>(node->userData()).inputId = node->id();
                 
                 // attributes
                 if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
@@ -680,7 +678,7 @@ Application<GraphicsBackend::Vulkan>::Application(
                             switch (menuItem.first)
                             {
                                 case NodeType::SlangShaderNode:
-                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(id, std::string(menuItem.second.data())));
+                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(id, std::string(menuItem.second.data()), {}));
                                 default:
                                     assert(false);
                                     break;

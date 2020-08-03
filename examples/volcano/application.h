@@ -20,7 +20,6 @@
 #include "command.h"
 #include "device.h"
 #include "file.h"
-#include "glm.h"
 #include "instance.h"
 #include "nodegraph.h"
 #include "pipeline.h"
@@ -35,28 +34,12 @@
 #	include <sdkddkver.h>
 #endif
 
-// todo: clean up!
-#include <array>
-#include <cmath>
-#include <codecvt>
-#include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <future>
 #include <functional>
-#include <iostream>
-#include <locale>
-#include <queue>
-#include <stdexcept>
-#include <thread>
 #include <tuple>
-#include <type_traits>
-#include <utility>
-#include <vector>
-// 
 
 #include <nfd.h>
-
 
 template <GraphicsBackend B>
 class Application

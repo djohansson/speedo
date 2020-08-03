@@ -1,6 +1,4 @@
 #include "window.h"
-#include "command.h"
-#include "rendertarget.h"
 #include "vk-utils.h"
 
 #include <core/slang-secure-crt.h>
@@ -20,7 +18,6 @@
 
 #include <imgui.h>
 #include <examples/imgui_impl_vulkan.h>
-
 
 template <>
 void WindowContext<GraphicsBackend::Vulkan>::renderIMGUI()
@@ -54,7 +51,7 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
         myDevice,
         BufferCreateDesc<GraphicsBackend::Vulkan>{
             {"myViewBuffer"},
-            myDevice->getDesc().swapchainConfiguration->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(WindowContext::ViewBufferData),
+            myDevice->getDesc().swapchainConfig->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(WindowContext::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
@@ -76,7 +73,7 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
     std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
     VK_CHECK(vkGetSwapchainImagesKHR(myDevice->getDevice(), mySwapchain->getSwapchain(), &imageCount, colorImages.data()));
 
-    uint32_t frameCount = myDevice->getDesc().swapchainConfiguration->imageCount;
+    uint32_t frameCount = myDevice->getDesc().swapchainConfig->imageCount;
     
     myFrames.clear();
     myFrames.reserve(frameCount);
@@ -87,7 +84,7 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
             FrameCreateDesc<GraphicsBackend::Vulkan>{
                 {{"Frame"},
                 { frameBufferExtent.width, frameBufferExtent.height },
-                make_vector(myDevice->getDesc().swapchainConfiguration->surfaceFormat.format),
+                make_vector(myDevice->getDesc().swapchainConfig->surfaceFormat.format),
                 make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
                 make_vector(colorImages[frameIt])},
                 frameIt}));
@@ -614,11 +611,9 @@ void WindowContext<GraphicsBackend::Vulkan>::updateInput(const InputState& input
 
 template <>
 WindowContext<GraphicsBackend::Vulkan>::WindowContext(
-    const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
-	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
     WindowCreateDesc<GraphicsBackend::Vulkan>&& desc)
-: myInstance(instanceContext)
-, myDevice(deviceContext)
+: myDevice(deviceContext)
 , myDesc(std::move(desc))
 {
     ZoneScopedN("Window()");

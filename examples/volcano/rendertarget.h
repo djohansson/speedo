@@ -12,7 +12,6 @@
 
 #include <xxh3.h>
 
-
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 {
@@ -75,6 +74,8 @@ protected:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
 
+    RenderTarget& operator=(RenderTarget&& other) = default;
+
     virtual ImageLayout<B> getColorImageLayout(uint32_t index) const = 0;
     virtual ImageLayout<B> getDepthStencilImageLayout() const = 0;
 
@@ -92,8 +93,9 @@ private:
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
-    RenderPassFramebufferTuple
-    internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
+    RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
+        uint64_t hashKey,
+        const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
 
     std::vector<ImageViewHandle<B>> myAttachments;
     std::vector<AttachmentDescription<B>> myAttachmentsDescs;
@@ -111,10 +113,6 @@ private:
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };
-
-template <typename CreateDescType, GraphicsBackend B>
-class RenderTargetImpl : protected RenderTarget<B>
-{ };
 
 #include "rendertarget.inl"
 #include "rendertarget-vulkan.inl"

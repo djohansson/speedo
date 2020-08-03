@@ -9,8 +9,11 @@
 #include "shader.h"
 #include "types.h"
 
-#include <xxh3.h>
+#include <map>
+#include <memory>
+#include <optional>
 
+#include <xxh3.h>
 
 template <GraphicsBackend B>
 struct PipelineCacheHeader
@@ -27,6 +30,8 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
     ~PipelineLayout();
+
+    PipelineLayout& operator=(PipelineLayout&& other) = default;
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
@@ -81,6 +86,8 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         PipelineContextCreateDesc<B>&& desc);
     ~PipelineContext();
+
+    PipelineContext& operator=(PipelineContext&& other) = default;
 
     auto getCache() const { return myCache; }
     auto getPipeline() const { return myCurrent.value()->second; }

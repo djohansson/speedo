@@ -3,9 +3,7 @@
 #include "device.h"
 #include "types.h"
 
-#include <atomic>
 #include <array>
-#include <cassert>
 #include <functional>
 #include <list>
 #include <memory>
@@ -40,6 +38,8 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandBufferArrayCreateDesc<B>&& desc);
     ~CommandBufferArray();
+
+    CommandBufferArray& operator=(CommandBufferArray&& other) = default;
 
     const auto& getDesc() const { return myDesc; }
 

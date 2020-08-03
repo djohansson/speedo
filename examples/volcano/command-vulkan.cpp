@@ -3,7 +3,6 @@
 
 #include <core/slang-secure-crt.h>
 
-
 namespace commandbufferarray
 {
 

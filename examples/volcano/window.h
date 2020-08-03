@@ -1,6 +1,7 @@
 #pragma once
 
 #include "buffer.h"
+#include "command.h"
 #include "device.h"
 #include "frame.h"
 #include "glm.h"
@@ -8,6 +9,7 @@
 #include "pipeline.h"
 #include "state.h"
 #include "swapchain.h"
+#include "utils.h"
 #include "view.h"
 
 #include <chrono>
@@ -25,13 +27,11 @@ struct WindowCreateDesc
 };
 
 template <GraphicsBackend B>
-class WindowContext
+class WindowContext : public Noncopyable
 {
 public:
 
-	WindowContext(WindowContext<B>&& other) noexcept = default;
 	WindowContext(
-		const std::shared_ptr<InstanceContext<B>>& instanceContext,
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		WindowCreateDesc<B>&& desc);
 

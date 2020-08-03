@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <filesystem>
+#include <tuple>
 
 template <GraphicsBackend B>
 struct ImageCreateDesc : DeviceResourceCreateDesc<B>
@@ -36,6 +37,8 @@ public:
         const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& imageFile);
     ~Image();
+
+    Image& operator=(Image&& other) = default;
 
     const auto& getDesc() const { return myDesc; }
     const auto& getImageHandle() const { return std::get<0>(myData); }
@@ -70,6 +73,8 @@ public:
         const Image<B>& image,
         Flags<GraphicsBackend::Vulkan> aspectFlags);
     ~ImageView();
+
+    ImageView& operator=(ImageView&& other) = default;
 
     auto getImageViewHandle() const { return myImageView; }
 

@@ -4,7 +4,6 @@
 #include "types.h"
 
 #include <memory>
-#include <vector>
 
 template <GraphicsBackend B>
 struct SwapchainCreateDesc : DeviceResourceCreateDesc<B>
@@ -23,6 +22,8 @@ public:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		SwapchainCreateDesc<B>&& desc);
     ~SwapchainContext();
+
+	SwapchainContext& operator=(SwapchainContext&& other) = default;
 
     const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }

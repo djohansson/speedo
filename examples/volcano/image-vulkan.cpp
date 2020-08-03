@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <tuple>
 
 #define STBI_NO_STDIO
 #define STB_IMAGE_IMPLEMENTATION
@@ -22,7 +23,6 @@
 #include <cereal/types/string.hpp>
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
-
 
 namespace stbi_istream_callbacks
 {
@@ -66,7 +66,7 @@ load(
         AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
 
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = imageFile.filename().u8string();
+    desc.name = imageFile.filename().generic_string();
 
     int channelCount = 0;
 
@@ -115,7 +115,7 @@ load(
 
         bool hasAlpha = channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        size = hasAlpha ? desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
+        size = hasAlpha ? 2 * desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
 
         std::string debugString;
         debugString.append(desc.name);
@@ -162,7 +162,8 @@ load(
     loadCachedSourceFile(
         imageFile, imageFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
-    desc.format = channelCount == 3 ? VK_FORMAT_BC1_RGB_UNORM_BLOCK : VK_FORMAT_BC5_UNORM_BLOCK; // todo: write utility function for this
+     // todo: write utility functions...
+    desc.format = channelCount == 4 ? VK_FORMAT_BC2_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
     desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
     uint32_t pixelSizeBytesDivisor;

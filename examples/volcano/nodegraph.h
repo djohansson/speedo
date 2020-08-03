@@ -1,14 +1,15 @@
 #pragma once
 
 #include <any>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
-
 struct INode
 {
-    virtual const int& getId() const = 0;
+    virtual ~INode() noexcept {};
+    virtual int& id() = 0;
     virtual std::string& name() = 0;
     virtual std::any& userData() = 0;
 };
@@ -25,33 +26,53 @@ struct Link
     int toId = 0;
 };
 
-struct InputOutputNode : INode
+class InputOutputNode : public INode
 {
+public:
+
     InputOutputNode() = default;
     InputOutputNode(int id, std::string&& name);
-    virtual ~InputOutputNode() = default;
+    InputOutputNode(const InputOutputNode&) = default;
+    InputOutputNode(InputOutputNode&&) = default;
+    ~InputOutputNode() noexcept = default;
 
-    const int& getId() const final;
+    InputOutputNode& operator=(const InputOutputNode&) = default;
+    InputOutputNode& operator=(InputOutputNode&&) = default;
+
+    int& id() final;
     std::string& name() final;
     std::any& userData() final;
+
     std::vector<Attribute>& inputAttributes();
     std::vector<Attribute>& outputAttributes();
 
-    int id_ = 0;
-    std::string name_;
-    std::vector<Attribute> inputAttributes_;
-    std::vector<Attribute> outputAttributes_;
-    std::any userData_;
+private:
+
+    int myId = 0;
+    std::string myName;
+    std::vector<Attribute> myInputAttributes;
+    std::vector<Attribute> myOutputAttributes;
+    std::any myUserData;
 };
 
-struct SlangShaderNode : InputOutputNode
+class SlangShaderNode : public InputOutputNode
 {
+public:
+
     SlangShaderNode() = default;
-    SlangShaderNode(int id, std::string&& name);
+    SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path);
+    SlangShaderNode(const SlangShaderNode&) = default;
+    SlangShaderNode(SlangShaderNode&&) = default;
+    ~SlangShaderNode() noexcept = default;
 
-    std::string& path();
+    SlangShaderNode& operator=(const SlangShaderNode&) = default;
+    SlangShaderNode& operator=(SlangShaderNode&&) = default;
 
-    std::string path_;
+    std::filesystem::path& path();
+
+private:
+
+    std::filesystem::path myPath;
 };
 
 struct NodeGraph

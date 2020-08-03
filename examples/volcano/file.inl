@@ -1,0 +1,101 @@
+#include <cereal/cereal.hpp>
+#include <cereal/types/optional.hpp>
+
+template <class Archive>
+void serialize(Archive& archive, FileInfo& info)
+{
+    archive(cereal::make_nvp("path", info.path));
+    archive(cereal::make_nvp("size", info.size));
+    archive(cereal::make_nvp("timeStamp", info.timeStamp));
+    archive(cereal::make_nvp("sha2", info.sha2));
+}
+
+template <typename T, typename Archive>
+T loadObject(std::istream& stream, const std::string& name)
+{
+    Archive archive(stream);
+    T outValue = {};
+    archive(cereal::make_nvp(name, outValue));
+    return std::move(outValue);
+};
+
+template <typename T, typename Archive>
+void saveObject(const T& object, std::ostream& stream, const std::string& name)
+{
+    Archive json(stream);
+    json(cereal::make_nvp(name, object));
+};
+
+template <typename T, typename Archive>
+std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name)
+{
+    auto fileStatus = std::filesystem::status(filePath);
+	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
+		return std::make_tuple(std::nullopt, FileState::Missing);
+
+    mio::mmap_istreambuf fileStreamBuf(filePath.string());
+    std::istream fileStream(&fileStreamBuf);
+
+    return std::make_tuple(std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
+}
+
+template <typename T, typename Archive>
+void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
+{
+    mio::mmap_ostreambuf fileStreamBuf(filePath.string());
+	std::ostream fileStream(&fileStreamBuf);
+    saveObject<T, Archive>(object, fileStream, name);
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
+	const std::filesystem::path& filePath,
+	const std::string& name,
+	T&& defaultObject)
+: T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
+, myFilePath(filePath)
+, myName(name)
+{
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(FileObject&& other) noexcept
+: T(std::move(other))
+, myFilePath(std::exchange(other.myFilePath, {}))
+, myName(std::exchange(other.myName, {}))
+{
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::~FileObject()
+{
+	if constexpr(SaveOnClose)
+		if (!myFilePath.empty())
+			save();
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>& FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::operator=(FileObject&& other) noexcept
+{
+	if (this != &other)
+	{
+		myFilePath = std::exchange(other.myFilePath, {});
+		myName = std::exchange(other.myName, {});
+	}
+
+	return *this;
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::reload()
+{
+	static_cast<T&>(*this) = std::get<0>(
+		loadObject<T, InputArchive>(myFilePath, myName)).value_or(std::move(static_cast<T&>(*this)));
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+template <FileAccessMode M>
+typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::save() const
+{
+    saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName);
+}
