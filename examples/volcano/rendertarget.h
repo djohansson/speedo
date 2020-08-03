@@ -10,7 +10,6 @@
 #include <vector>
 #include <tuple>
 
-#define XXH_INLINE_ALL
 #include <xxh3.h>
 
 

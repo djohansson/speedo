@@ -211,6 +211,13 @@ PipelineLayout<GraphicsBackend::Vulkan>::~PipelineLayout()
         vkDestroyPipelineLayout(getDeviceContext()->getDevice(), myLayout, nullptr);
 }
 
+template<>
+uint64_t PipelineContext<GraphicsBackend::Vulkan>::internalCalculateHashKey() const
+{
+    // todo
+    return 0;
+}
+
 template <>
 void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
 {
@@ -360,10 +367,10 @@ void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
 
     if (!myCurrent)
     {
-        uint64_t hashKey = 0; //internalCalculateHashKey(desc);
-        auto emplaceResult = myPipelineMap.emplace(hashKey, VkPipeline{});
+        uint64_t hashKey = internalCalculateHashKey();
+        auto pipelineNode = myPipelineMap.emplace(hashKey, VkPipeline{});
 
-        if (emplaceResult.second)
+        if (pipelineNode.second)
         {
             VkPipeline pipelineHandle;
             VK_CHECK(vkCreateGraphicsPipelines(
@@ -373,7 +380,7 @@ void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
                 &pipelineInfo,
                 nullptr,
                 &pipelineHandle));
-            emplaceResult.first->second = pipelineHandle;
+            pipelineNode.first->second = pipelineHandle;
 
             char stringBuffer[128];
     
@@ -396,7 +403,7 @@ void PipelineContext<GraphicsBackend::Vulkan>::createGraphicsPipeline()
                 stringBuffer);
         }
 
-        myCurrent = std::make_optional(emplaceResult.first);
+        myCurrent = std::make_optional(pipelineNode.first);
     }
 }
 

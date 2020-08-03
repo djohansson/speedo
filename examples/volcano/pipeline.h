@@ -9,6 +9,9 @@
 #include "shader.h"
 #include "types.h"
 
+#include <xxh3.h>
+
+
 template <GraphicsBackend B>
 struct PipelineCacheHeader
 {
@@ -66,7 +69,7 @@ struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
-//       combine them to get a compisite hash for the actual pipeline object
+//       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
 
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
@@ -94,6 +97,8 @@ private:
 
     using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
 
+    uint64_t internalCalculateHashKey() const;
+
     const PipelineContextCreateDesc<B> myDesc = {};
     PipelineCacheHandle<B> myCache = 0;
     PipelineMap myPipelineMap;
@@ -104,4 +109,6 @@ private:
 	std::shared_ptr<PipelineLayout<B>> myLayout;
 	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
+
+    std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };
