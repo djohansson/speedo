@@ -1,17 +1,17 @@
 template <typename CreateDescType>
-class RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan> : public RenderTarget<GraphicsBackend::Vulkan>
+class RenderTargetImpl<CreateDescType, Vk> : public RenderTarget<Vk>
 {
 public:
 
-    virtual const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& getRenderTargetDesc() const final { return myDesc; };
+    virtual const RenderTargetCreateDesc<Vk>& getRenderTargetDesc() const final { return myDesc; };
 
     const auto& getDesc() const { return myDesc; }
 
 protected:
 
-	RenderTargetImpl(RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>&& other);
+	RenderTargetImpl(RenderTargetImpl<CreateDescType, Vk>&& other);
 	RenderTargetImpl(
-        const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+        const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
         CreateDescType&& desc);
 	virtual ~RenderTargetImpl() = default;
 
@@ -23,15 +23,15 @@ private:
 };
 
 template <typename CreateDescType>
-RenderTargetImpl<CreateDescType, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+RenderTargetImpl<CreateDescType, Vk>::RenderTargetImpl(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CreateDescType&& desc)
-: RenderTarget<GraphicsBackend::Vulkan>(deviceContext, desc)
+: RenderTarget<Vk>(deviceContext, desc)
 , myDesc(std::move(desc))
 {
 }
 
-extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext, RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc);
+extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext, RenderTargetCreateDesc<Vk>&& desc);
 
-extern template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
+extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl();

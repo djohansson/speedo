@@ -1,7 +1,7 @@
 #include <cereal/cereal.hpp>
 
 template <class Archive>
-void serialize(Archive& archive, ApplicationInfo<GraphicsBackend::Vulkan>& desc)
+void serialize(Archive& archive, ApplicationInfo<Vk>& desc)
 {
     archive(
         //cereal::make_nvp("sType", desc.sType),

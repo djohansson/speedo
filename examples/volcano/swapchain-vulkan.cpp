@@ -4,9 +4,9 @@
 #include <core/slang-secure-crt.h>
 
 template <>
-SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    SwapchainCreateDesc<GraphicsBackend::Vulkan>&& desc)
+SwapchainContext<Vk>::SwapchainContext(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    SwapchainCreateDesc<Vk>&& desc)
 : DeviceResource(deviceContext, desc)
 , myDesc(std::move(desc))
 {
@@ -48,7 +48,7 @@ SwapchainContext<GraphicsBackend::Vulkan>::SwapchainContext(
 }
 
 template <>
-SwapchainContext<GraphicsBackend::Vulkan>::~SwapchainContext()
+SwapchainContext<Vk>::~SwapchainContext()
 {
     ZoneScopedN("~SwapchainContext()");
 

@@ -7,16 +7,16 @@
 
 #include <core/slang-secure-crt.h>
 
-template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    FrameCreateDesc<GraphicsBackend::Vulkan>&& desc);
+template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    FrameCreateDesc<Vk>&& desc);
 
-template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
+template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl();
 
 template <>
-Frame<GraphicsBackend::Vulkan>::Frame(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    FrameCreateDesc<GraphicsBackend::Vulkan>&& desc)
+Frame<Vk>::Frame(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    FrameCreateDesc<Vk>&& desc)
 : BaseType(deviceContext, std::move(desc))
 {
     ZoneScopedN("Frame()");
@@ -57,7 +57,7 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 }
 
 template <>
-Frame<GraphicsBackend::Vulkan>::~Frame()
+Frame<Vk>::~Frame()
 {
     ZoneScopedN("~Frame()");
    
@@ -66,13 +66,13 @@ Frame<GraphicsBackend::Vulkan>::~Frame()
 }
 
 template <>
-ImageLayout<GraphicsBackend::Vulkan> Frame<GraphicsBackend::Vulkan>::getColorImageLayout(uint32_t index) const
+ImageLayout<Vk> Frame<Vk>::getColorImageLayout(uint32_t index) const
 {
     return myImageLayout;
 }
 
 template <>
-ImageLayout<GraphicsBackend::Vulkan> Frame<GraphicsBackend::Vulkan>::getDepthStencilImageLayout() const
+ImageLayout<Vk> Frame<Vk>::getDepthStencilImageLayout() const
 {
     assert(false);
     

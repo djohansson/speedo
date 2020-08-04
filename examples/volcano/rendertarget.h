@@ -84,7 +84,7 @@ private:
     using RenderPassFramebufferTuple = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
     using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
 
-    uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const;    
+    uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;    
     
     void internalInitializeAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<B>& desc);
@@ -95,7 +95,7 @@ private:
 
     RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
         uint64_t hashKey,
-        const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc);
+        const RenderTargetCreateDesc<Vk>& desc);
 
     std::vector<ImageViewHandle<B>> myAttachments;
     std::vector<AttachmentDescription<B>> myAttachmentsDescs;

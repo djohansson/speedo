@@ -7,7 +7,7 @@ void load(Archive& archive, InstanceConfiguration<B>& config)
     archive(cereal::make_nvp("engineName", config.engineName));
     archive(cereal::make_nvp("appInfo", config.appInfo));
 
-    if constexpr (B == GraphicsBackend::Vulkan)
+    if constexpr (B == Vk)
     {
         config.appInfo.pApplicationName = config.applicationName.c_str();
         config.appInfo.pEngineName = config.engineName.c_str();

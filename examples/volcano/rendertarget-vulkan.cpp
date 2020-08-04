@@ -4,7 +4,7 @@
 #include <core/slang-secure-crt.h>
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)
 {
     char stringBuffer[128];
 
@@ -104,7 +104,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeAttachments(const 
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+void RenderTarget<Vk>::internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<Vk>& desc)
 {
     uint32_t subPassIt = 0;
 
@@ -183,7 +183,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalInitializeDefaultRenderPasse
 }
 
 template <>
-uint64_t RenderTarget<GraphicsBackend::Vulkan>::internalCalculateHashKey(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc) const
+uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const
 {
     constexpr XXH64_hash_t seed = 42;
     auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
@@ -211,8 +211,8 @@ uint64_t RenderTarget<GraphicsBackend::Vulkan>::internalCalculateHashKey(const R
 }
 
 template <>
-RenderTarget<GraphicsBackend::Vulkan>::RenderPassFramebufferTuple
-RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+RenderTarget<Vk>::RenderPassFramebufferTuple
+RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc)
 {
     char stringBuffer[128];
     
@@ -271,7 +271,7 @@ RenderTarget<GraphicsBackend::Vulkan>::internalCreateRenderPassAndFrameBuffer(ui
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+void RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 {
     if (!myCurrent)
     {
@@ -279,8 +279,8 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTarget
         auto emplaceResult = myMap.emplace(
             hashKey,
             std::make_tuple(
-                RenderPassHandle<GraphicsBackend::Vulkan>{},
-                FramebufferHandle<GraphicsBackend::Vulkan>{}));
+                RenderPassHandle<Vk>{},
+                FramebufferHandle<Vk>{}));
 
         if (emplaceResult.second)
             emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
@@ -290,13 +290,13 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateMap(const RenderTarget
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateRenderPasses(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+void RenderTarget<Vk>::internalUpdateRenderPasses(const RenderTargetCreateDesc<Vk>& desc)
 {
 
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateAttachments(const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
+void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk>& desc)
 {
     uint32_t attachmentIt = 0;
     for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
@@ -323,19 +323,19 @@ void RenderTarget<GraphicsBackend::Vulkan>::internalUpdateAttachments(const Rend
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::clearSingle(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    const ClearAttachment<GraphicsBackend::Vulkan>& clearAttachment) const
+void RenderTarget<Vk>::clearSingle(
+    CommandBufferHandle<Vk> cmd,
+    const ClearAttachment<Vk>& clearAttachment) const
 {
     VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().imageExtent }, 0, getRenderTargetDesc().layerCount };
     vkCmdClearAttachments(cmd, 1, &clearAttachment, 1, &rect);
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::clearAll(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    const ClearColorValue<GraphicsBackend::Vulkan>& color,
-    const ClearDepthStencilValue<GraphicsBackend::Vulkan>& depthStencil) const
+void RenderTarget<Vk>::clearAll(
+    CommandBufferHandle<Vk> cmd,
+    const ClearColorValue<Vk>& color,
+    const ClearDepthStencilValue<Vk>& depthStencil) const
 {
     uint32_t attachmentIt = 0;
     VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().imageExtent }, 0, getRenderTargetDesc().layerCount };
@@ -359,9 +359,9 @@ void RenderTarget<GraphicsBackend::Vulkan>::clearAll(
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::nextSubpass(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    SubpassContents<GraphicsBackend::Vulkan> contents)
+void RenderTarget<Vk>::nextSubpass(
+    CommandBufferHandle<Vk> cmd,
+    SubpassContents<Vk> contents)
 {
     vkCmdNextSubpass(cmd, contents);
 
@@ -369,7 +369,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::nextSubpass(
 }
 
 template <>
-const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getRenderPass()
+const RenderPassHandle<Vk>& RenderTarget<Vk>::getRenderPass()
 {
     std::unique_lock writeLock(myMutex);
 
@@ -381,7 +381,7 @@ const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::V
 }
 
 template <>
-const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getFramebuffer()
+const FramebufferHandle<Vk>& RenderTarget<Vk>::getFramebuffer()
 {
     std::unique_lock writeLock(myMutex);
 
@@ -393,9 +393,9 @@ const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::begin(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    RenderTargetBeginInfo<GraphicsBackend::Vulkan>&& beginInfo)
+void RenderTarget<Vk>::begin(
+    CommandBufferHandle<Vk> cmd,
+    RenderTargetBeginInfo<Vk>&& beginInfo)
 {
     assert(myCurrentPassInfo == std::nullopt);
 
@@ -413,7 +413,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::begin(
 }
 
 template <>
-void RenderTarget<GraphicsBackend::Vulkan>::end(CommandBufferHandle<GraphicsBackend::Vulkan> cmd)
+void RenderTarget<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
     assert(myCurrentPassInfo != std::nullopt);
 
@@ -423,10 +423,10 @@ void RenderTarget<GraphicsBackend::Vulkan>::end(CommandBufferHandle<GraphicsBack
 }
 
 template <>
-RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const RenderTargetCreateDesc<GraphicsBackend::Vulkan>& desc)
-: DeviceResource<GraphicsBackend::Vulkan>(deviceContext, desc)
+RenderTarget<Vk>::RenderTarget(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const RenderTargetCreateDesc<Vk>& desc)
+: DeviceResource<Vk>(deviceContext, desc)
 {
     ZoneScopedN("RenderTarget()");
 
@@ -440,7 +440,7 @@ RenderTarget<GraphicsBackend::Vulkan>::RenderTarget(
 }
 
 template <>
-RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
+RenderTarget<Vk>::~RenderTarget()
 {
     ZoneScopedN("~RenderTarget()");
 
@@ -454,8 +454,8 @@ RenderTarget<GraphicsBackend::Vulkan>::~RenderTarget()
         vkDestroyImageView(getDeviceContext()->getDevice(), colorView, nullptr);
 }
 
-template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    RenderTargetCreateDesc<GraphicsBackend::Vulkan>&& desc);
+template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    RenderTargetCreateDesc<Vk>&& desc);
 
-template RenderTargetImpl<RenderTargetCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
+template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl();

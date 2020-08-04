@@ -20,7 +20,7 @@
 #include <examples/imgui_impl_vulkan.h>
 
 template <>
-void WindowContext<GraphicsBackend::Vulkan>::renderIMGUI()
+void WindowContext<Vk>::renderIMGUI()
 {
     ZoneScopedN("renderIMGUI");
     
@@ -36,20 +36,20 @@ void WindowContext<GraphicsBackend::Vulkan>::renderIMGUI()
 }
 
 template <>
-void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<GraphicsBackend::Vulkan> frameBufferExtent)
+void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
 {
     ZoneScopedN("createFrameObjects");
     
-    mySwapchain = std::make_unique<SwapchainContext<GraphicsBackend::Vulkan>>(
+    mySwapchain = std::make_unique<SwapchainContext<Vk>>(
         myDevice,
-        SwapchainCreateDesc<GraphicsBackend::Vulkan>{
+        SwapchainCreateDesc<Vk>{
             {"mySwapchain"},
             frameBufferExtent,
             mySwapchain ? mySwapchain->getSwapchain() : nullptr});
 
-    myViewBuffer = std::make_unique<Buffer<GraphicsBackend::Vulkan>>(
+    myViewBuffer = std::make_unique<Buffer<Vk>>(
         myDevice,
-        BufferCreateDesc<GraphicsBackend::Vulkan>{
+        BufferCreateDesc<Vk>{
             {"myViewBuffer"},
             myDevice->getDesc().swapchainConfig->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(WindowContext::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -70,7 +70,7 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
     uint32_t imageCount;
     VK_CHECK(vkGetSwapchainImagesKHR(myDevice->getDevice(), mySwapchain->getSwapchain(), &imageCount, nullptr));
     
-    std::vector<ImageHandle<GraphicsBackend::Vulkan>> colorImages(imageCount);
+    std::vector<ImageHandle<Vk>> colorImages(imageCount);
     VK_CHECK(vkGetSwapchainImagesKHR(myDevice->getDevice(), mySwapchain->getSwapchain(), &imageCount, colorImages.data()));
 
     uint32_t frameCount = myDevice->getDesc().swapchainConfig->imageCount;
@@ -79,9 +79,9 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
     myFrames.reserve(frameCount);
     
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
-        myFrames.emplace_back(std::make_shared<Frame<GraphicsBackend::Vulkan>>(
+        myFrames.emplace_back(std::make_shared<Frame<Vk>>(
             myDevice,
-            FrameCreateDesc<GraphicsBackend::Vulkan>{
+            FrameCreateDesc<Vk>{
                 {{"Frame"},
                 { frameBufferExtent.width, frameBufferExtent.height },
                 make_vector(myDevice->getDesc().swapchainConfig->surfaceFormat.format),
@@ -94,7 +94,7 @@ void WindowContext<GraphicsBackend::Vulkan>::createFrameObjects(Extent2d<Graphic
 }
 
 template <>
-void WindowContext<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameIndex) const
+void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
 {
     ZoneScopedN("updateViewBuffer");
 
@@ -120,7 +120,7 @@ void WindowContext<GraphicsBackend::Vulkan>::updateViewBuffer(uint32_t frameInde
 }
 
 template <>
-std::tuple<bool, uint32_t, uint64_t> WindowContext<GraphicsBackend::Vulkan>::flipFrame(uint32_t lastFrameIndex) const
+std::tuple<bool, uint32_t, uint64_t> WindowContext<Vk>::flipFrame(uint32_t lastFrameIndex) const
 {
     ZoneScoped;
 
@@ -169,10 +169,10 @@ std::tuple<bool, uint32_t, uint64_t> WindowContext<GraphicsBackend::Vulkan>::fli
 }
 
 template <>
-uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
+uint64_t WindowContext<Vk>::submitFrame(
     uint32_t frameIndex,
     uint32_t lastFrameIndex,
-    const std::shared_ptr<PipelineContext<GraphicsBackend::Vulkan>>& pipeline,
+    const std::shared_ptr<PipelineContext<Vk>>& pipeline,
     uint64_t waitTimelineValue)
 {
     ZoneScopedN("submitFrame");
@@ -209,11 +209,11 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         {        
             ZoneScopedN("drawIMGUI");
 
-            CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+            CommandBufferInheritanceInfo<Vk> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
             inherit.renderPass = pipeline->resources()->renderTarget->getRenderPass();
             inherit.framebuffer = pipeline->resources()->renderTarget->getFramebuffer();
 
-            CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
+            CommandContextBeginInfo<Vk> secBeginInfo = {};
             secBeginInfo.flags =
                 VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
                 VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
@@ -265,11 +265,11 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
                 
-                CommandBufferInheritanceInfo<GraphicsBackend::Vulkan> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+                CommandBufferInheritanceInfo<Vk> inherit = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                 inherit.renderPass = pipeline->resources()->renderTarget->getRenderPass();
                 inherit.framebuffer = pipeline->resources()->renderTarget->getFramebuffer();
 
-                CommandContextBeginInfo<GraphicsBackend::Vulkan> secBeginInfo = {};
+                CommandContextBeginInfo<Vk> secBeginInfo = {};
                 secBeginInfo.flags =
                     VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
                     VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
@@ -454,12 +454,12 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
     {
         ZoneScopedN("submitCommands");
 
-        SemaphoreHandle<GraphicsBackend::Vulkan> waitSemaphores[2] = {
+        SemaphoreHandle<Vk> waitSemaphores[2] = {
             myDevice->getTimelineSemaphore(), lastFrame->getNewImageAcquiredSemaphore() };
-        Flags<GraphicsBackend::Vulkan> waitDstStageMasks[2] = {
+        Flags<Vk> waitDstStageMasks[2] = {
             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         uint64_t waitTimelineValues[2] = { waitTimelineValue, 1 };
-        SemaphoreHandle<GraphicsBackend::Vulkan> signalSemaphores[2] = {
+        SemaphoreHandle<Vk> signalSemaphores[2] = {
             myDevice->getTimelineSemaphore(), frame->getRenderCompleteSemaphore() };
         uint64_t signalTimelineValues[2] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1 };
         submitTimelineValue = primaryCommandContext->submit({
@@ -479,7 +479,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 }
 
 template <>
-void WindowContext<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) const
+void WindowContext<Vk>::presentFrame(uint32_t frameIndex) const
 {
     ZoneScopedN("presentFrame");
 
@@ -495,7 +495,7 @@ void WindowContext<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) c
 }
 
 template <>
-void WindowContext<GraphicsBackend::Vulkan>::updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex)
+void WindowContext<Vk>::updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex)
 {
     ZoneScopedN("updateInput");
 
@@ -607,9 +607,9 @@ void WindowContext<GraphicsBackend::Vulkan>::updateInput(const InputState& input
 }
 
 template <>
-WindowContext<GraphicsBackend::Vulkan>::WindowContext(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    WindowCreateDesc<GraphicsBackend::Vulkan>&& desc)
+WindowContext<Vk>::WindowContext(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    WindowCreateDesc<Vk>&& desc)
 : myDevice(deviceContext)
 , myDesc(std::move(desc))
 {
@@ -634,9 +634,9 @@ WindowContext<GraphicsBackend::Vulkan>::WindowContext(
 
         for (uint32_t poolIt = 0; poolIt < commandContextPerFrameCount; poolIt++)
         {
-            frameCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
+            frameCommandContexts.emplace_back(std::make_shared<CommandContext<Vk>>(
                 myDevice,
-                CommandContextCreateDesc<GraphicsBackend::Vulkan>{graphicsCommandPools[frameIt * commandContextPerFrameCount + poolIt]}));
+                CommandContextCreateDesc<Vk>{graphicsCommandPools[frameIt * commandContextPerFrameCount + poolIt]}));
         }
     }
 }

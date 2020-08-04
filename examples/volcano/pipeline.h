@@ -93,7 +93,7 @@ public:
     auto getPipeline() const { return myCurrent.value()->second; }
 
     // temp!
-    void updateDescriptorSets(BufferHandle<GraphicsBackend::Vulkan> buffer);
+    void updateDescriptorSets(BufferHandle<Vk> buffer);
     void createGraphicsPipeline();
     auto& resources() { return myResources; }
     auto& layout() { return myLayout; }

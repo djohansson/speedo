@@ -36,7 +36,7 @@ namespace model
 
 std::vector<VkVertexInputBindingDescription>
 calculateInputBindingDescriptions(
-	const std::vector<SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>>& attributes)
+	const std::vector<SerializableVertexInputAttributeDescription<Vk>>& attributes)
 {
 	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
 
@@ -74,24 +74,24 @@ calculateInputBindingDescriptions(
 
 	// assert(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
 
-	return {VertexInputBindingDescription<GraphicsBackend::Vulkan>{0u, stride,
+	return {VertexInputBindingDescription<Vk>{0u, stride,
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
 std::tuple<
-	ModelCreateDesc<GraphicsBackend::Vulkan>,
-	BufferHandle<GraphicsBackend::Vulkan>,
-	AllocationHandle<GraphicsBackend::Vulkan>>
+	ModelCreateDesc<Vk>,
+	BufferHandle<Vk>,
+	AllocationHandle<Vk>>
 load(
 	const std::filesystem::path& modelFile,
-	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
 	ZoneScopedN("model::load()");
 
 	std::tuple<
-		ModelCreateDesc<GraphicsBackend::Vulkan>,
-		BufferHandle<GraphicsBackend::Vulkan>,
-		AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
+		ModelCreateDesc<Vk>,
+		BufferHandle<Vk>,
+		AllocationHandle<Vk>> descAndInitialData = {};
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = modelFile.filename().generic_string();
@@ -169,11 +169,11 @@ load(
 
 		// todo: read this from file
 		desc.attributes.emplace_back(
-			SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>{{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u}});
+			SerializableVertexInputAttributeDescription<Vk>{{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u}});
 		desc.attributes.emplace_back(
-			SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>{{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u}});
+			SerializableVertexInputAttributeDescription<Vk>{{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u}});
 		desc.attributes.emplace_back(
-			SerializableVertexInputAttributeDescription<GraphicsBackend::Vulkan>{{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u}});
+			SerializableVertexInputAttributeDescription<Vk>{{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u}});
 
 		std::unordered_map<uint64_t, uint32_t> uniqueVertices;
 
@@ -267,19 +267,19 @@ load(
 } // namespace model
 
 template <>
-Model<GraphicsBackend::Vulkan>::Model(
-	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-	const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+Model<Vk>::Model(
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<CommandContext<Vk>>& commandContext,
 	std::tuple<
-		ModelCreateDesc<GraphicsBackend::Vulkan>,
-		BufferHandle<GraphicsBackend::Vulkan>,
-		AllocationHandle<GraphicsBackend::Vulkan>>&& descAndInitialData)
+		ModelCreateDesc<Vk>,
+		BufferHandle<Vk>,
+		AllocationHandle<Vk>>&& descAndInitialData)
 : myDesc(std::move(std::get<0>(descAndInitialData)))
 , myBuffer(
 	deviceContext,
 	commandContext,
 	std::make_tuple(
-		BufferCreateDesc<GraphicsBackend::Vulkan>{ { std::get<0>(descAndInitialData).name },
+		BufferCreateDesc<Vk>{ { std::get<0>(descAndInitialData).name },
 			std::get<0>(descAndInitialData).indexBufferSize + std::get<0>(descAndInitialData).vertexBufferSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT },
@@ -290,9 +290,9 @@ Model<GraphicsBackend::Vulkan>::Model(
 }
 
 template <>
-Model<GraphicsBackend::Vulkan>::Model(
-	const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-	const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+Model<Vk>::Model(
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<CommandContext<Vk>>& commandContext,
 	const std::filesystem::path& modelFile)
 	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
 {

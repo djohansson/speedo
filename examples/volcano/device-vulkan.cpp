@@ -14,7 +14,7 @@ static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT = {};
 }
 
 template <>
-uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() const
+uint64_t DeviceContext<Vk>::getTimelineSemaphoreValue() const
 {
     uint64_t value;
     VK_CHECK(vkGetSemaphoreCounterValue(
@@ -26,7 +26,7 @@ uint64_t DeviceContext<GraphicsBackend::Vulkan>::getTimelineSemaphoreValue() con
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
+void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 {
     VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
     waitInfo.flags = 0;
@@ -38,7 +38,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::wait(uint64_t timelineValue) const
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
+void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
 {
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
@@ -49,7 +49,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallback(std::function<v
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
+void DeviceContext<Vk>::addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
 {
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
     
@@ -60,7 +60,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallback(uint64_t timeli
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallbacks(
+void DeviceContext<Vk>::addTimelineCallbacks(
     uint64_t timelineValue,
     const std::list<std::function<void(uint64_t)>>& callbacks)
 {
@@ -74,7 +74,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::addTimelineCallbacks(
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
+void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
 {
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
@@ -93,9 +93,9 @@ void DeviceContext<GraphicsBackend::Vulkan>::processTimelineCallbacks(std::optio
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::addOwnedObject(
+void DeviceContext<Vk>::addOwnedObject(
     void* owner,
-    ObjectType<GraphicsBackend::Vulkan> objectType,
+    ObjectType<Vk> objectType,
     uint64_t objectHandle,
     const char* objectName)
 {
@@ -116,7 +116,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::addOwnedObject(
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::clearOwnedObjects(void* owner)
+void DeviceContext<Vk>::clearOwnedObjects(void* owner)
 {
     std::unique_lock writelock(myObjectsMutex);
     auto& objects = myOwnerToDeviceObjectsMap[reinterpret_cast<uintptr_t>(owner)];
@@ -126,7 +126,7 @@ void DeviceContext<GraphicsBackend::Vulkan>::clearOwnedObjects(void* owner)
 }
 
 template <>
-void DeviceContext<GraphicsBackend::Vulkan>::moveOwnedObjects(void* owner, void* newOwner)
+void DeviceContext<Vk>::moveOwnedObjects(void* owner, void* newOwner)
 {
     std::unique_lock writelock(myObjectsMutex);
     auto nodeHandle = myOwnerToDeviceObjectsMap.extract(reinterpret_cast<uintptr_t>(owner));
@@ -135,16 +135,16 @@ void DeviceContext<GraphicsBackend::Vulkan>::moveOwnedObjects(void* owner, void*
 }
 
 template <>
-uint32_t DeviceContext<GraphicsBackend::Vulkan>::getTypeCount(ObjectType<GraphicsBackend::Vulkan> type)
+uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 {
     std::shared_lock readlock(myObjectsMutex);
     return myObjectTypeToCountMap[type];
 }
 
 template <>
-DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
-    const std::shared_ptr<InstanceContext<GraphicsBackend::Vulkan>>& instanceContext,
-    AutoSaveJSONFileObject<DeviceConfiguration<GraphicsBackend::Vulkan>>&& config)
+DeviceContext<Vk>::DeviceContext(
+    const std::shared_ptr<InstanceContext<Vk>>& instanceContext,
+    AutoSaveJSONFileObject<DeviceConfiguration<Vk>>&& config)
 : myInstance(instanceContext)
 , myConfig(std::move(config))
 {
@@ -155,15 +155,15 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
     if (!myConfig.swapchainConfig)
     {
-        myConfig.swapchainConfig = std::make_optional(SwapchainConfiguration<GraphicsBackend::Vulkan>{});
+        myConfig.swapchainConfig = std::make_optional(SwapchainConfiguration<Vk>{});
 
-        const Format<GraphicsBackend::Vulkan> requestSurfaceImageFormat[] = {
+        const Format<Vk> requestSurfaceImageFormat[] = {
             VK_FORMAT_B8G8R8A8_UNORM,
             VK_FORMAT_R8G8B8A8_UNORM,
             VK_FORMAT_B8G8R8_UNORM,
             VK_FORMAT_R8G8B8_UNORM };
-        const ColorSpace<GraphicsBackend::Vulkan> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-        const PresentMode<GraphicsBackend::Vulkan> requestPresentMode[] = {
+        const ColorSpace<Vk> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        const PresentMode<Vk> requestPresentMode[] = {
             VK_PRESENT_MODE_MAILBOX_KHR,
             VK_PRESENT_MODE_FIFO_RELAXED_KHR,
             VK_PRESENT_MODE_FIFO_KHR,
@@ -174,7 +174,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
         for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
                 request_i++)
         {
-            SurfaceFormat<GraphicsBackend::Vulkan> requestedFormat =
+            SurfaceFormat<Vk> requestedFormat =
             {
                 requestSurfaceImageFormat[request_i],
                 requestSurfaceColorSpace
@@ -437,7 +437,7 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 }
 
 template <>
-DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
+DeviceContext<Vk>::~DeviceContext()
 {
     ZoneScopedN("~DeviceContext()");
 
@@ -460,7 +460,7 @@ DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
 }
 
 template <> 
-DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(DeviceResource<GraphicsBackend::Vulkan>&& other)
+DeviceResource<Vk>::DeviceResource(DeviceResource<Vk>&& other)
 : myDevice(std::exchange(other.myDevice, {}))
 , myName(std::exchange(other.myName, {}))
 {
@@ -468,20 +468,20 @@ DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(DeviceResource<GraphicsB
 }
 
 template <> 
-DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const DeviceResourceCreateDesc<GraphicsBackend::Vulkan>& desc)
+DeviceResource<Vk>::DeviceResource(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const DeviceResourceCreateDesc<Vk>& desc)
 : myDevice(deviceContext)
 , myName(std::move(desc.name))
 {
 }
 
 template <> 
-DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const DeviceResourceCreateDesc<GraphicsBackend::Vulkan>& desc,
+DeviceResource<Vk>::DeviceResource(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const DeviceResourceCreateDesc<Vk>& desc,
     uint32_t objectCount,
-    ObjectType<GraphicsBackend::Vulkan> objectType,
+    ObjectType<Vk> objectType,
     const uint64_t* objectHandles)
 : DeviceResource(deviceContext, desc)
 {
@@ -502,14 +502,14 @@ DeviceResource<GraphicsBackend::Vulkan>::DeviceResource(
 }
 
 template <>
-DeviceResource<GraphicsBackend::Vulkan>::~DeviceResource()
+DeviceResource<Vk>::~DeviceResource()
 {
     if (myDevice)
         myDevice->clearOwnedObjects(this);
 }
 
 template <>
-DeviceResource<GraphicsBackend::Vulkan>& DeviceResource<GraphicsBackend::Vulkan>::operator=(DeviceResource&& other)
+DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other)
 {
     myDevice->moveOwnedObjects(&other, this);
 

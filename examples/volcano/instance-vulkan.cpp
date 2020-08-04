@@ -10,22 +10,22 @@ namespace instance
 static PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2 = {};
 static PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2 = {};
 
-SurfaceCapabilities<GraphicsBackend::Vulkan> getSurfaceCapabilities(
-    SurfaceHandle<GraphicsBackend::Vulkan> surface,
-    PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+SurfaceCapabilities<Vk> getSurfaceCapabilities(
+    SurfaceHandle<Vk> surface,
+    PhysicalDeviceHandle<Vk> device)
 {
-    SurfaceCapabilities<GraphicsBackend::Vulkan> capabilities;
+    SurfaceCapabilities<Vk> capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
 
     return capabilities;
 }
 
-PhysicalDeviceInfo<GraphicsBackend::Vulkan> getPhysicalDeviceInfo(
-	SurfaceHandle<GraphicsBackend::Vulkan> surface,
-    InstanceHandle<GraphicsBackend::Vulkan> instance,
-	PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+PhysicalDeviceInfo<Vk> getPhysicalDeviceInfo(
+	SurfaceHandle<Vk> surface,
+    InstanceHandle<Vk> instance,
+	PhysicalDeviceHandle<Vk> device)
 {
-    PhysicalDeviceInfo<GraphicsBackend::Vulkan> deviceInfo = {};
+    PhysicalDeviceInfo<Vk> deviceInfo = {};
 
     instance::vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
         vkGetInstanceProcAddr(
@@ -138,7 +138,7 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 }
 
 template <>
-InstanceConfiguration<GraphicsBackend::Vulkan>::InstanceConfiguration()
+InstanceConfiguration<Vk>::InstanceConfiguration()
 : appInfo{
     VK_STRUCTURE_TYPE_APPLICATION_INFO,
     nullptr,
@@ -151,14 +151,14 @@ InstanceConfiguration<GraphicsBackend::Vulkan>::InstanceConfiguration()
 }
 
 template <>
-void InstanceContext<GraphicsBackend::Vulkan>::updateSurfaceCapabilities(PhysicalDeviceHandle<GraphicsBackend::Vulkan> device)
+void InstanceContext<Vk>::updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device)
 {
     myPhysicalDeviceInfos[device].swapchainInfo.capabilities = instance::getSurfaceCapabilities(mySurface, device);
 }
 
 template <>
-InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
-    AutoSaveJSONFileObject<InstanceConfiguration<GraphicsBackend::Vulkan>>&& config,
+InstanceContext<Vk>::InstanceContext(
+    AutoSaveJSONFileObject<InstanceConfiguration<Vk>>&& config,
     void* surfaceHandle)
 : myConfig(std::move(config))
 {
@@ -318,7 +318,7 @@ InstanceContext<GraphicsBackend::Vulkan>::InstanceContext(
 }
 
 template <>
-InstanceContext<GraphicsBackend::Vulkan>::~InstanceContext()
+InstanceContext<Vk>::~InstanceContext()
 {
     ZoneScopedN("~Instance()");
 
