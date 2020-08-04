@@ -371,15 +371,13 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
 
         uint32_t frameCount = queueFamilyPresentSupport ? myConfig.swapchainConfig->imageCount : 1;
 
-        queueFamilyDesc.commandPools.resize(frameCount);
+        queueFamilyDesc.commandPools.resize(frameCount * queueFamilyProperty.queueCount);
 
         for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
         {
-            auto& frameCommandPools = queueFamilyDesc.commandPools[frameIt];
-            frameCommandPools.resize(queueFamilyProperty.queueCount);
             for (uint32_t queueIt = 0; queueIt < queueFamilyProperty.queueCount; queueIt++)
             {
-                frameCommandPools[queueIt] = createCommandPool(
+                auto commandPool = createCommandPool(
                     myDevice,
                     cmdPoolCreateFlags,
                     queueFamilyIt);
@@ -398,8 +396,10 @@ DeviceContext<GraphicsBackend::Vulkan>::DeviceContext(
                 addOwnedObject(
                     this,
                     VK_OBJECT_TYPE_COMMAND_POOL,
-                    reinterpret_cast<uint64_t>(frameCommandPools[queueIt]),
+                    reinterpret_cast<uint64_t>(commandPool),
                     stringBuffer);
+
+                queueFamilyDesc.commandPools[frameIt * queueFamilyProperty.queueCount + queueIt] = commandPool;
             }
         }
     }
@@ -453,9 +453,8 @@ DeviceContext<GraphicsBackend::Vulkan>::~DeviceContext()
     vmaDestroyAllocator(myAllocator);
 
     for (const auto& queueFamily : myQueueFamilyDescs)
-        for (auto commandPoolVector : queueFamily.commandPools)
-            for (auto commandPool : commandPoolVector)
-                vkDestroyCommandPool(myDevice, commandPool, nullptr);
+        for (auto commandPool : queueFamily.commandPools)
+            vkDestroyCommandPool(myDevice, commandPool, nullptr);
 
     vkDestroyDevice(myDevice, nullptr);
 }

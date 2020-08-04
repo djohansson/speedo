@@ -23,7 +23,7 @@ struct WindowCreateDesc
 	Extent2d<B> windowExtent = {};
 	Extent2d<B> framebufferExtent = {};
 	Extent2d<B> splitScreenGrid = {};
-	uint8_t maxViewCommandContextCount = 4;
+	uint8_t maxCommandContextPerFrameCount = 4;
 };
 
 template <GraphicsBackend B>
@@ -52,7 +52,7 @@ public:
 	}
 
 	auto& frames() { return myFrames; }
-	auto& commandContexts() { return myCommands; }
+	auto& commandContext(uint32_t frameIndex, uint32_t contextIndex = 0) { return myCommands[frameIndex][contextIndex]; }
 	
 	void updateInput(const InputState& input, uint32_t frameIndex, uint32_t lastFrameIndex);
 

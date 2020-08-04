@@ -50,7 +50,7 @@ template <GraphicsBackend B>
 struct QueueFamilyDesc
 {
     std::vector<QueueHandle<B>> queues;
-    std::vector<std::vector<CommandPoolHandle<B>>> commandPools; // frameCount * queueCount
+    std::vector<CommandPoolHandle<B>> commandPools; // (frameCount:1) * queueCount
     uint8_t flags = 0;
 };
 
@@ -71,14 +71,16 @@ public:
     auto getSurface() const { return myInstance->getSurface(); }
 
     const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
+
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
     uint32_t getTransferQueueFamilyIndex() const { return myTransferQueueFamilyIndex; }
     uint32_t getComputeQueueFamilyIndex() const { return myComputeQueueFamilyIndex; }
 
+    auto getGraphicsQueue() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].queues[myCurrentGraphicsQueue]; }
+    auto getTransferQueue() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].queues[myCurrentTransferQueue]; }
+    auto getComputeQueue() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].queues[myCurrentComputeQueue]; }
+
     // temp
-    QueueHandle<B> getPrimaryGraphicsQueue() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].queues[0]; }
-    QueueHandle<B> getPrimaryTransferQueue() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].queues[0]; }
-    QueueHandle<B> getPrimaryComputeQueue() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].queues[0]; }
     const auto& getGraphicsCommandPools() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].commandPools; }
     const auto& getTransferCommandPools() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].commandPools; }
     const auto& getComputeCommandPools() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].commandPools; }
@@ -116,6 +118,9 @@ private:
     uint32_t myGraphicsQueueFamilyIndex = 0; // todo: configure
     uint32_t myTransferQueueFamilyIndex = 1; // todo: configure
     uint32_t myComputeQueueFamilyIndex = 2; // todo: configure
+    uint32_t myCurrentGraphicsQueue = 0; // todo:
+    uint32_t myCurrentTransferQueue = 0; // todo:
+    uint32_t myCurrentComputeQueue = 0; // todo:
     
     AllocatorHandle<B> myAllocator = 0;
 	DescriptorPoolHandle<B> myDescriptorPool = 0;

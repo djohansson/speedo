@@ -81,7 +81,7 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     initInfo.PhysicalDevice = myDevice->getPhysicalDevice();
     initInfo.Device = myDevice->getDevice();
     initInfo.QueueFamily = myDevice->getGraphicsQueueFamilyIndex();
-    initInfo.Queue = myDevice->getPrimaryGraphicsQueue();
+    initInfo.Queue = myDevice->getGraphicsQueue();
     initInfo.PipelineCache = myGraphicsPipeline->getCache();
     initInfo.DescriptorPool = myDevice->getDescriptorPool();
     initInfo.MinImageCount = myDevice->getDesc().swapchainConfig->imageCount;
@@ -170,12 +170,12 @@ void Application<GraphicsBackend::Vulkan>::processTimelineCallbacks(uint64_t tim
         // {
         //     ZoneScopedN("tracyVkCollectTransfer");
 
-        //     auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
-        //     auto primaryCommands = primaryCommandContext->beginScope();
+        //     auto& primaryCommandContext = myWindow->commandContext(frameIndex);
+        //     auto cmd = primaryCommandContext->beginScope();
 
         //     TracyVkCollect(
         //         myTransferCommands->userData<command::UserData>().tracyContext,
-        //         primaryCommands);
+        //         cmd);
         // }
     }
     else
@@ -253,7 +253,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myTransferCommands = std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
         myDevice,
-        CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0][0]});
+        CommandContextCreateDesc<GraphicsBackend::Vulkan>{myDevice->getTransferCommandPools()[0]});
     {
         myGraphicsPipeline->resources()->model = std::make_shared<Model<GraphicsBackend::Vulkan>>(
             myDevice,
@@ -278,7 +278,7 @@ Application<GraphicsBackend::Vulkan>::Application(
         // submit transfers.
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommands->submit({
-            myDevice->getPrimaryTransferQueue(),
+            myDevice->getTransferQueue(),
             0,
             nullptr,
             nullptr,
@@ -293,21 +293,22 @@ Application<GraphicsBackend::Vulkan>::Application(
     // stuff that needs to be initialized on graphics queue
     {
         auto& frame = myWindow->frames()[myLastFrameIndex];
-        auto& primaryCommandContext = myWindow->commandContexts()[frame->getDesc().index][0];
-        
+        auto& primaryCommandContext = myWindow->commandContext(frame->getDesc().index);
+
+        auto initDrawCommands = [this](CommandBufferHandle<GraphicsBackend::Vulkan> cmd)
         {
-            auto primaryCommands = primaryCommandContext->commands();
+            initIMGUI(myDevice, cmd, myUserProfilePath);
 
-            initIMGUI(myDevice, primaryCommands, myUserProfilePath);
+            myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        };
 
-            myGraphicsPipeline->resources()->image->transition(primaryCommands, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        }
+        initDrawCommands(primaryCommandContext->commands());
         
         Flags<GraphicsBackend::Vulkan> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastFrameTimelineValue = primaryCommandContext->submit({
-            myDevice->getPrimaryGraphicsQueue(),
+            myDevice->getGraphicsQueue(),
             1,
             &myDevice->getTimelineSemaphore(),
             &waitDstStageMask,
@@ -338,7 +339,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommands->submit({
-            myDevice->getPrimaryTransferQueue(),
+            myDevice->getTransferQueue(),
             0,
             nullptr,
             nullptr,
@@ -371,7 +372,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
         myLastTransferTimelineValue = myTransferCommands->submit({
-            myDevice->getPrimaryTransferQueue(),
+            myDevice->getTransferQueue(),
             0,
             nullptr,
             nullptr,
@@ -820,11 +821,11 @@ bool Application<GraphicsBackend::Vulkan>::draw()
 
         if (const auto& depthStencilImage = myRenderImageSet->getDepthStencilImages(); depthStencilImage)
         {
-            auto& primaryCommandContext = myWindow->commandContexts()[frameIndex][0];
-            auto primaryCommands = primaryCommandContext->commands();
+            auto& primaryCommandContext = myWindow->commandContext(frameIndex);
+            auto cmd = primaryCommandContext->commands();
 
-            depthStencilImage->clearDepthStencil(primaryCommands, { 1.0f, 0 });
-            depthStencilImage->transition(primaryCommands, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            depthStencilImage->clearDepthStencil(cmd, { 1.0f, 0 });
+            depthStencilImage->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         }
 
         myLastFrameTimelineValue = myWindow->submitFrame(
@@ -878,7 +879,7 @@ bool Application<GraphicsBackend::Vulkan>::draw()
             uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
             auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
             myLastTransferTimelineValue = myTransferCommands->submit({
-                myDevice->getPrimaryTransferQueue(),
+                myDevice->getTransferQueue(),
                 1,
                 &myDevice->getTimelineSemaphore(),
                 &waitDstStageMask,

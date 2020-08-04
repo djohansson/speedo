@@ -181,20 +181,17 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
     auto& frame = myFrames[frameIndex];
     auto& lastFrame = myFrames[lastFrameIndex];
-    auto& primaryCommandContext = commandContexts()[frameIndex][0];
+    auto& primaryCommandContext = myCommands[frameIndex][0];
 
     // {
     //     ZoneScopedN("tracyVkCollect");
 
-    //     for (uint32_t contextIt = 0; contextIt < 1/*frame->commandContexts().size()*/; contextIt++)
-    //     {
-    //         auto& commandContext = commandContexts()[frameIndex][contextIt];
-    //         auto cmd = commandContext->beginScope();
+        // auto& commandContext = myCommands[frameIndex][0];
+        // auto cmd = commandContext->beginScope();
 
-    //         TracyVkCollect(
-    //             commandContext->userData<command_vulkan::UserData>().tracyContext,
-    //             cmd);
-    //     }
+        // TracyVkCollect(
+        //     commandContext->userData<command_vulkan::UserData>().tracyContext,
+        //     cmd);
     // }
 
     std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
@@ -223,7 +220,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             secBeginInfo.pInheritanceInfo = &inherit;
             secBeginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 
-            auto& commandContext = commandContexts()[frame->getDesc().index][commandContextIndex];
+            auto& commandContext = myCommands[frame->getDesc().index][commandContextIndex];
             auto cmd = commandContext->commands(std::move(secBeginInfo));
 
             // TracyVkZone(
@@ -236,7 +233,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
 
     // setup draw parameters
     uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
-    uint32_t drawCommandContextCount = static_cast<uint32_t>(commandContexts()[frameIndex].size()) - 1;
+    uint32_t drawCommandContextCount = static_cast<uint32_t>(myCommands[frameIndex].size()) - 1;
     uint32_t drawThreadCount = std::min<uint32_t>(drawCount, drawCommandContextCount);
 
     std::atomic_uint32_t drawAtomic = 0;
@@ -279,7 +276,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
                 secBeginInfo.pInheritanceInfo = &inherit;
                 secBeginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
                     
-                auto& commandContext = commandContexts()[frame->getDesc().index][threadIt];
+                auto& commandContext = myCommands[frame->getDesc().index][threadIt];
                 auto cmd = commandContext->commands(std::move(secBeginInfo));
 
                 // TracyVkZone(
@@ -372,27 +369,27 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
     {
         ZoneScopedN("executeCommands");
 
-        auto primaryCommands = primaryCommandContext->commands();
+        auto cmd = primaryCommandContext->commands();
 
         // TracyVkZone(
         //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
-        //     primaryCommands, "executeCommands");
+        //     cmd, "executeCommands");
 
-        pipeline->resources()->renderTarget->begin(primaryCommands, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
+        pipeline->resources()->renderTarget->begin(cmd, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
 
-        // config.resources->renderTarget->clearSingle(primaryCommands, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
+        // config.resources->renderTarget->clearSingle(cmd, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
         // config.resources->renderTarget->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
         
         // views
         for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
-            primaryCommandContext->execute(*commandContexts()[frameIndex][contextIt]);
+            primaryCommandContext->execute(*myCommands[frameIndex][contextIt]);
 
-        pipeline->resources()->renderTarget->nextSubpass(primaryCommands, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        pipeline->resources()->renderTarget->nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
         // ui
-        primaryCommandContext->execute(*commandContexts()[frameIndex][0]);
+        primaryCommandContext->execute(*myCommands[frameIndex][0]);
 
-        pipeline->resources()->renderTarget->end(primaryCommands);
+        pipeline->resources()->renderTarget->end(cmd);
 
         VkOffset3D blitSize;
         blitSize.x = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent.width;
@@ -408,21 +405,21 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
         imageBlitRegion.dstOffsets[1] = blitSize;
 
         transitionImageLayout(
-            primaryCommands,
+            cmd,
             pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
             pipeline->resources()->renderTarget->getRenderTargetDesc().colorImageFormats[0],
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
         transitionImageLayout(
-            primaryCommands,
+            cmd,
             frame->getDesc().colorImages[0],
             frame->getDesc().colorImageFormats[0],
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         vkCmdBlitImage(
-            primaryCommands,
+            cmd,
             pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             frame->getDesc().colorImages[0],
@@ -432,14 +429,14 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             VK_FILTER_NEAREST);
 
         transitionImageLayout(
-            primaryCommands,
+            cmd,
             pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
             pipeline->resources()->renderTarget->getRenderTargetDesc().colorImageFormats[0],
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
         transitionImageLayout(
-            primaryCommands,
+            cmd,
             frame->getDesc().colorImages[0],
             frame->getDesc().colorImageFormats[0],
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -466,7 +463,7 @@ uint64_t WindowContext<GraphicsBackend::Vulkan>::submitFrame(
             myDevice->getTimelineSemaphore(), frame->getRenderCompleteSemaphore() };
         uint64_t signalTimelineValues[2] = { 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1 };
         submitTimelineValue = primaryCommandContext->submit({
-            myDevice->getPrimaryGraphicsQueue(),
+            myDevice->getGraphicsQueue(),
             2,
             waitSemaphores,
             waitDstStageMasks,
@@ -494,7 +491,7 @@ void WindowContext<GraphicsBackend::Vulkan>::presentFrame(uint32_t frameIndex) c
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchain->getSwapchain();
     info.pImageIndices = &frameIndex;
-    checkFlipOrPresentResult(vkQueuePresentKHR(myDevice->getPrimaryGraphicsQueue(), &info));
+    checkFlipOrPresentResult(vkQueuePresentKHR(myDevice->getGraphicsQueue(), &info));
 }
 
 template <>
@@ -620,19 +617,26 @@ WindowContext<GraphicsBackend::Vulkan>::WindowContext(
 
     createFrameObjects(desc.framebufferExtent);
 
-    for (const auto& frame : myFrames)
+    const auto& graphicsCommandPools = myDevice->getGraphicsCommandPools();
+
+    uint32_t frameCount = myFrames.size();
+    uint32_t commandContextCount = std::min<uint32_t>(graphicsCommandPools.size(), myDesc.maxCommandContextPerFrameCount * frameCount);
+    assert(commandContextCount >= frameCount);
+    uint32_t commandContextPerFrameCount = commandContextCount / frameCount;
+
+    myCommands.resize(frameCount);
+
+    for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
     {
-        auto& frameCommandContexts = myCommands.emplace_back();
-        const auto& frameCommandPools = myDevice->getGraphicsCommandPools()[frame->getDesc().index];
+        auto& frameCommandContexts = myCommands[frameIt];
+        
+        frameCommandContexts.reserve(commandContextPerFrameCount);
 
-        uint32_t commandContextCount = std::min<uint32_t>(frameCommandPools.size(), myDesc.maxViewCommandContextCount);
-        frameCommandContexts.reserve(commandContextCount);
-
-        for (uint32_t poolIt = 0; poolIt < commandContextCount; poolIt++)
+        for (uint32_t poolIt = 0; poolIt < commandContextPerFrameCount; poolIt++)
         {
             frameCommandContexts.emplace_back(std::make_shared<CommandContext<GraphicsBackend::Vulkan>>(
                 myDevice,
-                CommandContextCreateDesc<GraphicsBackend::Vulkan>{frameCommandPools[poolIt]}));
+                CommandContextCreateDesc<GraphicsBackend::Vulkan>{graphicsCommandPools[frameIt * commandContextPerFrameCount + poolIt]}));
         }
     }
 }
