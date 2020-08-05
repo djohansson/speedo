@@ -3,35 +3,33 @@ class RenderTargetImpl<CreateDescType, Vk> : public RenderTarget<Vk>
 {
 public:
 
+    virtual ~RenderTargetImpl() = default;
+
     virtual const RenderTargetCreateDesc<Vk>& getRenderTargetDesc() const final { return myDesc; };
 
     const auto& getDesc() const { return myDesc; }
 
 protected:
 
-	RenderTargetImpl(RenderTargetImpl<CreateDescType, Vk>&& other);
+	RenderTargetImpl(RenderTargetImpl<CreateDescType, Vk>&& other) = default;
 	RenderTargetImpl(
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
         CreateDescType&& desc);
-	virtual ~RenderTargetImpl() = default;
 
-    RenderTargetImpl& operator=(RenderTargetImpl&& other) = default;
+    RenderTargetImpl<CreateDescType, Vk>& operator=(RenderTargetImpl<CreateDescType, Vk>&& other) = default;
 
 private:
 
     const CreateDescType myDesc = {};
 };
 
-template <typename CreateDescType>
-RenderTargetImpl<CreateDescType, Vk>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    CreateDescType&& desc)
-: RenderTarget<Vk>(deviceContext, desc)
-, myDesc(std::move(desc))
-{
-}
-
 extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext, RenderTargetCreateDesc<Vk>&& desc);
+    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);
+
+// extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
+//     const std::shared_ptr<DeviceContext<Vk>>& deviceContext, RenderTargetCreateDesc<Vk>&& desc);
 
 extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl();
+
+extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
+    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);

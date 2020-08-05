@@ -108,8 +108,31 @@ CommandContextBeginInfo<Vk>::CommandContextBeginInfo()
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
     nullptr,
     VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    nullptr}
+    &inheritance}
+, level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+, inheritance{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO}
 {
+}
+
+template <>
+CommandContextBeginInfo<Vk>::CommandContextBeginInfo(const CommandContextBeginInfo<Vk>& other)
+: CommandBufferBeginInfo<Vk>(other)
+, level(other.level)
+, inheritance(other.inheritance)
+{
+    pInheritanceInfo = &inheritance;
+}
+
+template <>
+CommandContextBeginInfo<Vk>& CommandContextBeginInfo<Vk>::operator=(const CommandContextBeginInfo<Vk>& other)
+{
+    if (this != &other)
+    {
+        *static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
+        level = other.level;
+        inheritance = other.inheritance;
+        pInheritanceInfo = &inheritance;
+    }
 }
 
 template <>
@@ -133,7 +156,7 @@ bool CommandContextBeginInfo<Vk>::operator==(const CommandContextBeginInfo& othe
 
 template <>
 CommandBufferHandle<Vk> CommandContext<Vk>::internalBeginScope(
-    CommandContextBeginInfo<Vk>&& beginInfo)
+    const CommandContextBeginInfo<Vk>& beginInfo)
 {
     if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
         enqueueOnePending(beginInfo.level);
@@ -141,7 +164,7 @@ CommandBufferHandle<Vk> CommandContext<Vk>::internalBeginScope(
     myRecordingCommands.emplace(
         CommandBufferAccessScope(
             myPendingCommands[beginInfo.level].back().first,
-            std::move(beginInfo)));
+            beginInfo));
 
     return (*myRecordingCommands);
 }

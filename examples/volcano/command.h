@@ -95,10 +95,13 @@ template <GraphicsBackend B>
 struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
 {
     CommandContextBeginInfo();
+    CommandContextBeginInfo(const CommandContextBeginInfo<B>& other);
 
-    bool operator==(const CommandContextBeginInfo& other) const;
+    CommandContextBeginInfo<B>& operator=(const CommandContextBeginInfo<B>& other);
+    bool operator==(const CommandContextBeginInfo<B>& other) const;
 
     CommandBufferLevel<B> level = {};
+    CommandBufferInheritanceInfo<Vk> inheritance = {};
 };
 
 template <GraphicsBackend B>
@@ -114,7 +117,7 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto commands(CommandContextBeginInfo<B>&& beginInfo = {});
+    auto commands(const CommandContextBeginInfo<B>& beginInfo = {});
     void endCommands(); // only needed for commands recorded as secondary command buffers.
     
     uint64_t execute(CommandContext<B>& callee);
@@ -136,22 +139,16 @@ private:
 
         CommandBufferAccessScope(CommandBufferAccessScope&& other)
         : myArray(other.myArray)
-        , myIndex(other.myIndex)
-        , myBeginInfo(std::move(other.myBeginInfo))
-        {
-            other.myIndex = std::nullopt;
-        };
+        , myIndex(std::exchange(other.myIndex, std::nullopt))
+        , myBeginInfo(std::move(other.myBeginInfo)) {}
         CommandBufferAccessScope(CommandBufferAccessScope const&& other)
         : myArray(other.myArray)
-        , myIndex(other.myIndex)
-        , myBeginInfo(std::move(other.myBeginInfo))
-        {
-            other.myIndex = std::nullopt;
-        };
-        CommandBufferAccessScope(CommandBufferArray<B>& array, CommandContextBeginInfo<B>&& beginInfo)
+        , myIndex(std::exchange(other.myIndex, std::nullopt))
+        , myBeginInfo(std::move(other.myBeginInfo)) {}
+        CommandBufferAccessScope(CommandBufferArray<B>& array, const CommandContextBeginInfo<B>& beginInfo)
         : myArray(array)
         , myIndex(std::make_optional(myArray.begin(beginInfo)))
-        , myBeginInfo(std::move(beginInfo)) {}
+        , myBeginInfo(beginInfo) {}
         ~CommandBufferAccessScope()
         {
             if (myIndex && myArray.recording(*myIndex))
@@ -169,7 +166,7 @@ private:
         CommandContextBeginInfo<B> myBeginInfo = {};
     };
 
-    CommandBufferHandle<B> internalBeginScope(CommandContextBeginInfo<B>&& beginInfo);
+    CommandBufferHandle<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
     CommandBufferHandle<B> internalCommands() const;
 
     using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;

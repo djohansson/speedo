@@ -7,6 +7,9 @@
 #include <memory>
 
 template <GraphicsBackend B>
+class SwapchainContext;
+
+template <GraphicsBackend B>
 struct FrameCreateDesc : RenderTargetCreateDesc<B>
 {
 	uint32_t index = 0;
@@ -29,14 +32,19 @@ public:
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 	const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
-	void setLastSubmitTimelineValue(uint64_t timelineValue) { myLastSubmitTimelineValue = timelineValue; };
-
 protected:
 
     virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;
 
 private:
+
+	friend class SwapchainContext<B>;
+
+	uint64_t submit(
+		const std::shared_ptr<CommandContext<B>>& commandContext,
+		SemaphoreHandle<B> waitSemaphore,
+		uint64_t waitTimelineValue);
 
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;

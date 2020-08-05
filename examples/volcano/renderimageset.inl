@@ -68,11 +68,6 @@ RenderImageSet<B>::RenderImageSet(
 }
 
 template <GraphicsBackend B>
-RenderImageSet<B>::~RenderImageSet()
-{
-}
-
-template <GraphicsBackend B>
 ImageLayout<B> RenderImageSet<B>::getColorImageLayout(uint32_t index) const
 {
     return myColorImages[index]->getImageLayout();

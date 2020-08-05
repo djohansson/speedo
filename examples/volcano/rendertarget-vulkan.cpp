@@ -455,7 +455,18 @@ RenderTarget<Vk>::~RenderTarget()
 }
 
 template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
+    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);
+
+template <>
+RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    RenderTargetCreateDesc<Vk>&& desc);
+    RenderTargetCreateDesc<Vk>&& desc)
+: RenderTarget<Vk>(deviceContext, desc)
+, myDesc(std::move(desc))
+{
+}
 
 template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl();
+
+template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
+    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);

@@ -33,7 +33,7 @@ void Application<Vk>::initIMGUI(
     io.FontAllowUserScaling = true;
     // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
-    // auto& platformIo = ImGui::GetPlatformIO();
+    // auto& platformIo = GetPlatformIO();
     // platformIo.Platform_CreateVkSurface = ...
 
     const auto& surfaceCapabilities = myInstance->getPhysicalDeviceInfo(myDevice->getPhysicalDevice()).swapchainInfo.capabilities;
@@ -120,8 +120,6 @@ void Application<Vk>::createWindowDependentObjects(
     Extent2d<Vk> frameBufferExtent)
 {
     ZoneScopedN("createWindowDependentObjects");
-
-    myLastFrameIndex = myDevice->getDesc().swapchainConfig->imageCount - 1;
 
     auto colorImage = std::make_shared<Image<Vk>>(
         myDevice,
@@ -292,8 +290,8 @@ Application<Vk>::Application(
     
     // stuff that needs to be initialized on graphics queue
     {
-        auto& frame = myWindow->frames()[myLastFrameIndex];
-        auto& primaryCommandContext = myWindow->commandContext(frame->getDesc().index);
+        const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
+        auto& primaryCommandContext = myWindow->commandContext(frame.getDesc().index);
 
         auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd)
         {
@@ -316,8 +314,6 @@ Application<Vk>::Application(
             1,
             &myDevice->getTimelineSemaphore(),
             &signalTimelineValue});
-
-        frame->setLastSubmitTimelineValue(myLastFrameTimelineValue); // todo: remove
     }
 
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
@@ -400,9 +396,12 @@ Application<Vk>::Application(
         });
     };
 
-    myWindow->addIMGUIDrawCallback([this, openFileDialogue, loadModel, loadImage]
+    myImguiDrawFunction = [this, openFileDialogue, loadModel, loadImage](CommandBufferHandle<Vk> cmd)
     {
         using namespace ImGui;
+
+        ImGui_ImplVulkan_NewFrame();
+        NewFrame();
 
         // todo: move elsewhere
         auto editableTextField = [](int id, const char* label, std::string& str, float maxTextWidth, int& inputId)
@@ -418,7 +417,7 @@ Application<Vk>::Application(
             
             if (id == inputId)
             {
-                if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsMouseClicked(0))
+                if (IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !IsMouseClicked(0))
                 {
                     PushAllowKeyboardFocus(true);
                     SetKeyboardFocusHere();
@@ -601,7 +600,7 @@ Application<Vk>::Application(
                             sprintf_s(buffer, sizeof(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
 
                             if (hasInputPin)
-                                ImGui::SameLine();
+                                SameLine();
 
                             imnodes::BeginOutputAttribute(outputAttribute.id);
 
@@ -631,9 +630,9 @@ Application<Vk>::Application(
             
                 imnodes::EndNode();
                 
-                if (ImGui::BeginPopupContextItem())
+                if (BeginPopupContextItem())
                 {
-                    if (ImGui::Selectable("Add Input"))
+                    if (Selectable("Add Input"))
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
@@ -641,7 +640,7 @@ Application<Vk>::Application(
                             inOutNode->inputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
-                    if (ImGui::Selectable("Add Output"))
+                    if (Selectable("Add Output"))
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
@@ -649,7 +648,7 @@ Application<Vk>::Application(
                             inOutNode->outputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
-                    ImGui::EndPopup();
+                    EndPopup();
                 }
             }
         
@@ -661,16 +660,16 @@ Application<Vk>::Application(
             int hoveredNodeId;
             if (/*imnodes::IsEditorHovered() && */
                 !imnodes::IsNodeHovered(&hoveredNodeId) &&
-                ImGui::BeginPopupContextItem("Node Editor Context Menu"))
+                BeginPopupContextItem("Node Editor Context Menu"))
             {
-                ImVec2 clickPos = ImGui::GetMousePosOnOpeningCurrentPopup();
+                ImVec2 clickPos = GetMousePosOnOpeningCurrentPopup();
 
                 enum class NodeType { SlangShaderNode };
                 static constexpr std::pair<NodeType, std::string_view> menuItems[] = { { NodeType::SlangShaderNode, "Slang Shader"} };
 
                 for (const auto& menuItem : menuItems)
                 {
-                    if (ImGui::Selectable(menuItem.second.data()))
+                    if (Selectable(menuItem.second.data()))
                     {
                         int id = ++myNodeGraph.uniqueId;
                         imnodes::SetNodeScreenSpacePos(id, clickPos);
@@ -689,12 +688,12 @@ Application<Vk>::Application(
                     }
                 }
 
-                ImGui::EndPopup();
+                EndPopup();
             }
 
             PopAllowKeyboardFocus();
 
-            ImGui::End();
+            End();
 
             {
                 int startAttr, endAttr;
@@ -713,41 +712,45 @@ Application<Vk>::Application(
             // }
         }
 
-        if (ImGui::BeginMainMenuBar())
+        if (BeginMainMenuBar())
         {
-            if (ImGui::BeginMenu("File"))
+            if (BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
+                if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", std::move(loadModel));
-                if (ImGui::MenuItem("Open Image...") && !myOpenFileFuture.valid())
+                if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", std::move(loadImage));
-                ImGui::Separator();
-                if (ImGui::MenuItem("Exit", "CTRL+Q"))
+                Separator();
+                if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
                     
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("View"))
+            if (BeginMenu("View"))
             {
-                if (ImGui::MenuItem("Node Editor..."))
+                if (MenuItem("Node Editor..."))
                     showNodeEditor = !showNodeEditor;
-                if (ImGui::MenuItem("Statistics..."))
+                if (MenuItem("Statistics..."))
                     showStatistics = !showStatistics;
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("About"))
+            if (BeginMenu("About"))
             {
-                if (ImGui::MenuItem("Show IMGUI Demo..."))
+                if (MenuItem("Show IMGUI Demo..."))
                     showDemoWindow = !showDemoWindow;
-                ImGui::Separator();
-                if (ImGui::MenuItem("About volcano..."))
+                Separator();
+                if (MenuItem("About volcano..."))
                     showAbout = !showAbout;
                 ImGui::EndMenu();
             }
 
-            ImGui::EndMainMenuBar();
-        } 
-    });
+            EndMainMenuBar();
+        }
+
+        Render();
+
+        ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
+    };
 }
 
 template <>
@@ -804,20 +807,18 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("draw");
 
-    auto [flipSuccess, frameIndex, frameTimelineValue] = myWindow->flipFrame(myLastFrameIndex);
+    auto [flipSuccess, frameIndex, frameTimelineValue] = myWindow->getSwapchain()->flip();
 
     if (flipSuccess)
     {
         if (frameTimelineValue)
         {
             ZoneScopedN("waitFrameGPUCommands");
-            
-            assert(frameIndex != myLastFrameIndex);
 
             myDevice->wait(frameTimelineValue);
         }
 
-        myWindow->updateInput(myInput, frameIndex, myLastFrameIndex);
+        myWindow->updateInput(myInput);
 
         if (const auto& depthStencilImage = myRenderImageSet->getDepthStencilImages(); depthStencilImage)
         {
@@ -828,10 +829,19 @@ bool Application<Vk>::draw()
             depthStencilImage->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         }
 
-        myLastFrameTimelineValue = myWindow->submitFrame(
-            frameIndex,
-            myLastFrameIndex,
+        CommandContextBeginInfo<Vk> beginInfo = {};
+        beginInfo.flags =
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
+            VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+        beginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+        beginInfo.inheritance.renderPass = myGraphicsPipeline->resources()->renderTarget->getRenderPass();
+        beginInfo.inheritance.framebuffer = myGraphicsPipeline->resources()->renderTarget->getFramebuffer();
+
+        myWindow->addDrawCallback(beginInfo, myImguiDrawFunction);
+
+        myLastFrameTimelineValue = myWindow->submit(
             myGraphicsPipeline,
+            frameIndex,
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
@@ -843,9 +853,7 @@ bool Application<Vk>::draw()
             frameTimelineValue));
 
     if (flipSuccess)
-        myWindow->presentFrame(frameIndex);
-
-    myLastFrameIndex = frameIndex;
+        myWindow->getSwapchain()->present(frameIndex);
 
     // wait for timeline callbacks
     {
