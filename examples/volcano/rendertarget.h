@@ -42,8 +42,8 @@ public:
     virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const = 0;
 
     const auto& getAttachments() const { return myAttachments; }
-    const RenderPassHandle<B>& getRenderPass();
-    const FramebufferHandle<B>& getFramebuffer();
+    RenderPassHandle<B> getRenderPass();
+    FramebufferHandle<B> getFramebuffer();
     const auto& getSubpass() const { return myCurrentSubpass; }
 
     void begin(CommandBufferHandle<B> cmd, RenderTargetBeginInfo<B>&& beginInfo = {});

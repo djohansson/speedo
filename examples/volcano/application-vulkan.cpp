@@ -30,11 +30,17 @@ void Application<GraphicsBackend::Vulkan>::initIMGUI(
     static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").generic_string();
     io.IniFilename = iniFilePath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.FontAllowUserScaling = true;
-    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.FontGlobalScale = 1.0f;
+    //io.FontAllowUserScaling = true;
+    io.ConfigDockingWithShift = true;
 
-    // auto& platformIo = ImGui::GetPlatformIO();
-    // platformIo.Platform_CreateVkSurface = ...
+    // auto vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)
+    //     vkGetInstanceProcAddr(myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
+    
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    auto& platformIo = ImGui::GetPlatformIO();
+    platformIo.Platform_CreateVkSurface = (decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(
+        myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
 
     const auto& surfaceCapabilities = myInstance->getPhysicalDeviceInfo(myDevice->getPhysicalDevice()).swapchainInfo.capabilities;
 
@@ -232,7 +238,9 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     myGraphicsPipeline = std::make_shared<PipelineContext<GraphicsBackend::Vulkan>>(
         myDevice,
-        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{ { "PipelineContext" }, myUserProfilePath });
+        PipelineContextCreateDesc<GraphicsBackend::Vulkan>{
+            { "GraphicsPipeline" },
+            myUserProfilePath / "pipeline.cache" });
 
     myGraphicsPipelineLayout = std::make_shared<PipelineLayout<GraphicsBackend::Vulkan>>(
         myDevice,
@@ -323,7 +331,7 @@ Application<GraphicsBackend::Vulkan>::Application(
 
     auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePathStr = std::filesystem::absolute(resourcePath).generic_string();
+        std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
         nfdchar_t* openFilePath;
         return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));
@@ -528,6 +536,8 @@ Application<GraphicsBackend::Vulkan>::Application(
         static bool showNodeEditor = false;
         if (showNodeEditor)
         {
+            ImGui::SetNextWindowSize(ImVec2(800, 450), ImGuiCond_FirstUseEver);
+
             Begin("Node Editor Window", &showNodeEditor);
 
             PushAllowKeyboardFocus(false);
@@ -717,9 +727,9 @@ Application<GraphicsBackend::Vulkan>::Application(
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", std::move(loadModel));
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", loadModel);
                 if (ImGui::MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", std::move(loadImage));
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", loadImage);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -745,7 +755,7 @@ Application<GraphicsBackend::Vulkan>::Application(
             }
 
             ImGui::EndMainMenuBar();
-        } 
+        }
     });
 }
 

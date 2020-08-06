@@ -369,7 +369,7 @@ void RenderTarget<GraphicsBackend::Vulkan>::nextSubpass(
 }
 
 template <>
-const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getRenderPass()
+RenderPassHandle<GraphicsBackend::Vulkan> RenderTarget<GraphicsBackend::Vulkan>::getRenderPass()
 {
     std::unique_lock writeLock(myMutex);
 
@@ -377,11 +377,11 @@ const RenderPassHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::V
     internalUpdateRenderPasses(getRenderTargetDesc());
     internalUpdateMap(getRenderTargetDesc());
 
-    return std::get<0>((*myCurrent)->second);
+    return std::get<0>(myCurrent.value()->second);
 }
 
 template <>
-const FramebufferHandle<GraphicsBackend::Vulkan>& RenderTarget<GraphicsBackend::Vulkan>::getFramebuffer()
+FramebufferHandle<GraphicsBackend::Vulkan> RenderTarget<GraphicsBackend::Vulkan>::getFramebuffer()
 {
     std::unique_lock writeLock(myMutex);
 

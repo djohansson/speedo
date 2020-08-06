@@ -32,6 +32,8 @@ void WindowContext<GraphicsBackend::Vulkan>::renderIMGUI()
     for (auto callback : myIMGUIDrawCallbacks)
         callback();
 
+    EndFrame();
+    UpdatePlatformWindows();
     Render();
 }
 
