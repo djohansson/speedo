@@ -71,7 +71,7 @@ public:
     ImageView( // creates a view from image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,
-        Flags<GraphicsBackend::Vulkan> aspectFlags);
+        Flags<Vk> aspectFlags);
     ~ImageView();
 
     ImageView& operator=(ImageView&& other) = default;

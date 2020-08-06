@@ -1,14 +1,14 @@
 #include "volcano.h"
 #include "application.h"
 
-static std::unique_ptr<Application<GraphicsBackend::Vulkan>> theApplication;
+static std::unique_ptr<Application<Vk>> theApplication;
 
 int volcano_create(
 	void* view, int width, int height, const char* resourcePath, const char* userProfilePath)
 {
 	assert(view != nullptr);
 
-	theApplication = std::make_unique<Application<GraphicsBackend::Vulkan>>(
+	theApplication = std::make_unique<Application<Vk>>(
 		view, width, height, resourcePath, userProfilePath);
 
 	return EXIT_SUCCESS;

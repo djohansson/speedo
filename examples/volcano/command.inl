@@ -1,5 +1,5 @@
 template <GraphicsBackend B>
-auto CommandContext<B>::commands(CommandContextBeginInfo<B>&& beginInfo)
+auto CommandContext<B>::commands(const CommandContextBeginInfo<B>& beginInfo)
 {
     if (myRecordingCommands && (*myRecordingCommands).getBeginInfo() == beginInfo)
     {

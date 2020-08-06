@@ -7,15 +7,15 @@ namespace commandbufferarray
 {
 
 static auto createArray(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>& desc)
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const CommandBufferArrayCreateDesc<Vk>& desc)
 {
-    std::array<CommandBufferHandle<GraphicsBackend::Vulkan>, CommandBufferArray<GraphicsBackend::Vulkan>::kCommandBufferCount> outArray;
+    std::array<CommandBufferHandle<Vk>, CommandBufferArray<Vk>::kCommandBufferCount> outArray;
 
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     cmdInfo.commandPool = desc.pool;
     cmdInfo.level = desc.level;
-    cmdInfo.commandBufferCount = CommandBufferArray<GraphicsBackend::Vulkan>::kCommandBufferCount;
+    cmdInfo.commandBufferCount = CommandBufferArray<Vk>::kCommandBufferCount;
     VK_CHECK(vkAllocateCommandBuffers(
         deviceContext->getDevice(),
         &cmdInfo,
@@ -27,11 +27,11 @@ static auto createArray(
 }
 
 template <>
-CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+CommandBufferArray<Vk>::CommandBufferArray(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::tuple<
-        CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>,
-        std::array<CommandBufferHandle<GraphicsBackend::Vulkan>,
+        CommandBufferArrayCreateDesc<Vk>,
+        std::array<CommandBufferHandle<Vk>,
         kCommandBufferCount>>&& descAndData)
 : DeviceResource(
     deviceContext,
@@ -45,15 +45,15 @@ CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(
 }
 
 template <>
-CommandBufferArray<GraphicsBackend::Vulkan>::CommandBufferArray(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>&& desc)
+CommandBufferArray<Vk>::CommandBufferArray(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    CommandBufferArrayCreateDesc<Vk>&& desc)
 : CommandBufferArray(deviceContext, std::make_tuple(std::move(desc), commandbufferarray::createArray(deviceContext, desc)))
 {
 }
 
 template <>
-CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
+CommandBufferArray<Vk>::~CommandBufferArray()
 {
     if (auto deviceContext = getDeviceContext())
         vkFreeCommandBuffers(
@@ -64,7 +64,7 @@ CommandBufferArray<GraphicsBackend::Vulkan>::~CommandBufferArray()
 }
 
 template <>
-void CommandBufferArray<GraphicsBackend::Vulkan>::resetAll()
+void CommandBufferArray<Vk>::resetAll()
 {
     assert(!recordingFlags());
     assert(head() < kCommandBufferCount);
@@ -76,7 +76,7 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::resetAll()
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending(CommandBufferLevel<GraphicsBackend::Vulkan> level)
+void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
 {
     if (!myFreeCommands[level].empty())
     {
@@ -93,9 +93,9 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending(CommandBufferLev
             level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
             "CommandBufferArray");
             
-        myPendingCommands[level].emplace_back(std::make_pair(CommandBufferArray<GraphicsBackend::Vulkan>(
+        myPendingCommands[level].emplace_back(std::make_pair(CommandBufferArray<Vk>(
             myDevice,
-            CommandBufferArrayCreateDesc<GraphicsBackend::Vulkan>{
+            CommandBufferArrayCreateDesc<Vk>{
                 {stringBuffer},
                 myDesc.pool,
                 level}), std::make_pair(0, std::reference_wrapper(*this))));
@@ -103,17 +103,40 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueOnePending(CommandBufferLev
 }
 
 template <>
-CommandContextBeginInfo<GraphicsBackend::Vulkan>::CommandContextBeginInfo()
-: CommandBufferBeginInfo<GraphicsBackend::Vulkan>{
+CommandContextBeginInfo<Vk>::CommandContextBeginInfo()
+: CommandBufferBeginInfo<Vk>{
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
     nullptr,
     VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    nullptr}
+    &inheritance}
+, level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+, inheritance{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO}
 {
 }
 
 template <>
-bool CommandContextBeginInfo<GraphicsBackend::Vulkan>::operator==(const CommandContextBeginInfo& other) const
+CommandContextBeginInfo<Vk>::CommandContextBeginInfo(const CommandContextBeginInfo<Vk>& other)
+: CommandBufferBeginInfo<Vk>(other)
+, level(other.level)
+, inheritance(other.inheritance)
+{
+    pInheritanceInfo = &inheritance;
+}
+
+template <>
+CommandContextBeginInfo<Vk>& CommandContextBeginInfo<Vk>::operator=(const CommandContextBeginInfo<Vk>& other)
+{
+    if (this != &other)
+    {
+        *static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
+        level = other.level;
+        inheritance = other.inheritance;
+        pInheritanceInfo = &inheritance;
+    }
+}
+
+template <>
+bool CommandContextBeginInfo<Vk>::operator==(const CommandContextBeginInfo& other) const
 {
     bool result = other.flags == flags && other.level == level;
     if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
@@ -132,8 +155,8 @@ bool CommandContextBeginInfo<GraphicsBackend::Vulkan>::operator==(const CommandC
 }
 
 template <>
-CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalBeginScope(
-    CommandContextBeginInfo<GraphicsBackend::Vulkan>&& beginInfo)
+CommandBufferHandle<Vk> CommandContext<Vk>::internalBeginScope(
+    const CommandContextBeginInfo<Vk>& beginInfo)
 {
     if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
         enqueueOnePending(beginInfo.level);
@@ -141,19 +164,19 @@ CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vul
     myRecordingCommands.emplace(
         CommandBufferAccessScope(
             myPendingCommands[beginInfo.level].back().first,
-            std::move(beginInfo)));
+            beginInfo));
 
     return (*myRecordingCommands);
 }
     
 template <>
-CommandBufferHandle<GraphicsBackend::Vulkan> CommandContext<GraphicsBackend::Vulkan>::internalCommands() const
+CommandBufferHandle<Vk> CommandContext<Vk>::internalCommands() const
 {
     return (*myRecordingCommands);
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue)
+void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue)
 {
     for (auto& cmd : commands)
         cmd.second.first = timelineValue;
@@ -184,13 +207,13 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueExecuted(CommandBufferList&
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback)
+void CommandContext<Vk>::addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback)
 {
     mySubmitFinishedCallbacks.emplace_back(std::move(callback));
 }
 
 template <>
-void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue)
+void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue)
 {
     for (auto& cmd : commands)
         cmd.second.first = timelineValue;
@@ -220,8 +243,8 @@ void CommandContext<GraphicsBackend::Vulkan>::enqueueSubmitted(CommandBufferList
 }
 
 template <>
-uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
-    const CommandSubmitInfo<GraphicsBackend::Vulkan>& submitInfo)
+uint64_t CommandContext<Vk>::submit(
+    const CommandSubmitInfo<Vk>& submitInfo)
 {
     ZoneScopedN("submit");
 
@@ -239,21 +262,21 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 
     myScratchMemory.resize(
         sizeof(uint64_t) * signalSemaphoreCount + 
-        sizeof(SemaphoreHandle<GraphicsBackend::Vulkan>) * signalSemaphoreCount +
+        sizeof(SemaphoreHandle<Vk>) * signalSemaphoreCount +
         sizeof(uint64_t) * waitSemaphoreCount +
-        sizeof(SemaphoreHandle<GraphicsBackend::Vulkan>) * waitSemaphoreCount +
-        sizeof(Flags<GraphicsBackend::Vulkan>) * waitSemaphoreCount +
-        sizeof(CommandBufferHandle<GraphicsBackend::Vulkan>) * pendingCommands.size() * CommandBufferArray<GraphicsBackend::Vulkan>::kCommandBufferCount);
+        sizeof(SemaphoreHandle<Vk>) * waitSemaphoreCount +
+        sizeof(Flags<Vk>) * waitSemaphoreCount +
+        sizeof(CommandBufferHandle<Vk>) * pendingCommands.size() * CommandBufferArray<Vk>::kCommandBufferCount);
 
     auto writePtr = myScratchMemory.data();
 
-    auto waitSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
+    auto waitSemaphoresBegin = reinterpret_cast<SemaphoreHandle<Vk>*>(writePtr);
     {
         std::copy_n(submitInfo.waitSemaphores, submitInfo.waitSemaphoreCount, waitSemaphoresBegin);
         writePtr = reinterpret_cast<std::byte*>(waitSemaphoresBegin + submitInfo.waitSemaphoreCount);
     }
 
-    auto waitDstStageMasksBegin = reinterpret_cast<Flags<GraphicsBackend::Vulkan>*>(writePtr);
+    auto waitDstStageMasksBegin = reinterpret_cast<Flags<Vk>*>(writePtr);
     {
         std::copy_n(submitInfo.waitDstStageMasks, submitInfo.waitSemaphoreCount, waitDstStageMasksBegin);
         writePtr = reinterpret_cast<std::byte*>(waitDstStageMasksBegin + submitInfo.waitSemaphoreCount);
@@ -265,7 +288,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
         writePtr = reinterpret_cast<std::byte*>(waitSemaphoreValuesBegin + submitInfo.waitSemaphoreCount);
     }
     
-    auto signalSemaphoresBegin = reinterpret_cast<SemaphoreHandle<GraphicsBackend::Vulkan>*>(writePtr);
+    auto signalSemaphoresBegin = reinterpret_cast<SemaphoreHandle<Vk>*>(writePtr);
     {
         std::copy_n(submitInfo.signalSemaphores, submitInfo.signalSemaphoreCount, signalSemaphoresBegin);
         writePtr = reinterpret_cast<std::byte*>(signalSemaphoresBegin + submitInfo.signalSemaphoreCount);
@@ -278,7 +301,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
     }
 
     uint32_t commandBufferHandlesCount = 0;
-    auto commandBufferHandlesBegin = reinterpret_cast<CommandBufferHandle<GraphicsBackend::Vulkan>*>(writePtr);
+    auto commandBufferHandlesBegin = reinterpret_cast<CommandBufferHandle<Vk>*>(writePtr);
     {
         auto commandBufferHandlesPtr = commandBufferHandlesBegin;
         for (auto& cmdSegment : pendingCommands)
@@ -322,7 +345,7 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::submit(
 }
 
 template <>
-uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<GraphicsBackend::Vulkan>& callee)
+uint64_t CommandContext<Vk>::execute(CommandContext<Vk>& callee)
 {
     ZoneScopedN("execute");
 
@@ -351,8 +374,8 @@ uint64_t CommandContext<GraphicsBackend::Vulkan>::execute(CommandContext<Graphic
 }
 
 template <>
-uint8_t CommandBufferArray<GraphicsBackend::Vulkan>::begin(
-    const CommandBufferBeginInfo<GraphicsBackend::Vulkan>& beginInfo)
+uint8_t CommandBufferArray<Vk>::begin(
+    const CommandBufferBeginInfo<Vk>& beginInfo)
 {
     assert(!recording(myBits.head));
     assert(!full());
@@ -365,7 +388,7 @@ uint8_t CommandBufferArray<GraphicsBackend::Vulkan>::begin(
 }
 
 template <>
-void CommandBufferArray<GraphicsBackend::Vulkan>::end(uint8_t index)
+void CommandBufferArray<Vk>::end(uint8_t index)
 {
     assert(recording(index));
 
@@ -375,9 +398,9 @@ void CommandBufferArray<GraphicsBackend::Vulkan>::end(uint8_t index)
 }
 
 template <>
-CommandContext<GraphicsBackend::Vulkan>::CommandContext(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    CommandContextCreateDesc<GraphicsBackend::Vulkan>&& desc)
+CommandContext<Vk>::CommandContext(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    CommandContextCreateDesc<Vk>&& desc)
 : myDevice(deviceContext)
 , myDesc(std::move(desc))
 , myPendingCommands(2)
@@ -387,7 +410,7 @@ CommandContext<GraphicsBackend::Vulkan>::CommandContext(
 }
 
 template <>
-CommandContext<GraphicsBackend::Vulkan>::~CommandContext()
+CommandContext<Vk>::~CommandContext()
 {
     ZoneScopedN("~CommandContext()");
 

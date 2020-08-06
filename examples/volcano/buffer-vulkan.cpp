@@ -4,13 +4,13 @@
 #include <core/slang-secure-crt.h>
 
 template <>
-Buffer<GraphicsBackend::Vulkan>::Buffer(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+Buffer<Vk>::Buffer(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::tuple<
-        BufferCreateDesc<GraphicsBackend::Vulkan>,
-        BufferHandle<GraphicsBackend::Vulkan>,
-        AllocationHandle<GraphicsBackend::Vulkan>>&& descAndData)
-: DeviceResource<GraphicsBackend::Vulkan>(
+        BufferCreateDesc<Vk>,
+        BufferHandle<Vk>,
+        AllocationHandle<Vk>>&& descAndData)
+: DeviceResource<Vk>(
     deviceContext,
     std::get<0>(descAndData),
     1,
@@ -22,9 +22,9 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 }
 
 template <>
-Buffer<GraphicsBackend::Vulkan>::Buffer(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    BufferCreateDesc<GraphicsBackend::Vulkan>&& desc)
+Buffer<Vk>::Buffer(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    BufferCreateDesc<Vk>&& desc)
 : Buffer(
     deviceContext,
     std::tuple_cat(
@@ -39,13 +39,13 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 }
 
 template <>
-Buffer<GraphicsBackend::Vulkan>::Buffer(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+Buffer<Vk>::Buffer(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
     std::tuple<
-        BufferCreateDesc<GraphicsBackend::Vulkan>,
-        BufferHandle<GraphicsBackend::Vulkan>,
-        AllocationHandle<GraphicsBackend::Vulkan>>&& descAndInitialData)
+        BufferCreateDesc<Vk>,
+        BufferHandle<Vk>,
+        AllocationHandle<Vk>>&& descAndInitialData)
 : Buffer(
     deviceContext,
     std::tuple_cat(
@@ -65,7 +65,7 @@ Buffer<GraphicsBackend::Vulkan>::Buffer(
 }
 
 template <>
-Buffer<GraphicsBackend::Vulkan>::~Buffer()
+Buffer<Vk>::~Buffer()
 {
     if (auto buffer = getBufferHandle(); buffer)
         getDeviceContext()->addTimelineCallback(
@@ -75,10 +75,10 @@ Buffer<GraphicsBackend::Vulkan>::~Buffer()
 }
 
 template <>
-BufferView<GraphicsBackend::Vulkan>::BufferView(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    BufferViewHandle<GraphicsBackend::Vulkan>&& bufferView)
-: DeviceResource<GraphicsBackend::Vulkan>(
+BufferView<Vk>::BufferView(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    BufferViewHandle<Vk>&& bufferView)
+: DeviceResource<Vk>(
     deviceContext,
     {"_View"},
     1,
@@ -89,13 +89,13 @@ BufferView<GraphicsBackend::Vulkan>::BufferView(
 }
 
 template <>
-BufferView<GraphicsBackend::Vulkan>::BufferView(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const Buffer<GraphicsBackend::Vulkan>& buffer,
-    Format<GraphicsBackend::Vulkan> format,
-    DeviceSize<GraphicsBackend::Vulkan> offset,
-    DeviceSize<GraphicsBackend::Vulkan> range)
-: BufferView<GraphicsBackend::Vulkan>(
+BufferView<Vk>::BufferView(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const Buffer<Vk>& buffer,
+    Format<Vk> format,
+    DeviceSize<Vk> offset,
+    DeviceSize<Vk> range)
+: BufferView<Vk>(
     deviceContext,
     createBufferView(
         deviceContext->getDevice(),
@@ -108,7 +108,7 @@ BufferView<GraphicsBackend::Vulkan>::BufferView(
 }
 
 template <>
-BufferView<GraphicsBackend::Vulkan>::~BufferView()
+BufferView<Vk>::~BufferView()
 {
     if (auto bufferView = getBufferViewHandle(); bufferView)
         getDeviceContext()->addTimelineCallback(

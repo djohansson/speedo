@@ -28,7 +28,9 @@ public:
         const char* name,
         std::vector<std::shared_ptr<Image<B>>>&& colorImages,
         std::shared_ptr<Image<B>>&& depthStencilImage = nullptr);
-	virtual ~RenderImageSet();
+    virtual ~RenderImageSet() = default;
+
+    RenderImageSet& operator=(RenderImageSet<B>&& other) = default;
 
     const auto& getColorImages() const { return myColorImages; }
     const auto& getDepthStencilImages() const { return myDepthStencilImage; }

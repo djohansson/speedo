@@ -4,11 +4,11 @@
 namespace descriptorset
 {
 
-std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> createDescriptorSetLayouts(
-	DeviceHandle<GraphicsBackend::Vulkan> device,
-	const DescriptorSetLayoutBindingsMap<GraphicsBackend::Vulkan>& bindings)
+std::vector<DescriptorSetLayoutHandle<Vk>> createDescriptorSetLayouts(
+	DeviceHandle<Vk> device,
+	const DescriptorSetLayoutBindingsMap<Vk>& bindings)
 {
-    std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> outLayouts;
+    std::vector<DescriptorSetLayoutHandle<Vk>> outLayouts;
     outLayouts.reserve(bindings.size());
 	for (auto& [space, layoutBindings] : bindings)
 	    outLayouts.emplace_back(createDescriptorSetLayout(device, layoutBindings.data(), layoutBindings.size()));
@@ -18,10 +18,10 @@ std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>> createDescriptor
 }
 
 template <>
-DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    std::vector<DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>>&& descriptorSetLayoutVector)
-: DeviceResource<GraphicsBackend::Vulkan>(
+DescriptorSetLayoutVector<Vk>::DescriptorSetLayoutVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    std::vector<DescriptorSetLayoutHandle<Vk>>&& descriptorSetLayoutVector)
+: DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSetLayout"},
     descriptorSetLayoutVector.size(),
@@ -32,17 +32,17 @@ DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
 }
 
 template <>
-DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::DescriptorSetLayoutVector(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const DescriptorSetLayoutBindingsMap<GraphicsBackend::Vulkan>& bindings)
-: DescriptorSetLayoutVector<GraphicsBackend::Vulkan>(
+DescriptorSetLayoutVector<Vk>::DescriptorSetLayoutVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const DescriptorSetLayoutBindingsMap<Vk>& bindings)
+: DescriptorSetLayoutVector<Vk>(
     deviceContext,
     descriptorset::createDescriptorSetLayouts(deviceContext->getDevice(), bindings))
 {
 }
 
 template <>
-DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::~DescriptorSetLayoutVector()
+DescriptorSetLayoutVector<Vk>::~DescriptorSetLayoutVector()
 {
     if (myDescriptorSetLayoutVector.size())
         for (auto layout : myDescriptorSetLayoutVector)
@@ -50,10 +50,10 @@ DescriptorSetLayoutVector<GraphicsBackend::Vulkan>::~DescriptorSetLayoutVector()
 }
 
 template <>
-DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    std::vector<DescriptorSetHandle<GraphicsBackend::Vulkan>>&& descriptorSetVector)
-: DeviceResource<GraphicsBackend::Vulkan>(
+DescriptorSetVector<Vk>::DescriptorSetVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    std::vector<DescriptorSetHandle<Vk>>&& descriptorSetVector)
+: DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSet"},
     descriptorSetVector.size(),
@@ -64,11 +64,11 @@ DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
 }
 
 template <>
-DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const DescriptorSetLayoutHandle<GraphicsBackend::Vulkan>* layoutHandles,
+DescriptorSetVector<Vk>::DescriptorSetVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const DescriptorSetLayoutHandle<Vk>* layoutHandles,
     uint32_t layoutHandleCount)
-: DescriptorSetVector<GraphicsBackend::Vulkan>(
+: DescriptorSetVector<Vk>(
     deviceContext,
     allocateDescriptorSets(
         deviceContext->getDevice(),
@@ -79,10 +79,10 @@ DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
 }
 
 template <>
-DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const DescriptorSetLayoutVector<GraphicsBackend::Vulkan>& layouts)
-: DescriptorSetVector<GraphicsBackend::Vulkan>(
+DescriptorSetVector<Vk>::DescriptorSetVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const DescriptorSetLayoutVector<Vk>& layouts)
+: DescriptorSetVector<Vk>(
     deviceContext,
     layouts.data(),
     layouts.size())
@@ -90,7 +90,7 @@ DescriptorSetVector<GraphicsBackend::Vulkan>::DescriptorSetVector(
 }
 
 template <>
-DescriptorSetVector<GraphicsBackend::Vulkan>::~DescriptorSetVector()
+DescriptorSetVector<Vk>::~DescriptorSetVector()
 {
     if (!myDescriptorSetVector.empty())
         getDeviceContext()->addTimelineCallback(

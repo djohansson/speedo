@@ -1,9 +1,9 @@
 #include "shader.h"
 
 template <>
-void createLayoutBindings<GraphicsBackend::Vulkan>(
+void createLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
-    DescriptorSetLayoutBindingsMap<GraphicsBackend::Vulkan>& bindings)
+    DescriptorSetLayoutBindingsMap<Vk>& bindings)
 {
 	slang::TypeLayoutReflection* typeLayout = parameter->getTypeLayout();
 
@@ -123,5 +123,5 @@ void createLayoutBindings<GraphicsBackend::Vulkan>(
 
 	// unsigned fieldCount = typeLayout->getFieldCount();
 	// for (unsigned ff = 0; ff < fieldCount; ff++)
-	// 	createLayoutBindings<GraphicsBackend::Vulkan>(typeLayout->getFieldByIndex(ff), bindings);
+	// 	createLayoutBindings<Vk>(typeLayout->getFieldByIndex(ff), bindings);
 }

@@ -1,8 +1,8 @@
 template <class Archive>
-void serialize(Archive& archive, SerializableDescriptorSetLayoutBinding<GraphicsBackend::Vulkan>& dsb)
+void serialize(Archive& archive, SerializableDescriptorSetLayoutBinding<Vk>& dsb)
 {
     // runtime creation of descriptor sets relies on this:
-    static_assert(sizeof(dsb) == sizeof(SerializableDescriptorSetLayoutBinding<GraphicsBackend::Vulkan>::BaseType));
+    static_assert(sizeof(dsb) == sizeof(SerializableDescriptorSetLayoutBinding<Vk>::BaseType));
 
     archive(
         cereal::make_nvp("binding", dsb.binding), 

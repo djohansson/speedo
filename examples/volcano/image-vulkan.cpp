@@ -49,21 +49,21 @@ namespace image
 {
 
 std::tuple<
-    ImageCreateDesc<GraphicsBackend::Vulkan>,
-    BufferHandle<GraphicsBackend::Vulkan>,
-    AllocationHandle<GraphicsBackend::Vulkan>>
+    ImageCreateDesc<Vk>,
+    BufferHandle<Vk>,
+    AllocationHandle<Vk>>
 load(
     const std::filesystem::path& imageFile,
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext)
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
     ZoneScopedN("image::load()");
 
-    DeviceSize<GraphicsBackend::Vulkan> size = 0;
+    DeviceSize<Vk> size = 0;
 
     std::tuple<
-        ImageCreateDesc<GraphicsBackend::Vulkan>,
-        BufferHandle<GraphicsBackend::Vulkan>,
-        AllocationHandle<GraphicsBackend::Vulkan>> descAndInitialData = {};
+        ImageCreateDesc<Vk>,
+        BufferHandle<Vk>,
+        AllocationHandle<Vk>> descAndInitialData = {};
 
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = imageFile.filename().generic_string();
@@ -181,9 +181,9 @@ load(
 }
 
 template <>
-void Image<GraphicsBackend::Vulkan>::transition(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    ImageLayout<GraphicsBackend::Vulkan> layout)
+void Image<Vk>::transition(
+    CommandBufferHandle<Vk> cmd,
+    ImageLayout<Vk> layout)
 {
     if (getImageLayout() != layout)
     {
@@ -193,9 +193,9 @@ void Image<GraphicsBackend::Vulkan>::transition(
 }
 
 template <>
-void Image<GraphicsBackend::Vulkan>::clearColor(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    const ClearColorValue<GraphicsBackend::Vulkan>& color)
+void Image<Vk>::clearColor(
+    CommandBufferHandle<Vk> cmd,
+    const ClearColorValue<Vk>& color)
 {
     transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         
@@ -216,9 +216,9 @@ void Image<GraphicsBackend::Vulkan>::clearColor(
 }
 
 template <>
-void Image<GraphicsBackend::Vulkan>::clearDepthStencil(
-    CommandBufferHandle<GraphicsBackend::Vulkan> cmd,
-    const ClearDepthStencilValue<GraphicsBackend::Vulkan>& depthStencil)
+void Image<Vk>::clearDepthStencil(
+    CommandBufferHandle<Vk> cmd,
+    const ClearDepthStencilValue<Vk>& depthStencil)
 {
     transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -239,14 +239,14 @@ void Image<GraphicsBackend::Vulkan>::clearDepthStencil(
 }
 
 template <>
-Image<GraphicsBackend::Vulkan>::Image(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
+Image<Vk>::Image(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::tuple<
-        ImageCreateDesc<GraphicsBackend::Vulkan>,
-        ImageHandle<GraphicsBackend::Vulkan>,
-        AllocationHandle<GraphicsBackend::Vulkan>,
-        ImageLayout<GraphicsBackend::Vulkan>>&& descAndData)
-: DeviceResource<GraphicsBackend::Vulkan>(
+        ImageCreateDesc<Vk>,
+        ImageHandle<Vk>,
+        AllocationHandle<Vk>,
+        ImageLayout<Vk>>&& descAndData)
+: DeviceResource<Vk>(
     deviceContext,
     std::get<0>(descAndData),
     1,
@@ -258,9 +258,9 @@ Image<GraphicsBackend::Vulkan>::Image(
 }
 
 template <>
-Image<GraphicsBackend::Vulkan>::Image(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    ImageCreateDesc<GraphicsBackend::Vulkan>&& desc)
+Image<Vk>::Image(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    ImageCreateDesc<Vk>&& desc)
 : Image(
     deviceContext,
     std::tuple_cat(
@@ -279,13 +279,13 @@ Image<GraphicsBackend::Vulkan>::Image(
 }
 
 template <>
-Image<GraphicsBackend::Vulkan>::Image(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+Image<Vk>::Image(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
     std::tuple<
-        ImageCreateDesc<GraphicsBackend::Vulkan>,
-        BufferHandle<GraphicsBackend::Vulkan>,
-        AllocationHandle<GraphicsBackend::Vulkan>>&& descAndInitialData)
+        ImageCreateDesc<Vk>,
+        BufferHandle<Vk>,
+        AllocationHandle<Vk>>&& descAndInitialData)
 : Image(
     deviceContext,
     std::tuple_cat(
@@ -310,16 +310,16 @@ Image<GraphicsBackend::Vulkan>::Image(
 }
 
 template <>
-Image<GraphicsBackend::Vulkan>::Image(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const std::shared_ptr<CommandContext<GraphicsBackend::Vulkan>>& commandContext,
+Image<Vk>::Image(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
     const std::filesystem::path& imageFile)
 : Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
 {
 }
 
 template <>
-Image<GraphicsBackend::Vulkan>::~Image()
+Image<Vk>::~Image()
 {
     if (auto image = getImageHandle(); image)
         getDeviceContext()->addTimelineCallback(
@@ -329,10 +329,10 @@ Image<GraphicsBackend::Vulkan>::~Image()
 }
 
 template <>
-ImageView<GraphicsBackend::Vulkan>::ImageView(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    ImageViewHandle<GraphicsBackend::Vulkan>&& imageView)
-: DeviceResource<GraphicsBackend::Vulkan>(
+ImageView<Vk>::ImageView(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    ImageViewHandle<Vk>&& imageView)
+: DeviceResource<Vk>(
     deviceContext,
     {"_View"},
     1,
@@ -343,11 +343,11 @@ ImageView<GraphicsBackend::Vulkan>::ImageView(
 }
 
 template <>
-ImageView<GraphicsBackend::Vulkan>::ImageView(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    const Image<GraphicsBackend::Vulkan>& image,
-    Flags<GraphicsBackend::Vulkan> aspectFlags)
-: ImageView<GraphicsBackend::Vulkan>(
+ImageView<Vk>::ImageView(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const Image<Vk>& image,
+    Flags<Vk> aspectFlags)
+: ImageView<Vk>(
     deviceContext,
     createImageView2D(
         deviceContext->getDevice(),
@@ -359,7 +359,7 @@ ImageView<GraphicsBackend::Vulkan>::ImageView(
 }
 
 template <>
-ImageView<GraphicsBackend::Vulkan>::~ImageView()
+ImageView<Vk>::~ImageView()
 {
     if (auto imageView = getImageViewHandle(); imageView)
         getDeviceContext()->addTimelineCallback(

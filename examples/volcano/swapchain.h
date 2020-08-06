@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device.h"
+#include "frame.h"
 #include "types.h"
 
 #include <memory>
@@ -27,16 +28,19 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
+	const auto& getFrames() const { return myFrames; }
 
-	auto detatch()
-	{
-		auto handle = mySwapchain;
-		mySwapchain = 0;
-		return handle;
-	}
+	std::tuple<bool, uint32_t, uint64_t> flip() const;
+	uint64_t submit(
+		const std::shared_ptr<CommandContext<B>>& commandContext,
+		uint32_t frameIndex,
+		uint64_t waitTimelineValue);
+	void present(uint32_t frameIndex);
 
 private:
 
 	const SwapchainCreateDesc<B> myDesc = {};
 	SwapchainHandle<B> mySwapchain = 0;
+	std::vector<std::unique_ptr<Frame<B>>> myFrames;
+	uint32_t myLastFrameIndex = 0;
 };

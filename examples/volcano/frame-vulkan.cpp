@@ -7,16 +7,27 @@
 
 #include <core/slang-secure-crt.h>
 
-template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::RenderTargetImpl(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    FrameCreateDesc<GraphicsBackend::Vulkan>&& desc);
-
-template RenderTargetImpl<FrameCreateDesc<GraphicsBackend::Vulkan>, GraphicsBackend::Vulkan>::~RenderTargetImpl();
+template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
+    RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other);
 
 template <>
-Frame<GraphicsBackend::Vulkan>::Frame(
-    const std::shared_ptr<DeviceContext<GraphicsBackend::Vulkan>>& deviceContext,
-    FrameCreateDesc<GraphicsBackend::Vulkan>&& desc)
+RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    FrameCreateDesc<Vk>&& desc)
+: RenderTarget<Vk>(deviceContext, desc)
+, myDesc(std::move(desc))
+{
+}
+
+template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl();
+
+template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(
+    RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other);
+
+template <>
+Frame<Vk>::Frame(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    FrameCreateDesc<Vk>&& desc)
 : BaseType(deviceContext, std::move(desc))
 {
     ZoneScopedN("Frame()");
@@ -57,7 +68,7 @@ Frame<GraphicsBackend::Vulkan>::Frame(
 }
 
 template <>
-Frame<GraphicsBackend::Vulkan>::~Frame()
+Frame<Vk>::~Frame()
 {
     ZoneScopedN("~Frame()");
    
@@ -66,13 +77,43 @@ Frame<GraphicsBackend::Vulkan>::~Frame()
 }
 
 template <>
-ImageLayout<GraphicsBackend::Vulkan> Frame<GraphicsBackend::Vulkan>::getColorImageLayout(uint32_t index) const
+uint64_t Frame<Vk>::submit(
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    SemaphoreHandle<Vk> waitSemaphore,
+    uint64_t waitTimelineValue)
+{
+    ZoneScopedN("Frame::submit()");
+
+    SemaphoreHandle<Vk> waitSemaphores[2] = {
+        getDeviceContext()->getTimelineSemaphore(), waitSemaphore };
+    Flags<Vk> waitDstStageMasks[2] = {
+        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    uint64_t waitTimelineValues[2] = { waitTimelineValue, 1 };
+    SemaphoreHandle<Vk> signalSemaphores[2] = {
+        getDeviceContext()->getTimelineSemaphore(), myRenderCompleteSemaphore };
+    uint64_t signalTimelineValues[2] = { 1 + getDeviceContext()->timelineValue().fetch_add(1, std::memory_order_relaxed), 1 };
+    
+    myLastSubmitTimelineValue = commandContext->submit({
+        getDeviceContext()->getGraphicsQueue(),
+        2,
+        waitSemaphores,
+        waitDstStageMasks,
+        waitTimelineValues,
+        2,
+        signalSemaphores,
+        signalTimelineValues});
+
+    return myLastSubmitTimelineValue;
+}
+
+template <>
+ImageLayout<Vk> Frame<Vk>::getColorImageLayout(uint32_t index) const
 {
     return myImageLayout;
 }
 
 template <>
-ImageLayout<GraphicsBackend::Vulkan> Frame<GraphicsBackend::Vulkan>::getDepthStencilImageLayout() const
+ImageLayout<Vk> Frame<Vk>::getDepthStencilImageLayout() const
 {
     assert(false);
     
