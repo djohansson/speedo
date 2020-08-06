@@ -133,6 +133,8 @@ CommandContextBeginInfo<Vk>& CommandContextBeginInfo<Vk>::operator=(const Comman
         inheritance = other.inheritance;
         pInheritanceInfo = &inheritance;
     }
+
+    return *this;
 }
 
 template <>
