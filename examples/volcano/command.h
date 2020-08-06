@@ -181,7 +181,7 @@ private:
     CommandBufferList myExecutedCommands;
     CommandBufferList mySubmittedCommands;
     std::vector<CommandBufferList> myFreeCommands;
-    std::shared_mutex myCommandsMutex;
+    std::shared_mutex myCommandsMutex; // todo: replace with asserting mutex
     std::vector<std::byte> myScratchMemory;
     std::optional<CommandBufferAccessScope> myRecordingCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;

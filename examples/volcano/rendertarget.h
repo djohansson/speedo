@@ -91,7 +91,7 @@ private:
     
     void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
-    void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
+    typename RenderPassFramebufferTupleMap::const_iterator internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
     RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
         uint64_t hashKey,
@@ -106,10 +106,9 @@ private:
     RenderPassFramebufferTupleMap myMap;
 
     std::optional<RenderTargetBeginInfo<B>> myCurrentPassInfo;
-    std::optional<typename RenderPassFramebufferTupleMap::const_iterator> myCurrent;
     std::optional<uint32_t> myCurrentSubpass;
 
-    std::shared_mutex myMutex;
+    std::shared_mutex myMutex; // todo: replace with asserting mutex
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };

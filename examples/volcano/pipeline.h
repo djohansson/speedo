@@ -70,7 +70,7 @@ struct PipelineResourceView
 template <GraphicsBackend B>
 struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
 {
-    std::filesystem::path userProfilePath;
+    std::filesystem::path cachePath;
 };
 
 // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
@@ -90,11 +90,10 @@ public:
     PipelineContext& operator=(PipelineContext&& other) = default;
 
     auto getCache() const { return myCache; }
-    auto getPipeline() const { return myCurrent.value()->second; }
+    PipelineHandle<B> getPipeline();
 
     // temp!
     void updateDescriptorSets(BufferHandle<Vk> buffer);
-    void createGraphicsPipeline();
     auto& resources() { return myResources; }
     auto& layout() { return myLayout; }
     auto& descriptorSets() { return myDescriptorSets; }
@@ -105,11 +104,12 @@ private:
     using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
 
     uint64_t internalCalculateHashKey() const;
+    PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
+    typename PipelineMap::const_iterator internalUpdateMap();
 
     const PipelineContextCreateDesc<B> myDesc = {};
     PipelineCacheHandle<B> myCache = 0;
     PipelineMap myPipelineMap;
-    std::optional<typename PipelineMap::const_iterator> myCurrent;
 
     // temp
     std::shared_ptr<PipelineResourceView<B>> myResources;
@@ -117,5 +117,7 @@ private:
 	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
 
+    std::shared_mutex myMutex; // todo: replace with asserting mutex
+    
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };

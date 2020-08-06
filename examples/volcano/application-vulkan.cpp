@@ -153,7 +153,6 @@ void Application<Vk>::createWindowDependentObjects(
         depthStencilImage);
 
     myGraphicsPipeline->resources()->renderTarget = myRenderImageSet;
-    myGraphicsPipeline->createGraphicsPipeline();
 }
 
 template <>

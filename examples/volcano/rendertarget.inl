@@ -19,7 +19,6 @@ void RenderTarget<B>::addSubpassDependency(SubpassDependency<B>&& dependency)
 template <GraphicsBackend B>
 void RenderTarget<B>::resetSubpasses()
 {
-    myCurrent.reset();
     mySubPassDescs.clear();
     mySubPassDependencies.clear();
     myCurrentSubpass.reset();
@@ -30,7 +29,6 @@ void RenderTarget<B>::setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<
 {
     assert(index < getRenderTargetDesc().colorImages.size());
     
-    myCurrent.reset();
     myAttachmentsDescs[index].loadOp = op;
 }
 
@@ -39,20 +37,17 @@ void RenderTarget<B>::setColorAttachmentStoreOp(uint32_t index, AttachmentStoreO
 {
     assert(index < getRenderTargetDesc().colorImages.size());
     
-    myCurrent.reset();
     myAttachmentsDescs[index].storeOp = op;
 }
 
 template <GraphicsBackend B>
 void RenderTarget<B>::setDepthStencilAttachmentLoadOp(AttachmentLoadOp<B> op)
 {
-    myCurrent.reset();
     myAttachmentsDescs[myAttachmentsDescs.size() - 1].loadOp = op;
 }
 
 template <GraphicsBackend B>
 void RenderTarget<B>::setDepthStencilAttachmentStoreOp(AttachmentStoreOp<B> op)
 {
-    myCurrent.reset();
     myAttachmentsDescs[myAttachmentsDescs.size() - 1].storeOp = op;
 }

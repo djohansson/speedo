@@ -219,7 +219,7 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 }
 
 template <>
-void PipelineContext<Vk>::createGraphicsPipeline()
+PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
     VkPipelineShaderStageCreateInfo vsStageInfo = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -365,48 +365,59 @@ void PipelineContext<Vk>::createGraphicsPipeline()
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;
 
-    if (!myCurrent)
-    {
-        uint64_t hashKey = internalCalculateHashKey();
-        auto pipelineNode = myPipelineMap.emplace(hashKey, VkPipeline{});
-
-        if (pipelineNode.second)
-        {
-            VkPipeline pipelineHandle;
-            VK_CHECK(vkCreateGraphicsPipelines(
-                getDeviceContext()->getDevice(),
-                myCache,
-                1,
-                &pipelineInfo,
-                nullptr,
-                &pipelineHandle));
-            pipelineNode.first->second = pipelineHandle;
-
-            char stringBuffer[128];
+    VkPipeline pipelineHandle;
+    VK_CHECK(vkCreateGraphicsPipelines(
+        getDeviceContext()->getDevice(),
+        myCache,
+        1,
+        &pipelineInfo,
+        nullptr,
+        &pipelineHandle));
     
-            static constexpr std::string_view pipelineStr = "_Pipeline";
-            
-            sprintf_s(
-                stringBuffer,
-                sizeof(stringBuffer),
-                "%.*s%.*s%u",
-                getName().size(),
-                getName().c_str(),
-                static_cast<int>(pipelineStr.size()),
-                pipelineStr.data(),
-                hashKey);
+    char stringBuffer[128];
 
-            getDeviceContext()->addOwnedObject(
-                this,
-                VK_OBJECT_TYPE_PIPELINE,
-                reinterpret_cast<uint64_t>(pipelineHandle),
-                stringBuffer);
-        }
+    static constexpr std::string_view pipelineStr = "_Pipeline";
+    
+    sprintf_s(
+        stringBuffer,
+        sizeof(stringBuffer),
+        "%.*s%.*s%u",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(pipelineStr.size()),
+        pipelineStr.data(),
+        hashKey);
 
-        myCurrent = std::make_optional(pipelineNode.first);
-    }
+    getDeviceContext()->addOwnedObject(
+        this,
+        VK_OBJECT_TYPE_PIPELINE,
+        reinterpret_cast<uint64_t>(pipelineHandle),
+        stringBuffer);
+
+    return pipelineHandle;
 }
 
+template <>
+PipelineContext<Vk>::PipelineMap::const_iterator PipelineContext<Vk>::internalUpdateMap()
+{
+    auto hashKey = internalCalculateHashKey();
+    auto emplaceResult = myPipelineMap.emplace(
+        hashKey,
+        PipelineHandle<Vk>{});
+
+    if (emplaceResult.second)
+        emplaceResult.first->second = internalCreateGraphicsPipeline(hashKey);
+
+    return emplaceResult.first;
+}
+
+template <>
+PipelineHandle<Vk> PipelineContext<Vk>::getPipeline()
+{
+    std::unique_lock writeLock(myMutex);
+    
+    return internalUpdateMap()->second;
+}
 
 template <>
 void PipelineContext<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
@@ -491,7 +502,7 @@ PipelineContext<Vk>::PipelineContext(
         stringBuffer);
 
     myCache = pipeline::loadPipelineCache(
-        std::filesystem::absolute(myDesc.userProfilePath / "pipeline.cache"),
+        myDesc.cachePath,
         deviceContext->getDevice(),
         deviceContext->getPhysicalDeviceInfo().deviceProperties);
     
@@ -517,7 +528,7 @@ template<>
 PipelineContext<Vk>::~PipelineContext()
 {
     pipeline::savePipelineCache(
-        myDesc.userProfilePath / "pipeline.cache",
+        myDesc.cachePath,
         getDeviceContext()->getDevice(),
         getDeviceContext()->getPhysicalDeviceInfo().deviceProperties,
         myCache);

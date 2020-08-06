@@ -271,22 +271,20 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
 }
 
 template <>
-void RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
+RenderTarget<Vk>::RenderPassFramebufferTupleMap::const_iterator RenderTarget<Vk>::internalUpdateMap(
+    const RenderTargetCreateDesc<Vk>& desc)
 {
-    if (!myCurrent)
-    {
-        auto hashKey = internalCalculateHashKey(desc);
-        auto emplaceResult = myMap.emplace(
-            hashKey,
-            std::make_tuple(
-                RenderPassHandle<Vk>{},
-                FramebufferHandle<Vk>{}));
+    auto hashKey = internalCalculateHashKey(desc);
+    auto emplaceResult = myMap.emplace(
+        hashKey,
+        std::make_tuple(
+            RenderPassHandle<Vk>{},
+            FramebufferHandle<Vk>{}));
 
-        if (emplaceResult.second)
-            emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
+    if (emplaceResult.second)
+        emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
 
-        myCurrent = std::make_optional(emplaceResult.first);
-    }
+    return emplaceResult.first;
 }
 
 template <>
@@ -304,10 +302,7 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
         auto& colorAttachment = myAttachmentsDescs[attachmentIt];
 
         if (auto layout = getColorImageLayout(attachmentIt); layout != colorAttachment.initialLayout)
-        {
-            myCurrent.reset();
             colorAttachment.initialLayout = layout;
-        }
     }
 
     if (desc.depthStencilImage)
@@ -315,10 +310,7 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
         auto& depthStencilAttachment = myAttachmentsDescs[attachmentIt];
 
         if (auto layout = getDepthStencilImageLayout(); layout != depthStencilAttachment.initialLayout)
-        {
-            myCurrent.reset();
             depthStencilAttachment.initialLayout = layout;
-        }
     }
 }
 
@@ -375,9 +367,8 @@ RenderPassHandle<Vk> RenderTarget<Vk>::getRenderPass()
 
     internalUpdateAttachments(getRenderTargetDesc());
     internalUpdateRenderPasses(getRenderTargetDesc());
-    internalUpdateMap(getRenderTargetDesc());
 
-    return std::get<0>(myCurrent.value()->second);
+    return std::get<0>(internalUpdateMap(getRenderTargetDesc())->second);
 }
 
 template <>
@@ -387,9 +378,8 @@ FramebufferHandle<Vk> RenderTarget<Vk>::getFramebuffer()
 
     internalUpdateAttachments(getRenderTargetDesc());
     internalUpdateRenderPasses(getRenderTargetDesc());
-    internalUpdateMap(getRenderTargetDesc());
-    
-    return std::get<1>((*myCurrent)->second);
+
+    return std::get<1>(internalUpdateMap(getRenderTargetDesc())->second);
 }
 
 template <>
