@@ -175,6 +175,20 @@ const char* getCmdOption(const char*const* begin, const char*const* end, const c
     return nullptr;
 }
 
+// void* __real_malloc(size_t sz);
+// void* __wrap_malloc(size_t sz)
+// {
+//     void *ptr;
+
+//     ptr = __real_malloc(sz);
+//     fprintf(stderr, "malloc of size %d yields pointer %p\n", sz, ptr);
+
+//     /* if you wish to save the pointer and the size to a data structure, 
+//        then remember to add wrap code for calloc, realloc and free */
+
+//     return ptr;
+// }
+
 int main(int argc, char** argv)
 {
 	setlocale(LC_ALL, "");
