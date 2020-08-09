@@ -102,9 +102,8 @@ public:
         const std::list<std::function<void(uint64_t)>>& callbacks);
     void processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
 
-    void addOwnedObject(void* owner, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
-    void clearOwnedObjects(void* owner);
-    void moveOwnedObjects(void* owner, void* newOwner);
+    void addOwnedObject(uint32_t ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
+    void clearOwnedObjects(uint32_t ownerId);
 
     uint32_t getTypeCount(ObjectType<B> type);
 
@@ -140,7 +139,7 @@ private:
     };
 
     std::shared_mutex myObjectsMutex; // todo: replace with asserting mutex
-    std::map<uintptr_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
+    std::map<uint32_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
     std::map<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
 };
 
@@ -158,6 +157,7 @@ public:
     virtual ~DeviceResource();
 
     const auto& getName() const { return myName; }
+    const auto& getId() const { return myId; }
 
 protected:
 
@@ -180,6 +180,8 @@ private:
 
     std::shared_ptr<DeviceContext<B>> myDevice;
     std::string myName;
+    uint32_t myId = 0;
+    static uint32_t sId;
 };
 
 #include "device.inl"

@@ -94,7 +94,7 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
 
 template <>
 void DeviceContext<Vk>::addOwnedObject(
-    void* owner,
+    uint32_t ownerId,
     ObjectType<Vk> objectType,
     uint64_t objectHandle,
     const char* objectName)
@@ -110,28 +110,19 @@ void DeviceContext<Vk>::addOwnedObject(
 
     {
         std::unique_lock writelock(myObjectsMutex);
-        myOwnerToDeviceObjectsMap[reinterpret_cast<uintptr_t>(owner)].emplace_back(Object{objectType, objectHandle, objectName});
+        myOwnerToDeviceObjectsMap[ownerId].emplace_back(Object{objectType, objectHandle, objectName});
         myObjectTypeToCountMap[objectType]++;
     }
 }
 
 template <>
-void DeviceContext<Vk>::clearOwnedObjects(void* owner)
+void DeviceContext<Vk>::clearOwnedObjects(uint32_t ownerId)
 {
     std::unique_lock writelock(myObjectsMutex);
-    auto& objects = myOwnerToDeviceObjectsMap[reinterpret_cast<uintptr_t>(owner)];
+    auto& objects = myOwnerToDeviceObjectsMap[ownerId];
     for (const auto& object : objects)
         myObjectTypeToCountMap[object.type]--;
     objects.clear();
-}
-
-template <>
-void DeviceContext<Vk>::moveOwnedObjects(void* owner, void* newOwner)
-{
-    std::unique_lock writelock(myObjectsMutex);
-    auto nodeHandle = myOwnerToDeviceObjectsMap.extract(reinterpret_cast<uintptr_t>(owner));
-    nodeHandle.key() = reinterpret_cast<uintptr_t>(newOwner); 
-    myOwnerToDeviceObjectsMap.insert(std::move(nodeHandle));
 }
 
 template <>
@@ -292,13 +283,13 @@ DeviceContext<Vk>::DeviceContext(
             "vkSetDebugUtilsObjectNameEXT"));
 
     // addOwnedObject(
-    //     myInstance.get(),
+    //     0,
     //     VK_OBJECT_TYPE_INSTANCE,
     //     reinterpret_cast<uint64_t>(myInstance->getInstance()),
     //     "Instance");
 
     addOwnedObject(
-        myInstance.get(),
+        0,
         VK_OBJECT_TYPE_SURFACE_KHR,
         reinterpret_cast<uint64_t>(myInstance->getSurface()),
         "Instance_Surface");
@@ -319,14 +310,14 @@ DeviceContext<Vk>::DeviceContext(
     //         physicalDeviceIt);
 
     //     addOwnedObject(
-    //         myInstance.get(),
+    //         0,
     //         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
     //         reinterpret_cast<uint64_t>(physicalDevice),
     //         stringBuffer);
     // }
 
     addOwnedObject(
-        this,
+        0,
         VK_OBJECT_TYPE_DEVICE,
         reinterpret_cast<uint64_t>(myDevice),
         "Device");
@@ -363,7 +354,7 @@ DeviceContext<Vk>::DeviceContext(
                 queueIt);
 
             addOwnedObject(
-                this,
+                0,
                 VK_OBJECT_TYPE_QUEUE,
                 reinterpret_cast<uint64_t>(queue),
                 stringBuffer);
@@ -394,7 +385,7 @@ DeviceContext<Vk>::DeviceContext(
                     queueIt);
 
                 addOwnedObject(
-                    this,
+                    0,
                     VK_OBJECT_TYPE_COMMAND_POOL,
                     reinterpret_cast<uint64_t>(commandPool),
                     stringBuffer);
@@ -413,7 +404,7 @@ DeviceContext<Vk>::DeviceContext(
     myDescriptorPool = createDescriptorPool(myDevice);
 
     addOwnedObject(
-        this,
+        0,
         VK_OBJECT_TYPE_DESCRIPTOR_POOL,
         reinterpret_cast<uint64_t>(myDescriptorPool),
         "Device_DescriptorPool");
@@ -430,7 +421,7 @@ DeviceContext<Vk>::DeviceContext(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
 
     addOwnedObject(
-        this,
+        0,
         VK_OBJECT_TYPE_SEMAPHORE,
         reinterpret_cast<uint64_t>(myTimelineSemaphore),
         "Device_TimelineSemaphore");
@@ -443,8 +434,7 @@ DeviceContext<Vk>::~DeviceContext()
 
     processTimelineCallbacks();
 
-    clearOwnedObjects(this);
-    clearOwnedObjects(myInstance.get());
+    clearOwnedObjects(0);
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
     
@@ -460,11 +450,14 @@ DeviceContext<Vk>::~DeviceContext()
 }
 
 template <> 
+uint32_t DeviceResource<Vk>::sId(0);
+
+template <> 
 DeviceResource<Vk>::DeviceResource(DeviceResource<Vk>&& other)
 : myDevice(std::exchange(other.myDevice, {}))
 , myName(std::exchange(other.myName, {}))
+, myId(std::exchange(other.myId, {}))
 {
-    myDevice->moveOwnedObjects(&other, this);
 }
 
 template <> 
@@ -473,6 +466,7 @@ DeviceResource<Vk>::DeviceResource(
     const DeviceResourceCreateDesc<Vk>& desc)
 : myDevice(deviceContext)
 , myName(std::move(desc.name))
+, myId(++sId)
 {
 }
 
@@ -497,7 +491,7 @@ DeviceResource<Vk>::DeviceResource(
             2,
             objectIt);
 
-        deviceContext->addOwnedObject(this, objectType, objectHandles[objectIt], stringBuffer);
+        deviceContext->addOwnedObject(getId(), objectType, objectHandles[objectIt], stringBuffer);
     }
 }
 
@@ -505,13 +499,15 @@ template <>
 DeviceResource<Vk>::~DeviceResource()
 {
     if (myDevice)
-        myDevice->clearOwnedObjects(this);
+        myDevice->clearOwnedObjects(getId());
 }
 
 template <>
 DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other)
 {
-    myDevice->moveOwnedObjects(&other, this);
-
+    myDevice = std::exchange(other.myDevice, {});
+    myName = std::exchange(other.myName, {});
+    myId = std::exchange(other.myId, {});
+    
     return *this;
 }

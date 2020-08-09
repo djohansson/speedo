@@ -35,7 +35,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             attachmentIt);
 
         getDeviceContext()->addOwnedObject(
-            this,
+            getId(),
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -78,7 +78,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             depthImageViewStr.data());
 
         getDeviceContext()->addOwnedObject(
-            this,
+            getId(),
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -235,7 +235,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         hashKey);
 
     getDeviceContext()->addOwnedObject(
-        this,
+        getId(),
         VK_OBJECT_TYPE_RENDER_PASS,
         reinterpret_cast<uint64_t>(renderPass),
         stringBuffer);
@@ -262,7 +262,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         hashKey);
 
     getDeviceContext()->addOwnedObject(
-        this,
+        getId(),
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
         stringBuffer);

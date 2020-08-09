@@ -197,7 +197,7 @@ PipelineLayout<Vk>::PipelineLayout(
             shaderIt);
 
         getDeviceContext()->addOwnedObject(
-            this,
+            getId(),
             VK_OBJECT_TYPE_SHADER_MODULE,
             reinterpret_cast<uint64_t>(myShaders.get()[shaderIt]),
             stringBuffer);
@@ -389,7 +389,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
         hashKey);
 
     getDeviceContext()->addOwnedObject(
-        this,
+        getId(),
         VK_OBJECT_TYPE_PIPELINE,
         reinterpret_cast<uint64_t>(pipelineHandle),
         stringBuffer);
@@ -496,7 +496,7 @@ PipelineContext<Vk>::PipelineContext(
         samplerStr.data());
 
     deviceContext->addOwnedObject(
-        this,
+        getId(),
         VK_OBJECT_TYPE_SAMPLER,
         reinterpret_cast<uint64_t>(myResources->sampler),
         stringBuffer);
@@ -518,7 +518,7 @@ PipelineContext<Vk>::PipelineContext(
         pipelineCacheStr.data());
 
     deviceContext->addOwnedObject(
-        this,
+        getId(),
         VK_OBJECT_TYPE_PIPELINE_CACHE,
         reinterpret_cast<uint64_t>(myCache),
         stringBuffer);

@@ -48,7 +48,13 @@ template <>
 CommandBufferArray<Vk>::CommandBufferArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CommandBufferArrayCreateDesc<Vk>&& desc)
-: CommandBufferArray(deviceContext, std::make_tuple(std::move(desc), commandbufferarray::createArray(deviceContext, desc)))
+: CommandBufferArray(
+    deviceContext,
+    std::make_tuple(
+        std::move(desc),
+        commandbufferarray::createArray(
+            deviceContext,
+            desc)))
 {
 }
 

@@ -43,7 +43,7 @@ SwapchainContext<Vk>::SwapchainContext(
         swapchainStr.data());
     
     deviceContext->addOwnedObject(
-        this,
+        getId(),
         VK_OBJECT_TYPE_SWAPCHAIN_KHR,
         reinterpret_cast<uint64_t>(mySwapchain),
         stringBuffer);
@@ -60,7 +60,6 @@ SwapchainContext<Vk>::SwapchainContext(
     std::vector<ImageHandle<Vk>> colorImages(imageCount);
     VK_CHECK(vkGetSwapchainImagesKHR(deviceContext->getDevice(), mySwapchain, &imageCount, colorImages.data()));
     
-    myFrames.clear();
     myFrames.reserve(frameCount);
     
     for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
