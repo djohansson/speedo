@@ -133,46 +133,50 @@ CommandContextBeginInfo<Vk>& CommandContextBeginInfo<Vk>::operator=(const Comman
         inheritance = other.inheritance;
         pInheritanceInfo = &inheritance;
     }
+
+    return *this;
 }
 
 template <>
 bool CommandContextBeginInfo<Vk>::operator==(const CommandContextBeginInfo& other) const
 {
-    bool result = other.flags == flags && other.level == level;
-    if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+    bool result = true;
+
+    if (this != &other)
     {
-        assert(pInheritanceInfo);
-        result &= 
-            other.pInheritanceInfo->renderPass == pInheritanceInfo->renderPass &&
-            other.pInheritanceInfo->subpass == pInheritanceInfo->subpass &&
-            other.pInheritanceInfo->framebuffer == pInheritanceInfo->framebuffer &&
-            other.pInheritanceInfo->occlusionQueryEnable == pInheritanceInfo->occlusionQueryEnable &&
-            other.pInheritanceInfo->queryFlags == pInheritanceInfo->queryFlags && 
-            other.pInheritanceInfo->pipelineStatistics == pInheritanceInfo->pipelineStatistics;
+        result = other.flags == flags && other.level == level;
+        if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+        {
+            assert(pInheritanceInfo);
+            result &= 
+                other.pInheritanceInfo->renderPass == pInheritanceInfo->renderPass &&
+                other.pInheritanceInfo->subpass == pInheritanceInfo->subpass &&
+                other.pInheritanceInfo->framebuffer == pInheritanceInfo->framebuffer &&
+                other.pInheritanceInfo->occlusionQueryEnable == pInheritanceInfo->occlusionQueryEnable &&
+                other.pInheritanceInfo->queryFlags == pInheritanceInfo->queryFlags && 
+                other.pInheritanceInfo->pipelineStatistics == pInheritanceInfo->pipelineStatistics;
+        }
     }
 
     return result;
 }
 
 template <>
-CommandBufferHandle<Vk> CommandContext<Vk>::internalBeginScope(
+CommandBufferAccessScope<Vk> CommandContext<Vk>::internalBeginScope(
     const CommandContextBeginInfo<Vk>& beginInfo)
 {
     if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
         enqueueOnePending(beginInfo.level);
 
-    myRecordingCommands.emplace(
-        CommandBufferAccessScope(
-            myPendingCommands[beginInfo.level].back().first,
-            beginInfo));
+    myRecordingCommands[beginInfo.level].emplace(CommandBufferAccessScope(&myPendingCommands[beginInfo.level].back().first, beginInfo));
 
-    return (*myRecordingCommands);
+    return myRecordingCommands[beginInfo.level].value();
 }
     
 template <>
-CommandBufferHandle<Vk> CommandContext<Vk>::internalCommands() const
+CommandBufferAccessScope<Vk> CommandContext<Vk>::internalCommands(const CommandContextBeginInfo<Vk>& beginInfo) const
 {
-    return (*myRecordingCommands);
+    return myRecordingCommands[beginInfo.level].value();
 }
 
 template <>
@@ -248,9 +252,7 @@ uint64_t CommandContext<Vk>::submit(
 {
     ZoneScopedN("submit");
 
-    std::unique_lock writeLock(myCommandsMutex);
-
-    endCommands();
+    internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
     auto& pendingCommands = myPendingCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
@@ -349,26 +351,14 @@ uint64_t CommandContext<Vk>::execute(CommandContext<Vk>& callee)
 {
     ZoneScopedN("execute");
 
-    if (&callee != this)
-        std::lock(myCommandsMutex, callee.myCommandsMutex);
-    else
-        myCommandsMutex.lock();
+    callee.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 
-    {
-		auto cmd = internalCommands();
-
-		for (const auto& secPendingCommands : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
-			vkCmdExecuteCommands(cmd, secPendingCommands.first.head(), secPendingCommands.first.data());
-	}
+    for (const auto& secPendingCommands : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
+        vkCmdExecuteCommands(commands(), secPendingCommands.first.head(), secPendingCommands.first.data());
 
     auto timelineValue = myDevice->timelineValue().load(std::memory_order_relaxed);
 
 	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
-    
-    myCommandsMutex.unlock();
-
-    if (&callee != this)
-        callee.myCommandsMutex.unlock();
 
     return timelineValue;
 }
@@ -403,8 +393,9 @@ CommandContext<Vk>::CommandContext(
     CommandContextCreateDesc<Vk>&& desc)
 : myDevice(deviceContext)
 , myDesc(std::move(desc))
-, myPendingCommands(2)
-, myFreeCommands(2)
+, myPendingCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
+, myFreeCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
+, myRecordingCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
 {
     ZoneScopedN("CommandContext()");
 }

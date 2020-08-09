@@ -20,6 +20,9 @@ template <GraphicsBackend B>
 class ImageView;
 
 template <GraphicsBackend B>
+class RenderImageSet;
+
+template <GraphicsBackend B>
 class Image : public DeviceResource<B>
 {
 public:
@@ -51,6 +54,8 @@ public:
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
     
 private:
+
+    friend class RenderImageSet<B>;
 
     Image( // uses provided image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

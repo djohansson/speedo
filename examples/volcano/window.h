@@ -62,15 +62,12 @@ public:
 	void updateInput(const InputState& input);
 
 	template <typename T>
-	void addDrawCallback(const CommandContextBeginInfo<Vk>& beginInfo, T callback)
+	void addDrawCallback(T callback, const CommandContextBeginInfo<Vk>& beginInfo = {})
 	{
 		myDrawCallbacks.emplace_back(std::make_pair(beginInfo, callback));
 	}
 
-	uint64_t submit(
-		const std::shared_ptr<PipelineContext<B>>& pipeline,
-		uint32_t frameIndex,
-		uint64_t waitTimelineValue);
+	void draw(const std::shared_ptr<PipelineContext<B>>& pipeline);
 
 	struct ViewBufferData // todo: needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment. right now uses manual padding.
 	{

@@ -32,13 +32,16 @@ public:
 
     RenderImageSet& operator=(RenderImageSet<B>&& other) = default;
 
-    const auto& getColorImages() const { return myColorImages; }
-    const auto& getDepthStencilImages() const { return myDepthStencilImage; }
-
-protected:
-
     virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+
+    virtual void end(CommandBufferHandle<B> cmd) final;
+
+    virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
+    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+
+    auto getColorImage(uint32_t index) const { return myColorImages[index]; }
+    auto getDepthStencilImage() const { return myDepthStencilImage; }
 
 private:
 

@@ -89,9 +89,21 @@ void Application<Vk>::initIMGUI(
     initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
     initInfo.CheckVkResultFn = checkResult;
+    initInfo.DeleteBufferFn = [](void* user_data, VkBuffer buffer, VkDeviceMemory buffer_memory, const VkAllocationCallbacks* allocator)
+    {
+        DeviceContext<Vk>* deviceContext = static_cast<DeviceContext<Vk>*>(user_data);
+        deviceContext->addTimelineCallback([device = deviceContext->getDevice(), buffer, buffer_memory, allocator](uint64_t)
+        {
+            if (buffer != VK_NULL_HANDLE)
+                vkDestroyBuffer(device, buffer, allocator);
+            if (buffer_memory != VK_NULL_HANDLE)
+                vkFreeMemory(device, buffer_memory, allocator);
+        });
+    };
+    initInfo.UserData = deviceContext.get();
     ImGui_ImplVulkan_Init(
         &initInfo,
-        myGraphicsPipeline->resources()->renderTarget->getRenderPass());
+        myIMGUIRenderPass);
 
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -168,8 +180,8 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
         // {
         //     ZoneScopedN("tracyVkCollectTransfer");
 
-        //     auto& primaryCommandContext = myWindow->commandContext(frameIndex);
-        //     auto cmd = primaryCommandContext->beginScope();
+        //     auto& commandContext = myWindow->commandContext(frameIndex);
+        //     auto cmd = commandContext->beginScope();
 
         //     TracyVkCollect(
         //         myTransferCommands->userData<command::UserData>().tracyContext,
@@ -291,21 +303,30 @@ Application<Vk>::Application(
     // stuff that needs to be initialized on graphics queue
     {
         const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
-        auto& primaryCommandContext = myWindow->commandContext(frame.getDesc().index);
+        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
+        auto cmd = commandContext->commands();
 
-        auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd)
-        {
+        //myWindow->getSwapchain()->getFrames()[frame.getDesc().index]->begin(cmd);
+
+        auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
+        {   
+            myIMGUIRenderPass = myWindow->getSwapchain()->getFrames()[frameIndex]->renderPass();
+
             initIMGUI(myDevice, cmd, myUserProfilePath);
 
             myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         };
 
-        initDrawCommands(primaryCommandContext->commands());
+        initDrawCommands(cmd, frame.getDesc().index);
+
+        //myWindow->getSwapchain()->getFrames()[frame.getDesc().index]->end(cmd);
+
+        cmd.end();
         
         Flags<Vk> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
         auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastFrameTimelineValue = primaryCommandContext->submit({
+        myLastFrameTimelineValue = commandContext->submit({
             myDevice->getGraphicsQueue(),
             1,
             &myDevice->getTimelineSemaphore(),
@@ -396,7 +417,7 @@ Application<Vk>::Application(
         });
     };
 
-    myImguiDrawFunction = [this, openFileDialogue, loadModel, loadImage](CommandBufferHandle<Vk> cmd)
+    myIMGUIDrawFunction = [this, openFileDialogue, loadModel, loadImage](CommandBufferHandle<Vk> cmd)
     {
         using namespace ImGui;
 
@@ -807,7 +828,7 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("draw");
 
-    auto [flipSuccess, frameIndex, frameTimelineValue] = myWindow->getSwapchain()->flip();
+    auto [flipSuccess, frameTimelineValue] = myWindow->getSwapchain()->flip();
 
     if (flipSuccess)
     {
@@ -820,28 +841,29 @@ bool Application<Vk>::draw()
 
         myWindow->updateInput(myInput);
 
-        if (const auto& depthStencilImage = myRenderImageSet->getDepthStencilImages(); depthStencilImage)
+        if (const auto& depthStencilImage = myRenderImageSet->getDepthStencilImage(); depthStencilImage)
         {
-            auto& primaryCommandContext = myWindow->commandContext(frameIndex);
-            auto cmd = primaryCommandContext->commands();
-
-            depthStencilImage->clearDepthStencil(cmd, { 1.0f, 0 });
-            depthStencilImage->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            myWindow->addDrawCallback([depthStencilImage](CommandBufferHandle<Vk> cmd){
+                depthStencilImage->clearDepthStencil(cmd, { 1.0f, 0 });
+                depthStencilImage->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            });
         }
 
-        CommandContextBeginInfo<Vk> beginInfo = {};
-        beginInfo.flags =
-            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
-            VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-        beginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-        beginInfo.inheritance.renderPass = myGraphicsPipeline->resources()->renderTarget->getRenderPass();
-        beginInfo.inheritance.framebuffer = myGraphicsPipeline->resources()->renderTarget->getFramebuffer();
+        myWindow->draw(myGraphicsPipeline);
 
-        myWindow->addDrawCallback(beginInfo, myImguiDrawFunction);
+        auto& commandContext = myWindow->commandContext(myWindow->getSwapchain()->getFrameIndex());
+        auto cmd = commandContext->commands();
+        
+        myWindow->getSwapchain()->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+        myIMGUIDrawFunction(cmd);
+        myWindow->getSwapchain()->end(cmd);
 
-        myLastFrameTimelineValue = myWindow->submit(
-            myGraphicsPipeline,
-            frameIndex,
+        myWindow->getSwapchain()->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+
+        cmd.end();
+        
+        myLastFrameTimelineValue = myWindow->getSwapchain()->submit(
+            commandContext,
             std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
 
@@ -853,7 +875,7 @@ bool Application<Vk>::draw()
             frameTimelineValue));
 
     if (flipSuccess)
-        myWindow->getSwapchain()->present(frameIndex);
+        myWindow->getSwapchain()->present();
 
     // wait for timeline callbacks
     {

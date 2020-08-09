@@ -26,10 +26,7 @@ void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
     
     mySwapchain = std::make_shared<SwapchainContext<Vk>>(
         myDevice,
-        SwapchainCreateDesc<Vk>{
-            {"mySwapchain"},
-            frameBufferExtent,
-            mySwapchain ? mySwapchain->getSwapchain() : nullptr});
+        SwapchainCreateDesc<Vk>{{{"mySwapchain"}, frameBufferExtent}, mySwapchain ? mySwapchain->getSwapchain() : nullptr});
 
     myViewBuffer = std::make_unique<Buffer<Vk>>(
         myDevice,
@@ -79,40 +76,9 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
 }
 
 template <>
-uint64_t WindowContext<Vk>::submit(
-    const std::shared_ptr<PipelineContext<Vk>>& pipeline,
-    uint32_t frameIndex,
-    uint64_t waitTimelineValue)
+void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipeline)
 {
-    ZoneScopedN("submitFrame");
-
-    auto& frame = *mySwapchain->getFrames()[frameIndex];
-    auto& primaryCommandContext = myCommands[frameIndex][0];
-
-    // {
-    //     ZoneScopedN("tracyVkCollect");
-
-        // auto& commandContext = myCommands[frameIndex][0];
-        // auto cmd = commandContext->beginScope();
-
-        // TracyVkCollect(
-        //     commandContext->userData<command_vulkan::UserData>().tracyContext,
-        //     cmd);
-    // }
-
-    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
-    {
-        updateViewBuffer(frameIndex);
-    }));
-
-    for (auto [beginInfo, drawCallback] : myDrawCallbacks)
-    {
-        auto& commandContext = myCommands[frameIndex][0];
-        auto cmd = commandContext->commands(beginInfo);
-        drawCallback(cmd);
-    }
-    myDrawCallbacks.clear();
-    
+    ZoneScopedN("WindowContext::draw()");
 
     // std::vector<std::future<void>> drawCallbackFutures;
     // drawCallbackFutures.reserve(myDrawCallbacks.size());
@@ -144,9 +110,29 @@ uint64_t WindowContext<Vk>::submit(
 
     //using DrawPrepare = CommandBufferHandle<Vk>(CommandContextBeginInfo<Vk> beginInfo, uint32_t frameIndex, uint32_t commandContextIndex);
 
+    auto frameIndex = mySwapchain->getFrameIndex();
+    auto& frame = *mySwapchain->getFrames()[frameIndex];
+    auto& commandContext = myCommands[frameIndex][0];
+
+    for (auto [beginInfo, drawCallback] : myDrawCallbacks)
+        drawCallback(commandContext->commands(beginInfo));
+
+    myDrawCallbacks.clear();
+
+    pipeline->resources()->renderTarget->transitionColor(commandContext->commands(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+
+    auto renderPass = pipeline->resources()->renderTarget->renderPass();
+    auto framebuffer = pipeline->resources()->renderTarget->framebuffer();
+    auto imageExtent = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent;
+
+    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
+    {
+        updateViewBuffer(frameIndex);
+    }));
+    
     // setup draw parameters
     uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
-    uint32_t drawCommandContextCount = static_cast<uint32_t>(myCommands[frameIndex].size()) - 1;
+    uint32_t drawCommandContextCount = static_cast<uint32_t>(myCommands[frameIndex].size());
     uint32_t drawThreadCount = std::min<uint32_t>(drawCount, drawCommandContextCount);
 
     std::atomic_uint32_t drawAtomic = 0;
@@ -157,13 +143,13 @@ uint64_t WindowContext<Vk>::submit(
         ZoneScopedN("drawViews");
 
         std::array<uint32_t, 128> seq;
-        std::iota(seq.begin(), seq.begin() + drawCommandContextCount, 1);
+        std::iota(seq.begin(), seq.begin() + drawCommandContextCount, 0);
         std::for_each_n(
 #if defined(__WINDOWS__)
             std::execution::par,
 #endif
             seq.begin(), drawThreadCount,
-            [this, &pipeline, &frame, &drawAtomic, &drawCount](uint32_t threadIt)
+            [this, &pipeline, &renderPass, &framebuffer, &imageExtent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -179,8 +165,8 @@ uint64_t WindowContext<Vk>::submit(
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
                 
                 CommandBufferInheritanceInfo<Vk> inheritInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-                inheritInfo.renderPass = pipeline->resources()->renderTarget->getRenderPass();
-                inheritInfo.framebuffer = pipeline->resources()->renderTarget->getFramebuffer();
+                inheritInfo.renderPass = renderPass;
+                inheritInfo.framebuffer = framebuffer;
 
                 CommandContextBeginInfo<Vk> beginInfo = {};
                 beginInfo.flags =
@@ -189,8 +175,8 @@ uint64_t WindowContext<Vk>::submit(
                 beginInfo.pInheritanceInfo = &inheritInfo;
                 beginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
                     
-                auto& commandContext = myCommands[frame.getDesc().index][threadIt];
-                auto cmd = commandContext->commands(std::move(beginInfo));
+                auto& commandContext = myCommands[frameIndex][threadIt];
+                auto cmd = commandContext->commands(beginInfo);
 
                 // TracyVkZone(
                 //     commandContext->userData<command_vulkan::UserData>().tracyContext,
@@ -209,12 +195,12 @@ uint64_t WindowContext<Vk>::submit(
                         pipeline->resources()->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
-                uint32_t dx = frame.getDesc().imageExtent.width / myDesc.splitScreenGrid.width;
-                uint32_t dy = frame.getDesc().imageExtent.height / myDesc.splitScreenGrid.height;
+                uint32_t dx = imageExtent.width / myDesc.splitScreenGrid.width;
+                uint32_t dy = imageExtent.height / myDesc.splitScreenGrid.height;
 
                 while (drawIt < drawCount)
                 {
-                    auto drawView = [this, &drawCount, &frame, &pipeline, &cmd, &dx, &dy](uint32_t viewIt)
+                    auto drawView = [this, &drawCount, &frameIndex, &pipeline, &cmd, &dx, &dy](uint32_t viewIt)
                     {
                         uint32_t i = viewIt % myDesc.splitScreenGrid.width;
                         uint32_t j = viewIt / myDesc.splitScreenGrid.width;
@@ -239,13 +225,13 @@ uint64_t WindowContext<Vk>::submit(
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
                         };
 
-                        auto drawModel = [viewIt, drawCount, &frame](
+                        auto drawModel = [viewIt, drawCount, &frameIndex](
                                             VkCommandBuffer cmd, uint32_t indexCount,
                                             uint32_t descriptorSetCount,
                                             const VkDescriptorSet* descriptorSets,
                                             VkPipelineLayout pipelineLayout)
                         {
-                            uint32_t viewBufferOffset = (frame.getDesc().index * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
+                            uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                                 descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
@@ -267,8 +253,6 @@ uint64_t WindowContext<Vk>::submit(
 
                     drawIt = drawAtomic++;
                 }
-
-                commandContext->endCommands();
             });
     }
 
@@ -281,26 +265,33 @@ uint64_t WindowContext<Vk>::submit(
     {
         ZoneScopedN("executeCommands");
 
-        auto cmd = primaryCommandContext->commands();
-
         // TracyVkZone(
-        //     primaryCommandContext->userData<command_vulkan::UserData>().tracyContext,
+        //     commandContext->userData<command_vulkan::UserData>().tracyContext,
         //     cmd, "executeCommands");
 
-        pipeline->resources()->renderTarget->begin(cmd, { VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS });
 
         // config.resources->renderTarget->clearSingle(cmd, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
         // config.resources->renderTarget->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
+
+        // {
+        //     ZoneScopedN("tracyVkCollect");
+
+            // auto& commandContext = myCommands[frameIndex][0];
+            // auto cmd = commandContext->beginScope();
+
+            // TracyVkCollect(
+            //     commandContext->userData<command_vulkan::UserData>().tracyContext,
+            //     cmd);
+        // }
+
+        auto cmd = commandContext->commands();
+        pipeline->resources()->renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
         
         // views
-        for (uint32_t contextIt = 1; contextIt <= drawThreadCount; contextIt++)
-            primaryCommandContext->execute(*myCommands[frameIndex][contextIt]);
+        for (uint32_t contextIt = 0; contextIt < drawThreadCount; contextIt++)
+            commandContext->execute(*myCommands[frameIndex][contextIt]);
 
         pipeline->resources()->renderTarget->nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
-        // ui
-        primaryCommandContext->execute(*myCommands[frameIndex][0]);
-
         pipeline->resources()->renderTarget->end(cmd);
 
         VkOffset3D blitSize;
@@ -316,19 +307,8 @@ uint64_t WindowContext<Vk>::submit(
         imageBlitRegion.dstSubresource.layerCount = 1;
         imageBlitRegion.dstOffsets[1] = blitSize;
 
-        transitionImageLayout(
-            cmd,
-            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
-            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImageFormats[0],
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-        transitionImageLayout(
-            cmd,
-            frame.getDesc().colorImages[0],
-            frame.getDesc().colorImageFormats[0],
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        pipeline->resources()->renderTarget->transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+        frame.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0);
 
         vkCmdBlitImage(
             cmd,
@@ -339,20 +319,6 @@ uint64_t WindowContext<Vk>::submit(
             1,
             &imageBlitRegion,
             VK_FILTER_NEAREST);
-
-        transitionImageLayout(
-            cmd,
-            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
-            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImageFormats[0],
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-        transitionImageLayout(
-            cmd,
-            frame.getDesc().colorImages[0],
-            frame.getDesc().colorImageFormats[0],
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
 
     {
@@ -360,9 +326,6 @@ uint64_t WindowContext<Vk>::submit(
 
         updateViewBufferFuture.get();
     }
-
-    // Submit primary command buffer
-    return mySwapchain->submit(primaryCommandContext, frameIndex, waitTimelineValue);
 }
 
 template <>

@@ -78,7 +78,51 @@ SwapchainContext<Vk>::SwapchainContext(
 }
 
 template <>
-std::tuple<bool, uint32_t, uint64_t> SwapchainContext<Vk>::flip() const
+const std::optional<RenderPassBeginInfo<Vk>>& SwapchainContext<Vk>::begin(
+    CommandBufferHandle<Vk> cmd,
+    SubpassContents<Vk> contents)
+{
+    return myFrames[myFrameIndex]->begin(cmd, contents);
+}
+
+template <>
+void SwapchainContext<Vk>::end(CommandBufferHandle<Vk> cmd)
+{
+    return myFrames[myFrameIndex]->end(cmd);
+}
+
+template <>
+const RenderTargetCreateDesc<Vk>& SwapchainContext<Vk>::getRenderTargetDesc() const
+{
+    return myDesc;
+}
+
+template <>
+ImageLayout<Vk> SwapchainContext<Vk>::getColorImageLayout(uint32_t index) const
+{
+    return myFrames[myFrameIndex]->getColorImageLayout(index);
+}
+
+template <>
+ImageLayout<Vk> SwapchainContext<Vk>::getDepthStencilImageLayout() const
+{
+    return myFrames[myFrameIndex]->getDepthStencilImageLayout();
+}
+
+template <>
+void SwapchainContext<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
+{
+    myFrames[myFrameIndex]->transitionColor(cmd, layout, index);
+}
+
+template <>
+void SwapchainContext<Vk>::transitionDepth(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+{
+    myFrames[myFrameIndex]->transitionDepth(cmd, layout);
+}
+
+template <>
+std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
 {
     ZoneScoped;
 
@@ -86,7 +130,6 @@ std::tuple<bool, uint32_t, uint64_t> SwapchainContext<Vk>::flip() const
 
     const auto& lastFrame = *myFrames[myLastFrameIndex];
 
-    uint32_t frameIndex;
     auto flipResult = checkFlipOrPresentResult(
         vkAcquireNextImageKHR(
             getDeviceContext()->getDevice(),
@@ -94,7 +137,7 @@ std::tuple<bool, uint32_t, uint64_t> SwapchainContext<Vk>::flip() const
             UINT64_MAX,
             lastFrame.getNewImageAcquiredSemaphore(),
             0,
-            &frameIndex));
+            &myFrameIndex));
 
     if (flipResult != VK_SUCCESS)
     {
@@ -112,50 +155,70 @@ std::tuple<bool, uint32_t, uint64_t> SwapchainContext<Vk>::flip() const
         // todo: print error code
         //ZoneText(failedStr, sizeof_array(failedStr));
 
-        return std::make_tuple(false, myLastFrameIndex, lastFrame.getLastSubmitTimelineValue());
+        return std::make_tuple(false, lastFrame.getLastSubmitTimelineValue());
     }
 
     char flipFrameWithNumberStr[flipFrameStr.size()+2];
     sprintf_s(flipFrameWithNumberStr, sizeof(flipFrameWithNumberStr), "%.*s%u",
-        static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), frameIndex);
+        static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), myFrameIndex);
 
     ZoneName(flipFrameWithNumberStr, sizeof_array(flipFrameWithNumberStr));
 
-    const auto& frame = *myFrames[frameIndex];
+    const auto& frame = *myFrames[myFrameIndex];
     
-    return std::make_tuple(true, frameIndex, frame.getLastSubmitTimelineValue());
+    return std::make_tuple(true, frame.getLastSubmitTimelineValue());
 }
 
 template <>
 uint64_t SwapchainContext<Vk>::submit(
     const std::shared_ptr<CommandContext<Vk>>& commandContext,
-    uint32_t frameIndex,
     uint64_t waitTimelineValue)
 {
+    ZoneScopedN("SwapchainContext::submit()");
+
     const auto& lastFrame = *myFrames[myLastFrameIndex];
-    auto& frame = *myFrames[frameIndex];
-    return frame.submit(
-        commandContext,
-        lastFrame.getNewImageAcquiredSemaphore(),
-        waitTimelineValue);
+    auto& frame = *myFrames[myFrameIndex];
+
+    SemaphoreHandle<Vk> waitSemaphores[2] = {
+        getDeviceContext()->getTimelineSemaphore(), lastFrame.getNewImageAcquiredSemaphore() };
+    Flags<Vk> waitDstStageMasks[2] = {
+        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    uint64_t waitTimelineValues[2] = { waitTimelineValue, 1 };
+    SemaphoreHandle<Vk> signalSemaphores[2] = {
+        getDeviceContext()->getTimelineSemaphore(), frame.getRenderCompleteSemaphore() };
+    uint64_t signalTimelineValues[2] = { 1 + getDeviceContext()->timelineValue().fetch_add(1, std::memory_order_relaxed), 1 };
+    
+    uint64_t submitTimelineValue = commandContext->submit({
+        getDeviceContext()->getGraphicsQueue(),
+        2,
+        waitSemaphores,
+        waitDstStageMasks,
+        waitTimelineValues,
+        2,
+        signalSemaphores,
+        signalTimelineValues});
+
+    frame.myLastSubmitTimelineValue = submitTimelineValue;
+
+    return submitTimelineValue;
 }
 
 template <>
-void SwapchainContext<Vk>::present(uint32_t frameIndex)
+void SwapchainContext<Vk>::present()
 {
     ZoneScopedN("present");
 
-    const auto& frame = *myFrames[frameIndex];
+    auto& frame = *myFrames[myFrameIndex];
 
     VkPresentInfoKHR info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
     info.waitSemaphoreCount = 1;
     info.pWaitSemaphores = &frame.getRenderCompleteSemaphore();
     info.swapchainCount = 1;
     info.pSwapchains = &mySwapchain;
-    info.pImageIndices = &frameIndex;
+    info.pImageIndices = &myFrameIndex;
     checkFlipOrPresentResult(vkQueuePresentKHR(getDeviceContext()->getGraphicsQueue(), &info));
 
-    myLastFrameIndex = frameIndex;
+    myLastFrameIndex = myFrameIndex;
 }
 
 template <>

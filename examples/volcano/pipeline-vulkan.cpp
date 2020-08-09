@@ -360,7 +360,7 @@ void PipelineContext<Vk>::createGraphicsPipeline()
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = myLayout->getLayout();
-    pipelineInfo.renderPass = myResources->renderTarget->getRenderPass();
+    pipelineInfo.renderPass = myResources->renderTarget->renderPass();
     pipelineInfo.subpass = myResources->renderTarget->getSubpass().value_or(0);
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;

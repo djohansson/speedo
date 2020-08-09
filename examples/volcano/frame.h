@@ -7,13 +7,13 @@
 #include <memory>
 
 template <GraphicsBackend B>
-class SwapchainContext;
-
-template <GraphicsBackend B>
 struct FrameCreateDesc : RenderTargetCreateDesc<B>
 {
 	uint32_t index = 0;
 };
+
+template <GraphicsBackend B>
+class SwapchainContext;
 
 template <GraphicsBackend B>
 class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
@@ -28,23 +28,21 @@ public:
 
 	Frame& operator=(Frame&& other) = default;
 
+	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
+    virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+
+    virtual void end(CommandBufferHandle<B> cmd) final;
+
+	virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
+    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 	const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
 
-protected:
-
-    virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
-    virtual ImageLayout<B> getDepthStencilImageLayout() const final;
-
 private:
 
 	friend class SwapchainContext<B>;
-
-	uint64_t submit(
-		const std::shared_ptr<CommandContext<B>>& commandContext,
-		SemaphoreHandle<B> waitSemaphore,
-		uint64_t waitTimelineValue);
 
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;

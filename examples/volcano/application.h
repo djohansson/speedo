@@ -93,7 +93,8 @@ private:
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
-	std::function<void(CommandBufferHandle<B> cmd)> myImguiDrawFunction;
+	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
+	RenderPassHandle<B> myIMGUIRenderPass = 0;
 
 	uint64_t myLastFrameTimelineValue = 0;
 	uint64_t myLastTransferTimelineValue = 0;

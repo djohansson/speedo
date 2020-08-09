@@ -1,20 +1,15 @@
 template <GraphicsBackend B>
-auto CommandContext<B>::commands(const CommandContextBeginInfo<B>& beginInfo)
+CommandBufferAccessScope<B> CommandContext<B>::commands(const CommandContextBeginInfo<B>& beginInfo)
 {
-    if (myRecordingCommands && (*myRecordingCommands).getBeginInfo() == beginInfo)
-    {
-        std::shared_lock readLock(myCommandsMutex);
-        return internalCommands();
-    }
+    if (myRecordingCommands[beginInfo.level] && myRecordingCommands[beginInfo.level].value().getBeginInfo() == beginInfo)
+        return internalCommands(beginInfo);
     else
-    {
-        std::unique_lock writeLock(myCommandsMutex);
-        return internalBeginScope(std::move(beginInfo));
-    }
+        return internalBeginScope(beginInfo);
 }
+
 template <GraphicsBackend B>
-void CommandContext<B>::endCommands()
+void CommandContext<B>::internalEndCommands(CommandBufferLevel<B> level)
 {
-    if (myRecordingCommands)
-        myRecordingCommands = std::nullopt;
+    if (myRecordingCommands[level])
+        myRecordingCommands[level] = std::nullopt;
 }

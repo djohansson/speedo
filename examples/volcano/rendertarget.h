@@ -6,7 +6,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <shared_mutex>
 #include <vector>
 #include <tuple>
 
@@ -27,27 +26,36 @@ struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-struct RenderTargetBeginInfo
+struct IRenderTarget
 {
-    SubpassContents<B> contents;
+    virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const = 0;
+    
+    virtual ImageLayout<B> getColorImageLayout(uint32_t index) const = 0;
+    virtual ImageLayout<B> getDepthStencilImageLayout() const = 0;
+
+    virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) = 0;
+    virtual void end(CommandBufferHandle<B> cmd) = 0;
+
+    virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) = 0;
+    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) = 0;
 };
 
 template <GraphicsBackend B>
-class RenderTarget : public DeviceResource<B>
+class RenderTarget : public IRenderTarget<B>, public DeviceResource<B>
 {
 public:
 
     virtual ~RenderTarget();
-    
-    virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const = 0;
 
-    const auto& getAttachments() const { return myAttachments; }
-    const RenderPassHandle<B>& getRenderPass();
-    const FramebufferHandle<B>& getFramebuffer();
+    virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
+    virtual void end(CommandBufferHandle<B> cmd) override;
+
+    auto getAttachment(uint32_t index) const { return myAttachments[index]; }
+    const auto& getAttachmentDesc(uint32_t index) const { return myAttachmentDescs[index]; }
     const auto& getSubpass() const { return myCurrentSubpass; }
 
-    void begin(CommandBufferHandle<B> cmd, RenderTargetBeginInfo<B>&& beginInfo = {});
-    void end(CommandBufferHandle<B> cmd);
+    RenderPassHandle<B> renderPass();
+    FramebufferHandle<B> framebuffer();
 
     void clearSingle(
         CommandBufferHandle<B> cmd,
@@ -76,9 +84,6 @@ protected:
 
     RenderTarget& operator=(RenderTarget&& other) = default;
 
-    virtual ImageLayout<B> getColorImageLayout(uint32_t index) const = 0;
-    virtual ImageLayout<B> getDepthStencilImageLayout() const = 0;
-
 private:
 
     using RenderPassFramebufferTuple = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
@@ -91,25 +96,22 @@ private:
     
     void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
-    void internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
+    typename RenderPassFramebufferTupleMap::const_iterator internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
     RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
         uint64_t hashKey,
         const RenderTargetCreateDesc<Vk>& desc);
 
     std::vector<ImageViewHandle<B>> myAttachments;
-    std::vector<AttachmentDescription<B>> myAttachmentsDescs;
+    std::vector<AttachmentDescription<B>> myAttachmentDescs;
     std::vector<AttachmentReference<B>> myAttachmentsReferences;
     std::vector<SubpassDescription<B>> mySubPassDescs;
     std::vector<SubpassDependency<B>> mySubPassDependencies;
 
     RenderPassFramebufferTupleMap myMap;
 
-    std::optional<RenderTargetBeginInfo<B>> myCurrentPassInfo;
-    std::optional<typename RenderPassFramebufferTupleMap::const_iterator> myCurrent;
+    std::optional<RenderPassBeginInfo<B>> myCurrentPass;
     std::optional<uint32_t> myCurrentSubpass;
-
-    std::shared_mutex myMutex;
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };

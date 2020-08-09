@@ -40,7 +40,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
 
-        auto& colorAttachment = myAttachmentsDescs.emplace_back();
+        auto& colorAttachment = myAttachmentDescs.emplace_back();
         colorAttachment.format = desc.colorImageFormats[attachmentIt];
         colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
         colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -83,7 +83,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
 
-        auto& depthStencilAttachment = myAttachmentsDescs.emplace_back();
+        auto& depthStencilAttachment = myAttachmentDescs.emplace_back();
 		depthStencilAttachment.format = desc.depthStencilImageFormat;
 		depthStencilAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -192,7 +192,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
     result = XXH3_64bits_update(myXXHState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), myAttachmentsDescs.data(), myAttachmentsDescs.size() * sizeof(myAttachmentsDescs.front()));
+    result = XXH3_64bits_update(myXXHState.get(), myAttachmentDescs.data(), myAttachmentDescs.size() * sizeof(myAttachmentDescs.front()));
     assert(result != XXH_ERROR);
 
     result = XXH3_64bits_update(myXXHState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
@@ -220,7 +220,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
 
     auto renderPass = createRenderPass(
         getDeviceContext()->getDevice(),
-        myAttachmentsDescs,
+        myAttachmentDescs,
         mySubPassDescs,
         mySubPassDependencies);
 
@@ -271,22 +271,19 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
 }
 
 template <>
-void RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
+RenderTarget<Vk>::RenderPassFramebufferTupleMap::const_iterator RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 {
-    if (!myCurrent)
-    {
-        auto hashKey = internalCalculateHashKey(desc);
-        auto emplaceResult = myMap.emplace(
-            hashKey,
-            std::make_tuple(
-                RenderPassHandle<Vk>{},
-                FramebufferHandle<Vk>{}));
+    auto hashKey = internalCalculateHashKey(desc);
+    auto emplaceResult = myMap.emplace(
+        hashKey,
+        std::make_tuple(
+            RenderPassHandle<Vk>{},
+            FramebufferHandle<Vk>{}));
 
-        if (emplaceResult.second)
-            emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
+    if (emplaceResult.second)
+        emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
 
-        myCurrent = std::make_optional(emplaceResult.first);
-    }
+    return emplaceResult.first;
 }
 
 template <>
@@ -301,24 +298,18 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
     uint32_t attachmentIt = 0;
     for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
     {
-        auto& colorAttachment = myAttachmentsDescs[attachmentIt];
+        auto& colorAttachment = myAttachmentDescs[attachmentIt];
 
         if (auto layout = getColorImageLayout(attachmentIt); layout != colorAttachment.initialLayout)
-        {
-            myCurrent.reset();
             colorAttachment.initialLayout = layout;
-        }
     }
 
     if (desc.depthStencilImage)
     {
-        auto& depthStencilAttachment = myAttachmentsDescs[attachmentIt];
+        auto& depthStencilAttachment = myAttachmentDescs[attachmentIt];
 
         if (auto layout = getDepthStencilImageLayout(); layout != depthStencilAttachment.initialLayout)
-        {
-            myCurrent.reset();
             depthStencilAttachment.initialLayout = layout;
-        }
     }
 }
 
@@ -369,57 +360,50 @@ void RenderTarget<Vk>::nextSubpass(
 }
 
 template <>
-const RenderPassHandle<Vk>& RenderTarget<Vk>::getRenderPass()
+RenderPassHandle<Vk> RenderTarget<Vk>::renderPass()
 {
-    std::unique_lock writeLock(myMutex);
-
     internalUpdateAttachments(getRenderTargetDesc());
     internalUpdateRenderPasses(getRenderTargetDesc());
-    internalUpdateMap(getRenderTargetDesc());
 
-    return std::get<0>((*myCurrent)->second);
+    return std::get<0>(internalUpdateMap(getRenderTargetDesc())->second);
 }
 
 template <>
-const FramebufferHandle<Vk>& RenderTarget<Vk>::getFramebuffer()
+FramebufferHandle<Vk> RenderTarget<Vk>::framebuffer()
 {
-    std::unique_lock writeLock(myMutex);
-
     internalUpdateAttachments(getRenderTargetDesc());
     internalUpdateRenderPasses(getRenderTargetDesc());
-    internalUpdateMap(getRenderTargetDesc());
     
-    return std::get<1>((*myCurrent)->second);
+    return std::get<1>(internalUpdateMap(getRenderTargetDesc())->second);
 }
 
 template <>
-void RenderTarget<Vk>::begin(
+const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
     CommandBufferHandle<Vk> cmd,
-    RenderTargetBeginInfo<Vk>&& beginInfo)
+    SubpassContents<Vk> contents)
 {
-    assert(myCurrentPassInfo == std::nullopt);
+    assert(myCurrentPass == std::nullopt);
 
-    myCurrentPassInfo = std::make_optional(std::move(beginInfo));
+    myCurrentPass = std::make_optional(RenderPassBeginInfo<Vk>{
+        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        nullptr, 
+        renderPass(),
+        framebuffer(),
+        {{0, 0}, {getRenderTargetDesc().imageExtent.width, getRenderTargetDesc().imageExtent.height}}});
 
-    VkRenderPassBeginInfo renderPassBeginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    renderPassBeginInfo.renderPass = getRenderPass();
-    renderPassBeginInfo.framebuffer = getFramebuffer();
-    renderPassBeginInfo.renderArea.offset = {0, 0};
-    renderPassBeginInfo.renderArea.extent = { getRenderTargetDesc().imageExtent.width, getRenderTargetDesc().imageExtent.height };
-    renderPassBeginInfo.clearValueCount = 0;
-    renderPassBeginInfo.pClearValues = nullptr;
+    vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);
 
-    vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, myCurrentPassInfo->contents);
+    return myCurrentPass;
 }
 
 template <>
 void RenderTarget<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
-    assert(myCurrentPassInfo != std::nullopt);
+    assert(myCurrentPass != std::nullopt);
 
     vkCmdEndRenderPass(cmd);
 
-    myCurrentPassInfo = std::nullopt;
+    myCurrentPass = std::nullopt;
 }
 
 template <>

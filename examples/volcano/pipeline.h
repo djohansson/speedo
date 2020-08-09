@@ -92,7 +92,7 @@ public:
     auto getCache() const { return myCache; }
     auto getPipeline() const { return myCurrent.value()->second; }
 
-    // temp!
+    // temp! remove lazy updates and recalc when touched.
     void updateDescriptorSets(BufferHandle<Vk> buffer);
     void createGraphicsPipeline();
     auto& resources() { return myResources; }

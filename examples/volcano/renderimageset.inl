@@ -78,3 +78,28 @@ ImageLayout<B> RenderImageSet<B>::getDepthStencilImageLayout() const
 {
     return myDepthStencilImage->getImageLayout();
 }
+
+template <GraphicsBackend B>
+void RenderImageSet<B>::end(CommandBufferHandle<B> cmd)
+{
+    RenderTarget<Vk>::end(cmd);
+    
+    uint32_t imageIt = 0;
+    for (; imageIt < myColorImages.size(); imageIt++)
+        std::get<2>(myColorImages[imageIt]->myData) = this->getAttachmentDesc(imageIt).finalLayout;
+
+    if (myDepthStencilImage)
+        std::get<2>(myDepthStencilImage->myData) = this->getAttachmentDesc(imageIt).finalLayout; 
+}
+
+template <GraphicsBackend B>
+void RenderImageSet<B>::transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index)
+{
+    myColorImages[index]->transition(cmd, layout);
+}
+
+template <GraphicsBackend B>
+void RenderImageSet<B>::transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout)
+{
+    myDepthStencilImage->transition(cmd, layout);
+}

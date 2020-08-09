@@ -105,6 +105,65 @@ struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
 };
 
 template <GraphicsBackend B>
+class CommandBufferAccessScope : Nondynamic
+{
+public:
+
+    CommandBufferAccessScope(CommandBufferAccessScope&& other)
+    : myBeginInfo(other.myBeginInfo)
+    , myRefCount(std::exchange(other.myRefCount, {}))
+    , myArray(other.myArray)
+    , myIndex(other.myIndex) {}
+    CommandBufferAccessScope(const CommandBufferAccessScope& other)
+    : myBeginInfo(other.myBeginInfo)
+    , myRefCount(other.myRefCount)
+    , myArray(other.myArray)
+    , myIndex(other.myIndex) { (*myRefCount)++; }
+    CommandBufferAccessScope(CommandBufferArray<B>* array, const CommandContextBeginInfo<B>& beginInfo)
+    : myBeginInfo(beginInfo)
+    , myRefCount(std::make_shared<uint32_t>(1))
+    , myArray(array)
+    , myIndex(myArray->begin(beginInfo)) {}
+    ~CommandBufferAccessScope()
+    {
+        if (myRefCount && (--(*myRefCount) == 0) && myArray->recording(myIndex))
+            myArray->end(myIndex);
+    }
+
+    CommandBufferAccessScope<B>& operator=(CommandBufferAccessScope<B>&& other)
+    {
+        myBeginInfo = other.myBeginInfo;
+        myRefCount = std::exchange(other.myRefCount, {});
+        myArray = other.myArray;
+        myIndex = other.myIndex;
+
+        return *this;
+    }
+    CommandBufferAccessScope<B>& operator=(const CommandBufferAccessScope<B>& other)
+    {
+        myBeginInfo = other.myBeginInfo;
+        myRefCount = other.myRefCount;
+        myArray = other.myArray;
+        myIndex = other.myIndex;
+
+        (*myRefCount)++;
+    }
+
+    const auto& getBeginInfo() const { return myBeginInfo; }
+
+    operator CommandBufferHandle<B>() const { return (*myArray)[myIndex]; }
+
+    void end() { myArray->end(myIndex); }
+
+private:
+
+    CommandContextBeginInfo<B> myBeginInfo = {};
+    std::shared_ptr<uint32_t> myRefCount;
+    CommandBufferArray<B>* myArray = nullptr;
+    uint8_t myIndex;
+};
+
+template <GraphicsBackend B>
 class CommandContext
 {
 public:
@@ -117,8 +176,7 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    auto commands(const CommandContextBeginInfo<B>& beginInfo = {});
-    void endCommands(); // only needed for commands recorded as secondary command buffers.
+    CommandBufferAccessScope<B> commands(const CommandContextBeginInfo<B>& beginInfo = {});
     
     uint64_t execute(CommandContext<B>& callee);
     uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
@@ -131,43 +189,11 @@ protected:
 
     const auto& getDeviceContext() const { return myDevice; }
 
-private:
+private:    
 
-    class CommandBufferAccessScope : Noncopyable, Nondynamic
-    {
-    public:
-
-        CommandBufferAccessScope(CommandBufferAccessScope&& other)
-        : myArray(other.myArray)
-        , myIndex(std::exchange(other.myIndex, std::nullopt))
-        , myBeginInfo(std::move(other.myBeginInfo)) {}
-        CommandBufferAccessScope(CommandBufferAccessScope const&& other)
-        : myArray(other.myArray)
-        , myIndex(std::exchange(other.myIndex, std::nullopt))
-        , myBeginInfo(std::move(other.myBeginInfo)) {}
-        CommandBufferAccessScope(CommandBufferArray<B>& array, const CommandContextBeginInfo<B>& beginInfo)
-        : myArray(array)
-        , myIndex(std::make_optional(myArray.begin(beginInfo)))
-        , myBeginInfo(beginInfo) {}
-        ~CommandBufferAccessScope()
-        {
-            if (myIndex && myArray.recording(*myIndex))
-                myArray.end(*myIndex);
-        }
-
-        const auto& getBeginInfo() const { return myBeginInfo; }
-
-        operator CommandBufferHandle<B>() const { return myArray[*myIndex]; }
-
-    private:
-
-        CommandBufferArray<B>& myArray;
-        std::optional<uint8_t> myIndex;
-        CommandContextBeginInfo<B> myBeginInfo = {};
-    };
-
-    CommandBufferHandle<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
-    CommandBufferHandle<B> internalCommands() const;
+    CommandBufferAccessScope<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
+    CommandBufferAccessScope<B> internalCommands(const CommandContextBeginInfo<B>& beginInfo) const;
+    void internalEndCommands(CommandBufferLevel<B> level);
 
     using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
     
@@ -181,9 +207,8 @@ private:
     CommandBufferList myExecutedCommands;
     CommandBufferList mySubmittedCommands;
     std::vector<CommandBufferList> myFreeCommands;
-    std::shared_mutex myCommandsMutex;
+    std::vector<std::optional<CommandBufferAccessScope<B>>> myRecordingCommands;
     std::vector<std::byte> myScratchMemory;
-    std::optional<CommandBufferAccessScope> myRecordingCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };
 

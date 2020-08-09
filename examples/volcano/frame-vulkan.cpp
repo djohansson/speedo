@@ -77,38 +77,10 @@ Frame<Vk>::~Frame()
 }
 
 template <>
-uint64_t Frame<Vk>::submit(
-    const std::shared_ptr<CommandContext<Vk>>& commandContext,
-    SemaphoreHandle<Vk> waitSemaphore,
-    uint64_t waitTimelineValue)
-{
-    ZoneScopedN("Frame::submit()");
-
-    SemaphoreHandle<Vk> waitSemaphores[2] = {
-        getDeviceContext()->getTimelineSemaphore(), waitSemaphore };
-    Flags<Vk> waitDstStageMasks[2] = {
-        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    uint64_t waitTimelineValues[2] = { waitTimelineValue, 1 };
-    SemaphoreHandle<Vk> signalSemaphores[2] = {
-        getDeviceContext()->getTimelineSemaphore(), myRenderCompleteSemaphore };
-    uint64_t signalTimelineValues[2] = { 1 + getDeviceContext()->timelineValue().fetch_add(1, std::memory_order_relaxed), 1 };
-    
-    myLastSubmitTimelineValue = commandContext->submit({
-        getDeviceContext()->getGraphicsQueue(),
-        2,
-        waitSemaphores,
-        waitDstStageMasks,
-        waitTimelineValues,
-        2,
-        signalSemaphores,
-        signalTimelineValues});
-
-    return myLastSubmitTimelineValue;
-}
-
-template <>
 ImageLayout<Vk> Frame<Vk>::getColorImageLayout(uint32_t index) const
 {
+    assert(index == 0);
+    
     return myImageLayout;
 }
 
@@ -118,4 +90,35 @@ ImageLayout<Vk> Frame<Vk>::getDepthStencilImageLayout() const
     assert(false);
     
     return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+template <>
+void Frame<Vk>::end(CommandBufferHandle<Vk> cmd)
+{
+    RenderTarget<Vk>::end(cmd);
+
+    myImageLayout = this->getAttachmentDesc(0).finalLayout;
+}
+
+template <>
+void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
+{
+    assert(index == 0);
+
+    if (getColorImageLayout(index) != layout)
+    {
+        transitionImageLayout(
+            cmd,
+            getDesc().colorImages[index],
+            getDesc().colorImageFormats[index],
+            myImageLayout,
+            layout);
+        myImageLayout = layout;
+    }
+}
+
+template <>
+void Frame<Vk>::transitionDepth(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+{
+    assert(false);
 }
