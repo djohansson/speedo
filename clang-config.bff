@@ -84,6 +84,7 @@
 #else
 		+ ' -Wl,-rpath,"$ClangPath$"/lib'
 #endif
+		//+ ' --wrap=malloc'
 		+ .PlatformLibPaths
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'

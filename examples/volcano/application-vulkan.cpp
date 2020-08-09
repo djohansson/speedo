@@ -30,11 +30,17 @@ void Application<Vk>::initIMGUI(
     static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").generic_string();
     io.IniFilename = iniFilePath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.FontAllowUserScaling = true;
-    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.FontGlobalScale = 1.0f;
+    //io.FontAllowUserScaling = true;
+    io.ConfigDockingWithShift = true;
 
-    // auto& platformIo = GetPlatformIO();
-    // platformIo.Platform_CreateVkSurface = ...
+    // auto vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)
+    //     vkGetInstanceProcAddr(myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
+    
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    auto& platformIo = ImGui::GetPlatformIO();
+    platformIo.Platform_CreateVkSurface = (decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(
+        myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
 
     const auto& surfaceCapabilities = myInstance->getPhysicalDeviceInfo(myDevice->getPhysicalDevice()).swapchainInfo.capabilities;
 
@@ -159,7 +165,6 @@ void Application<Vk>::createWindowDependentObjects(
         depthStencilImage);
 
     myGraphicsPipeline->resources()->renderTarget = myRenderImageSet;
-    myGraphicsPipeline->createGraphicsPipeline();
 }
 
 template <>
@@ -242,7 +247,9 @@ Application<Vk>::Application(
 
     myGraphicsPipeline = std::make_shared<PipelineContext<Vk>>(
         myDevice,
-        PipelineContextCreateDesc<Vk>{ { "PipelineContext" }, myUserProfilePath });
+        PipelineContextCreateDesc<Vk>{
+            { "GraphicsPipeline" },
+            myUserProfilePath / "pipeline.cache" });
 
     myGraphicsPipelineLayout = std::make_shared<PipelineLayout<Vk>>(
         myDevice,
@@ -341,7 +348,7 @@ Application<Vk>::Application(
 
     auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePathStr = std::filesystem::absolute(resourcePath).generic_string();
+        std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
         nfdchar_t* openFilePath;
         return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));
@@ -549,6 +556,8 @@ Application<Vk>::Application(
         static bool showNodeEditor = false;
         if (showNodeEditor)
         {
+            ImGui::SetNextWindowSize(ImVec2(800, 450), ImGuiCond_FirstUseEver);
+
             Begin("Node Editor Window", &showNodeEditor);
 
             PushAllowKeyboardFocus(false);
@@ -738,9 +747,9 @@ Application<Vk>::Application(
             if (BeginMenu("File"))
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", std::move(loadModel));
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", loadModel);
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", std::move(loadImage));
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", loadImage);
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -768,6 +777,8 @@ Application<Vk>::Application(
             EndMainMenuBar();
         }
 
+        EndFrame();
+        UpdatePlatformWindows();
         Render();
 
         ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);

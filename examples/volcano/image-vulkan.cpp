@@ -115,7 +115,8 @@ load(
 
         bool hasAlpha = channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        size = hasAlpha ? 2 * desc.extent.width * desc.extent.height : desc.extent.width * desc.extent.height / 2;
+        size = roundUp(desc.extent.width, 4) * roundUp(desc.extent.height, 4);
+        size /= hasAlpha ? 1 : 2;
 
         std::string debugString;
         debugString.append(desc.name);
@@ -163,11 +164,15 @@ load(
         imageFile, imageFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
 
      // todo: write utility functions...
-    desc.format = channelCount == 4 ? VK_FORMAT_BC2_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+    desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
     desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
     uint32_t pixelSizeBytesDivisor;
-    if (!bufferHandle || size != desc.extent.width * desc.extent.height * getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor)
+    uint32_t expectedSize =
+        roundUp(desc.extent.width, 4) * roundUp(desc.extent.height, 4) *
+        getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor;
+
+    if (!bufferHandle || size != expectedSize)
         throw std::runtime_error("Failed to load image.");
 
     return descAndInitialData;

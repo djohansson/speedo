@@ -139,7 +139,7 @@ private:
         std::string name;
     };
 
-    std::shared_mutex myObjectsMutex;
+    std::shared_mutex myObjectsMutex; // todo: replace with asserting mutex
     std::map<uintptr_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
     std::map<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
 };
