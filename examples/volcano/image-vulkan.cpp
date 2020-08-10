@@ -298,11 +298,10 @@ Image<Vk>::Image(
             std::get<0>(descAndInitialData).extent.height,
             std::get<0>(descAndInitialData).format, 
             VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_LAYOUT_GENERAL,
             std::get<0>(descAndInitialData).usage,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             std::get<0>(descAndInitialData).name.c_str()),
-        std::make_tuple(VK_IMAGE_LAYOUT_GENERAL)))
+        std::make_tuple(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)))
 {   
     commandContext->addSubmitFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));

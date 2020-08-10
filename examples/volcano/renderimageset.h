@@ -17,17 +17,9 @@ public:
 	RenderImageSet(RenderImageSet<B>&& other) = default;
     RenderImageSet(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}
-    RenderImageSet(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const char* name,
         const std::vector<std::shared_ptr<Image<B>>>& colorImages,
-        std::shared_ptr<Image<B>> depthStencilImage = nullptr);
-    RenderImageSet(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const char* name,
-        std::vector<std::shared_ptr<Image<B>>>&& colorImages,
-        std::shared_ptr<Image<B>>&& depthStencilImage = nullptr);
+        const std::shared_ptr<Image<B>>& depthStencilImage = {});
     virtual ~RenderImageSet() = default;
 
     RenderImageSet& operator=(RenderImageSet<B>&& other) = default;
@@ -38,12 +30,13 @@ public:
     virtual void end(CommandBufferHandle<B> cmd) final;
 
     virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
-    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
-
-    auto getColorImage(uint32_t index) const { return myColorImages[index]; }
-    auto getDepthStencilImage() const { return myDepthStencilImage; }
+    virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
 
 private:
+
+    RenderImageSet(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}
 
     std::vector<std::shared_ptr<Image<B>>> myColorImages;
     std::shared_ptr<Image<B>> myDepthStencilImage;

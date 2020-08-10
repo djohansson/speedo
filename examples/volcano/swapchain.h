@@ -31,8 +31,19 @@ public:
 	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;
 
+	virtual void clearSingleAttachment(
+        CommandBufferHandle<B> cmd,
+        const ClearAttachment<B>& clearAttachment) const final;
+    virtual void clearAllAttachments(
+        CommandBufferHandle<B> cmd,
+        const ClearColorValue<B>& color = {},
+        const ClearDepthStencilValue<B>& depthStencil = {}) const final;
+
+	virtual void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
+    virtual void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
+
     virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
-    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+    virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
 
 	const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     void end(CommandBufferHandle<B> cmd) final;

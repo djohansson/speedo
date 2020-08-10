@@ -620,7 +620,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
+	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
     VkImage outImage;
@@ -636,9 +636,6 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height);
-	transitionImageLayout(
-		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		layout);
 
     return std::make_tuple(outImage, outImageMemory);
 }

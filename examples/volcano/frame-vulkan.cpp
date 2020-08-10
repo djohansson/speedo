@@ -118,7 +118,7 @@ void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> lay
 }
 
 template <>
-void Frame<Vk>::transitionDepth(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
     assert(false);
 }

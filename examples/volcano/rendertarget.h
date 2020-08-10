@@ -36,8 +36,19 @@ struct IRenderTarget
     virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) = 0;
     virtual void end(CommandBufferHandle<B> cmd) = 0;
 
+    virtual void clearSingleAttachment(
+        CommandBufferHandle<B> cmd,
+        const ClearAttachment<B>& clearAttachment) const = 0;
+    virtual void clearAllAttachments(
+        CommandBufferHandle<B> cmd,
+        const ClearColorValue<B>& color = {},
+        const ClearDepthStencilValue<B>& depthStencil = {}) const = 0;
+
+    virtual void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) = 0;
+    virtual void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) = 0;
+
     virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) = 0;
-    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) = 0;
+    virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) = 0;
 };
 
 template <GraphicsBackend B>
@@ -50,20 +61,23 @@ public:
     virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) override;
 
+    virtual void clearSingleAttachment(
+        CommandBufferHandle<B> cmd,
+        const ClearAttachment<B>& clearAttachment) const final;
+    virtual void clearAllAttachments(
+        CommandBufferHandle<B> cmd,
+        const ClearColorValue<B>& color = {},
+        const ClearDepthStencilValue<B>& depthStencil = {}) const final;
+
+    virtual void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
+    virtual void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
+
     auto getAttachment(uint32_t index) const { return myAttachments[index]; }
     const auto& getAttachmentDesc(uint32_t index) const { return myAttachmentDescs[index]; }
     const auto& getSubpass() const { return myCurrentSubpass; }
 
     RenderPassHandle<B> renderPass();
     FramebufferHandle<B> framebuffer();
-
-    void clearSingle(
-        CommandBufferHandle<B> cmd,
-        const ClearAttachment<B>& clearAttachment) const;
-    void clearAll(
-        CommandBufferHandle<B> cmd,
-        const ClearColorValue<B>& color = {},
-        const ClearDepthStencilValue<B>& depthStencil = {}) const;
     
     void addSubpassDescription(SubpassDescription<B>&& description);
     void addSubpassDependency(SubpassDependency<B>&& dependency);

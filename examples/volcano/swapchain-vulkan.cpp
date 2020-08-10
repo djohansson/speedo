@@ -109,15 +109,44 @@ ImageLayout<Vk> SwapchainContext<Vk>::getDepthStencilImageLayout() const
 }
 
 template <>
+void SwapchainContext<Vk>::clearSingleAttachment(
+    CommandBufferHandle<Vk> cmd,
+    const ClearAttachment<Vk>& clearAttachment) const
+{
+    return myFrames[myFrameIndex]->clearSingleAttachment(cmd, clearAttachment);
+}
+
+template <>
+void SwapchainContext<Vk>::clearAllAttachments(
+    CommandBufferHandle<Vk> cmd,
+    const ClearColorValue<Vk>& color,
+    const ClearDepthStencilValue<Vk>& depthStencil) const
+{
+    return myFrames[myFrameIndex]->clearAllAttachments(cmd, color, depthStencil);
+}
+
+template <>
+void SwapchainContext<Vk>::clearColor(CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
+{
+    return myFrames[myFrameIndex]->clearColor(cmd, color, index);
+}
+
+template <>
+void SwapchainContext<Vk>::clearDepthStencil(CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
+{
+    return myFrames[myFrameIndex]->clearDepthStencil(cmd, depthStencil);
+}
+
+template <>
 void SwapchainContext<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
 {
     myFrames[myFrameIndex]->transitionColor(cmd, layout, index);
 }
 
 template <>
-void SwapchainContext<Vk>::transitionDepth(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void SwapchainContext<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
-    myFrames[myFrameIndex]->transitionDepth(cmd, layout);
+    myFrames[myFrameIndex]->transitionDepthStencil(cmd, layout);
 }
 
 template <>

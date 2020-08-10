@@ -313,10 +313,8 @@ Application<Vk>::Application(
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
 
-        //myWindow->getSwapchain()->getFrames()[frame.getDesc().index]->begin(cmd);
-
         auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
-        {   
+        {
             myIMGUIRenderPass = myWindow->getSwapchain()->getFrames()[frameIndex]->renderPass();
 
             initIMGUI(myDevice, cmd, myUserProfilePath);
@@ -325,8 +323,6 @@ Application<Vk>::Application(
         };
 
         initDrawCommands(cmd, frame.getDesc().index);
-
-        //myWindow->getSwapchain()->getFrames()[frame.getDesc().index]->end(cmd);
 
         cmd.end();
         
@@ -850,21 +846,14 @@ bool Application<Vk>::draw()
             myDevice->wait(frameTimelineValue);
         }
 
-        myWindow->updateInput(myInput);
-
-        if (const auto& depthStencilImage = myRenderImageSet->getDepthStencilImage(); depthStencilImage)
-        {
-            myWindow->addDrawCallback([depthStencilImage](CommandBufferHandle<Vk> cmd){
-                depthStencilImage->clearDepthStencil(cmd, { 1.0f, 0 });
-                depthStencilImage->transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-            });
-        }
-
-        myWindow->draw(myGraphicsPipeline);
-
         auto& commandContext = myWindow->commandContext(myWindow->getSwapchain()->getFrameIndex());
         auto cmd = commandContext->commands();
-        
+
+        myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
+            
+        myWindow->updateInput(myInput);
+        myWindow->draw(myGraphicsPipeline);
+
         myWindow->getSwapchain()->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
         myIMGUIDrawFunction(cmd);
         myWindow->getSwapchain()->end(cmd);

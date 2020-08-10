@@ -34,7 +34,7 @@ public:
     virtual void end(CommandBufferHandle<B> cmd) final;
 
 	virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
-    virtual void transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+    virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
 
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }

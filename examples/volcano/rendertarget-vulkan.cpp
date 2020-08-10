@@ -314,7 +314,7 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
 }
 
 template <>
-void RenderTarget<Vk>::clearSingle(
+void RenderTarget<Vk>::clearSingleAttachment(
     CommandBufferHandle<Vk> cmd,
     const ClearAttachment<Vk>& clearAttachment) const
 {
@@ -323,7 +323,7 @@ void RenderTarget<Vk>::clearSingle(
 }
 
 template <>
-void RenderTarget<Vk>::clearAll(
+void RenderTarget<Vk>::clearAllAttachments(
     CommandBufferHandle<Vk> cmd,
     const ClearColorValue<Vk>& color,
     const ClearDepthStencilValue<Vk>& depthStencil) const
@@ -347,6 +347,53 @@ void RenderTarget<Vk>::clearAll(
                  { .depthStencil = depthStencil } });
     
     vkCmdClearAttachments(cmd, clearAttachments.size(), clearAttachments.data(), 1, &rect);
+}
+
+template <>
+void RenderTarget<Vk>::clearColor(
+    CommandBufferHandle<Vk> cmd,
+    const ClearColorValue<Vk>& color,
+    uint32_t index)
+{
+    transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
+        
+    VkImageSubresourceRange colorRange = {
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        0,
+        VK_REMAINING_MIP_LEVELS,
+        0,
+        VK_REMAINING_ARRAY_LAYERS};
+
+    vkCmdClearColorImage(
+        cmd,
+        getRenderTargetDesc().colorImages[index],
+        getColorImageLayout(index),
+        &color,
+        1,
+        &colorRange);
+}
+
+template <>
+void RenderTarget<Vk>::clearDepthStencil(
+    CommandBufferHandle<Vk> cmd,
+    const ClearDepthStencilValue<Vk>& depthStencil)
+{
+    transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkImageSubresourceRange depthStencilRange = {
+        VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
+        0,
+        VK_REMAINING_MIP_LEVELS,
+        0,
+        VK_REMAINING_ARRAY_LAYERS};
+
+    vkCmdClearDepthStencilImage(
+        cmd,
+        getRenderTargetDesc().depthStencilImage,
+        getDepthStencilImageLayout(),
+        &depthStencil,
+        1,
+        &depthStencilRange);
 }
 
 template <>

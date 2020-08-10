@@ -48,22 +48,10 @@ RenderImageSet<B>::RenderImageSet(
     const std::shared_ptr<DeviceContext<B>>& deviceContext,
     const char* name,
     const std::vector<std::shared_ptr<Image<B>>>& colorImages,
-    std::shared_ptr<Image<B>> depthStencilImage)
+    const std::shared_ptr<Image<B>>& depthStencilImage)
 : BaseType(deviceContext, renderimage::createRenderTargetCreateDesc(name, colorImages, depthStencilImage))
 , myColorImages(colorImages)
 , myDepthStencilImage(depthStencilImage)
-{
-}
-
-template <GraphicsBackend B>
-RenderImageSet<B>::RenderImageSet(
-    const std::shared_ptr<DeviceContext<B>>& deviceContext,
-    const char* name,
-    std::vector<std::shared_ptr<Image<B>>>&& colorImages,
-    std::shared_ptr<Image<B>>&& depthStencilImage)
-: BaseType(deviceContext, renderimage::createRenderTargetCreateDesc(name, colorImages, depthStencilImage))
-, myColorImages(std::move(colorImages))
-, myDepthStencilImage(std::move(depthStencilImage))
 {
 }
 
@@ -99,7 +87,7 @@ void RenderImageSet<B>::transitionColor(CommandBufferHandle<B> cmd, ImageLayout<
 }
 
 template <GraphicsBackend B>
-void RenderImageSet<B>::transitionDepth(CommandBufferHandle<B> cmd, ImageLayout<B> layout)
+void RenderImageSet<B>::transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout)
 {
     myDepthStencilImage->transition(cmd, layout);
 }

@@ -68,7 +68,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageLayout layout,
+	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
