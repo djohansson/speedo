@@ -429,6 +429,8 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
     CommandBufferHandle<Vk> cmd,
     SubpassContents<Vk> contents)
 {
+    ZoneScopedN("RenderTarget::begin()");
+
     assert(myCurrentPass == std::nullopt);
 
     myCurrentPass = std::make_optional(RenderPassBeginInfo<Vk>{
@@ -446,6 +448,8 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
 template <>
 void RenderTarget<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
+    ZoneScopedN("RenderTarget::end()");
+
     assert(myCurrentPass != std::nullopt);
 
     vkCmdEndRenderPass(cmd);

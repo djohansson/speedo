@@ -420,8 +420,10 @@ Application<Vk>::Application(
         });
     };
 
-    myIMGUIDrawFunction = [this, openFileDialogue, loadModel, loadImage](CommandBufferHandle<Vk> cmd)
+    myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage]
     {
+        ZoneScopedN("IMGUIPrepareDraw");
+
         using namespace ImGui;
 
         ImGui_ImplVulkan_NewFrame();
@@ -776,6 +778,13 @@ Application<Vk>::Application(
         EndFrame();
         UpdatePlatformWindows();
         Render();
+    };
+
+    myIMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
+    {
+        ZoneScopedN("IMGUIDraw");
+
+        using namespace ImGui;
 
         ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
     };
@@ -846,6 +855,11 @@ bool Application<Vk>::draw()
             myDevice->wait(frameTimelineValue);
         }
 
+        std::future<void> imguiPrepareDrawFuture(std::async(std::launch::async, [this]
+        {
+            myIMGUIPrepareDrawFunction();
+        }));
+
         auto& commandContext = myWindow->commandContext(myWindow->getSwapchain()->getFrameIndex());
         auto cmd = commandContext->commands();
 
@@ -855,6 +869,11 @@ bool Application<Vk>::draw()
         myWindow->draw(myGraphicsPipeline);
 
         myWindow->getSwapchain()->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+        {
+            ZoneScopedN("waitImguiPrepareDraw");
+
+            imguiPrepareDrawFuture.get();
+        }
         myIMGUIDrawFunction(cmd);
         myWindow->getSwapchain()->end(cmd);
 
