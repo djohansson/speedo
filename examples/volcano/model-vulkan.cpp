@@ -1,5 +1,7 @@
 #include "model.h"
+#include "aabb.h"
 #include "file.h"
+#include "vertex.h"
 #include "vk-utils.h"
 
 #include <algorithm>
@@ -266,14 +268,16 @@ load(
 
 template <>
 Model<Vk>::Model(
-	const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<CommandContext<Vk>>& commandContext,
 	std::tuple<
 		ModelCreateDesc<Vk>,
 		BufferHandle<Vk>,
 		AllocationHandle<Vk>>&& descAndInitialData)
 : myDesc(std::move(std::get<0>(descAndInitialData)))
 , myBuffer(
-	appContext,
+	deviceContext,
+	commandContext,
 	std::make_tuple(
 		BufferCreateDesc<Vk>{ { std::get<0>(descAndInitialData).name },
 			std::get<0>(descAndInitialData).indexBufferSize + std::get<0>(descAndInitialData).vertexBufferSize,
@@ -287,8 +291,9 @@ Model<Vk>::Model(
 
 template <>
 Model<Vk>::Model(
-	const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<CommandContext<Vk>>& commandContext,
 	const std::filesystem::path& modelFile)
-	: Model(appContext, model::load(modelFile, appContext->device))
+	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
 {
 }

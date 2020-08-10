@@ -1,6 +1,7 @@
 #pragma once
 
-#include "applicationcontext.h"
+#include "command.h"
+#include "device.h"
 #include "types.h"
 
 #include <memory>
@@ -21,10 +22,11 @@ public:
 
     Buffer(Buffer&& other) = default;
     Buffer( // creates uninitialized buffer
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferCreateDesc<B>&& desc);
     Buffer( // copies the initial buffer into a new one. buffer gets garbage collected when finished copying.
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
         std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     ~Buffer();
 
@@ -37,9 +39,8 @@ public:
 private:
 
     Buffer( // uses provided buffer
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
-        BufferCreateDesc<B>&& desc,
-        std::tuple<BufferHandle<B>, AllocationHandle<B>>&& data);
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndData);
 
     const BufferCreateDesc<B> myDesc = {};
     std::tuple<BufferHandle<B>, AllocationHandle<B>> myData = {};
@@ -52,7 +53,7 @@ public:
     
     BufferView(BufferView&& other) = default;
     BufferView( // creates a view from buffer
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Buffer<B>& buffer,
         Format<B> format,
         DeviceSize<B> offset,
@@ -66,7 +67,7 @@ public:
 private:
 
     BufferView( // uses provided image view
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferViewHandle<B>&& bufferView);
 
     BufferViewHandle<B> myBufferView = 0;

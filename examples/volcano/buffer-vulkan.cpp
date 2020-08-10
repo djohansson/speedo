@@ -5,57 +5,62 @@
 
 template <>
 Buffer<Vk>::Buffer(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
-    BufferCreateDesc<Vk>&& desc,
-    std::tuple<BufferHandle<Vk>, AllocationHandle<Vk>>&& data)
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    std::tuple<
+        BufferCreateDesc<Vk>,
+        BufferHandle<Vk>,
+        AllocationHandle<Vk>>&& descAndData)
 : DeviceResource<Vk>(
-    appContext->device,
-    desc,
+    deviceContext,
+    std::get<0>(descAndData),
     1,
     VK_OBJECT_TYPE_BUFFER,
-    reinterpret_cast<uint64_t*>(&std::get<0>(data)))
-, myDesc(std::move(desc))
-, myData(std::move(data))
+    reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
+, myDesc(std::move(std::get<0>(descAndData)))
+, myData(std::make_tuple(std::get<1>(descAndData), std::get<2>(descAndData)))
 {
 }
 
 template <>
 Buffer<Vk>::Buffer(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferCreateDesc<Vk>&& desc)
 : Buffer(
-    appContext,
-    std::move(desc),
-    createBuffer(
-        appContext->device->getAllocator(),
-        desc.size,
-        desc.usageFlags,
-        desc.memoryFlags,
-        desc.name.c_str()))
+    deviceContext,
+    std::tuple_cat(
+        std::make_tuple(std::move(desc)),
+        createBuffer(
+            deviceContext->getAllocator(),
+            desc.size,
+            desc.usageFlags,
+            desc.memoryFlags,
+            desc.name.c_str())))
 {
 }
 
 template <>
 Buffer<Vk>::Buffer(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
     std::tuple<
         BufferCreateDesc<Vk>,
         BufferHandle<Vk>,
         AllocationHandle<Vk>>&& descAndInitialData)
 : Buffer(
-    appContext,
-    std::move(std::get<0>(descAndInitialData)),
-    createBuffer(
-        appContext->transferCommands->commands(),
-        appContext->device->getAllocator(),
-        std::get<1>(descAndInitialData),
-        std::get<0>(descAndInitialData).size,
-        std::get<0>(descAndInitialData).usageFlags,
-        std::get<0>(descAndInitialData).memoryFlags,
-        std::get<0>(descAndInitialData).name.c_str()))
+    deviceContext,
+    std::tuple_cat(
+        std::make_tuple(std::move(std::get<0>(descAndInitialData))),
+        createBuffer(
+     		commandContext->commands(),
+            deviceContext->getAllocator(),
+            std::get<1>(descAndInitialData),
+            std::get<0>(descAndInitialData).size,
+            std::get<0>(descAndInitialData).usageFlags,
+            std::get<0>(descAndInitialData).memoryFlags,
+            std::get<0>(descAndInitialData).name.c_str())))
 {
-    appContext->transferCommands->addSubmitFinishedCallback([appContext, descAndInitialData](uint64_t){
-        vmaDestroyBuffer(appContext->device->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
+    commandContext->addSubmitFinishedCallback([deviceContext, descAndInitialData](uint64_t){
+        vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
 }
 
@@ -71,10 +76,10 @@ Buffer<Vk>::~Buffer()
 
 template <>
 BufferView<Vk>::BufferView(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferViewHandle<Vk>&& bufferView)
 : DeviceResource<Vk>(
-    appContext->device,
+    deviceContext,
     {"_View"},
     1,
     VK_OBJECT_TYPE_BUFFER_VIEW,
@@ -85,15 +90,15 @@ BufferView<Vk>::BufferView(
 
 template <>
 BufferView<Vk>::BufferView(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const Buffer<Vk>& buffer,
     Format<Vk> format,
     DeviceSize<Vk> offset,
     DeviceSize<Vk> range)
 : BufferView<Vk>(
-    appContext,
+    deviceContext,
     createBufferView(
-        appContext->device->getDevice(),
+        deviceContext->getDevice(),
         buffer.getBufferHandle(),
         0, // "reserved for future use"
         format,

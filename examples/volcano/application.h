@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "applicationcontext.h"
+#include "command.h"
 #include "device.h"
 #include "file.h"
 #include "instance.h"
@@ -65,9 +65,6 @@ public:
 
 	const char* getName() const;
 
-	void* getGraphicsTracyContext() const { if constexpr (PROFILING_ENABLED) return myGraphicsTracyContext; return nullptr; };
-    void* getComputeTracyContext() const { if constexpr (PROFILING_ENABLED) return myGraphicsTracyContext; return nullptr; }
-
 private:
 
 	void initIMGUI(
@@ -87,14 +84,14 @@ private:
 
 	InputState myInput = {};
 
-	std::shared_ptr<ApplicationContext<B>> myContext;
-
+	std::shared_ptr<InstanceContext<B>> myInstance;
+	std::shared_ptr<DeviceContext<B>> myDevice;
+	std::shared_ptr<WindowContext<B>> myWindow;
+	std::shared_ptr<CommandContext<B>> myTransferCommands;
 	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
 	std::shared_ptr<PipelineLayout<B>> myGraphicsPipelineLayout;
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 
-	std::vector<std::shared_ptr<WindowContext<B>>> myWindows;
-	
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 	RenderPassHandle<B> myIMGUIRenderPass = 0;
@@ -103,11 +100,6 @@ private:
 	uint64_t myLastTransferTimelineValue = 0;
 
 	bool myRequestExit = false;
-
-#if PROFILING_ENABLED
-    void* myGraphicsTracyContext = nullptr;
-    void* myComputeTracyContext = nullptr;
-#endif
 };
 
 #include "application.inl"

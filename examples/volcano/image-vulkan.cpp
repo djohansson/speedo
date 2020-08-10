@@ -240,14 +240,14 @@ void Image<Vk>::clearDepthStencil(
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::tuple<
         ImageCreateDesc<Vk>,
         ImageHandle<Vk>,
         AllocationHandle<Vk>,
         ImageLayout<Vk>>&& descAndData)
 : DeviceResource<Vk>(
-    appContext->device,
+    deviceContext,
     std::get<0>(descAndData),
     1,
     VK_OBJECT_TYPE_IMAGE,
@@ -259,14 +259,14 @@ Image<Vk>::Image(
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ImageCreateDesc<Vk>&& desc)
 : Image(
-    appContext,
+    deviceContext,
     std::tuple_cat(
         std::make_tuple(std::move(desc)),
         createImage2D(
-            appContext->device->getAllocator(),
+            deviceContext->getAllocator(),
             desc.extent.width,
             desc.extent.height,
             desc.format, 
@@ -280,18 +280,19 @@ Image<Vk>::Image(
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
     std::tuple<
         ImageCreateDesc<Vk>,
         BufferHandle<Vk>,
         AllocationHandle<Vk>>&& descAndInitialData)
 : Image(
-    appContext,
+    deviceContext,
     std::tuple_cat(
         std::make_tuple(std::move(std::get<0>(descAndInitialData))),
         createImage2D(
-            appContext->transferCommands->commands(),
-            appContext->device->getAllocator(),
+            commandContext->commands(),
+            deviceContext->getAllocator(),
             std::get<1>(descAndInitialData),
             std::get<0>(descAndInitialData).extent.width,
             std::get<0>(descAndInitialData).extent.height,
@@ -303,16 +304,17 @@ Image<Vk>::Image(
             std::get<0>(descAndInitialData).name.c_str()),
         std::make_tuple(VK_IMAGE_LAYOUT_GENERAL)))
 {   
-    appContext->transferCommands->addSubmitFinishedCallback([allocator = appContext->device->getAllocator(), descAndInitialData](uint64_t){
-        vmaDestroyBuffer(allocator, std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
+    commandContext->addSubmitFinishedCallback([deviceContext, descAndInitialData](uint64_t){
+        vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
 }
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
     const std::filesystem::path& imageFile)
-: Image(appContext, image::load(imageFile, appContext->device))
+: Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
 {
 }
 
@@ -328,10 +330,10 @@ Image<Vk>::~Image()
 
 template <>
 ImageView<Vk>::ImageView(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ImageViewHandle<Vk>&& imageView)
 : DeviceResource<Vk>(
-    appContext->device,
+    deviceContext,
     {"_View"},
     1,
     VK_OBJECT_TYPE_IMAGE_VIEW,
@@ -342,13 +344,13 @@ ImageView<Vk>::ImageView(
 
 template <>
 ImageView<Vk>::ImageView(
-    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const Image<Vk>& image,
     Flags<Vk> aspectFlags)
 : ImageView<Vk>(
-    appContext,
+    deviceContext,
     createImageView2D(
-        appContext->device->getDevice(),
+        deviceContext->getDevice(),
         0, // "reserved for future use"
         image.getImageHandle(),
         image.getDesc().format,

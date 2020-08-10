@@ -1,8 +1,8 @@
 #pragma once
 
-#include "applicationcontext.h"
 #include "buffer.h"
 #include "command.h"
+#include "device.h"
 #include "glm.h"
 #include "image.h"
 #include "pipeline.h"
@@ -38,7 +38,7 @@ class WindowContext : public Noncopyable
 public:
 
 	WindowContext(
-		const std::shared_ptr<ApplicationContext<B>>& appContext,
+		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		WindowCreateDesc<B>&& desc);
 
 	const auto& getDesc() const { return myDesc; }
@@ -83,7 +83,8 @@ private:
 	void createFrameObjects(Extent2d<B> frameBufferExtent);
 	void destroyFrameObjects();
 
-	std::shared_ptr<ApplicationContext<B>> myAppContext;
+	std::shared_ptr<InstanceContext<B>> myInstance;
+	std::shared_ptr<DeviceContext<B>> myDevice;
 	WindowCreateDesc<B> myDesc = {};
 	std::shared_ptr<SwapchainContext<B>> mySwapchain;
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;

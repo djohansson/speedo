@@ -1,8 +1,8 @@
 #pragma once
 
-#include "applicationcontext.h"
 #include "aabb.h"
 #include "buffer.h"
+#include "device.h"
 #include "vertex.h"
 
 #include <memory>
@@ -28,10 +28,12 @@ public:
 
 	Model(Model&& other) = default;
 	Model( // copies the initial buffer into a new one. buffer gets garbage collected when finished copying.
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
         std::tuple<ModelCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& modelFile);
 
 	const auto& getDesc() const { return myDesc; }

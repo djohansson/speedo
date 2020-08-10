@@ -213,6 +213,3 @@ using CommandBufferLevel = std::conditional_t<B == Vk, VkCommandBufferLevel, std
 
 template <GraphicsBackend B>
 using RenderPassBeginInfo = std::conditional_t<B == Vk, VkRenderPassBeginInfo, std::nullptr_t>;
-
-template <GraphicsBackend B>
-using SubmitInfo = std::conditional_t<B == Vk, VkSubmitInfo, std::nullptr_t>;

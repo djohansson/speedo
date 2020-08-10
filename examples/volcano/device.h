@@ -95,7 +95,6 @@ public:
     auto& timelineValue() { return myTimelineValue; }
     bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
-    void waitIdle() const;
     void addTimelineCallback(std::function<void(uint64_t)>&& callback);
     void addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
     void addTimelineCallbacks(

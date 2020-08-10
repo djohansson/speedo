@@ -1,6 +1,7 @@
 #pragma once
 
-#include "applicationcontext.h"
+#include "command.h"
+#include "device.h"
 #include "types.h"
 
 #include <memory>
@@ -28,13 +29,15 @@ public:
 
     Image(Image&& other) = default;
     Image( // creates uninitialized image
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
     Image( // copies the initial buffer into a new image. buffer gets garbage collected when finished copying.
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
         std::tuple<ImageCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     Image( // loads a file into a buffer and creates a new image from it. buffer gets garbage collected when finished copying.
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& imageFile);
     ~Image();
 
@@ -55,7 +58,7 @@ private:
     friend class RenderImageSet<B>;
 
     Image( // uses provided image
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::tuple<ImageCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
 
     // todo: mipmaps
@@ -71,7 +74,7 @@ public:
     
     ImageView(ImageView&& other) = default;
     ImageView( // creates a view from image
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,
         Flags<Vk> aspectFlags);
     ~ImageView();
@@ -83,7 +86,7 @@ public:
 private:
 
     ImageView( // uses provided image view
-        const std::shared_ptr<ApplicationContext<B>>& appContext,
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageViewHandle<B>&& imageView);
 
     ImageViewHandle<B> myImageView = 0;

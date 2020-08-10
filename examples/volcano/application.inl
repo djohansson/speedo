@@ -3,16 +3,16 @@ void Application<B>::resizeWindow(const WindowState& state)
 {
     if (state.fullscreenEnabled)
     {
-        myWindows[0]->onResizeWindow({state.fullscreenWidth, state.fullscreenHeight});
+        myWindow->onResizeWindow({state.fullscreenWidth, state.fullscreenHeight});
     }
     else
     {
-        myWindows[0]->onResizeWindow({state.width, state.height});
+        myWindow->onResizeWindow({state.width, state.height});
     }
 }
 
 template <GraphicsBackend B>
 const char* Application<B>::getName() const
 {
-    return myContext->instance->getConfig().applicationName.c_str();
+    return myInstance->getConfig().applicationName.c_str();
 }
