@@ -38,6 +38,12 @@ void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 }
 
 template <>
+void DeviceContext<Vk>::waitIdle() const
+{
+    VK_CHECK(vkDeviceWaitIdle(myDevice));
+}
+
+template <>
 void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
 {
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
