@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device.h"
+#include "queue.h"
 #include "types.h"
 
 #include <array>
@@ -72,23 +73,9 @@ private:
 };
 
 template <GraphicsBackend B>
-struct CommandContextCreateDesc
+struct CommandContextCreateDesc : DeviceResourceCreateDesc<B>
 {
     CommandPoolHandle<B> pool = 0;
-};
-
-template <GraphicsBackend B>
-struct CommandSubmitInfo
-{
-    QueueHandle<B> queue = 0;
-    uint32_t waitSemaphoreCount = 0;
-    const SemaphoreHandle<B>* waitSemaphores = nullptr;
-    const Flags<B>* waitDstStageMasks = nullptr;
-    const uint64_t* waitSemaphoreValues = nullptr;
-    uint32_t signalSemaphoreCount = 0;
-    const SemaphoreHandle<B>* signalSemaphores = nullptr;
-    const uint64_t* signalSemaphoreValues = nullptr;
-    FenceHandle<B> signalFence = 0;
 };
 
 template <GraphicsBackend B>
@@ -163,8 +150,24 @@ private:
     uint8_t myIndex;
 };
 
+// temp - rewrite as SubmitInfo<B>
 template <GraphicsBackend B>
-class CommandContext
+struct QueueSubmitInfo
+{
+    QueueHandle<B> queue = 0;
+    uint32_t waitSemaphoreCount = 0;
+    const SemaphoreHandle<B>* waitSemaphores = nullptr;
+    const Flags<B>* waitDstStageMasks = nullptr;
+    const uint64_t* waitSemaphoreValues = nullptr;
+    uint32_t signalSemaphoreCount = 0;
+    const SemaphoreHandle<B>* signalSemaphores = nullptr;
+    const uint64_t* signalSemaphoreValues = nullptr;
+    FenceHandle<B> signalFence = 0;
+};
+//
+
+template <GraphicsBackend B>
+class CommandContext : public DeviceResource<B>
 {
 public:
 
@@ -179,15 +182,11 @@ public:
     CommandBufferAccessScope<B> commands(const CommandContextBeginInfo<B>& beginInfo = {});
     
     uint64_t execute(CommandContext<B>& callee);
-    uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
+    uint64_t submit(const QueueSubmitInfo<B>& submitInfo = {});
 
     // these will be complete when the timeline value is reached of the command buffer they are submitted in.
     // useful for ensuring that dependencies are respected when releasing resources. do not remove.
     void addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback);
-
-protected:
-
-    const auto& getDeviceContext() const { return myDevice; }
 
 private:    
 
@@ -201,7 +200,6 @@ private:
     void enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue);
     void enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue);
 
-    std::shared_ptr<DeviceContext<B>> myDevice;
     const CommandContextCreateDesc<B> myDesc = {};
     std::vector<CommandBufferList> myPendingCommands;
     CommandBufferList myExecutedCommands;

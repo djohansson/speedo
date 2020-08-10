@@ -25,14 +25,14 @@ void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
     ZoneScopedN("createFrameObjects");
     
     mySwapchain = std::make_shared<SwapchainContext<Vk>>(
-        myDevice,
+        myAppContext->device,
         SwapchainCreateDesc<Vk>{{{"mySwapchain"}, frameBufferExtent}, mySwapchain ? mySwapchain->getSwapchain() : nullptr});
 
     myViewBuffer = std::make_unique<Buffer<Vk>>(
-        myDevice,
+        myAppContext,
         BufferCreateDesc<Vk>{
             {"myViewBuffer"},
-            myDevice->getDesc().swapchainConfig->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(WindowContext::ViewBufferData),
+            myAppContext->device->getDesc().swapchainConfig->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(WindowContext::ViewBufferData),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
@@ -57,7 +57,7 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
     assert(frameIndex < mySwapchain->getFrames().size());
 
     void* data;
-    VK_CHECK(vmaMapMemory(myDevice->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+    VK_CHECK(vmaMapMemory(myAppContext->device->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
     for (uint32_t n = 0; n < (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height); n++)
     {
@@ -67,12 +67,12 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
     }
 
     vmaFlushAllocation(
-        myDevice->getAllocator(),
+        myAppContext->device->getAllocator(),
         myViewBuffer->getBufferMemory(),
         sizeof(ViewBufferData) * frameIndex * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height),
         sizeof(ViewBufferData) * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height));
 
-    vmaUnmapMemory(myDevice->getAllocator(), myViewBuffer->getBufferMemory());
+    vmaUnmapMemory(myAppContext->device->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
@@ -439,16 +439,16 @@ void WindowContext<Vk>::updateInput(const InputState& input)
 
 template <>
 WindowContext<Vk>::WindowContext(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<ApplicationContext<Vk>>& appContext,
     WindowCreateDesc<Vk>&& desc)
-: myDevice(deviceContext)
+: myAppContext(appContext)
 , myDesc(std::move(desc))
 {
     ZoneScopedN("Window()");
 
     createFrameObjects(desc.framebufferExtent);
 
-    const auto& graphicsCommandPools = myDevice->getGraphicsCommandPools();
+    const auto& graphicsCommandPools = myAppContext->device->getGraphicsCommandPools();
 
     uint32_t frameCount = mySwapchain->getFrames().size();
     uint32_t commandContextCount = std::min<uint32_t>(graphicsCommandPools.size(), myDesc.maxCommandContextPerFrameCount * frameCount);
@@ -466,8 +466,8 @@ WindowContext<Vk>::WindowContext(
         for (uint32_t poolIt = 0; poolIt < commandContextPerFrameCount; poolIt++)
         {
             commandContexts.emplace_back(std::make_shared<CommandContext<Vk>>(
-                myDevice,
-                CommandContextCreateDesc<Vk>{graphicsCommandPools[frameIt * commandContextPerFrameCount + poolIt]}));
+                myAppContext->device,
+                CommandContextCreateDesc<Vk>{{"CommandContext"}, graphicsCommandPools[frameIt * commandContextPerFrameCount + poolIt]}));
         }
     }
 

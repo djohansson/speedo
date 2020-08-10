@@ -100,7 +100,7 @@ void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
             "CommandBufferArray");
             
         myPendingCommands[level].emplace_back(std::make_pair(CommandBufferArray<Vk>(
-            myDevice,
+            getDeviceContext(),
             CommandBufferArrayCreateDesc<Vk>{
                 {stringBuffer},
                 myDesc.pool,
@@ -193,7 +193,7 @@ void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t 
 
     myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
 
-    myDevice->addTimelineCallback(timelineValue, [this](uint64_t timelineValue)
+    getDeviceContext()->addTimelineCallback(timelineValue, [this](uint64_t timelineValue)
     {
         ZoneScopedN("cmdReset");
 
@@ -248,13 +248,13 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t
         onResetCommands(mySubmittedCommands, myFreeCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY], timelineValue);
     });
 
-    myDevice->addTimelineCallbacks(timelineValue, mySubmitFinishedCallbacks);
+    getDeviceContext()->addTimelineCallbacks(timelineValue, mySubmitFinishedCallbacks);
     mySubmitFinishedCallbacks.clear();
 }
 
 template <>
 uint64_t CommandContext<Vk>::submit(
-    const CommandSubmitInfo<Vk>& submitInfo)
+    const QueueSubmitInfo<Vk>& submitInfo)
 {
     ZoneScopedN("submit");
 
@@ -362,7 +362,7 @@ uint64_t CommandContext<Vk>::execute(CommandContext<Vk>& callee)
     for (const auto& secPendingCommands : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
         vkCmdExecuteCommands(commands(), secPendingCommands.first.head(), secPendingCommands.first.data());
 
-    auto timelineValue = myDevice->timelineValue().load(std::memory_order_relaxed);
+    auto timelineValue = getDeviceContext()->timelineValue().load(std::memory_order_relaxed);
 
 	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
 
@@ -397,7 +397,7 @@ template <>
 CommandContext<Vk>::CommandContext(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CommandContextCreateDesc<Vk>&& desc)
-: myDevice(deviceContext)
+: DeviceResource<Vk>(deviceContext, desc)
 , myDesc(std::move(desc))
 , myPendingCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
 , myFreeCommands(VK_COMMAND_BUFFER_LEVEL_RANGE_SIZE)
@@ -413,7 +413,7 @@ CommandContext<Vk>::~CommandContext()
 
     if (!mySubmittedCommands.empty())
     {
-        myDevice->wait(mySubmittedCommands.back().second.first);
-        myDevice->processTimelineCallbacks(mySubmittedCommands.back().second.first);
+        getDeviceContext()->wait(mySubmittedCommands.back().second.first);
+        getDeviceContext()->processTimelineCallbacks(mySubmittedCommands.back().second.first);
     }
 }

@@ -38,9 +38,15 @@ void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 }
 
 template <>
+void DeviceContext<Vk>::waitIdle() const
+{
+    VK_CHECK(vkDeviceWaitIdle(myDevice));
+}
+
+template <>
 void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
 {
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    std::unique_lock writeLock(myTimelineCallbacksMutex);
 
     myTimelineCallbacks.emplace_back(
         std::make_pair(
@@ -51,7 +57,7 @@ void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& call
 template <>
 void DeviceContext<Vk>::addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
 {
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    std::unique_lock writeLock(myTimelineCallbacksMutex);
     
     myTimelineCallbacks.emplace_back(
         std::make_pair(
@@ -64,7 +70,7 @@ void DeviceContext<Vk>::addTimelineCallbacks(
     uint64_t timelineValue,
     const std::list<std::function<void(uint64_t)>>& callbacks)
 {
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    std::unique_lock writeLock(myTimelineCallbacksMutex);
     
     for (const auto& callback : callbacks)
         myTimelineCallbacks.emplace_back(
@@ -76,7 +82,7 @@ void DeviceContext<Vk>::addTimelineCallbacks(
 template <>
 void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
 {
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    std::unique_lock writeLock(myTimelineCallbacksMutex);
 
     ZoneScopedN("processTimelineCallbacks");
 
@@ -508,6 +514,6 @@ DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other)
     myDevice = std::exchange(other.myDevice, {});
     myName = std::exchange(other.myName, {});
     myId = std::exchange(other.myId, {});
-    
+
     return *this;
 }
