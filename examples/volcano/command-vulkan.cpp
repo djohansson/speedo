@@ -195,7 +195,7 @@ void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t 
 
     myDevice->addTimelineCallback(timelineValue, [this](uint64_t timelineValue)
     {
-        ZoneScopedN("cmdReset");
+        ZoneScopedN("CommandContext::cmdReset");
 
         auto onResetCommands = [](CommandBufferList& from, uint64_t timelineValue)
         {
@@ -232,7 +232,7 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t
 
     addSubmitFinishedCallback([this](uint64_t timelineValue)
     {
-        ZoneScopedN("cmdReset");
+        ZoneScopedN("CommandContext::cmdReset");
 
         auto onResetCommands = [](CommandBufferList& from, CommandBufferList& to, uint64_t timelineValue)
         {
@@ -256,7 +256,7 @@ template <>
 uint64_t CommandContext<Vk>::submit(
     const CommandSubmitInfo<Vk>& submitInfo)
 {
-    ZoneScopedN("submit");
+    ZoneScopedN("CommandContext::submit");
 
     internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
@@ -355,7 +355,7 @@ uint64_t CommandContext<Vk>::submit(
 template <>
 uint64_t CommandContext<Vk>::execute(CommandContext<Vk>& callee)
 {
-    ZoneScopedN("execute");
+    ZoneScopedN("CommandContext::execute");
 
     callee.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 

@@ -22,7 +22,7 @@
 template <>
 void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
 {
-    ZoneScopedN("createFrameObjects");
+    ZoneScopedN("WindowContext::createFrameObjects");
     
     mySwapchain = std::make_shared<SwapchainContext<Vk>>(
         myDevice,
@@ -52,7 +52,7 @@ void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
 template <>
 void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
 {
-    ZoneScopedN("updateViewBuffer");
+    ZoneScopedN("WindowContext::updateViewBuffer");
 
     assert(frameIndex < mySwapchain->getFrames().size());
 
@@ -78,11 +78,11 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
 template <>
 void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipeline)
 {
-    ZoneScopedN("WindowContext::draw()");
+    ZoneScopedN("WindowContext::draw");
 
     // std::vector<std::future<void>> drawCallbackFutures;
-    // drawCallbackFutures.reserve(myDrawCallbacks.size());
-    // for (auto drawCallback : myDrawCallbacks)
+    // drawCallbackFutures.reserve(myDrawViewCallbacks.size());
+    // for (auto drawCallback : myDrawViewCallbacks)
     // {
     //     auto& commandContext = myCommands[frameIndex][commandContextIndex];
     //     auto cmd = commandContext->commands(std::move(beginInfo));
@@ -91,9 +91,9 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
     
     // std::packaged_task<DrawCallback> drawCallbackTask([this](CommandBufferHandle<Vk> cmd)
     // {
-    //     ZoneScopedN("drawCallbacks");
+    //     ZoneScopedN("WindowContext::drawCallbacks");
 
-    //     for (auto callback : myDrawCallbacks)
+    //     for (auto callback : myDrawViewCallbacks)
     //         callback(cmd);
     // });
 
@@ -114,10 +114,10 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
     auto& frame = *mySwapchain->getFrames()[frameIndex];
     auto& commandContext = myCommands[frameIndex][0];
 
-    for (auto [beginInfo, drawCallback] : myDrawCallbacks)
+    for (auto [beginInfo, drawCallback] : myDrawViewCallbacks)
         drawCallback(commandContext->commands(beginInfo));
 
-    myDrawCallbacks.clear();
+    myDrawViewCallbacks.clear();
 
     pipeline->resources()->renderTarget->transitionColor(commandContext->commands(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 
@@ -140,7 +140,7 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
     // draw views using secondary command buffers
     // todo: generalize this to other types of draws
     {
-        ZoneScopedN("drawViews");
+        ZoneScopedN("WindowContext::drawViews");
 
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + drawCommandContextCount, 0);
@@ -257,24 +257,20 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
     }
 
     // {
-    //     ZoneScopedN("waitDrawCallbacks");
+    //     ZoneScopedN("WindowContext::waitDrawCallbacks");
 
     //     drawCallbacksTaskFuture.get();
     // }
 
     {
-        ZoneScopedN("executeCommands");
+        ZoneScopedN("WindowContext::executeCommands");
 
         // TracyVkZone(
         //     commandContext->userData<command_vulkan::UserData>().tracyContext,
         //     cmd, "executeCommands");
 
-
-        // config.resources->renderTarget->clearSingle(cmd, { VK_IMAGE_ASPECT_DEPTH_BIT, 1, { .depthStencil = { 1.0f, 0 } } });
-        // config.resources->renderTarget->setDepthStencilAttachmentLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD);
-
         // {
-        //     ZoneScopedN("tracyVkCollect");
+        //     ZoneScopedN("WindowContext::tracyVkCollect");
 
             // auto& commandContext = myCommands[frameIndex][0];
             // auto cmd = commandContext->beginScope();
@@ -322,7 +318,7 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
     }
 
     {
-        ZoneScopedN("waitViewBuffer");
+        ZoneScopedN("WindowContext::waitViewBuffer");
 
         updateViewBufferFuture.get();
     }
@@ -331,7 +327,7 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
 template <>
 void WindowContext<Vk>::updateInput(const InputState& input)
 {
-    ZoneScopedN("updateInput");
+    ZoneScopedN("WindowContext::updateInput");
 
     // todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
     {
@@ -472,4 +468,10 @@ WindowContext<Vk>::WindowContext(
     }
 
     myTimestamps[0] = std::chrono::high_resolution_clock::now();
+}
+
+template <>
+WindowContext<Vk>::~WindowContext()
+{
+    ZoneScopedN("~Window()");
 }

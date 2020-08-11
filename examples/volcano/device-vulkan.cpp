@@ -84,7 +84,7 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
 {
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
-    ZoneScopedN("processTimelineCallbacks");
+    ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
     while (!myTimelineCallbacks.empty())
     {

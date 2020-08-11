@@ -202,7 +202,7 @@ uint64_t SwapchainContext<Vk>::submit(
     const std::shared_ptr<CommandContext<Vk>>& commandContext,
     uint64_t waitTimelineValue)
 {
-    ZoneScopedN("SwapchainContext::submit()");
+    ZoneScopedN("SwapchainContext::submit");
 
     const auto& lastFrame = *myFrames[myLastFrameIndex];
     auto& frame = *myFrames[myFrameIndex];
@@ -234,7 +234,7 @@ uint64_t SwapchainContext<Vk>::submit(
 template <>
 void SwapchainContext<Vk>::present()
 {
-    ZoneScopedN("present");
+    ZoneScopedN("SwapchainContext::present");
 
     auto& frame = *myFrames[myFrameIndex];
 

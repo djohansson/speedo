@@ -254,15 +254,15 @@ int main(int argc, char** argv)
 	do
 	{
 		FrameMark;
-		ZoneScopedN("gameLoop");
+		ZoneScopedN("main::gameLoop");
 
 		{
-			ZoneScopedN("glfw");
+			ZoneScopedN("main::glfw");
 			glfwPollEvents();
 		}
 
 		{
-			ZoneScopedN("imgui");
+			ZoneScopedN("main::imgui");
 			ImGui_ImplGlfw_NewFrame();
 		}
 

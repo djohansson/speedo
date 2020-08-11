@@ -56,7 +56,7 @@ load(
     const std::filesystem::path& imageFile,
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
-    ZoneScopedN("image::load()");
+    ZoneScopedN("image::load");
 
     DeviceSize<Vk> size = 0;
 

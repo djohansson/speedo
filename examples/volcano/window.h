@@ -40,6 +40,7 @@ public:
 	WindowContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		WindowCreateDesc<B>&& desc);
+	~WindowContext();
 
 	const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
@@ -62,9 +63,9 @@ public:
 	void updateInput(const InputState& input);
 
 	template <typename T>
-	void addDrawCallback(T callback, const CommandContextBeginInfo<Vk>& beginInfo = {})
+	void addDrawViewCallback(T callback, const CommandContextBeginInfo<Vk>& beginInfo = {})
 	{
-		myDrawCallbacks.emplace_back(std::make_pair(beginInfo, callback));
+		myDrawViewCallbacks.emplace_back(std::make_pair(beginInfo, callback));
 	}
 
 	void draw(const std::shared_ptr<PipelineContext<B>>& pipeline);
@@ -92,5 +93,5 @@ private:
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommands;
-	std::vector<std::pair<CommandContextBeginInfo<B>, std::function<void(CommandBufferHandle<B> cmd)>>> myDrawCallbacks;
+	std::vector<std::pair<CommandContextBeginInfo<B>, std::function<void(CommandBufferHandle<B> cmd)>>> myDrawViewCallbacks;
 };

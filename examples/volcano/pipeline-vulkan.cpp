@@ -422,7 +422,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::getPipeline()
 template <>
 void PipelineContext<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
 {
-    ZoneScopedN("updateDescriptorSets");
+    ZoneScopedN("PipelineContext::updateDescriptorSets");
 
     if (!myDescriptorSets)
         myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(

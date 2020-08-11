@@ -110,3 +110,10 @@ auto make_vector(T0&& first, Ts&&... args)
         std::forward<Ts>(args)...
     };
 }
+
+namespace uuid
+{
+
+std::string generate_uuid();
+
+}

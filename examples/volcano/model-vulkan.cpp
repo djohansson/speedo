@@ -86,7 +86,7 @@ load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
-	ZoneScopedN("model::load()");
+	ZoneScopedN("model::load");
 
 	std::tuple<
 		ModelCreateDesc<Vk>,

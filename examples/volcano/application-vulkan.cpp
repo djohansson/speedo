@@ -20,7 +20,7 @@ void Application<Vk>::initIMGUI(
     CommandBufferHandle<Vk> commands,
     const std::filesystem::path& userProfilePath) const
 {
-    ZoneScopedN("initIMGUI");
+    ZoneScopedN("Application::initIMGUI");
 
     using namespace ImGui;
 
@@ -137,7 +137,7 @@ template <>
 void Application<Vk>::createWindowDependentObjects(
     Extent2d<Vk> frameBufferExtent)
 {
-    ZoneScopedN("createWindowDependentObjects");
+    ZoneScopedN("Application::createWindowDependentObjects");
 
     auto colorImage = std::make_shared<Image<Vk>>(
         myDevice,
@@ -173,7 +173,7 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
     if (myLastTransferTimelineValue)
     {
         {
-            ZoneScopedN("waitTransfer");
+            ZoneScopedN("Application::waitTransfer");
 
             myDevice->wait(myLastTransferTimelineValue);
         }
@@ -183,7 +183,7 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
         myLastTransferTimelineValue = 0;
 
         // {
-        //     ZoneScopedN("tracyVkCollectTransfer");
+        //     ZoneScopedN("Application::tracyVkCollectTransfer");
 
         //     auto& commandContext = myWindow->commandContext(frameIndex);
         //     auto cmd = commandContext->beginScope();
@@ -422,7 +422,7 @@ Application<Vk>::Application(
 
     myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage]
     {
-        ZoneScopedN("IMGUIPrepareDraw");
+        ZoneScopedN("Application::IMGUIPrepareDraw");
 
         using namespace ImGui;
 
@@ -782,7 +782,7 @@ Application<Vk>::Application(
 
     myIMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
     {
-        ZoneScopedN("IMGUIDraw");
+        ZoneScopedN("Application::IMGUIDraw");
 
         using namespace ImGui;
 
@@ -796,7 +796,7 @@ Application<Vk>::~Application()
     ZoneScopedN("~Application()");
 
     {
-        ZoneScopedN("deviceWaitIdle");
+        ZoneScopedN("Application::deviceWaitIdle");
 
         // todo: replace with frame & transfer sync
         VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
@@ -842,7 +842,7 @@ void Application<Vk>::onKeyboard(const KeyboardState& state)
 template <>
 bool Application<Vk>::draw()
 {
-    ZoneScopedN("draw");
+    ZoneScopedN("Application::draw");
 
     auto [flipSuccess, frameTimelineValue] = myWindow->getSwapchain()->flip();
 
@@ -850,7 +850,7 @@ bool Application<Vk>::draw()
     {
         if (frameTimelineValue)
         {
-            ZoneScopedN("waitFrameGPUCommands");
+            ZoneScopedN("Application::waitFrameGPUCommands");
 
             myDevice->wait(frameTimelineValue);
         }
@@ -870,7 +870,7 @@ bool Application<Vk>::draw()
 
         myWindow->getSwapchain()->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
         {
-            ZoneScopedN("waitImguiPrepareDraw");
+            ZoneScopedN("Application::waitImguiPrepareDraw");
 
             imguiPrepareDrawFuture.get();
         }
@@ -898,20 +898,20 @@ bool Application<Vk>::draw()
 
     // wait for timeline callbacks
     {
-        ZoneScopedN("waitProcessTimelineCallbacks");
+        ZoneScopedN("Application::waitProcessTimelineCallbacks");
 
         processTimelineCallbacksFuture.get();
     }
 
     // record and submit transfers
     {
-        ZoneScopedN("transfers");
+        ZoneScopedN("Application::transfers");
 
         uint32_t transferCount = 0;
 
         if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
         {
-            ZoneScopedN("openFileCallback");
+            ZoneScopedN("Application::openFileCallback");
 
             const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
             if (openFileResult == NFD_OKAY)
@@ -945,10 +945,10 @@ bool Application<Vk>::draw()
 template <>
 void Application<Vk>::resizeFramebuffer(int, int)
 {
-    ZoneScopedN("resizeFramebuffer");
+    ZoneScopedN("Application::resizeFramebuffer");
 
     {
-        ZoneScopedN("waitGPU");
+        ZoneScopedN("Application::waitGPU");
 
         myDevice->wait(std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }
