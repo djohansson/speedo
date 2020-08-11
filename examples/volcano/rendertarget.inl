@@ -27,27 +27,27 @@ void RenderTarget<B>::resetSubpasses()
 template <GraphicsBackend B>
 void RenderTarget<B>::setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<B> op)
 {
-    assert(index < getRenderTargetDesc().colorImages.size());
+    assert(index < this->getRenderTargetDesc().colorImages.size());
     
-    myAttachmentsDescs[index].loadOp = op;
+    myAttachmentDescs[index].loadOp = op;
 }
 
 template <GraphicsBackend B>
 void RenderTarget<B>::setColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<B> op)
 {
-    assert(index < getRenderTargetDesc().colorImages.size());
+    assert(index < this->getRenderTargetDesc().colorImages.size());
     
-    myAttachmentsDescs[index].storeOp = op;
+    myAttachmentDescs[index].storeOp = op;
 }
 
 template <GraphicsBackend B>
 void RenderTarget<B>::setDepthStencilAttachmentLoadOp(AttachmentLoadOp<B> op)
 {
-    myAttachmentsDescs[myAttachmentsDescs.size() - 1].loadOp = op;
+    myAttachmentDescs[myAttachmentDescs.size() - 1].loadOp = op;
 }
 
 template <GraphicsBackend B>
 void RenderTarget<B>::setDepthStencilAttachmentStoreOp(AttachmentStoreOp<B> op)
 {
-    myAttachmentsDescs[myAttachmentsDescs.size() - 1].storeOp = op;
+    myAttachmentDescs[myAttachmentDescs.size() - 1].storeOp = op;
 }
