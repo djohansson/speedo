@@ -154,7 +154,7 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
 {
     ZoneScoped;
 
-    static constexpr std::string_view flipFrameStr = "flip";
+    static constexpr std::string_view flipFrameStr = "SwapchainContext::flip";
 
     const auto& lastFrame = *myFrames[myLastFrameIndex];
 

@@ -157,7 +157,7 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
                 if (drawIt >= drawCount)
                     return;
 
-                static constexpr std::string_view drawPartitionStr = "drawPartition";
+                static constexpr std::string_view drawPartitionStr = "WindowContext::drawPartition";
                 char drawPartitionWithNumberStr[drawPartitionStr.size()+3];
                 sprintf_s(drawPartitionWithNumberStr, sizeof(drawPartitionWithNumberStr), "%.*s%u",
                     static_cast<int>(drawPartitionStr.size()), drawPartitionStr.data(), threadIt);
