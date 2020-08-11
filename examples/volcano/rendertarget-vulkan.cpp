@@ -21,7 +21,8 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             0,
             desc.colorImages[attachmentIt],
             desc.colorImageFormats[attachmentIt],
-            VK_IMAGE_ASPECT_COLOR_BIT));
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            1));
 
         sprintf_s(
             stringBuffer,
@@ -66,7 +67,8 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             0,
             desc.depthStencilImage,
             desc.depthStencilImageFormat,
-            depthAspectFlags));
+            depthAspectFlags,
+            1));
 
         sprintf_s(
             stringBuffer,
@@ -185,6 +187,8 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPasses(const RenderTargetC
 template <>
 uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const
 {
+    ZoneScopedN("RenderTarget::internalCalculateHashKey");
+
     constexpr XXH64_hash_t seed = 42;
     auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
     assert(result != XXH_ERROR);
@@ -204,7 +208,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
     result = XXH3_64bits_update(myXXHState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), &desc.imageExtent, sizeof(desc.imageExtent));
+    result = XXH3_64bits_update(myXXHState.get(), &desc.extent, sizeof(desc.extent));
     assert(result != XXH_ERROR);
 
     return XXH3_64bits_digest(myXXHState.get());
@@ -214,6 +218,8 @@ template <>
 RenderTarget<Vk>::RenderPassFramebufferTuple
 RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc)
 {
+    ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
+
     char stringBuffer[128];
     
     static constexpr std::string_view renderPassStr = "_RenderPass";
@@ -247,8 +253,8 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         renderPass,
         myAttachments.size(),
         myAttachments.data(),
-        desc.imageExtent.width,
-        desc.imageExtent.height,
+        desc.extent.width,
+        desc.extent.height,
         desc.layerCount);
 
     sprintf_s(
@@ -273,6 +279,8 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
 template <>
 RenderTarget<Vk>::RenderPassFramebufferTupleMap::const_iterator RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 {
+    ZoneScopedN("RenderTarget::internalUpdateMap");
+
     auto hashKey = internalCalculateHashKey(desc);
     auto emplaceResult = myMap.emplace(
         hashKey,
@@ -289,12 +297,14 @@ RenderTarget<Vk>::RenderPassFramebufferTupleMap::const_iterator RenderTarget<Vk>
 template <>
 void RenderTarget<Vk>::internalUpdateRenderPasses(const RenderTargetCreateDesc<Vk>& desc)
 {
-
+    ZoneScopedN("RenderTarget::internalUpdateRenderPasses");
 }
 
 template <>
 void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk>& desc)
 {
+    ZoneScopedN("RenderTarget::internalUpdateAttachments");
+
     uint32_t attachmentIt = 0;
     for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
     {
@@ -314,11 +324,52 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
 }
 
 template <>
+void RenderTarget<Vk>::blit(
+    CommandBufferHandle<Vk> cmd,
+    const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
+    const ImageSubresourceLayers<Vk>& srcSubresource,
+    uint32_t srcIndex,
+    const ImageSubresourceLayers<Vk>& dstSubresource,
+    uint32_t dstIndex,
+    Filter<Vk> filter)
+{
+    ZoneScopedN("RenderTarget::blit");
+
+    const auto& srcDesc = srcRenderTarget->getRenderTargetDesc();
+
+    VkOffset3D blitSize;
+    blitSize.x = srcDesc.extent.width;
+    blitSize.y = srcDesc.extent.height;
+    blitSize.z = 1;
+
+    VkImageBlit imageBlitRegion{};
+    imageBlitRegion.srcSubresource = srcSubresource;
+    imageBlitRegion.srcOffsets[1] = blitSize;
+    imageBlitRegion.dstSubresource = dstSubresource;
+    imageBlitRegion.dstOffsets[1] = blitSize;
+
+    srcRenderTarget->transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+    transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0);
+
+    vkCmdBlitImage(
+        cmd,
+        srcDesc.colorImages[0],
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        getRenderTargetDesc().colorImages[0],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &imageBlitRegion,
+        filter);
+}
+
+template <>
 void RenderTarget<Vk>::clearSingleAttachment(
     CommandBufferHandle<Vk> cmd,
     const ClearAttachment<Vk>& clearAttachment) const
 {
-    VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().imageExtent }, 0, getRenderTargetDesc().layerCount };
+    ZoneScopedN("RenderTarget::clearSingleAttachment");
+
+    VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().extent }, 0, getRenderTargetDesc().layerCount };
     vkCmdClearAttachments(cmd, 1, &clearAttachment, 1, &rect);
 }
 
@@ -328,8 +379,10 @@ void RenderTarget<Vk>::clearAllAttachments(
     const ClearColorValue<Vk>& color,
     const ClearDepthStencilValue<Vk>& depthStencil) const
 {
+    ZoneScopedN("RenderTarget::clearAllAttachments");
+
     uint32_t attachmentIt = 0;
-    VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().imageExtent }, 0, getRenderTargetDesc().layerCount };
+    VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().extent }, 0, getRenderTargetDesc().layerCount };
     std::vector<VkClearAttachment> clearAttachments(
         myAttachments.size(), {
             VK_IMAGE_ASPECT_COLOR_BIT,
@@ -355,6 +408,8 @@ void RenderTarget<Vk>::clearColor(
     const ClearColorValue<Vk>& color,
     uint32_t index)
 {
+    ZoneScopedN("RenderTarget::clearColor");
+
     transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
         
     VkImageSubresourceRange colorRange = {
@@ -378,6 +433,8 @@ void RenderTarget<Vk>::clearDepthStencil(
     CommandBufferHandle<Vk> cmd,
     const ClearDepthStencilValue<Vk>& depthStencil)
 {
+    ZoneScopedN("RenderTarget::clearDepthStencil");
+
     transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     VkImageSubresourceRange depthStencilRange = {
@@ -407,21 +464,12 @@ void RenderTarget<Vk>::nextSubpass(
 }
 
 template <>
-RenderPassHandle<Vk> RenderTarget<Vk>::renderPass()
+std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>> RenderTarget<Vk>::renderPassAndFramebuffer()
 {
     internalUpdateAttachments(getRenderTargetDesc());
     internalUpdateRenderPasses(getRenderTargetDesc());
 
-    return std::get<0>(internalUpdateMap(getRenderTargetDesc())->second);
-}
-
-template <>
-FramebufferHandle<Vk> RenderTarget<Vk>::framebuffer()
-{
-    internalUpdateAttachments(getRenderTargetDesc());
-    internalUpdateRenderPasses(getRenderTargetDesc());
-    
-    return std::get<1>(internalUpdateMap(getRenderTargetDesc())->second);
+    return internalUpdateMap(getRenderTargetDesc())->second;
 }
 
 template <>
@@ -433,15 +481,17 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
 
     assert(myCurrentPass == std::nullopt);
 
+    auto rpf = renderPassAndFramebuffer();
+
     myCurrentPass = std::make_optional(RenderPassBeginInfo<Vk>{
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         nullptr, 
-        renderPass(),
-        framebuffer(),
-        {{0, 0}, {getRenderTargetDesc().imageExtent.width, getRenderTargetDesc().imageExtent.height}}});
+        std::get<0>(rpf),
+        std::get<1>(rpf),
+        {{0, 0}, {getRenderTargetDesc().extent.width, getRenderTargetDesc().extent.height}}});
 
-    vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);
-
+    vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);   
+    
     return myCurrentPass;
 }
 

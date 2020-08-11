@@ -14,6 +14,7 @@ struct ImageCreateDesc : DeviceResourceCreateDesc<B>
     Extent2d<B> extent = {};
     Format<B> format = {};
     Flags<B> usage = 0;
+    uint32_t mipLevels = 1;
 };
 
 template <GraphicsBackend B>
@@ -47,9 +48,6 @@ public:
     const auto& getImageHandle() const { return std::get<0>(myData); }
     const auto& getImageMemory() const { return std::get<1>(myData); }
     const auto& getImageLayout() const { return std::get<2>(myData); }
-
-    void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color);
-    void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil);
 
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
     

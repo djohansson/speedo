@@ -76,60 +76,12 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
 }
 
 template <>
-void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipeline)
+uint32_t WindowContext<Vk>::internalDrawViews(
+    const std::shared_ptr<PipelineContext<Vk>>& pipeline,
+    const RenderPassBeginInfo<Vk>& renderPassInfo,
+    const Extent2d<Vk>& extent,
+    uint32_t frameIndex)
 {
-    ZoneScopedN("WindowContext::draw");
-
-    // std::vector<std::future<void>> drawCallbackFutures;
-    // drawCallbackFutures.reserve(myDrawViewCallbacks.size());
-    // for (auto drawCallback : myDrawViewCallbacks)
-    // {
-    //     auto& commandContext = myCommands[frameIndex][commandContextIndex];
-    //     auto cmd = commandContext->commands(std::move(beginInfo));
-
-    // }
-    
-    // std::packaged_task<DrawCallback> drawCallbackTask([this](CommandBufferHandle<Vk> cmd)
-    // {
-    //     ZoneScopedN("WindowContext::drawCallbacks");
-
-    //     for (auto callback : myDrawViewCallbacks)
-    //         callback(cmd);
-    // });
-
-    
-
-    // std::future<void> drawCallbacksTaskFuture(
-    //     std::async(
-    //         std::launch::async,
-    //         [&frame, &drawPrepareContextTask, &drawCallbacksTask]
-    //         {
-    //             drawPrepareContextTask(beginInfo, frame.getDesc().index, 0);
-    //             drawCallbacksTask(drawPrepareContextTask.get_future().get());
-    //         }));
-
-    //using DrawPrepare = CommandBufferHandle<Vk>(CommandContextBeginInfo<Vk> beginInfo, uint32_t frameIndex, uint32_t commandContextIndex);
-
-    auto frameIndex = mySwapchain->getFrameIndex();
-    auto& frame = *mySwapchain->getFrames()[frameIndex];
-    auto& commandContext = myCommands[frameIndex][0];
-
-    for (auto [beginInfo, drawCallback] : myDrawViewCallbacks)
-        drawCallback(commandContext->commands(beginInfo));
-
-    myDrawViewCallbacks.clear();
-
-    pipeline->resources()->renderTarget->transitionColor(commandContext->commands(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-
-    auto renderPass = pipeline->resources()->renderTarget->renderPass();
-    auto framebuffer = pipeline->resources()->renderTarget->framebuffer();
-    auto imageExtent = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent;
-
-    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
-    {
-        updateViewBuffer(frameIndex);
-    }));
-    
     // setup draw parameters
     uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
     uint32_t drawCommandContextCount = static_cast<uint32_t>(myCommands[frameIndex].size());
@@ -145,11 +97,11 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + drawCommandContextCount, 0);
         std::for_each_n(
-#if defined(__WINDOWS__)
+    #if defined(__WINDOWS__)
             std::execution::par,
-#endif
+    #endif
             seq.begin(), drawThreadCount,
-            [this, &pipeline, &renderPass, &framebuffer, &imageExtent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
+            [this, &pipeline, &renderPassInfo, &extent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -165,8 +117,8 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
                 
                 CommandBufferInheritanceInfo<Vk> inheritInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-                inheritInfo.renderPass = renderPass;
-                inheritInfo.framebuffer = framebuffer;
+                inheritInfo.renderPass = renderPassInfo.renderPass;
+                inheritInfo.framebuffer = renderPassInfo.framebuffer;
 
                 CommandContextBeginInfo<Vk> beginInfo = {};
                 beginInfo.flags =
@@ -195,8 +147,8 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
                         pipeline->resources()->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
-                uint32_t dx = imageExtent.width / myDesc.splitScreenGrid.width;
-                uint32_t dy = imageExtent.height / myDesc.splitScreenGrid.height;
+                uint32_t dx = extent.width / myDesc.splitScreenGrid.width;
+                uint32_t dy = extent.height / myDesc.splitScreenGrid.height;
 
                 while (drawIt < drawCount)
                 {
@@ -256,66 +208,43 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
             });
     }
 
-    // {
-    //     ZoneScopedN("WindowContext::waitDrawCallbacks");
+    return drawThreadCount;
+}
 
-    //     drawCallbacksTaskFuture.get();
-    // }
+template <>
+void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipeline)
+{
+    ZoneScopedN("WindowContext::draw");
 
+    auto frameIndex = mySwapchain->getFrameIndex();
+
+    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
     {
-        ZoneScopedN("WindowContext::executeCommands");
+        updateViewBuffer(frameIndex);
+    }));
 
-        // TracyVkZone(
-        //     commandContext->userData<command_vulkan::UserData>().tracyContext,
-        //     cmd, "executeCommands");
+    auto& frame = *mySwapchain->getFrames()[frameIndex];
+    auto& commandContext = myCommands[frameIndex][0];
+    auto& renderTarget = pipeline->resources()->renderTarget;
 
-        // {
-        //     ZoneScopedN("WindowContext::tracyVkCollect");
+    for (auto [beginInfo, drawViewCallback] : myDrawViewCallbacks)
+        drawViewCallback(commandContext->commands(beginInfo));
 
-            // auto& commandContext = myCommands[frameIndex][0];
-            // auto cmd = commandContext->beginScope();
+    myDrawViewCallbacks.clear();
 
-            // TracyVkCollect(
-            //     commandContext->userData<command_vulkan::UserData>().tracyContext,
-            //     cmd);
-        // }
+    auto cmd = commandContext->commands();
+    auto renderPassInfo = pipeline->resources()->renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    auto extent = pipeline->resources()->renderTarget->getRenderTargetDesc().extent;
 
-        auto cmd = commandContext->commands();
-        pipeline->resources()->renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-        
-        // views
-        for (uint32_t contextIt = 0; contextIt < drawThreadCount; contextIt++)
-            commandContext->execute(*myCommands[frameIndex][contextIt]);
+    uint32_t drawThreadCount = internalDrawViews(pipeline, renderPassInfo.value(), extent, frameIndex);
+    
+    for (uint32_t contextIt = 0; contextIt < drawThreadCount; contextIt++)
+        commandContext->execute(*myCommands[frameIndex][contextIt]);
 
-        pipeline->resources()->renderTarget->nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-        pipeline->resources()->renderTarget->end(cmd);
+    pipeline->resources()->renderTarget->nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    pipeline->resources()->renderTarget->end(cmd);
 
-        VkOffset3D blitSize;
-        blitSize.x = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent.width;
-        blitSize.y = pipeline->resources()->renderTarget->getRenderTargetDesc().imageExtent.height;
-        blitSize.z = 1;
-        
-        VkImageBlit imageBlitRegion{};
-        imageBlitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        imageBlitRegion.srcSubresource.layerCount = 1;
-        imageBlitRegion.srcOffsets[1] = blitSize;
-        imageBlitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        imageBlitRegion.dstSubresource.layerCount = 1;
-        imageBlitRegion.dstOffsets[1] = blitSize;
-
-        pipeline->resources()->renderTarget->transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-        frame.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0);
-
-        vkCmdBlitImage(
-            cmd,
-            pipeline->resources()->renderTarget->getRenderTargetDesc().colorImages[0],
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            frame.getDesc().colorImages[0],
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1,
-            &imageBlitRegion,
-            VK_FILTER_NEAREST);
-    }
+    frame.blit(cmd, renderTarget, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0);
 
     {
         ZoneScopedN("WindowContext::waitViewBuffer");

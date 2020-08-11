@@ -258,7 +258,7 @@ VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 }
 
 void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
-	VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+	VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels)
 {
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.oldLayout = oldLayout;
@@ -280,7 +280,7 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 	}
 
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.levelCount = mipLevels;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
@@ -582,7 +582,7 @@ void copyBufferToImage(
 }
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
-	VmaAllocator allocator, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
+	VmaAllocator allocator, uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
 	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
@@ -620,7 +620,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
-	uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
+	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, 
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
     VkImage outImage;
@@ -629,18 +629,20 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	assert(stagingBuffer);
 
 	std::tie(outImage, outImageMemory) = createImage2D(
-		allocator, width, height, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		allocator, width, height, mipLevels, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		memoryFlags, debugName);
 
 	transitionImageLayout(
 		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
+
 	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height);
 
     return std::make_tuple(outImage, outImageMemory);
 }
 
-VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+VkImageView createImageView2D(
+	VkDevice device, VkImageViewCreateFlags flags, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels)
 {	
 	VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	viewInfo.flags = flags;
@@ -649,7 +651,7 @@ VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkI
 	viewInfo.format = format;
 	viewInfo.subresourceRange.aspectMask = aspectFlags;
 	viewInfo.subresourceRange.baseMipLevel = 0;
-	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.levelCount = mipLevels;
 	viewInfo.subresourceRange.baseArrayLayer = 0;
 	viewInfo.subresourceRange.layerCount = 1;
 	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;

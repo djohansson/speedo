@@ -113,6 +113,8 @@ load(
         stbi_uc* stbiImageData =
             stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.extent.width, (int*)&desc.extent.height, &channelCount, STBI_rgb_alpha);
 
+        desc.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(desc.extent.width, desc.extent.height)))) + 1;
+
         bool hasAlpha = channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
         size = roundUp(desc.extent.width, 4) * roundUp(desc.extent.height, 4);
@@ -185,57 +187,13 @@ void Image<Vk>::transition(
     CommandBufferHandle<Vk> cmd,
     ImageLayout<Vk> layout)
 {
+    ZoneScopedN("Image::transition");
+
     if (getImageLayout() != layout)
     {
-        transitionImageLayout(cmd, getImageHandle(), myDesc.format, getImageLayout(), layout);
+        transitionImageLayout(cmd, getImageHandle(), myDesc.format, getImageLayout(), layout, myDesc.mipLevels);
         std::get<2>(myData) = layout;
     }
-}
-
-template <>
-void Image<Vk>::clearColor(
-    CommandBufferHandle<Vk> cmd,
-    const ClearColorValue<Vk>& color)
-{
-    transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        
-    VkImageSubresourceRange colorRange = {
-        VK_IMAGE_ASPECT_COLOR_BIT,
-        0,
-        VK_REMAINING_MIP_LEVELS,
-        0,
-        VK_REMAINING_ARRAY_LAYERS};
-
-    vkCmdClearColorImage(
-        cmd,
-        getImageHandle(),
-        getImageLayout(),
-        &color,
-        1,
-        &colorRange);
-}
-
-template <>
-void Image<Vk>::clearDepthStencil(
-    CommandBufferHandle<Vk> cmd,
-    const ClearDepthStencilValue<Vk>& depthStencil)
-{
-    transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-    VkImageSubresourceRange depthStencilRange = {
-        VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
-        0,
-        VK_REMAINING_MIP_LEVELS,
-        0,
-        VK_REMAINING_ARRAY_LAYERS};
-
-    vkCmdClearDepthStencilImage(
-        cmd,
-        getImageHandle(),
-        getImageLayout(),
-        &depthStencil,
-        1,
-        &depthStencilRange);
 }
 
 template <>
@@ -269,6 +227,7 @@ Image<Vk>::Image(
             deviceContext->getAllocator(),
             desc.extent.width,
             desc.extent.height,
+            desc.mipLevels,
             desc.format, 
             VK_IMAGE_TILING_OPTIMAL,
             desc.usage,
@@ -296,6 +255,7 @@ Image<Vk>::Image(
             std::get<1>(descAndInitialData),
             std::get<0>(descAndInitialData).extent.width,
             std::get<0>(descAndInitialData).extent.height,
+            std::get<0>(descAndInitialData).mipLevels,
             std::get<0>(descAndInitialData).format, 
             VK_IMAGE_TILING_OPTIMAL,
             std::get<0>(descAndInitialData).usage,
@@ -353,7 +313,8 @@ ImageView<Vk>::ImageView(
         0, // "reserved for future use"
         image.getImageHandle(),
         image.getDesc().format,
-        aspectFlags))
+        aspectFlags,
+        image.getDesc().mipLevels))
 {
 }
 

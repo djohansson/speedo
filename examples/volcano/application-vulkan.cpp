@@ -315,7 +315,8 @@ Application<Vk>::Application(
 
         auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
         {
-            myIMGUIRenderPass = myWindow->getSwapchain()->getFrames()[frameIndex]->renderPass();
+            myIMGUIRenderPass = std::get<0>(
+                myWindow->getSwapchain()->getFrames()[frameIndex]->renderPassAndFramebuffer());
 
             initIMGUI(myDevice, cmd, myUserProfilePath);
 
@@ -864,6 +865,7 @@ bool Application<Vk>::draw()
         auto cmd = commandContext->commands();
 
         myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
+        myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
             
         myWindow->updateInput(myInput);
         myWindow->draw(myGraphicsPipeline);

@@ -84,6 +84,12 @@ private:
 	void createFrameObjects(Extent2d<B> frameBufferExtent);
 	void destroyFrameObjects();
 
+	uint32_t internalDrawViews(
+		const std::shared_ptr<PipelineContext<Vk>>& pipeline,
+		const RenderPassBeginInfo<Vk>& renderPassInfo,
+		const Extent2d<Vk>& extent,
+		uint32_t frameIndex);
+
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
 	WindowCreateDesc<B> myDesc = {};

@@ -103,6 +103,8 @@ void Frame<Vk>::end(CommandBufferHandle<Vk> cmd)
 template <>
 void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
 {
+    ZoneScopedN("Frame::transitionColor");
+
     assert(index == 0);
 
     if (getColorImageLayout(index) != layout)
@@ -112,7 +114,9 @@ void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> lay
             getDesc().colorImages[index],
             getDesc().colorImageFormats[index],
             myImageLayout,
-            layout);
+            layout,
+            1);
+
         myImageLayout = layout;
     }
 }

@@ -216,3 +216,12 @@ using RenderPassBeginInfo = std::conditional_t<B == Vk, VkRenderPassBeginInfo, s
 
 template <GraphicsBackend B>
 using SubmitInfo = std::conditional_t<B == Vk, VkSubmitInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ImageBlit = std::conditional_t<B == Vk, VkImageBlit, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using Filter = std::conditional_t<B == Vk, VkFilter, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ImageSubresourceLayers = std::conditional_t<B == Vk, VkImageSubresourceLayers, std::nullptr_t>;
