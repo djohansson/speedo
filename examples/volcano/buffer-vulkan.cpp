@@ -1,7 +1,7 @@
 #include "buffer.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 template <>
 Buffer<Vk>::Buffer(

@@ -1,7 +1,7 @@
 #include "pipeline.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 #pragma pack(push, 1)
 template <>
@@ -186,9 +186,8 @@ PipelineLayout<Vk>::PipelineLayout(
     
         static constexpr std::string_view shaderModuleStr = "_ShaderModule";
 
-        sprintf_s(
+        stbsp_sprintf(
             stringBuffer,
-            sizeof(stringBuffer),
             "%.*s%.*s%u",
             getName().size(),
             getName().c_str(),
@@ -378,9 +377,8 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 
     static constexpr std::string_view pipelineStr = "_Pipeline";
     
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s%u",
         getName().size(),
         getName().c_str(),
@@ -486,9 +484,8 @@ PipelineContext<Vk>::PipelineContext(
 
     static constexpr std::string_view samplerStr = "_Sampler";
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),
@@ -508,9 +505,8 @@ PipelineContext<Vk>::PipelineContext(
     
     static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),

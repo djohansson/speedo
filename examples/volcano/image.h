@@ -9,12 +9,19 @@
 #include <tuple>
 
 template <GraphicsBackend B>
-struct ImageCreateDesc : DeviceResourceCreateDesc<B>
+struct ImageMipLevelDesc
 {
     Extent2d<B> extent = {};
+    uint32_t size = 0;
+    uint32_t offset = 0;
+};
+
+template <GraphicsBackend B>
+struct ImageCreateDesc : DeviceResourceCreateDesc<B>
+{
+    std::vector<ImageMipLevelDesc<B>> mipLevels;
     Format<B> format = {};
     Flags<B> usage = 0;
-    uint32_t mipLevels = 1;
 };
 
 template <GraphicsBackend B>
@@ -59,10 +66,8 @@ private:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::tuple<ImageCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
 
-    // todo: mipmaps
     const ImageCreateDesc<B> myDesc = {};
     std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>> myData = {};
-    //
 };
 
 template <GraphicsBackend B>
@@ -89,3 +94,5 @@ private:
 
     ImageViewHandle<B> myImageView = 0;
 };
+
+#include "image.inl"

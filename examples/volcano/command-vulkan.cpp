@@ -1,7 +1,7 @@
 #include "command.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 namespace commandbufferarray
 {
@@ -92,9 +92,8 @@ void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
     {
         char stringBuffer[32];
 
-        sprintf_s(
+        stbsp_sprintf(
             stringBuffer,
-            sizeof(stringBuffer),
             "%s%s",
             level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
             "CommandBufferArray");

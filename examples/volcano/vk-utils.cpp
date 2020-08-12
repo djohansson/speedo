@@ -564,21 +564,33 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 }
 
 void copyBufferToImage(
-	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride)
 {
-	VkBufferImageCopy region = {};
-	region.bufferOffset = 0;
-	region.bufferRowLength = 0;
-	region.bufferImageHeight = 0;
-	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	region.imageSubresource.mipLevel = 0;
-	region.imageSubresource.baseArrayLayer = 0;
-	region.imageSubresource.layerCount = 1;
-	region.imageOffset = {0, 0, 0};
-	region.imageExtent = {width, height, 1};
+	std::vector<VkBufferImageCopy> regions(mipLevels);
+	for (uint32_t mipIt = 0; mipIt < mipLevels; mipIt++)
+	{
+		uint32_t mipWidth = width >> mipIt;
+		uint32_t mipHeight = height >> mipIt;
+		
+		auto& region = regions[mipIt];
+		region.bufferOffset = *(mipOffsets + mipIt * mipOffsetsStride);
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = mipIt;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+		region.imageOffset = {0, 0, 0};
+		region.imageExtent = {mipWidth, mipHeight, 1};
+	}
 
 	vkCmdCopyBufferToImage(
-		commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		commandBuffer,
+		buffer,
+		image,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		regions.size(),
+		regions.data());
 }
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
@@ -590,7 +602,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	imageInfo.extent.width = width;
 	imageInfo.extent.height = height;
 	imageInfo.extent.depth = 1;
-	imageInfo.mipLevels = 1;
+	imageInfo.mipLevels = mipLevels;
 	imageInfo.arrayLayers = 1;
 	imageInfo.format = format;
 	imageInfo.tiling = tiling;
@@ -620,7 +632,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
-	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, 
+	uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride, VkFormat format, VkImageTiling tiling, 
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
     VkImage outImage;
@@ -636,7 +648,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
 
-	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height);
+	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height, mipLevels, mipOffsets, mipOffsetsStride);
 
     return std::make_tuple(outImage, outImageMemory);
 }

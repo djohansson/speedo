@@ -1,7 +1,7 @@
 #include "rendertarget.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 template <>
 void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)
@@ -24,9 +24,8 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             VK_IMAGE_ASPECT_COLOR_BIT,
             1));
 
-        sprintf_s(
+        stbsp_sprintf(
             stringBuffer,
-            sizeof(stringBuffer),
             "%.*s%.*s%.*u",
             getName().size(),
             getName().c_str(),
@@ -70,9 +69,8 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             depthAspectFlags,
             1));
 
-        sprintf_s(
+        stbsp_sprintf(
             stringBuffer,
-            sizeof(stringBuffer),
             "%.*s%.*s",
             getName().size(),
             getName().c_str(),
@@ -230,9 +228,8 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         mySubPassDescs,
         mySubPassDependencies);
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s%u",
         getName().size(),
         getName().c_str(),
@@ -257,9 +254,8 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         desc.extent.height,
         desc.layerCount);
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s%u",
         getName().size(),
         getName().c_str(),

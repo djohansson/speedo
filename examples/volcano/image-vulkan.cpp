@@ -2,11 +2,13 @@
 #include "file.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
-
 #include <cstdint>
+#if defined(__WINDOWS__)
+#include <execution>
+#endif
 #include <iostream>
 #include <string>
+#include <thread>
 #include <tuple>
 
 #define STBI_NO_STDIO
@@ -16,13 +18,8 @@
 #define STB_DXT_IMPLEMENTATION
 #include <stb_dxt.h>
 
-#include <cereal/archives/binary.hpp>
-#include <cereal/archives/portable_binary.hpp>
-#include <cereal/cereal.hpp>
-#include <cereal/types/map.hpp>
-#include <cereal/types/string.hpp>
-#include <cereal/types/utility.hpp>
-#include <cereal/types/vector.hpp>
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include <stb_image_resize.h>
 
 namespace stbi_istream_callbacks
 {
@@ -58,8 +55,6 @@ load(
 {
     ZoneScopedN("image::load");
 
-    DeviceSize<Vk> size = 0;
-
     std::tuple<
         ImageCreateDesc<Vk>,
         BufferHandle<Vk>,
@@ -68,12 +63,15 @@ load(
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = imageFile.filename().generic_string();
 
-    int channelCount = 0;
-
-    auto loadPBin = [&descAndInitialData, &channelCount, &size, &deviceContext](std::istream& stream) {
+    auto loadPBin = [&descAndInitialData, &deviceContext](std::istream& stream)
+    {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(desc.extent.width, desc.extent.height, channelCount, size);
+        pbin(desc);
+
+        uint32_t size = 0;
+        for (const auto& mipLevel : desc.mipLevels)
+            size += mipLevel.size;
 
         std::string debugString;
         debugString.append(desc.name);
@@ -93,10 +91,15 @@ load(
         memoryHandle = locMemoryHandle;
     };
 
-    auto savePBin = [&descAndInitialData, &channelCount, &size, &deviceContext](std::ostream& stream) {
+    auto savePBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
+    {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(desc.extent.width, desc.extent.height, channelCount, size);
+        pbin(desc);
+
+        uint32_t size = 0;
+        for (const auto& mipLevel : desc.mipLevels)
+            size += mipLevel.size;
 
         std::byte* data;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
@@ -104,36 +107,57 @@ load(
         vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
     };
 
-    auto loadImage = [&descAndInitialData, &channelCount, &size, &deviceContext](std::istream& stream) {
+    auto loadImage = [&descAndInitialData, &deviceContext](std::istream& stream)
+    {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+        
         stbi_io_callbacks callbacks;
         callbacks.read = &stbi_istream_callbacks::read;
         callbacks.skip = &stbi_istream_callbacks::skip;
         callbacks.eof = &stbi_istream_callbacks::eof;
-        stbi_uc* stbiImageData =
-            stbi_load_from_callbacks(&callbacks, &stream, (int*)&desc.extent.width, (int*)&desc.extent.height, &channelCount, STBI_rgb_alpha);
+        
+        int width, height, channelCount;
+        stbi_uc* stbiImageData = stbi_load_from_callbacks(&callbacks, &stream, &width, &height, &channelCount, STBI_rgb_alpha);
 
-        desc.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(desc.extent.width, desc.extent.height)))) + 1;
-
+        uint32_t mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
         bool hasAlpha = channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
-        size = roundUp(desc.extent.width, 4) * roundUp(desc.extent.height, 4);
-        size /= hasAlpha ? 1 : 2;
 
+        desc.mipLevels.resize(mipLevelCount);
+        desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+        desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+
+        uint32_t mipOffset = 0;
+        for (uint32_t mipIt = 0; mipIt < mipLevelCount; mipIt++)
+        {
+            uint32_t mipWidth = width >> mipIt;
+            uint32_t mipHeight = height >> mipIt;
+            auto mipSize = roundUp(mipWidth, 4) * roundUp(mipHeight, 4);
+            
+            if (!hasAlpha)
+                mipSize >>= 1;
+            
+            desc.mipLevels[mipIt].extent = { mipWidth, mipHeight };
+            desc.mipLevels[mipIt].size = mipSize;
+            desc.mipLevels[mipIt].offset = mipOffset;
+
+            mipOffset += mipSize;
+        }
+        
         std::string debugString;
         debugString.append(desc.name);
         debugString.append("_staging");
         
         auto [locBufferHandle, locMemoryHandle] = createBuffer(
-            deviceContext->getAllocator(), size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            deviceContext->getAllocator(), mipOffset, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
         std::byte* data;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
 
-        auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride,
-                                stbi_uc* dst) {
+        auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride, stbi_uc* dst)
+        {
             for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
             {
                 std::copy(src, src + stride * 4, &dst[rowIt * 16]);
@@ -144,14 +168,66 @@ load(
         stbi_uc block[64] = {0};
         const stbi_uc* src = stbiImageData;
         stbi_uc* dst = reinterpret_cast<stbi_uc*>(data);
-        for (uint32_t rowIt = 0; rowIt < desc.extent.height; rowIt += 4)
+
+    //     auto threadCount = std::thread::hardware_concurrency();
+    //     std::array<uint32_t, 128> seq;
+    //     std::iota(seq.begin(), seq.begin() + threadCount, 0);
+    //     std::for_each_n(
+    // #if defined(__WINDOWS__)
+    //         std::execution::par,
+    // #endif
+    //         seq.begin(), threadCount,
+    //         [](uint32_t threadIt)
+    //         {
+    //             (void)threadIt;
+    //         });
+        
+        const auto& mip0Extent = desc.mipLevels[0].extent;
+        for (uint32_t rowIt = 0; rowIt < mip0Extent.height; rowIt += 4)
         {
-            for (uint32_t colIt = 0; colIt < desc.extent.width; colIt += 4)
+            for (uint32_t colIt = 0; colIt < mip0Extent.width; colIt += 4)
             {
-                uint32_t offset = (rowIt * desc.extent.width + colIt) * 4;
-                extractBlock(src + offset, desc.extent.width, 4, block);
+                uint32_t offset = (rowIt * mip0Extent.width + colIt) * 4;
+                extractBlock(src + offset, mip0Extent.width, 4, block);
                 stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
                 dst += compressedBlockSize;
+            }
+        }
+
+        std::array<std::vector<stbi_uc>, 2> mipBuffers;
+        for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
+        {
+            uint32_t previousMipIt = (mipIt-1);
+            uint32_t currentBuffer = ~previousMipIt & 1;
+
+            const auto& previousExtent = desc.mipLevels[previousMipIt].extent;
+            const auto& currentExtent = desc.mipLevels[mipIt].extent;
+            
+            mipBuffers[currentBuffer].resize(
+                std::max<uint32_t>(currentExtent.width, 4) * std::max<uint32_t>(currentExtent.height, 4) * 4);
+            
+            stbir_resize_uint8(
+                src,
+                previousExtent.width,
+                previousExtent.height,
+                previousExtent.width * 4,
+                mipBuffers[currentBuffer].data(),
+                currentExtent.width,
+                currentExtent.height,
+                currentExtent.width * 4,
+                channelCount);
+
+            src = mipBuffers[currentBuffer].data();
+
+            for (uint32_t rowIt = 0; rowIt < currentExtent.height; rowIt += 4)
+            {
+                for (uint32_t colIt = 0; colIt < currentExtent.width; colIt += 4)
+                {
+                    uint32_t offset = (rowIt * currentExtent.width + colIt) * 4;
+                    extractBlock(src + offset, currentExtent.width, 4, block);
+                    stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
+                    dst += compressedBlockSize;
+                }
             }
         }
 
@@ -163,18 +239,9 @@ load(
     };
 
     loadCachedSourceFile(
-        imageFile, imageFile, "stb_image|stb_dxt", "2.20|1.08b", loadImage, loadPBin, savePBin);
+        imageFile, imageFile, "stb_image|stb_image_resize|stb_dxt", "2.26|0.96|1.10", loadImage, loadPBin, savePBin);
 
-     // todo: write utility functions...
-    desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-    desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
-
-    uint32_t pixelSizeBytesDivisor;
-    uint32_t expectedSize =
-        roundUp(desc.extent.width, 4) * roundUp(desc.extent.height, 4) *
-        getFormatSize(desc.format, pixelSizeBytesDivisor) / pixelSizeBytesDivisor;
-
-    if (!bufferHandle || size != expectedSize)
+    if (!bufferHandle)
         throw std::runtime_error("Failed to load image.");
 
     return descAndInitialData;
@@ -191,7 +258,7 @@ void Image<Vk>::transition(
 
     if (getImageLayout() != layout)
     {
-        transitionImageLayout(cmd, getImageHandle(), myDesc.format, getImageLayout(), layout, myDesc.mipLevels);
+        transitionImageLayout(cmd, getImageHandle(), myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
         std::get<2>(myData) = layout;
     }
 }
@@ -225,9 +292,9 @@ Image<Vk>::Image(
         std::make_tuple(std::move(desc)),
         createImage2D(
             deviceContext->getAllocator(),
-            desc.extent.width,
-            desc.extent.height,
-            desc.mipLevels,
+            desc.mipLevels[0].extent.width,
+            desc.mipLevels[0].extent.height,
+            desc.mipLevels.size(),
             desc.format, 
             VK_IMAGE_TILING_OPTIMAL,
             desc.usage,
@@ -253,9 +320,11 @@ Image<Vk>::Image(
             commandContext->commands(),
             deviceContext->getAllocator(),
             std::get<1>(descAndInitialData),
-            std::get<0>(descAndInitialData).extent.width,
-            std::get<0>(descAndInitialData).extent.height,
-            std::get<0>(descAndInitialData).mipLevels,
+            std::get<0>(descAndInitialData).mipLevels[0].extent.width,
+            std::get<0>(descAndInitialData).mipLevels[0].extent.height,
+            std::get<0>(descAndInitialData).mipLevels.size(),
+            &std::get<0>(descAndInitialData).mipLevels[0].offset,
+            (&std::get<0>(descAndInitialData).mipLevels[1].offset - &std::get<0>(descAndInitialData).mipLevels[0].offset),
             std::get<0>(descAndInitialData).format, 
             VK_IMAGE_TILING_OPTIMAL,
             std::get<0>(descAndInitialData).usage,
@@ -314,7 +383,7 @@ ImageView<Vk>::ImageView(
         image.getImageHandle(),
         image.getDesc().format,
         aspectFlags,
-        image.getDesc().mipLevels))
+        image.getDesc().mipLevels.size()))
 {
 }
 

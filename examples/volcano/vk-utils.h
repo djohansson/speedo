@@ -61,7 +61,7 @@ void transitionImageLayout(
 	VkImageLayout newLayout, uint32_t mipLevels);
 
 void copyBufferToImage(
-	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+	VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride);
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VmaAllocator allocator, uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, 
@@ -69,7 +69,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
-	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling,
+	uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride, VkFormat format, VkImageTiling tiling,
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
 VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkImage image, VkFormat format,

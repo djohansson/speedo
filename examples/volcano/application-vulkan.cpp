@@ -1,7 +1,7 @@
 #include "application.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -143,7 +143,7 @@ void Application<Vk>::createWindowDependentObjects(
         myDevice,
         ImageCreateDesc<Vk>{
             {"rtColorImage"},
-            frameBufferExtent,
+            { { frameBufferExtent } },
             myDevice->getDesc().swapchainConfig->surfaceFormat.format,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
     
@@ -151,7 +151,7 @@ void Application<Vk>::createWindowDependentObjects(
         myDevice,
         ImageCreateDesc<Vk>{
             {"rtDepthImage"},
-            frameBufferExtent,
+            { { frameBufferExtent } },
             findSupportedFormat(
                 myDevice->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -578,7 +578,7 @@ Application<Vk>::Application(
                 imnodes::BeginNode(node->id());
 
                 // title bar
-                sprintf_s(buffer, sizeof(buffer), "##node%.*u", 4, node->id());
+                stbsp_sprintf(buffer, "##node%.*u", 4, node->id());
 
                 imnodes::BeginNodeTitleBar();
 
@@ -606,7 +606,7 @@ Application<Vk>::Application(
                         if (hasInputPin)
                         {
                             auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
-                            sprintf_s(buffer, sizeof(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
+                            stbsp_sprintf(buffer, "##inputattribute%.*u", 4, inputAttribute.id);
                             
                             imnodes::BeginInputAttribute(inputAttribute.id);
 
@@ -626,7 +626,7 @@ Application<Vk>::Application(
                         if (rowIt < inOutNode->outputAttributes().size())
                         {
                             auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
-                            sprintf_s(buffer, sizeof(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
+                            stbsp_sprintf(buffer, "##outputattribute%.*u", 4, outputAttribute.id);
 
                             if (hasInputPin)
                                 SameLine();
@@ -665,7 +665,7 @@ Application<Vk>::Application(
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
-                            sprintf_s(buffer, sizeof(buffer), "In %u", inOutNode->inputAttributes().size());
+                            stbsp_sprintf(buffer, "In %u", inOutNode->inputAttributes().size());
                             inOutNode->inputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
@@ -673,7 +673,7 @@ Application<Vk>::Application(
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
-                            sprintf_s(buffer, sizeof(buffer), "Out %u", inOutNode->outputAttributes().size());
+                            stbsp_sprintf(buffer, "Out %u", inOutNode->outputAttributes().size());
                             inOutNode->outputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }

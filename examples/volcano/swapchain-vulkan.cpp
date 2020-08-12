@@ -1,7 +1,7 @@
 #include "swapchain.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 template <>
 SwapchainContext<Vk>::SwapchainContext(
@@ -33,9 +33,8 @@ SwapchainContext<Vk>::SwapchainContext(
 
     char stringBuffer[32];
     static constexpr std::string_view swapchainStr = "_Swapchain";
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),
@@ -187,9 +186,13 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
         static constexpr std::string_view errorStr = " - ERROR: vkAcquireNextImageKHR failed";
 
         char failedStr[flipFrameStr.size() + errorStr.size() + 1];
-        sprintf_s(failedStr, sizeof(failedStr), "%.*s%.*s",
-            static_cast<int>(flipFrameStr.size()), flipFrameStr.data(),
-            static_cast<int>(errorStr.size()), errorStr.data());
+        stbsp_sprintf(
+            failedStr,
+             "%.*s%.*s",
+            static_cast<int>(flipFrameStr.size()),
+            flipFrameStr.data(),
+            static_cast<int>(errorStr.size()),
+            errorStr.data());
 
         ZoneName(failedStr, sizeof_array(failedStr));
 
@@ -200,8 +203,12 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
     }
 
     char flipFrameWithNumberStr[flipFrameStr.size()+2];
-    sprintf_s(flipFrameWithNumberStr, sizeof(flipFrameWithNumberStr), "%.*s%u",
-        static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), myFrameIndex);
+    stbsp_sprintf(
+        flipFrameWithNumberStr,
+        "%.*s%u",
+        static_cast<int>(flipFrameStr.size()),
+        flipFrameStr.data(),
+        myFrameIndex);
 
     ZoneName(flipFrameWithNumberStr, sizeof_array(flipFrameWithNumberStr));
 

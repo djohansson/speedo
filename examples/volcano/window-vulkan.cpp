@@ -1,7 +1,7 @@
 #include "window.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 #if defined(__WINDOWS__)
 #include <execution>
@@ -95,7 +95,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         ZoneScopedN("WindowContext::drawViews");
 
         std::array<uint32_t, 128> seq;
-        std::iota(seq.begin(), seq.begin() + drawCommandContextCount, 0);
+        std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
         std::for_each_n(
     #if defined(__WINDOWS__)
             std::execution::par,
@@ -227,10 +227,10 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
     auto& commandContext = myCommands[frameIndex][0];
     auto& renderTarget = pipeline->resources()->renderTarget;
 
-    for (auto [beginInfo, drawViewCallback] : myDrawViewCallbacks)
-        drawViewCallback(commandContext->commands(beginInfo));
+    // for (auto [beginInfo, drawViewCallback] : myDrawViewCallbacks)
+    //     drawViewCallback(commandContext->commands(beginInfo));
 
-    myDrawViewCallbacks.clear();
+    // myDrawViewCallbacks.clear();
 
     auto cmd = commandContext->commands();
     auto renderPassInfo = pipeline->resources()->renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
