@@ -215,7 +215,7 @@ load(
                 currentExtent.width,
                 currentExtent.height,
                 currentExtent.width * 4,
-                channelCount);
+                4);
 
             src = mipBuffers[currentBuffer].data();
 
