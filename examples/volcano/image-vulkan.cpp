@@ -324,7 +324,7 @@ Image<Vk>::Image(
             std::get<0>(descAndInitialData).mipLevels[0].extent.height,
             std::get<0>(descAndInitialData).mipLevels.size(),
             &std::get<0>(descAndInitialData).mipLevels[0].offset,
-            (&std::get<0>(descAndInitialData).mipLevels[1].offset - &std::get<0>(descAndInitialData).mipLevels[0].offset),
+            sizeof(ImageMipLevelDesc<Vk>) / sizeof(uint32_t),
             std::get<0>(descAndInitialData).format, 
             VK_IMAGE_TILING_OPTIMAL,
             std::get<0>(descAndInitialData).usage,
