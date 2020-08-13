@@ -111,7 +111,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                 static constexpr std::string_view drawPartitionStr = "WindowContext::drawPartition";
                 char drawPartitionWithNumberStr[drawPartitionStr.size()+3];
-                sprintf_s(drawPartitionWithNumberStr, sizeof(drawPartitionWithNumberStr), "%.*s%u",
+                stbsp_sprintf(drawPartitionWithNumberStr, "%.*s%u",
                     static_cast<int>(drawPartitionStr.size()), drawPartitionStr.data(), threadIt);
 
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
