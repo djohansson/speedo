@@ -1,7 +1,7 @@
 #include "swapchain.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 template <>
 SwapchainContext<Vk>::SwapchainContext(
@@ -19,7 +19,7 @@ SwapchainContext<Vk>::SwapchainContext(
     info.minImageCount = config->imageCount;
     info.imageFormat = config->surfaceFormat.format;
     info.imageColorSpace = config->surfaceFormat.colorSpace;
-    info.imageExtent = myDesc.imageExtent;
+    info.imageExtent = myDesc.extent;
     info.imageArrayLayers = 1;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -33,9 +33,8 @@ SwapchainContext<Vk>::SwapchainContext(
 
     char stringBuffer[32];
     static constexpr std::string_view swapchainStr = "_Swapchain";
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),
@@ -67,7 +66,7 @@ SwapchainContext<Vk>::SwapchainContext(
             deviceContext,
             FrameCreateDesc<Vk>{
                 {{"Frame"},
-                myDesc.imageExtent,
+                myDesc.extent,
                 make_vector(config->surfaceFormat.format),
                 make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
                 make_vector(colorImages[frameIt])},
@@ -109,11 +108,24 @@ ImageLayout<Vk> SwapchainContext<Vk>::getDepthStencilImageLayout() const
 }
 
 template <>
+void SwapchainContext<Vk>::blit(
+    CommandBufferHandle<Vk> cmd,
+    const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
+    const ImageSubresourceLayers<Vk>& srcSubresource,
+    uint32_t srcIndex,
+    const ImageSubresourceLayers<Vk>& dstSubresource,
+    uint32_t dstIndex,
+    Filter<Vk> filter)
+{
+    myFrames[myFrameIndex]->blit(cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex, filter);
+}
+
+template <>
 void SwapchainContext<Vk>::clearSingleAttachment(
     CommandBufferHandle<Vk> cmd,
     const ClearAttachment<Vk>& clearAttachment) const
 {
-    return myFrames[myFrameIndex]->clearSingleAttachment(cmd, clearAttachment);
+    myFrames[myFrameIndex]->clearSingleAttachment(cmd, clearAttachment);
 }
 
 template <>
@@ -122,19 +134,19 @@ void SwapchainContext<Vk>::clearAllAttachments(
     const ClearColorValue<Vk>& color,
     const ClearDepthStencilValue<Vk>& depthStencil) const
 {
-    return myFrames[myFrameIndex]->clearAllAttachments(cmd, color, depthStencil);
+    myFrames[myFrameIndex]->clearAllAttachments(cmd, color, depthStencil);
 }
 
 template <>
 void SwapchainContext<Vk>::clearColor(CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
 {
-    return myFrames[myFrameIndex]->clearColor(cmd, color, index);
+    myFrames[myFrameIndex]->clearColor(cmd, color, index);
 }
 
 template <>
 void SwapchainContext<Vk>::clearDepthStencil(CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
 {
-    return myFrames[myFrameIndex]->clearDepthStencil(cmd, depthStencil);
+    myFrames[myFrameIndex]->clearDepthStencil(cmd, depthStencil);
 }
 
 template <>
@@ -154,7 +166,7 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
 {
     ZoneScoped;
 
-    static constexpr std::string_view flipFrameStr = "flip";
+    static constexpr std::string_view flipFrameStr = "SwapchainContext::flip";
 
     const auto& lastFrame = *myFrames[myLastFrameIndex];
 
@@ -174,9 +186,13 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
         static constexpr std::string_view errorStr = " - ERROR: vkAcquireNextImageKHR failed";
 
         char failedStr[flipFrameStr.size() + errorStr.size() + 1];
-        sprintf_s(failedStr, sizeof(failedStr), "%.*s%.*s",
-            static_cast<int>(flipFrameStr.size()), flipFrameStr.data(),
-            static_cast<int>(errorStr.size()), errorStr.data());
+        stbsp_sprintf(
+            failedStr,
+             "%.*s%.*s",
+            static_cast<int>(flipFrameStr.size()),
+            flipFrameStr.data(),
+            static_cast<int>(errorStr.size()),
+            errorStr.data());
 
         ZoneName(failedStr, sizeof_array(failedStr));
 
@@ -187,8 +203,12 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
     }
 
     char flipFrameWithNumberStr[flipFrameStr.size()+2];
-    sprintf_s(flipFrameWithNumberStr, sizeof(flipFrameWithNumberStr), "%.*s%u",
-        static_cast<int>(flipFrameStr.size()), flipFrameStr.data(), myFrameIndex);
+    stbsp_sprintf(
+        flipFrameWithNumberStr,
+        "%.*s%u",
+        static_cast<int>(flipFrameStr.size()),
+        flipFrameStr.data(),
+        myFrameIndex);
 
     ZoneName(flipFrameWithNumberStr, sizeof_array(flipFrameWithNumberStr));
 
@@ -202,7 +222,7 @@ uint64_t SwapchainContext<Vk>::submit(
     const std::shared_ptr<CommandContext<Vk>>& commandContext,
     uint64_t waitTimelineValue)
 {
-    ZoneScopedN("SwapchainContext::submit()");
+    ZoneScopedN("SwapchainContext::submit");
 
     const auto& lastFrame = *myFrames[myLastFrameIndex];
     auto& frame = *myFrames[myFrameIndex];
@@ -234,7 +254,7 @@ uint64_t SwapchainContext<Vk>::submit(
 template <>
 void SwapchainContext<Vk>::present()
 {
-    ZoneScopedN("present");
+    ZoneScopedN("SwapchainContext::present");
 
     auto& frame = *myFrames[myFrameIndex];
 

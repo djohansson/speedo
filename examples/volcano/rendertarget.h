@@ -14,7 +14,7 @@
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
 {
-    Extent2d<B> imageExtent = {};
+    Extent2d<B> extent = {};
 	std::vector<Format<B>> colorImageFormats;
     std::vector<ImageLayout<B>> colorImageLayouts;
     std::vector<ImageHandle<B>> colorImages;
@@ -35,6 +35,15 @@ struct IRenderTarget
 
     virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) = 0;
     virtual void end(CommandBufferHandle<B> cmd) = 0;
+
+    virtual void blit(
+        CommandBufferHandle<B> cmd,
+        const std::shared_ptr<IRenderTarget<B>>& srcRenderTarget,
+        const ImageSubresourceLayers<B>& srcSubresource,
+        uint32_t srcIndex,
+        const ImageSubresourceLayers<B>& dstSubresource,
+        uint32_t dstIndex,
+        Filter<B> filter = {}) = 0;
 
     virtual void clearSingleAttachment(
         CommandBufferHandle<B> cmd,
@@ -61,6 +70,15 @@ public:
     virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) override;
 
+    virtual void blit(
+        CommandBufferHandle<B> cmd,
+        const std::shared_ptr<IRenderTarget<B>>& srcRenderTarget,
+        const ImageSubresourceLayers<B>& srcSubresource,
+        uint32_t srcIndex,
+        const ImageSubresourceLayers<B>& dstSubresource,
+        uint32_t dstIndex,
+        Filter<B> filter = {}) final;
+
     virtual void clearSingleAttachment(
         CommandBufferHandle<B> cmd,
         const ClearAttachment<B>& clearAttachment) const final;
@@ -76,8 +94,7 @@ public:
     const auto& getAttachmentDesc(uint32_t index) const { return myAttachmentDescs[index]; }
     const auto& getSubpass() const { return myCurrentSubpass; }
 
-    RenderPassHandle<B> renderPass();
-    FramebufferHandle<B> framebuffer();
+    std::tuple<RenderPassHandle<B>, FramebufferHandle<B>> renderPassAndFramebuffer();
     
     void addSubpassDescription(SubpassDescription<B>&& description);
     void addSubpassDependency(SubpassDependency<B>&& dependency);
@@ -104,17 +121,18 @@ private:
     using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
 
     uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;    
+
+    RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
+        uint64_t hashKey,
+        const RenderTargetCreateDesc<Vk>& desc);
     
     void internalInitializeAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<B>& desc);
     
     void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
-    typename RenderPassFramebufferTupleMap::const_iterator internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
-    RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
-        uint64_t hashKey,
-        const RenderTargetCreateDesc<Vk>& desc);
+    typename RenderPassFramebufferTupleMap::const_iterator internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
 
     std::vector<ImageViewHandle<B>> myAttachments;
     std::vector<AttachmentDescription<B>> myAttachmentDescs;

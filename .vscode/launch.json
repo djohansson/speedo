@@ -151,6 +151,7 @@
         {
             "name": "(Windows) debug/volcano",
             "type": "cppvsdbg",
+            //"type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/debug/volcano.exe",
             "symbolSearchPath": "cache*D:/symbolcache;srv*https://msdl.microsoft.com/download/symbols",
@@ -167,7 +168,8 @@
         },
         {
             "name": "(Windows) release/volcano",
-            "type": "cppvsdbg",
+            //"type": "cppvsdbg",
+            "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/release/volcano.exe",
             "args": [],

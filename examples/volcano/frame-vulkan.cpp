@@ -5,7 +5,7 @@
 
 #include <string_view>
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
     RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other);
@@ -42,9 +42,8 @@ Frame<Vk>::Frame(
     static constexpr std::string_view renderCompleteSemaphoreStr = "_RenderCompleteSemaphore";
     static constexpr std::string_view newImageAcquiredSemaphoreStr = "_NewImageAcquiredSemaphore";
     
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),
@@ -53,9 +52,8 @@ Frame<Vk>::Frame(
 
     deviceContext->addOwnedObject(getId(), VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myRenderCompleteSemaphore), stringBuffer);
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),
@@ -103,6 +101,8 @@ void Frame<Vk>::end(CommandBufferHandle<Vk> cmd)
 template <>
 void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
 {
+    ZoneScopedN("Frame::transitionColor");
+
     assert(index == 0);
 
     if (getColorImageLayout(index) != layout)
@@ -112,7 +112,9 @@ void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> lay
             getDesc().colorImages[index],
             getDesc().colorImageFormats[index],
             myImageLayout,
-            layout);
+            layout,
+            1);
+
         myImageLayout = layout;
     }
 }

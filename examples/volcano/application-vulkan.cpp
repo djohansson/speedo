@@ -1,7 +1,7 @@
 #include "application.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -20,7 +20,7 @@ void Application<Vk>::initIMGUI(
     CommandBufferHandle<Vk> commands,
     const std::filesystem::path& userProfilePath) const
 {
-    ZoneScopedN("initIMGUI");
+    ZoneScopedN("Application::initIMGUI");
 
     using namespace ImGui;
 
@@ -137,13 +137,13 @@ template <>
 void Application<Vk>::createWindowDependentObjects(
     Extent2d<Vk> frameBufferExtent)
 {
-    ZoneScopedN("createWindowDependentObjects");
+    ZoneScopedN("Application::createWindowDependentObjects");
 
     auto colorImage = std::make_shared<Image<Vk>>(
         myDevice,
         ImageCreateDesc<Vk>{
             {"rtColorImage"},
-            frameBufferExtent,
+            { { frameBufferExtent } },
             myDevice->getDesc().swapchainConfig->surfaceFormat.format,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
     
@@ -151,7 +151,7 @@ void Application<Vk>::createWindowDependentObjects(
         myDevice,
         ImageCreateDesc<Vk>{
             {"rtDepthImage"},
-            frameBufferExtent,
+            { { frameBufferExtent } },
             findSupportedFormat(
                 myDevice->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -173,7 +173,7 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
     if (myLastTransferTimelineValue)
     {
         {
-            ZoneScopedN("waitTransfer");
+            ZoneScopedN("Application::waitTransfer");
 
             myDevice->wait(myLastTransferTimelineValue);
         }
@@ -183,7 +183,7 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
         myLastTransferTimelineValue = 0;
 
         // {
-        //     ZoneScopedN("tracyVkCollectTransfer");
+        //     ZoneScopedN("Application::tracyVkCollectTransfer");
 
         //     auto& commandContext = myWindow->commandContext(frameIndex);
         //     auto cmd = commandContext->beginScope();
@@ -315,7 +315,8 @@ Application<Vk>::Application(
 
         auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
         {
-            myIMGUIRenderPass = myWindow->getSwapchain()->getFrames()[frameIndex]->renderPass();
+            myIMGUIRenderPass = std::get<0>(
+                myWindow->getSwapchain()->getFrames()[frameIndex]->renderPassAndFramebuffer());
 
             initIMGUI(myDevice, cmd, myUserProfilePath);
 
@@ -422,7 +423,7 @@ Application<Vk>::Application(
 
     myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage]
     {
-        ZoneScopedN("IMGUIPrepareDraw");
+        ZoneScopedN("Application::IMGUIPrepareDraw");
 
         using namespace ImGui;
 
@@ -577,7 +578,7 @@ Application<Vk>::Application(
                 imnodes::BeginNode(node->id());
 
                 // title bar
-                sprintf_s(buffer, sizeof(buffer), "##node%.*u", 4, node->id());
+                stbsp_sprintf(buffer, "##node%.*u", 4, node->id());
 
                 imnodes::BeginNodeTitleBar();
 
@@ -605,7 +606,7 @@ Application<Vk>::Application(
                         if (hasInputPin)
                         {
                             auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
-                            sprintf_s(buffer, sizeof(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
+                            stbsp_sprintf(buffer, "##inputattribute%.*u", 4, inputAttribute.id);
                             
                             imnodes::BeginInputAttribute(inputAttribute.id);
 
@@ -625,7 +626,7 @@ Application<Vk>::Application(
                         if (rowIt < inOutNode->outputAttributes().size())
                         {
                             auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
-                            sprintf_s(buffer, sizeof(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
+                            stbsp_sprintf(buffer, "##outputattribute%.*u", 4, outputAttribute.id);
 
                             if (hasInputPin)
                                 SameLine();
@@ -664,7 +665,7 @@ Application<Vk>::Application(
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
-                            sprintf_s(buffer, sizeof(buffer), "In %u", inOutNode->inputAttributes().size());
+                            stbsp_sprintf(buffer, "In %u", inOutNode->inputAttributes().size());
                             inOutNode->inputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
@@ -672,7 +673,7 @@ Application<Vk>::Application(
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
-                            sprintf_s(buffer, sizeof(buffer), "Out %u", inOutNode->outputAttributes().size());
+                            stbsp_sprintf(buffer, "Out %u", inOutNode->outputAttributes().size());
                             inOutNode->outputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
@@ -782,7 +783,7 @@ Application<Vk>::Application(
 
     myIMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
     {
-        ZoneScopedN("IMGUIDraw");
+        ZoneScopedN("Application::IMGUIDraw");
 
         using namespace ImGui;
 
@@ -796,7 +797,7 @@ Application<Vk>::~Application()
     ZoneScopedN("~Application()");
 
     {
-        ZoneScopedN("deviceWaitIdle");
+        ZoneScopedN("Application::deviceWaitIdle");
 
         // todo: replace with frame & transfer sync
         VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
@@ -842,7 +843,7 @@ void Application<Vk>::onKeyboard(const KeyboardState& state)
 template <>
 bool Application<Vk>::draw()
 {
-    ZoneScopedN("draw");
+    ZoneScopedN("Application::draw");
 
     auto [flipSuccess, frameTimelineValue] = myWindow->getSwapchain()->flip();
 
@@ -850,7 +851,7 @@ bool Application<Vk>::draw()
     {
         if (frameTimelineValue)
         {
-            ZoneScopedN("waitFrameGPUCommands");
+            ZoneScopedN("Application::waitFrameGPUCommands");
 
             myDevice->wait(frameTimelineValue);
         }
@@ -864,13 +865,14 @@ bool Application<Vk>::draw()
         auto cmd = commandContext->commands();
 
         myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
+        myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
             
         myWindow->updateInput(myInput);
         myWindow->draw(myGraphicsPipeline);
 
         myWindow->getSwapchain()->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
         {
-            ZoneScopedN("waitImguiPrepareDraw");
+            ZoneScopedN("Application::waitImguiPrepareDraw");
 
             imguiPrepareDrawFuture.get();
         }
@@ -898,20 +900,20 @@ bool Application<Vk>::draw()
 
     // wait for timeline callbacks
     {
-        ZoneScopedN("waitProcessTimelineCallbacks");
+        ZoneScopedN("Application::waitProcessTimelineCallbacks");
 
         processTimelineCallbacksFuture.get();
     }
 
     // record and submit transfers
     {
-        ZoneScopedN("transfers");
+        ZoneScopedN("Application::transfers");
 
         uint32_t transferCount = 0;
 
         if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
         {
-            ZoneScopedN("openFileCallback");
+            ZoneScopedN("Application::openFileCallback");
 
             const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
             if (openFileResult == NFD_OKAY)
@@ -945,10 +947,10 @@ bool Application<Vk>::draw()
 template <>
 void Application<Vk>::resizeFramebuffer(int, int)
 {
-    ZoneScopedN("resizeFramebuffer");
+    ZoneScopedN("Application::resizeFramebuffer");
 
     {
-        ZoneScopedN("waitGPU");
+        ZoneScopedN("Application::waitGPU");
 
         myDevice->wait(std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
     }

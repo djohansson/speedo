@@ -1,7 +1,7 @@
 #include "pipeline.h"
 #include "vk-utils.h"
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 #pragma pack(push, 1)
 template <>
@@ -186,9 +186,8 @@ PipelineLayout<Vk>::PipelineLayout(
     
         static constexpr std::string_view shaderModuleStr = "_ShaderModule";
 
-        sprintf_s(
+        stbsp_sprintf(
             stringBuffer,
-            sizeof(stringBuffer),
             "%.*s%.*s%u",
             getName().size(),
             getName().c_str(),
@@ -269,19 +268,19 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    const auto& imageExtent = myResources->renderTarget->getRenderTargetDesc().imageExtent;
+    const auto& extent = myResources->renderTarget->getRenderTargetDesc().extent;
 
     VkViewport viewport = {};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = static_cast<float>(imageExtent.width);
-    viewport.height = static_cast<float>(imageExtent.height);
+    viewport.width = static_cast<float>(extent.width);
+    viewport.height = static_cast<float>(extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor = {};
     scissor.offset = {0, 0};
-    scissor.extent = {imageExtent.width, imageExtent.height};
+    scissor.extent = {extent.width, extent.height};
 
     VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
     viewportState.viewportCount = 1;
@@ -360,7 +359,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = myLayout->getLayout();
-    pipelineInfo.renderPass = myResources->renderTarget->renderPass();
+    pipelineInfo.renderPass = std::get<0>(myResources->renderTarget->renderPassAndFramebuffer());
     pipelineInfo.subpass = myResources->renderTarget->getSubpass().value_or(0);
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;
@@ -378,9 +377,8 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 
     static constexpr std::string_view pipelineStr = "_Pipeline";
     
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s%u",
         getName().size(),
         getName().c_str(),
@@ -422,7 +420,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::getPipeline()
 template <>
 void PipelineContext<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
 {
-    ZoneScopedN("updateDescriptorSets");
+    ZoneScopedN("PipelineContext::updateDescriptorSets");
 
     if (!myDescriptorSets)
         myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(
@@ -486,9 +484,8 @@ PipelineContext<Vk>::PipelineContext(
 
     static constexpr std::string_view samplerStr = "_Sampler";
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),
@@ -508,9 +505,8 @@ PipelineContext<Vk>::PipelineContext(
     
     static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
 
-    sprintf_s(
+    stbsp_sprintf(
         stringBuffer,
-        sizeof(stringBuffer),
         "%.*s%.*s",
         getName().size(),
         getName().c_str(),

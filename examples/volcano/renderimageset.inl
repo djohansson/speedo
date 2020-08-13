@@ -11,18 +11,18 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 
     assertf(colorImages.size(), "colorImages cannot be empty");
 
-    auto firstColorImageExtent = colorImages.front()->getDesc().extent;
+    auto firstColorImageExtent = colorImages.front()->getDesc().mipLevels[0].extent;
 
     outDesc.name = name;
-    outDesc.imageExtent = {firstColorImageExtent.width, firstColorImageExtent.height };
+    outDesc.extent = {firstColorImageExtent.width, firstColorImageExtent.height };
     outDesc.colorImageFormats.reserve(colorImages.size());
     outDesc.colorImageLayouts.reserve(colorImages.size());
     outDesc.colorImages.reserve(colorImages.size());
     
     for (const auto& image : colorImages)
     {
-        assertf(outDesc.imageExtent.width == image->getDesc().extent.width, "all colorImages needs to have same width");
-        assertf(outDesc.imageExtent.height == image->getDesc().extent.height, "all colorImages needs to have same height");
+        assertf(outDesc.extent.width == image->getDesc().mipLevels[0].extent.width, "all colorImages needs to have same width");
+        assertf(outDesc.extent.height == image->getDesc().mipLevels[0].extent.height, "all colorImages needs to have same height");
 
         outDesc.colorImageFormats.emplace_back(image->getDesc().format);
         outDesc.colorImageLayouts.emplace_back(image->getImageLayout());

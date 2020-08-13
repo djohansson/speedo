@@ -31,6 +31,15 @@ public:
 	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;
 
+	virtual void blit(
+        CommandBufferHandle<B> cmd,
+        const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
+        const ImageSubresourceLayers<B>& srcSubresource,
+        uint32_t srcIndex,
+        const ImageSubresourceLayers<B>& dstSubresource,
+        uint32_t dstIndex,
+        Filter<B> filter = {}) final;
+
 	virtual void clearSingleAttachment(
         CommandBufferHandle<B> cmd,
         const ClearAttachment<B>& clearAttachment) const final;
@@ -45,8 +54,8 @@ public:
     virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
     virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
 
-	const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
-    void end(CommandBufferHandle<B> cmd) final;
+	virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
+    virtual void end(CommandBufferHandle<B> cmd) final;
 
     const auto& getDesc() const { return myDesc; }
 	const auto& getSwapchain() const { return mySwapchain; }
@@ -55,10 +64,13 @@ public:
 	auto getLastFrameIndex() const { return myLastFrameIndex; }
 
 	std::tuple<bool, uint64_t> flip();
+	void present();
+
+	// todo: move to queue!
 	uint64_t submit(
 		const std::shared_ptr<CommandContext<B>>& commandContext,
 		uint64_t waitTimelineValue);
-	void present();
+	//
 
 private:
 

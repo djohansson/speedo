@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <utility>
 
-#include <core/slang-secure-crt.h>
+#include <stb_sprintf.h>
 
 namespace device
 {
@@ -84,7 +84,7 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
 {
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
-    ZoneScopedN("processTimelineCallbacks");
+    ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
     while (!myTimelineCallbacks.empty())
     {
@@ -308,9 +308,8 @@ DeviceContext<Vk>::DeviceContext(
 
     //     static constexpr std::string_view physicalDeviceStr = "Instance_PhysicalDevice";
 
-    //     sprintf_s(
+    //     stbsp_sprintf(
     //         stringBuffer,
-    //         sizeof(stringBuffer),
     //         "%s_%u",
     //         physicalDeviceStr.data(),
     //         physicalDeviceIt);
@@ -352,9 +351,8 @@ DeviceContext<Vk>::DeviceContext(
 
             static constexpr std::string_view queueStr = "Device_Queue";
 
-            sprintf_s(
+            stbsp_sprintf(
                 stringBuffer,
-                sizeof(stringBuffer),
                 "%s_%u",
                 queueStr.data(),
                 queueIt);
@@ -381,9 +379,8 @@ DeviceContext<Vk>::DeviceContext(
 
                 static constexpr std::string_view commandPoolStr = "Device_CommandPool";
 
-                sprintf_s(
+                stbsp_sprintf(
                     stringBuffer,
-                    sizeof(stringBuffer),
                     "%s_qf%u_f%u_q%u",
                     commandPoolStr.data(),
                     queueFamilyIt,
@@ -488,9 +485,8 @@ DeviceResource<Vk>::DeviceResource(
     char stringBuffer[256];
     for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
     {
-        sprintf_s(
+        stbsp_sprintf(
             stringBuffer,
-            sizeof(stringBuffer),
             "%.*s%.*u",
             getName().size(),
             getName().c_str(),

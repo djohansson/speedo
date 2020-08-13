@@ -9,9 +9,17 @@
 #include <tuple>
 
 template <GraphicsBackend B>
-struct ImageCreateDesc : DeviceResourceCreateDesc<B>
+struct ImageMipLevelDesc
 {
     Extent2d<B> extent = {};
+    uint32_t size = 0;
+    uint32_t offset = 0;
+};
+
+template <GraphicsBackend B>
+struct ImageCreateDesc : DeviceResourceCreateDesc<B>
+{
+    std::vector<ImageMipLevelDesc<B>> mipLevels;
     Format<B> format = {};
     Flags<B> usage = 0;
 };
@@ -48,9 +56,6 @@ public:
     const auto& getImageMemory() const { return std::get<1>(myData); }
     const auto& getImageLayout() const { return std::get<2>(myData); }
 
-    void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color);
-    void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil);
-
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
     
 private:
@@ -61,10 +66,8 @@ private:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::tuple<ImageCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
 
-    // todo: mipmaps
     const ImageCreateDesc<B> myDesc = {};
     std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>> myData = {};
-    //
 };
 
 template <GraphicsBackend B>
@@ -91,3 +94,5 @@ private:
 
     ImageViewHandle<B> myImageView = 0;
 };
+
+#include "image.inl"
