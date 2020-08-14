@@ -63,11 +63,11 @@ load(
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = imageFile.filename().generic_string();
 
-    auto loadPBin = [&descAndInitialData, &deviceContext](std::istream& stream)
+    auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
     {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        cereal::PortableBinaryInputArchive pbin(stream);
-        pbin(desc);
+        cereal::BinaryInputArchive bin(stream);
+        bin(desc);
 
         uint32_t size = 0;
         for (const auto& mipLevel : desc.mipLevels)
@@ -84,18 +84,18 @@ load(
 
         std::byte* data;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-        pbin(cereal::binary_data(data, size));
+        bin(cereal::binary_data(data, size));
         vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
         bufferHandle = locBufferHandle;
         memoryHandle = locMemoryHandle;
     };
 
-    auto savePBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
+    auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
     {
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        cereal::PortableBinaryOutputArchive pbin(stream);
-        pbin(desc);
+        cereal::BinaryOutputArchive bin(stream);
+        bin(desc);
 
         uint32_t size = 0;
         for (const auto& mipLevel : desc.mipLevels)
@@ -103,7 +103,7 @@ load(
 
         std::byte* data;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
-        pbin(cereal::binary_data(data, size));
+        bin(cereal::binary_data(data, size));
         vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
     };
 
@@ -239,7 +239,7 @@ load(
     };
 
     loadCachedSourceFile(
-        imageFile, imageFile, "stb_image|stb_image_resize|stb_dxt", "2.26|0.96|1.10", loadImage, loadPBin, savePBin);
+        imageFile, imageFile, "stb_image|stb_image_resize|stb_dxt", "2.26|0.96|1.10", loadImage, loadBin, saveBin);
 
     if (!bufferHandle)
         throw std::runtime_error("Failed to load image.");

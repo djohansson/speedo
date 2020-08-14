@@ -1,7 +1,6 @@
 #include "file.h"
 
 #include <cereal/archives/binary.hpp>
-#include <cereal/archives/portable_binary.hpp>
 #include <cereal/cereal.hpp>
 #include <cereal/types/map.hpp>
 #include <cereal/types/string.hpp>
@@ -22,14 +21,14 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 {
 	auto slangModule = std::make_shared<SerializableShaderReflectionModule<B>>();
 
-	auto loadPBin = [&slangModule](std::istream& stream) {
-		cereal::PortableBinaryInputArchive pbin(stream);
-		pbin(*slangModule);
+	auto loadBin = [&slangModule](std::istream& stream) {
+		cereal::BinaryInputArchive bin(stream);
+		bin(*slangModule);
 	};
 
-	auto savePBin = [&slangModule](std::ostream& stream) {
-		cereal::PortableBinaryOutputArchive pbin(stream);
-		pbin(*slangModule);
+	auto saveBin = [&slangModule](std::ostream& stream) {
+		cereal::BinaryOutputArchive bin(stream);
+		bin(*slangModule);
 	};
 
 	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream) {
@@ -134,7 +133,7 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 	};
 
 	loadCachedSourceFile(
-		slangFile, slangFile, "slang", "1.0.0-dev", loadSlang, loadPBin, savePBin);
+		slangFile, slangFile, "slang", "1.0.0-dev", loadSlang, loadBin, saveBin);
 
 	if (slangModule->shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");
