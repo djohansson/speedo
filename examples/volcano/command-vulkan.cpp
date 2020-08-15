@@ -216,7 +216,7 @@ void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t 
 }
 
 template <>
-void CommandContext<Vk>::addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback)
+void CommandContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback)
 {
     mySubmitFinishedCallbacks.emplace_back(std::move(callback));
 }
@@ -229,7 +229,7 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t
 
     mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(commands));
 
-    addSubmitFinishedCallback([this](uint64_t timelineValue)
+    addCommandsFinishedCallback([this](uint64_t timelineValue)
     {
         ZoneScopedN("CommandContext::cmdReset");
 
@@ -252,103 +252,36 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t
 }
 
 template <>
-uint64_t CommandContext<Vk>::submit(
-    const CommandSubmitInfo<Vk>& submitInfo)
+QueueSubmitInfo<Vk> CommandContext<Vk>::flush(QueueSyncInfo<Vk>&& syncInfo)
 {
-    ZoneScopedN("CommandContext::submit");
+    ZoneScopedN("CommandContext::flush");
 
     internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
     auto& pendingCommands = myPendingCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
     if (pendingCommands.empty())
-        return 0;
+        return {};
 
-    const auto waitSemaphoreCount = submitInfo.waitSemaphoreCount;
-    const auto signalSemaphoreCount = submitInfo.signalSemaphoreCount;
+    QueueSubmitInfo<Vk> submitInfo;
+    submitInfo.syncInfo = std::move(syncInfo);
 
-    myScratchMemory.resize(
-        sizeof(uint64_t) * signalSemaphoreCount + 
-        sizeof(SemaphoreHandle<Vk>) * signalSemaphoreCount +
-        sizeof(uint64_t) * waitSemaphoreCount +
-        sizeof(SemaphoreHandle<Vk>) * waitSemaphoreCount +
-        sizeof(Flags<Vk>) * waitSemaphoreCount +
-        sizeof(CommandBufferHandle<Vk>) * pendingCommands.size() * CommandBufferArray<Vk>::kCommandBufferCount);
-
-    auto writePtr = myScratchMemory.data();
-
-    auto waitSemaphoresBegin = reinterpret_cast<SemaphoreHandle<Vk>*>(writePtr);
+    for (auto& cmdSegment : pendingCommands)
     {
-        std::copy_n(submitInfo.waitSemaphores, submitInfo.waitSemaphoreCount, waitSemaphoresBegin);
-        writePtr = reinterpret_cast<std::byte*>(waitSemaphoresBegin + submitInfo.waitSemaphoreCount);
+        assert(!cmdSegment.first.recordingFlags());
+        auto cmdCount = cmdSegment.first.head();
+        std::copy_n(cmdSegment.first.data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
     }
-
-    auto waitDstStageMasksBegin = reinterpret_cast<Flags<Vk>*>(writePtr);
-    {
-        std::copy_n(submitInfo.waitDstStageMasks, submitInfo.waitSemaphoreCount, waitDstStageMasksBegin);
-        writePtr = reinterpret_cast<std::byte*>(waitDstStageMasksBegin + submitInfo.waitSemaphoreCount);
-    }
-
-    auto waitSemaphoreValuesBegin = reinterpret_cast<uint64_t*>(writePtr);
-    {
-        std::copy_n(submitInfo.waitSemaphoreValues, submitInfo.waitSemaphoreCount, waitSemaphoreValuesBegin);
-        writePtr = reinterpret_cast<std::byte*>(waitSemaphoreValuesBegin + submitInfo.waitSemaphoreCount);
-    }
-    
-    auto signalSemaphoresBegin = reinterpret_cast<SemaphoreHandle<Vk>*>(writePtr);
-    {
-        std::copy_n(submitInfo.signalSemaphores, submitInfo.signalSemaphoreCount, signalSemaphoresBegin);
-        writePtr = reinterpret_cast<std::byte*>(signalSemaphoresBegin + submitInfo.signalSemaphoreCount);
-    }
-
-    auto signalSemaphoreValuesBegin = reinterpret_cast<uint64_t*>(writePtr);
-    {
-        std::copy_n(submitInfo.signalSemaphoreValues, submitInfo.signalSemaphoreCount, signalSemaphoreValuesBegin);
-        writePtr = reinterpret_cast<std::byte*>(signalSemaphoreValuesBegin + submitInfo.signalSemaphoreCount);
-    }
-
-    uint32_t commandBufferHandlesCount = 0;
-    auto commandBufferHandlesBegin = reinterpret_cast<CommandBufferHandle<Vk>*>(writePtr);
-    {
-        auto commandBufferHandlesPtr = commandBufferHandlesBegin;
-        for (auto& cmdSegment : pendingCommands)
-        {
-            assert(!cmdSegment.first.recordingFlags());
-            auto cmdCount = cmdSegment.first.head();
-            commandBufferHandlesCount += cmdCount;
-            std::copy_n(cmdSegment.first.data(), cmdCount, commandBufferHandlesPtr);
-            commandBufferHandlesPtr += cmdCount;
-        }
-    }
-
-    VkTimelineSemaphoreSubmitInfo timelineInfo;
-    timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timelineInfo.pNext = nullptr;
-    timelineInfo.waitSemaphoreValueCount = waitSemaphoreCount;
-    timelineInfo.pWaitSemaphoreValues = waitSemaphoreValuesBegin;
-    timelineInfo.signalSemaphoreValueCount = signalSemaphoreCount;
-    timelineInfo.pSignalSemaphoreValues = signalSemaphoreValuesBegin;
-    
-    VkSubmitInfo vkSubmitInfo;
-    vkSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    vkSubmitInfo.pNext = &timelineInfo;
-    vkSubmitInfo.waitSemaphoreCount = waitSemaphoreCount;
-    vkSubmitInfo.pWaitSemaphores = waitSemaphoresBegin;
-    vkSubmitInfo.pWaitDstStageMask = waitDstStageMasksBegin;
-    vkSubmitInfo.signalSemaphoreCount  = signalSemaphoreCount;
-    vkSubmitInfo.pSignalSemaphores = signalSemaphoresBegin;
-    vkSubmitInfo.commandBufferCount = commandBufferHandlesCount;
-    vkSubmitInfo.pCommandBuffers = commandBufferHandlesBegin;
-
-    VK_CHECK(vkQueueSubmit(submitInfo.queue, 1, &vkSubmitInfo, submitInfo.signalFence));
 
     const auto [minSignalValue, maxSignalValue] = std::minmax_element(
-        &submitInfo.signalSemaphoreValues[0],
-        &submitInfo.signalSemaphoreValues[submitInfo.signalSemaphoreCount - 1]);
+        submitInfo.syncInfo.signalSemaphoreValues.begin(),
+        submitInfo.syncInfo.signalSemaphoreValues.end());
+
+    submitInfo.maxTimelineValue = *maxSignalValue;
 
     enqueueSubmitted(std::move(pendingCommands), *maxSignalValue);
     
-    return *maxSignalValue;
+    return submitInfo;
 }
 
 template <>

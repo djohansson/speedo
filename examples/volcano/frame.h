@@ -38,7 +38,7 @@ public:
 
 	const auto& getRenderCompleteSemaphore() const { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
-	const auto& getLastSubmitTimelineValue() const { return myLastSubmitTimelineValue; }
+	const auto& getLastPresentTimelineValue() const { return myLastPresentTimelineValue; }
 
 private:
 
@@ -47,7 +47,7 @@ private:
 	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
 	ImageLayout<B> myImageLayout = {};
-	uint64_t myLastSubmitTimelineValue = 0;
+	uint64_t myLastPresentTimelineValue = 0;
 };
 
 #include "frame-vulkan.inl"

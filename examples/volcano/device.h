@@ -76,14 +76,10 @@ public:
     uint32_t getTransferQueueFamilyIndex() const { return myTransferQueueFamilyIndex; }
     uint32_t getComputeQueueFamilyIndex() const { return myComputeQueueFamilyIndex; }
 
+    // temp
     auto getGraphicsQueue() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].queues[myCurrentGraphicsQueue]; }
     auto getTransferQueue() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].queues[myCurrentTransferQueue]; }
     auto getComputeQueue() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].queues[myCurrentComputeQueue]; }
-
-    // temp
-    const auto& getGraphicsCommandPools() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].commandPools; }
-    const auto& getTransferCommandPools() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].commandPools; }
-    const auto& getComputeCommandPools() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].commandPools; }
     //
 
     auto getAllocator() const { return myAllocator; }

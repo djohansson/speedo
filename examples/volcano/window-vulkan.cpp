@@ -373,7 +373,7 @@ WindowContext<Vk>::WindowContext(
 
     createFrameObjects(desc.framebufferExtent);
 
-    const auto& graphicsCommandPools = myDevice->getGraphicsCommandPools();
+    const auto& graphicsCommandPools = myDevice->getQueueFamilies()[myDevice->getGraphicsQueueFamilyIndex()].commandPools;
 
     uint32_t frameCount = mySwapchain->getFrames().size();
     uint32_t commandContextCount = std::min<uint32_t>(graphicsCommandPools.size(), myDesc.maxCommandContextPerFrameCount * frameCount);

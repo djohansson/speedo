@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device.h"
+#include "queue.h"
 #include "types.h"
 
 #include <array>
@@ -75,20 +76,6 @@ template <GraphicsBackend B>
 struct CommandContextCreateDesc
 {
     CommandPoolHandle<B> pool = 0;
-};
-
-template <GraphicsBackend B>
-struct CommandSubmitInfo
-{
-    QueueHandle<B> queue = 0;
-    uint32_t waitSemaphoreCount = 0;
-    const SemaphoreHandle<B>* waitSemaphores = nullptr;
-    const Flags<B>* waitDstStageMasks = nullptr;
-    const uint64_t* waitSemaphoreValues = nullptr;
-    uint32_t signalSemaphoreCount = 0;
-    const SemaphoreHandle<B>* signalSemaphores = nullptr;
-    const uint64_t* signalSemaphoreValues = nullptr;
-    FenceHandle<B> signalFence = 0;
 };
 
 template <GraphicsBackend B>
@@ -179,11 +166,11 @@ public:
     CommandBufferAccessScope<B> commands(const CommandContextBeginInfo<B>& beginInfo = {});
     
     uint64_t execute(CommandContext<B>& callee);
-    uint64_t submit(const CommandSubmitInfo<B>& submitInfo = {});
+    QueueSubmitInfo<B> flush(QueueSyncInfo<B>&& syncInfo);
 
     // these will be complete when the timeline value is reached of the command buffer they are submitted in.
     // useful for ensuring that dependencies are respected when releasing resources. do not remove.
-    void addSubmitFinishedCallback(std::function<void(uint64_t)>&& callback);
+    void addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback);
 
 protected:
 
@@ -208,7 +195,6 @@ private:
     CommandBufferList mySubmittedCommands;
     std::vector<CommandBufferList> myFreeCommands;
     std::vector<std::optional<CommandBufferAccessScope<B>>> myRecordingCommands;
-    std::vector<std::byte> myScratchMemory;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };
 
