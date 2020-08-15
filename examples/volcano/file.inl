@@ -16,7 +16,7 @@ T loadObject(std::istream& stream, const std::string& name)
     Archive archive(stream);
     T outValue = {};
     archive(cereal::make_nvp(name, outValue));
-    return std::move(outValue);
+    return outValue;
 };
 
 template <typename T, typename Archive>
