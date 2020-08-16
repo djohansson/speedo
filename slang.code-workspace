@@ -6,6 +6,7 @@
 	],
 	"settings": {
 		"files.associations": {
+			"*.slang": "hlsl",
 			"xiosbase": "cpp",
 			"thread": "cpp",
 			"ios": "cpp",
@@ -122,7 +123,8 @@
 			"concepts": "cpp",
 			"*.rh": "cpp",
 			"parentbad": "cpp",
-			"*.inc": "cpp"
+			"*.inc": "cpp",
+			"compare": "cpp"
 		}
 	}
 }

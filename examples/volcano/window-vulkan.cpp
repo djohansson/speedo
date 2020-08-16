@@ -136,6 +136,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
             
                 // bind pipeline and inputs
                 {
+                    ZoneScopedN("WindowContext::drawViews::bind");
+
                     // bind pipeline and vertex/index buffers
                     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
 
@@ -160,6 +162,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
                                                         int32_t width, int32_t height)
                         {
+                            ZoneScopedN("WindowContext::drawViews::set");
+
                             VkViewport viewport = {};
                             viewport.x = static_cast<float>(x);
                             viewport.y = static_cast<float>(y);
@@ -183,6 +187,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                                             const VkDescriptorSet* descriptorSets,
                                             VkPipelineLayout pipelineLayout)
                         {
+                            ZoneScopedN("WindowContext::drawViews::draw");
+
                             uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
@@ -205,6 +211,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                     drawIt = drawAtomic++;
                 }
+
+                cmd.end();
             });
     }
 

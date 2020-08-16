@@ -18,6 +18,8 @@ Queue<Vk>::Queue(
 template <>
 uint64_t Queue<Vk>::submit()
 {
+    ZoneScopedN("Queue::submit");
+
     if (myPendingSubmits.empty())
         return 0;
 
@@ -72,5 +74,7 @@ uint64_t Queue<Vk>::submit()
 template <>
 void Queue<Vk>::waitIdle() const
 {
+    ZoneScopedN("Queue::waitIdle");
+
     VK_CHECK(vkQueueWaitIdle(myDesc.queue));
 }

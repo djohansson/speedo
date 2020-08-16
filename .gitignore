@@ -47,7 +47,7 @@ examples/volcano/slang-dump-*.*
 examples/volcano/test-file
 
 # cache files
-*.pbin*
+*.bin*
 *.cache
 
 # intellisense

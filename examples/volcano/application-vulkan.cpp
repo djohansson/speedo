@@ -242,7 +242,7 @@ Application<Vk>::Application(
             {graphicsDeviceCandidates.front().first}));
 
     auto shaderModule = loadSlangShaders<Vk>(
-        std::filesystem::path("D:\\github\\hlsl.bin\\RelWithDebInfo\\bin"),
+        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
         myResourcePath / "shaders" / "shaders.slang");
 
     myGraphicsPipeline = std::make_shared<PipelineContext<Vk>>(
@@ -848,17 +848,17 @@ bool Application<Vk>::draw()
 
     if (flipSuccess)
     {
+        std::future<void> imguiPrepareDrawFuture(std::async(std::launch::async, [this]
+        {
+            myIMGUIPrepareDrawFunction();
+        }));
+
         if (frameTimelineValue)
         {
             ZoneScopedN("Application::waitFrameGPUCommands");
 
             myDevice->wait(frameTimelineValue);
         }
-
-        std::future<void> imguiPrepareDrawFuture(std::async(std::launch::async, [this]
-        {
-            myIMGUIPrepareDrawFunction();
-        }));
 
         auto& commandContext = myWindow->commandContext(swapchain->getFrameIndex());
         {

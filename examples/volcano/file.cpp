@@ -189,19 +189,19 @@ void loadCachedSourceFile(
 	ZoneScoped;
 
 	std::filesystem::path jsonFilePath(sourceFilePath);
-	jsonFilePath += ".pbin.json";
+	jsonFilePath += ".bin.json";
 
-	std::filesystem::path pbinFilePath(cacheFilePath);
-	pbinFilePath += ".pbin";
+	std::filesystem::path binFilePath(cacheFilePath);
+	binFilePath += ".bin";
 
 	bool doImport;
-	std::tuple<FileState, FileInfo> sourceFile, pbinFile;
+	std::tuple<FileState, FileInfo> sourceFile, binFile;
 	auto jsonFileStatus = std::filesystem::status(jsonFilePath);
-	auto pbinFileStatus = std::filesystem::status(pbinFilePath);
+	auto binFileStatus = std::filesystem::status(binFilePath);
 
 	if (std::filesystem::exists(jsonFileStatus) &&
 		std::filesystem::is_regular_file(jsonFileStatus) &&
-		!std::filesystem::exists(pbinFileStatus))
+		!std::filesystem::exists(binFileStatus))
 	{
 		ZoneScopedN("loadCachedSourceFile::deleteJson");
 
@@ -245,9 +245,9 @@ void loadCachedSourceFile(
 		fileStream.clear();
 		fileStream.seekg(0, std::ios_base::beg);
 
-		pbinFile = getFileInfo(
-			pbinFilePath,
-			"pbinFileInfo",
+		binFile = getFileInfo(
+			binFilePath,
+			"binFileInfo",
 			loaderType,
 			loaderVersion,
 			fileStream,
@@ -260,9 +260,9 @@ void loadCachedSourceFile(
 	}
 
 	auto& [sourceFileState, sourceFileInfo] = sourceFile;
-	auto& [pbinFileState, pbinFileInfo] = pbinFile;
+	auto& [binFileState, binFileInfo] = binFile;
 
-	if (doImport || sourceFileState == FileState::Stale || pbinFileState != FileState::Valid)
+	if (doImport || sourceFileState == FileState::Stale || binFileState != FileState::Valid)
 	{
 		ZoneScopedN("loadCachedSourceFile::importSourceFile");
 
@@ -276,13 +276,13 @@ void loadCachedSourceFile(
 		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(sourceFilePath, loadSourceFileFn, true);
 		json(CEREAL_NVP(sourceFileInfo));
 
-		auto [pbinFileState, pbinFileInfo] = saveBinaryFile(pbinFilePath, saveBinaryCacheFn, true);
-		json(CEREAL_NVP(pbinFileInfo));
+		auto [binFileState, binFileInfo] = saveBinaryFile(binFilePath, saveBinaryCacheFn, true);
+		json(CEREAL_NVP(binFileInfo));
 	}
 	else
 	{
 		ZoneScopedN("loadCachedSourceFile::loadBin");
 
-		auto [pbinFileState, pbinFileInfo] = loadBinaryFile(pbinFilePath, loadBinaryCacheFn, false);
+		auto [binFileState, binFileInfo] = loadBinaryFile(binFilePath, loadBinaryCacheFn, false);
 	}
 }
