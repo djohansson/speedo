@@ -281,7 +281,7 @@ void loadCachedSourceFile(
 	}
 	else
 	{
-		ZoneScopedN("loadCachedSourceFile::loadPbin");
+		ZoneScopedN("loadCachedSourceFile::loadBin");
 
 		auto [pbinFileState, pbinFileInfo] = loadBinaryFile(pbinFilePath, loadBinaryCacheFn, false);
 	}

@@ -218,6 +218,9 @@ template <GraphicsBackend B>
 using SubmitInfo = std::conditional_t<B == Vk, VkSubmitInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using TimelineSemaphoreSubmitInfo = std::conditional_t<B == Vk, VkTimelineSemaphoreSubmitInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using ImageBlit = std::conditional_t<B == Vk, VkImageBlit, std::nullptr_t>;
 
 template <GraphicsBackend B>

@@ -63,14 +63,12 @@ public:
 	auto getFrameIndex() const { return myFrameIndex; }
 	auto getLastFrameIndex() const { return myLastFrameIndex; }
 
-	std::tuple<bool, uint64_t> flip();
-	void present();
-
-	// todo: move to queue!
-	uint64_t submit(
-		const std::shared_ptr<CommandContext<B>>& commandContext,
-		uint64_t waitTimelineValue);
+	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
+	std::tuple<SemaphoreHandle<B>, SemaphoreHandle<B>> getFrameSyncSemaphores() const;
 	//
+
+	std::tuple<bool, uint64_t> flip();
+	void present(uint64_t timelineValue);
 
 private:
 

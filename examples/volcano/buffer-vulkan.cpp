@@ -59,7 +59,7 @@ Buffer<Vk>::Buffer(
             std::get<0>(descAndInitialData).memoryFlags,
             std::get<0>(descAndInitialData).name.c_str())))
 {
-    commandContext->addSubmitFinishedCallback([deviceContext, descAndInitialData](uint64_t){
+    commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
 }

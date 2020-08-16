@@ -16,9 +16,57 @@ Queue<Vk>::Queue(
 }
 
 template <>
-void Queue<Vk>::submit(const SubmitInfo<Vk>* submits, uint32_t submitCount, FenceHandle<Vk> fence) const
+uint64_t Queue<Vk>::submit()
 {
-    VK_CHECK(vkQueueSubmit(myDesc.queue, submitCount, submits, fence));
+    if (myPendingSubmits.empty())
+        return 0;
+
+    myScratchMemory.resize(
+        (sizeof(SubmitInfo<Vk>) + sizeof(TimelineSemaphoreSubmitInfo<Vk>)) * myPendingSubmits.size());
+    
+    auto timelineBegin = reinterpret_cast<TimelineSemaphoreSubmitInfo<Vk>*>(myScratchMemory.data());
+    auto timelinePtr = timelineBegin;
+
+    uint64_t maxTimelineValue = 0;
+
+    for (const auto& pendingSubmit : myPendingSubmits)
+    {
+        auto& timelineInfo = *(timelinePtr++);
+
+        timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timelineInfo.pNext = nullptr;
+        timelineInfo.waitSemaphoreValueCount = pendingSubmit.syncInfo.waitSemaphoreValues.size();
+        timelineInfo.pWaitSemaphoreValues = pendingSubmit.syncInfo.waitSemaphoreValues.data();
+        timelineInfo.signalSemaphoreValueCount = pendingSubmit.syncInfo.signalSemaphoreValues.size();
+        timelineInfo.pSignalSemaphoreValues = pendingSubmit.syncInfo.signalSemaphoreValues.data();
+
+        maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.maxTimelineValue);
+    }
+
+    auto submitBegin = reinterpret_cast<SubmitInfo<Vk>*>(timelinePtr);
+    auto submitPtr = submitBegin;
+    timelinePtr = timelineBegin;
+
+    for (const auto& pendingSubmit : myPendingSubmits)
+    {
+        auto& submitInfo = *(submitPtr++);
+
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = timelinePtr++;
+        submitInfo.waitSemaphoreCount = pendingSubmit.syncInfo.waitSemaphores.size();
+        submitInfo.pWaitSemaphores = pendingSubmit.syncInfo.waitSemaphores.data();
+        submitInfo.pWaitDstStageMask = pendingSubmit.syncInfo.waitDstStageMasks.data();
+        submitInfo.signalSemaphoreCount  = pendingSubmit.syncInfo.signalSemaphores.size();
+        submitInfo.pSignalSemaphores = pendingSubmit.syncInfo.signalSemaphores.data();
+        submitInfo.commandBufferCount = pendingSubmit.commandBuffers.size();
+        submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
+    }
+
+    VK_CHECK(vkQueueSubmit(myDesc.queue, myPendingSubmits.size(), submitBegin, myFence));
+    
+    myPendingSubmits.clear();
+
+    return maxTimelineValue;
 }
 
 template <>

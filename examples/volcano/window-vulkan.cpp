@@ -111,7 +111,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                 static constexpr std::string_view drawPartitionStr = "WindowContext::drawPartition";
                 char drawPartitionWithNumberStr[drawPartitionStr.size()+3];
-                sprintf_s(drawPartitionWithNumberStr, sizeof(drawPartitionWithNumberStr), "%.*s%u",
+                stbsp_sprintf(drawPartitionWithNumberStr, "%.*s%u",
                     static_cast<int>(drawPartitionStr.size()), drawPartitionStr.data(), threadIt);
 
                 ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
@@ -373,7 +373,7 @@ WindowContext<Vk>::WindowContext(
 
     createFrameObjects(desc.framebufferExtent);
 
-    const auto& graphicsCommandPools = myDevice->getGraphicsCommandPools();
+    const auto& graphicsCommandPools = myDevice->getQueueFamilies()[myDevice->getGraphicsQueueFamilyIndex()].commandPools;
 
     uint32_t frameCount = mySwapchain->getFrames().size();
     uint32_t commandContextCount = std::min<uint32_t>(graphicsCommandPools.size(), myDesc.maxCommandContextPerFrameCount * frameCount);

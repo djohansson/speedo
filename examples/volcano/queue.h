@@ -3,6 +3,26 @@
 #include "device.h"
 #include "types.h"
 
+#include <vector>
+
+template <GraphicsBackend B>
+struct QueueSyncInfo
+{
+    std::vector<SemaphoreHandle<B>> waitSemaphores;
+    std::vector<Flags<B>> waitDstStageMasks;
+    std::vector<uint64_t> waitSemaphoreValues;
+    std::vector<SemaphoreHandle<B>> signalSemaphores;
+    std::vector<uint64_t> signalSemaphoreValues;
+};
+
+template <GraphicsBackend B>
+struct QueueSubmitInfo
+{
+    QueueSyncInfo<B> syncInfo;
+    std::vector<CommandBufferHandle<B>> commandBuffers;
+    uint64_t maxTimelineValue = 0;
+};
+
 template <GraphicsBackend B>
 struct QueueCreateDesc : DeviceResourceCreateDesc<B>
 {
@@ -23,10 +43,15 @@ public:
 
     auto getQueue() const { return myDesc.queue; }
 
-    void submit(const SubmitInfo<B>* submits, uint32_t submitCount, FenceHandle<B> fence = {}) const;
+    template <typename... Args>
+    void enqueue(Args... args) { myPendingSubmits.emplace_back(args...); }
+    uint64_t submit();
     void waitIdle() const;
 
 private:
 
     const QueueCreateDesc<B> myDesc = {};
+    std::vector<QueueSubmitInfo<B>> myPendingSubmits;
+    std::vector<std::byte> myScratchMemory;
+    FenceHandle<B> myFence = 0;
 };

@@ -24,7 +24,6 @@
 #endif
 
 #include <cereal/archives/binary.hpp>
-#include <cereal/archives/portable_binary.hpp>
 #include <cereal/cereal.hpp>
 #include <cereal/types/map.hpp>
 #include <cereal/types/string.hpp>
@@ -96,10 +95,10 @@ load(
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = modelFile.filename().generic_string();
 	
-	auto loadPBin = [&descAndInitialData, &deviceContext](std::istream& stream) {
+	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream) {
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::PortableBinaryInputArchive pbin(stream);
-		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
+		cereal::BinaryInputArchive bin(stream);
+		bin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
 		std::string debugString;
 		debugString.append(desc.name);
@@ -112,23 +111,23 @@ load(
 
 		std::byte* data;
 		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-		pbin(cereal::binary_data(data, desc.indexBufferSize));
-		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
+		bin(cereal::binary_data(data, desc.indexBufferSize));
+		bin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
 		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
 		bufferHandle = locBufferHandle;
         memoryHandle = locMemoryHandle;
 	};
 
-	auto savePBin = [&descAndInitialData, &deviceContext](std::ostream& stream) {
+	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream) {
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::PortableBinaryOutputArchive pbin(stream);
-		pbin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
+		cereal::BinaryOutputArchive bin(stream);
+		bin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
 
 		std::byte* data;
 		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
-		pbin(cereal::binary_data(data, desc.indexBufferSize));
-		pbin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
+		bin(cereal::binary_data(data, desc.indexBufferSize));
+		bin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
 		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
 	};
 
@@ -256,7 +255,7 @@ load(
 	};
 
 	loadCachedSourceFile(
-		modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadPBin, savePBin);
+		modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");

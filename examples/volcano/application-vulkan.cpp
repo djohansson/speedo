@@ -270,7 +270,11 @@ Application<Vk>::Application(
 
     myTransferCommands = std::make_shared<CommandContext<Vk>>(
         myDevice,
-        CommandContextCreateDesc<Vk>{myDevice->getTransferCommandPools()[0]});
+        CommandContextCreateDesc<Vk>{myDevice->getQueueFamilies()[myDevice->getTransferQueueFamilyIndex()].commandPools[0]});
+
+    myGraphicsQueue = std::make_shared<Queue<Vk>>(myDevice, QueueCreateDesc<Vk>{{"GraphicsQueue"}, myDevice->getGraphicsQueue()});
+    myTransferQueue = std::make_shared<Queue<Vk>>(myDevice, QueueCreateDesc<Vk>{{"TransferQueue"}, myDevice->getTransferQueue()});
+
     {
         myGraphicsPipeline->resources()->model = std::make_shared<Model<Vk>>(
             myDevice,
@@ -292,17 +296,15 @@ Application<Vk>::Application(
                 {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
                 {3, 2}});
         
-        // submit transfers.
-        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastTransferTimelineValue = myTransferCommands->submit({
-            myDevice->getTransferQueue(),
-            0,
-            nullptr,
-            nullptr,
-            nullptr,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue});
+        myTransferQueue->enqueue(
+            myTransferCommands->flush({
+                {},
+                {},
+                {},
+                {myDevice->getTimelineSemaphore()}, 
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastTransferTimelineValue = myTransferQueue->submit();
     }
 
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
@@ -327,18 +329,15 @@ Application<Vk>::Application(
 
         cmd.end();
         
-        Flags<Vk> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastFrameTimelineValue = commandContext->submit({
-            myDevice->getGraphicsQueue(),
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &waitDstStageMask,
-            &waitTimelineValue,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue});
+        myGraphicsQueue->enqueue(
+            commandContext->flush({
+                {myDevice->getTimelineSemaphore()},
+                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                {myDevice->getTimelineSemaphore()},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastFrameTimelineValue = myGraphicsQueue->submit();
     }
 
     myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
@@ -358,16 +357,15 @@ Application<Vk>::Application(
             myTransferCommands,
             openFilePath);
 
-        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastTransferTimelineValue = myTransferCommands->submit({
-            myDevice->getTransferQueue(),
-            0,
-            nullptr,
-            nullptr,
-            nullptr,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue});
+        myTransferQueue->enqueue(
+            myTransferCommands->flush({
+                {},
+                {},
+                {},
+                {myDevice->getTimelineSemaphore()},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastTransferTimelineValue = myTransferQueue->submit();
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, model](uint64_t /*timelineValue*/)
         {
@@ -391,16 +389,15 @@ Application<Vk>::Application(
             myTransferCommands,
             openFilePath);
 
-        auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-        myLastTransferTimelineValue = myTransferCommands->submit({
-            myDevice->getTransferQueue(),
-            0,
-            nullptr,
-            nullptr,
-            nullptr,
-            1,
-            &myDevice->getTimelineSemaphore(),
-            &signalTimelineValue});
+        myTransferQueue->enqueue(
+            myTransferCommands->flush({
+                {},
+                {},
+                {},
+                {myDevice->getTimelineSemaphore()},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastTransferTimelineValue = myTransferQueue->submit();
 
         myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
         {
@@ -845,7 +842,9 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("Application::draw");
 
-    auto [flipSuccess, frameTimelineValue] = myWindow->getSwapchain()->flip();
+    auto& swapchain = myWindow->getSwapchain();
+
+    auto [flipSuccess, frameTimelineValue] = swapchain->flip();
 
     if (flipSuccess)
     {
@@ -861,31 +860,41 @@ bool Application<Vk>::draw()
             myIMGUIPrepareDrawFunction();
         }));
 
-        auto& commandContext = myWindow->commandContext(myWindow->getSwapchain()->getFrameIndex());
-        auto cmd = commandContext->commands();
-
-        myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
-        myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-            
-        myWindow->updateInput(myInput);
-        myWindow->draw(myGraphicsPipeline);
-
-        myWindow->getSwapchain()->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+        auto& commandContext = myWindow->commandContext(swapchain->getFrameIndex());
         {
-            ZoneScopedN("Application::waitImguiPrepareDraw");
+            auto cmd = commandContext->commands();
 
-            imguiPrepareDrawFuture.get();
+            myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
+            myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+                
+            myWindow->updateInput(myInput);
+            myWindow->draw(myGraphicsPipeline);
+
+            swapchain->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+            {
+                ZoneScopedN("Application::waitImguiPrepareDraw");
+
+                imguiPrepareDrawFuture.get();
+            }
+            myIMGUIDrawFunction(cmd);
+            swapchain->end(cmd);
+
+            swapchain->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
         }
-        myIMGUIDrawFunction(cmd);
-        myWindow->getSwapchain()->end(cmd);
-
-        myWindow->getSwapchain()->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
-
-        cmd.end();
         
-        myLastFrameTimelineValue = myWindow->getSwapchain()->submit(
-            commandContext,
-            std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
+        {
+            auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();
+            
+            myGraphicsQueue->enqueue(
+                commandContext->flush({
+                    {myDevice->getTimelineSemaphore(), imageAquired},
+                    {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+                    {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
+                    {myDevice->getTimelineSemaphore(), renderComplete},
+                    {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
+
+            myLastFrameTimelineValue = myGraphicsQueue->submit();
+        }
     }
 
     auto processTimelineCallbacksFuture(
@@ -896,7 +905,7 @@ bool Application<Vk>::draw()
             frameTimelineValue));
 
     if (flipSuccess)
-        myWindow->getSwapchain()->present();
+        swapchain->present(myLastFrameTimelineValue);
 
     // wait for timeline callbacks
     {
@@ -926,18 +935,15 @@ bool Application<Vk>::draw()
 
         if (transferCount)
         {
-            Flags<Vk> waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-            uint64_t waitTimelineValue = std::max(myLastTransferTimelineValue, myLastFrameTimelineValue);
-            auto signalTimelineValue = 1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed);
-            myLastTransferTimelineValue = myTransferCommands->submit({
-                myDevice->getTransferQueue(),
-                1,
-                &myDevice->getTimelineSemaphore(),
-                &waitDstStageMask,
-                &waitTimelineValue,
-                1,
-                &myDevice->getTimelineSemaphore(),
-                &signalTimelineValue});
+            myTransferQueue->enqueue(
+                myTransferCommands->flush({
+                    {myDevice->getTimelineSemaphore()},
+                    {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                    {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                    {myDevice->getTimelineSemaphore()},
+                    {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+            
+            myLastTransferTimelineValue = myTransferQueue->submit();
         }
     }
 
