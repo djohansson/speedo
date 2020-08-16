@@ -7,12 +7,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <memory>
-#include <vector>
+#include <string>
 #include <tuple>
-
+#include <vector>
 
 #if PROFILING_ENABLED
 #ifndef TRACY_ENABLE
@@ -20,6 +21,9 @@
 #endif
 #endif
 #include <Tracy.hpp>
+
+#include <cereal/cereal.hpp>
+#include <cereal/types/string.hpp>
 
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
@@ -111,9 +115,24 @@ auto make_vector(T0&& first, Ts&&... args)
     };
 }
 
-namespace uuid
+namespace std
 {
+namespace filesystem
+{
+	template <class Archive>
+	void CEREAL_LOAD_MINIMAL_FUNCTION_NAME(const Archive&, path& out, const std::string& in)
+	{
+		out = in;
+	}
 
-std::string generate_uuid();
+	template <class Archive>
+	std::string CEREAL_SAVE_MINIMAL_FUNCTION_NAME(const Archive& ar, const path& p)
+	{
+		return p.generic_string();
+	}
 
-}
+} // namespace filesystem
+} // namespace std
+
+CEREAL_SPECIALIZE_FOR_ALL_ARCHIVES(
+	std::filesystem::path, cereal::specialization::non_member_load_save_minimal);

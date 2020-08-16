@@ -1,13 +1,23 @@
 #include <cereal/cereal.hpp>
-#include <cereal/types/optional.hpp>
+#include <cereal/types/array.hpp>
+#include <cereal/types/string.hpp>
 
 template <class Archive>
-void serialize(Archive& archive, FileInfo& info)
+void load(Archive& archive, FileInfo& info)
 {
     archive(cereal::make_nvp("path", info.path));
     archive(cereal::make_nvp("size", info.size));
     archive(cereal::make_nvp("timeStamp", info.timeStamp));
-    archive(cereal::make_nvp("sha2", info.sha2));
+    archive.loadBinaryValue(info.sha2.data(), picosha2::k_digest_size, "sha2");
+}
+
+template <class Archive>
+void save(Archive& archive, const FileInfo& info)
+{
+    archive(cereal::make_nvp("path", info.path));
+    archive(cereal::make_nvp("size", info.size));
+    archive(cereal::make_nvp("timeStamp", info.timeStamp));
+    archive.saveBinaryValue(info.sha2.data(), picosha2::k_digest_size, "sha2");
 }
 
 template <typename T, typename Archive>

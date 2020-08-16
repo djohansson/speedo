@@ -1,4 +1,5 @@
 #include <cereal/cereal.hpp>
+#include <cereal/types/optional.hpp>
 
 template <class Archive, GraphicsBackend B>
 void serialize(Archive& archive, SwapchainConfiguration<B>& config)
