@@ -198,7 +198,7 @@ load(
         for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
         {
             uint32_t previousMipIt = (mipIt-1);
-            uint32_t currentBuffer = ~previousMipIt & 1;
+            uint32_t currentBuffer = mipIt & 1;
 
             const auto& previousExtent = desc.mipLevels[previousMipIt].extent;
             const auto& currentExtent = desc.mipLevels[mipIt].extent;

@@ -3,24 +3,6 @@
 #include <cereal/types/string.hpp>
 #include <cereal/types/vector.hpp>
 
-namespace std
-{
-    namespace filesystem
-    {
-        template<class Archive>
-        void CEREAL_LOAD_MINIMAL_FUNCTION_NAME(const Archive&, path& out, const std::string& in)
-        {
-            out = in;
-        }
-
-        template<class Archive>
-        std::string CEREAL_SAVE_MINIMAL_FUNCTION_NAME(const Archive& ar, const path& p)
-        {
-            return p.generic_string();
-        }
-    }
-}
-
 template <class Archive>
 void serialize(Archive& archive, Attribute& attribute)
 {

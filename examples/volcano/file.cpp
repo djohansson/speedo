@@ -1,11 +1,5 @@
 #include "file.h"
 
-#include <tuple>
-
-#include <cereal/types/vector.hpp>
-
-#include <picosha2.h>
-
 std::string getFileTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
@@ -26,21 +20,16 @@ std::tuple<FileState, FileInfo> getFileInfo(const std::filesystem::path& filePat
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::make_tuple(FileState::Missing, FileInfo{});
 
-	FileInfo outFileInfo;
+	auto outFileInfo = FileInfo{filePath, std::filesystem::file_size(filePath), getFileTimeStamp(filePath)};
 
 	if (sha2Enable)
 	{
 		ZoneScopedN("getFileInfo::sha2");
 
 		mio::mmap_source file(filePath.string());
-		outFileInfo.sha2.resize(picosha2::k_digest_size);
 		picosha2::hash256(
 			file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 	}
-
-	outFileInfo.path = filePath.generic_string();
-	outFileInfo.size = std::filesystem::file_size(filePath);
-	outFileInfo.timeStamp = getFileTimeStamp(filePath);
 
 	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
@@ -65,27 +54,21 @@ std::tuple<FileState, FileInfo> getFileInfo(
 	if (loaderType.compare(_loaderType) != 0 || loaderVersion.compare(_loaderVersion) != 0)
 		return std::make_tuple(FileState::Stale, FileInfo{});
 
-	int64_t fileSize = std::filesystem::file_size(filePath);
-	std::string fileTimeStamp = getFileTimeStamp(filePath);
-	std::vector<unsigned char> fileSha2(picosha2::k_digest_size);
+	auto outFileInfo = FileInfo{filePath, std::filesystem::file_size(filePath), getFileTimeStamp(filePath)};
+
 	if (sha2Enable)
 	{
 		ZoneScopedN("getFileInfo::sha2");
 
 		mio::mmap_source file(filePath.string());
-		picosha2::hash256(file.begin(), file.end(), fileSha2.begin(), fileSha2.end());
+		picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 	}
 
 	// perhaps add path check as well?
-	if (fileSize != _fileInfo.size || fileTimeStamp.compare(_fileInfo.timeStamp) != 0 || sha2Enable
-			? fileSha2 != _fileInfo.sha2 : false)
+	if (outFileInfo.size != _fileInfo.size ||
+		outFileInfo.timeStamp.compare(_fileInfo.timeStamp) != 0 ||
+		sha2Enable ? outFileInfo.sha2 != _fileInfo.sha2 : false)
 		return std::make_tuple(FileState::Stale, FileInfo{});
-
-	FileInfo outFileInfo;
-	outFileInfo.path = filePath.generic_string();
-	outFileInfo.size = fileSize;
-	outFileInfo.timeStamp = std::move(fileTimeStamp);
-	outFileInfo.sha2 = std::move(fileSha2);
 
 	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
@@ -101,9 +84,8 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::make_tuple(FileState::Missing, FileInfo{});
 
-	FileInfo outFileInfo;
+	auto outFileInfo = FileInfo{filePath, std::filesystem::file_size(filePath), getFileTimeStamp(filePath)};
 
-	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
 	{
 		ZoneScopedN("loadBinaryFile::loadOp");
 
@@ -119,8 +101,6 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 			fileStream.clear();
 			fileStream.seekg(0, std::ios_base::beg);
 
-			outFileInfo.sha2.resize(picosha2::k_digest_size);
-
 			picosha2::hash256(
 				std::istreambuf_iterator(&fileStreamBuf),
 				std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
@@ -128,10 +108,6 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 				outFileInfo.sha2.end());
 		}
 	}
-
-	outFileInfo.path = filePath.generic_string();
-	outFileInfo.size = std::filesystem::file_size(filePath);
-	outFileInfo.timeStamp = getFileTimeStamp(filePath);
 
 	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
 }
@@ -143,7 +119,7 @@ std::tuple<FileState, FileInfo> saveBinaryFile(
 {
 	ZoneScoped;
 
-	FileInfo outFileInfo;
+	auto outFileInfo = FileInfo{filePath};
 
 	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
 	{
@@ -160,8 +136,6 @@ std::tuple<FileState, FileInfo> saveBinaryFile(
 		{
 			fileStream.seekg(0, std::ios_base::beg);
 
-			outFileInfo.sha2.resize(picosha2::k_digest_size);
-
 			picosha2::hash256(
 				std::istreambuf_iterator(&fileStreamBuf),
 				std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
@@ -170,7 +144,6 @@ std::tuple<FileState, FileInfo> saveBinaryFile(
 		}
 	}
 
-	outFileInfo.path = filePath.generic_string();
 	outFileInfo.size = std::filesystem::file_size(filePath);
 	outFileInfo.timeStamp = getFileTimeStamp(filePath);
 
@@ -189,19 +162,19 @@ void loadCachedSourceFile(
 	ZoneScoped;
 
 	std::filesystem::path jsonFilePath(sourceFilePath);
-	jsonFilePath += ".pbin.json";
+	jsonFilePath += ".bin.json";
 
-	std::filesystem::path pbinFilePath(cacheFilePath);
-	pbinFilePath += ".pbin";
+	std::filesystem::path binFilePath(cacheFilePath);
+	binFilePath += ".bin";
 
 	bool doImport;
-	std::tuple<FileState, FileInfo> sourceFile, pbinFile;
+	std::tuple<FileState, FileInfo> sourceFile, binFile;
 	auto jsonFileStatus = std::filesystem::status(jsonFilePath);
-	auto pbinFileStatus = std::filesystem::status(pbinFilePath);
+	auto binFileStatus = std::filesystem::status(binFilePath);
 
 	if (std::filesystem::exists(jsonFileStatus) &&
 		std::filesystem::is_regular_file(jsonFileStatus) &&
-		!std::filesystem::exists(pbinFileStatus))
+		!std::filesystem::exists(binFileStatus))
 	{
 		ZoneScopedN("loadCachedSourceFile::deleteJson");
 
@@ -245,9 +218,9 @@ void loadCachedSourceFile(
 		fileStream.clear();
 		fileStream.seekg(0, std::ios_base::beg);
 
-		pbinFile = getFileInfo(
-			pbinFilePath,
-			"pbinFileInfo",
+		binFile = getFileInfo(
+			binFilePath,
+			"binFileInfo",
 			loaderType,
 			loaderVersion,
 			fileStream,
@@ -260,9 +233,9 @@ void loadCachedSourceFile(
 	}
 
 	auto& [sourceFileState, sourceFileInfo] = sourceFile;
-	auto& [pbinFileState, pbinFileInfo] = pbinFile;
+	auto& [binFileState, binFileInfo] = binFile;
 
-	if (doImport || sourceFileState == FileState::Stale || pbinFileState != FileState::Valid)
+	if (doImport || sourceFileState == FileState::Stale || binFileState != FileState::Valid)
 	{
 		ZoneScopedN("loadCachedSourceFile::importSourceFile");
 
@@ -276,13 +249,13 @@ void loadCachedSourceFile(
 		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(sourceFilePath, loadSourceFileFn, true);
 		json(CEREAL_NVP(sourceFileInfo));
 
-		auto [pbinFileState, pbinFileInfo] = saveBinaryFile(pbinFilePath, saveBinaryCacheFn, true);
-		json(CEREAL_NVP(pbinFileInfo));
+		auto [binFileState, binFileInfo] = saveBinaryFile(binFilePath, saveBinaryCacheFn, true);
+		json(CEREAL_NVP(binFileInfo));
 	}
 	else
 	{
 		ZoneScopedN("loadCachedSourceFile::loadBin");
 
-		auto [pbinFileState, pbinFileInfo] = loadBinaryFile(pbinFilePath, loadBinaryCacheFn, false);
+		auto [binFileState, binFileInfo] = loadBinaryFile(binFilePath, loadBinaryCacheFn, false);
 	}
 }

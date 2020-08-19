@@ -28,6 +28,8 @@ uint64_t DeviceContext<Vk>::getTimelineSemaphoreValue() const
 template <>
 void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 {
+    ZoneScopedN("DeviceContext::wait");
+
     VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
     waitInfo.flags = 0;
     waitInfo.semaphoreCount = 1;
@@ -40,12 +42,16 @@ void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 template <>
 void DeviceContext<Vk>::waitIdle() const
 {
+    ZoneScopedN("DeviceContext::waitIdle");
+
     VK_CHECK(vkDeviceWaitIdle(myDevice));
 }
 
 template <>
 void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
 {
+    ZoneScopedN("DeviceContext::addTimelineCallback");
+
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
     myTimelineCallbacks.emplace_back(
@@ -57,6 +63,8 @@ void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& call
 template <>
 void DeviceContext<Vk>::addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback)
 {
+    ZoneScopedN("DeviceContext::addTimelineCallback");
+
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
     
     myTimelineCallbacks.emplace_back(
@@ -70,6 +78,8 @@ void DeviceContext<Vk>::addTimelineCallbacks(
     uint64_t timelineValue,
     const std::list<std::function<void(uint64_t)>>& callbacks)
 {
+    ZoneScopedN("DeviceContext::addTimelineCallbacks");
+
     std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
     
     for (const auto& callback : callbacks)
@@ -82,9 +92,9 @@ void DeviceContext<Vk>::addTimelineCallbacks(
 template <>
 void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
 {
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
-
     ZoneScopedN("DeviceContext::processTimelineCallbacks");
+
+    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
 
     while (!myTimelineCallbacks.empty())
     {
@@ -105,6 +115,8 @@ void DeviceContext<Vk>::addOwnedObject(
     uint64_t objectHandle,
     const char* objectName)
 {
+    ZoneScopedN("DeviceContext::addOwnedObject");
+
     auto imageNameInfo = VkDebugUtilsObjectNameInfoEXT{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         nullptr,
@@ -124,6 +136,8 @@ void DeviceContext<Vk>::addOwnedObject(
 template <>
 void DeviceContext<Vk>::clearOwnedObjects(uint32_t ownerId)
 {
+    ZoneScopedN("DeviceContext::clearOwnedObjects");
+
     std::unique_lock writelock(myObjectsMutex);
     auto& objects = myOwnerToDeviceObjectsMap[ownerId];
     for (const auto& object : objects)

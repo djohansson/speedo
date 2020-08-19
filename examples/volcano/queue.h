@@ -44,7 +44,7 @@ public:
     auto getQueue() const { return myDesc.queue; }
 
     template <typename... Args>
-    void enqueue(Args... args) { myPendingSubmits.emplace_back(args...); }
+    void enqueue(Args&&... args) { myPendingSubmits.emplace_back(std::move(args)...); }
     uint64_t submit();
     void waitIdle() const;
 

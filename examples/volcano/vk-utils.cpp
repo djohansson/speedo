@@ -694,7 +694,7 @@ VkSampler createSampler(VkDevice device)
 	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerInfo.mipLodBias = 0.0f;
 	samplerInfo.minLod = 0.0f;
-	samplerInfo.maxLod = 0.0f;
+	samplerInfo.maxLod = 1000.0f;
 
 	VkSampler outSampler;
 	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));

@@ -10,6 +10,8 @@ static auto createArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const CommandBufferArrayCreateDesc<Vk>& desc)
 {
+    ZoneScopedN("commandbufferarray::createArray");
+
     std::array<CommandBufferHandle<Vk>, CommandBufferArray<Vk>::kCommandBufferCount> outArray;
 
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -61,6 +63,8 @@ CommandBufferArray<Vk>::CommandBufferArray(
 template <>
 CommandBufferArray<Vk>::~CommandBufferArray()
 {
+    ZoneScopedN("~CommandBufferArray()");
+
     if (auto deviceContext = getDeviceContext())
         vkFreeCommandBuffers(
             deviceContext->getDevice(),
@@ -72,6 +76,8 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 template <>
 void CommandBufferArray<Vk>::resetAll()
 {
+    ZoneScopedN("CommandBufferArray::resetAll");
+
     assert(!recordingFlags());
     assert(head() < kCommandBufferCount);
     
@@ -84,6 +90,8 @@ void CommandBufferArray<Vk>::resetAll()
 template <>
 void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
 {
+    ZoneScopedN("CommandContext::enqueueOnePending");
+
     if (!myFreeCommands[level].empty())
     {
         myPendingCommands[level].splice(myPendingCommands[level].end(), std::move(myFreeCommands[level]), myFreeCommands[level].begin());
@@ -187,6 +195,8 @@ CommandBufferAccessScope<Vk> CommandContext<Vk>::internalCommands(const CommandC
 template <>
 void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue)
 {
+    ZoneScopedN("CommandContext::enqueueExecuted");
+
     for (auto& cmd : commands)
         cmd.second.first = timelineValue;
 
@@ -224,6 +234,8 @@ void CommandContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t
 template <>
 void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue)
 {
+    ZoneScopedN("CommandContext::enqueueSubmitted");
+
     for (auto& cmd : commands)
         cmd.second.first = timelineValue;
 
@@ -265,6 +277,7 @@ QueueSubmitInfo<Vk> CommandContext<Vk>::flush(QueueSyncInfo<Vk>&& syncInfo)
 
     QueueSubmitInfo<Vk> submitInfo;
     submitInfo.syncInfo = std::move(syncInfo);
+    submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::kCommandBufferCount);
 
     for (auto& cmdSegment : pendingCommands)
     {
@@ -305,6 +318,8 @@ template <>
 uint8_t CommandBufferArray<Vk>::begin(
     const CommandBufferBeginInfo<Vk>& beginInfo)
 {
+    ZoneScopedN("CommandBufferArray::begin");
+
     assert(!recording(myBits.head));
     assert(!full());
     
@@ -318,6 +333,8 @@ uint8_t CommandBufferArray<Vk>::begin(
 template <>
 void CommandBufferArray<Vk>::end(uint8_t index)
 {
+    ZoneScopedN("CommandBufferArray::end");
+
     assert(recording(index));
 
     myBits.recordingFlags &= ~(1 << index);

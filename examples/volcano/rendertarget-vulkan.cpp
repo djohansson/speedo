@@ -6,6 +6,8 @@
 template <>
 void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)
 {
+    ZoneScopedN("RenderTarget::internalInitializeAttachments");
+
     char stringBuffer[128];
 
     static constexpr std::string_view colorImageViewStr = "_ColorImageView";
@@ -106,6 +108,8 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 template <>
 void RenderTarget<Vk>::internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<Vk>& desc)
 {
+    ZoneScopedN("RenderTarget::internalInitializeDefaultRenderPasses");
+
     uint32_t subPassIt = 0;
 
     if (desc.depthStencilImage)
@@ -454,6 +458,8 @@ void RenderTarget<Vk>::nextSubpass(
     CommandBufferHandle<Vk> cmd,
     SubpassContents<Vk> contents)
 {
+    ZoneScopedN("RenderTarget::nextSubpass");
+
     vkCmdNextSubpass(cmd, contents);
 
     (*myCurrentSubpass)++;

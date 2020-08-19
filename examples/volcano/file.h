@@ -2,6 +2,7 @@
 
 #include "utils.h"
 
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -11,6 +12,8 @@
 #include <mio/mmap_streambuf.hpp>
 
 #include <cereal/archives/json.hpp>
+
+#include <picosha2.h>
 
 enum class FileState : uint8_t
 {
@@ -27,10 +30,10 @@ enum class FileAccessMode : uint8_t
 
 struct FileInfo
 {
-    std::string path;
-    int64_t size = 0;
+    std::filesystem::path path;
+    uintmax_t size = 0;
     std::string timeStamp;
-    std::vector<unsigned char> sha2;
+    std::array<picosha2::byte_t, picosha2::k_digest_size> sha2;
 };
 
 std::string getFileTimeStamp(const std::filesystem::path &filePath);
