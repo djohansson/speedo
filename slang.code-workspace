@@ -122,7 +122,8 @@
 			"concepts": "cpp",
 			"*.rh": "cpp",
 			"parentbad": "cpp",
-			"*.inc": "cpp"
+			"*.inc": "cpp",
+			"bit": "cpp"
 		}
 	}
 }
