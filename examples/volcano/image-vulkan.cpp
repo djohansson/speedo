@@ -119,16 +119,16 @@ load(
         int width, height, channelCount;
         stbi_uc* stbiImageData = stbi_load_from_callbacks(&callbacks, &stream, &width, &height, &channelCount, STBI_rgb_alpha);
 
-        uint32_t mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
+        uint32_t mipCount = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
         bool hasAlpha = channelCount == 4;
         uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
-        desc.mipLevels.resize(mipLevelCount);
+        desc.mipLevels.resize(mipCount);
         desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
         desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
         uint32_t mipOffset = 0;
-        for (uint32_t mipIt = 0; mipIt < mipLevelCount; mipIt++)
+        for (uint32_t mipIt = 0; mipIt < mipCount; mipIt++)
         {
             uint32_t mipWidth = width >> mipIt;
             uint32_t mipHeight = height >> mipIt;
@@ -153,46 +153,68 @@ load(
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
-        std::byte* data;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+        unsigned char* stagingBuffer;
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&stagingBuffer));
 
-        auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride, stbi_uc* dst)
+        auto compressBlocks = [](
+            const stbi_uc* src,
+            unsigned char* dst,
+            const Extent2d<Vk>& extent,
+            uint32_t compressedBlockSize,
+            bool hasAlpha,
+            uint32_t threadCount)
         {
-            for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
+            auto blockRowCount = extent.height >> 2;
+            auto blockColCount = extent.width >> 2;
+            auto blockCount = blockRowCount * blockColCount;
+
+            auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride, stbi_uc* dst)
             {
-                std::copy(src, src + stride * 4, &dst[rowIt * 16]);
-                src += width * stride;
-            }
+                for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
+                {
+                    std::copy(src, src + stride * 4, &dst[rowIt * 16]);
+                    src += width * stride;
+                }
+            };
+
+            std::atomic_uint32_t blockAtomic = 0;
+            std::vector<uint32_t> threadIds(threadCount);
+            std::iota(threadIds.begin(), threadIds.end(), 0);
+            std::for_each_n(
+        #if defined(__WINDOWS__)
+                std::execution::par,
+        #endif
+                threadIds.begin(), threadCount,
+                [&](uint32_t /*threadId*/)
+                {
+                    auto blockIt = blockAtomic++;
+                    while (blockIt < blockCount)
+                    {
+                        auto blockRowIt = blockIt / blockColCount;
+                        auto blockColIt = blockIt % blockColCount;
+                        auto rowIt = blockRowIt << 2;
+                        auto colIt = blockColIt << 2;
+                        auto srcOffset = (rowIt * extent.width + colIt) * 4;
+                        auto dstOffset = blockIt * compressedBlockSize;
+                        
+                        stbi_uc block[64] = {0};
+                        extractBlock(src + srcOffset, extent.width, 4, block);
+                        
+                        stb_compress_dxt_block(dst + dstOffset, block, hasAlpha, STB_DXT_HIGHQUAL);
+
+                        blockIt = blockAtomic++;
+                    }
+                });
+            
+
+            return blockCount * compressedBlockSize;
         };
 
-        stbi_uc block[64] = {0};
+        auto threadCount = std::thread::hardware_concurrency();
         const stbi_uc* src = stbiImageData;
-        stbi_uc* dst = reinterpret_cast<stbi_uc*>(data);
+        unsigned char* dst = stagingBuffer;
 
-    //     auto threadCount = std::thread::hardware_concurrency();
-    //     std::array<uint32_t, 128> seq;
-    //     std::iota(seq.begin(), seq.begin() + threadCount, 0);
-    //     std::for_each_n(
-    // #if defined(__WINDOWS__)
-    //         std::execution::par,
-    // #endif
-    //         seq.begin(), threadCount,
-    //         [](uint32_t threadIt)
-    //         {
-    //             (void)threadIt;
-    //         });
-        
-        const auto& mip0Extent = desc.mipLevels[0].extent;
-        for (uint32_t rowIt = 0; rowIt < mip0Extent.height; rowIt += 4)
-        {
-            for (uint32_t colIt = 0; colIt < mip0Extent.width; colIt += 4)
-            {
-                uint32_t offset = (rowIt * mip0Extent.width + colIt) * 4;
-                extractBlock(src + offset, mip0Extent.width, 4, block);
-                stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
-                dst += compressedBlockSize;
-            }
-        }
+        dst += compressBlocks(src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
 
         std::array<std::vector<stbi_uc>, 2> mipBuffers;
         for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
@@ -205,30 +227,49 @@ load(
             
             mipBuffers[currentBuffer].resize(
                 std::max<uint32_t>(currentExtent.width, 4) * std::max<uint32_t>(currentExtent.height, 4) * 4);
-            
-            stbir_resize_uint8(
-                src,
-                previousExtent.width,
-                previousExtent.height,
-                previousExtent.width * 4,
-                mipBuffers[currentBuffer].data(),
-                currentExtent.width,
-                currentExtent.height,
-                currentExtent.width * 4,
-                4);
+
+            auto threadRowCount = previousExtent.height / threadCount;
+            if (threadRowCount > 4)
+            {
+                std::vector<uint32_t> threadIds(threadCount);
+                std::iota(threadIds.begin(), threadIds.end(), 0);
+                std::for_each_n(
+            #if defined(__WINDOWS__)
+                    std::execution::par,
+            #endif
+                    threadIds.begin(), threadCount,
+                    [&](uint32_t threadId)
+                    {
+                        uint32_t threadRowCountRest = (threadId == (threadCount-1) ? previousExtent.height % threadCount : 0);
+
+                        stbir_resize_uint8(
+                            src + threadId * threadRowCount * previousExtent.width * 4,
+                            previousExtent.width,
+                            threadRowCount + threadRowCountRest,
+                            previousExtent.width * 4,
+                            mipBuffers[currentBuffer].data() + threadId * (threadRowCount >> 1) * currentExtent.width * 4,
+                            currentExtent.width,
+                            ((threadRowCount + threadRowCountRest) >> 1),
+                            currentExtent.width * 4,
+                            4);
+                    });
+            }
+            else
+            {
+                stbir_resize_uint8(
+                    src,
+                    previousExtent.width,
+                    previousExtent.height,
+                    previousExtent.width * 4,
+                    mipBuffers[currentBuffer].data(),
+                    currentExtent.width,
+                    currentExtent.height,
+                    currentExtent.width * 4,
+                    4);
+            }
 
             src = mipBuffers[currentBuffer].data();
-
-            for (uint32_t rowIt = 0; rowIt < currentExtent.height; rowIt += 4)
-            {
-                for (uint32_t colIt = 0; colIt < currentExtent.width; colIt += 4)
-                {
-                    uint32_t offset = (rowIt * currentExtent.width + colIt) * 4;
-                    extractBlock(src + offset, currentExtent.width, 4, block);
-                    stb_compress_dxt_block(dst, block, hasAlpha, STB_DXT_HIGHQUAL);
-                    dst += compressedBlockSize;
-                }
-            }
+            dst += compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
         }
 
         vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
