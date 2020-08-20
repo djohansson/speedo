@@ -124,6 +124,7 @@
 			"*.rh": "cpp",
 			"parentbad": "cpp",
 			"*.inc": "cpp",
+			"bit": "cpp",
 			"compare": "cpp"
 		}
 	}
