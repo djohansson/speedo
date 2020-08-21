@@ -79,3 +79,6 @@
 [submodule "external/basis_universal"]
 	path = external/basis_universal
 	url = https://github.com/BinomialLLC/basis_universal.git
+[submodule "external/SHA-Intrinsics"]
+	path = external/SHA-Intrinsics
+	url = https://github.com/noloader/SHA-Intrinsics.git

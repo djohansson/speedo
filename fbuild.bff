@@ -598,6 +598,7 @@
 			+ ' -I$BuildRootPath$/external/concurrentqueue'
 			+ ' -I$BuildRootPath$/external/cereal/include'
 			+ ' -I$BuildRootPath$/external/picosha2'
+			+ ' -I$BuildRootPath$/external/SHA-Intrinsics'
 			+ ' -I$BuildRootPath$/external/mio/include'
 			+ ' -I$BuildRootPath$/external/nativefiledialog/src/include'
 			+ ' -I$BuildRootPath$/external/tracy/nfd'
