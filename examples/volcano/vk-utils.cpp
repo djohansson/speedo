@@ -284,8 +284,8 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
-	VkPipelineStageFlags sourceStage = 0;
-	VkPipelineStageFlags destinationStage = 0;
+	VkPipelineStageFlags sourceStage = {};
+	VkPipelineStageFlags destinationStage = {};
 
 	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
 		newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
@@ -610,7 +610,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageInfo.flags = 0;
+	imageInfo.flags = {};
 
 	VmaAllocationCreateInfo allocInfo = {};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
@@ -677,7 +677,15 @@ VkImageView createImageView2D(
 	return outImageView;
 }
 
-VkSampler createSampler(VkDevice device)
+VkSampler createSampler(VkDevice device, const VkSamplerCreateInfo& createInfo)
+{
+	VkSampler outSampler;
+	VK_CHECK(vkCreateSampler(device, &createInfo, nullptr, &outSampler));
+
+	return outSampler;
+}
+
+VkSampler createDefaultSampler(VkDevice device)
 {
 	VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -696,10 +704,7 @@ VkSampler createSampler(VkDevice device)
 	samplerInfo.minLod = 0.0f;
 	samplerInfo.maxLod = 1000.0f;
 
-	VkSampler outSampler;
-	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &outSampler));
-
-	return outSampler;
+	return createSampler(device, samplerInfo);
 }
 
 VkFramebuffer createFramebuffer(
@@ -800,7 +805,7 @@ VkRenderPass createRenderPass(
     dependency.dstSubpass = 0;
     dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
+    dependency.srcAccessMask = {};
     dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     return createRenderPass(device, attachments, make_vector(subpass), make_vector(dependency));

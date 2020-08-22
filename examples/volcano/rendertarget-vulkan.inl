@@ -26,9 +26,6 @@ private:
 extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
     RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);
 
-// extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
-//     const std::shared_ptr<DeviceContext<Vk>>& deviceContext, RenderTargetCreateDesc<Vk>&& desc);
-
 extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl();
 
 extern template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(

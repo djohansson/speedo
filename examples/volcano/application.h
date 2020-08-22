@@ -46,7 +46,6 @@ class Application
 {
 public:
 
-	Application(Application&& other) = default;
 	Application(
 		void* view,
 		int width,
@@ -88,7 +87,7 @@ private:
 	std::shared_ptr<DeviceContext<B>> myDevice;
 	std::shared_ptr<WindowContext<B>> myWindow;
 	std::shared_ptr<CommandContext<B>> myTransferCommands;
-	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
+	std::shared_ptr<Pipeline<B>> myGraphicsPipeline;
 	std::shared_ptr<PipelineLayout<B>> myGraphicsPipelineLayout;
 	std::shared_ptr<Queue<B>> myGraphicsQueue;
 	std::shared_ptr<Queue<B>> myTransferQueue;
@@ -97,7 +96,7 @@ private:
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
-	RenderPassHandle<B> myIMGUIRenderPass = 0;
+	RenderPassHandle<B> myIMGUIRenderPass = {};
 
 	uint64_t myLastFrameTimelineValue = 0;
 	uint64_t myLastTransferTimelineValue = 0;

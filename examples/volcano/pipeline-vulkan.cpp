@@ -125,8 +125,9 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    ShaderModuleVector<Vk>&& shaderModules,
-    DescriptorSetLayoutVector<Vk>&& descriptorSetLayouts,
+    std::vector<ShaderModule<Vk>>&& shaderModules,
+    std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts,
+    std::vector<Sampler<Vk>>&& immutableSamplers,
     PipelineLayoutHandle<Vk>&& layout)
 : DeviceResource<Vk>(
     deviceContext,
@@ -136,6 +137,7 @@ PipelineLayout<Vk>::PipelineLayout(
     reinterpret_cast<uint64_t*>(&layout))
 , myShaders(std::move(shaderModules))
 , myDescriptorSetLayouts(std::move(descriptorSetLayouts))
+, myImmutableSamplers(std::move(immutableSamplers))
 , myLayout(std::move(layout))
 {
 }
@@ -143,16 +145,22 @@ PipelineLayout<Vk>::PipelineLayout(
 template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    ShaderModuleVector<Vk>&& shaderModules,
-    DescriptorSetLayoutVector<Vk>&& descriptorSetLayouts)
+    std::vector<ShaderModule<Vk>>&& shaderModules,
+    std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts,
+    std::vector<Sampler<Vk>>&& immutableSamplers)
 : PipelineLayout(
     deviceContext,
     std::move(shaderModules),
     std::move(descriptorSetLayouts),
-    createPipelineLayout(
-        deviceContext->getDevice(),
-        descriptorSetLayouts.data(),
-        descriptorSetLayouts.size()))
+    std::move(immutableSamplers),
+    [device = deviceContext->getDevice(), &descriptorSetLayouts]
+    {
+        std::vector<DescriptorSetLayoutHandle<Vk>> handles;
+        handles.reserve(descriptorSetLayouts.size());
+        for (const auto& layout : descriptorSetLayouts)
+            handles.emplace_back(layout);
+        return createPipelineLayout(device, handles.data(), handles.size());
+    }())
 {
 }
 
@@ -162,12 +170,30 @@ PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<SerializableShaderReflectionModule<Vk>>& slangModule)
 : PipelineLayout(
     deviceContext,
-    ShaderModuleVector<Vk>(
-        deviceContext,
-        slangModule->shaders),
-    DescriptorSetLayoutVector<Vk>(
-        deviceContext,
-        slangModule->bindings))
+    [&slangModule, &deviceContext]
+    {
+        std::vector<ShaderModule<Vk>> shaderModules;
+        shaderModules.reserve(slangModule->shaders.size());
+        for (auto shader : slangModule->shaders)
+            shaderModules.emplace_back(ShaderModule<Vk>(deviceContext, shader));
+        return shaderModules;
+    }(),
+    [&slangModule, &deviceContext]
+    {
+        std::vector<DescriptorSetLayout<Vk>> layouts;
+        layouts.reserve(slangModule->bindings.size());
+        for (auto setBindings : slangModule->bindings)
+            layouts.emplace_back(DescriptorSetLayout<Vk>(deviceContext, setBindings.second));
+        return layouts;
+    }(),
+    [&slangModule, &deviceContext]
+    {
+        std::vector<Sampler<Vk>> samplers;
+        samplers.reserve(slangModule->immutableSamplers.size());
+        for (auto sampler : slangModule->immutableSamplers)
+            samplers.emplace_back(Sampler<Vk>(deviceContext, sampler));
+        return samplers;
+    }())
 {
 }
 
@@ -179,14 +205,14 @@ PipelineLayout<Vk>::~PipelineLayout()
 }
 
 template<>
-uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
+uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 {
     // todo
     return 0;
 }
 
 template <>
-PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
+PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
     VkPipelineShaderStageCreateInfo vsStageInfo = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     vsStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -364,7 +390,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 }
 
 template <>
-PipelineContext<Vk>::PipelineMap::const_iterator PipelineContext<Vk>::internalUpdateMap()
+Pipeline<Vk>::PipelineMap::const_iterator Pipeline<Vk>::internalUpdateMap()
 {
     auto hashKey = internalCalculateHashKey();
     auto emplaceResult = myPipelineMap.emplace(
@@ -378,7 +404,7 @@ PipelineContext<Vk>::PipelineMap::const_iterator PipelineContext<Vk>::internalUp
 }
 
 template <>
-PipelineHandle<Vk> PipelineContext<Vk>::getPipeline()
+PipelineHandle<Vk> Pipeline<Vk>::getPipeline()
 {
     std::unique_lock writeLock(myMutex);
     
@@ -386,9 +412,9 @@ PipelineHandle<Vk> PipelineContext<Vk>::getPipeline()
 }
 
 template <>
-void PipelineContext<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
+void Pipeline<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
 {
-    ZoneScopedN("PipelineContext::updateDescriptorSets");
+    ZoneScopedN("Pipeline::updateDescriptorSets");
 
     if (!myDescriptorSets)
         myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(
@@ -439,32 +465,17 @@ void PipelineContext<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
 }
 
 template<>
-PipelineContext<Vk>::PipelineContext(
+Pipeline<Vk>::Pipeline(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    PipelineContextCreateDesc<Vk>&& desc)
+    PipelineCreateDesc<Vk>&& desc)
 : DeviceResource(deviceContext, desc)
 , myDesc(std::move(desc))
 {
     char stringBuffer[128];
 
     myResources = std::make_shared<PipelineResourceView<Vk>>();
-    myResources->sampler = createSampler(deviceContext->getDevice());
+    myResources->sampler = createDefaultSampler(deviceContext->getDevice());
 
-    static constexpr std::string_view samplerStr = "_Sampler";
-
-    stbsp_sprintf(
-        stringBuffer,
-        "%.*s%.*s",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(samplerStr.size()),
-        samplerStr.data());
-
-    deviceContext->addOwnedObject(
-        getId(),
-        VK_OBJECT_TYPE_SAMPLER,
-        reinterpret_cast<uint64_t>(myResources->sampler),
-        stringBuffer);
 
     myCache = pipeline::loadPipelineCache(
         myDesc.cachePath,
@@ -489,7 +500,7 @@ PipelineContext<Vk>::PipelineContext(
 }
 
 template<>
-PipelineContext<Vk>::~PipelineContext()
+Pipeline<Vk>::~Pipeline()
 {
     pipeline::savePipelineCache(
         myDesc.cachePath,

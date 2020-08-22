@@ -36,6 +36,8 @@ public:
         const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& modelFile);
 
+	Model& operator=(Model&& other) = default;
+
 	const auto& getDesc() const { return myDesc; }
 	const auto& getBuffer() const { return myBuffer; }
 	const auto& getBindings() const { return myBindings; }

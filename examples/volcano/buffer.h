@@ -10,9 +10,9 @@
 template <GraphicsBackend B>
 struct BufferCreateDesc : DeviceResourceCreateDesc<B>
 {
-    DeviceSize<B> size = 0;
-    Flags<B> usageFlags = 0;
-    Flags<B> memoryFlags = 0;
+    DeviceSize<B> size = {};
+    Flags<B> usageFlags = {};
+    Flags<B> memoryFlags = {};
 };
 
 template <GraphicsBackend B>
@@ -20,7 +20,7 @@ class Buffer : public DeviceResource<B>
 {
 public:
 
-    Buffer(Buffer&& other) = default;
+    Buffer(Buffer&& other);
     Buffer( // creates uninitialized buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferCreateDesc<B>&& desc);
@@ -28,19 +28,18 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
         std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
+    Buffer( // takes ownership of provided buffer handle and allocation
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndData);
     ~Buffer();
 
-    Buffer& operator=(Buffer&& other) = default;
+    Buffer& operator=(Buffer&& other);
+    operator auto() const { return std::get<0>(myData); }
 
     const auto& getDesc() const { return myDesc; }
-    const auto& getBufferHandle() const { return std::get<0>(myData); }
     const auto& getBufferMemory() const { return std::get<1>(myData); }
 
 private:
-
-    Buffer( // uses provided buffer
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndData);
 
     const BufferCreateDesc<B> myDesc = {};
     std::tuple<BufferHandle<B>, AllocationHandle<B>> myData = {};
@@ -51,7 +50,7 @@ class BufferView : public DeviceResource<B>
 {
 public:
     
-    BufferView(BufferView&& other) = default;
+    BufferView(BufferView&& other);
     BufferView( // creates a view from buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Buffer<B>& buffer,
@@ -60,7 +59,7 @@ public:
         DeviceSize<B> range);
     ~BufferView();
 
-    BufferView& operator=(BufferView&& other) = default;
+    BufferView& operator=(BufferView&& other);
 
     auto getBufferViewHandle() const { return myBufferView; }
 
@@ -70,5 +69,5 @@ private:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferViewHandle<B>&& bufferView);
 
-    BufferViewHandle<B> myBufferView = 0;
+    BufferViewHandle<B> myBufferView = {};
 };

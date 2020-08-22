@@ -17,28 +17,25 @@ template <GraphicsBackend B>
 using DescriptorSetLayoutBindingsMap = std::map<uint32_t, std::vector<SerializableDescriptorSetLayoutBinding<B>>>; // set, bindings
 
 template <GraphicsBackend B>
-class DescriptorSetLayoutVector : public DeviceResource<B>
+class DescriptorSetLayout : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetLayoutVector(DescriptorSetLayoutVector&& other) = default;
-    DescriptorSetLayoutVector(
+    DescriptorSetLayout(DescriptorSetLayout&& other);
+    DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const DescriptorSetLayoutBindingsMap<B>& bindings);
-    ~DescriptorSetLayoutVector();
+        const std::vector<SerializableDescriptorSetLayoutBinding<B>>& bindings);
+    DescriptorSetLayout( // takes ownership of provided handle
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        DescriptorSetLayoutHandle<B>&& descriptorSetLayout);
+    ~DescriptorSetLayout();
 
-    DescriptorSetLayoutVector& operator=(DescriptorSetLayoutVector&& other) = default;
-
-    auto size() const { return myDescriptorSetLayoutVector.size(); }
-    auto data() const { return myDescriptorSetLayoutVector.data(); }
+    DescriptorSetLayout& operator=(DescriptorSetLayout&& other);
+    operator auto() const { return myDescriptorSetLayout; }
 
 private:
 
-    DescriptorSetLayoutVector( // uses provided vector
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<DescriptorSetLayoutHandle<B>>&& descriptorSetLayoutVector);
-
-	std::vector<DescriptorSetLayoutHandle<B>> myDescriptorSetLayoutVector;
+	DescriptorSetLayoutHandle<B> myDescriptorSetLayout = {};
 };
 
 template <GraphicsBackend B>
@@ -46,26 +43,24 @@ class DescriptorSetVector : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetVector(DescriptorSetVector&& other) = default;
+    DescriptorSetVector(DescriptorSetVector&& other);
     DescriptorSetVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const DescriptorSetLayoutVector<B>& layouts);
-    DescriptorSetVector(
+        const std::vector<DescriptorSetLayout<Vk>>& layouts);
+    DescriptorSetVector( // takes ownership of provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const DescriptorSetLayoutHandle<B>* layoutHandles,
-        uint32_t layoutHandleCount);
+        std::vector<DescriptorSetHandle<B>>&& descriptorSetVector);
     ~DescriptorSetVector();
 
-    DescriptorSetVector& operator=(DescriptorSetVector&& other) = default;
+    DescriptorSetVector& operator=(DescriptorSetVector&& other);
+    DescriptorSetHandle<B> operator[](uint32_t index) const { return myDescriptorSetVector[index]; };
 
     auto size() const { return myDescriptorSetVector.size(); }
     auto data() const { return myDescriptorSetVector.data(); }
 
 private:
 
-    DescriptorSetVector( // uses provided vector
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<DescriptorSetHandle<B>>&& descriptorSetVector);
-
 	std::vector<DescriptorSetHandle<B>> myDescriptorSetVector;
 };
+
+#include "descriptorset-vulkan.inl"

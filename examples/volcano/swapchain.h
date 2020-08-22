@@ -10,7 +10,7 @@
 template <GraphicsBackend B>
 struct SwapchainCreateDesc : RenderTargetCreateDesc<B>
 {
-	SwapchainHandle<B> previous = 0;
+	SwapchainHandle<B> previous = {};
 };
 
 template <GraphicsBackend B>
@@ -18,13 +18,14 @@ class SwapchainContext : public IRenderTarget<B>, public DeviceResource<B>
 {
 public:
 
-	SwapchainContext(SwapchainContext&& other) = default;
+	SwapchainContext(SwapchainContext&& other);
 	SwapchainContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		SwapchainCreateDesc<B>&& desc);
     ~SwapchainContext();
 
-	SwapchainContext& operator=(SwapchainContext&& other) = default;
+	SwapchainContext& operator=(SwapchainContext&& other);
+	operator auto() const { return mySwapchain; }
 
 	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const final;
 
@@ -73,7 +74,7 @@ public:
 private:
 
 	const SwapchainCreateDesc<B> myDesc = {};
-	SwapchainHandle<B> mySwapchain = 0;
+	SwapchainHandle<B> mySwapchain = {};
 	std::vector<std::unique_ptr<Frame<B>>> myFrames;
 	uint32_t myFrameIndex = 0;
 	uint32_t myLastFrameIndex = 0;

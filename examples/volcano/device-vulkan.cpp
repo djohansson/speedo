@@ -31,7 +31,7 @@ void DeviceContext<Vk>::wait(uint64_t timelineValue) const
     ZoneScopedN("DeviceContext::wait");
 
     VkSemaphoreWaitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
-    waitInfo.flags = 0;
+    waitInfo.flags = {};
     waitInfo.semaphoreCount = 1;
     waitInfo.pSemaphores = &myTimelineSemaphore;
     waitInfo.pValues = &timelineValue;
@@ -432,7 +432,7 @@ DeviceContext<Vk>::DeviceContext(
 
     VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     semaphoreCreateInfo.pNext = &timelineCreateInfo;
-    semaphoreCreateInfo.flags = 0;
+    semaphoreCreateInfo.flags = {};
 
     VK_CHECK(vkCreateSemaphore(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));

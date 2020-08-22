@@ -299,7 +299,7 @@ void Image<Vk>::transition(
 
     if (getImageLayout() != layout)
     {
-        transitionImageLayout(cmd, getImageHandle(), myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
+        transitionImageLayout(cmd, *this, myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
         std::get<2>(myData) = layout;
     }
 }
@@ -390,7 +390,7 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::~Image()
 {
-    if (auto image = getImageHandle(); image)
+    if (ImageHandle<Vk> image = *this; image)
         getDeviceContext()->addTimelineCallback(
             [allocator = getDeviceContext()->getAllocator(), image, imageMemory = getImageMemory()](uint64_t){
                 vmaDestroyImage(allocator, image, imageMemory);
@@ -421,7 +421,7 @@ ImageView<Vk>::ImageView(
     createImageView2D(
         deviceContext->getDevice(),
         0, // "reserved for future use"
-        image.getImageHandle(),
+        image,
         image.getDesc().format,
         aspectFlags,
         image.getDesc().mipLevels.size()))

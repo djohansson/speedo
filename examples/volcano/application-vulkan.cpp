@@ -245,9 +245,9 @@ Application<Vk>::Application(
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
         myResourcePath / "shaders" / "shaders.slang");
 
-    myGraphicsPipeline = std::make_shared<PipelineContext<Vk>>(
+    myGraphicsPipeline = std::make_shared<Pipeline<Vk>>(
         myDevice,
-        PipelineContextCreateDesc<Vk>{
+        PipelineCreateDesc<Vk>{
             { "GraphicsPipeline" },
             myUserProfilePath / "pipeline.cache" });
 
@@ -340,7 +340,7 @@ Application<Vk>::Application(
         myLastFrameTimelineValue = myGraphicsQueue->submit();
     }
 
-    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
+    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer());
 
     auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
@@ -378,7 +378,7 @@ Application<Vk>::Application(
                 myDevice,
                 layout->getDescriptorSetLayouts());
 
-            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
+            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer());
         });
     };
 
@@ -414,7 +414,7 @@ Application<Vk>::Application(
                 myDevice,
                 layout->getDescriptorSetLayouts());
 
-            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
+            myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer());
         });
     };
 
@@ -967,7 +967,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
         myInstance->getPhysicalDeviceInfo(physicalDevice).swapchainInfo.capabilities.currentExtent;
     
     myWindow->onResizeFramebuffer(framebufferExtent);
-    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer().getBufferHandle());
+    myGraphicsPipeline->updateDescriptorSets(myWindow->getViewBuffer());
 
     createWindowDependentObjects(framebufferExtent);
 }

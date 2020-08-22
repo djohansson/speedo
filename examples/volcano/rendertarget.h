@@ -20,7 +20,7 @@ struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
     std::vector<ImageHandle<B>> colorImages;
     Format<B> depthStencilImageFormat = {};
     ImageLayout<B> depthStencilImageLayout = {};
-    ImageHandle<B> depthStencilImage = 0; // optional
+    ImageHandle<B> depthStencilImage = {}; // optional
     uint32_t layerCount = 1;
     bool useDefaultInitialization = true; // create default render passes & framebuffer objects
 };
@@ -108,12 +108,12 @@ public:
 
 protected:
 
-    RenderTarget(RenderTarget<B>&& other) = default;
+    RenderTarget(RenderTarget<B>&& other);
     RenderTarget(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
 
-    RenderTarget& operator=(RenderTarget&& other) = default;
+    RenderTarget& operator=(RenderTarget&& other);
 
 private:
 

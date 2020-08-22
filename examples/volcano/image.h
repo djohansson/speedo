@@ -21,7 +21,7 @@ struct ImageCreateDesc : DeviceResourceCreateDesc<B>
 {
     std::vector<ImageMipLevelDesc<B>> mipLevels;
     Format<B> format = {};
-    Flags<B> usage = 0;
+    Flags<B> usage = {};
 };
 
 template <GraphicsBackend B>
@@ -35,7 +35,7 @@ class Image : public DeviceResource<B>
 {
 public:
 
-    Image(Image&& other) = default;
+    Image(Image&& other);
     Image( // creates uninitialized image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
@@ -47,12 +47,15 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& imageFile);
+    Image( // takes ownership of provided image handle & allocation
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<ImageCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
     ~Image();
 
-    Image& operator=(Image&& other) = default;
+    Image& operator=(Image&& other);
+    operator auto() const { return std::get<0>(myData); }
 
     const auto& getDesc() const { return myDesc; }
-    const auto& getImageHandle() const { return std::get<0>(myData); }
     const auto& getImageMemory() const { return std::get<1>(myData); }
     const auto& getImageLayout() const { return std::get<2>(myData); }
 
@@ -61,10 +64,6 @@ public:
 private:
 
     friend class RenderImageSet<B>;
-
-    Image( // uses provided image
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::tuple<ImageCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
 
     const ImageCreateDesc<B> myDesc = {};
     std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>> myData = {};
@@ -75,14 +74,14 @@ class ImageView : public DeviceResource<B>
 {
 public:
     
-    ImageView(ImageView&& other) = default;
+    ImageView(ImageView&& other);
     ImageView( // creates a view from image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,
         Flags<Vk> aspectFlags);
     ~ImageView();
 
-    ImageView& operator=(ImageView&& other) = default;
+    ImageView& operator=(ImageView&& other);
 
     auto getImageViewHandle() const { return myImageView; }
 
@@ -92,7 +91,7 @@ private:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageViewHandle<B>&& imageView);
 
-    ImageViewHandle<B> myImageView = 0;
+    ImageViewHandle<B> myImageView = {};
 };
 
 #include "image.inl"

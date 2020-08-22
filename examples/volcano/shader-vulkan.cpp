@@ -2,47 +2,52 @@
 #include "vk-utils.h"
 
 template <>
-ShaderModuleVector<Vk>::ShaderModuleVector(
+ShaderModule<Vk>::ShaderModule(ShaderModule<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, myShaderModule(std::exchange(other.myShaderModule, {}))
+{
+}
+
+template <>
+ShaderModule<Vk>::ShaderModule(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-     std::vector<ShaderModuleHandle<Vk>>&& shaderModules)
+    ShaderModuleHandle<Vk>&& shaderModule)
 : DeviceResource<Vk>(
     deviceContext,
     {"_ShaderModule"},
-    shaderModules.size(),
+    1,
     VK_OBJECT_TYPE_SHADER_MODULE,
-    reinterpret_cast<uint64_t*>(shaderModules.data()))
-, myShaderModules(std::move(shaderModules))
+    reinterpret_cast<uint64_t*>(&shaderModule))
+, myShaderModule(std::move(shaderModule))
 {
 }
 
 template <>
-ShaderModuleVector<Vk>::ShaderModuleVector(
+ShaderModule<Vk>::ShaderModule(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::vector<ShaderEntry>& shaderEntries)
-: ShaderModuleVector<Vk>(
+    const ShaderEntry& shaderEntry)
+: ShaderModule<Vk>(
     deviceContext,
-    [&shaderEntries, device = deviceContext->getDevice()]{
-		std::vector<ShaderModuleHandle<Vk>> shaderModules;
-		shaderModules.reserve(shaderEntries.size());
-		for (const auto& shader : shaderEntries)
-		{
-			shaderModules.emplace_back(
-				createShaderModule(
-					device,
-					shader.first.size(),
-					reinterpret_cast<const uint32_t *>(shader.first.data())));
-		}
-		return shaderModules;
-	}())
+	createShaderModule(
+		deviceContext->getDevice(),
+		shaderEntry.first.size(),
+		reinterpret_cast<const uint32_t *>(shaderEntry.first.data())))
 {
 }
 
 template <>
-ShaderModuleVector<Vk>::~ShaderModuleVector()
+ShaderModule<Vk>::~ShaderModule()
 {
-    if (myShaderModules.size())
-        for (auto shaderModule : myShaderModules)
-            vkDestroyShaderModule(getDeviceContext()->getDevice(), shaderModule, nullptr);
+    if (myShaderModule)
+        vkDestroyShaderModule(getDeviceContext()->getDevice(), myShaderModule, nullptr);
+}
+
+template <>
+ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule<Vk>&& other)
+{
+	DeviceResource<Vk>::operator=(std::move(other));
+	myShaderModule = std::exchange(other.myShaderModule, {});
+	return *this;
 }
 
 template <>

@@ -34,14 +34,13 @@ class Queue : public DeviceResource<B>
 {
 public:
 
-    Queue(Queue<B>&& other) = default;
+    Queue(Queue<B>&& other);
     Queue(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         QueueCreateDesc<B>&& desc);
 
-    Queue& operator=(Queue&& other) = default;
-
-    auto getQueue() const { return myDesc.queue; }
+    Queue& operator=(Queue&& other);
+    operator auto() const { return myDesc.queue; }
 
     template <typename... Args>
     void enqueue(Args&&... args) { myPendingSubmits.emplace_back(std::move(args)...); }
@@ -53,5 +52,5 @@ private:
     const QueueCreateDesc<B> myDesc = {};
     std::vector<QueueSubmitInfo<B>> myPendingSubmits;
     std::vector<std::byte> myScratchMemory;
-    FenceHandle<B> myFence = 0;
+    FenceHandle<B> myFence = {};
 };

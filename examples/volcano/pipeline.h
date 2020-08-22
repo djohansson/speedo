@@ -25,13 +25,25 @@ class PipelineLayout : public DeviceResource<B>
 {
 public:
 
-    PipelineLayout(PipelineLayout<B>&& other) = default;
+    PipelineLayout(PipelineLayout<B>&& other);
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
+    PipelineLayout( // takes ownership over provided handles
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::vector<ShaderModule<B>>&& shaderModules,
+        std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts,
+        std::vector<Sampler<B>>&& immutableSamplers);
+    PipelineLayout( // takes ownership over provided handles
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::vector<ShaderModule<B>>&& shaderModules,
+        std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts,
+        std::vector<Sampler<B>>&& immutableSamplers,
+        PipelineLayoutHandle<B>&& layout);
     ~PipelineLayout();
 
-    PipelineLayout& operator=(PipelineLayout&& other) = default;
+    PipelineLayout& operator=(PipelineLayout&& other);
+    operator auto() const { return myLayout; }
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
@@ -40,21 +52,10 @@ public:
 
 private:
 
-    PipelineLayout(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ShaderModuleVector<B>&& shaderModules,
-        DescriptorSetLayoutVector<B>&& descriptorSetLayouts);
-
-    PipelineLayout(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ShaderModuleVector<B>&& shaderModules,
-        DescriptorSetLayoutVector<B>&& descriptorSetLayouts,
-        PipelineLayoutHandle<B>&& layout);
-
-    ShaderModuleVector<B> myShaders;
-	DescriptorSetLayoutVector<B> myDescriptorSetLayouts;
-    std::unique_ptr<SamplerHandle<B>[], ArrayDeleter<SamplerHandle<B>>> myImmutableSamplers;
-	PipelineLayoutHandle<B> myLayout = 0;
+    std::vector<ShaderModule<B>> myShaders;
+	std::vector<DescriptorSetLayout<B>> myDescriptorSetLayouts;
+    std::vector<Sampler<B>> myImmutableSamplers;
+	PipelineLayoutHandle<B> myLayout = {};
 };
 
 template <GraphicsBackend B>
@@ -64,13 +65,13 @@ struct PipelineResourceView
 	std::shared_ptr<Model<B>> model;
 	std::shared_ptr<Image<B>> image;
 	std::shared_ptr<ImageView<B>> imageView;
-	SamplerHandle<B> sampler = 0;
+	SamplerHandle<B> sampler = {};
 	// end temp
 	std::shared_ptr<RenderTarget<B>> renderTarget;
 };
 
 template <GraphicsBackend B>
-struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
+struct PipelineCreateDesc : DeviceResourceCreateDesc<B>
 {
     std::filesystem::path cachePath;
 };
@@ -79,17 +80,17 @@ struct PipelineContextCreateDesc : DeviceResourceCreateDesc<B>
 //       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
 
 template <GraphicsBackend B>
-class PipelineContext : public DeviceResource<B>
+class Pipeline : public DeviceResource<B>
 {
 public:
 
-    PipelineContext(PipelineContext<B>&& other) = default;
-    PipelineContext(
+    Pipeline(Pipeline<B>&& other);
+    Pipeline(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        PipelineContextCreateDesc<B>&& desc);
-    ~PipelineContext();
+        PipelineCreateDesc<B>&& desc);
+    ~Pipeline();
 
-    PipelineContext& operator=(PipelineContext&& other) = default;
+    Pipeline& operator=(Pipeline&& other);
 
     auto getCache() const { return myCache; }
     PipelineHandle<B> getPipeline();
@@ -109,8 +110,8 @@ private:
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
     typename PipelineMap::const_iterator internalUpdateMap();
 
-    const PipelineContextCreateDesc<B> myDesc = {};
-    PipelineCacheHandle<B> myCache = 0;
+    const PipelineCreateDesc<B> myDesc = {};
+    PipelineCacheHandle<B> myCache = {};
     PipelineMap myPipelineMap;
 
     // temp

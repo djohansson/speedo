@@ -1,53 +1,52 @@
 #include "descriptorset.h"
 #include "vk-utils.h"
 
-namespace descriptorset
+template <>
+DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, myDescriptorSetLayout(std::exchange(other.myDescriptorSetLayout, {}))
 {
-
-std::vector<DescriptorSetLayoutHandle<Vk>> createDescriptorSetLayouts(
-	DeviceHandle<Vk> device,
-	const DescriptorSetLayoutBindingsMap<Vk>& bindings)
-{
-    std::vector<DescriptorSetLayoutHandle<Vk>> outLayouts;
-    outLayouts.reserve(bindings.size());
-	for (auto& [space, layoutBindings] : bindings)
-	    outLayouts.emplace_back(createDescriptorSetLayout(device, layoutBindings.data(), layoutBindings.size()));
-	return outLayouts;
-}
-
 }
 
 template <>
-DescriptorSetLayoutVector<Vk>::DescriptorSetLayoutVector(
+DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    std::vector<DescriptorSetLayoutHandle<Vk>>&& descriptorSetLayoutVector)
+    DescriptorSetLayoutHandle<Vk>&& descriptorSetLayout)
 : DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSetLayout"},
-    descriptorSetLayoutVector.size(),
+    1,
     VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-    reinterpret_cast<uint64_t*>(descriptorSetLayoutVector.data()))
-, myDescriptorSetLayoutVector(std::move(descriptorSetLayoutVector))
+    reinterpret_cast<uint64_t*>(&descriptorSetLayout))
+, myDescriptorSetLayout(std::move(descriptorSetLayout))
 {
 }
 
 template <>
-DescriptorSetLayoutVector<Vk>::DescriptorSetLayoutVector(
+DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const DescriptorSetLayoutBindingsMap<Vk>& bindings)
-: DescriptorSetLayoutVector<Vk>(
+    const std::vector<SerializableDescriptorSetLayoutBinding<Vk>>& bindings)
+: DescriptorSetLayout<Vk>(
     deviceContext,
-    descriptorset::createDescriptorSetLayouts(deviceContext->getDevice(), bindings))
+    createDescriptorSetLayout(deviceContext->getDevice(), bindings.data(), bindings.size()))
 {
 }
 
 template <>
-DescriptorSetLayoutVector<Vk>::~DescriptorSetLayoutVector()
+DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 {
-    if (myDescriptorSetLayoutVector.size())
-        for (auto layout : myDescriptorSetLayoutVector)
-            vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), layout, nullptr);
+    if (myDescriptorSetLayout)
+        vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), myDescriptorSetLayout, nullptr);
 }
+
+template <>
+DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<Vk>&& other)
+{
+	DeviceResource<Vk>::operator=(std::move(other));
+	myDescriptorSetLayout = std::exchange(other.myDescriptorSetLayout, {});
+	return *this;
+}
+
 
 template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(
@@ -63,29 +62,25 @@ DescriptorSetVector<Vk>::DescriptorSetVector(
 {
 }
 
-template <>
-DescriptorSetVector<Vk>::DescriptorSetVector(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const DescriptorSetLayoutHandle<Vk>* layoutHandles,
-    uint32_t layoutHandleCount)
-: DescriptorSetVector<Vk>(
-    deviceContext,
-    allocateDescriptorSets(
-        deviceContext->getDevice(),
-        deviceContext->getDescriptorPool(),
-        layoutHandles,
-        layoutHandleCount))
-{
-}
 
 template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const DescriptorSetLayoutVector<Vk>& layouts)
+    const std::vector<DescriptorSetLayout<Vk>>& layouts)
 : DescriptorSetVector<Vk>(
     deviceContext,
-    layouts.data(),
-    layouts.size())
+    [&deviceContext, &layouts]
+    {
+        std::vector<DescriptorSetLayoutHandle<Vk>> handles;
+        handles.reserve(layouts.size());
+        for (const auto& layout : layouts)
+            handles.emplace_back(layout);
+        return allocateDescriptorSets(
+            deviceContext->getDevice(),
+            deviceContext->getDescriptorPool(),
+            handles.data(),
+            handles.size());
+    }())
 {
 }
 

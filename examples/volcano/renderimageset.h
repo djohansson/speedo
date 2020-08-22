@@ -34,10 +34,6 @@ public:
 
 private:
 
-    RenderImageSet(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        RenderTargetCreateDesc<B>&& desc) : BaseType(deviceContext, std::move(desc)) {}
-
     std::vector<std::shared_ptr<Image<B>>> myColorImages;
     std::shared_ptr<Image<B>> myDepthStencilImage;
 };

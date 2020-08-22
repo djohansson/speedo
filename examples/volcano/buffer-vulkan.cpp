@@ -67,7 +67,7 @@ Buffer<Vk>::Buffer(
 template <>
 Buffer<Vk>::~Buffer()
 {
-    if (auto buffer = getBufferHandle(); buffer)
+    if (BufferHandle<Vk> buffer = *this; buffer)
         getDeviceContext()->addTimelineCallback(
             [allocator = getDeviceContext()->getAllocator(), buffer, bufferMemory = getBufferMemory()](uint64_t){
                 vmaDestroyBuffer(allocator, buffer, bufferMemory);
@@ -99,7 +99,7 @@ BufferView<Vk>::BufferView(
     deviceContext,
     createBufferView(
         deviceContext->getDevice(),
-        buffer.getBufferHandle(),
+        buffer,
         0, // "reserved for future use"
         format,
         offset,

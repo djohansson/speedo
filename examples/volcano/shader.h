@@ -1,9 +1,10 @@
 #pragma once
 
 #include "descriptorset.h"
+#include "device.h"
+#include "sampler.h"
 #include "types.h"
 
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,26 +26,25 @@ struct SerializableShaderReflectionModule
 };
 
 template <GraphicsBackend B>
-class ShaderModuleVector : public DeviceResource<B>
+class ShaderModule : public DeviceResource<B>
 {
 public:
 
-    ShaderModuleVector(ShaderModuleVector&& other) = default;
-    ShaderModuleVector(
+    ShaderModule(ShaderModule&& other);
+    ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::vector<ShaderEntry>& shaderEntries);
-    ~ShaderModuleVector();
+        const ShaderEntry& shaderEntry);
+	ShaderModule( // takes ownership of provided handle
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ShaderModuleHandle<B>&& shaderModule);
+    ~ShaderModule();
 
-    ShaderModuleVector& operator=(ShaderModuleVector&& other) = default;
-	ShaderModuleHandle<B> operator[](uint32_t index) const { return myShaderModules[index]; };
+    ShaderModule& operator=(ShaderModule&& other);
+	operator auto() const { return myShaderModule; }
 
 private:
 
-    ShaderModuleVector( // uses provided vector
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<ShaderModuleHandle<B>>&& shaderModules);
-
-	std::vector<ShaderModuleHandle<B>> myShaderModules;
+	ShaderModuleHandle<B> myShaderModule = {};
 };
 
 template <GraphicsBackend B>
@@ -56,4 +56,3 @@ template <GraphicsBackend B>
 void createSlangLayoutBindings(slang::VariableLayoutReflection* parameter, DescriptorSetLayoutBindingsMap<B>& bindings);
 
 #include "shader.inl"
-#include "shader-vulkan.inl"

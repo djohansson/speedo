@@ -44,8 +44,8 @@ private:
 
 	friend class SwapchainContext<B>;
 
-	SemaphoreHandle<B> myRenderCompleteSemaphore = 0;
-	SemaphoreHandle<B> myNewImageAcquiredSemaphore = 0;
+	SemaphoreHandle<B> myRenderCompleteSemaphore = {};
+	SemaphoreHandle<B> myNewImageAcquiredSemaphore = {};
 	ImageLayout<B> myImageLayout = {};
 	uint64_t myLastPresentTimelineValue = 0;
 };

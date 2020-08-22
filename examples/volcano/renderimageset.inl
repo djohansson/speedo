@@ -26,14 +26,14 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 
         outDesc.colorImageFormats.emplace_back(image->getDesc().format);
         outDesc.colorImageLayouts.emplace_back(image->getImageLayout());
-        outDesc.colorImages.emplace_back(image->getImageHandle());
+        outDesc.colorImages.emplace_back(*image);
     }
 
     if (depthStencilImage)
     {
         outDesc.depthStencilImageFormat = depthStencilImage->getDesc().format;
         outDesc.depthStencilImageLayout = depthStencilImage->getImageLayout();
-        outDesc.depthStencilImage = depthStencilImage->getImageHandle();
+        outDesc.depthStencilImage = *depthStencilImage;
     }
 
     outDesc.layerCount = 1;

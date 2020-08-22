@@ -51,7 +51,7 @@ struct QueueFamilyDesc
 {
     std::vector<QueueHandle<B>> queues;
     std::vector<CommandPoolHandle<B>> commandPools; // (frameCount:1) * queueCount
-    uint8_t flags = 0;
+    uint8_t flags = {};
 };
 
 template <GraphicsBackend B>
@@ -108,7 +108,7 @@ private:
 
     std::shared_ptr<InstanceContext<B>> myInstance;
     AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
-    DeviceHandle<B> myDevice = 0;
+    DeviceHandle<B> myDevice = {};
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
     uint32_t myGraphicsQueueFamilyIndex = 0; // todo: configure
@@ -118,11 +118,11 @@ private:
     uint32_t myCurrentTransferQueue = 0; // todo:
     uint32_t myCurrentComputeQueue = 0; // todo:
     
-    AllocatorHandle<B> myAllocator = 0;
-	DescriptorPoolHandle<B> myDescriptorPool = 0;
+    AllocatorHandle<B> myAllocator = {};
+	DescriptorPoolHandle<B> myDescriptorPool = {};
 
-    SemaphoreHandle<B> myTimelineSemaphore = 0;
-    std::atomic_uint64_t myTimelineValue = 0;
+    SemaphoreHandle<B> myTimelineSemaphore = {};
+    std::atomic_uint64_t myTimelineValue = {};
 
     // todo: make to an atomic queue to avoid excessive locking
     std::recursive_mutex myTimelineCallbacksMutex;
@@ -131,7 +131,7 @@ private:
     struct Object
     {
         ObjectType<B> type = {};
-        uint64_t handle = 0;
+        uint64_t handle = {};
         std::string name;
     };
 
