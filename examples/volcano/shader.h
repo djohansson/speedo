@@ -30,13 +30,13 @@ class ShaderModule : public DeviceResource<B>
 {
 public:
 
-    ShaderModule(ShaderModule&& other);
     ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const ShaderEntry& shaderEntry);
 	ShaderModule( // takes ownership of provided handle
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ShaderModuleHandle<B>&& shaderModule);
+	ShaderModule(ShaderModule&& other);
     ~ShaderModule();
 
     ShaderModule& operator=(ShaderModule&& other);

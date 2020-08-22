@@ -2,13 +2,6 @@
 #include "vk-utils.h"
 
 template <>
-ShaderModule<Vk>::ShaderModule(ShaderModule<Vk>&& other)
-: DeviceResource<Vk>(std::move(other))
-, myShaderModule(std::exchange(other.myShaderModule, {}))
-{
-}
-
-template <>
 ShaderModule<Vk>::ShaderModule(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ShaderModuleHandle<Vk>&& shaderModule)
@@ -32,6 +25,13 @@ ShaderModule<Vk>::ShaderModule(
 		deviceContext->getDevice(),
 		shaderEntry.first.size(),
 		reinterpret_cast<const uint32_t *>(shaderEntry.first.data())))
+{
+}
+
+template <>
+ShaderModule<Vk>::ShaderModule(ShaderModule<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, myShaderModule(std::exchange(other.myShaderModule, {}))
 {
 }
 

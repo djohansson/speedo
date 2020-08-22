@@ -1,4 +1,4 @@
-namespace renderimage
+namespace renderimageset
 {
 
 template <GraphicsBackend B>
@@ -49,10 +49,32 @@ RenderImageSet<B>::RenderImageSet(
     const char* name,
     const std::vector<std::shared_ptr<Image<B>>>& colorImages,
     const std::shared_ptr<Image<B>>& depthStencilImage)
-: BaseType(deviceContext, renderimage::createRenderTargetCreateDesc(name, colorImages, depthStencilImage))
+: BaseType(deviceContext, renderimageset::createRenderTargetCreateDesc(name, colorImages, depthStencilImage))
 , myColorImages(colorImages)
 , myDepthStencilImage(depthStencilImage)
 {
+}
+
+template <GraphicsBackend B>
+RenderImageSet<B>::RenderImageSet(RenderImageSet<B>&& other)
+: BaseType(std::move(other))
+, myColorImages(std::exchange(other.myColorImages, {}))
+, myDepthStencilImage(std::exchange(other.myDepthStencilImage, {}))
+{
+}
+
+template <GraphicsBackend B>
+RenderImageSet<B>::~RenderImageSet()
+{
+}
+
+template <GraphicsBackend B>
+RenderImageSet<B>& RenderImageSet<B>::operator=(RenderImageSet<B>&& other)
+{
+    BaseType::operator=(std::move(other));
+	myColorImages = std::exchange(other.myColorImages, {});
+    myDepthStencilImage = std::exchange(other.myDepthStencilImage, {});
+    return *this;
 }
 
 template <GraphicsBackend B>

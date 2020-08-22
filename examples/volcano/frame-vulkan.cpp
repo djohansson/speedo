@@ -7,9 +7,6 @@
 
 #include <stb_sprintf.h>
 
-template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
-    RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other);
-
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
@@ -19,10 +16,26 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
 {
 }
 
-template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl();
+template <>
+RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other)
+: RenderTarget<Vk>(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+{
+}
 
-template RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(
-    RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other);
+template <>
+RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl()
+{
+}
+
+template <>
+RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(
+    RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other)
+{
+    RenderTarget<Vk>::operator=(std::move(other));
+	myDesc = std::exchange(other.myDesc, {});
+    return *this;
+}
 
 template <>
 Frame<Vk>::Frame(
@@ -66,12 +79,33 @@ Frame<Vk>::Frame(
 }
 
 template <>
+Frame<Vk>::Frame(Frame<Vk>&& other)
+: BaseType(std::move(other))
+, myRenderCompleteSemaphore(std::exchange(other.myRenderCompleteSemaphore, {}))
+, myNewImageAcquiredSemaphore(std::exchange(other.myNewImageAcquiredSemaphore, {}))
+, myImageLayout(std::exchange(other.myImageLayout, {}))
+, myLastPresentTimelineValue(std::exchange(other.myLastPresentTimelineValue, {}))
+{
+}
+
+template <>
 Frame<Vk>::~Frame()
 {
     ZoneScopedN("~Frame()");
    
     vkDestroySemaphore(getDeviceContext()->getDevice(), myRenderCompleteSemaphore, nullptr);
     vkDestroySemaphore(getDeviceContext()->getDevice(), myNewImageAcquiredSemaphore, nullptr);
+}
+
+template <>
+Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other)
+{
+    BaseType::operator=(std::move(other));
+	myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
+    myNewImageAcquiredSemaphore = std::exchange(other.myNewImageAcquiredSemaphore, {});
+    myImageLayout = std::exchange(other.myImageLayout, {});
+    myLastPresentTimelineValue = std::exchange(other.myLastPresentTimelineValue, {});
+    return *this;
 }
 
 template <>

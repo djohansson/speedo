@@ -26,8 +26,23 @@ Sampler<Vk>::Sampler(
 }
 
 template <>
+Sampler<Vk>::Sampler(Sampler<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, mySampler(std::exchange(other.mySampler, {}))
+{
+}
+
+template <>
 Sampler<Vk>::~Sampler()
 {
     if (mySampler)
         vkDestroySampler(getDeviceContext()->getDevice(), mySampler, nullptr);
+}
+
+template <>
+Sampler<Vk>& Sampler<Vk>::operator=(Sampler<Vk>&& other)
+{
+	DeviceResource<Vk>::operator=(std::move(other));
+	mySampler = std::exchange(other.mySampler, {});
+	return *this;
 }

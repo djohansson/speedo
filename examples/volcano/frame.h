@@ -22,11 +22,11 @@ class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
 
 public:
 
-	Frame(Frame<B>&& other) = default;
     Frame(const std::shared_ptr<DeviceContext<B>>& deviceContext, FrameCreateDesc<B>&& desc);
+	Frame(Frame<B>&& other);
 	virtual ~Frame();
 
-	Frame& operator=(Frame&& other) = default;
+	Frame& operator=(Frame&& other);
 
 	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;
@@ -50,4 +50,3 @@ private:
 	uint64_t myLastPresentTimelineValue = 0;
 };
 
-#include "frame-vulkan.inl"

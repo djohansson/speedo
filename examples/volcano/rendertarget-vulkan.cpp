@@ -527,6 +527,13 @@ RenderTarget<Vk>::RenderTarget(
 }
 
 template <>
+RenderTarget<Vk>::RenderTarget(RenderTarget<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+{
+
+}
+
+template <>
 RenderTarget<Vk>::~RenderTarget()
 {
     ZoneScopedN("~RenderTarget()");
@@ -541,8 +548,21 @@ RenderTarget<Vk>::~RenderTarget()
         vkDestroyImageView(getDeviceContext()->getDevice(), colorView, nullptr);
 }
 
-template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
-    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);
+template <>
+RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget<Vk>&& other)
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+    myAttachments = std::exchange(other.myAttachments, {});
+    myAttachmentDescs = std::exchange(other.myAttachmentDescs, {});
+    myAttachmentsReferences = std::exchange(other.myAttachmentsReferences, {});
+    mySubPassDescs = std::exchange(other.mySubPassDescs, {});
+    mySubPassDependencies = std::exchange(other.mySubPassDependencies, {});
+    myMap = std::exchange(other.myMap, {});
+    myCurrentPass = std::exchange(other.myCurrentPass, {});
+    myCurrentSubpass = std::exchange(other.myCurrentSubpass, {});
+    myXXHState.reset(other.myXXHState.release());
+    return *this;
+}
 
 template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
@@ -553,7 +573,23 @@ RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
 {
 }
 
-template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl();
+template <>
+RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other)
+: RenderTarget<Vk>(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+{
+}
 
-template RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
-    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other);
+template <>
+RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl()
+{
+}
+
+template <>
+RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
+    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other)
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+	myDesc = std::exchange(other.myDesc, {});
+    return *this;
+}

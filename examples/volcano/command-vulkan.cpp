@@ -61,6 +61,15 @@ CommandBufferArray<Vk>::CommandBufferArray(
 }
 
 template <>
+CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+, myArray(std::exchange(other.myArray, {}))
+, myBits(other.myBits)
+{
+}
+
+template <>
 CommandBufferArray<Vk>::~CommandBufferArray()
 {
     ZoneScopedN("~CommandBufferArray()");
@@ -72,6 +81,17 @@ CommandBufferArray<Vk>::~CommandBufferArray()
             kCommandBufferCount,
             myArray.data());
 }
+
+template <>
+CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray<Vk>&& other)
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+    myDesc = std::exchange(other.myDesc, {});
+    myArray = std::exchange(other.myArray, {});
+    myBits = other.myBits;
+    return *this;
+}
+
 
 template <>
 void CommandBufferArray<Vk>::resetAll()
