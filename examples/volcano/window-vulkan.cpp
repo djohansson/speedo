@@ -120,7 +120,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                 inheritInfo.renderPass = renderPassInfo.renderPass;
                 inheritInfo.framebuffer = renderPassInfo.framebuffer;
 
-                CommandContextBeginInfo<Vk> beginInfo = {};
+                CommandBufferAccessScopeDesc<Vk> beginInfo = {};
                 beginInfo.flags =
                     VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
                     VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
@@ -234,11 +234,6 @@ void WindowContext<Vk>::draw(const std::shared_ptr<Pipeline<Vk>>& pipeline)
     auto& frame = *mySwapchain->getFrames()[frameIndex];
     auto& commandContext = myCommands[frameIndex][0];
     auto& renderTarget = pipeline->resources()->renderTarget;
-
-    // for (auto [beginInfo, drawViewCallback] : myDrawViewCallbacks)
-    //     drawViewCallback(commandContext->commands(beginInfo));
-
-    // myDrawViewCallbacks.clear();
 
     auto cmd = commandContext->commands();
     auto renderPassInfo = pipeline->resources()->renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);

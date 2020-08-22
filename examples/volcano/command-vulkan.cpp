@@ -136,7 +136,7 @@ void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
 }
 
 template <>
-CommandContextBeginInfo<Vk>::CommandContextBeginInfo()
+CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc()
 : CommandBufferBeginInfo<Vk>{
     VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
     nullptr,
@@ -148,7 +148,7 @@ CommandContextBeginInfo<Vk>::CommandContextBeginInfo()
 }
 
 template <>
-CommandContextBeginInfo<Vk>::CommandContextBeginInfo(const CommandContextBeginInfo<Vk>& other)
+CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<Vk>& other)
 : CommandBufferBeginInfo<Vk>(other)
 , level(other.level)
 , inheritance(other.inheritance)
@@ -157,7 +157,7 @@ CommandContextBeginInfo<Vk>::CommandContextBeginInfo(const CommandContextBeginIn
 }
 
 template <>
-CommandContextBeginInfo<Vk>& CommandContextBeginInfo<Vk>::operator=(const CommandContextBeginInfo<Vk>& other)
+CommandBufferAccessScopeDesc<Vk>& CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc<Vk>& other)
 {
     if (this != &other)
     {
@@ -171,7 +171,7 @@ CommandContextBeginInfo<Vk>& CommandContextBeginInfo<Vk>::operator=(const Comman
 }
 
 template <>
-bool CommandContextBeginInfo<Vk>::operator==(const CommandContextBeginInfo& other) const
+bool CommandBufferAccessScopeDesc<Vk>::operator==(const CommandBufferAccessScopeDesc& other) const
 {
     bool result = true;
 
@@ -196,7 +196,7 @@ bool CommandContextBeginInfo<Vk>::operator==(const CommandContextBeginInfo& othe
 
 template <>
 CommandBufferAccessScope<Vk> CommandContext<Vk>::internalBeginScope(
-    const CommandContextBeginInfo<Vk>& beginInfo)
+    const CommandBufferAccessScopeDesc<Vk>& beginInfo)
 {
     if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
         enqueueOnePending(beginInfo.level);
@@ -207,7 +207,7 @@ CommandBufferAccessScope<Vk> CommandContext<Vk>::internalBeginScope(
 }
     
 template <>
-CommandBufferAccessScope<Vk> CommandContext<Vk>::internalCommands(const CommandContextBeginInfo<Vk>& beginInfo) const
+CommandBufferAccessScope<Vk> CommandContext<Vk>::internalCommands(const CommandBufferAccessScopeDesc<Vk>& beginInfo) const
 {
     return myRecordingCommands[beginInfo.level].value();
 }

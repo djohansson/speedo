@@ -1,7 +1,7 @@
 template <GraphicsBackend B>
-CommandBufferAccessScope<B> CommandContext<B>::commands(const CommandContextBeginInfo<B>& beginInfo)
+CommandBufferAccessScope<B> CommandContext<B>::commands(const CommandBufferAccessScopeDesc<B>& beginInfo)
 {
-    if (myRecordingCommands[beginInfo.level] && myRecordingCommands[beginInfo.level].value().getBeginInfo() == beginInfo)
+    if (myRecordingCommands[beginInfo.level] && myRecordingCommands[beginInfo.level].value().getDesc() == beginInfo)
         return internalCommands(beginInfo);
     else
         return internalBeginScope(beginInfo);
@@ -12,4 +12,61 @@ void CommandContext<B>::internalEndCommands(CommandBufferLevel<B> level)
 {
     if (myRecordingCommands[level])
         myRecordingCommands[level] = std::nullopt;
+}
+
+template <GraphicsBackend B>
+CommandBufferAccessScope<B>::CommandBufferAccessScope(
+    CommandBufferArray<B>* array,
+    const CommandBufferAccessScopeDesc<B>& beginInfo)
+: myDesc(beginInfo)
+, myRefCount(std::make_shared<uint32_t>(1))
+, myArray(array)
+, myIndex(myArray->begin(beginInfo))
+{
+}
+
+template <GraphicsBackend B>
+CommandBufferAccessScope<B>::CommandBufferAccessScope(const CommandBufferAccessScope<B>& other)
+: myDesc(other.myDesc)
+, myRefCount(other.myRefCount)
+, myArray(other.myArray)
+, myIndex(other.myIndex)
+{
+    (*myRefCount)++;
+}
+
+template <GraphicsBackend B>
+CommandBufferAccessScope<B>::CommandBufferAccessScope(CommandBufferAccessScope<B>&& other)
+: myDesc(std::exchange(other.myDesc, {}))
+, myRefCount(std::exchange(other.myRefCount, {}))
+, myArray(std::exchange(other.myArray, {}))
+, myIndex(std::exchange(other.myIndex, {}))
+{
+}
+
+template <GraphicsBackend B>
+CommandBufferAccessScope<B>::~CommandBufferAccessScope()
+{
+    if (myRefCount && (--(*myRefCount) == 0) && myArray->recording(myIndex))
+        myArray->end(myIndex);
+}
+
+template <GraphicsBackend B>
+CommandBufferAccessScope<B>& CommandBufferAccessScope<B>::operator=(CommandBufferAccessScope<B>&& other)
+{
+    myDesc = std::exchange(other.myDesc, {});
+    myRefCount = std::exchange(other.myRefCount, {});
+    myArray = std::exchange(other.myArray, {});
+    myIndex = std::exchange(other.myIndex, {});
+    return *this;
+}
+
+template <GraphicsBackend B>
+CommandBufferAccessScope<B>& CommandBufferAccessScope<B>::operator=(const CommandBufferAccessScope<B>& other)
+{
+    myDesc = other.myDesc;
+    myRefCount = other.myRefCount;
+    myArray = other.myArray;
+    myIndex = other.myIndex;
+    (*myRefCount)++;
 }

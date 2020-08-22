@@ -62,12 +62,6 @@ public:
 	
 	void updateInput(const InputState& input);
 
-	// template <typename T>
-	// void addDrawViewCallback(T callback, const CommandContextBeginInfo<Vk>& beginInfo = {})
-	// {
-	// 	myDrawViewCallbacks.emplace_back(std::make_pair(beginInfo, callback));
-	// }
-
 	void draw(const std::shared_ptr<Pipeline<B>>& pipeline);
 
 	struct ViewBufferData // todo: needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment. right now uses manual padding.
@@ -99,5 +93,4 @@ private:
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommands;
-	//std::vector<std::pair<CommandContextBeginInfo<B>, std::function<void(CommandBufferHandle<B> cmd)>>> myDrawViewCallbacks;
 };

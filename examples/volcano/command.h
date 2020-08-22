@@ -79,13 +79,13 @@ struct CommandContextCreateDesc
 };
 
 template <GraphicsBackend B>
-struct CommandContextBeginInfo : public CommandBufferBeginInfo<B>
+struct CommandBufferAccessScopeDesc : public CommandBufferBeginInfo<B>
 {
-    CommandContextBeginInfo();
-    CommandContextBeginInfo(const CommandContextBeginInfo<B>& other);
+    CommandBufferAccessScopeDesc();
+    CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<B>& other);
 
-    CommandContextBeginInfo<B>& operator=(const CommandContextBeginInfo<B>& other);
-    bool operator==(const CommandContextBeginInfo<B>& other) const;
+    CommandBufferAccessScopeDesc<B>& operator=(const CommandBufferAccessScopeDesc<B>& other);
+    bool operator==(const CommandBufferAccessScopeDesc<B>& other) const;
 
     CommandBufferLevel<B> level = {};
     CommandBufferInheritanceInfo<Vk> inheritance = {};
@@ -96,58 +96,27 @@ class CommandBufferAccessScope : Nondynamic
 {
 public:
 
-    CommandBufferAccessScope(CommandBufferAccessScope&& other)
-    : myBeginInfo(other.myBeginInfo)
-    , myRefCount(std::exchange(other.myRefCount, {}))
-    , myArray(other.myArray)
-    , myIndex(other.myIndex) {}
-    CommandBufferAccessScope(const CommandBufferAccessScope& other)
-    : myBeginInfo(other.myBeginInfo)
-    , myRefCount(other.myRefCount)
-    , myArray(other.myArray)
-    , myIndex(other.myIndex) { (*myRefCount)++; }
-    CommandBufferAccessScope(CommandBufferArray<B>* array, const CommandContextBeginInfo<B>& beginInfo)
-    : myBeginInfo(beginInfo)
-    , myRefCount(std::make_shared<uint32_t>(1))
-    , myArray(array)
-    , myIndex(myArray->begin(beginInfo)) {}
-    ~CommandBufferAccessScope()
-    {
-        if (myRefCount && (--(*myRefCount) == 0) && myArray->recording(myIndex))
-            myArray->end(myIndex);
-    }
+    CommandBufferAccessScope(
+        CommandBufferArray<B>* array,
+        const CommandBufferAccessScopeDesc<B>& beginInfo);
+    CommandBufferAccessScope(const CommandBufferAccessScope& other);
+    CommandBufferAccessScope(CommandBufferAccessScope&& other);
+    ~CommandBufferAccessScope();
 
-    CommandBufferAccessScope<B>& operator=(CommandBufferAccessScope<B>&& other)
-    {
-        myBeginInfo = other.myBeginInfo;
-        myRefCount = std::exchange(other.myRefCount, {});
-        myArray = other.myArray;
-        myIndex = other.myIndex;
+    CommandBufferAccessScope<B>& operator=(const CommandBufferAccessScope<B>& other);
+    CommandBufferAccessScope<B>& operator=(CommandBufferAccessScope<B>&& other);
+    operator auto() const { return (*myArray)[myIndex]; }
 
-        return *this;
-    }
-    CommandBufferAccessScope<B>& operator=(const CommandBufferAccessScope<B>& other)
-    {
-        myBeginInfo = other.myBeginInfo;
-        myRefCount = other.myRefCount;
-        myArray = other.myArray;
-        myIndex = other.myIndex;
-
-        (*myRefCount)++;
-    }
-
-    const auto& getBeginInfo() const { return myBeginInfo; }
-
-    operator CommandBufferHandle<B>() const { return (*myArray)[myIndex]; }
+    const auto& getDesc() const { return myDesc; }
 
     void end() { myArray->end(myIndex); }
 
 private:
 
-    CommandContextBeginInfo<B> myBeginInfo = {};
+    CommandBufferAccessScopeDesc<B> myDesc = {};
     std::shared_ptr<uint32_t> myRefCount;
     CommandBufferArray<B>* myArray = nullptr;
-    uint8_t myIndex;
+    uint8_t myIndex = 0;
 };
 
 template <GraphicsBackend B>
@@ -162,7 +131,7 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    CommandBufferAccessScope<B> commands(const CommandContextBeginInfo<B>& beginInfo = {});
+    CommandBufferAccessScope<B> commands(const CommandBufferAccessScopeDesc<B>& beginInfo = {});
     
     uint64_t execute(CommandContext<B>& callee);
     QueueSubmitInfo<B> flush(QueueSyncInfo<B>&& syncInfo);
@@ -177,8 +146,8 @@ protected:
 
 private:    
 
-    CommandBufferAccessScope<B> internalBeginScope(const CommandContextBeginInfo<B>& beginInfo);
-    CommandBufferAccessScope<B> internalCommands(const CommandContextBeginInfo<B>& beginInfo) const;
+    CommandBufferAccessScope<B> internalBeginScope(const CommandBufferAccessScopeDesc<B>& beginInfo);
+    CommandBufferAccessScope<B> internalCommands(const CommandBufferAccessScopeDesc<B>& beginInfo) const;
     void internalEndCommands(CommandBufferLevel<B> level);
 
     using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
