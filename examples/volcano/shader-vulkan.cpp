@@ -1,7 +1,52 @@
 #include "shader.h"
+#include "vk-utils.h"
 
 template <>
-void createLayoutBindings<Vk>(
+ShaderModuleVector<Vk>::ShaderModuleVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+     std::vector<ShaderModuleHandle<Vk>>&& shaderModules)
+: DeviceResource<Vk>(
+    deviceContext,
+    {"_ShaderModule"},
+    shaderModules.size(),
+    VK_OBJECT_TYPE_SHADER_MODULE,
+    reinterpret_cast<uint64_t*>(shaderModules.data()))
+, myShaderModules(std::move(shaderModules))
+{
+}
+
+template <>
+ShaderModuleVector<Vk>::ShaderModuleVector(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::vector<ShaderEntry>& shaderEntries)
+: ShaderModuleVector<Vk>(
+    deviceContext,
+    [&shaderEntries, device = deviceContext->getDevice()]{
+		std::vector<ShaderModuleHandle<Vk>> shaderModules;
+		shaderModules.reserve(shaderEntries.size());
+		for (const auto& shader : shaderEntries)
+		{
+			shaderModules.emplace_back(
+				createShaderModule(
+					device,
+					shader.first.size(),
+					reinterpret_cast<const uint32_t *>(shader.first.data())));
+		}
+		return shaderModules;
+	}())
+{
+}
+
+template <>
+ShaderModuleVector<Vk>::~ShaderModuleVector()
+{
+    if (myShaderModules.size())
+        for (auto shaderModule : myShaderModules)
+            vkDestroyShaderModule(getDeviceContext()->getDevice(), shaderModule, nullptr);
+}
+
+template <>
+void createSlangLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
     DescriptorSetLayoutBindingsMap<Vk>& bindings)
 {
@@ -123,5 +168,5 @@ void createLayoutBindings<Vk>(
 
 	// unsigned fieldCount = typeLayout->getFieldCount();
 	// for (unsigned ff = 0; ff < fieldCount; ff++)
-	// 	createLayoutBindings<Vk>(typeLayout->getFieldByIndex(ff), bindings);
+	// 	createSlangLayoutBindings<Vk>(typeLayout->getFieldByIndex(ff), bindings);
 }

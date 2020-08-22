@@ -42,15 +42,17 @@ private:
 
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ShaderModuleVector<B>&& shaderModules,
         DescriptorSetLayoutVector<B>&& descriptorSetLayouts);
 
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ShaderModuleVector<B>&& shaderModules,
         DescriptorSetLayoutVector<B>&& descriptorSetLayouts,
         PipelineLayoutHandle<B>&& layout);
 
+    ShaderModuleVector<B> myShaders;
 	DescriptorSetLayoutVector<B> myDescriptorSetLayouts;
-    std::unique_ptr<ShaderModuleHandle<B>[], ArrayDeleter<ShaderModuleHandle<B>>> myShaders;
     std::unique_ptr<SamplerHandle<B>[], ArrayDeleter<SamplerHandle<B>>> myImmutableSamplers;
 	PipelineLayoutHandle<B> myLayout = 0;
 };

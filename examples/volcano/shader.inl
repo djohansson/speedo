@@ -118,14 +118,14 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 		slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
 
 		for (unsigned pp = 0; pp < shaderReflection->getParameterCount(); pp++)
-			createLayoutBindings<Vk>(shaderReflection->getParameterByIndex(pp), slangModule->bindings);
+			createSlangLayoutBindings<Vk>(shaderReflection->getParameterByIndex(pp), slangModule->bindings);
 
 		for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 		{
 			slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
 
 			for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
-				createLayoutBindings<Vk>(epReflection->getParameterByIndex(pp), slangModule->bindings);
+				createSlangLayoutBindings<Vk>(epReflection->getParameterByIndex(pp), slangModule->bindings);
 		}
 
 		spDestroyCompileRequest(slangRequest);

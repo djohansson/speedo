@@ -125,6 +125,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    ShaderModuleVector<Vk>&& shaderModules,
     DescriptorSetLayoutVector<Vk>&& descriptorSetLayouts,
     PipelineLayoutHandle<Vk>&& layout)
 : DeviceResource<Vk>(
@@ -133,6 +134,7 @@ PipelineLayout<Vk>::PipelineLayout(
     1,
     VK_OBJECT_TYPE_PIPELINE_LAYOUT,
     reinterpret_cast<uint64_t*>(&layout))
+, myShaders(std::move(shaderModules))
 , myDescriptorSetLayouts(std::move(descriptorSetLayouts))
 , myLayout(std::move(layout))
 {
@@ -141,9 +143,11 @@ PipelineLayout<Vk>::PipelineLayout(
 template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    ShaderModuleVector<Vk>&& shaderModules,
     DescriptorSetLayoutVector<Vk>&& descriptorSetLayouts)
 : PipelineLayout(
     deviceContext,
+    std::move(shaderModules),
     std::move(descriptorSetLayouts),
     createPipelineLayout(
         deviceContext->getDevice(),
@@ -158,49 +162,13 @@ PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<SerializableShaderReflectionModule<Vk>>& slangModule)
 : PipelineLayout(
     deviceContext,
+    ShaderModuleVector<Vk>(
+        deviceContext,
+        slangModule->shaders),
     DescriptorSetLayoutVector<Vk>(
         deviceContext,
         slangModule->bindings))
 {
-    auto device = deviceContext->getDevice();
-
-	auto shaderDeleter = [device](ShaderModuleHandle<Vk>* module, size_t size) {
-		for (size_t i = 0; i < size; i++)
-			vkDestroyShaderModule(device, *(module + i), nullptr);
-	};
-
-	myShaders = std::unique_ptr<ShaderModuleHandle<Vk>[], ArrayDeleter<ShaderModuleHandle<Vk>>>(
-			new ShaderModuleHandle<Vk>[slangModule->shaders.size()],
-			{shaderDeleter, slangModule->shaders.size()});
-
-    char stringBuffer[128];
-
-	for (const auto& shader : slangModule->shaders)
-	{
-        uint32_t shaderIt = &shader - &slangModule->shaders[0];
-		myShaders.get()[shaderIt] =
-            createShaderModule(
-                device,
-                shader.first.size(),
-                reinterpret_cast<const uint32_t *>(shader.first.data()));
-    
-        static constexpr std::string_view shaderModuleStr = "_ShaderModule";
-
-        stbsp_sprintf(
-            stringBuffer,
-            "%.*s%.*s%u",
-            getName().size(),
-            getName().c_str(),
-            static_cast<int>(shaderModuleStr.size()),
-            shaderModuleStr.data(),
-            shaderIt);
-
-        getDeviceContext()->addOwnedObject(
-            getId(),
-            VK_OBJECT_TYPE_SHADER_MODULE,
-            reinterpret_cast<uint64_t>(myShaders.get()[shaderIt]),
-            stringBuffer);
-    }
 }
 
 template <>
