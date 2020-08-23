@@ -34,10 +34,10 @@ class Queue : public DeviceResource<B>
 {
 public:
 
-    Queue(Queue<B>&& other);
     Queue(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         QueueCreateDesc<B>&& desc);
+    Queue(Queue<B>&& other);
 
     Queue& operator=(Queue&& other);
     operator auto() const { return myDesc.queue; }
@@ -49,7 +49,7 @@ public:
 
 private:
 
-    const QueueCreateDesc<B> myDesc = {};
+    QueueCreateDesc<B> myDesc = {};
     std::vector<QueueSubmitInfo<B>> myPendingSubmits;
     std::vector<std::byte> myScratchMemory;
     FenceHandle<B> myFence = {};

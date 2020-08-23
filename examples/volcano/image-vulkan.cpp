@@ -7,6 +7,7 @@
 #include <execution>
 #endif
 #include <iostream>
+#include <numeric>
 #include <string>
 #include <thread>
 #include <tuple>

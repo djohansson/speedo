@@ -16,6 +16,27 @@ Queue<Vk>::Queue(
 }
 
 template <>
+Queue<Vk>::Queue(Queue<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
+, myScratchMemory(std::exchange(other.myScratchMemory, {}))
+, myFence(std::exchange(other.myFence, {}))
+{
+}
+
+template <>
+Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
+{
+	DeviceResource<Vk>::operator=(std::move(other));
+	myDesc = std::exchange(other.myDesc, {});
+    myPendingSubmits = std::exchange(other.myPendingSubmits, {});
+    myScratchMemory = std::exchange(other.myScratchMemory, {});
+    myFence = std::exchange(other.myFence, {});
+	return *this;
+}
+
+template <>
 uint64_t Queue<Vk>::submit()
 {
     ZoneScopedN("Queue::submit");
