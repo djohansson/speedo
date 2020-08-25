@@ -181,17 +181,6 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
         myDevice->processTimelineCallbacks(std::min(timelineValue, myLastTransferTimelineValue));
         
         myLastTransferTimelineValue = 0;
-
-        // {
-        //     ZoneScopedN("Application::tracyVkCollectTransfer");
-
-        //     auto& commandContext = myWindow->commandContext(frameIndex);
-        //     auto cmd = commandContext->beginScope();
-
-        //     TracyVkCollect(
-        //         myTransferCommands->userData<command::UserData>().tracyContext,
-        //         cmd);
-        // }
     }
     else
     {
@@ -257,23 +246,18 @@ Application<Vk>::Application(
 
     myGraphicsPipeline->layout() = myGraphicsPipelineLayout;
 
-    // if (commandBufferLevel == 0)
-    //     std::any_cast<command::UserData>(&myUserData)->tracyContext =
-    //         TracyVkContext(
-    //             myDevice->getPhysicalDevice(),
-    //             myDevice->getDevice(),
-    //             queue,
-    //             commands());
-
-    // if (std::any_cast<command::UserData>(&myUserData)->tracyContext)
-    //     TracyVkDestroy(std::any_cast<command::UserData>(&myUserData)->tracyContext);
-
     myTransferCommands = std::make_shared<CommandContext<Vk>>(
         myDevice,
-        CommandContextCreateDesc<Vk>{myDevice->getQueueFamilies()[myDevice->getTransferQueueFamilyIndex()].commandPools[0]});
+        CommandContextCreateDesc<Vk>{
+            myDevice->getQueueFamilies(
+                myDevice->getTransferQueueFamilyIndex()).commandPools[0]});
 
-    myGraphicsQueue = std::make_shared<Queue<Vk>>(myDevice, QueueCreateDesc<Vk>{{"GraphicsQueue"}, myDevice->getGraphicsQueue()});
-    myTransferQueue = std::make_shared<Queue<Vk>>(myDevice, QueueCreateDesc<Vk>{{"TransferQueue"}, myDevice->getTransferQueue()});
+    myTransferQueue = std::make_shared<Queue<Vk>>(
+        myDevice,
+        QueueCreateDesc<Vk>{
+            {"TransferQueue"},
+            myDevice->getTransferQueue(),
+            false});
 
     {
         myGraphicsPipeline->resources()->model = std::make_shared<Model<Vk>>(
@@ -313,7 +297,13 @@ Application<Vk>::Application(
     {
         const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
-        auto cmd = commandContext->commands();
+        
+        myGraphicsQueue = std::make_shared<Queue<Vk>>(
+            myDevice,
+            QueueCreateDesc<Vk>{
+                {"GraphicsQueue"},
+                myDevice->getGraphicsQueue(),
+                true});
 
         auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
         {
@@ -325,10 +315,8 @@ Application<Vk>::Application(
             myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         };
 
-        initDrawCommands(cmd, frame.getDesc().index);
+        initDrawCommands(commandContext->commands(), frame.getDesc().index);
 
-        cmd.end();
-        
         myGraphicsQueue->enqueue(
             commandContext->flush({
                 {myDevice->getTimelineSemaphore()},
@@ -428,7 +416,7 @@ Application<Vk>::Application(
         NewFrame();
 
         // todo: move elsewhere
-        auto editableTextField = [](int id, const char* label, std::string& str, float maxTextWidth, int& inputId)
+        auto editableTextField = [](int id, const char* label, std::string& str, float maxTextWidth, std::optional<int>& selected)
         {
             auto textSize = std::max(
                 maxTextWidth,
@@ -439,7 +427,7 @@ Application<Vk>::Application(
             PushItemWidth(textSize);
             //PushClipRect(textSize);
             
-            if (id == inputId)
+            if (id == selected.value_or(0))
             {
                 if (IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !IsMouseClicked(0))
                 {
@@ -473,7 +461,7 @@ Application<Vk>::Application(
                         if (str.empty())
                             str = "Empty";
                         
-                        inputId = 0;
+                        selected.reset();
                     }
 
                     PopAllowKeyboardFocus();
@@ -483,7 +471,7 @@ Application<Vk>::Application(
                     if (str.empty())
                         str = "Empty";
                             
-                    inputId = 0;
+                    selected.reset();
                 }
             }
             else
@@ -560,16 +548,8 @@ Application<Vk>::Application(
             
             imnodes::BeginNodeEditor();
 
-            struct NodeUserData
-            {
-                int inputId = 0;
-            };
-
             for (const auto& node : myNodeGraph.nodes)
             {
-                if (!node->userData().has_value())
-                    node->userData() = NodeUserData{};
-
                 char buffer[64];
 
                 imnodes::BeginNode(node->id());
@@ -584,12 +564,12 @@ Application<Vk>::Application(
                     buffer,
                     node->name(),
                     160.0f,
-                    std::any_cast<NodeUserData&>(node->userData()).inputId);
+                    node->selected());
 
                 imnodes::EndNodeTitleBar();
 
                 if (IsItemClicked() && IsMouseDoubleClicked(0))
-                    std::any_cast<NodeUserData&>(node->userData()).inputId = node->id();
+                    node->selected() = std::make_optional(node->id());
                 
                 // attributes
                 if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
@@ -612,12 +592,12 @@ Application<Vk>::Application(
                                 buffer,
                                 inputAttribute.name,
                                 80.0f,
-                                std::any_cast<NodeUserData&>(node->userData()).inputId);
+                                node->selected());
                             
                             imnodes::EndInputAttribute();
 
                             if (IsItemClicked() && IsMouseDoubleClicked(0))
-                                std::any_cast<NodeUserData&>(node->userData()).inputId = inputAttribute.id;
+                                node->selected() = std::make_optional(inputAttribute.id);
                         }
 
                         if (rowIt < inOutNode->outputAttributes().size())
@@ -644,12 +624,12 @@ Application<Vk>::Application(
                                 buffer,
                                 outputAttribute.name,
                                 80.0f,
-                                std::any_cast<NodeUserData&>(node->userData()).inputId);
+                                node->selected());
                             
                             imnodes::EndOutputAttribute();
 
                             if (IsItemClicked() && IsMouseDoubleClicked(0))
-                                std::any_cast<NodeUserData&>(node->userData()).inputId = outputAttribute.id;
+                                node->selected() = std::make_optional(outputAttribute.id);
                         }
                     }
                 }
@@ -844,7 +824,7 @@ bool Application<Vk>::draw()
 
     auto& swapchain = myWindow->getSwapchain();
 
-    auto [flipSuccess, frameTimelineValue] = swapchain->flip();
+    auto [flipSuccess, frameLastPresentTimelineValue] = swapchain->flip();
 
     if (flipSuccess)
     {
@@ -853,16 +833,20 @@ bool Application<Vk>::draw()
             myIMGUIPrepareDrawFunction();
         }));
 
-        if (frameTimelineValue)
+        if (frameLastPresentTimelineValue)
         {
             ZoneScopedN("Application::waitFrameGPUCommands");
 
-            myDevice->wait(frameTimelineValue);
+            myDevice->wait(frameLastPresentTimelineValue);
         }
 
         auto& commandContext = myWindow->commandContext(swapchain->getFrameIndex());
         {
             auto cmd = commandContext->commands();
+
+            myGraphicsQueue->collect(cmd);
+
+            auto gpuScope = myGraphicsQueue->trace(cmd, "draw", __FUNCTION__, __FILE__, __LINE__);
 
             myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
             myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
@@ -873,7 +857,6 @@ bool Application<Vk>::draw()
             swapchain->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
             {
                 ZoneScopedN("Application::waitImguiPrepareDraw");
-
                 imguiPrepareDrawFuture.get();
             }
             myIMGUIDrawFunction(cmd);
@@ -902,7 +885,7 @@ bool Application<Vk>::draw()
             std::launch::async,
             &Application<Vk>::processTimelineCallbacks,
             this,
-            frameTimelineValue));
+            frameLastPresentTimelineValue));
 
     if (flipSuccess)
         swapchain->present(myLastFrameTimelineValue);

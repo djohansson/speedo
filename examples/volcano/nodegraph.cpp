@@ -17,14 +17,14 @@ int& InputOutputNode::id()
     return myId;
 }
 
+std::optional<int>& InputOutputNode::selected()
+{
+    return mySelected;
+}
+
 std::string& InputOutputNode::name()
 {
     return myName;
-}
-
-std::any& InputOutputNode::userData()
-{
-    return myUserData;
 }
 
 std::vector<Attribute>& InputOutputNode::inputAttributes()

@@ -130,10 +130,6 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                 auto& commandContext = myCommands[frameIndex][threadIt];
                 auto cmd = commandContext->commands(beginInfo);
 
-                // TracyVkZone(
-                //     commandContext->userData<command_vulkan::UserData>().tracyContext,
-                //     cmd, drawPartitionStr.data());
-            
                 // bind pipeline and inputs
                 {
                     ZoneScopedN("WindowContext::drawViews::bind");
@@ -376,7 +372,7 @@ WindowContext<Vk>::WindowContext(
 
     createFrameObjects(desc.framebufferExtent);
 
-    const auto& graphicsCommandPools = myDevice->getQueueFamilies()[myDevice->getGraphicsQueueFamilyIndex()].commandPools;
+    const auto& graphicsCommandPools = myDevice->getQueueFamilies(myDevice->getGraphicsQueueFamilyIndex()).commandPools;
 
     uint32_t frameCount = mySwapchain->getFrames().size();
     uint32_t commandContextCount = std::min<uint32_t>(graphicsCommandPools.size(), myDesc.maxCommandContextPerFrameCount * frameCount);

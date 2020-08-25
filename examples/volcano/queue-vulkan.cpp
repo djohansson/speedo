@@ -1,6 +1,19 @@
 #include "queue.h"
 #include "vk-utils.h"
 
+#include <TracyC.h>
+#include <TracyVulkan.hpp>
+
+namespace queue
+{
+
+struct UserData
+{
+    TracyVkCtx tracyContext = {};
+};
+
+}
+
 template <>
 Queue<Vk>::Queue(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
@@ -13,6 +26,25 @@ Queue<Vk>::Queue(
     reinterpret_cast<uint64_t*>(&desc.queue))
 , myDesc(std::move(desc))
 {
+    if (myDesc.tracingEnabled)
+    {
+        auto physicalDevice = deviceContext->getPhysicalDevice();
+        auto device = deviceContext->getDevice();
+        auto pool = deviceContext->getQueueFamilies(deviceContext->getGraphicsQueueFamilyIndex()).commandPools.front();
+
+        VkCommandBuffer cmd;
+        VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        cmdInfo.commandPool = pool;
+        cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmdInfo.commandBufferCount = 1;
+        VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, &cmd));
+
+        auto tracyContext = TracyVkContext(physicalDevice, device, myDesc.queue, cmd);
+
+        vkFreeCommandBuffers(device, pool, 1, &cmd);
+
+        myUserData = queue::UserData{tracyContext};
+    }
 }
 
 template <>
@@ -22,7 +54,15 @@ Queue<Vk>::Queue(Queue<Vk>&& other)
 , myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 , myScratchMemory(std::exchange(other.myScratchMemory, {}))
 , myFence(std::exchange(other.myFence, {}))
+, myUserData(std::exchange(other.myUserData, {}))
 {
+}
+
+template <>
+Queue<Vk>::~Queue()
+{
+    if (myDesc.tracingEnabled)
+        TracyVkDestroy(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
 }
 
 template <>
@@ -33,7 +73,27 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
     myPendingSubmits = std::exchange(other.myPendingSubmits, {});
     myScratchMemory = std::exchange(other.myScratchMemory, {});
     myFence = std::exchange(other.myFence, {});
+    myUserData = std::exchange(other.myUserData, {});
 	return *this;
+}
+
+template <>
+void Queue<Vk>::collect(CommandBufferHandle<Vk> cmd)
+{
+    if (myDesc.tracingEnabled)
+        TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
+}
+
+template <>
+std::shared_ptr<void> Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* name, const char* function, const char* file, uint32_t line)
+{
+    if (!myDesc.tracingEnabled)
+        return {};
+    
+    static const auto srcloc = tracy::SourceLocationData{name, function, file, line, 0};
+    //auto srcloc = (const tracy::SourceLocationData*)___tracy_alloc_srcloc_name(line, file, strlen(file), function, strlen(function), name, strlen(name));
+    auto scope = tracy::VkCtxScope(std::any_cast<queue::UserData>(&myUserData)->tracyContext, &srcloc, cmd, true);
+    return std::make_shared<tracy::VkCtxScope>(std::move(scope));
 }
 
 template <>
@@ -86,7 +146,7 @@ uint64_t Queue<Vk>::submit()
     }
 
     VK_CHECK(vkQueueSubmit(myDesc.queue, myPendingSubmits.size(), submitBegin, myFence));
-    
+
     myPendingSubmits.clear();
 
     return maxTimelineValue;

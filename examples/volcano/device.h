@@ -70,16 +70,16 @@ public:
     const auto& getPhysicalDeviceInfo() const { return myInstance->getPhysicalDeviceInfo(getPhysicalDevice()); }
     auto getSurface() const { return myInstance->getSurface(); }
 
-    const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
+    const auto& getQueueFamilies(uint32_t index) const { return myQueueFamilyDescs[index]; }
 
     uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
     uint32_t getTransferQueueFamilyIndex() const { return myTransferQueueFamilyIndex; }
     uint32_t getComputeQueueFamilyIndex() const { return myComputeQueueFamilyIndex; }
 
     // temp
-    auto getGraphicsQueue() const { return getQueueFamilies()[getGraphicsQueueFamilyIndex()].queues[myCurrentGraphicsQueue]; }
-    auto getTransferQueue() const { return getQueueFamilies()[getTransferQueueFamilyIndex()].queues[myCurrentTransferQueue]; }
-    auto getComputeQueue() const { return getQueueFamilies()[getComputeQueueFamilyIndex()].queues[myCurrentComputeQueue]; }
+    auto getGraphicsQueue() const { return getQueueFamilies(getGraphicsQueueFamilyIndex()).queues[myCurrentGraphicsQueue]; }
+    auto getTransferQueue() const { return getQueueFamilies(getTransferQueueFamilyIndex()).queues[myCurrentTransferQueue]; }
+    auto getComputeQueue() const { return getQueueFamilies(getComputeQueueFamilyIndex()).queues[myCurrentComputeQueue]; }
     //
 
     auto getAllocator() const { return myAllocator; }

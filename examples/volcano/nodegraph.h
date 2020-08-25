@@ -5,15 +5,16 @@
 #include <any>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 struct INode
 {
-    virtual ~INode() noexcept {};
+    virtual ~INode() {};
     virtual int& id() = 0;
+    virtual std::optional<int>& selected() = 0;
     virtual std::string& name() = 0;
-    virtual std::any& userData() = 0;
 };
 
 struct Attribute
@@ -36,14 +37,14 @@ public:
     InputOutputNode(int id, std::string&& name);
     InputOutputNode(const InputOutputNode&) = default;
     InputOutputNode(InputOutputNode&&) = default;
-    ~InputOutputNode() noexcept = default;
+    ~InputOutputNode() = default;
 
     InputOutputNode& operator=(const InputOutputNode&) = default;
     InputOutputNode& operator=(InputOutputNode&&) = default;
 
     int& id() final;
+    std::optional<int>& selected() final;
     std::string& name() final;
-    std::any& userData() final;
 
     std::vector<Attribute>& inputAttributes();
     std::vector<Attribute>& outputAttributes();
@@ -51,10 +52,10 @@ public:
 private:
 
     int myId = 0;
+    std::optional<int> mySelected;
     std::string myName;
     std::vector<Attribute> myInputAttributes;
     std::vector<Attribute> myOutputAttributes;
-    std::any myUserData;
 };
 
 class SlangShaderNode : public InputOutputNode
@@ -65,7 +66,7 @@ public:
     SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path);
     SlangShaderNode(const SlangShaderNode&) = default;
     SlangShaderNode(SlangShaderNode&&) = default;
-    ~SlangShaderNode() noexcept = default;
+    ~SlangShaderNode() = default;
 
     SlangShaderNode& operator=(const SlangShaderNode&) = default;
     SlangShaderNode& operator=(SlangShaderNode&&) = default;

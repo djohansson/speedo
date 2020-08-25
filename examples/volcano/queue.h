@@ -3,6 +3,8 @@
 #include "device.h"
 #include "types.h"
 
+#include <any>
+#include <memory>
 #include <vector>
 
 template <GraphicsBackend B>
@@ -26,7 +28,8 @@ struct QueueSubmitInfo
 template <GraphicsBackend B>
 struct QueueCreateDesc : DeviceResourceCreateDesc<B>
 {
-    QueueHandle<B> queue;
+    QueueHandle<B> queue = {};
+    bool tracingEnabled = false;
 };
 
 template <GraphicsBackend B>
@@ -38,12 +41,15 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         QueueCreateDesc<B>&& desc);
     Queue(Queue<B>&& other);
+    ~Queue();
 
     Queue& operator=(Queue&& other);
     operator auto() const { return myDesc.queue; }
 
     template <typename... Args>
     void enqueue(Args&&... args) { myPendingSubmits.emplace_back(std::move(args)...); }
+    void collect(CommandBufferHandle<B> cmd);
+    std::shared_ptr<void> trace(CommandBufferHandle<B> cmd, const char* name, const char* function, const char* file, uint32_t line);
     uint64_t submit();
     void waitIdle() const;
 
@@ -53,4 +59,5 @@ private:
     std::vector<QueueSubmitInfo<B>> myPendingSubmits;
     std::vector<std::byte> myScratchMemory;
     FenceHandle<B> myFence = {};
+    std::any myUserData;
 };
