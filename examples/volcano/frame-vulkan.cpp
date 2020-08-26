@@ -158,3 +158,11 @@ void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<
 {
     assert(false);
 }
+
+template <>
+QueuePresentInfo<Vk> Frame<Vk>::preparePresent(uint64_t timelineValue)
+{
+    myLastPresentTimelineValue = timelineValue;
+
+    return QueuePresentInfo<Vk>{{myRenderCompleteSemaphore}, {}, {getDesc().index}, {}, timelineValue};
+}

@@ -78,7 +78,7 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
 }
 
 template <>
-void Queue<Vk>::collect(CommandBufferHandle<Vk> cmd)
+void Queue<Vk>::collectTracing(CommandBufferHandle<Vk> cmd)
 {
     if (myDesc.tracingEnabled)
         TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
@@ -125,12 +125,12 @@ uint64_t Queue<Vk>::submit()
 
         timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         timelineInfo.pNext = nullptr;
-        timelineInfo.waitSemaphoreValueCount = pendingSubmit.syncInfo.waitSemaphoreValues.size();
-        timelineInfo.pWaitSemaphoreValues = pendingSubmit.syncInfo.waitSemaphoreValues.data();
-        timelineInfo.signalSemaphoreValueCount = pendingSubmit.syncInfo.signalSemaphoreValues.size();
-        timelineInfo.pSignalSemaphoreValues = pendingSubmit.syncInfo.signalSemaphoreValues.data();
+        timelineInfo.waitSemaphoreValueCount = pendingSubmit.waitSemaphoreValues.size();
+        timelineInfo.pWaitSemaphoreValues = pendingSubmit.waitSemaphoreValues.data();
+        timelineInfo.signalSemaphoreValueCount = pendingSubmit.signalSemaphoreValues.size();
+        timelineInfo.pSignalSemaphoreValues = pendingSubmit.signalSemaphoreValues.data();
 
-        maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.maxTimelineValue);
+        maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.timelineValue);
     }
 
     auto submitBegin = reinterpret_cast<SubmitInfo<Vk>*>(timelinePtr);
@@ -143,11 +143,11 @@ uint64_t Queue<Vk>::submit()
 
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.pNext = timelinePtr++;
-        submitInfo.waitSemaphoreCount = pendingSubmit.syncInfo.waitSemaphores.size();
-        submitInfo.pWaitSemaphores = pendingSubmit.syncInfo.waitSemaphores.data();
-        submitInfo.pWaitDstStageMask = pendingSubmit.syncInfo.waitDstStageMasks.data();
-        submitInfo.signalSemaphoreCount  = pendingSubmit.syncInfo.signalSemaphores.size();
-        submitInfo.pSignalSemaphores = pendingSubmit.syncInfo.signalSemaphores.data();
+        submitInfo.waitSemaphoreCount = pendingSubmit.waitSemaphores.size();
+        submitInfo.pWaitSemaphores = pendingSubmit.waitSemaphores.data();
+        submitInfo.pWaitDstStageMask = pendingSubmit.waitDstStageMasks.data();
+        submitInfo.signalSemaphoreCount  = pendingSubmit.signalSemaphores.size();
+        submitInfo.pSignalSemaphores = pendingSubmit.signalSemaphores.data();
         submitInfo.commandBufferCount = pendingSubmit.commandBuffers.size();
         submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
     }
@@ -165,4 +165,25 @@ void Queue<Vk>::waitIdle() const
     ZoneScopedN("Queue::waitIdle");
 
     VK_CHECK(vkQueueWaitIdle(myDesc.queue));
+}
+
+template <>
+void Queue<Vk>::present()
+{
+    ZoneScopedN("Queue::present");
+
+    if (myPendingPresent.swapchains.empty())
+        return;
+
+    PresentInfo<Vk> presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
+    presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
+    presentInfo.swapchainCount = myPendingPresent.swapchains.size();
+    presentInfo.pSwapchains = myPendingPresent.swapchains.data();
+    presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
+    presentInfo.pResults = myPendingPresent.results.data();
+    
+    checkFlipOrPresentResult(vkQueuePresentKHR(myDesc.queue, &presentInfo));
+
+    myPendingPresent = {};
 }

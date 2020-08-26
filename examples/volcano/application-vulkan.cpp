@@ -280,7 +280,7 @@ Application<Vk>::Application(
                 {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
                 {3, 2}});
         
-        myTransferQueue->enqueue(
+        myTransferQueue->enqueueSubmit(
             myTransferCommands->flush({
                 {},
                 {},
@@ -317,7 +317,7 @@ Application<Vk>::Application(
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);
 
-        myGraphicsQueue->enqueue(
+        myGraphicsQueue->enqueueSubmit(
             commandContext->flush({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
@@ -345,7 +345,7 @@ Application<Vk>::Application(
             myTransferCommands,
             openFilePath);
 
-        myTransferQueue->enqueue(
+        myTransferQueue->enqueueSubmit(
             myTransferCommands->flush({
                 {},
                 {},
@@ -377,7 +377,7 @@ Application<Vk>::Application(
             myTransferCommands,
             openFilePath);
 
-        myTransferQueue->enqueue(
+        myTransferQueue->enqueueSubmit(
             myTransferCommands->flush({
                 {},
                 {},
@@ -843,9 +843,12 @@ bool Application<Vk>::draw()
         auto& commandContext = myWindow->commandContext(swapchain->getFrameIndex());
         {
             auto cmd = commandContext->commands();
+            auto gpuScope = myGraphicsQueue->trace<decltype(&Application<Vk>::draw)>(cmd, "collect", __FUNCTION__, __FILE__, __LINE__);
 
-            myGraphicsQueue->collect(cmd);
-
+            myGraphicsQueue->collectTracing(cmd);
+        }
+        {
+            auto cmd = commandContext->commands();
             auto gpuScope = myGraphicsQueue->trace<decltype(&Application<Vk>::draw)>(cmd, "draw", __FUNCTION__, __FILE__, __LINE__);
 
             myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
@@ -868,7 +871,7 @@ bool Application<Vk>::draw()
         {
             auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();
             
-            myGraphicsQueue->enqueue(
+            myGraphicsQueue->enqueueSubmit(
                 commandContext->flush({
                     {myDevice->getTimelineSemaphore(), imageAquired},
                     {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
@@ -877,6 +880,8 @@ bool Application<Vk>::draw()
                     {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
             myLastFrameTimelineValue = myGraphicsQueue->submit();
+            
+            myGraphicsQueue->enqueuePresent(swapchain->preparePresent(myLastFrameTimelineValue));
         }
     }
 
@@ -888,7 +893,7 @@ bool Application<Vk>::draw()
             frameLastPresentTimelineValue));
 
     if (flipSuccess)
-        swapchain->present(myLastFrameTimelineValue);
+        myGraphicsQueue->present();
 
     // wait for timeline callbacks
     {
@@ -918,7 +923,7 @@ bool Application<Vk>::draw()
 
         if (transferCount)
         {
-            myTransferQueue->enqueue(
+            myTransferQueue->enqueueSubmit(
                 myTransferCommands->flush({
                     {myDevice->getTimelineSemaphore()},
                     {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},

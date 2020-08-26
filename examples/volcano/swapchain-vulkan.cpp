@@ -227,22 +227,14 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
 }
 
 template <>
-void SwapchainContext<Vk>::present(uint64_t timelineValue)
+QueuePresentInfo<Vk> SwapchainContext<Vk>::preparePresent(uint64_t timelineValue)
 {
-    ZoneScopedN("SwapchainContext::present");
-
-    auto& frame = *myFrames[myFrameIndex];
-
-    VkPresentInfoKHR info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    info.waitSemaphoreCount = 1;
-    info.pWaitSemaphores = &frame.getRenderCompleteSemaphore();
-    info.swapchainCount = 1;
-    info.pSwapchains = &mySwapchain;
-    info.pImageIndices = &myFrameIndex;
-    checkFlipOrPresentResult(vkQueuePresentKHR(getDeviceContext()->getGraphicsQueue(), &info));
-
-    frame.myLastPresentTimelineValue = timelineValue;
     myLastFrameIndex = myFrameIndex;
+
+    auto presentInfo = myFrames[myFrameIndex]->preparePresent(timelineValue);
+    presentInfo.swapchains.push_back(mySwapchain);
+    
+    return presentInfo;
 }
 
 template <>

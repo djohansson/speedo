@@ -295,8 +295,7 @@ QueueSubmitInfo<Vk> CommandContext<Vk>::flush(QueueSyncInfo<Vk>&& syncInfo)
     if (pendingCommands.empty())
         return {};
 
-    QueueSubmitInfo<Vk> submitInfo;
-    submitInfo.syncInfo = std::move(syncInfo);
+    QueueSubmitInfo<Vk> submitInfo{std::move(syncInfo), {}, 0};
     submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::kCommandBufferCount);
 
     for (auto& cmdSegment : pendingCommands)
@@ -307,10 +306,10 @@ QueueSubmitInfo<Vk> CommandContext<Vk>::flush(QueueSyncInfo<Vk>&& syncInfo)
     }
 
     const auto [minSignalValue, maxSignalValue] = std::minmax_element(
-        submitInfo.syncInfo.signalSemaphoreValues.begin(),
-        submitInfo.syncInfo.signalSemaphoreValues.end());
+        submitInfo.signalSemaphoreValues.begin(),
+        submitInfo.signalSemaphoreValues.end());
 
-    submitInfo.maxTimelineValue = *maxSignalValue;
+    submitInfo.timelineValue = *maxSignalValue;
 
     enqueueSubmitted(std::move(pendingCommands), *maxSignalValue);
     

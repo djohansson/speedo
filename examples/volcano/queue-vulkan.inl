@@ -1,3 +1,19 @@
+template <>
+template <typename... Args>
+void Queue<Vk>::enqueueSubmit(Args&&... args)
+{
+    myPendingSubmits.emplace_back(std::move(args)...);
+}
+
+template <>
+template <typename T, typename... Ts>
+void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
+{
+    myPendingPresent ^= std::move(first);
+
+    if constexpr (sizeof...(rest) > 0)
+        enqueuePresent(std::forward<Ts>(rest)...);
+}
 
 template <>
 template <typename Function>

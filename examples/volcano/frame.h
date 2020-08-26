@@ -1,6 +1,6 @@
 #pragma once
 
-#include "command.h"
+#include "queue.h"
 #include "rendertarget.h"
 #include "types.h"
 
@@ -11,9 +11,6 @@ struct FrameCreateDesc : RenderTargetCreateDesc<B>
 {
 	uint32_t index = 0;
 };
-
-template <GraphicsBackend B>
-class SwapchainContext;
 
 template <GraphicsBackend B>
 class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
@@ -40,9 +37,9 @@ public:
 	const auto& getNewImageAcquiredSemaphore() const { return myNewImageAcquiredSemaphore; }
 	const auto& getLastPresentTimelineValue() const { return myLastPresentTimelineValue; }
 
-private:
+	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
 
-	friend class SwapchainContext<B>;
+private:
 
 	SemaphoreHandle<B> myRenderCompleteSemaphore = {};
 	SemaphoreHandle<B> myNewImageAcquiredSemaphore = {};

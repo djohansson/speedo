@@ -4,6 +4,7 @@
 #include "frame.h"
 #include "rendertarget.h"
 #include "types.h"
+#include "queue.h"
 
 #include <memory>
 
@@ -69,7 +70,7 @@ public:
 	//
 
 	std::tuple<bool, uint64_t> flip();
-	void present(uint64_t timelineValue);
+	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
 
 private:
 
