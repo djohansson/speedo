@@ -256,8 +256,7 @@ Application<Vk>::Application(
         myDevice,
         QueueCreateDesc<Vk>{
             {"TransferQueue"},
-            myDevice->getTransferQueue(),
-            false});
+            myDevice->getTransferQueue()});
 
     {
         myGraphicsPipeline->resources()->model = std::make_shared<Model<Vk>>(
@@ -841,22 +840,26 @@ bool Application<Vk>::draw()
         }
 
         auto& commandContext = myWindow->commandContext(swapchain->getFrameIndex());
+        auto cmd = commandContext->commands();
         {
-            auto cmd = commandContext->commands();
-            auto gpuScope = myGraphicsQueue->trace<decltype(&Application<Vk>::draw)>(cmd, "collect", __FUNCTION__, __FILE__, __LINE__);
-
+            GPU_SCOPE(cmd, myGraphicsQueue, collect);
             myGraphicsQueue->collectTracing(cmd);
         }
         {
-            auto cmd = commandContext->commands();
-            auto gpuScope = myGraphicsQueue->trace<decltype(&Application<Vk>::draw)>(cmd, "draw", __FUNCTION__, __FILE__, __LINE__);
-
+            GPU_SCOPE(cmd, myGraphicsQueue, clear);
             myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
+        }
+        {
+            GPU_SCOPE(cmd, myGraphicsQueue, transitionColor);
             myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-                
+        }
+        {
+            GPU_SCOPE(cmd, myGraphicsQueue, draw);
             myWindow->updateInput(myInput);
             myWindow->draw(myGraphicsPipeline);
-
+        }
+        {
+            GPU_SCOPE(cmd, myGraphicsQueue, imgui);
             swapchain->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
             {
                 ZoneScopedN("Application::waitImguiPrepareDraw");
@@ -864,25 +867,27 @@ bool Application<Vk>::draw()
             }
             myIMGUIDrawFunction(cmd);
             swapchain->end(cmd);
-
+        }
+        {
+            GPU_SCOPE(cmd, myGraphicsQueue, transitionColor);
             swapchain->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
         }
-        
-        {
-            auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();
-            
-            myGraphicsQueue->enqueueSubmit(
-                commandContext->flush({
-                    {myDevice->getTimelineSemaphore(), imageAquired},
-                    {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-                    {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
-                    {myDevice->getTimelineSemaphore(), renderComplete},
-                    {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
-            myLastFrameTimelineValue = myGraphicsQueue->submit();
-            
-            myGraphicsQueue->enqueuePresent(swapchain->preparePresent(myLastFrameTimelineValue));
-        }
+        cmd.end();
+        
+        auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();
+        
+        myGraphicsQueue->enqueueSubmit(
+            commandContext->flush({
+                {myDevice->getTimelineSemaphore(), imageAquired},
+                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
+                {myDevice->getTimelineSemaphore(), renderComplete},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
+
+        myLastFrameTimelineValue = myGraphicsQueue->submit();
+        
+        myGraphicsQueue->enqueuePresent(swapchain->preparePresent(myLastFrameTimelineValue));
     }
 
     auto processTimelineCallbacksFuture(

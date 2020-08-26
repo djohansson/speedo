@@ -26,25 +26,29 @@ Queue<Vk>::Queue(
     reinterpret_cast<uint64_t*>(&desc.queue))
 , myDesc(std::move(desc))
 {
-    if (myDesc.tracingEnabled)
+#if PROFILING_ENABLED
     {
-        auto physicalDevice = deviceContext->getPhysicalDevice();
-        auto device = deviceContext->getDevice();
-        auto pool = deviceContext->getQueueFamilies(deviceContext->getGraphicsQueueFamilyIndex()).commandPools.front();
+        if (myDesc.tracingEnabled)
+        {
+            auto physicalDevice = deviceContext->getPhysicalDevice();
+            auto device = deviceContext->getDevice();
+            auto pool = deviceContext->getQueueFamilies(deviceContext->getGraphicsQueueFamilyIndex()).commandPools.front();
 
-        VkCommandBuffer cmd;
-        VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-        cmdInfo.commandPool = pool;
-        cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdInfo.commandBufferCount = 1;
-        VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, &cmd));
+            VkCommandBuffer cmd;
+            VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+            cmdInfo.commandPool = pool;
+            cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cmdInfo.commandBufferCount = 1;
+            VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, &cmd));
 
-        auto tracyContext = TracyVkContext(physicalDevice, device, myDesc.queue, cmd);
+            auto tracyContext = TracyVkContext(physicalDevice, device, myDesc.queue, cmd);
 
-        vkFreeCommandBuffers(device, pool, 1, &cmd);
+            vkFreeCommandBuffers(device, pool, 1, &cmd);
 
-        myUserData = queue::UserData{tracyContext};
+            myUserData = queue::UserData{tracyContext};
+        }
     }
+#endif
 }
 
 template <>
@@ -61,8 +65,11 @@ Queue<Vk>::Queue(Queue<Vk>&& other)
 template <>
 Queue<Vk>::~Queue()
 {
-    if (myDesc.tracingEnabled)
-        TracyVkDestroy(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
+    if constexpr (PROFILING_ENABLED)
+    {
+        if (myDesc.tracingEnabled)
+            TracyVkDestroy(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
+    }
 }
 
 template <>
@@ -80,27 +87,34 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
 template <>
 void Queue<Vk>::collectTracing(CommandBufferHandle<Vk> cmd)
 {
-    if (myDesc.tracingEnabled)
+    if constexpr (PROFILING_ENABLED)
         TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
 }
 
 template <>
 std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
-    static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
-    static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
-    static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
-    static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
-    static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
-    static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
+#if PROFILING_ENABLED
+    {
+        static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
+        static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
+        static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
+        static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
+        static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
+        static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-    auto scope = tracy::VkCtxScope(
-        std::any_cast<queue::UserData>(&myUserData)->tracyContext,
-        reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-        cmd,
-        true);
+        auto scope = tracy::VkCtxScope(
+            std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+            reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+            cmd,
+            true);
 
-    return std::make_shared<tracy::VkCtxScope>(std::move(scope));
+        return std::make_shared<tracy::VkCtxScope>(std::move(scope));
+
+    }
+#endif
+
+    return {};    
 }
 
 template <>

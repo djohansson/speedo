@@ -16,16 +16,18 @@ void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 }
 
 template <>
-template <typename Function>
-std::shared_ptr<void> Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* name, const char* function, const char* file, uint32_t line)
+template <typename T, uint32_t Line>
+std::shared_ptr<void> Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* function, const char* file)
 {
-    if (!myDesc.tracingEnabled)
-        return {};
-    
-    static constexpr Function* dummy = nullptr;
-    (void)dummy;
+    if constexpr (PROFILING_ENABLED)
+    {
+        if (!myDesc.tracingEnabled)
+            return {};
 
-    static const auto srcLoc = SourceLocationData{name, function, file, line};
+        static const auto srcLoc = SourceLocationData{T::getTypeName(), function, file, Line};
 
-    return internalTrace(cmd, srcLoc);
+        return internalTrace(cmd, srcLoc);
+    }
+
+    return {};
 }

@@ -101,8 +101,8 @@ public:
     
     void waitIdle() const;
 
-    template <typename Function>
-    std::shared_ptr<void> trace(CommandBufferHandle<B> cmd, const char* name, const char* function, const char* file, uint32_t line);
+    template <typename T, uint32_t Line>
+    std::shared_ptr<void> trace(CommandBufferHandle<B> cmd, const char* function, const char* file);
 
     void collectTracing(CommandBufferHandle<B> cmd);
 
@@ -117,5 +117,13 @@ private:
     FenceHandle<B> myFence = {};
     std::any myUserData;
 };
+
+#if PROFILING_ENABLED
+#define GPU_SCOPE(cmd, queue, name) \
+	struct name##__struct { static constexpr const char* getTypeName() { return #name; } }; \
+	auto name##__scope = queue->trace<name##__struct, __LINE__>(cmd, __PRETTY_FUNCTION__, __FILE__);
+#else
+#define GPU_SCOPE(cmd, queue, name) {}
+#endif
 
 #include "queue-vulkan.inl"

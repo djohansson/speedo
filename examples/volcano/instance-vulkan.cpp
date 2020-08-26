@@ -234,7 +234,7 @@ InstanceContext<Vk>::InstanceContext(
 #endif
     };
 
-    if constexpr(PROFILING_ENABLED)
+    if constexpr (PROFILING_ENABLED)
         requiredExtensions.emplace_back("VK_EXT_debug_utils");
 
     // must be sorted lexicographically for std::includes to work!
@@ -310,7 +310,7 @@ InstanceContext<Vk>::InstanceContext(
 
     myUserData = instance::UserData();
 
-    if constexpr(PROFILING_ENABLED)
+    if constexpr (PROFILING_ENABLED)
     {
         std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger =
             instance::createDebugUtilsMessenger(myInstance);
@@ -322,7 +322,7 @@ InstanceContext<Vk>::~InstanceContext()
 {
     ZoneScopedN("~Instance()");
 
-    if constexpr(PROFILING_ENABLED)
+    if constexpr (PROFILING_ENABLED)
     {
         auto vkDestroyDebugUtilsMessengerEXT =
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");
