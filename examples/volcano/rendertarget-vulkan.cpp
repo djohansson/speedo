@@ -106,9 +106,9 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 }
 
 template <>
-void RenderTarget<Vk>::internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<Vk>& desc)
+void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCreateDesc<Vk>& desc)
 {
-    ZoneScopedN("RenderTarget::internalInitializeDefaultRenderPasses");
+    ZoneScopedN("RenderTarget::internalInitializeDefaultRenderPass");
 
     uint32_t subPassIt = 0;
 
@@ -148,22 +148,22 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPasses(const RenderTargetC
         dep1.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
         addSubpassDependency(std::move(dep1));
 
-        VkSubpassDescription color = {};
-        color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        color.colorAttachmentCount = myAttachmentsReferences.size() - 1;
-        color.pColorAttachments = myAttachmentsReferences.data();
-        color.pDepthStencilAttachment = nullptr;
-        addSubpassDescription(std::move(color));
+        // VkSubpassDescription color = {};
+        // color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        // color.colorAttachmentCount = myAttachmentsReferences.size() - 1;
+        // color.pColorAttachments = myAttachmentsReferences.data();
+        // color.pDepthStencilAttachment = nullptr;
+        // addSubpassDescription(std::move(color));
 
-        VkSubpassDependency dep2 = {};
-        dep2.srcSubpass = subPassIt;
-        dep2.dstSubpass = ++subPassIt;
-        dep2.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep2.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep2.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-        dep2.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dep2.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-        addSubpassDependency(std::move(dep2));
+        // VkSubpassDependency dep2 = {};
+        // dep2.srcSubpass = subPassIt;
+        // dep2.dstSubpass = ++subPassIt;
+        // dep2.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        // dep2.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        // dep2.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+        // dep2.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        // dep2.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        // addSubpassDependency(std::move(dep2));
     }
     else
     {
@@ -521,7 +521,7 @@ RenderTarget<Vk>::RenderTarget(
     
     if (desc.useDefaultInitialization)
     {
-        internalInitializeDefaultRenderPasses(desc);
+        internalInitializeDefaultRenderPass(desc);
         internalUpdateMap(desc);
     }
 }
@@ -530,7 +530,6 @@ template <>
 RenderTarget<Vk>::RenderTarget(RenderTarget<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 {
-
 }
 
 template <>

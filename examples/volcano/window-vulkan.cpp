@@ -232,16 +232,16 @@ void WindowContext<Vk>::draw(const std::shared_ptr<Pipeline<Vk>>& pipeline)
     auto& renderTarget = pipeline->resources()->renderTarget;
 
     auto cmd = commandContext->commands();
-    auto renderPassInfo = pipeline->resources()->renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-    auto extent = pipeline->resources()->renderTarget->getRenderTargetDesc().extent;
+    auto renderPassInfo = renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    const auto& extent = renderTarget->getRenderTargetDesc().extent;
 
     uint32_t drawThreadCount = internalDrawViews(pipeline, renderPassInfo.value(), extent, frameIndex);
     
     for (uint32_t contextIt = 0; contextIt < drawThreadCount; contextIt++)
         commandContext->execute(*myCommands[frameIndex][contextIt]);
 
-    pipeline->resources()->renderTarget->nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-    pipeline->resources()->renderTarget->end(cmd);
+    //renderTarget->nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    renderTarget->end(cmd);
 
     frame.blit(cmd, renderTarget, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0);
 

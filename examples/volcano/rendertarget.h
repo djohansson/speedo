@@ -127,7 +127,7 @@ private:
         const RenderTargetCreateDesc<Vk>& desc);
     
     void internalInitializeAttachments(const RenderTargetCreateDesc<B>& desc);
-    void internalInitializeDefaultRenderPasses(const RenderTargetCreateDesc<B>& desc);
+    void internalInitializeDefaultRenderPass(const RenderTargetCreateDesc<B>& desc);
     
     void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);

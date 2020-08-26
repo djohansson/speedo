@@ -85,14 +85,21 @@ void Queue<Vk>::collect(CommandBufferHandle<Vk> cmd)
 }
 
 template <>
-std::shared_ptr<void> Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* name, const char* function, const char* file, uint32_t line)
+std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
-    if (!myDesc.tracingEnabled)
-        return {};
-    
-    static const auto srcloc = tracy::SourceLocationData{name, function, file, line, 0};
-    //auto srcloc = (const tracy::SourceLocationData*)___tracy_alloc_srcloc_name(line, file, strlen(file), function, strlen(function), name, strlen(name));
-    auto scope = tracy::VkCtxScope(std::any_cast<queue::UserData>(&myUserData)->tracyContext, &srcloc, cmd, true);
+    static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
+    static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
+    static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
+    static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
+    static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
+    static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
+
+    auto scope = tracy::VkCtxScope(
+        std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+        reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+        cmd,
+        true);
+
     return std::make_shared<tracy::VkCtxScope>(std::move(scope));
 }
 

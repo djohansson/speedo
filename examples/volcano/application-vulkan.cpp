@@ -846,7 +846,7 @@ bool Application<Vk>::draw()
 
             myGraphicsQueue->collect(cmd);
 
-            auto gpuScope = myGraphicsQueue->trace(cmd, "draw", __FUNCTION__, __FILE__, __LINE__);
+            auto gpuScope = myGraphicsQueue->trace<decltype(&Application<Vk>::draw)>(cmd, "draw", __FUNCTION__, __FILE__, __LINE__);
 
             myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
             myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
