@@ -85,7 +85,7 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
 }
 
 template <>
-void Queue<Vk>::collectTracing(CommandBufferHandle<Vk> cmd)
+void Queue<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
 {
     if constexpr (PROFILING_ENABLED)
         TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);

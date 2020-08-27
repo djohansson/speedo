@@ -246,6 +246,13 @@ Application<Vk>::Application(
 
     myGraphicsPipeline->layout() = myGraphicsPipelineLayout;
 
+    myGraphicsQueue = std::make_shared<Queue<Vk>>(
+        myDevice,
+        QueueCreateDesc<Vk>{
+            {"GraphicsQueue"},
+            myDevice->getGraphicsQueue(),
+            true});
+
     myTransferCommands = std::make_shared<CommandContext<Vk>>(
         myDevice,
         CommandContextCreateDesc<Vk>{
@@ -296,13 +303,6 @@ Application<Vk>::Application(
     {
         const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
-        
-        myGraphicsQueue = std::make_shared<Queue<Vk>>(
-            myDevice,
-            QueueCreateDesc<Vk>{
-                {"GraphicsQueue"},
-                myDevice->getGraphicsQueue(),
-                true});
 
         auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
         {
@@ -843,7 +843,7 @@ bool Application<Vk>::draw()
         auto cmd = commandContext->commands();
         {
             GPU_SCOPE(cmd, myGraphicsQueue, collect);
-            myGraphicsQueue->collectTracing(cmd);
+            myGraphicsQueue->traceCollect(cmd);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueue, clear);
@@ -872,7 +872,6 @@ bool Application<Vk>::draw()
             GPU_SCOPE(cmd, myGraphicsQueue, transitionColor);
             swapchain->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
         }
-
         cmd.end();
         
         auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();

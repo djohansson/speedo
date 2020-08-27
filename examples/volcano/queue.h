@@ -104,7 +104,7 @@ public:
     template <typename T, uint32_t Line>
     std::shared_ptr<void> trace(CommandBufferHandle<B> cmd, const char* function, const char* file);
 
-    void collectTracing(CommandBufferHandle<B> cmd);
+    void traceCollect(CommandBufferHandle<B> cmd);
 
 private:
 
