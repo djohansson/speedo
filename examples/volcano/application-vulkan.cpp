@@ -967,5 +967,11 @@ void Application<Vk>::resizeFramebuffer(int, int)
     
     myWindow->onResizeFramebuffer(framebufferExtent);
 
+    myGraphicsPipeline->descriptorSets()->set(
+        DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+        0, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
+    
+    myGraphicsPipeline->descriptorSets()->update();
+
     createWindowDependentObjects(framebufferExtent);
 }
