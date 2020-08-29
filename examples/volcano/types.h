@@ -102,8 +102,7 @@ template <GraphicsBackend B>
 using AttachmentStoreOp = std::conditional_t<B == Vk, VkAttachmentStoreOp, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using DescriptorSetLayoutBinding =
-	std::conditional_t<B == Vk, VkDescriptorSetLayoutBinding, std::nullptr_t>;
+using DescriptorSetLayoutBinding = std::conditional_t<B == Vk, VkDescriptorSetLayoutBinding, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using DeviceHandle = std::conditional_t<B == Vk, VkDevice, std::nullptr_t>;
@@ -231,3 +230,15 @@ using ImageSubresourceLayers = std::conditional_t<B == Vk, VkImageSubresourceLay
 
 template <GraphicsBackend B>
 using PresentInfo = std::conditional_t<B == Vk, VkPresentInfoKHR, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DescriptorType = std::conditional_t<B == Vk, VkDescriptorType, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DescriptorBufferInfo = std::conditional_t<B == Vk, VkDescriptorBufferInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DescriptorImageInfo = std::conditional_t<B == Vk, VkDescriptorImageInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using WriteDescriptorSet = std::conditional_t<B == Vk, VkWriteDescriptorSet, std::nullptr_t>;

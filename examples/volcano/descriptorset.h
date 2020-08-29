@@ -5,6 +5,7 @@
 
 #include <map>
 #include <memory>
+#include <variant>
 #include <vector>
 
 template <GraphicsBackend B>
@@ -53,14 +54,26 @@ public:
     ~DescriptorSetVector();
 
     DescriptorSetVector& operator=(DescriptorSetVector&& other);
-    DescriptorSetHandle<B> operator[](uint32_t index) const { return myDescriptorSetVector[index]; };
+    DescriptorSetHandle<B> operator[](uint32_t set) const { return myDescriptorSets[set]; };
 
-    auto size() const { return myDescriptorSetVector.size(); }
-    auto data() const { return myDescriptorSetVector.data(); }
+    auto size() const { return myDescriptorSets.size(); }
+    auto data() const { return myDescriptorSets.data(); }
+
+    template <typename T>
+    void set(T&& data, uint32_t set, uint32_t binding, DescriptorType<B> type, uint32_t index = 0);
+
+    void update();
 
 private:
 
-	std::vector<DescriptorSetHandle<B>> myDescriptorSetVector;
+    using VariantType = std::variant<
+        std::vector<DescriptorBufferInfo<B>>,
+        std::vector<DescriptorImageInfo<B>>,
+        std::vector<BufferViewHandle<B>>>;
+
+	std::vector<DescriptorSetHandle<B>> myDescriptorSets;
+    std::vector<WriteDescriptorSet<B>> myDescriptorWrites;
+    std::map<uint32_t, std::vector<std::tuple<DescriptorType<B>, VariantType>>> myData;
 };
 
 #include "descriptorset-vulkan.inl"

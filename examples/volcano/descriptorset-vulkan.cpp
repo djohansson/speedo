@@ -47,18 +47,108 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 	return *this;
 }
 
+template <>
+void DescriptorSetVector<Vk>::update()
+{
+    myDescriptorWrites.clear();
+
+    for (const auto& [setIndex, bindingVector] : myData)
+    {
+        for (const auto& binding : bindingVector)
+        {
+            auto set = myDescriptorSets[setIndex];
+            auto bindingType = std::get<0>(binding);
+            auto bindingIndex = static_cast<uint32_t>(&binding - &bindingVector[0]);
+            const auto& variantVector = std::get<1>(binding);
+
+            myDescriptorWrites.emplace_back(std::visit(descriptorset::overloaded{
+                [set, bindingType, bindingIndex](
+                    const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            set,
+                            bindingIndex,
+                            0,
+                            static_cast<uint32_t>(bufferInfos.size()),
+                            bindingType,
+                            nullptr,
+                            bufferInfos.data(),
+                            nullptr};
+                },
+                [set, bindingType, bindingIndex](
+                    const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            set,
+                            bindingIndex,
+                            0,
+                            static_cast<uint32_t>(imageInfos.size()),
+                            bindingType,
+                            imageInfos.data(),
+                            nullptr,
+                            nullptr};
+                },
+                [set, bindingType, bindingIndex](
+                    const std::vector<BufferViewHandle<Vk>>& bufferViews){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            set,
+                            bindingIndex,
+                            0,
+                            static_cast<uint32_t>(bufferViews.size()),
+                            bindingType,
+                            nullptr,
+                            nullptr,
+                            bufferViews.data()};
+                },
+            }, variantVector));
+        }
+    }
+
+    vkUpdateDescriptorSets(
+        getDeviceContext()->getDevice(),
+        static_cast<uint32_t>(myDescriptorWrites.size()),
+        myDescriptorWrites.data(),
+        0,
+        nullptr);
+}
+
+// myDescriptorWrites[set] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+// myDescriptorWrites[set].dstSet = myDescriptorSets[set];
+// myDescriptorWrites[set].dstBinding = binding;
+// myDescriptorWrites[set].dstArrayElement = index;
+// myDescriptorWrites[set].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+// myDescriptorWrites[set].descriptorCount = infoVector.size();
+// myDescriptorWrites[set].pBufferInfo = &std::get<DescriptorBufferInfo<Vk>>(infoVector[0]);
+// myDescriptorWrites[set] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+// myDescriptorWrites[set].dstSet = myDescriptorSets[set];
+// myDescriptorWrites[set].dstBinding = binding;
+// myDescriptorWrites[set].dstArrayElement = 0;
+// myDescriptorWrites[set].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+// myDescriptorWrites[set].descriptorCount = infoVector.size();
+// myDescriptorWrites[set].pImageInfo = &std::get<DescriptorImageInfo<Vk>>(infoVector[0]);
+// myDescriptorWrites[set] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+// myDescriptorWrites[set].dstSet = myDescriptorSets[set];
+// myDescriptorWrites[set].dstBinding = 2;
+// myDescriptorWrites[set].dstArrayElement = 0;
+// myDescriptorWrites[set].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+// myDescriptorWrites[set].descriptorCount = infoVector.size();
+// myDescriptorWrites[set].pImageInfo = &std::get<DescriptorImageInfo<Vk>>(infoVector[0]);
 
 template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    std::vector<DescriptorSetHandle<Vk>>&& descriptorSetVector)
+    std::vector<DescriptorSetHandle<Vk>>&& descriptorSets)
 : DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSet"},
-    descriptorSetVector.size(),
+    descriptorSets.size(),
     VK_OBJECT_TYPE_DESCRIPTOR_SET,
-    reinterpret_cast<uint64_t*>(descriptorSetVector.data()))
-, myDescriptorSetVector(std::move(descriptorSetVector))
+    reinterpret_cast<uint64_t*>(descriptorSets.data()))
+, myDescriptorSets(std::move(descriptorSets))
 {
 }
 
@@ -87,9 +177,9 @@ DescriptorSetVector<Vk>::DescriptorSetVector(
 template <>
 DescriptorSetVector<Vk>::~DescriptorSetVector()
 {
-    if (!myDescriptorSetVector.empty())
+    if (!myDescriptorSets.empty())
         getDeviceContext()->addTimelineCallback(
-            [device = getDeviceContext()->getDevice(), pool = getDeviceContext()->getDescriptorPool(), descriptorSetHandles = std::move(myDescriptorSetVector)](uint64_t){
+            [device = getDeviceContext()->getDevice(), pool = getDeviceContext()->getDescriptorPool(), descriptorSetHandles = std::move(myDescriptorSets)](uint64_t){
                 vkFreeDescriptorSets(
                     device,
                     pool,
