@@ -60,8 +60,7 @@ public:
     ~BufferView();
 
     BufferView& operator=(BufferView&& other);
-
-    auto getBufferViewHandle() const { return myBufferView; }
+    operator auto() const { return myBufferView; }
 
 private:
 

@@ -110,7 +110,7 @@ BufferView<Vk>::BufferView(
 template <>
 BufferView<Vk>::~BufferView()
 {
-    if (auto bufferView = getBufferViewHandle(); bufferView)
+    if (BufferViewHandle<Vk> bufferView = *this; bufferView)
         getDeviceContext()->addTimelineCallback(
             [device = getDeviceContext()->getDevice(), bufferView](uint64_t){
                 vkDestroyBufferView(device, bufferView, nullptr);

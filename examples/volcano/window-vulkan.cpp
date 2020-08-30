@@ -88,6 +88,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
     uint32_t drawThreadCount = std::min<uint32_t>(drawCount, drawCommandContextCount);
 
     std::atomic_uint32_t drawAtomic = 0;
+    PipelineHandle<Vk> pipelineHandle = *pipeline;
 
     // draw views using secondary command buffers
     // todo: generalize this to other types of draws
@@ -101,7 +102,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
             std::execution::par,
     #endif
             seq.begin(), drawThreadCount,
-            [this, &pipeline, &renderPassInfo, &extent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
+            [this, &pipeline, pipelineHandle, &renderPassInfo, &extent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -135,7 +136,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     ZoneScopedN("WindowContext::drawViews::bind");
 
                     // bind pipeline and vertex/index buffers
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineHandle);
 
                     VkBuffer vertexBuffers[] = { pipeline->resources()->model->getBuffer() };
                     VkDeviceSize vertexOffsets[] = { pipeline->resources()->model->getVertexOffset() };

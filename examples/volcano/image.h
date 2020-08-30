@@ -82,8 +82,7 @@ public:
     ~ImageView();
 
     ImageView& operator=(ImageView&& other);
-
-    auto getImageViewHandle() const { return myImageView; }
+    operator auto() const { return myImageView; }
 
 private:
 

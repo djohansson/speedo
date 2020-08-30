@@ -95,7 +95,8 @@ load(
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
     desc.name = modelFile.filename().generic_string();
 	
-	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream) {
+	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
+	{
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		cereal::BinaryInputArchive bin(stream);
 		bin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
@@ -117,6 +118,8 @@ load(
 
 		bufferHandle = locBufferHandle;
         memoryHandle = locMemoryHandle;
+
+		return true;
 	};
 
 	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream) {
@@ -129,6 +132,8 @@ load(
 		bin(cereal::binary_data(data, desc.indexBufferSize));
 		bin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
 		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+
+		return true;
 	};
 
 	auto loadOBJ = [&descAndInitialData, &deviceContext](std::istream& stream) {
@@ -252,6 +257,8 @@ load(
 
 		bufferHandle = locBufferHandle;
         memoryHandle = locMemoryHandle;
+
+		return true;
 	};
 
 	loadCachedSourceFile(

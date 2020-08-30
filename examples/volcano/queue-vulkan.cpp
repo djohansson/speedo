@@ -110,7 +110,6 @@ std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, cons
             true);
 
         return std::make_shared<tracy::VkCtxScope>(std::move(scope));
-
     }
 #endif
 
@@ -165,6 +164,9 @@ uint64_t Queue<Vk>::submit()
         submitInfo.commandBufferCount = pendingSubmit.commandBuffers.size();
         submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
     }
+
+    auto& tracyContext = std::any_cast<queue::UserData>(&myUserData)->tracyContext;
+    (void)tracyContext;
 
     VK_CHECK(vkQueueSubmit(myDesc.queue, myPendingSubmits.size(), submitBegin, myFence));
 

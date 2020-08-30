@@ -21,17 +21,24 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 {
 	auto slangModule = std::make_shared<SerializableShaderReflectionModule<B>>();
 
-	auto loadBin = [&slangModule](std::istream& stream) {
+	auto loadBin = [&slangModule](std::istream& stream)
+	{
 		cereal::BinaryInputArchive bin(stream);
 		bin(*slangModule);
+
+		return true;
 	};
 
-	auto saveBin = [&slangModule](std::ostream& stream) {
+	auto saveBin = [&slangModule](std::ostream& stream)
+	{
 		cereal::BinaryOutputArchive bin(stream);
 		bin(*slangModule);
+
+		return true;
 	};
 
-	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream) {
+	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream)
+	{
 		SlangSession* slangSession = spCreateSession(NULL);
 		
 		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath.generic_string().c_str());
@@ -130,6 +137,8 @@ std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
 
 		spDestroyCompileRequest(slangRequest);
 		spDestroySession(slangSession);
+
+		return true;
 	};
 
 	loadCachedSourceFile(

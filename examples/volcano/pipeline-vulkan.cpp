@@ -63,15 +63,17 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 		{
 			std::cout << "Invalid pipeline cache, creating new." << std::endl;
 			cacheData.clear();
-			return;
+			return false;
 		}
+
+        return true;
 	};
 
-	auto [sourceFileState, sourceFileInfo] = getFileInfo(cacheFilePath, false);
-	if (sourceFileState != FileState::Missing)
-		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
+	auto [fileState, fileInfo] = getFileInfo(cacheFilePath, false);
+	if (fileState != FileState::Missing)
+		auto [fileState, fileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
 
-	return createPipelineCache(device, cacheData);
+	return (fileState == FileState::Valid ? createPipelineCache(device, cacheData) : VK_NULL_HANDLE);
 }
 
 std::vector<std::byte> getPipelineCacheData(
@@ -99,22 +101,26 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 	// todo: move to gfx-vulkan.cpp
 	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream& stream)
 	{
-		auto cacheData = getPipelineCacheData(device, pipelineCache);
-		if (!cacheData.empty())
+		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
 		{
 			auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
-			if (cacheData.empty() || !isCacheValid(*header, physicalDeviceProperties))
+			if (!isCacheValid(*header, physicalDeviceProperties))
 			{
-				std::cout << "Invalid pipeline cache, something is seriously wrong. Exiting." << std::endl;
-				return;
+				std::cout << "Invalid pipeline cache, will not save. Exiting." << std::endl;
+				return false;
 			}
 			
 			cereal::BinaryOutputArchive bin(stream);
 			bin(cacheData);
 		}
 		else
-			assertf(false, "Failed to get pipeline cache.");
+        {
+            std::cout << "Failed to get pipeline cache. Exiting." << std::endl;
+			return false;
+        }
+
+        return true;
 	};
 
 	return saveBinaryFile(cacheFilePath, saveCacheOp, false);
@@ -403,67 +409,6 @@ Pipeline<Vk>::PipelineMap::const_iterator Pipeline<Vk>::internalUpdateMap()
     return emplaceResult.first;
 }
 
-template <>
-PipelineHandle<Vk> Pipeline<Vk>::getPipeline()
-{
-    std::unique_lock writeLock(myMutex);
-    
-    return internalUpdateMap()->second;
-}
-
-template <>
-void Pipeline<Vk>::updateDescriptorSets(BufferHandle<Vk> buffer)
-{
-    ZoneScopedN("Pipeline::updateDescriptorSets");
-
-    if (!myDescriptorSets)
-        myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(
-            getDeviceContext(),
-            myLayout->getDescriptorSetLayouts());
-
-    // todo: use reflection
-    
-    VkDescriptorBufferInfo bufferInfo = {};
-    bufferInfo.buffer = buffer;
-    bufferInfo.offset = 0;
-    bufferInfo.range = VK_WHOLE_SIZE;
-
-    VkDescriptorImageInfo imageInfo = {};
-    imageInfo.imageLayout = myResources->image->getImageLayout();
-    imageInfo.imageView = myResources->imageView->getImageViewHandle();
-    imageInfo.sampler = myResources->sampler;
-
-    std::array<VkWriteDescriptorSet, 3> descriptorWrites = {};
-    descriptorWrites[0] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[0].dstSet = myDescriptorSets->data()[0];
-    descriptorWrites[0].dstBinding = 0;
-    descriptorWrites[0].dstArrayElement = 0;
-    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descriptorWrites[0].descriptorCount = 1;
-    descriptorWrites[0].pBufferInfo = &bufferInfo;
-    descriptorWrites[1] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[1].dstSet = myDescriptorSets->data()[0];
-    descriptorWrites[1].dstBinding = 1;
-    descriptorWrites[1].dstArrayElement = 0;
-    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    descriptorWrites[1].descriptorCount = 1;
-    descriptorWrites[1].pImageInfo = &imageInfo;
-    descriptorWrites[2] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    descriptorWrites[2].dstSet = myDescriptorSets->data()[0];
-    descriptorWrites[2].dstBinding = 2;
-    descriptorWrites[2].dstArrayElement = 0;
-    descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    descriptorWrites[2].descriptorCount = 1;
-    descriptorWrites[2].pImageInfo = &imageInfo;
-
-    vkUpdateDescriptorSets(
-        getDeviceContext()->getDevice(),
-        static_cast<uint32_t>(descriptorWrites.size()),
-        descriptorWrites.data(),
-        0,
-        nullptr);
-}
-
 template<>
 Pipeline<Vk>::Pipeline(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
@@ -502,7 +447,7 @@ Pipeline<Vk>::Pipeline(
 template<>
 Pipeline<Vk>::~Pipeline()
 {
-    pipeline::savePipelineCache(
+    auto [fileState, fileInfo] = pipeline::savePipelineCache(
         myDesc.cachePath,
         getDeviceContext()->getDevice(),
         getDeviceContext()->getPhysicalDeviceInfo().deviceProperties,

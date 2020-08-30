@@ -720,6 +720,20 @@
 		}
 	]
 
+	.SHAIntrinsicsLibrary = 
+	[
+		Using(.LibraryCommon)
+
+		.Name = 'sha-instrinsics'
+		.LibraryCompilerOptions = .CompilerOptionsC
+		.CompilerInputFiles = {
+			'$BuildRootPath$/external/SHA-Intrinsics/sha1-x86.c',
+			'$BuildRootPath$/external/SHA-Intrinsics/sha256.c',
+			'$BuildRootPath$/external/SHA-Intrinsics/sha256-x86.c',
+			'$BuildRootPath$/external/SHA-Intrinsics/sha512.c',
+		}
+	]
+
 	.Freetype2Unity = 
 	[
 		.UnityInputFiles = {
@@ -1023,6 +1037,7 @@
 			.Gl3wLibrary,
 			.GlfwLibrary,
 			.XXHashLibrary,
+			.SHAIntrinsicsLibrary,
 			.ImguiLibrary,
 			.Freetype2Library,
 			.NFDLibrary,

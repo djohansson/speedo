@@ -91,12 +91,11 @@ public:
     ~Pipeline();
 
     Pipeline& operator=(Pipeline&& other);
+    operator auto() { return internalUpdateMap()->second; };
 
     auto getCache() const { return myCache; }
-    PipelineHandle<B> getPipeline();
 
     // temp! remove lazy updates and recalc when touched.
-    void updateDescriptorSets(BufferHandle<Vk> buffer);
     auto& resources() { return myResources; }
     auto& layout() { return myLayout; }
     auto& descriptorSets() { return myDescriptorSets; }
@@ -119,8 +118,6 @@ private:
 	std::shared_ptr<PipelineLayout<B>> myLayout;
 	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
-
-    std::shared_mutex myMutex; // todo: replace with asserting mutex
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };

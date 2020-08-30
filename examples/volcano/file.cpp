@@ -28,7 +28,10 @@ std::tuple<FileState, FileInfo> getFileInfo(const std::filesystem::path& filePat
 
 		mio::mmap_source file(filePath.string());
 		picosha2::hash256(
-			file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+			file.begin(),
+			file.end(),
+			outFileInfo.sha2.begin(),
+			outFileInfo.sha2.end());
 	}
 
 	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
@@ -75,7 +78,7 @@ std::tuple<FileState, FileInfo> getFileInfo(
 
 std::tuple<FileState, FileInfo> loadBinaryFile(
 	const std::filesystem::path& filePath,
-	std::function<void(std::istream&)> loadOp,
+	LoadFileFn loadOp,
 	bool sha2Enable)
 {
 	ZoneScoped;
@@ -92,7 +95,8 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 		mio::mmap_istreambuf fileStreamBuf(filePath.string());
 		std::istream fileStream(&fileStreamBuf);
 
-		loadOp(fileStream);
+		if (!loadOp(fileStream))
+			return std::make_tuple(FileState::Stale, std::move(outFileInfo));
 
 		if (sha2Enable)
 		{
@@ -100,7 +104,7 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 
 			fileStream.clear();
 			fileStream.seekg(0, std::ios_base::beg);
-
+			
 			picosha2::hash256(
 				std::istreambuf_iterator(&fileStreamBuf),
 				std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
@@ -114,7 +118,7 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 
 std::tuple<FileState, FileInfo> saveBinaryFile(
 	const std::filesystem::path& filePath,
-	std::function<void(std::iostream&)> saveOp,
+	SaveFileFn saveOp,
 	bool sha2Enable)
 {
 	ZoneScoped;
@@ -128,7 +132,8 @@ std::tuple<FileState, FileInfo> saveBinaryFile(
 		mio::mmap_iostreambuf fileStreamBuf(filePath.string());
 		std::iostream fileStream(&fileStreamBuf);
 
-		saveOp(fileStream);
+		if (!saveOp(fileStream))
+			return std::make_tuple(FileState::Stale, std::move(outFileInfo));
 
 		fileStream.sync();
 

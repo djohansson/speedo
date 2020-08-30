@@ -33,7 +33,7 @@ struct FileInfo
     std::filesystem::path path;
     uintmax_t size = 0;
     std::string timeStamp;
-    std::array<picosha2::byte_t, picosha2::k_digest_size> sha2;
+    std::array<uint8_t, 32> sha2;
 };
 
 std::string getFileTimeStamp(const std::filesystem::path &filePath);
@@ -53,18 +53,18 @@ std::tuple<FileState, FileInfo> getFileInfo(
     LoadFileInfoFromJSONFn loadJSON,
     bool sha2Enable);
 
+using LoadFileFn = std::function<bool(std::istream&)>;
+using SaveFileFn = std::function<bool(std::iostream&)>;
+
 std::tuple<FileState, FileInfo> loadBinaryFile(
     const std::filesystem::path &filePath,
-    std::function<void(std::istream&)> loadOp,
+    LoadFileFn loadOp,
     bool sha2Enable);
 
 std::tuple<FileState, FileInfo> saveBinaryFile(
     const std::filesystem::path &filePath,
-    std::function<void(std::iostream&)> saveOp,
+    SaveFileFn saveOp,
     bool sha2Enable);
-
-using LoadFileFn = std::function<void(std::istream&)>;
-using SaveFileFn = std::function<void(std::iostream&)>;
 
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,

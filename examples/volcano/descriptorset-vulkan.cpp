@@ -116,28 +116,6 @@ void DescriptorSetVector<Vk>::update()
         nullptr);
 }
 
-// myDescriptorWrites[set] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-// myDescriptorWrites[set].dstSet = myDescriptorSets[set];
-// myDescriptorWrites[set].dstBinding = binding;
-// myDescriptorWrites[set].dstArrayElement = index;
-// myDescriptorWrites[set].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-// myDescriptorWrites[set].descriptorCount = infoVector.size();
-// myDescriptorWrites[set].pBufferInfo = &std::get<DescriptorBufferInfo<Vk>>(infoVector[0]);
-// myDescriptorWrites[set] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-// myDescriptorWrites[set].dstSet = myDescriptorSets[set];
-// myDescriptorWrites[set].dstBinding = binding;
-// myDescriptorWrites[set].dstArrayElement = 0;
-// myDescriptorWrites[set].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-// myDescriptorWrites[set].descriptorCount = infoVector.size();
-// myDescriptorWrites[set].pImageInfo = &std::get<DescriptorImageInfo<Vk>>(infoVector[0]);
-// myDescriptorWrites[set] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-// myDescriptorWrites[set].dstSet = myDescriptorSets[set];
-// myDescriptorWrites[set].dstBinding = 2;
-// myDescriptorWrites[set].dstArrayElement = 0;
-// myDescriptorWrites[set].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-// myDescriptorWrites[set].descriptorCount = infoVector.size();
-// myDescriptorWrites[set].pImageInfo = &std::get<DescriptorImageInfo<Vk>>(infoVector[0]);
-
 template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,

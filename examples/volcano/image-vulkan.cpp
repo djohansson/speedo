@@ -90,6 +90,8 @@ load(
 
         bufferHandle = locBufferHandle;
         memoryHandle = locMemoryHandle;
+
+        return true;
     };
 
     auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
@@ -106,6 +108,8 @@ load(
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
         bin(cereal::binary_data(data, size));
         vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+
+        return true;
     };
 
     auto loadImage = [&descAndInitialData, &deviceContext](std::istream& stream)
@@ -278,6 +282,8 @@ load(
 
         bufferHandle = locBufferHandle;
         memoryHandle = locMemoryHandle;
+
+        return true;
     };
 
     loadCachedSourceFile(
@@ -432,7 +438,7 @@ ImageView<Vk>::ImageView(
 template <>
 ImageView<Vk>::~ImageView()
 {
-    if (auto imageView = getImageViewHandle(); imageView)
+    if (ImageViewHandle<Vk> imageView = *this; imageView)
         getDeviceContext()->addTimelineCallback(
             [device = getDeviceContext()->getDevice(), imageView](uint64_t){
                 vkDestroyImageView(device, imageView, nullptr);
