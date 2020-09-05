@@ -92,7 +92,6 @@ CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray<Vk>
     return *this;
 }
 
-
 template <>
 void CommandBufferArray<Vk>::resetAll()
 {
@@ -159,14 +158,10 @@ CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(const CommandBuff
 template <>
 CommandBufferAccessScopeDesc<Vk>& CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc<Vk>& other)
 {
-    if (this != &other)
-    {
-        *static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
-        level = other.level;
-        inheritance = other.inheritance;
-        pInheritanceInfo = &inheritance;
-    }
-
+    *static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
+    level = other.level;
+    inheritance = other.inheritance;
+    pInheritanceInfo = &inheritance;
     return *this;
 }
 

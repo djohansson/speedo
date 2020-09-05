@@ -114,23 +114,6 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCre
 
     if (desc.depthStencilImage)
     {
-        // VkSubpassDescription depth = {};
-        // depth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        // depth.colorAttachmentCount = 0;
-        // depth.pColorAttachments = nullptr;
-        // depth.pDepthStencilAttachment = &myAttachmentsReferences.back();
-        // addSubpassDescription(std::move(depth));
-
-        // VkSubpassDependency dep0 = {};
-        // dep0.srcSubpass = subPassIt;
-        // dep0.dstSubpass = ++subPassIt;
-        // dep0.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        // dep0.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        // dep0.srcAccessMask = 0;
-        // dep0.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        // dep0.dependencyFlags = 0;
-        // addSubpassDependency(std::move(dep0));
-
         VkSubpassDescription colorAndDepth = {};
         colorAndDepth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         colorAndDepth.colorAttachmentCount = myAttachmentsReferences.size() - 1;
@@ -147,23 +130,6 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCre
         dep1.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         dep1.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
         addSubpassDependency(std::move(dep1));
-
-        // VkSubpassDescription color = {};
-        // color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        // color.colorAttachmentCount = myAttachmentsReferences.size() - 1;
-        // color.pColorAttachments = myAttachmentsReferences.data();
-        // color.pDepthStencilAttachment = nullptr;
-        // addSubpassDescription(std::move(color));
-
-        // VkSubpassDependency dep2 = {};
-        // dep2.srcSubpass = subPassIt;
-        // dep2.dstSubpass = ++subPassIt;
-        // dep2.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        // dep2.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        // dep2.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-        // dep2.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        // dep2.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-        // addSubpassDependency(std::move(dep2));
     }
     else
     {

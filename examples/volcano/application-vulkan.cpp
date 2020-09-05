@@ -89,7 +89,7 @@ void Application<Vk>::initIMGUI(
     initInfo.QueueFamily = myDevice->getGraphicsQueueFamilyIndex();
     initInfo.Queue = myDevice->getGraphicsQueue();
     initInfo.PipelineCache = myGraphicsPipeline->getCache();
-    initInfo.DescriptorPool = myDevice->getDescriptorPool();
+    initInfo.DescriptorPool = myGraphicsPipeline->getDescriptorPool();
     initInfo.MinImageCount = myDevice->getDesc().swapchainConfig->imageCount;
     initInfo.ImageCount = myDevice->getDesc().swapchainConfig->imageCount;
     initInfo.Allocator = nullptr;
@@ -298,6 +298,20 @@ Application<Vk>::Application(
     }
 
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
+
+    // myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<Vk>>(
+    //     myDevice,
+    //     DescriptorSetVectorCreateDesc<Vk>{
+    //         {"DescriptorSetVector"},
+    //         myGraphicsPipeline->getDescriptorPool(),
+    //         descriptorset::getDescriptorSetLayoutHandles<Vk>(
+    //             myGraphicsPipeline->layout()->getDescriptorSetLayouts())});
+
+    // myGraphicsPipeline->descriptorSets()->set(
+    //     DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+    //     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
+
+    // myGraphicsPipeline->descriptorSets()->write();
     
     // stuff that needs to be initialized on graphics queue
     {
@@ -312,6 +326,21 @@ Application<Vk>::Application(
             initIMGUI(myDevice, cmd, myUserProfilePath);
 
             myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            // myGraphicsPipeline->descriptorSets()->set(
+            //     DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
+            //     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
+            // myGraphicsPipeline->descriptorSets()->set(
+            //     DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
+            //     VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
+
+            // myGraphicsPipeline->descriptorSets()->push(
+            //     cmd,
+            //     VK_PIPELINE_BIND_POINT_GRAPHICS,
+            //     *myGraphicsPipeline->layout(),
+            //     1,
+            //     0,
+            //     2);
         };
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);
@@ -329,19 +358,23 @@ Application<Vk>::Application(
 
     myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<Vk>>(
         myDevice,
-        myGraphicsPipeline->layout()->getDescriptorSetLayouts());
+        DescriptorSetVectorCreateDesc<Vk>{
+            {"DescriptorSetVector"},
+            myGraphicsPipeline->getDescriptorPool(),
+            descriptorset::getDescriptorSetLayoutHandles<Vk>(
+                myGraphicsPipeline->layout()->getDescriptorSetLayouts())});
 
     myGraphicsPipeline->descriptorSets()->set(
         DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-        0, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
     myGraphicsPipeline->descriptorSets()->set(
         DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
-        0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
     myGraphicsPipeline->descriptorSets()->set(
         DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
-        0, 2, VK_DESCRIPTOR_TYPE_SAMPLER);
+        VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
 
-    myGraphicsPipeline->descriptorSets()->update();
+    myGraphicsPipeline->descriptorSets()->write();
 
     auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
@@ -377,10 +410,14 @@ Application<Vk>::Application(
 
     auto loadImage = [this](nfdchar_t* openFilePath)
     {
-        std::shared_ptr<Image<Vk>> image = std::make_shared<Image<Vk>>(
+        auto image = std::make_shared<Image<Vk>>(
             myDevice,
             myTransferCommands,
             openFilePath);
+        auto imageView = std::make_shared<ImageView<Vk>>(
+            myDevice,
+            *image,
+            VK_IMAGE_ASPECT_COLOR_BIT);
 
         myTransferQueue->enqueueSubmit(
             myTransferCommands->flush({
@@ -392,23 +429,57 @@ Application<Vk>::Application(
 
         myLastTransferTimelineValue = myTransferQueue->submit();
 
-        myDevice->addTimelineCallback(myLastTransferTimelineValue, [this, image](uint64_t /*timelineValue*/)
-        {
-            const auto& resources = myGraphicsPipeline->resources();
-            auto imageView = std::make_shared<ImageView<Vk>>(
-                myDevice,
-                *image,
-                VK_IMAGE_ASPECT_COLOR_BIT);
+        const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
+        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
+        auto cmd = commandContext->commands();
 
-            resources->image = image;
-            resources->imageView = imageView;
+        image->transition(
+            cmd,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        // myGraphicsPipeline->descriptorSets()->set(
+        //     DescriptorImageInfo<Vk>{0, *imageView, image->getImageLayout()},
+        //     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
+        // myGraphicsPipeline->descriptorSets()->set(
+        //     DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
+        //     VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
+
+        // myGraphicsPipeline->descriptorSets()->push(
+        //     cmd,
+        //     VK_PIPELINE_BIND_POINT_GRAPHICS,
+        //     *myGraphicsPipeline->layout(),
+        //     1,
+        //     0,
+        //     2);
+
+        cmd.end();
+
+        myGraphicsQueue->enqueueSubmit(
+            commandContext->flush({
+                {myDevice->getTimelineSemaphore()},
+                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                {myDevice->getTimelineSemaphore()},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastFrameTimelineValue = myGraphicsQueue->submit();
+        
+        myDevice->addTimelineCallback(myLastFrameTimelineValue, [this, image, imageView](uint64_t /*timelineValue*/)
+        {
+            myGraphicsPipeline->resources()->image = image;
+            myGraphicsPipeline->resources()->imageView = imageView;
+
+            myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<Vk>>(
+                *myGraphicsPipeline->descriptorSets());
 
             myGraphicsPipeline->descriptorSets()->set(
                 DescriptorImageInfo<Vk>{0, *imageView, image->getImageLayout()},
-                0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
             myGraphicsPipeline->descriptorSets()->set(
-                DescriptorImageInfo<Vk>{resources->sampler},
-                0, 2, VK_DESCRIPTOR_TYPE_SAMPLER);
+                DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
+                VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
+
+            myGraphicsPipeline->descriptorSets()->write();
         });
     };
 
@@ -969,9 +1040,9 @@ void Application<Vk>::resizeFramebuffer(int, int)
 
     myGraphicsPipeline->descriptorSets()->set(
         DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-        0, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
     
-    myGraphicsPipeline->descriptorSets()->update();
+    myGraphicsPipeline->descriptorSets()->write();
 
     createWindowDependentObjects(framebufferExtent);
 }

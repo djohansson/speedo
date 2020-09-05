@@ -38,7 +38,13 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPo
 
 VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32_t* codePtr);
 
-VkDescriptorSetLayout createDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount);
+VkDescriptorSetLayout createDescriptorSetLayout(
+	VkDevice device,
+	VkDescriptorSetLayoutCreateFlags flags,
+	const VkDescriptorSetLayoutBinding* bindings,
+	uint32_t bindingCount);
+
+VkDescriptorSet allocateDescriptorSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout);
 
 std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,
 													const VkDescriptorSetLayout* layouts, uint32_t layoutCount);

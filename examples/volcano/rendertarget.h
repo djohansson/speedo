@@ -120,7 +120,7 @@ private:
     using RenderPassFramebufferTuple = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
     using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
 
-    uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;    
+    uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;
 
     RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
         uint64_t hashKey,

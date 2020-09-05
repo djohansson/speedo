@@ -141,6 +141,19 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(VkDevice device, VkCommandPo
 	return commandBuffers;
 }
 
+VkDescriptorSet allocateDescriptorSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout)
+{
+	VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+	allocInfo.descriptorPool = pool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &layout;
+
+	VkDescriptorSet outDescriptorSet;
+	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &outDescriptorSet));
+
+	return outDescriptorSet;
+}
+
 std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,
 													const VkDescriptorSetLayout* layouts, uint32_t layoutCount)
 {
@@ -168,9 +181,10 @@ VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32
 };
 
 VkDescriptorSetLayout createDescriptorSetLayout(
-	VkDevice device, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount)
+	VkDevice device, VkDescriptorSetLayoutCreateFlags flags, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount)
 {
 	VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+	layoutInfo.flags = flags;
 	layoutInfo.bindingCount = bindingCount;
 	layoutInfo.pBindings = bindings;
 

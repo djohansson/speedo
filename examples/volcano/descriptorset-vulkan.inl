@@ -29,7 +29,7 @@ void serialize(Archive& archive, SerializableDescriptorSetLayoutBinding<Vk>& dsb
 
 template <>
 template <typename T>
-void DescriptorSetVector<Vk>::set(T&& data, uint32_t set, uint32_t binding, DescriptorType<Vk> type, uint32_t index)
+void DescriptorSetVector<Vk>::set(T&& data, DescriptorType<Vk> type, uint32_t set, uint32_t binding, uint32_t index)
 {
     auto& bindingVector = myData[set];
     if (bindingVector.size() <= binding)

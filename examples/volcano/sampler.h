@@ -26,3 +26,5 @@ private:
 
 	SamplerHandle<B> mySampler = {};
 };
+
+#include "sampler.inl"

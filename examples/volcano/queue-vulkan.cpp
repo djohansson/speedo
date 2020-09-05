@@ -75,8 +75,8 @@ Queue<Vk>::~Queue()
 template <>
 Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
 {
-	DeviceResource<Vk>::operator=(std::move(other));
-	myDesc = std::exchange(other.myDesc, {});
+    DeviceResource<Vk>::operator=(std::move(other));
+    myDesc = std::exchange(other.myDesc, {});
     myPendingSubmits = std::exchange(other.myPendingSubmits, {});
     myScratchMemory = std::exchange(other.myScratchMemory, {});
     myFence = std::exchange(other.myFence, {});

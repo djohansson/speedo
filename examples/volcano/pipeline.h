@@ -28,7 +28,7 @@ public:
     PipelineLayout(PipelineLayout<B>&& other);
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<SerializableShaderReflectionModule<B>>& shaderModule);
+        const std::shared_ptr<SerializableShaderReflectionInfo<B>>& shaderModule);
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
@@ -48,7 +48,6 @@ public:
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
     const auto& getImmutableSamplers() const { return myImmutableSamplers; }
-    auto getLayout() const { return myLayout; }
 
 private:
 
@@ -93,9 +92,12 @@ public:
     Pipeline& operator=(Pipeline&& other);
     operator auto() { return internalUpdateMap()->second; };
 
+    const auto& getDesc() const { return myDesc; }
     auto getCache() const { return myCache; }
+    auto getDescriptorPool() const { return myDescriptorPool; }
 
     // temp! remove lazy updates and recalc when touched.
+    // probably do not have these as shared ptrs, since we want pipeline to own them alone.
     auto& resources() { return myResources; }
     auto& layout() { return myLayout; }
     auto& descriptorSets() { return myDescriptorSets; }
@@ -112,11 +114,28 @@ private:
     const PipelineCreateDesc<B> myDesc = {};
     PipelineCacheHandle<B> myCache = {};
     PipelineMap myPipelineMap;
+    DescriptorPoolHandle<B> myDescriptorPool = {};
 
     // temp
     std::shared_ptr<PipelineResourceView<B>> myResources;
 	std::shared_ptr<PipelineLayout<B>> myLayout;
 	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
+    //
+
+    // shadow state
+    std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
+    PipelineVertexInputStateCreateInfo<B> myVertexInput = {};
+    PipelineInputAssemblyStateCreateInfo<B> myInputAssembly = {};
+    std::vector<Viewport<B>> myViewports;
+    std::vector<Rect2D<B>> myScissorRects;
+    PipelineViewportStateCreateInfo<B> myViewport = {};
+    PipelineRasterizationStateCreateInfo<B> myRasterization = {};
+    PipelineMultisampleStateCreateInfo<B> myMultisample = {};
+    PipelineDepthStencilStateCreateInfo<B> myDepthStencil = {};
+    std::vector<PipelineColorBlendAttachmentState<B>> myColorBlendAttachments = {};
+    PipelineColorBlendStateCreateInfo<B> myColorBlend = {};
+    std::vector<DynamicState<B>> myDynamicStateDescs;
+    PipelineDynamicStateCreateInfo<B> myDynamicState = {};
     //
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };

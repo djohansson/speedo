@@ -33,7 +33,7 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>,
     RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other)
 {
     RenderTarget<Vk>::operator=(std::move(other));
-	myDesc = std::exchange(other.myDesc, {});
+    myDesc = std::exchange(other.myDesc, {});
     return *this;
 }
 
@@ -101,7 +101,7 @@ template <>
 Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other)
 {
     BaseType::operator=(std::move(other));
-	myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
+    myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
     myNewImageAcquiredSemaphore = std::exchange(other.myNewImageAcquiredSemaphore, {});
     myImageLayout = std::exchange(other.myImageLayout, {});
     myLastPresentTimelineValue = std::exchange(other.myLastPresentTimelineValue, {});
