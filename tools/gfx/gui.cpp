@@ -39,7 +39,7 @@ void setNativeWindowHook(Window* window, WNDPROC proc);
 GUI::GUI(Window* window, Renderer* inRenderer)
     : renderer(inRenderer)
 {
-     ImGui::CreateContext();
+     imguiContext = ImGui::CreateContext();
      ImGuiIO& io = ImGui::GetIO();
 
 #ifdef _WIN32
@@ -240,12 +240,14 @@ GUI::GUI(Window* window, Renderer* inRenderer)
 
 
 
-void GUI::beginFrame()
+ImGuiContext* GUI::beginFrame()
 {
 #ifdef _WIN32
     ImGui_ImplWin32_NewFrame();
 #endif
     ImGui::NewFrame();
+
+    return imguiContext;
 }
 
 void GUI::endFrame()
