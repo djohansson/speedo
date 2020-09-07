@@ -133,7 +133,6 @@ PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
     std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts,
-    std::vector<Sampler<Vk>>&& immutableSamplers,
     PipelineLayoutHandle<Vk>&& layout)
 : DeviceResource<Vk>(
     deviceContext,
@@ -143,7 +142,6 @@ PipelineLayout<Vk>::PipelineLayout(
     reinterpret_cast<uint64_t*>(&layout))
 , myShaders(std::move(shaderModules))
 , myDescriptorSetLayouts(std::move(descriptorSetLayouts))
-, myImmutableSamplers(std::move(immutableSamplers))
 , myLayout(std::move(layout))
 {
 }
@@ -152,13 +150,11 @@ template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
-    std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts,
-    std::vector<Sampler<Vk>>&& immutableSamplers)
+    std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts)
 : PipelineLayout(
     deviceContext,
     std::move(shaderModules),
     std::move(descriptorSetLayouts),
-    std::move(immutableSamplers),
     [device = deviceContext->getDevice(), handles = descriptorset::getDescriptorSetLayoutHandles<Vk>(descriptorSetLayouts)]
     {
         return createPipelineLayout(device, handles.data(), handles.size());
@@ -169,7 +165,7 @@ PipelineLayout<Vk>::PipelineLayout(
 template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<SerializableShaderReflectionInfo<Vk>>& slangModule)
+    const std::shared_ptr<ShaderReflectionInfo<Vk>>& slangModule)
 : PipelineLayout(
     deviceContext,
     [&slangModule, &deviceContext]
@@ -183,24 +179,17 @@ PipelineLayout<Vk>::PipelineLayout(
     [&slangModule, &deviceContext]
     {
         std::vector<DescriptorSetLayout<Vk>> layouts;
-        layouts.reserve(slangModule->bindings.size());
-        for (auto setBindings : slangModule->bindings)
+        layouts.reserve(slangModule->bindingsMap.size());
+        for (auto setBindings : slangModule->bindingsMap)
             layouts.emplace_back(
                 DescriptorSetLayout<Vk>(
                     deviceContext,
                     DescriptorSetLayoutCreateDesc<Vk>{
                         {"DescriptorSetLayout"},
-                        std::get<1>(setBindings.second)},
+                        std::get<2>(setBindings.second)},
+                    std::get<1>(setBindings.second),
                     std::get<0>(setBindings.second)));
         return layouts;
-    }(),
-    [&slangModule, &deviceContext]
-    {
-        std::vector<Sampler<Vk>> samplers;
-        samplers.reserve(slangModule->immutableSamplers.size());
-        for (auto sampler : slangModule->immutableSamplers)
-            samplers.emplace_back(Sampler<Vk>(deviceContext, sampler));
-        return samplers;
     }())
 {
 }

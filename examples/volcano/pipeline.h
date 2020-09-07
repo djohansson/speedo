@@ -28,17 +28,15 @@ public:
     PipelineLayout(PipelineLayout<B>&& other);
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<SerializableShaderReflectionInfo<B>>& shaderModule);
+        const std::shared_ptr<ShaderReflectionInfo<B>>& shaderModule);
+    PipelineLayout( // takes ownership over provided handles
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::vector<ShaderModule<B>>&& shaderModules,
+        std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts);
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
         std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts,
-        std::vector<Sampler<B>>&& immutableSamplers);
-    PipelineLayout( // takes ownership over provided handles
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<ShaderModule<B>>&& shaderModules,
-        std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts,
-        std::vector<Sampler<B>>&& immutableSamplers,
         PipelineLayoutHandle<B>&& layout);
     ~PipelineLayout();
 
@@ -47,13 +45,11 @@ public:
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
-    const auto& getImmutableSamplers() const { return myImmutableSamplers; }
 
 private:
 
     std::vector<ShaderModule<B>> myShaders;
 	std::vector<DescriptorSetLayout<B>> myDescriptorSetLayouts;
-    std::vector<Sampler<B>> myImmutableSamplers;
 	PipelineLayoutHandle<B> myLayout = {};
 };
 

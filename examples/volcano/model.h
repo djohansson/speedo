@@ -17,7 +17,7 @@ struct ModelCreateDesc : DeviceResourceCreateDesc<B>
 	DeviceSize<B> vertexBufferSize = 0;
 	uint32_t indexCount = 0;
 	// todo: reconsider.
-	std::vector<SerializableVertexInputAttributeDescription<B>> attributes;
+	std::vector<VertexInputAttributeDescription<B>> attributes;
 	//
 };
 

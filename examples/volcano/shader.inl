@@ -1,13 +1,5 @@
 #include "file.h"
 
-#include <cereal/archives/binary.hpp>
-#include <cereal/cereal.hpp>
-#include <cereal/types/map.hpp>
-#include <cereal/types/string.hpp>
-#include <cereal/types/tuple.hpp>
-#include <cereal/types/utility.hpp>
-#include <cereal/types/vector.hpp>
-
 namespace shader
 {
 
@@ -21,27 +13,19 @@ template <GraphicsBackend B>
 void createLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	DescriptorSetLayoutBindingsMap<B>& bindings,
+	DescriptorSetLayoutMap<B>& bindingsMap,
 	uint32_t currentSet,
 	uint32_t& setCount,
 	const char* parentName = nullptr);
 
 }
 
-template <class Archive, GraphicsBackend B>
-void serialize(Archive& archive, SerializableShaderReflectionInfo<B>& module)
-{
-	archive(cereal::make_nvp("shaders", module.shaders));
-	archive(cereal::make_nvp("bindings", module.bindings));
-	//archive(cereal::make_nvp("immutableSamplers", module.immutableSamplers));
-}
-
 template <GraphicsBackend B>
-std::shared_ptr<SerializableShaderReflectionInfo<B>> loadSlangShaders(
+std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	const std::filesystem::path& compilerPath,
 	const std::filesystem::path& slangFile)
 {
-	auto slangModule = std::make_shared<SerializableShaderReflectionInfo<B>>();
+	auto slangModule = std::make_shared<ShaderReflectionInfo<B>>();
 
 	auto loadBin = [&slangModule](std::istream& stream)
 	{
@@ -171,7 +155,7 @@ std::shared_ptr<SerializableShaderReflectionInfo<B>> loadSlangShaders(
 			shader::createLayoutBindings<B>(
 				shaderReflection->getParameterByIndex(pp),
 				genericParameterIndices,
-				slangModule->bindings,
+				slangModule->bindingsMap,
 				0,
 				setCount);
 
@@ -180,7 +164,7 @@ std::shared_ptr<SerializableShaderReflectionInfo<B>> loadSlangShaders(
 		// 	slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
 
 		// 	for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
-		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), slangModule->bindings);
+		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), slangModule->bindingsMap);
 		// }
 
 		spDestroyCompileRequest(slangRequest);

@@ -35,7 +35,7 @@ namespace model
 
 std::vector<VkVertexInputBindingDescription>
 calculateInputBindingDescriptions(
-	const std::vector<SerializableVertexInputAttributeDescription<Vk>>& attributes)
+	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
 {
 	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
 
@@ -173,11 +173,11 @@ load(
 
 		// todo: read this from file
 		desc.attributes.emplace_back(
-			SerializableVertexInputAttributeDescription<Vk>{{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u}});
+			VertexInputAttributeDescription<Vk>{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u});
 		desc.attributes.emplace_back(
-			SerializableVertexInputAttributeDescription<Vk>{{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u}});
+			VertexInputAttributeDescription<Vk>{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u});
 		desc.attributes.emplace_back(
-			SerializableVertexInputAttributeDescription<Vk>{{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u}});
+			VertexInputAttributeDescription<Vk>{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u});
 
 		std::unordered_map<uint64_t, uint32_t> uniqueVertices;
 

@@ -6,25 +6,29 @@
 #include <memory>
 
 template <GraphicsBackend B>
-class Sampler : public DeviceResource<B>
+class SamplerVector : public DeviceResource<B>
 {
 public:
 
-    Sampler(
+    SamplerVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const SamplerCreateInfo<B>& createInfo);
-    Sampler( // takes ownership of provided handle
+        const std::vector<SamplerCreateInfo<B>>& createInfos);
+    SamplerVector( // takes ownership of provided handle
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        SamplerHandle<B>&& sampler);
-    Sampler(Sampler&& other);
-    ~Sampler();
+        std::vector<SamplerHandle<B>>&& samplers);
+    SamplerVector(SamplerVector&& other);
+    ~SamplerVector();
 
-    Sampler& operator=(Sampler&& other);
-    operator auto() const { return mySampler; }
+    SamplerVector& operator=(SamplerVector&& other);
+    auto operator[](uint32_t index) const { return mySamplers[index]; };
+    
+    auto size() const { return mySamplers.size(); }
+    auto data() const { return mySamplers.data(); }
 
 private:
 
-	SamplerHandle<B> mySampler = {};
+	 std::vector<SamplerHandle<B>> mySamplers = {};
 };
 
 #include "sampler.inl"
+#include "sampler-vulkan.inl"

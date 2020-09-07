@@ -699,6 +699,17 @@ VkSampler createSampler(VkDevice device, const VkSamplerCreateInfo& createInfo)
 	return outSampler;
 }
 
+std::vector<VkSampler> createSamplers(VkDevice device, const std::vector<VkSamplerCreateInfo>& createInfos)
+{
+	std::vector<VkSampler> outSamplers;
+	outSamplers.reserve(createInfos.size());
+
+	for (const auto& createInfo : createInfos)
+		outSamplers.emplace_back(createSampler(device, createInfo));
+
+	return outSamplers;
+}
+
 VkSampler createDefaultSampler(VkDevice device)
 {
 	VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
