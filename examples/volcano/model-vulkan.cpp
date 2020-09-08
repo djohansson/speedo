@@ -33,8 +33,7 @@
 namespace model
 {
 
-std::vector<VkVertexInputBindingDescription>
-calculateInputBindingDescriptions(
+std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
 {
 	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
@@ -77,11 +76,7 @@ calculateInputBindingDescriptions(
 																   VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-std::tuple<
-	ModelCreateDesc<Vk>,
-	BufferHandle<Vk>,
-	AllocationHandle<Vk>>
-load(
+std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
@@ -276,10 +271,7 @@ template <>
 Model<Vk>::Model(
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
 	const std::shared_ptr<CommandContext<Vk>>& commandContext,
-	std::tuple<
-		ModelCreateDesc<Vk>,
-		BufferHandle<Vk>,
-		AllocationHandle<Vk>>&& descAndInitialData)
+	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 : myDesc(std::move(std::get<0>(descAndInitialData)))
 , myBuffer(
 	deviceContext,

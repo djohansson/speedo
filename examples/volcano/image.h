@@ -25,14 +25,10 @@ struct ImageCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class ImageView;
-
-template <GraphicsBackend B>
-class RenderImageSet;
-
-template <GraphicsBackend B>
 class Image : public DeviceResource<B>
 {
+    using ValueType = std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>;
+
 public:
 
     Image(Image&& other);
@@ -42,31 +38,35 @@ public:
     Image( // copies the initial buffer into a new image. buffer gets garbage collected when finished copying.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
-        std::tuple<ImageCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
+        std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData);
     Image( // loads a file into a buffer and creates a new image from it. buffer gets garbage collected when finished copying.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& imageFile);
     Image( // takes ownership of provided image handle & allocation
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::tuple<ImageCreateDesc<B>, ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>&& descAndData);
+        ImageCreateDesc<B>&& desc,
+        ValueType&& data);
     ~Image();
 
     Image& operator=(Image&& other);
-    operator auto() const { return std::get<0>(myData); }
+    operator auto() const { return std::get<0>(myImage); }
 
     const auto& getDesc() const { return myDesc; }
-    const auto& getImageMemory() const { return std::get<1>(myData); }
-    const auto& getImageLayout() const { return std::get<2>(myData); }
+    const auto& getImageMemory() const { return std::get<1>(myImage); }
+    const auto& getImageLayout() const { return std::get<2>(myImage); }
 
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
+
+    // this method is not meant to be used except in very special cases
+    // such as for instance to update the image layout after a render pass
+    // (which implicitly changes the image layout).
+    void setImageLayout(ImageLayout<B> layout) { std::get<2>(myImage) = layout; }
     
 private:
 
-    friend class RenderImageSet<B>;
-
     const ImageCreateDesc<B> myDesc = {};
-    std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>> myData = {};
+    ValueType myImage = {};
 };
 
 template <GraphicsBackend B>
@@ -79,16 +79,15 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,
         Flags<Vk> aspectFlags);
+    ImageView( // uses provided image view
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ImageViewHandle<B>&& imageView);
     ~ImageView();
 
     ImageView& operator=(ImageView&& other);
     operator auto() const { return myImageView; }
 
 private:
-
-    ImageView( // uses provided image view
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ImageViewHandle<B>&& imageView);
 
     ImageViewHandle<B> myImageView = {};
 };

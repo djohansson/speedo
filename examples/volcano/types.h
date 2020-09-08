@@ -153,8 +153,7 @@ template <GraphicsBackend B>
 using DescriptorPoolHandle = std::conditional_t<B == Vk, VkDescriptorPool, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using DescriptorSetHandle =
-	std::conditional_t<B == Vk, VkDescriptorSet, std::nullptr_t>;
+using DescriptorSetHandle = std::conditional_t<B == Vk, VkDescriptorSet, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using RenderPassHandle = std::conditional_t<B == Vk, VkRenderPass, std::nullptr_t>;
@@ -214,16 +213,13 @@ template <GraphicsBackend B>
 using SamplerCreateInfo = std::conditional_t<B == Vk, VkSamplerCreateInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputBindingDescription = std::conditional_t<
-	B == Vk, VkVertexInputBindingDescription, std::nullptr_t>;
+using VertexInputBindingDescription = std::conditional_t<B == Vk, VkVertexInputBindingDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputRate =
-	std::conditional_t<B == Vk, VkVertexInputRate, std::nullptr_t>;
+using VertexInputRate = std::conditional_t<B == Vk, VkVertexInputRate, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputAttributeDescription = std::conditional_t<
-	B == Vk, VkVertexInputAttributeDescription, std::nullptr_t>;
+using VertexInputAttributeDescription = std::conditional_t<B == Vk, VkVertexInputAttributeDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using CommandPoolHandle = std::conditional_t<B == Vk, VkCommandPool, std::nullptr_t>;

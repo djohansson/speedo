@@ -42,7 +42,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 : DescriptorSetLayout<Vk>(
     deviceContext,
     std::move(desc),
-    [&deviceContext, &desc, &immutableSamplers, &bindings]() -> LayoutType
+    [&deviceContext, &desc, &immutableSamplers, &bindings]
     {
         auto samplers = SamplerVector<Vk>(deviceContext, immutableSamplers);
 

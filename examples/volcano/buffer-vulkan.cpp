@@ -6,18 +6,16 @@
 template <>
 Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    std::tuple<
-        BufferCreateDesc<Vk>,
-        BufferHandle<Vk>,
-        AllocationHandle<Vk>>&& descAndData)
+    BufferCreateDesc<Vk>&& desc,
+    ValueType&& buffer)
 : DeviceResource<Vk>(
     deviceContext,
-    std::get<0>(descAndData),
+    desc,
     1,
     VK_OBJECT_TYPE_BUFFER,
-    reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
-, myDesc(std::move(std::get<0>(descAndData)))
-, myData(std::make_tuple(std::get<1>(descAndData), std::get<2>(descAndData)))
+    reinterpret_cast<uint64_t*>(&std::get<0>(buffer)))
+, myDesc(std::move(desc))
+, myBuffer(std::move(buffer))
 {
 }
 
@@ -27,14 +25,13 @@ Buffer<Vk>::Buffer(
     BufferCreateDesc<Vk>&& desc)
 : Buffer(
     deviceContext,
-    std::tuple_cat(
-        std::make_tuple(std::move(desc)),
-        createBuffer(
-            deviceContext->getAllocator(),
-            desc.size,
-            desc.usageFlags,
-            desc.memoryFlags,
-            desc.name.c_str())))
+    std::move(desc),
+    createBuffer(
+        deviceContext->getAllocator(),
+        desc.size,
+        desc.usageFlags,
+        desc.memoryFlags,
+        desc.name.c_str()))
 {
 }
 
@@ -48,16 +45,15 @@ Buffer<Vk>::Buffer(
         AllocationHandle<Vk>>&& descAndInitialData)
 : Buffer(
     deviceContext,
-    std::tuple_cat(
-        std::make_tuple(std::move(std::get<0>(descAndInitialData))),
-        createBuffer(
-     		commandContext->commands(),
-            deviceContext->getAllocator(),
-            std::get<1>(descAndInitialData),
-            std::get<0>(descAndInitialData).size,
-            std::get<0>(descAndInitialData).usageFlags,
-            std::get<0>(descAndInitialData).memoryFlags,
-            std::get<0>(descAndInitialData).name.c_str())))
+    std::move(std::get<0>(descAndInitialData)),
+    createBuffer(
+        commandContext->commands(),
+        deviceContext->getAllocator(),
+        std::get<1>(descAndInitialData),
+        std::get<0>(descAndInitialData).size,
+        std::get<0>(descAndInitialData).usageFlags,
+        std::get<0>(descAndInitialData).memoryFlags,
+        std::get<0>(descAndInitialData).name.c_str()))
 {
     commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
@@ -84,7 +80,7 @@ BufferView<Vk>::BufferView(
     1,
     VK_OBJECT_TYPE_BUFFER_VIEW,
     reinterpret_cast<uint64_t*>(&bufferView))
-, myBufferView(std::move(bufferView))
+, myView(std::move(bufferView))
 {
 }
 
