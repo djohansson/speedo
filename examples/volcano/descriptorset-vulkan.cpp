@@ -6,47 +6,30 @@ namespace descriptorset
 
 static PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR = {};
 
-// template <>
-// std::vector<DescriptorSetLayoutHandle<Vk>> getDescriptorSetLayoutHandles<Vk>(
-//     const std::vector<DescriptorSetLayout<Vk>>& layouts,
-//     bool nullIfPushConstant)
-// {
-//     std::vector<DescriptorSetLayoutHandle<Vk>> handles;
-//     handles.reserve(layouts.size());
-//     std::transform(
-//         layouts.begin(),
-//         layouts.end(),
-//         std::back_inserter(handles),
-//         [nullIfPushConstant](const auto& layout){
-//             if (nullIfPushConstant && layout.getDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-//                 return DescriptorSetLayoutHandle<Vk>{};
-//             return static_cast<DescriptorSetLayoutHandle<Vk>>(layout);});       
-//     return handles;
-// }
-
 }
 
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
-, myDescriptorSetLayout(std::exchange(other.myDescriptorSetLayout, {}))
+, myLayout(std::move(other.myLayout))
 {
+    std::get<0>(other.myLayout) = {};
 }
 
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetLayoutCreateDesc<Vk>&& desc,
-    DescriptorSetLayoutHandle<Vk>&& descriptorSetLayout)
+    std::tuple<DescriptorSetLayoutHandle<Vk>, SamplerVector<Vk>>&& layout)
 : DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSetLayout"},
     1,
     VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-    reinterpret_cast<uint64_t*>(&descriptorSetLayout))
+    reinterpret_cast<uint64_t*>(&std::get<0>(layout)))
 , myDesc(std::move(desc))
-, myDescriptorSetLayout(std::move(descriptorSetLayout))
+, myLayout(std::move(layout))
 {
 }
 
@@ -54,23 +37,34 @@ template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetLayoutCreateDesc<Vk>&& desc,
-    const std::vector<SerializableDescriptorSetLayoutBinding<Vk>>& bindings)
+    const std::vector<SamplerCreateInfo<Vk>>& immutableSamplers,
+    std::vector<DescriptorSetLayoutBinding<Vk>>& bindings)
 : DescriptorSetLayout<Vk>(
     deviceContext,
     std::move(desc),
-    createDescriptorSetLayout(
-        deviceContext->getDevice(),
-        desc.flags,
-        bindings.data(),
-        bindings.size()))
+    [&deviceContext, &desc, &immutableSamplers, &bindings]
+    {
+        auto samplers = SamplerVector<Vk>(deviceContext, immutableSamplers);
+
+        for (auto& binding : bindings)
+            binding.pImmutableSamplers = samplers.data();
+
+        return std::make_tuple(
+            createDescriptorSetLayout(
+                deviceContext->getDevice(),
+                desc.flags,
+                bindings.data(),
+                bindings.size()),
+            std::move(samplers));
+    }())
 {
 }
 
 template <>
 DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 {
-    if (myDescriptorSetLayout)
-        vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), myDescriptorSetLayout, nullptr);
+    if (auto layout = std::get<0>(myLayout); layout)
+        vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), layout, nullptr);
 }
 
 template <>
@@ -78,7 +72,8 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
-    myDescriptorSetLayout = std::exchange(other.myDescriptorSetLayout, {});
+    std::get<0>(myLayout) = std::exchange(std::get<0>(other.myLayout), {});
+    std::get<1>(myLayout) = std::move(std::get<1>(other.myLayout));
 	return *this;
 }
 
@@ -389,8 +384,6 @@ DescriptorSetVector<Vk>::~DescriptorSetVector()
                     pool,
                     descriptorSetHandles.size(),
                     descriptorSetHandles.data());
-                // for (auto set : descriptorSets)
-                //     vkFreeDescriptorSets(device, pool, 1, &set);
         });
 }
 

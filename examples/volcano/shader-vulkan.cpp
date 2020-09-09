@@ -96,7 +96,7 @@ template <>
 void createLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-    DescriptorSetLayoutBindingsMap<Vk>& bindings,
+    DescriptorSetLayoutMap<Vk>& bindings,
 	uint32_t currentSet,
 	uint32_t& setCount,
 	const char* parentName)
@@ -169,10 +169,10 @@ void createLayoutBindings<Vk>(
 			binding.descriptorType = shader::getDescriptorType<Vk>(typeLayout);
 			binding.descriptorCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
 			binding.stageFlags = shader::getStageFlags<Vk>(parameter->getStage());
-			binding.pImmutableSamplers = nullptr; // todo - initialize these
-            //binding.immutableSamplerCreateInfos.push_back(...)
-			std::get<0>(bindings[currentSet]).push_back(binding);
-			std::get<1>(bindings[currentSet]) = 0; //currentSet > 0 ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
+			binding.pImmutableSamplers = nullptr;
+            std::get<0>(bindings[currentSet]).push_back(binding);
+			//std::get<1>(bindings[currentSet]).push_back(SamplerCreateInfo<Vk>{}); // todo: immutable samplers
+			std::get<2>(bindings[currentSet]) = 0; //currentSet > 0 ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
 		}
 		else if (category == slang::ParameterCategory::RegisterSpace)
 		{

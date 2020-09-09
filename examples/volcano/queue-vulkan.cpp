@@ -103,13 +103,12 @@ std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, cons
         static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
         static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-        auto scope = tracy::VkCtxScope(
-            std::any_cast<queue::UserData>(&myUserData)->tracyContext,
-            reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-            cmd,
-            true);
-
-        return std::make_shared<tracy::VkCtxScope>(std::move(scope));
+        return std::make_shared<tracy::VkCtxScope>(
+            tracy::VkCtxScope(
+                std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+                reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+                cmd,
+                true));
     }
 #endif
 

@@ -2,47 +2,47 @@
 #include "vk-utils.h"
 
 template <>
-Sampler<Vk>::Sampler(
+SamplerVector<Vk>::SamplerVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-     SamplerHandle<Vk>&& sampler)
+    std::vector<SamplerHandle<Vk>>&& samplers)
 : DeviceResource<Vk>(
     deviceContext,
     {"_Sampler"},
-    1,
+    samplers.size(),
     VK_OBJECT_TYPE_SAMPLER,
-    reinterpret_cast<uint64_t*>(&sampler))
-, mySampler(std::move(sampler))
+    reinterpret_cast<uint64_t*>(samplers.data()))
+, mySamplers(std::move(samplers))
 {
 }
 
 template <>
-Sampler<Vk>::Sampler(
+SamplerVector<Vk>::SamplerVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const SamplerCreateInfo<Vk>& createInfo)
-: Sampler<Vk>(
+    const std::vector<SamplerCreateInfo<Vk>>& createInfos)
+: SamplerVector<Vk>(
     deviceContext,
-    createSampler(deviceContext->getDevice(), createInfo))
+    createSamplers(deviceContext->getDevice(), createInfos))
 {
 }
 
 template <>
-Sampler<Vk>::Sampler(Sampler<Vk>&& other)
+SamplerVector<Vk>::SamplerVector(SamplerVector<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
-, mySampler(std::exchange(other.mySampler, {}))
+, mySamplers(std::exchange(other.mySamplers, {}))
 {
 }
 
 template <>
-Sampler<Vk>::~Sampler()
+SamplerVector<Vk>::~SamplerVector()
 {
-    if (mySampler)
-        vkDestroySampler(getDeviceContext()->getDevice(), mySampler, nullptr);
+    for (auto sampler : mySamplers)
+        vkDestroySampler(getDeviceContext()->getDevice(), sampler, nullptr);
 }
 
 template <>
-Sampler<Vk>& Sampler<Vk>::operator=(Sampler<Vk>&& other)
+SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector<Vk>&& other)
 {
 	DeviceResource<Vk>::operator=(std::move(other));
-	mySampler = std::exchange(other.mySampler, {});
+	mySamplers = std::exchange(other.mySamplers, {});
 	return *this;
 }

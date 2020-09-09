@@ -20,13 +20,12 @@ using EntryPoint = std::pair<std::string, ShaderStageFlagBits<B>>;
 template <GraphicsBackend B>
 using Shader = std::pair<ShaderBinary, EntryPoint<B>>;
 
-// this is supposed to be a temporary object only used during loading.
+// this is intended to be a temporary object only used during loading.
 template <GraphicsBackend B>
-struct SerializableShaderReflectionInfo
+struct ShaderReflectionInfo
 {
 	std::vector<Shader<B>> shaders;
-	DescriptorSetLayoutBindingsMap<B> bindings;
-	std::vector<SamplerCreateInfo<B>> immutableSamplers;
+	DescriptorSetLayoutMap<B> bindingsMap;
 };
 
 template <GraphicsBackend B>
@@ -55,9 +54,5 @@ private:
 	EntryPoint<B> myEntryPoint = {}; 
 };
 
-template <GraphicsBackend B>
-std::shared_ptr<SerializableShaderReflectionInfo<B>> loadSlangShaders(
-	const std::filesystem::path& compilerPath,
-	const std::filesystem::path& slangFile);
-
 #include "shader.inl"
+#include "shader-vulkan.inl"

@@ -82,6 +82,7 @@ VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkI
 	VkImageAspectFlags aspectFlags, uint32_t mipLevels);
 
 VkSampler createSampler(VkDevice device, const VkSamplerCreateInfo& createInfo);
+std::vector<VkSampler> createSamplers(VkDevice device, const std::vector<VkSamplerCreateInfo>& createInfos);
 VkSampler createDefaultSampler(VkDevice device);
 
 VkFramebuffer createFramebuffer(

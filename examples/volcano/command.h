@@ -14,9 +14,6 @@
 #include <vector>
 
 template <GraphicsBackend B>
-class CommandContext;
-
-template <GraphicsBackend B>
 struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
 {
     CommandPoolHandle<B> pool = 0;
@@ -122,6 +119,8 @@ private:
 template <GraphicsBackend B>
 class CommandContext
 {
+    using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
+
 public:
 
     CommandContext(
@@ -149,8 +148,6 @@ private:
     CommandBufferAccessScope<B> internalBeginScope(const CommandBufferAccessScopeDesc<B>& beginInfo);
     CommandBufferAccessScope<B> internalCommands(const CommandBufferAccessScopeDesc<B>& beginInfo) const;
     void internalEndCommands(CommandBufferLevel<B> level);
-
-    using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
     
     void enqueueOnePending(CommandBufferLevel<B> level);
     void enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue);

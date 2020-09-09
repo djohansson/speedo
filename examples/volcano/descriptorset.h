@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device.h"
+#include "sampler.h"
 #include "types.h"
 
 #include <map>
@@ -9,16 +10,11 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct SerializableDescriptorSetLayoutBinding : public DescriptorSetLayoutBinding<B>
-{
-	using BaseType = DescriptorSetLayoutBinding<B>;
-};
-
-template <GraphicsBackend B>
-using DescriptorSetLayoutBindingsMap = std::map<
+using DescriptorSetLayoutMap = std::map<
     uint32_t, // set
     std::tuple<
-        std::vector<SerializableDescriptorSetLayoutBinding<B>>, // bindings
+        std::vector<DescriptorSetLayoutBinding<B>>, // bindings
+        std::vector<SamplerCreateInfo<B>>, // immutable samplers
         DescriptorSetLayoutCreateFlags<B>>>; // layout flags
 
 template <GraphicsBackend B>
@@ -30,40 +26,49 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetLayout : public DeviceResource<B>
 {
+    using ValueType = std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>>;
+
 public:
 
     DescriptorSetLayout(DescriptorSetLayout&& other);
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutCreateDesc<B>&& desc,
-        const std::vector<SerializableDescriptorSetLayoutBinding<B>>& bindings);
+        const std::vector<SamplerCreateInfo<B>>& immutableSamplers,
+        std::vector<DescriptorSetLayoutBinding<B>>& bindings);
     DescriptorSetLayout( // takes ownership of provided handle
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutCreateDesc<B>&& desc,
-        DescriptorSetLayoutHandle<B>&& descriptorSetLayout);
+        ValueType&& layout);
     ~DescriptorSetLayout();
 
     DescriptorSetLayout& operator=(DescriptorSetLayout&& other);
-    operator auto() const { return myDescriptorSetLayout; }
+    operator auto() const { return std::get<0>(myLayout); }
 
     const auto& getDesc() const { return myDesc; }
 
 private:
 
     DescriptorSetLayoutCreateDesc<B> myDesc = {};
-	DescriptorSetLayoutHandle<B> myDescriptorSetLayout = {};
+	ValueType myLayout = {};
 };
 
 template <GraphicsBackend B>
 struct DescriptorSetVectorCreateDesc : DeviceResourceCreateDesc<B>
 {
     DescriptorPoolHandle<B> pool = {};
-    std::vector<DescriptorSetLayoutHandle<Vk>> layouts;
+    std::vector<DescriptorSetLayoutHandle<B>> layouts;
 };
 
 template <GraphicsBackend B>
 class DescriptorSetVector : public DeviceResource<B>
 {
+    using VariantType = std::variant<
+        std::vector<DescriptorBufferInfo<B>>,
+        std::vector<DescriptorImageInfo<B>>,
+        std::vector<BufferViewHandle<B>>>;
+    using ValueMapType = std::map<uint32_t, std::vector<std::tuple<DescriptorType<B>, VariantType>>>;
+
 public:
 
     DescriptorSetVector(const DescriptorSetVector& other);
@@ -79,7 +84,7 @@ public:
 
     DescriptorSetVector& operator=(const DescriptorSetVector& other);
     DescriptorSetVector& operator=(DescriptorSetVector&& other);
-    DescriptorSetHandle<B> operator[](uint32_t set) const { return myDescriptorSets[set]; };
+    auto operator[](uint32_t set) const { return myDescriptorSets[set]; };
 
     const auto& getDesc() const { return myDesc; }
 
@@ -101,14 +106,9 @@ public:
 
 private:
 
-    using VariantType = std::variant<
-        std::vector<DescriptorBufferInfo<B>>,
-        std::vector<DescriptorImageInfo<B>>,
-        std::vector<BufferViewHandle<B>>>;
-
     DescriptorSetVectorCreateDesc<B> myDesc = {};
 	std::vector<DescriptorSetHandle<B>> myDescriptorSets;
-    std::map<uint32_t, std::vector<std::tuple<DescriptorType<B>, VariantType>>> myData;
+    ValueMapType myData;
 };
 
 #include "descriptorset.inl"

@@ -10,12 +10,6 @@
 
 #include <xxhash.h>
 
-template <GraphicsBackend B>
-struct SerializableVertexInputAttributeDescription : public VertexInputAttributeDescription<B>
-{
-	using BaseType = VertexInputAttributeDescription<B>;
-};
-
 // todo: make sure that it will work between multiple ScopedVertexAllocation scopes
 // 		 create some sort of nested data structure holding both stride and byte vector, and make sure that the scope refers to the correct one.
 class VertexAllocator

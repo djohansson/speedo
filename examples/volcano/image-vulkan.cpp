@@ -46,11 +46,7 @@ int eof(void* user)
 namespace image
 {
 
-std::tuple<
-    ImageCreateDesc<Vk>,
-    BufferHandle<Vk>,
-    AllocationHandle<Vk>>
-load(
+std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
     const std::filesystem::path& imageFile,
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
@@ -307,26 +303,23 @@ void Image<Vk>::transition(
     if (getImageLayout() != layout)
     {
         transitionImageLayout(cmd, *this, myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
-        std::get<2>(myData) = layout;
+        std::get<2>(myImage) = layout;
     }
 }
 
 template <>
 Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    std::tuple<
-        ImageCreateDesc<Vk>,
-        ImageHandle<Vk>,
-        AllocationHandle<Vk>,
-        ImageLayout<Vk>>&& descAndData)
+    ImageCreateDesc<Vk>&& desc,
+    ValueType&& data)
 : DeviceResource<Vk>(
     deviceContext,
-    std::get<0>(descAndData),
+    desc,
     1,
     VK_OBJECT_TYPE_IMAGE,
-    reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
-, myDesc(std::move(std::get<0>(descAndData)))
-, myData(std::make_tuple(std::get<1>(descAndData), std::get<2>(descAndData), std::get<3>(descAndData)))
+    reinterpret_cast<uint64_t*>(&std::get<0>(data)))
+, myDesc(std::move(desc))
+, myImage(std::move(data))
 {
 }
 
@@ -336,8 +329,8 @@ Image<Vk>::Image(
     ImageCreateDesc<Vk>&& desc)
 : Image(
     deviceContext,
+    std::move(desc),
     std::tuple_cat(
-        std::make_tuple(std::move(desc)),
         createImage2D(
             deviceContext->getAllocator(),
             desc.mipLevels[0].extent.width,
@@ -356,14 +349,11 @@ template <>
 Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const std::shared_ptr<CommandContext<Vk>>& commandContext,
-    std::tuple<
-        ImageCreateDesc<Vk>,
-        BufferHandle<Vk>,
-        AllocationHandle<Vk>>&& descAndInitialData)
+    std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 : Image(
     deviceContext,
+    std::move(std::get<0>(descAndInitialData)),
     std::tuple_cat(
-        std::make_tuple(std::move(std::get<0>(descAndInitialData))),
         createImage2D(
             commandContext->commands(),
             deviceContext->getAllocator(),

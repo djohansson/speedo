@@ -96,10 +96,10 @@ void RenderImageSet<B>::end(CommandBufferHandle<B> cmd)
     
     uint32_t imageIt = 0;
     for (; imageIt < myColorImages.size(); imageIt++)
-        std::get<2>(myColorImages[imageIt]->myData) = this->getAttachmentDesc(imageIt).finalLayout;
+        myColorImages[imageIt]->setImageLayout(this->getAttachmentDesc(imageIt).finalLayout);
 
     if (myDepthStencilImage)
-        std::get<2>(myDepthStencilImage->myData) = this->getAttachmentDesc(imageIt).finalLayout; 
+        myDepthStencilImage->setImageLayout(this->getAttachmentDesc(imageIt).finalLayout);
 }
 
 template <GraphicsBackend B>
