@@ -30,6 +30,12 @@ template <GraphicsBackend B>
 using Extent3d = std::conditional_t<B == Vk, VkExtent3D, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using Viewport = std::conditional_t<B == Vk, VkViewport, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using Rect2D = std::conditional_t<B == Vk, VkRect2D, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using ObjectType = std::conditional_t<B == Vk, VkObjectType, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -105,6 +111,9 @@ template <GraphicsBackend B>
 using DescriptorSetLayoutBinding = std::conditional_t<B == Vk, VkDescriptorSetLayoutBinding, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using DescriptorSetLayoutCreateFlags = std::conditional_t<B == Vk, VkDescriptorSetLayoutCreateFlags, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using DeviceHandle = std::conditional_t<B == Vk, VkDevice, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -129,23 +138,22 @@ template <GraphicsBackend B>
 using CommandBufferHandle = std::conditional_t<B == Vk, VkCommandBuffer, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using ShaderModuleHandle =
-	std::conditional_t<B == Vk, VkShaderModule, std::nullptr_t>;
+using ShaderModuleHandle = std::conditional_t<B == Vk, VkShaderModule, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using DescriptorSetLayoutHandle =
-	std::conditional_t<B == Vk, VkDescriptorSetLayout, std::nullptr_t>;
+using DescriptorSetLayoutHandle = std::conditional_t<B == Vk, VkDescriptorSetLayout, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using PipelineLayoutHandle =
-	std::conditional_t<B == Vk, VkPipelineLayout, std::nullptr_t>;
+using PipelineLayoutHandle = std::conditional_t<B == Vk, VkPipelineLayout, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineBindPoint = std::conditional_t<B == Vk, VkPipelineBindPoint, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using DescriptorPoolHandle = std::conditional_t<B == Vk, VkDescriptorPool, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using DescriptorSetHandle =
-	std::conditional_t<B == Vk, VkDescriptorSet, std::nullptr_t>;
+using DescriptorSetHandle = std::conditional_t<B == Vk, VkDescriptorSet, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using RenderPassHandle = std::conditional_t<B == Vk, VkRenderPass, std::nullptr_t>;
@@ -160,22 +168,58 @@ template <GraphicsBackend B>
 using PipelineCacheHandle = std::conditional_t<B == Vk, VkPipelineCache, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using PipelineShaderStageCreateInfo = std::conditional_t<B == Vk, VkPipelineShaderStageCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineVertexInputStateCreateInfo = std::conditional_t<B == Vk, VkPipelineVertexInputStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineInputAssemblyStateCreateInfo = std::conditional_t<B == Vk, VkPipelineInputAssemblyStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineViewportStateCreateInfo = std::conditional_t<B == Vk, VkPipelineViewportStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineRasterizationStateCreateInfo = std::conditional_t<B == Vk, VkPipelineRasterizationStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineMultisampleStateCreateInfo = std::conditional_t<B == Vk, VkPipelineMultisampleStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineDepthStencilStateCreateInfo = std::conditional_t<B == Vk, VkPipelineDepthStencilStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineColorBlendAttachmentState = std::conditional_t<B == Vk, VkPipelineColorBlendAttachmentState, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineColorBlendStateCreateInfo = std::conditional_t<B == Vk, VkPipelineColorBlendStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using PipelineDynamicStateCreateInfo = std::conditional_t<B == Vk, VkPipelineDynamicStateCreateInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ShaderStageFlags = std::conditional_t<B == Vk, VkShaderStageFlags, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using ShaderStageFlagBits = std::conditional_t<B == Vk, VkShaderStageFlagBits, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DynamicState = std::conditional_t<B == Vk, VkDynamicState, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using SamplerHandle = std::conditional_t<B == Vk, VkSampler, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using SamplerCreateInfo = std::conditional_t<B == Vk, VkSamplerCreateInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputBindingDescription = std::conditional_t<
-	B == Vk, VkVertexInputBindingDescription, std::nullptr_t>;
+using VertexInputBindingDescription = std::conditional_t<B == Vk, VkVertexInputBindingDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputRate =
-	std::conditional_t<B == Vk, VkVertexInputRate, std::nullptr_t>;
+using VertexInputRate = std::conditional_t<B == Vk, VkVertexInputRate, std::nullptr_t>;
 
 template <GraphicsBackend B>
-using VertexInputAttributeDescription = std::conditional_t<
-	B == Vk, VkVertexInputAttributeDescription, std::nullptr_t>;
+using VertexInputAttributeDescription = std::conditional_t<B == Vk, VkVertexInputAttributeDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using CommandPoolHandle = std::conditional_t<B == Vk, VkCommandPool, std::nullptr_t>;
@@ -239,6 +283,9 @@ using DescriptorBufferInfo = std::conditional_t<B == Vk, VkDescriptorBufferInfo,
 
 template <GraphicsBackend B>
 using DescriptorImageInfo = std::conditional_t<B == Vk, VkDescriptorImageInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using CopyDescriptorSet = std::conditional_t<B == Vk, VkCopyDescriptorSet, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using WriteDescriptorSet = std::conditional_t<B == Vk, VkWriteDescriptorSet, std::nullptr_t>;

@@ -87,12 +87,8 @@ FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::~FileObject()
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>& FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::operator=(FileObject&& other) noexcept
 {
-	if (this != &other)
-	{
-		myFilePath = std::exchange(other.myFilePath, {});
-		myName = std::exchange(other.myName, {});
-	}
-
+    myFilePath = std::exchange(other.myFilePath, {});
+    myName = std::exchange(other.myName, {});
 	return *this;
 }
 

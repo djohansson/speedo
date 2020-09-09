@@ -19,7 +19,7 @@
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
-	.LLVMVersion = '10.0.0'
+	.LLVMVersion = '10.0.1'
 #endif // exists(LLVM_VERSION)
 #if exists(CLANG_PATH)
 #import CLANG_PATH

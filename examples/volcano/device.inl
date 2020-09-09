@@ -1,4 +1,5 @@
 #include <cereal/cereal.hpp>
+#include <cereal/archives/json.hpp>
 #include <cereal/types/optional.hpp>
 
 template <class Archive, GraphicsBackend B>

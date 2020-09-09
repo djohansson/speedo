@@ -2170,7 +2170,7 @@ Result initialize()
 //
 void renderFrame()
 {
-    gui->beginFrame();
+    ImGui::SetCurrentContext(gui->beginFrame());
 
     // In order to see that things are rendering properly we need some
     // kind of animation, so we will compute a crude delta-time value here.

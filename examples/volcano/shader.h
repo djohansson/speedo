@@ -12,17 +12,20 @@
 
 #include <slang.h>
 
-using EntryPoint = std::pair<std::string, uint32_t>;
 using ShaderBinary = std::vector<std::byte>;
-using ShaderEntry = std::pair<ShaderBinary, EntryPoint>;
 
-// this is supposed to be a temporary object only used during loading.
 template <GraphicsBackend B>
-struct SerializableShaderReflectionModule
+using EntryPoint = std::pair<std::string, ShaderStageFlagBits<B>>;
+
+template <GraphicsBackend B>
+using Shader = std::pair<ShaderBinary, EntryPoint<B>>;
+
+// this is intended to be a temporary object only used during loading.
+template <GraphicsBackend B>
+struct ShaderReflectionInfo
 {
-	std::vector<ShaderEntry> shaders;
-	DescriptorSetLayoutBindingsMap<B> bindings;
-	std::vector<SamplerCreateInfo<B>> immutableSamplers;
+	std::vector<Shader<B>> shaders;
+	DescriptorSetLayoutMap<B> bindingsMap;
 };
 
 template <GraphicsBackend B>
@@ -32,27 +35,24 @@ public:
 
     ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const ShaderEntry& shaderEntry);
+        const Shader<B>& shader);
 	ShaderModule( // takes ownership of provided handle
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ShaderModuleHandle<B>&& shaderModule);
+        ShaderModuleHandle<B>&& shaderModule,
+		const EntryPoint<B>& entryPoint);
 	ShaderModule(ShaderModule&& other);
     ~ShaderModule();
 
     ShaderModule& operator=(ShaderModule&& other);
 	operator auto() const { return myShaderModule; }
 
+	const auto& getEntryPoint() const { return myEntryPoint; }
+
 private:
 
 	ShaderModuleHandle<B> myShaderModule = {};
+	EntryPoint<B> myEntryPoint = {}; 
 };
 
-template <GraphicsBackend B>
-std::shared_ptr<SerializableShaderReflectionModule<B>> loadSlangShaders(
-	const std::filesystem::path& compilerPath,
-	const std::filesystem::path& slangFile);
-
-template <GraphicsBackend B>
-void createSlangLayoutBindings(slang::VariableLayoutReflection* parameter, DescriptorSetLayoutBindingsMap<B>& bindings);
-
 #include "shader.inl"
+#include "shader-vulkan.inl"

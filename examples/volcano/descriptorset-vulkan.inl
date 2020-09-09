@@ -1,3 +1,6 @@
+#include <cereal/cereal.hpp>
+#include <cereal/archives/binary.hpp>
+
 namespace descriptorset
 {
 
@@ -13,23 +16,19 @@ inline constexpr bool always_false_v = false;
 }
 
 template <class Archive>
-void serialize(Archive& archive, SerializableDescriptorSetLayoutBinding<Vk>& dsb)
+void serialize(Archive& archive, DescriptorSetLayoutBinding<Vk>& dsb)
 {
-    // runtime creation of descriptor sets relies on this:
-    static_assert(sizeof(dsb) == sizeof(SerializableDescriptorSetLayoutBinding<Vk>::BaseType));
-
     archive(
         cereal::make_nvp("binding", dsb.binding), 
         cereal::make_nvp("descriptorType", dsb.descriptorType),
         cereal::make_nvp("descriptorCount", dsb.descriptorCount),
         cereal::make_nvp("stageFlags", dsb.stageFlags)
-        //cereal::make_nvp("pImmutableSamplers", dsb.pImmutableSamplers), // todo: instantiate these samplers
     );
 }
 
 template <>
 template <typename T>
-void DescriptorSetVector<Vk>::set(T&& data, uint32_t set, uint32_t binding, DescriptorType<Vk> type, uint32_t index)
+void DescriptorSetVector<Vk>::set(T&& data, DescriptorType<Vk> type, uint32_t set, uint32_t binding, uint32_t index)
 {
     auto& bindingVector = myData[set];
     if (bindingVector.size() <= binding)

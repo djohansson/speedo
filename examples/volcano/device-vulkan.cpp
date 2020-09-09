@@ -273,6 +273,7 @@ DeviceContext<Vk>::DeviceContext(
 
     std::vector<const char*> requiredDeviceExtensions = {
         // must be sorted lexicographically for std::includes to work!
+        VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
         VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
     assert(std::includes(
@@ -418,14 +419,6 @@ DeviceContext<Vk>::DeviceContext(
         getPhysicalDevice(),
         VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT);
 
-    myDescriptorPool = createDescriptorPool(myDevice);
-
-    addOwnedObject(
-        0,
-        VK_OBJECT_TYPE_DESCRIPTOR_POOL,
-        reinterpret_cast<uint64_t>(myDescriptorPool),
-        "Device_DescriptorPool");
-
     VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     timelineCreateInfo.initialValue = 0;
@@ -454,8 +447,6 @@ DeviceContext<Vk>::~DeviceContext()
     clearOwnedObjects(0);
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
-    
-    vkDestroyDescriptorPool(myDevice, myDescriptorPool, nullptr);
 
     vmaDestroyAllocator(myAllocator);
 
@@ -524,6 +515,5 @@ DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other)
     myDevice = std::exchange(other.myDevice, {});
     myName = std::exchange(other.myName, {});
     myId = std::exchange(other.myId, {});
-    
     return *this;
 }

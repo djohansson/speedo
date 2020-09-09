@@ -1,7 +1,7 @@
 #include <cereal/cereal.hpp>
 
 template <class Archive>
-void serialize(Archive& archive, SerializableVertexInputAttributeDescription<Vk>& desc)
+void serialize(Archive& archive, VertexInputAttributeDescription<Vk>& desc)
 {
     archive(cereal::make_nvp("location", desc.location));
     archive(cereal::make_nvp("binding", desc.binding));

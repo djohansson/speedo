@@ -106,8 +106,11 @@ VkBool32 debugUtilsMessengerCallback(
 
     std::cout << pCallbackData->pMessage << std::endl;
 
-    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-        __debugbreak();
+    if (pCallbackData->messageIdNumber != -1666394502) // UNASSIGNED-CoreValidation-DrawState-QueryNotReset - https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/1179
+    {
+        if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+            __debugbreak();
+    }
 
     return VK_FALSE;
 }

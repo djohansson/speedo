@@ -83,7 +83,6 @@ public:
     //
 
     auto getAllocator() const { return myAllocator; }
-    auto getDescriptorPool() const { return myDescriptorPool; }
 
     const auto& getTimelineSemaphore() const { return myTimelineSemaphore; }
     uint64_t getTimelineSemaphoreValue() const;
@@ -119,7 +118,6 @@ private:
     uint32_t myCurrentComputeQueue = 0; // todo:
     
     AllocatorHandle<B> myAllocator = {};
-	DescriptorPoolHandle<B> myDescriptorPool = {};
 
     SemaphoreHandle<B> myTimelineSemaphore = {};
     std::atomic_uint64_t myTimelineValue = {};
@@ -147,7 +145,7 @@ struct DeviceResourceCreateDesc
 };
 
 template <GraphicsBackend B>
-class DeviceResource : public Noncopyable
+class DeviceResource : Noncopyable
 {
 public:
 

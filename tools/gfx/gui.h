@@ -15,7 +15,7 @@ struct SLANG_API GUI : RefObject
     GUI(Window* window, Renderer* renderer);
     ~GUI();
 
-    void beginFrame();
+    ImGuiContext* beginFrame();
     void endFrame();
 
 private:
@@ -24,6 +24,7 @@ private:
     RefPtr<DescriptorSetLayout> descriptorSetLayout;
     RefPtr<PipelineLayout>      pipelineLayout;
     RefPtr<SamplerState>        samplerState;
+    ImGuiContext*               imguiContext;
 };
 
 } // gfx

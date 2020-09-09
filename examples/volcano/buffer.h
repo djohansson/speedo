@@ -18,6 +18,8 @@ struct BufferCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class Buffer : public DeviceResource<B>
 {
+    using ValueType = std::tuple<BufferHandle<B>, AllocationHandle<B>>;
+
 public:
 
     Buffer(Buffer&& other);
@@ -30,19 +32,20 @@ public:
         std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     Buffer( // takes ownership of provided buffer handle and allocation
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndData);
+        BufferCreateDesc<B>&& desc,
+        ValueType&& buffer);
     ~Buffer();
 
     Buffer& operator=(Buffer&& other);
-    operator auto() const { return std::get<0>(myData); }
+    operator auto() const { return std::get<0>(myBuffer); }
 
     const auto& getDesc() const { return myDesc; }
-    const auto& getBufferMemory() const { return std::get<1>(myData); }
+    const auto& getBufferMemory() const { return std::get<1>(myBuffer); }
 
 private:
 
     const BufferCreateDesc<B> myDesc = {};
-    std::tuple<BufferHandle<B>, AllocationHandle<B>> myData = {};
+    ValueType myBuffer = {};
 };
 
 template <GraphicsBackend B>
@@ -57,16 +60,15 @@ public:
         Format<B> format,
         DeviceSize<B> offset,
         DeviceSize<B> range);
-    ~BufferView();
-
-    BufferView& operator=(BufferView&& other);
-    operator auto() const { return myBufferView; }
-
-private:
-
     BufferView( // uses provided image view
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferViewHandle<B>&& bufferView);
+    ~BufferView();
 
-    BufferViewHandle<B> myBufferView = {};
+    BufferView& operator=(BufferView&& other);
+    operator auto() const { return myView; }
+
+private:
+
+    BufferViewHandle<B> myView = {};
 };

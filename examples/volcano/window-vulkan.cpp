@@ -200,7 +200,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                             pipeline->resources()->model->getDesc().indexCount,
                             pipeline->descriptorSets()->size(),
                             pipeline->descriptorSets()->data(),
-                            pipeline->layout()->getLayout());
+                            *pipeline->layout());
 
                     };
 
