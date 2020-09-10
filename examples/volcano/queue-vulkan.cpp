@@ -164,9 +164,6 @@ uint64_t Queue<Vk>::submit()
         submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
     }
 
-    auto& tracyContext = std::any_cast<queue::UserData>(&myUserData)->tracyContext;
-    (void)tracyContext;
-
     VK_CHECK(vkQueueSubmit(myDesc.queue, myPendingSubmits.size(), submitBegin, myFence));
 
     myPendingSubmits.clear();
