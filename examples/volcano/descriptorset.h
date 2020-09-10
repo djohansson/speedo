@@ -57,7 +57,6 @@ template <GraphicsBackend B>
 struct DescriptorSetVectorCreateDesc : DeviceResourceCreateDesc<B>
 {
     DescriptorPoolHandle<B> pool = {};
-    std::vector<DescriptorSetLayoutHandle<B>> layouts;
 };
 
 template <GraphicsBackend B>
@@ -71,10 +70,10 @@ class DescriptorSetVector : public DeviceResource<B>
 
 public:
 
-    DescriptorSetVector(const DescriptorSetVector& other);
     DescriptorSetVector(DescriptorSetVector&& other);
-    DescriptorSetVector( // allocates vector of descriptor set handles using vector of layout handles in desc
+    DescriptorSetVector( // allocates vector of descriptor set handles using vector of layouts
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::vector<DescriptorSetLayout<B>>& layouts,
         DescriptorSetVectorCreateDesc<B>&& desc);
     DescriptorSetVector( // takes ownership of provided descriptor set handles.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -82,9 +81,8 @@ public:
         std::vector<DescriptorSetHandle<B>>&& descriptorSetHandles);
     ~DescriptorSetVector();
 
-    DescriptorSetVector& operator=(const DescriptorSetVector& other);
     DescriptorSetVector& operator=(DescriptorSetVector&& other);
-    auto operator[](uint32_t set) const { return myDescriptorSets[set]; };
+    const auto& operator[](uint32_t set) const { return myDescriptorSets[set]; };
 
     const auto& getDesc() const { return myDesc; }
 
@@ -94,15 +92,13 @@ public:
     template <typename T>
     void set(T&& data, DescriptorType<B> type, uint32_t set, uint32_t binding, uint32_t index = 0);
     
-    void copy(DescriptorSetVector<B>& dst) const;
+    void copy(uint32_t set, DescriptorSetVector<B>& dst) const;
     void push(
         CommandBufferHandle<B> cmd,
         PipelineBindPoint<B> bindPoint,
         PipelineLayoutHandle<B> layout,
-        uint32_t set,
-        uint32_t bindingOffset,
-        uint32_t bindingCount) const;
-    void write() const;
+        uint32_t set) const;
+    void write(uint32_t set) const;
 
 private:
 

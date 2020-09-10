@@ -162,6 +162,8 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		// for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 		// {
 		// 	slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
+		// SlangUInt threadGroupSize[3];
+		// epReflection->getComputeThreadGruopSize(3, &threadGroupSize[0]);
 
 		// 	for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
 		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), slangModule->bindingsMap);

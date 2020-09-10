@@ -178,30 +178,25 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
                         };
 
-                        auto drawModel = [viewIt, drawCount, &frameIndex](
-                                            VkCommandBuffer cmd, uint32_t indexCount,
-                                            uint32_t descriptorSetCount,
-                                            const VkDescriptorSet* descriptorSets,
-                                            VkPipelineLayout pipelineLayout)
+                        auto drawModel = [viewIt, drawCount, &frameIndex, &pipeline](VkCommandBuffer cmd)
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
+                            auto pipelineLayout = static_cast<VkPipelineLayout>(*pipeline->layout());
+                            auto indexCount = pipeline->resources()->model->getDesc().indexCount;
+                            //auto descriptorSetCount = pipeline->descriptorSets()->size();
+                            auto descriptorSets = pipeline->descriptorSets()->data();
+                            
                             uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                                descriptorSetCount, descriptorSets, 1, &viewBufferOffset);
+                                1/*descriptorSetCount*/, descriptorSets, 1, &viewBufferOffset);
+                            pipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1);
                             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
                         };
 
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
-
-                        drawModel(
-                            cmd,
-                            pipeline->resources()->model->getDesc().indexCount,
-                            pipeline->descriptorSets()->size(),
-                            pipeline->descriptorSets()->data(),
-                            *pipeline->layout());
-
+                        drawModel(cmd);
                     };
 
                     drawView(drawIt);

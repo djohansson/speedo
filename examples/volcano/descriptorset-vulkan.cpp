@@ -78,12 +78,11 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 }
 
 template <>
-void DescriptorSetVector<Vk>::copy(DescriptorSetVector<Vk>& dst) const
+void DescriptorSetVector<Vk>::copy(uint32_t set, DescriptorSetVector<Vk>& dst) const
 {
-    std::vector<CopyDescriptorSet<Vk>> descriptorCopies;
-
-    for (const auto& [set, bindingVector] : myData)
+    if (const auto& bindingVector = myData.at(set); !bindingVector.empty())
     {
+        std::vector<CopyDescriptorSet<Vk>> descriptorCopies;
         descriptorCopies.reserve(descriptorCopies.size() + bindingVector.size());
 
         for (const auto& binding : bindingVector)
@@ -135,14 +134,14 @@ void DescriptorSetVector<Vk>::copy(DescriptorSetVector<Vk>& dst) const
                 },
             }, variantVector));
         }
-    }
 
-    vkUpdateDescriptorSets(
-        getDeviceContext()->getDevice(),
-        0,
-        nullptr,
-        static_cast<uint32_t>(descriptorCopies.size()),
-        descriptorCopies.data());
+        vkUpdateDescriptorSets(
+            getDeviceContext()->getDevice(),
+            0,
+            nullptr,
+            static_cast<uint32_t>(descriptorCopies.size()),
+            descriptorCopies.data());
+    }
 }
 
 template <>
@@ -150,31 +149,26 @@ void DescriptorSetVector<Vk>::push(
     CommandBufferHandle<Vk> cmd,
     PipelineBindPoint<Vk> bindPoint,
     PipelineLayoutHandle<Vk> layout,
-    uint32_t set,
-    uint32_t bindingOffset,
-    uint32_t bindingCount) const
+    uint32_t set) const
 {
-    auto setHandle = myDescriptorSets[set];
-    const auto& bindingVector = myData.at(set);
-
-    assert(bindingOffset + bindingCount <= bindingVector.size());
-
-    std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-    descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
-
-    for (uint32_t bindingIt = bindingOffset; bindingIt < bindingCount; bindingIt++)
+    if (const auto& bindingVector = myData.at(set); !bindingVector.empty())
     {
-        const auto& binding = bindingVector[bindingIt];
-        auto bindingType = std::get<0>(binding);
-        const auto& variantVector = std::get<1>(binding);
+        std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
+        descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
 
-        descriptorWrites.emplace_back(std::visit(descriptorset::overloaded{
-            [setHandle, bindingType, bindingIt](
+        for (uint32_t bindingIt = 0; bindingIt < bindingVector.size(); bindingIt++)
+        {
+            const auto& binding = bindingVector[bindingIt];
+            auto bindingType = std::get<0>(binding);
+            const auto& variantVector = std::get<1>(binding);
+
+            descriptorWrites.emplace_back(std::visit(descriptorset::overloaded{
+                [bindingType, bindingIt](
                 const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
-                        setHandle,
+                        0,
                         bindingIt,
                         0,
                         static_cast<uint32_t>(bufferInfos.size()),
@@ -182,13 +176,13 @@ void DescriptorSetVector<Vk>::push(
                         nullptr,
                         bufferInfos.data(),
                         nullptr};
-            },
-            [setHandle, bindingType, bindingIt](
+                },
+                [bindingType, bindingIt](
                 const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
-                        setHandle,
+                        0,
                         bindingIt,
                         0,
                         static_cast<uint32_t>(imageInfos.size()),
@@ -196,13 +190,13 @@ void DescriptorSetVector<Vk>::push(
                         imageInfos.data(),
                         nullptr,
                         nullptr};
-            },
-            [setHandle, bindingType, bindingIt](
+                },
+                [bindingType, bindingIt](
                 const std::vector<BufferViewHandle<Vk>>& bufferViews){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
-                        setHandle,
+                        0,
                         bindingIt,
                         0,
                         static_cast<uint32_t>(bufferViews.size()),
@@ -210,41 +204,37 @@ void DescriptorSetVector<Vk>::push(
                         nullptr,
                         nullptr,
                         bufferViews.data()};
-            },
-        }, variantVector));
+                },
+            }, variantVector));
+        }
+
+        if (!descriptorset::vkCmdPushDescriptorSetKHR)
+            descriptorset::vkCmdPushDescriptorSetKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
+                vkGetDeviceProcAddr(
+                    getDeviceContext()->getDevice(),
+                    "vkCmdPushDescriptorSetKHR"));
+
+        descriptorset::vkCmdPushDescriptorSetKHR(
+            cmd,
+            bindPoint,
+            layout,
+            set,
+            static_cast<uint32_t>(descriptorWrites.size()),
+            descriptorWrites.data());
     }
-
-    if (!descriptorset::vkCmdPushDescriptorSetKHR)
-        descriptorset::vkCmdPushDescriptorSetKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
-            vkGetDeviceProcAddr(
-                getDeviceContext()->getDevice(),
-                "vkCmdPushDescriptorSetKHR"));
-
-    descriptorset::vkCmdPushDescriptorSetKHR(
-        cmd,
-        bindPoint,
-        layout,
-        set,
-        static_cast<uint32_t>(descriptorWrites.size()),
-        descriptorWrites.data());
 }
 
 template <>
-void DescriptorSetVector<Vk>::write() const
+void DescriptorSetVector<Vk>::write(uint32_t set) const
 {
-    std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-
-    for (const auto& [set, bindingVector] : myData)
+    if (const auto& bindingVector = myData.at(set); !bindingVector.empty())
     {
+        std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
         descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
 
         for (const auto& binding : bindingVector)
         {
             auto setHandle = myDescriptorSets[set];
-
-            if (!setHandle)
-                continue;
-
             auto bindingType = std::get<0>(binding);
             auto bindingIt = static_cast<uint32_t>(&binding - &bindingVector[0]);
             const auto& variantVector = std::get<1>(binding);
@@ -294,14 +284,14 @@ void DescriptorSetVector<Vk>::write() const
                 },
             }, variantVector));
         }
-    }
 
-    vkUpdateDescriptorSets(
-        getDeviceContext()->getDevice(),
-        static_cast<uint32_t>(descriptorWrites.size()),
-        descriptorWrites.data(),
-        0,
-        nullptr);
+        vkUpdateDescriptorSets(
+            getDeviceContext()->getDevice(),
+            static_cast<uint32_t>(descriptorWrites.size()),
+            descriptorWrites.data(),
+            0,
+            nullptr);
+    }
 }
 
 template <>
@@ -321,28 +311,6 @@ DescriptorSetVector<Vk>::DescriptorSetVector(
 }
 
 template <>
-DescriptorSetVector<Vk>::DescriptorSetVector(const DescriptorSetVector<Vk>& other)
-: DescriptorSetVector<Vk>(
-    other.getDeviceContext(),
-    DescriptorSetVectorCreateDesc<Vk>(other.getDesc()),
-    [device = other.getDeviceContext()->getDevice(), desc = other.myDesc]
-    {
-        std::vector<DescriptorSetHandle<Vk>> sets;
-        sets.resize(desc.layouts.size());
-        for (auto layoutIt = 0; layoutIt < desc.layouts.size(); layoutIt++)
-        {
-            auto layout = desc.layouts[layoutIt];
-            if (layout)
-                sets[layoutIt] = allocateDescriptorSet(device, desc.pool, layout);
-        }
-        return sets;
-    }())
-{
-    myData = other.myData;
-    other.copy(*this);
-}
-
-template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(DescriptorSetVector<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
@@ -354,20 +322,24 @@ DescriptorSetVector<Vk>::DescriptorSetVector(DescriptorSetVector<Vk>&& other)
 template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::vector<DescriptorSetLayout<Vk>>& layouts,
     DescriptorSetVectorCreateDesc<Vk>&& desc)
 : DescriptorSetVector<Vk>(
     deviceContext,
     std::move(desc),
-    [device = deviceContext->getDevice(), &desc]
+    [device = deviceContext->getDevice(), &layouts, &desc]
     {
         std::vector<DescriptorSetHandle<Vk>> sets;
-        sets.resize(desc.layouts.size());
-        for (auto layoutIt = 0; layoutIt < desc.layouts.size(); layoutIt++)
+        sets.reserve(layouts.size());
+
+        for (const auto& layout : layouts)
         {
-            auto layout = desc.layouts[layoutIt];
-            if (layout)
-                sets[layoutIt] = allocateDescriptorSet(device, desc.pool, layout);
+            if (layout.getDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+                sets.emplace_back(DescriptorSetHandle<Vk>{});
+            else
+                sets.emplace_back(allocateDescriptorSet(device, desc.pool, layout));
         }
+
         return sets;
     }())
 {
@@ -395,11 +367,4 @@ DescriptorSetVector<Vk>& DescriptorSetVector<Vk>::operator=(DescriptorSetVector<
     myDescriptorSets = std::exchange(other.myDescriptorSets, {});
     myData = std::exchange(other.myData, {});
     return *this;
-}
-
-
-template <>
-DescriptorSetVector<Vk>& DescriptorSetVector<Vk>::operator=(const DescriptorSetVector<Vk>& other)
-{
-    return *this = DescriptorSetVector<Vk>(other);
 }

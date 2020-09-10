@@ -117,6 +117,9 @@ void DeviceContext<Vk>::addOwnedObject(
 {
     ZoneScopedN("DeviceContext::addOwnedObject");
 
+    if (!objectHandle)
+        return;
+
     auto imageNameInfo = VkDebugUtilsObjectNameInfoEXT{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         nullptr,

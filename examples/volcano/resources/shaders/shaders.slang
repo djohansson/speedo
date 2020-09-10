@@ -1,15 +1,19 @@
-cbuffer g_view
+struct ViewParams
 {
     float4x4 viewProj;
 };
+
+ConstantBuffer<ViewParams> g_view;
 
 struct MaterialParams
 {
 	Texture2D texture;
     SamplerState sampler;
+    
+    //layout(push_constant) float3 color;
 };
 
-ParameterBlock<MaterialParams> g_materialParams;
+layout(binding = 0, set = 1) ParameterBlock<MaterialParams> g_materialParams;
 
 struct InputStream
 {
@@ -40,7 +44,7 @@ VSOutput vertexMain(InputStream input)
 
     output.data.color = color;
     output.data.texCoord = texCoord;
-    output.hPos = mul(viewProj, float4(position, 1.0));
+    output.hPos = mul(g_view.viewProj, float4(position, 1.0));
 
     return output;
 }
@@ -56,6 +60,7 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
     
     float3 color = g_materialParams.texture.Sample(g_materialParams.sampler, input.texCoord).rgb;
 
+    //output.color = float4(color + g_materialParams.color, 1.0);
     output.color = float4(color, 1.0);
 
     return output;
@@ -87,3 +92,6 @@ void computeMain(uint3 threadIds : SV_DispatchThreadID)
     // result.a = 1.0f;
     // colorTarget[threadIds.xy] = result;
 }
+
+//[[vk::push_constant]]
+//ParameterBlock<MaterialParams> g_pushDescriptor;

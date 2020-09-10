@@ -131,6 +131,8 @@ void createLayoutBindings<Vk>(
 		auto spaceForCategory = parameter->getBindingSpace(category);
 		auto elementStride = typeLayout->getElementStride(category);
 		auto elementSize = elementTypeLayout->getSize(category);
+		// auto sizeInBytes = typeLayout->getSize(slang::ParameterCategory::Uniform);
+		// auto tRegCount = typeLayout->getSize(slang::ParameterCategory::ShaderResource);
 		
 		if (category == slang::ParameterCategory::DescriptorTableSlot)
 		{
@@ -172,7 +174,8 @@ void createLayoutBindings<Vk>(
 			binding.pImmutableSamplers = nullptr;
             std::get<0>(bindings[currentSet]).push_back(binding);
 			//std::get<1>(bindings[currentSet]).push_back(SamplerCreateInfo<Vk>{}); // todo: immutable samplers
-			std::get<2>(bindings[currentSet]) = 0; //currentSet > 0 ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
+			std::get<2>(bindings[currentSet]) = (currentSet == 1 ?//(parentName && strcmp(parentName, "g_pushDescriptor") == 0 ?
+				VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0);
 		}
 		else if (category == slang::ParameterCategory::RegisterSpace)
 		{
@@ -185,6 +188,10 @@ void createLayoutBindings<Vk>(
 					currentSet,
 					setCount,
 					parameter->getName());
+		}
+		else
+		{
+			assert(false);
 		}
 	}
 }
