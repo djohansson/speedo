@@ -150,17 +150,17 @@
 		.ExecOutput + '/include/slang-ast-generated.h'
 	]
 
-	.SlangUnity = 
-	[
-		.UnityInputPath = '$BuildRootPath$/source/slang'
-		.UnityInputPattern = "*.cpp"
-		.UnityOutputPath = '$IntermediateFilePath$/source/slang'
-		.UnityOutputPattern = 'slang-unity*.cpp'
-	]
+	// .SlangUnity = 
+	// [
+	// 	.UnityInputPath = '$BuildRootPath$/source/slang'
+	// 	.UnityInputPattern = "*.cpp"
+	// 	.UnityOutputPath = '$IntermediateFilePath$/source/slang'
+	// 	.UnityOutputPattern = 'slang-unity*.cpp'
+	// ]
 	.SlangObjectList = 
 	[
 		Using(.ObjectListCommon)
-		Using(.SlangUnity)
+		//Using(.SlangUnity)
 
 		.Name = 'slang'
 		.DependencyTasks = { .SlangGenerateTask, .SlangCPPExtractorTask }
@@ -187,7 +187,8 @@
 			' -I$IntermediateFilePath$/slang-generate',
 			' -I$IntermediateFilePath$/slang-cpp-extractor',
 		}
-		.CompilerInputUnity = '$Name$-unity'
+		//.CompilerInputUnity = '$Name$-unity'
+		.CompilerInputPath = '$BuildRootPath$/source/slang'
 	]
 
 #if __WINDOWS__
