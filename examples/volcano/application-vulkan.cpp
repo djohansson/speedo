@@ -398,7 +398,7 @@ Application<Vk>::Application(
 
         ///////////
 
-        const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
+        const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrameIndex()];
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
 
