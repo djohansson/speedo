@@ -7,26 +7,29 @@
 
 namespace Slang
 {
-    RefPtr<DeclaredSubtypeWitness> SemanticsVisitor::createSimpleSubtypeWitness(
+    DeclaredSubtypeWitness* SemanticsVisitor::createSimpleSubtypeWitness(
         TypeWitnessBreadcrumb*  breadcrumb)
     {
-        RefPtr<DeclaredSubtypeWitness> witness = new DeclaredSubtypeWitness();
+        DeclaredSubtypeWitness* witness = m_astBuilder->create<DeclaredSubtypeWitness>();
         witness->sub = breadcrumb->sub;
         witness->sup = breadcrumb->sup;
         witness->declRef = breadcrumb->declRef;
         return witness;
     }
 
-    RefPtr<Val> SemanticsVisitor::createTypeWitness(
-        RefPtr<Type>            type,
-        DeclRef<InterfaceDecl>  interfaceDeclRef,
+    Val* SemanticsVisitor::createTypeWitness(
+        Type*            subType,
+        DeclRef<AggTypeDecl>    superTypeDeclRef,
         TypeWitnessBreadcrumb*  inBreadcrumbs)
     {
+        SLANG_UNUSED(subType);
+        SLANG_UNUSED(superTypeDeclRef);
+
         if(!inBreadcrumbs)
         {
             // We need to construct a witness to the fact
-            // that `type` has been proven to be *equal*
-            // to `interfaceDeclRef`.
+            // that `subType` has been proven to be *equal*
+            // to `superTypeDeclRef`.
             //
             SLANG_UNEXPECTED("reflexive type witness");
             UNREACHABLE_RETURN(nullptr);
@@ -58,11 +61,11 @@ namespace Slang
 
         // `witness` here will hold the first (outer-most) object
         // we create, which is the overall result.
-        RefPtr<SubtypeWitness> witness;
+        SubtypeWitness* witness = nullptr;
 
         // `link` will point at the remaining "hole" in the
         // data structure, to be filled in.
-        RefPtr<SubtypeWitness>* link = &witness;
+        SubtypeWitness** link = &witness;
 
         // As long as there is more than one breadcrumb, we
         // need to be creating transitive witnesses.
@@ -79,10 +82,15 @@ namespace Slang
             // where `[...]` represents the "hole" we leave
             // open to fill in next.
             //
-            RefPtr<TransitiveSubtypeWitness> transitiveWitness = new TransitiveSubtypeWitness();
-            transitiveWitness->sub = bb->sub;
+            DeclaredSubtypeWitness* declaredWitness = m_astBuilder->create<DeclaredSubtypeWitness>();
+            declaredWitness->sub = bb->sub;
+            declaredWitness->sup = bb->sup;
+            declaredWitness->declRef = bb->declRef;
+
+            TransitiveSubtypeWitness* transitiveWitness = m_astBuilder->create<TransitiveSubtypeWitness>();
+            transitiveWitness->sub = subType;
             transitiveWitness->sup = bb->sup;
-            transitiveWitness->midToSup = bb->declRef;
+            transitiveWitness->midToSup = declaredWitness;
 
             // Fill in the current hole, and then set the
             // hole to point into the node we just created.
@@ -97,7 +105,7 @@ namespace Slang
         // In our running example this would be `{ A : B }`. We create
         // a simple (declared) subtype witness for it, and plug the
         // final hole, after which there shouldn't be a hole to deal with.
-        RefPtr<DeclaredSubtypeWitness> declaredWitness = createSimpleSubtypeWitness(bb);
+        DeclaredSubtypeWitness* declaredWitness = createSimpleSubtypeWitness(bb);
         *link = declaredWitness;
 
         // We now know that our original `witness` variable has been
@@ -121,6 +129,8 @@ namespace Slang
         DeclRef<InterfaceDecl>  interfaceDeclRef,
         DeclRef<Decl>           requirementDeclRef)
     {
+        SLANG_UNUSED(interfaceDeclRef);
+
         if(auto callableDeclRef = requirementDeclRef.as<CallableDecl>())
         {
             // A `static` method requirement can't be satisfied by a
@@ -145,15 +155,15 @@ namespace Slang
         }
     }
 
-    bool SemanticsVisitor::doesTypeConformToInterfaceImpl(
-        RefPtr<Type>            originalType,
-        RefPtr<Type>            type,
-        DeclRef<InterfaceDecl>  interfaceDeclRef,
-        RefPtr<Val>*            outWitness,
+    bool SemanticsVisitor::_isDeclaredSubtype(
+        Type*            originalSubType,
+        Type*            subType,
+        DeclRef<AggTypeDecl>    superTypeDeclRef,
+        Val**            outWitness,
         TypeWitnessBreadcrumb*  inBreadcrumbs)
     {
         // for now look up a conformance member...
-        if(auto declRefType = as<DeclRefType>(type))
+        if(auto declRefType = as<DeclRefType>(subType))
         {
             auto declRef = declRefType->declRef;
 
@@ -162,11 +172,11 @@ namespace Slang
             // TODO: This is actually a bit more complicated, as
             // the interface needs to be "object-safe" for us to
             // really make this determination...
-            if(declRef == interfaceDeclRef)
+            if(declRef == superTypeDeclRef)
             {
                 if(outWitness)
                 {
-                    *outWitness = createTypeWitness(originalType, interfaceDeclRef, inBreadcrumbs);
+                    *outWitness = createTypeWitness(originalSubType, superTypeDeclRef, inBreadcrumbs);
                 }
                 return true;
             }
@@ -175,7 +185,8 @@ namespace Slang
             {
                 ensureDecl(aggTypeDeclRef, DeclCheckState::CanEnumerateBases);
 
-                for( auto inheritanceDeclRef : getMembersOfTypeWithExt<InheritanceDecl>(aggTypeDeclRef))
+                bool found = false;
+                foreachDirectOrExtensionMemberOfType<InheritanceDecl>(this, aggTypeDeclRef, [&](DeclRef<InheritanceDecl> const& inheritanceDeclRef)
                 {
                     ensureDecl(inheritanceDeclRef, DeclCheckState::CanUseBaseOfInheritanceDecl);
 
@@ -190,7 +201,7 @@ namespace Slang
                     // loops better). This would also help avoid checking multiply-inherited
                     // conformances multiple times.
 
-                    auto inheritedType = getBaseType(inheritanceDeclRef);
+                    auto inheritedType = getBaseType(m_astBuilder, inheritanceDeclRef);
 
                     // We need to ensure that the witness that gets created
                     // is a composite one, reflecting lookup through
@@ -198,26 +209,29 @@ namespace Slang
                     TypeWitnessBreadcrumb breadcrumb;
                     breadcrumb.prev = inBreadcrumbs;
 
-                    breadcrumb.sub = type;
+                    breadcrumb.sub = subType;
                     breadcrumb.sup = inheritedType;
                     breadcrumb.declRef = inheritanceDeclRef;
 
-                    if(doesTypeConformToInterfaceImpl(originalType, inheritedType, interfaceDeclRef, outWitness, &breadcrumb))
+                    if(_isDeclaredSubtype(originalSubType, inheritedType, superTypeDeclRef, outWitness, &breadcrumb))
                     {
-                        return true;
+                        found = true;
                     }
-                }
+                });
+                if(found)
+                    return true;
+
                 // if an inheritance decl is not found, try to find a GenericTypeConstraintDecl
                 for (auto genConstraintDeclRef : getMembersOfType<GenericTypeConstraintDecl>(aggTypeDeclRef))
                 {
                     ensureDecl(genConstraintDeclRef, DeclCheckState::CanUseBaseOfInheritanceDecl);
-                    auto inheritedType = GetSup(genConstraintDeclRef);
+                    auto inheritedType = getSup(m_astBuilder, genConstraintDeclRef);
                     TypeWitnessBreadcrumb breadcrumb;
                     breadcrumb.prev = inBreadcrumbs;
-                    breadcrumb.sub = type;
+                    breadcrumb.sub = subType;
                     breadcrumb.sup = inheritedType;
                     breadcrumb.declRef = genConstraintDeclRef;
-                    if (doesTypeConformToInterfaceImpl(originalType, inheritedType, interfaceDeclRef, outWitness, &breadcrumb))
+                    if (_isDeclaredSubtype(originalSubType, inheritedType, superTypeDeclRef, outWitness, &breadcrumb))
                     {
                         return true;
                     }
@@ -228,13 +242,13 @@ namespace Slang
                 // We need to enumerate the constraints placed on this type by its outer
                 // generic declaration, and see if any of them guarantees that we
                 // satisfy the given interface..
-                auto genericDeclRef = genericTypeParamDeclRef.GetParent().as<GenericDecl>();
+                auto genericDeclRef = genericTypeParamDeclRef.getParent().as<GenericDecl>();
                 SLANG_ASSERT(genericDeclRef);
 
                 for( auto constraintDeclRef : getMembersOfType<GenericTypeConstraintDecl>(genericDeclRef) )
                 {
-                    auto sub = GetSub(constraintDeclRef);
-                    auto sup = GetSup(constraintDeclRef);
+                    auto sub = getSub(m_astBuilder, constraintDeclRef);
+                    auto sup = getSup(m_astBuilder, constraintDeclRef);
 
                     auto subDeclRef = as<DeclRefType>(sub);
                     if(!subDeclRef)
@@ -252,14 +266,38 @@ namespace Slang
                     breadcrumb.sup = sup;
                     breadcrumb.declRef = constraintDeclRef;
 
-                    if(doesTypeConformToInterfaceImpl(originalType, sup, interfaceDeclRef, outWitness, &breadcrumb))
+                    if(_isDeclaredSubtype(originalSubType, sup, superTypeDeclRef, outWitness, &breadcrumb))
                     {
                         return true;
                     }
                 }
             }
         }
-        else if(auto taggedUnionType = as<TaggedUnionType>(type))
+        else if (auto extractExistentialType = as<ExtractExistentialType>(subType))
+        {
+            // An ExtractExistentialType from an existential value of type I
+            // is a subtype of I.
+            // We need to check and make sure the interface type of the `ExtractExistentialType`
+            // is equal to `superType`.
+            auto interfaceDeclRef = extractExistentialType->interfaceDeclRef;
+            auto thisTypeSubst = findThisTypeSubstitution(interfaceDeclRef.substitutions.substitutions, interfaceDeclRef.getDecl());
+            SLANG_ASSERT(thisTypeSubst && thisTypeSubst == interfaceDeclRef.substitutions.substitutions);
+            // The interfaceDeclRef in `extractExistentialType` contains a `ThisTypeSubstitution`
+            // to allow member lookup to return correct substituted types. Here we just need
+            // to know if that interface is the same as the superType, so we need to exclude
+            // the `ThisTypeSubstitution` from comparison.
+            interfaceDeclRef.substitutions.substitutions = thisTypeSubst->outer;
+            if (interfaceDeclRef.equals(superTypeDeclRef))
+            {
+                if (outWitness)
+                {
+                    *outWitness = thisTypeSubst->witness;
+                }
+                return true;
+            }
+            return false;
+        }
+        else if(auto taggedUnionType = as<TaggedUnionType>(subType))
         {
             // A tagged union type conforms to an interface if all of
             // the constituent types in the tagged union conform.
@@ -271,15 +309,15 @@ namespace Slang
             // value for the tagged union itself (that is, if
             // `outWitness` is non-null).
             //
-            List<RefPtr<Val>> caseWitnesses;
+            List<Val*> caseWitnesses;
             for(auto caseType : taggedUnionType->caseTypes)
             {
-                RefPtr<Val> caseWitness;
+                Val* caseWitness = nullptr;
 
-                if(!doesTypeConformToInterfaceImpl(
+                if(!_isDeclaredSubtype(
                     caseType,
                     caseType,
-                    interfaceDeclRef,
+                    superTypeDeclRef,
                     outWitness ? &caseWitness : nullptr,
                     nullptr))
                 {
@@ -304,8 +342,11 @@ namespace Slang
             // We will start out being conservative about what we accept
             // here, just to keep things simple.
             //
-            if(!isInterfaceSafeForTaggedUnion(interfaceDeclRef))
-                return false;
+            if( auto superInterfaceDeclRef = superTypeDeclRef.as<InterfaceDecl>() )
+            {
+                if(!isInterfaceSafeForTaggedUnion(superInterfaceDeclRef))
+                    return false;
+            }
 
             // If we reach this point then we have a concrete
             // witness for each of the case types, and that is
@@ -313,9 +354,9 @@ namespace Slang
             //
             if(outWitness)
             {
-                RefPtr<TaggedUnionSubtypeWitness> taggedUnionWitness = new TaggedUnionSubtypeWitness();
+                TaggedUnionSubtypeWitness* taggedUnionWitness = m_astBuilder->create<TaggedUnionSubtypeWitness>();
                 taggedUnionWitness->sub = taggedUnionType;
-                taggedUnionWitness->sup = DeclRefType::Create(getSession(), interfaceDeclRef);
+                taggedUnionWitness->sup = DeclRefType::create(m_astBuilder, superTypeDeclRef);
                 taggedUnionWitness->caseWitnesses.swapWith(caseWitnesses);
 
                 *outWitness = taggedUnionWitness;
@@ -327,34 +368,41 @@ namespace Slang
         return false;
     }
 
-    bool SemanticsVisitor::DoesTypeConformToInterface(
-        RefPtr<Type>  type,
-        DeclRef<InterfaceDecl>        interfaceDeclRef)
+    bool SemanticsVisitor::isDeclaredSubtype(
+        Type*            subType,
+        DeclRef<AggTypeDecl>    superTypeDeclRef)
     {
-        return doesTypeConformToInterfaceImpl(type, type, interfaceDeclRef, nullptr, nullptr);
+        return _isDeclaredSubtype(subType, subType, superTypeDeclRef, nullptr, nullptr);
     }
 
-    RefPtr<Val> SemanticsVisitor::tryGetInterfaceConformanceWitness(
-        RefPtr<Type>  type,
-        DeclRef<InterfaceDecl>        interfaceDeclRef)
+    Val* SemanticsVisitor::tryGetSubtypeWitness(
+        Type*            subType,
+        DeclRef<AggTypeDecl>    superTypeDeclRef)
     {
-        RefPtr<Val> result;
-        doesTypeConformToInterfaceImpl(type, type, interfaceDeclRef, &result, nullptr);
+        Val* result = nullptr;
+        _isDeclaredSubtype(subType, subType, superTypeDeclRef, &result, nullptr);
         return result;
     }
 
-    RefPtr<Val> SemanticsVisitor::createTypeEqualityWitness(
+    Val* SemanticsVisitor::tryGetInterfaceConformanceWitness(
+        Type*            type,
+        DeclRef<InterfaceDecl>  interfaceDeclRef)
+    {
+        return tryGetSubtypeWitness(type, interfaceDeclRef);
+    }
+
+    Val* SemanticsVisitor::createTypeEqualityWitness(
         Type*  type)
     {
-        RefPtr<TypeEqualityWitness> rs = new TypeEqualityWitness();
+        TypeEqualityWitness* rs = m_astBuilder->create<TypeEqualityWitness>();
         rs->sub = type;
         rs->sup = type;
         return rs;
     }
 
-    RefPtr<Val> SemanticsVisitor::tryGetSubtypeWitness(
-        RefPtr<Type>    sub,
-        RefPtr<Type>    sup)
+    Val* SemanticsVisitor::tryGetSubtypeWitness(
+        Type*    sub,
+        Type*    sup)
     {
         if(sub->equals(sup))
         {

@@ -407,6 +407,8 @@ struct ParameterBindingContext
     TargetRequest* getTargetRequest() { return shared->getTargetRequest(); }
     LayoutRulesFamilyImpl* getRulesFamily() { return layoutContext.getRulesFamily(); }
 
+    ASTBuilder* getASTBuilder() { return shared->getLinkage()->getASTBuilder(); }
+
     Linkage* getLinkage() { return shared->getLinkage(); }
 };
 
@@ -582,7 +584,7 @@ LayoutSemanticInfo ExtractLayoutSemanticInfo(
 // a particular sub-argument and extract its value if present.
 template<typename T>
 static bool findLayoutArg(
-    RefPtr<ModifiableSyntaxNode>    syntax,
+    ModifiableSyntaxNode*    syntax,
     UInt*                           outVal)
 {
     for( auto modifier : syntax->getModifiersOfType<T>() )
@@ -672,7 +674,7 @@ struct EntryPointParameterState
 
 static RefPtr<TypeLayout> processEntryPointVaryingParameter(
     ParameterBindingContext*        context,
-    RefPtr<Type>          type,
+    Type*          type,
     EntryPointParameterState const& state,
     RefPtr<VarLayout>               varLayout);
 
@@ -687,6 +689,7 @@ static RefPtr<VarLayout> _createVarLayout(
     if(auto pendingDataTypeLayout = typeLayout->pendingDataTypeLayout)
     {
         RefPtr<VarLayout> pendingVarLayout = new VarLayout();
+        pendingVarLayout->varDecl = varDeclRef;
         pendingVarLayout->typeLayout = pendingDataTypeLayout;
         varLayout->pendingVarLayout = pendingVarLayout;
     }
@@ -700,10 +703,12 @@ static void collectGlobalScopeParameter(
     ShaderParamInfo const&      shaderParamInfo,
     SubstitutionSet             globalGenericSubst)
 {
+    auto astBuilder = context->getASTBuilder();
+
     auto varDeclRef = shaderParamInfo.paramDeclRef;
 
     // We apply any substitutions for global generic parameters here.
-    auto type = GetType(varDeclRef)->substitute(globalGenericSubst).as<Type>();
+    auto type = as<Type>(getType(astBuilder, varDeclRef)->substitute(astBuilder, globalGenericSubst));
 
     // We use a single operation to both check whether the
     // variable represents a shader parameter, and to compute
@@ -947,7 +952,7 @@ static void maybeDiagnoseMissingVulkanLayoutModifier(
     // oversight on their part.
     if( auto registerModifier = varDecl.getDecl()->findModifier<HLSLRegisterSemantic>() )
     {
-        getSink(context)->diagnose(registerModifier, Diagnostics::registerModifierButNoVulkanLayout, varDecl.GetName());
+        getSink(context)->diagnose(registerModifier, Diagnostics::registerModifierButNoVulkanLayout, varDecl.getName());
     }
 }
 
@@ -1003,15 +1008,17 @@ static void addExplicitParameterBindings_GLSL(
         }
         if( attr->binding != 0)
         {
-            getSink(context)->diagnose(attr, Diagnostics::wholeSpaceParameterRequiresZeroBinding, varDecl.GetName(), attr->binding);
+            getSink(context)->diagnose(attr, Diagnostics::wholeSpaceParameterRequiresZeroBinding, varDecl.getName(), attr->binding);
         }
         semanticInfo.index = attr->set;
         semanticInfo.space = 0;
     }
     else if( (resInfo = typeLayout->FindResourceInfo(LayoutResourceKind::SpecializationConstant)) != nullptr )
     {
+        DeclRef<Decl> varDecl2(varDecl);
+
         // Try to find `constant_id` binding
-        if(!findLayoutArg<GLSLConstantIDLayoutModifier>(varDecl, &semanticInfo.index))
+        if(!findLayoutArg<GLSLConstantIDLayoutModifier>(varDecl2, &semanticInfo.index))
             return;
     }
 
@@ -1378,7 +1385,7 @@ SimpleSemanticInfo decomposeSimpleSemantic(
 
 static RefPtr<TypeLayout> processSimpleEntryPointParameter(
     ParameterBindingContext*        context,
-    RefPtr<Type>          type,
+    Type*          type,
     EntryPointParameterState const& inState,
     RefPtr<VarLayout>               varLayout,
     int                             semanticSlotCount = 1)
@@ -1419,7 +1426,7 @@ static RefPtr<TypeLayout> processSimpleEntryPointParameter(
             //
             if( isD3DTarget(context->getTargetRequest()) )
             {
-                auto version = context->getTargetRequest()->targetProfile.GetVersion();
+                auto version = context->getTargetRequest()->targetProfile.getVersion();
                 if( version <= ProfileVersion::DX_5_0 )
                 {
                     // We will address the conflict here by claiming the corresponding
@@ -1542,7 +1549,7 @@ static RefPtr<TypeLayout> processSimpleEntryPointParameter(
 static RefPtr<TypeLayout> processEntryPointVaryingParameterDecl(
     ParameterBindingContext*        context,
     Decl*                           decl,
-    RefPtr<Type>                    type,
+    Type*                    type,
     EntryPointParameterState const& inState,
     RefPtr<VarLayout>               varLayout)
 {
@@ -1699,7 +1706,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameterDecl(
 
 static RefPtr<TypeLayout> processEntryPointVaryingParameter(
     ParameterBindingContext*        context,
-    RefPtr<Type>                    type,
+    Type*                    type,
     EntryPointParameterState const& state,
     RefPtr<VarLayout>               varLayout)
 {
@@ -1848,7 +1855,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
     // A matrix is processed as if it was an array of rows
     else if( auto matrixType = as<MatrixExpressionType>(type) )
     {
-        auto rowCount = GetIntVal(matrixType->getRowCount());
+        auto rowCount = getIntVal(matrixType->getRowCount());
         return processSimpleEntryPointParameter(context, matrixType, state, varLayout, (int) rowCount);
     }
     else if( auto arrayType = as<ArrayExpressionType>(type) )
@@ -1856,7 +1863,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
         // Note: Bad Things will happen if we have an array input
         // without a semantic already being enforced.
         
-        auto elementCount = (UInt) GetIntVal(arrayType->arrayLength);
+        auto elementCount = (UInt) getIntVal(arrayType->arrayLength);
 
         // We use the first element to derive the layout for the element type
         auto elementTypeLayout = processEntryPointVaryingParameter(context, arrayType->baseType, state, varLayout);
@@ -1911,7 +1918,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
             //
             Decl* firstExplicit = nullptr;
             Decl* firstImplicit = nullptr;
-            for( auto field : GetFields(structDeclRef, MemberFilterStyle::Instance) )
+            for( auto field : getFields(structDeclRef, MemberFilterStyle::Instance) )
             {
                 RefPtr<VarLayout> fieldVarLayout = new VarLayout();
                 fieldVarLayout->varDecl = field;
@@ -1922,7 +1929,7 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
                 auto fieldTypeLayout = processEntryPointVaryingParameterDecl(
                     context,
                     field.getDecl(),
-                    GetType(field),
+                    getType(context->getASTBuilder(), field),
                     state,
                     fieldVarLayout);
 
@@ -2039,7 +2046,7 @@ static RefPtr<TypeLayout> computeEntryPointParameterTypeLayout(
     RefPtr<VarLayout>               paramVarLayout,
     EntryPointParameterState&       state)
 {
-    auto paramType = GetType(paramDeclRef);
+    auto paramType = getType(context->getASTBuilder(), paramDeclRef);
     SLANG_ASSERT(paramType);
 
     if( paramDeclRef.getDecl()->hasModifier<HLSLUniformModifier>() )
@@ -2101,7 +2108,7 @@ static RefPtr<TypeLayout> computeEntryPointParameterTypeLayout(
 struct ScopeLayoutBuilder
 {
     ParameterBindingContext*    m_context = nullptr;
-    LayoutRulesImpl*            m_rules = nullptr;
+    TypeLayoutContext           m_layoutContext;
     RefPtr<StructTypeLayout>    m_structLayout;
     UniformLayoutInfo           m_structLayoutInfo;
 
@@ -2113,14 +2120,24 @@ struct ScopeLayoutBuilder
     StructTypeLayoutBuilder     m_pendingDataTypeLayoutBuilder;
 
     void beginLayout(
-        ParameterBindingContext* context)
+        ParameterBindingContext*    context,
+        TypeLayoutContext           layoutContext)
     {
         m_context = context;
-        m_rules = context->getRulesFamily()->getConstantBufferRules();
-        m_structLayout = new StructTypeLayout();
-        m_structLayout->rules = m_rules;
+        m_layoutContext = layoutContext;
 
-        m_structLayoutInfo = m_rules->BeginStructLayout();
+        auto rules = layoutContext.rules;
+        m_structLayout = new StructTypeLayout();
+        m_structLayout->rules = rules;
+
+        m_structLayoutInfo = rules->BeginStructLayout();
+    }
+
+
+    void beginLayout(
+        ParameterBindingContext* context)
+    {
+        beginLayout(context, context->layoutContext);
     }
 
     void _addParameter(
@@ -2137,7 +2154,8 @@ struct ScopeLayoutBuilder
                 uniformSize,
                 varLayout->typeLayout->uniformAlignment);
 
-            LayoutSize uniformOffset = m_rules->AddStructField(
+            auto rules = m_layoutContext.rules;
+            LayoutSize uniformOffset = rules->AddStructField(
                 &m_structLayoutInfo,
                 fieldInfo);
 
@@ -2163,7 +2181,8 @@ struct ScopeLayoutBuilder
         //
         if( auto fieldPendingDataTypeLayout = varLayout->typeLayout->pendingDataTypeLayout )
         {
-            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, m_rules);
+            auto rules = m_layoutContext.rules;
+            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, rules);
             auto fieldPendingDataVarLayout = m_pendingDataTypeLayoutBuilder.addField(varLayout->varDecl, fieldPendingDataTypeLayout);
 
             m_structLayout->pendingDataTypeLayout = m_pendingDataTypeLayoutBuilder.getTypeLayout();
@@ -2189,7 +2208,8 @@ struct ScopeLayoutBuilder
         {
             auto fieldPendingTypeLayout = fieldPendingVarLayout->typeLayout;
 
-            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, m_rules);
+            auto rules = m_layoutContext.rules;
+            m_pendingDataTypeLayoutBuilder.beginLayoutIfNeeded(nullptr, rules);
             m_structLayout->pendingDataTypeLayout = m_pendingDataTypeLayoutBuilder.getTypeLayout();
 
             auto fieldUniformLayoutInfo = fieldPendingTypeLayout->FindResourceInfo(LayoutResourceKind::Uniform);
@@ -2202,7 +2222,7 @@ struct ScopeLayoutBuilder
                     fieldUniformSize,
                     fieldPendingTypeLayout->uniformAlignment);
 
-                LayoutSize uniformOffset = m_rules->AddStructField(
+                LayoutSize uniformOffset = rules->AddStructField(
                     m_pendingDataTypeLayoutBuilder.getStructLayoutInfo(),
                     fieldInfo);
 
@@ -2218,7 +2238,8 @@ struct ScopeLayoutBuilder
     {
         // Finish computing the layout for the ordindary data (if any).
         //
-        m_rules->EndStructLayout(&m_structLayoutInfo);
+        auto rules = m_layoutContext.rules;
+        rules->EndStructLayout(&m_structLayoutInfo);
         m_pendingDataTypeLayoutBuilder.endLayout();
 
         // Copy the final layout information computed for ordinary data
@@ -2234,7 +2255,7 @@ struct ScopeLayoutBuilder
         // to reflect the constant buffer that will be generated.
         //
         scopeTypeLayout = createConstantBufferTypeLayoutIfNeeded(
-            m_context->layoutContext,
+            m_layoutContext,
             scopeTypeLayout);
 
         // We now have a bunch of layout information, which we should
@@ -2431,6 +2452,8 @@ static RefPtr<EntryPointLayout> collectEntryPointParameters(
     EntryPoint*                                 entryPoint,
     EntryPoint::EntryPointSpecializationInfo*   specializationInfo)
 {
+    auto astBuilder = context->getASTBuilder();
+
     // We will take responsibility for creating and filling in
     // the `EntryPointLayout` object here.
     //
@@ -2471,7 +2494,7 @@ static RefPtr<EntryPointLayout> collectEntryPointParameters(
     if(specializationInfo)
         entryPointFuncDeclRef = specializationInfo->specializedFuncDeclRef;
 
-    auto entryPointType = DeclRefType::Create(context->getLinkage()->getSessionImpl(), entryPointFuncDeclRef);
+    auto entryPointType = DeclRefType::create(astBuilder, entryPointFuncDeclRef);
 
     entryPointLayout->entryPoint = entryPointFuncDeclRef;
 
@@ -2499,8 +2522,46 @@ static RefPtr<EntryPointLayout> collectEntryPointParameters(
     // in the parameter list (e.g., a `uniform float4x4 mvp` parameter),
     // which is what the `ScopeLayoutBuilder` is designed to help with.
     //
+    TypeLayoutContext layoutContext = context->layoutContext;
+
+    if(isKhronosTarget(context->getTargetRequest()))
+    {
+        // For Vulkan/SPIR-V targets, there are various cases for
+        // how parameters that would otherwise just be a `ConstantBuffer<...>`
+        // get passed, that the compiler and application need to agree
+        // on.
+        //
+        // As a matter of policy, the Slang compiler will interpret
+        // direct entry-point `uniform` parameters as being passed
+        // using whatever is the most natural and efficient mechanism
+        // based on the shader stage.
+        //
+        // In the case of rasterization and compute shaders, this means
+        // passing entry-point `uniform` parmaeters via a "push constant"
+        // buffer.
+        //
+        // In the case of ray-tracing shaders, this means passing entry-point
+        // `uniform` parameters via the "shader record."
+        //
+        switch( entryPoint->getStage() )
+        {
+        default:
+            layoutContext = layoutContext.with(layoutContext.getRulesFamily()->getPushConstantBufferRules());
+            break;
+
+        case Stage::AnyHit:
+        case Stage::Callable:
+        case Stage::ClosestHit:
+        case Stage::Intersection:
+        case Stage::Miss:
+        case Stage::RayGeneration:
+            layoutContext = layoutContext.with(layoutContext.getRulesFamily()->getShaderRecordConstantBufferRules());
+            break;
+        }
+    }
+
     SimpleScopeLayoutBuilder scopeBuilder;
-    scopeBuilder.beginLayout(context);
+    scopeBuilder.beginLayout(context, layoutContext);
     auto paramsStructLayout = scopeBuilder.m_structLayout;
     paramsStructLayout->type = entryPointType;
 
@@ -2575,10 +2636,10 @@ static RefPtr<EntryPointLayout> collectEntryPointParameters(
     // TODO: Ideally we should make the layout process more robust to empty/void
     // types and apply this logic unconditionally.
     //
-    auto resultType = GetResultType(entryPointFuncDeclRef);
+    auto resultType = getResultType(astBuilder, entryPointFuncDeclRef);
     SLANG_ASSERT(resultType);
 
-    if( !resultType->equals(resultType->getSession()->getVoidType()) )
+    if( !resultType->equals(astBuilder->getVoidType()) )
     {
         state.loc = entryPointFuncDeclRef.getLoc();
         state.directionMask = kEntryPointParameterDirection_Output;
@@ -2706,7 +2767,7 @@ static void collectSpecializationParams(
         case SpecializationParam::Flavor::GenericValue:
             {
                 RefPtr<GenericSpecializationParamLayout> paramLayout = new GenericSpecializationParamLayout();
-                paramLayout->decl = specializationParam.object.as<Decl>();
+                paramLayout->decl = as<Decl>(specializationParam.object);
                 context->shared->programLayout->specializationParams.add(paramLayout);
             }
             break;
@@ -2715,7 +2776,7 @@ static void collectSpecializationParams(
         case SpecializationParam::Flavor::ExistentialValue:
             {
                 RefPtr<ExistentialSpecializationParamLayout> paramLayout = new ExistentialSpecializationParamLayout();
-                paramLayout->type = specializationParam.object.as<Type>();
+                paramLayout->type = as<Type>(specializationParam.object);
                 context->shared->programLayout->specializationParams.add(paramLayout);
             }
             break;
@@ -2849,28 +2910,40 @@ static void collectParameters(
     program->acceptVisitor(&visitor, nullptr);
 }
 
-    /// Emit a diagnostic about a uniform parameter at global scope.
+    /// Emit a diagnostic about a uniform/ordinary parameter at global scope.
 void diagnoseGlobalUniform(
     SharedParameterBindingContext*  sharedContext,
     VarDeclBase*                    varDecl)
 {
-    // It is entirely possible for Slang to support uniform parameters at the global scope,
-    // by bundling them into an implicit constant buffer, and indeed the layout algorithm
-    // implemented in this file computes a layout *as if* the Slang compiler does just that.
+    // This subroutine gets invoked if a shader parameter containing
+    // "ordinary" data (sometimes just called "uniform" data) is present
+    // at the global scope.
     //
-    // The missing link is the downstream IR and code generation steps, where we would need
-    // to collect all of the global-scope uniforms into a common `struct` type and then
-    // create a new constant buffer parameter over that type.
+    // Slang can support such parameters by aggregating them into
+    // an implicit constant buffer, but it is also common for programmers
+    // to accidentally declare a global-scope shader parameter when they
+    // meant to declare a global variable instead:
     //
-    // For now it is easier to simply ban this case, since most shader authors have
-    // switched to modern HLSL/GLSL style with `cbuffer` or `uniform` block declarations.
+    //      int gCounter = 0; // this is a shader parameter, not a global
     //
-    // TODO: In the long run it may be best to require *all* global-scope shader parameters
-    // to be marked with a keyword (e.g., `uniform`) so that ordinary global variable syntax can be
-    // used safely.
+    // In order to avoid mistakes, we'd like to warn the user when
+    // they write code like the above, and hint to them that they
+    // should make their intention more explicit with a keyword:
     //
-    getSink(sharedContext)->diagnose(varDecl, Diagnostics::globalUniformsNotSupported, varDecl->getName());
+    //      static int gCounter = 0; // this is now a (static) global
+    //
+    //      uniform int gCounter; // this is now explicitly a shader parameter
+    //
+    // We skip the diagnostic whenever the variable was explicitly `uniform`,
+    // under the assumption that the programmer who added that modifier
+    // knew what they were opting into.
+    //
+    if(varDecl->hasModifier<HLSLUniformModifier>())
+        return;
+
+    getSink(sharedContext)->diagnose(varDecl, Diagnostics::globalUniformNotExpected, varDecl->getName());
 }
+
 
 static int _calcTotalNumUsedRegistersForLayoutResourceKind(ParameterBindingContext* bindingContext, LayoutResourceKind kind)
 {

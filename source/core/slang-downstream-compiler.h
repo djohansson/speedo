@@ -331,8 +331,8 @@ public:
 
     CommandLineDownstreamCompileResult(const DownstreamDiagnostics& diagnostics, const String& moduleFilePath, TemporaryFileSet* temporaryFileSet) :
         Super(diagnostics),
-        m_temporaryFiles(temporaryFileSet),
-        m_moduleFilePath(moduleFilePath)
+        m_moduleFilePath(moduleFilePath),
+        m_temporaryFiles(temporaryFileSet)
     {
     }
     

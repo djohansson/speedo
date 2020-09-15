@@ -10,20 +10,19 @@
 
 namespace Slang {
 
-namespace { // anonymous
 
-struct Context
+struct ASTDumpContext
 {
     struct ObjectInfo
     {
         const ReflectClassInfo* m_typeInfo;
-        RefObject* m_object;
+        NodeBase* m_object;
         bool m_isDumped;
     };
 
     struct ScopeWrite
     {
-        ScopeWrite(Context* context):
+        ScopeWrite(ASTDumpContext* context):
             m_context(context)
         {
             if (m_context->m_scopeWriteCount == 0)
@@ -45,13 +44,13 @@ struct Context
 
         operator StringBuilder&() { return m_context->m_buf; }
 
-        Context* m_context;
+        ASTDumpContext* m_context;
     };
 
-    void dumpObject(const ReflectClassInfo& type, RefObject* obj);
+    void dumpObject(const ReflectClassInfo& type, NodeBase* obj);
 
-    void dumpObjectFull(const ReflectClassInfo& type, RefObject* obj, Index objIndex);
-    void dumpObjectReference(const ReflectClassInfo& type, RefObject* obj, Index objIndex);
+    void dumpObjectFull(const ReflectClassInfo& type, NodeBase* obj, Index objIndex);
+    void dumpObjectReference(const ReflectClassInfo& type, NodeBase* obj, Index objIndex);
 
     void dump(NodeBase* node)
     {
@@ -138,6 +137,11 @@ struct Context
 
     void dump(const Scope* scope)
     {
+        if (m_dumpFlags & ASTDumpUtil::Flag::HideScope)
+        {
+            return;
+        }
+
         if (scope == nullptr)
         {
             _dumpPtr(nullptr);
@@ -212,6 +216,11 @@ struct Context
 
     void dump(SourceLoc sourceLoc)
     {
+        if (m_dumpFlags & ASTDumpUtil::Flag::HideSourceLoc)
+        {
+            return;
+        }
+
         SourceManager* manager = m_writer->getSourceManager();
 
         {
@@ -264,7 +273,7 @@ struct Context
         m_writer->emit(" }");
     }
 
-    Index getObjectIndex(const ReflectClassInfo& typeInfo, RefObject* obj)
+    Index getObjectIndex(const ReflectClassInfo& typeInfo, NodeBase* obj)
     {
         Index* indexPtr = m_objectMap.TryGetValueOrAdd(obj, m_objects.getCount());
         if (indexPtr)
@@ -405,6 +414,21 @@ struct Context
         m_writer->emit(m_buf);
     }
 
+    void dump(FeedbackType::Kind kind)
+    {
+        m_buf.Clear();
+        const char* name = nullptr;
+        switch (kind)
+        {
+            case FeedbackType::Kind::MinMip: name = "MinMip"; break;
+            case FeedbackType::Kind::MipRegionUsed: name = "MipRegionUsed"; break;
+        }
+
+        m_buf << "FeedbackType::Kind{" << name << "}";
+        m_writer->emit(m_buf);
+    }
+
+
     void dump(SamplerStateFlavor flavor)
     {
         switch (flavor)
@@ -417,7 +441,7 @@ struct Context
 
     void dump(const QualType& qualType)
     {
-        if (qualType.IsLeftValue)
+        if (qualType.isLeftValue)
         {
             m_writer->emit("left ");
         }
@@ -448,6 +472,15 @@ struct Context
 
         m_writer->dedent();
         m_writer->emit("}");
+    }
+
+    void dump(const MatrixCoord& coord)
+    {
+        m_writer->emit("(");
+        m_writer->emit(coord.row);
+        m_writer->emit(", ");
+        m_writer->emit(coord.col);
+        m_writer->emit(")\n");
     }
 
     void dump(const LookupResult& result)
@@ -545,16 +578,23 @@ struct Context
         m_writer->emit("\n");
     }
 
-    void dumpObjectFull(NodeBase* node);
-    void dumpObjectFull(Substitutions* subs);
+    void dump(ASTNodeType nodeType)
+    {
+        SLANG_UNUSED(nodeType)
+        // Don't bother to output anything - as will already have been dumped with the object name
+    }
 
-    Context(SourceWriter* writer, ASTDumpUtil::Style dumpStyle):
+    void dumpObjectFull(NodeBase* node);
+
+    ASTDumpContext(SourceWriter* writer, ASTDumpUtil::Flags flags, ASTDumpUtil::Style dumpStyle):
         m_writer(writer),
         m_scopeWriteCount(0),
-        m_dumpStyle(dumpStyle)
+        m_dumpStyle(dumpStyle),
+        m_dumpFlags(flags)
     {
     }
 
+    ASTDumpUtil::Flags m_dumpFlags;
     ASTDumpUtil::Style m_dumpStyle;
 
     Index m_scopeWriteCount;
@@ -562,13 +602,11 @@ struct Context
     // Using the SourceWriter, for automatic indentation.
     SourceWriter* m_writer;
 
-    Dictionary<RefObject*, Index> m_objectMap;  ///< Object index
+    Dictionary<NodeBase*, Index> m_objectMap;  ///< Object index
     List<ObjectInfo> m_objects;
 
     StringBuilder m_buf;
 };
-
-} // anonymous
 
 // Lets generate functions one for each that attempts to write out *it's* fields.
 // We can write out the Super types fields by looking that up
@@ -578,28 +616,26 @@ struct ASTDumpAccess
 #define SLANG_AST_DUMP_FIELD(FIELD_NAME, TYPE, param) context.dumpField(#FIELD_NAME, node->FIELD_NAME); 
 
 #define SLANG_AST_DUMP_FIELDS_IMPL(NAME, SUPER, ORIGIN, LAST, MARKER, TYPE, param) \
-static void dumpFields_##NAME(NAME* node, Context& context) \
+static void dumpFields_##NAME(NAME* node, ASTDumpContext& context) \
 { \
     SLANG_UNUSED(node); \
     SLANG_UNUSED(context); \
     SLANG_FIELDS_ASTNode_##NAME(SLANG_AST_DUMP_FIELD, _) \
 }
 
-SLANG_ALL_ASTNode_Substitutions(SLANG_AST_DUMP_FIELDS_IMPL, _)
 SLANG_ALL_ASTNode_NodeBase(SLANG_AST_DUMP_FIELDS_IMPL, _)
 
 };
 
 #define SLANG_AST_GET_DUMP_FUNC(NAME, SUPER, ORIGIN, LAST, MARKER, TYPE, param) m_funcs[Index(ASTNodeType::NAME)] = (DumpFieldsFunc)&ASTDumpAccess::dumpFields_##NAME;
 
-typedef void (*DumpFieldsFunc)(RefObject* obj, Context& context);
+typedef void (*DumpFieldsFunc)(NodeBase* obj, ASTDumpContext& context);
 
 struct DumpFieldFuncs
 {
     DumpFieldFuncs()
     {
         memset(m_funcs, 0, sizeof(m_funcs));
-        SLANG_ALL_ASTNode_Substitutions(SLANG_AST_GET_DUMP_FUNC, _)
         SLANG_ALL_ASTNode_NodeBase(SLANG_AST_GET_DUMP_FUNC, _)
     }
 
@@ -608,13 +644,13 @@ struct DumpFieldFuncs
 
 static const DumpFieldFuncs s_funcs;
 
-void Context::dumpObjectReference(const ReflectClassInfo& type, RefObject* obj, Index objIndex)
+void ASTDumpContext::dumpObjectReference(const ReflectClassInfo& type, NodeBase* obj, Index objIndex)
 {
     SLANG_UNUSED(obj);
     ScopeWrite(this).getBuf() << type.m_name << ":" << objIndex;
 }
 
-void Context::dumpObjectFull(const ReflectClassInfo& type, RefObject* obj, Index objIndex)
+void ASTDumpContext::dumpObjectFull(const ReflectClassInfo& type, NodeBase* obj, Index objIndex)
 {
     ObjectInfo& info = m_objects[objIndex];
     SLANG_ASSERT(info.m_isDumped == false);
@@ -650,7 +686,7 @@ void Context::dumpObjectFull(const ReflectClassInfo& type, RefObject* obj, Index
     m_writer->emit("}\n");
 }
 
-void Context::dumpObject(const ReflectClassInfo& typeInfo, RefObject* obj)
+void ASTDumpContext::dumpObject(const ReflectClassInfo& typeInfo, NodeBase* obj)
 {
     Index index = getObjectIndex(typeInfo, obj);
 
@@ -665,7 +701,7 @@ void Context::dumpObject(const ReflectClassInfo& typeInfo, RefObject* obj)
     }
 }
 
-void Context::dumpObjectFull(NodeBase* node)
+void ASTDumpContext::dumpObjectFull(NodeBase* node)
 {
     if (!node)
     {
@@ -679,33 +715,11 @@ void Context::dumpObjectFull(NodeBase* node)
     }
 }
 
-void Context::dumpObjectFull(Substitutions* subs)
+/* static */void ASTDumpUtil::dump(NodeBase* node, Style style, Flags flags, SourceWriter* writer)
 {
-    if (!subs)
-    {
-        _dumpPtr(nullptr);
-    }
-    else
-    {
-        const ReflectClassInfo& typeInfo = subs->getClassInfo();
-        Index index = getObjectIndex(typeInfo, subs);
-        dumpObjectFull(typeInfo, subs, index);
-    }
-}
-
-/* static */void ASTDumpUtil::dump(NodeBase* node, Style style, SourceWriter* writer)
-{
-    Context context(writer, style);
+    ASTDumpContext context(writer, flags, style);
     context.dumpObjectFull(node);
     context.dumpRemaining();
-}
-
-/* static */void ASTDumpUtil::dump(Substitutions* subs, Style style, SourceWriter* writer)
-{
-    Context context(writer, style);
-    context.dumpObjectFull(subs);
-    context.dumpRemaining();
-
 }
 
 } // namespace Slang

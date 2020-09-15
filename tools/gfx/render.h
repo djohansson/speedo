@@ -519,6 +519,7 @@ enum class DescriptorSlotType
     DynamicUniformBuffer,
     DynamicStorageBuffer,
     InputAttachment,
+    RootConstant,
 };
 
 class DescriptorSetLayout : public Slang::RefObject
@@ -602,6 +603,11 @@ public:
         UInt index,
         ResourceView*   textureView,
         SamplerState*   sampler) = 0;
+    virtual void setRootConstants(
+        UInt range,
+        UInt offset,
+        UInt size,
+        void const* data) = 0;
 };
 
 enum class StencilOp : uint8_t
@@ -794,11 +800,14 @@ public:
 
     struct Desc
     {
-        int width;                  ///< Width in pixels
-        int height;                 ///< height in pixels
-        Slang::String adapter;      ///< Name to identify the adapter to use
+        int width = 0;                                  ///< Width in pixels
+        int height = 0;                                 ///< height in pixels
+        Slang::String adapter;                          ///< Name to identify the adapter to use
+        Slang::List<Slang::String> requiredFeatures;    ///< List of required feature names. 
+        int nvapiExtnSlot = -1;                         ///< The slot (typically UAV) used to identify NVAPI intrinsics. If >=0 NVAPI is required.
     };
 
+        // Will return with SLANG_E_NOT_AVAILABLE if NVAPI can't be initialized and nvapiExtnSlot >= 0
     virtual SlangResult initialize(const Desc& desc, void* inWindowHandle) = 0;
 
     bool hasFeature(const Slang::UnownedStringSlice& feature) { return getFeatures().indexOf(Slang::String(feature)) != Slang::Index(-1); }

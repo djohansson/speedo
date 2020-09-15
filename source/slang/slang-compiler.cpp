@@ -191,10 +191,10 @@ namespace Slang
     {
         RefPtr<EntryPoint> entryPoint = new EntryPoint(
             linkage,
-            funcDeclRef.GetName(),
+            funcDeclRef.getName(),
             profile,
             funcDeclRef);
-        entryPoint->m_mangledName = getMangledName(funcDeclRef);
+        entryPoint->m_mangledName = getMangledName(linkage->getASTBuilder(), funcDeclRef);
         return entryPoint;
     }
 
@@ -326,7 +326,7 @@ namespace Slang
 
     //
 
-    Profile Profile::LookUp(char const* name)
+    Profile Profile::lookUp(char const* name)
     {
         #define PROFILE(TAG, NAME, STAGE, VERSION)	if(strcmp(name, #NAME) == 0) return Profile::TAG;
         #define PROFILE_ALIAS(TAG, DEF, NAME)		if(strcmp(name, #NAME) == 0) return Profile::TAG;
@@ -414,27 +414,57 @@ namespace Slang
         return session->getOrLoadDownstreamCompiler(passThrough, nullptr) ? SLANG_OK: SLANG_E_NOT_FOUND;
     }
 
+    SourceLanguage getDefaultSourceLanguageForDownstreamCompiler(PassThroughMode compiler)
+    {
+        switch (compiler)
+        {
+            case PassThroughMode::None:
+            {
+                return SourceLanguage::Unknown;
+            }
+            case PassThroughMode::Fxc:   
+            case PassThroughMode::Dxc:
+            {
+                return SourceLanguage::HLSL;
+            }
+            case PassThroughMode::Glslang:
+            {
+                return SourceLanguage::GLSL;
+            }
+            case PassThroughMode::Clang:
+            case PassThroughMode::VisualStudio:
+            case PassThroughMode::Gcc:
+            case PassThroughMode::GenericCCpp:
+            {
+                // These could ingest C, but we only have this function to work out a
+                // 'default' language to ingest.
+                return SourceLanguage::CPP;
+            }
+            case PassThroughMode::NVRTC:
+            {
+                return SourceLanguage::CUDA;
+            }
+            default: break;
+        }
+        SLANG_ASSERT(!"Unknown compiler");
+        return SourceLanguage::Unknown;
+    }
+
     PassThroughMode getDownstreamCompilerRequiredForTarget(CodeGenTarget target)
     {
         switch (target)
         {
+            // Don't *require* a downstream compiler for source output
+            case CodeGenTarget::GLSL:
+            case CodeGenTarget::HLSL:
+            case CodeGenTarget::CUDASource:
+            case CodeGenTarget::CPPSource:
+            case CodeGenTarget::CSource:
+            {
+                return PassThroughMode::None;
+            }
             case CodeGenTarget::None:
             {
-                return PassThroughMode::None;
-            }
-            case CodeGenTarget::GLSL:
-            {
-                // Can always output GLSL
-                return PassThroughMode::None; 
-            }
-            case CodeGenTarget::HLSL:
-            {
-                // Can always output HLSL
-                return PassThroughMode::None;
-            }
-            case CodeGenTarget::CUDASource:
-            {
-                // Can always output CUDA
                 return PassThroughMode::None;
             }
             case CodeGenTarget::SPIRVAssembly:
@@ -456,12 +486,6 @@ namespace Slang
             case CodeGenTarget::GLSL_Vulkan_OneDesc:
             {
                 return PassThroughMode::Glslang;
-            }
-            case CodeGenTarget::CPPSource:
-            case CodeGenTarget::CSource:
-            {
-                // Don't need an external compiler to output C and C++ code
-                return PassThroughMode::None;
             }
             case CodeGenTarget::HostCallable:
             case CodeGenTarget::SharedLibrary:
@@ -490,27 +514,40 @@ namespace Slang
             SLANG_OK;
     }
 
-    //
-
-        /// If there is a pass-through compile going on, find the translation unit for the given entry point.
-    TranslationUnitRequest* findPassThroughTranslationUnit(
-        EndToEndCompileRequest* endToEndReq,
-        Int                     entryPointIndex)
-    {
-        // If there isn't an end-to-end compile going on,
+    bool isPassThroughEnabled(
+        EndToEndCompileRequest* endToEndReq)
+    {        // If there isn't an end-to-end compile going on,
         // there can be no pass-through.
         //
-        if(!endToEndReq) return nullptr;
+        if (!endToEndReq) return false;
 
         // And if pass-through isn't set, we don't need
         // access to the translation unit.
         //
-        if(endToEndReq->passThrough == PassThroughMode::None) return nullptr;
-
+        if(endToEndReq->passThrough == PassThroughMode::None) return false;
+        return true;
+    }
+    /// If there is a pass-through compile going on, find the translation unit for the given entry point.
+    /// Assumes isPassThroughEnabled has already been called
+    TranslationUnitRequest* getPassThroughTranslationUnit(
+        EndToEndCompileRequest* endToEndReq,
+        Int                     entryPointIndex)
+    {
+        SLANG_ASSERT(endToEndReq);
+        SLANG_ASSERT(endToEndReq->passThrough != PassThroughMode::None);
         auto frontEndReq = endToEndReq->getFrontEndReq();
         auto entryPointReq = frontEndReq->getEntryPointReq(entryPointIndex);
         auto translationUnit = entryPointReq->getTranslationUnit();
         return translationUnit;
+    }
+
+    TranslationUnitRequest* findPassThroughTranslationUnit(
+        EndToEndCompileRequest* endToEndReq,
+        Int                     entryPointIndex)
+    {
+        if (isPassThroughEnabled(endToEndReq))
+            return getPassThroughTranslationUnit(endToEndReq, entryPointIndex);
+        return nullptr;
     }
 
     static void _appendEscapedPath(const UnownedStringSlice& path, StringBuilder& outBuilder)
@@ -534,65 +571,84 @@ namespace Slang
         outCodeBuilder << fileContent << "\n";
     }
 
+    SlangResult emitEntryPointsSource(
+        BackEndCompileRequest*  compileRequest,
+        const List<Int>&        entryPointIndices,
+        TargetRequest*          targetReq,
+        CodeGenTarget           target,
+        EndToEndCompileRequest* endToEndReq,
+        SourceResult&           outSource)
+    {
+        outSource.reset();
+
+        if(isPassThroughEnabled(endToEndReq))
+        {
+            for (auto entryPointIndex : entryPointIndices)
+            {
+                auto translationUnit = getPassThroughTranslationUnit(endToEndReq, entryPointIndex);
+                SLANG_ASSERT(translationUnit);
+                // Generate a string that includes the content of
+                // the source file(s), along with a line directive
+                // to ensure that we get reasonable messages
+                // from the downstream compiler when in pass-through
+                // mode.
+
+                StringBuilder codeBuilder;
+                if (target == CodeGenTarget::GLSL)
+                {
+                    // Special case GLSL
+                    int translationUnitCounter = 0;
+                    for (auto sourceFile : translationUnit->getSourceFiles())
+                    {
+                        int translationUnitIndex = translationUnitCounter++;
+
+                        // We want to output `#line` directives, but we need
+                        // to skip this for the first file, since otherwise
+                        // some GLSL implementations will get tripped up by
+                        // not having the `#version` directive be the first
+                        // thing in the file.
+                        if (translationUnitIndex != 0)
+                        {
+                            codeBuilder << "#line 1 " << translationUnitIndex << "\n";
+                        }
+                        codeBuilder << sourceFile->getContent() << "\n";
+                    }
+                }
+                else
+                {
+                    for (auto sourceFile : translationUnit->getSourceFiles())
+                    {
+                        _appendCodeWithPath(sourceFile->getPathInfo().foundPath.getUnownedSlice(), sourceFile->getContent(), codeBuilder);
+                    }
+                }
+
+                outSource.source = codeBuilder.ProduceString();
+            }
+            return SLANG_OK;
+        }
+        else
+        {
+            return emitEntryPointsSourceFromIR(
+                compileRequest,
+                entryPointIndices,
+                target,
+                targetReq,
+                outSource);
+        }
+    }
+
     SlangResult emitEntryPointSource(
         BackEndCompileRequest*  compileRequest,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         CodeGenTarget           target,
         EndToEndCompileRequest* endToEndReq,
-        SourceResult&       outSource)
+        SourceResult&           outSource)
     {
-        outSource.reset();
-
-        if(auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
-        {
-            // Generate a string that includes the content of
-            // the source file(s), along with a line directive
-            // to ensure that we get reasonable messages
-            // from the downstream compiler when in pass-through
-            // mode.
-
-            StringBuilder codeBuilder;
-            if (target == CodeGenTarget::GLSL)
-            {
-                // Special case GLSL
-                int translationUnitCounter = 0;
-                for (auto sourceFile : translationUnit->getSourceFiles())
-                {
-                    int translationUnitIndex = translationUnitCounter++;
-
-                    // We want to output `#line` directives, but we need
-                    // to skip this for the first file, since otherwise
-                    // some GLSL implementations will get tripped up by
-                    // not having the `#version` directive be the first
-                    // thing in the file.
-                    if (translationUnitIndex != 0)
-                    {
-                        codeBuilder << "#line 1 " << translationUnitIndex << "\n";
-                    }
-                    codeBuilder << sourceFile->getContent() << "\n";
-                }
-            }
-            else
-            {
-                for(auto sourceFile : translationUnit->getSourceFiles())
-                {
-                    _appendCodeWithPath(sourceFile->getPathInfo().foundPath.getUnownedSlice(), sourceFile->getContent(), codeBuilder);
-                }
-            }
-
-            outSource.source = codeBuilder.ProduceString();
-            return SLANG_OK;
-        }
-        else
-        {
-            return emitEntryPointSourceFromIR(
-                compileRequest,
-                entryPointIndex,
-                target,
-                targetReq,
-                outSource);
-        }
+        List<Int> entryPointIndices;
+        entryPointIndices.add(entryPointIndex);
+        return emitEntryPointsSource(compileRequest, entryPointIndices, targetReq,
+            target, endToEndReq, outSource);
     }
 
     String GetHLSLProfileName(Profile profile)
@@ -613,7 +669,7 @@ namespace Slang
         }
 
         char const* stagePrefix = nullptr;
-        switch( profile.GetStage() )
+        switch( profile.getStage() )
         {
             // Note: All of the raytracing-related stages require
             // compiling for a `lib_*` profile, even when only a
@@ -648,7 +704,7 @@ namespace Slang
         }
 
         char const* versionSuffix = nullptr;
-        switch(profile.GetVersion())
+        switch(profile.getVersion())
         {
     #define CASE(TAG, SUFFIX) case ProfileVersion::TAG: versionSuffix = #SUFFIX; break
         CASE(DX_4_0,             _4_0);
@@ -664,6 +720,7 @@ namespace Slang
         CASE(DX_6_3,             _6_3);
         CASE(DX_6_4,             _6_4);
         CASE(DX_6_5,             _6_5);
+        CASE(DX_6_6,             _6_6);
     #undef CASE
 
         default:
@@ -717,7 +774,7 @@ namespace Slang
 
     static String _getDisplayPath(DiagnosticSink* sink, SourceFile* sourceFile)
     {
-        if (sink->flags & DiagnosticSink::Flag::VerbosePath)
+        if (sink->isFlagSet(DiagnosticSink::Flag::VerbosePath))
         {
             return sourceFile->calcVerbosePath();
         }
@@ -727,13 +784,17 @@ namespace Slang
         }
     }
 
-    String calcSourcePathForEntryPoint(
+    String calcSourcePathForEntryPoints(
         EndToEndCompileRequest* endToEndReq,
-        UInt                    entryPointIndex)
+        const List<Int>&        entryPointIndices)
     {
+        String failureMode = "slang-generated";
+        if (entryPointIndices.getCount() != 1)
+            return failureMode;
+        auto entryPointIndex = entryPointIndices[0];
         auto translationUnitRequest = findPassThroughTranslationUnit(endToEndReq, entryPointIndex);
-        if(!translationUnitRequest)
-            return "slang-generated";
+        if (!translationUnitRequest)
+            return failureMode;
 
         const auto& sourceFiles = translationUnitRequest->getSourceFiles();
 
@@ -758,6 +819,21 @@ namespace Slang
         }
     }
 
+    String calcSourcePathForEntryPoint(
+        EndToEndCompileRequest* endToEndReq,
+        Int                     entryPointIndex)
+    {
+        List<Int> entryPointIndices;
+        entryPointIndices.add(entryPointIndex);
+        return calcSourcePathForEntryPoints(endToEndReq, entryPointIndices);
+    }
+
+    // Helper function for cases where we can assume a single entry point
+    Int assertSingleEntryPoint(List<Int> const& entryPointIndices) {
+        SLANG_ASSERT(entryPointIndices.getCount() == 1);
+        return *entryPointIndices.begin();
+    }
+
 #if SLANG_ENABLE_DXBC_SUPPORT
 
     static UnownedStringSlice _getSlice(ID3DBlob* blob)
@@ -772,83 +848,39 @@ namespace Slang
         return UnownedStringSlice();
     }
 
-        /// Read a file in the context of handling a preprocessor directive
-    static SlangResult readFile(
-        Linkage*        linkage,
-        String const&   path,
-        ISlangBlob**    outBlob)
-    {
-        // The actual file loading will be handled by the file system
-        // associated with the parent linkage.
-        //
-        auto fileSystemExt = linkage->getFileSystemExt();
-        SLANG_RETURN_ON_FAIL(fileSystemExt->loadFile(path.getBuffer(), outBlob));
-
-        return SLANG_OK;
-    }
-
     struct FxcIncludeHandler : ID3DInclude
     {
-        Linkage*        linkage;
-        DiagnosticSink* sink;
-        IncludeHandler* includeHandler;
-        PathInfo        rootPathInfo;
-
-        STDMETHOD(Open)(D3D_INCLUDE_TYPE IncludeType, LPCSTR pFileName, LPCVOID pParentData, LPCVOID *ppData, UINT *pBytes) override
+        
+        STDMETHOD(Open)(D3D_INCLUDE_TYPE includeType, LPCSTR fileName, LPCVOID parentData, LPCVOID* outData, UINT* outSize) override
         {
-            SLANG_UNUSED(IncludeType);
-            SLANG_UNUSED(pParentData);
+            SLANG_UNUSED(includeType);
+            // NOTE! The pParentData means the *text* of any previous include.
+            // In order to work out what *path* that came from, we need to seach which source file it came from, and
+            // use it's path
 
-            String path(pFileName);
+            // Assume the root pathInfo initially 
+            PathInfo includedFromPathInfo = m_rootPathInfo;
 
-            SourceLoc loc;
-
-            PathInfo includedFromPathInfo = rootPathInfo;
-
-            if (!includeHandler)
+            // Lets try and find the parent source if there is any
+            if (parentData)
             {
-                return SLANG_E_NOT_IMPLEMENTED;
-            }
-
-            // Find the path relative to the foundPath
-            PathInfo filePathInfo;
-            if (SLANG_FAILED(includeHandler->findFile(path, includedFromPathInfo.foundPath, filePathInfo)))
-            {
-                return SLANG_E_CANNOT_OPEN;
-            }
-
-            // We must have a uniqueIdentity to be compare
-            if (!filePathInfo.hasUniqueIdentity())
-            {
-                return SLANG_E_ABORT;
-            }
-
-            // Simplify the path
-            filePathInfo.foundPath = includeHandler->simplifyPath(filePathInfo.foundPath);
-
-            // See if this an already loaded source file
-            auto sourceManager = linkage->getSourceManager();
-            SourceFile* sourceFile = sourceManager->findSourceFileRecursively(filePathInfo.uniqueIdentity);
-
-            // If not create a new one, and add to the list of known source files
-            if (!sourceFile)
-            {
-                ComPtr<ISlangBlob> foundSourceBlob;
-                if (SLANG_FAILED(readFile(linkage, filePathInfo.foundPath, foundSourceBlob.writeRef())))
+                SourceFile* foundSourceFile = m_system.getSourceManager()->findSourceFileByContentRecursively((const char*)parentData);
+                if (foundSourceFile)
                 {
-                    return SLANG_E_CANNOT_OPEN;
+                    includedFromPathInfo = foundSourceFile->getPathInfo();
                 }
-
-                sourceFile = sourceManager->createSourceFileWithBlob(filePathInfo, foundSourceBlob);
-                sourceManager->addSourceFile(filePathInfo.uniqueIdentity, sourceFile);
             }
 
-            // This is a new parse (even if it's a pre-existing source file), so create a new SourceUnit
-            SourceView* sourceView = sourceManager->createSourceView(sourceFile, &filePathInfo);
+            String path(fileName);
+            PathInfo pathInfo;
+            ComPtr<ISlangBlob> blob;
 
-            *ppData = sourceView->getContent().begin();
-            *pBytes = (UINT) sourceView->getContentSize();
+            SLANG_RETURN_ON_FAIL(m_system.findAndLoadFile(path, includedFromPathInfo.foundPath, pathInfo, blob));
 
+            // Return the data
+            *outData = blob->getBufferPointer();
+            *outSize = (UINT) blob->getBufferSize();
+            
             return S_OK;
         }
 
@@ -857,11 +889,18 @@ namespace Slang
             SLANG_UNUSED(pData);
             return S_OK;
         }
+        FxcIncludeHandler(SearchDirectoryList* searchDirectories, ISlangFileSystemExt* fileSystemExt, SourceManager* sourceManager):
+            m_system(searchDirectories, fileSystemExt, sourceManager)
+        {
+        }
+
+        PathInfo m_rootPathInfo;
+        IncludeSystem m_system;
     };
 
     SlangResult emitDXBytecodeForEntryPoint(
+        ComponentType*          program,
         BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
@@ -884,6 +923,7 @@ namespace Slang
         const auto& hlslCode = source.source;
         maybeDumpIntermediate(compileRequest, hlslCode.getBuffer(), CodeGenTarget::HLSL);
 
+        auto entryPoint = program->getEntryPoint(entryPointIndex);
         auto profile = getEffectiveProfile(entryPoint, targetReq);
 
         auto linkage = compileRequest->getLinkage();
@@ -897,13 +937,9 @@ namespace Slang
         List<D3D_SHADER_MACRO> dxMacrosStorage;
         D3D_SHADER_MACRO const* dxMacros = nullptr;
 
-        IncludeHandlerImpl includeHandler;
-        includeHandler.linkage = linkage;
-        includeHandler.searchDirectories = &linkage->searchDirectories;
-
-        FxcIncludeHandler fxcIncludeHandlerStorage;
-        FxcIncludeHandler* fxcIncludeHandler = nullptr;
-
+        FxcIncludeHandler fxcIncludeHandlerStorage(&linkage->searchDirectories, linkage->getFileSystemExt(), sink->getSourceManager());
+        FxcIncludeHandler* fxcIncludeHandler = &fxcIncludeHandlerStorage;
+         
         if(auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
         {
             for( auto& define :  translationUnit->compileRequest->preprocessorDefinitions )
@@ -926,10 +962,7 @@ namespace Slang
             dxMacros = dxMacrosStorage.getBuffer();
 
             fxcIncludeHandler = &fxcIncludeHandlerStorage;
-            fxcIncludeHandler->linkage = linkage;
-            fxcIncludeHandler->sink = compileRequest->getSink();
-            fxcIncludeHandler->includeHandler = &includeHandler;
-            fxcIncludeHandler->rootPathInfo = translationUnit->m_sourceFiles[0]->getPathInfo();
+            fxcIncludeHandlerStorage.m_rootPathInfo = translationUnit->m_sourceFiles[0]->getPathInfo();
         }
 
         DWORD flags = 0;
@@ -972,7 +1005,7 @@ namespace Slang
         {
         case DebugInfoLevel::None:
             break;
-
+        
         default:
             flags |= D3DCOMPILE_DEBUG;
             break;
@@ -1047,8 +1080,8 @@ namespace Slang
     }
 
     SlangResult emitDXBytecodeAssemblyForEntryPoint(
+        ComponentType*          program,
         BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
@@ -1057,8 +1090,8 @@ namespace Slang
 
         List<uint8_t> dxbc;
         SLANG_RETURN_ON_FAIL(emitDXBytecodeForEntryPoint(
+            program,
             compileRequest,
-            entryPoint,
             entryPointIndex,
             targetReq,
             endToEndReq,
@@ -1076,8 +1109,8 @@ namespace Slang
 // Implementations in `dxc-support.cpp`
 
 SlangResult emitDXILForEntryPointUsingDXC(
+    ComponentType*          program,
     BackEndCompileRequest*  compileRequest,
-    EntryPoint*             entryPoint,
     Int                     entryPointIndex,
     TargetRequest*          targetReq,
     EndToEndCompileRequest* endToEndReq,
@@ -1090,8 +1123,8 @@ SlangResult dissassembleDXILUsingDXC(
     String&                 stringOut);
 
 SlangResult emitSPIRVForEntryPointUsingDXC(
+    ComponentType*          program,
     BackEndCompileRequest*  compileRequest,
-    EntryPoint*             entryPoint,
     Int                     entryPointIndex,
     TargetRequest*          targetReq,
     EndToEndCompileRequest* endToEndReq,
@@ -1188,19 +1221,19 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         return SLANG_OK;
     }
 
-    SlangResult emitSPIRVForEntryPointViaGLSL(
-        BackEndCompileRequest*  slangRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq,
-        List<uint8_t>&          spirvOut)
+        SlangResult emitSPIRVForEntryPointsViaGLSL(
+        ComponentType*                  program,
+        BackEndCompileRequest*          slangRequest,
+        const List<Int>&                entryPointIndices,
+        TargetRequest*                  targetReq,
+        EndToEndCompileRequest*         endToEndReq,
+        List<uint8_t>&                  spirvOut)
     {
         spirvOut.clear();
 
         SourceResult source;
 
-        SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, CodeGenTarget::GLSL, endToEndReq, source));
+        SLANG_RETURN_ON_FAIL(emitEntryPointsSource(slangRequest, entryPointIndices, targetReq, CodeGenTarget::GLSL, endToEndReq, source));
 
         const auto& rawGLSL = source.source;
 
@@ -1211,7 +1244,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
             ((List<uint8_t>*)userData)->addRange((uint8_t*)data, size);
         };
 
-        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
+        const String sourcePath = calcSourcePathForEntryPoint(endToEndReq, assertSingleEntryPoint(entryPointIndices));
 
         glslang_CompileRequest_1_1 request;
         memset(&request, 0, sizeof(request));
@@ -1219,10 +1252,11 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 
         request.action = GLSLANG_ACTION_COMPILE_GLSL_TO_SPIRV;
         request.sourcePath = sourcePath.getBuffer();
+        auto entryPoint = program->getEntryPoint(assertSingleEntryPoint(entryPointIndices));
         request.slangStage = (SlangStage)entryPoint->getStage();
 
-        request.inputBegin  = rawGLSL.begin();
-        request.inputEnd    = rawGLSL.end();
+        request.inputBegin = rawGLSL.begin();
+        request.inputEnd = rawGLSL.end();
 
         if (GLSLExtensionTracker* tracker = as<GLSLExtensionTracker>(source.extensionTracker.Ptr()))
         {
@@ -1242,9 +1276,9 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
     }
 #endif
 
-    SlangResult emitWithDownstreamForEntryPoint(
+SlangResult emitWithDownstreamForEntryPoints(
         BackEndCompileRequest*  slangRequest,
-        Int                     entryPointIndex,
+        const List<Int>&        entryPointIndices,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
         RefPtr<DownstreamCompileResult>& outResult)
@@ -1255,12 +1289,12 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 
         auto session = slangRequest->getSession();
 
-        const String originalSourcePath = calcSourcePathForEntryPoint(endToEndReq, entryPointIndex);
+        const String originalSourcePath = calcSourcePathForEntryPoints(endToEndReq, entryPointIndices);
 
         CodeGenTarget sourceTarget = CodeGenTarget::None;
         SourceLanguage sourceLanguage = SourceLanguage::Unknown;
 
-        PassThroughMode downstreamCompiler = endToEndReq->passThrough;
+        PassThroughMode downstreamCompiler = endToEndReq ? endToEndReq->passThrough : PassThroughMode::None;
 
         // If we are not in pass through, lookup the default compiler for the emitted source type
         if (downstreamCompiler == PassThroughMode::None)
@@ -1314,8 +1348,11 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         /* This is more convoluted than the other scenarios, because when we invoke C/C++ compiler we would ideally like
         to use the original file. We want to do this because we want includes relative to the source file to work, and
         for that to work most easily we want to use the original file, if there is one */
-        if (auto translationUnit = findPassThroughTranslationUnit(endToEndReq, entryPointIndex))
+        if (isPassThroughEnabled(endToEndReq))
         {
+            // TODO(DG): Review this assertion later
+            SLANG_ASSERT(entryPointIndices.getCount() == 1);
+            auto translationUnit = getPassThroughTranslationUnit(endToEndReq, entryPointIndices[0]);
             // If it's pass through we accumulate the preprocessor definitions. 
             for (auto& define : translationUnit->compileRequest->preprocessorDefinitions)
             {
@@ -1338,7 +1375,6 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
                 all makes total sense. If we are generating C++ code from slang, then should we really be using these values -> aren't they what is
                 being set for the *slang* source, not for the C++ generated code. That being the case it implies that there needs to be a mechanism
                 (if there isn't already) to specify such information on a particular pass/pass through etc.
-
                 On invoking DXC for example include paths do not appear to be set at all (even with pass-through).
                 */ 
 
@@ -1377,7 +1413,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
             else
             {
                 SourceResult source;
-                SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, sourceTarget, endToEndReq, source));
+                SLANG_RETURN_ON_FAIL(emitEntryPointsSource(slangRequest, entryPointIndices, targetReq, sourceTarget, endToEndReq, source));
 
                 options.sourceContents = source.source;
             }
@@ -1385,7 +1421,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         else
         {
             SourceResult source;
-            SLANG_RETURN_ON_FAIL(emitEntryPointSource(slangRequest, entryPointIndex, targetReq, sourceTarget, endToEndReq, source));
+            SLANG_RETURN_ON_FAIL(emitEntryPointsSource(slangRequest, entryPointIndices, targetReq, sourceTarget, endToEndReq, source));
 
             // Look for the version
             if (auto cudaTracker = as<CUDAExtensionTracker>(source.extensionTracker))
@@ -1601,43 +1637,43 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         return SLANG_OK;
     }
 
-    SlangResult emitSPIRVForEntryPointDirectly(
+    SlangResult emitSPIRVForEntryPointsDirectly(
         BackEndCompileRequest*  compileRequest,
-        Int                     entryPointIndex,
+        const List<Int>&        entryPointIndices,
         TargetRequest*          targetReq,
         List<uint8_t>&          spirvOut);
 
-    SlangResult emitSPIRVForEntryPoint(
-        BackEndCompileRequest*  slangRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq,
-        List<uint8_t>&          spirvOut)
+    SlangResult emitSPIRVForEntryPoints(
+        ComponentType*                  program,
+        BackEndCompileRequest*          slangRequest,
+        const List<Int>&                entryPointIndices,
+        TargetRequest*                  targetReq,
+        EndToEndCompileRequest*         endToEndReq,
+        List<uint8_t>&                  spirvOut)
     {
         if( slangRequest->shouldEmitSPIRVDirectly )
         {
-            return emitSPIRVForEntryPointDirectly(
+            return emitSPIRVForEntryPointsDirectly(
                 slangRequest,
-                entryPointIndex,
+                entryPointIndices,
                 targetReq,
                 spirvOut);
         }
 #if SLANG_ENABLE_DXIL_SUPPORT
         if (targetReq->targetProfile.getFamily() == ProfileFamily::DX)
             return emitSPIRVForEntryPointUsingDXC(
+                program,
                 slangRequest,
-                entryPoint,
-                entryPointIndex,
+                assertSingleEntryPoint(entryPointIndices),
                 targetReq,
                 endToEndReq,
                 spirvOut);
 #endif
 #if SLANG_ENABLE_GLSLANG_SUPPORT
-        return emitSPIRVForEntryPointViaGLSL(
+        return emitSPIRVForEntryPointsViaGLSL(
+            program,
             slangRequest,
-            entryPoint,
-            entryPointIndex,
+            entryPointIndices,
             targetReq,
             endToEndReq,
             spirvOut);
@@ -1657,19 +1693,19 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 #endif
     }
 
-    SlangResult emitSPIRVAssemblyForEntryPoint(
-        BackEndCompileRequest*  slangRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq,
-        String&                 assemblyOut)
+    SlangResult emitSPIRVAssemblyForEntryPoints(
+        ComponentType*                  program,
+        BackEndCompileRequest*          slangRequest,
+        const List<Int>&                entryPointIndices,
+        TargetRequest*                  targetReq,
+        EndToEndCompileRequest*         endToEndReq,
+        String&                         assemblyOut)
     {
         List<uint8_t> spirv;
-        SLANG_RETURN_ON_FAIL(emitSPIRVForEntryPoint(
+        SLANG_RETURN_ON_FAIL(emitSPIRVForEntryPoints(
+            program,
             slangRequest,
-            entryPoint,
-            entryPointIndex,
+            entryPointIndices,
             targetReq,
             endToEndReq,
             spirv));
@@ -1680,13 +1716,13 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         return dissassembleSPIRV(slangRequest, spirv.begin(), spirv.getCount(), assemblyOut);
     }
 
-    // Do emit logic for a single entry point
-    CompileResult emitEntryPoint(
-        BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        Int                     entryPointIndex,
-        TargetRequest*          targetReq,
-        EndToEndCompileRequest* endToEndReq)
+    // Do emit logic for a zero or more entry points
+    CompileResult emitEntryPoints(
+        ComponentType*                  program,
+        BackEndCompileRequest*          compileRequest,
+        const List<Int>&                entryPointIndices,
+        TargetRequest*                  targetReq,
+        EndToEndCompileRequest*         endToEndReq)
     {
         CompileResult result;
 
@@ -1701,9 +1737,9 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
             {
                 RefPtr<DownstreamCompileResult> downstreamResult;
 
-                if (SLANG_SUCCEEDED(emitWithDownstreamForEntryPoint(
+                if (SLANG_SUCCEEDED(emitWithDownstreamForEntryPoints(
                     compileRequest,
-                    entryPointIndex,
+                    entryPointIndices,
                     targetReq,
                     endToEndReq,
                     downstreamResult)))
@@ -1721,7 +1757,8 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         case CodeGenTarget::CSource:
             {
                 SourceResult source;
-                if (SLANG_FAILED(emitEntryPointSource(compileRequest, entryPointIndex, targetReq, target, endToEndReq, source)))
+                if (SLANG_FAILED(emitEntryPointsSource(compileRequest, entryPointIndices,
+                    targetReq, target, endToEndReq, source)))
                 {
                     return result;
                 }
@@ -1735,10 +1772,12 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 #if SLANG_ENABLE_DXBC_SUPPORT
         case CodeGenTarget::DXBytecode:
             {
+                // Assert only one entry point case -- move out of this function
                 List<uint8_t> code;
+                auto entryPointIndex = assertSingleEntryPoint(entryPointIndices);
                 if (SLANG_SUCCEEDED(emitDXBytecodeForEntryPoint(
+                    program,
                     compileRequest,
-                    entryPoint,
                     entryPointIndex,
                     targetReq,
                     endToEndReq,
@@ -1753,10 +1792,12 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 
         case CodeGenTarget::DXBytecodeAssembly:
             {
+                // Assert only one entry point case
                 String code;
+                auto entryPointIndex = assertSingleEntryPoint(entryPointIndices);
                 if (SLANG_SUCCEEDED(emitDXBytecodeAssemblyForEntryPoint(
+                    program,
                     compileRequest,
-                    entryPoint,
                     entryPointIndex,
                     targetReq,
                     endToEndReq,
@@ -1773,9 +1814,10 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         case CodeGenTarget::DXIL:
             {
                 List<uint8_t> code;
+                auto entryPointIndex = assertSingleEntryPoint(entryPointIndices);
                 if (SLANG_SUCCEEDED(emitDXILForEntryPointUsingDXC(
+                    program,
                     compileRequest,
-                    entryPoint,
                     entryPointIndex,
                     targetReq,
                     endToEndReq,
@@ -1790,19 +1832,20 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         case CodeGenTarget::DXILAssembly:
             {
                 List<uint8_t> code;
+                Int entryPointIndex = assertSingleEntryPoint(entryPointIndices);
                 if (SLANG_SUCCEEDED(emitDXILForEntryPointUsingDXC(
+                    program,
                     compileRequest,
-                    entryPoint,
                     entryPointIndex,
                     targetReq,
                     endToEndReq,
                     code)))
                 {
-                    String assembly; 
+                    String assembly;
                     dissassembleDXILUsingDXC(
                         compileRequest,
                         code.getBuffer(),
-                        code.getCount(), 
+                        code.getCount(),
                         assembly);
 
                     maybeDumpIntermediate(compileRequest, assembly.getBuffer(), target);
@@ -1815,10 +1858,10 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         case CodeGenTarget::SPIRV:
             {
                 List<uint8_t> code;
-                if (SLANG_SUCCEEDED(emitSPIRVForEntryPoint(
+                if (SLANG_SUCCEEDED(emitSPIRVForEntryPoints(
+                    program,
                     compileRequest,
-                    entryPoint,
-                    entryPointIndex,
+                    entryPointIndices,
                     targetReq,
                     endToEndReq,
                     code)))
@@ -1832,10 +1875,10 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         case CodeGenTarget::SPIRVAssembly:
             {
                 String code;
-                if (SLANG_SUCCEEDED(emitSPIRVAssemblyForEntryPoint(
+                if (SLANG_SUCCEEDED(emitSPIRVAssemblyForEntryPoints(
+                    program,
                     compileRequest,
-                    entryPoint,
-                    entryPointIndex,
+                    entryPointIndices,
                     targetReq,
                     endToEndReq,
                     code)))
@@ -1850,7 +1893,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
             // The user requested no output
             break;
 
-        // Note(tfoley): We currently hit this case when compiling the stdlib
+            // Note(tfoley): We currently hit this case when compiling the stdlib
         case CodeGenTarget::Unknown:
             break;
 
@@ -1860,6 +1903,19 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         }
 
         return result;
+    }
+
+    // Do emit logic for a single entry point
+    CompileResult emitEntryPoint(
+        ComponentType*          program,
+        BackEndCompileRequest*  compileRequest,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq,
+        EndToEndCompileRequest* endToEndReq)
+    {
+        List<Int> entryPointIndices;
+        entryPointIndices.add(entryPointIndex);
+        return emitEntryPoints(program, compileRequest, entryPointIndices, targetReq, endToEndReq);
     }
 
     enum class OutputFileKind
@@ -1925,14 +1981,11 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         fclose(file);
     }
 
-    static void writeEntryPointResultToFile(
-        BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        String const&           outputPath,
-        CompileResult const&    result)
+    static void writeCompileResultToFile(
+        BackEndCompileRequest* compileRequest,
+        String const& outputPath,
+        CompileResult const& result)
     {
-        SLANG_UNUSED(entryPoint);
-
         switch (result.format)
         {
         case ResultFormat::Text:
@@ -1965,6 +2018,16 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 
     }
 
+    static void writeEntryPointResultToFile(
+        BackEndCompileRequest*  compileRequest,
+        EntryPoint*             entryPoint,
+        String const&           outputPath,
+        CompileResult const&    result)
+    {
+        SLANG_UNUSED(entryPoint);
+        writeCompileResultToFile(compileRequest, outputPath, result);
+    }
+
     static void writeOutputToConsole(
         ISlangWriter* writer,
         String const&   text)
@@ -1972,14 +2035,11 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         writer->write(text.getBuffer(), text.getLength());
     }
 
-    static void writeEntryPointResultToStandardOutput(
-        EndToEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
-        TargetRequest*          targetReq,
-        CompileResult const&    result)
+    static void writeCompileRequestToStandardOutput(
+        EndToEndCompileRequest* compileRequest,
+        TargetRequest* targetReq,
+        CompileResult const& result)
     {
-        SLANG_UNUSED(entryPoint);
-
         ISlangWriter* writer = compileRequest->getWriter(WriterChannel::StdOutput);
         auto backEndReq = compileRequest->getBackEndReq();
 
@@ -2019,7 +2079,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
                 #if SLANG_ENABLE_DXIL_SUPPORT
                     case CodeGenTarget::DXIL:
                         {
-                            String assembly; 
+                            String assembly;
                             dissassembleDXILUsingDXC(backEndReq, blobData, blobSize, assembly);
                             writeOutputToConsole(writer, assembly);
                         }
@@ -2047,22 +2107,22 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
                     default:
                         SLANG_UNEXPECTED("unhandled output format");
                         return;
-                    }
+                        }
                 }
-                else
-                {
-                    // Redirecting stdout to a file, so do the usual thing
-                    writer->setMode(SLANG_WRITER_MODE_BINARY);
+            else
+            {
+                // Redirecting stdout to a file, so do the usual thing
+                writer->setMode(SLANG_WRITER_MODE_BINARY);
 
-                    writeOutputFile(
-                        backEndReq,
-                        writer,
-                        "stdout",
-                        blobData,
-                        blobSize);
-                }
+                writeOutputFile(
+                    backEndReq,
+                    writer,
+                    "stdout",
+                    blobData,
+                    blobSize);
             }
-            break;
+        }
+        break;
 
         default:
             SLANG_UNEXPECTED("unhandled output format");
@@ -2071,11 +2131,54 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 
     }
 
-    static void writeEntryPointResult(
+    static void writeEntryPointResultToStandardOutput(
+        EndToEndCompileRequest*     compileRequest,
+        EntryPoint*                 entryPoint,
+        TargetRequest*              targetReq,
+        CompileResult const&        result)
+    {
+        SLANG_UNUSED(entryPoint);
+        writeCompileRequestToStandardOutput(compileRequest, targetReq, result);
+    }
+
+    static void writeWholeProgramResult(
         EndToEndCompileRequest* compileRequest,
-        EntryPoint*             entryPoint,
-        TargetRequest*          targetReq,
-        Int                     entryPointIndex)
+        TargetRequest*          targetReq)
+    {
+        auto program = compileRequest->getSpecializedGlobalAndEntryPointsComponentType();
+        auto targetProgram = program->getTargetProgram(targetReq);
+        auto backEndReq = compileRequest->getBackEndReq();
+
+        auto& result = targetProgram->getExistingWholeProgramResult();
+
+        // Skip the case with no output
+        if (result.format == ResultFormat::None)
+            return;
+
+        // It is possible that we are dynamically discovering entry
+        // points (using `[shader(...)]` attributes), so that there
+        // might be entry points added to the program that did not
+        // get paths specified via command-line options.
+        //
+        RefPtr<EndToEndCompileRequest::TargetInfo> targetInfo;
+        if (compileRequest->targetInfos.TryGetValue(targetReq, targetInfo))
+        {
+            String outputPath = targetInfo->wholeTargetOutputPath;
+            if (outputPath != "")
+            {
+                writeCompileResultToFile(backEndReq, outputPath, result);
+                return;
+            }
+        }
+
+        writeCompileRequestToStandardOutput(compileRequest, targetReq, result);
+    }
+
+    static void writeEntryPointResult(
+        ComponentType*          currentProgram,
+        EndToEndCompileRequest* compileRequest,
+        Int                     entryPointIndex,
+        TargetRequest*          targetReq)
     {
         auto program = compileRequest->getSpecializedGlobalAndEntryPointsComponentType();
         auto targetProgram = program->getTargetProgram(targetReq);
@@ -2093,6 +2196,7 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         // get paths specified via command-line options.
         //
         RefPtr<EndToEndCompileRequest::TargetInfo> targetInfo;
+        auto entryPoint = currentProgram->getEntryPoint(entryPointIndex);
         if(compileRequest->targetInfos.TryGetValue(targetReq, targetInfo))
         {
             String outputPath;
@@ -2104,6 +2208,37 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         }
 
         writeEntryPointResultToStandardOutput(compileRequest, entryPoint, targetReq, result);
+    }
+
+    CompileResult& TargetProgram::_createWholeProgramResult(
+        const List<Int>&        entryPointIndices,
+        BackEndCompileRequest*  backEndRequest,
+        EndToEndCompileRequest* endToEndRequest)
+    {
+        for (auto entryPointIndex = entryPointIndices.begin(); entryPointIndex != entryPointIndices.end(); entryPointIndex++) {
+            if (*entryPointIndex >= m_entryPointResults.getCount())
+                m_entryPointResults.setCount(*entryPointIndex + 1);
+
+            // It is possible that entry points goot added to the `Program`
+            // *after* we created this `TargetProgram`, so there might be
+            // a request for an entry point that we didn't allocate space for.
+            //
+            // TODO: Change the construction logic so that a `Program` is
+            // constructed all at once rather than incrementally, to avoid
+            // this problem.
+            //
+            //auto entryPoint = m_program->getEntryPoint(*entryPointIndex);
+        }
+        auto& result = m_wholeProgramResult;
+        result = emitEntryPoints(
+            m_program,
+            backEndRequest,
+            entryPointIndices,
+            m_targetReq,
+            endToEndRequest);
+
+        return result;
+
     }
 
     CompileResult& TargetProgram::_createEntryPointResult(
@@ -2122,18 +2257,44 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         if(entryPointIndex >= m_entryPointResults.getCount())
             m_entryPointResults.setCount(entryPointIndex+1);
 
-        auto entryPoint = m_program->getEntryPoint(entryPointIndex);
-
         auto& result = m_entryPointResults[entryPointIndex];
         result = emitEntryPoint(
+            m_program,
             backEndRequest,
-            entryPoint,
             entryPointIndex,
             m_targetReq,
             endToEndRequest);
 
         return result;
 
+    }
+
+    CompileResult& TargetProgram::getOrCreateWholeProgramResult(
+        const List<Int>& entryPointIndices,
+        DiagnosticSink* sink)
+    {
+        auto& result = m_wholeProgramResult;
+        if (result.format != ResultFormat::None)
+            return result;
+
+        // If we haven't yet computed a layout for this target
+        // program, we need to make sure that is done before
+        // code generation.
+        //
+        if (!getOrCreateIRModuleForLayout(sink))
+        {
+            return result;
+        }
+
+        RefPtr<BackEndCompileRequest> backEndRequest = new BackEndCompileRequest(
+            m_program->getLinkage(),
+            sink,
+            m_program);
+
+        return _createWholeProgramResult(
+            entryPointIndices,
+            backEndRequest,
+            nullptr);
     }
 
     CompileResult& TargetProgram::getOrCreateEntryPointResult(
@@ -2178,12 +2339,22 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
         // Generate target code any entry points that
         // have been requested for compilation.
         auto entryPointCount = program->getEntryPointCount();
-        for(Index ii = 0; ii < entryPointCount; ++ii)
+        if (targetReq->isWholeProgramRequest)
         {
-            targetProgram->_createEntryPointResult(
-                ii,
+            targetProgram->_createWholeProgramResult(
+                List<Int>(),
                 compileReq,
                 endToEndReq);
+        }
+        else
+        {
+            for (Index ii = 0; ii < entryPointCount; ++ii)
+            {
+                targetProgram->_createEntryPointResult(
+                    ii,
+                    compileReq,
+                    endToEndReq);
+            }
         }
     }
 
@@ -2389,13 +2560,20 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
             for (auto targetReq : linkage->targets)
             {
                 Index entryPointCount = program->getEntryPointCount();
-                for (Index ee = 0; ee < entryPointCount; ++ee)
-                {
-                    writeEntryPointResult(
+                if (targetReq->isWholeProgramRequest) {
+                    writeWholeProgramResult(
                         compileRequest,
-                        program->getEntryPoint(ee),
-                        targetReq,
-                        ee);
+                        targetReq);
+                }
+                else {
+                    for (Index ee = 0; ee < entryPointCount; ++ee)
+                    {
+                        writeEntryPointResult(
+                            program,
+                            compileRequest,
+                            ee,
+                            targetReq);
+                    }
                 }
             }
 
@@ -2575,5 +2753,4 @@ SlangResult emitSPIRVForEntryPointUsingDXC(
 
         maybeDumpIntermediate(compileRequest, text, strlen(text), target);
     }
-
 }

@@ -6,17 +6,26 @@
 
 #include "slang-ir-bind-existentials.h"
 #include "slang-ir-byte-address-legalize.h"
+#include "slang-ir-collect-global-uniforms.h"
 #include "slang-ir-dce.h"
 #include "slang-ir-entry-point-uniforms.h"
+#include "slang-ir-entry-point-raw-ptr-params.h"
+#include "slang-ir-explicit-global-context.h"
+#include "slang-ir-explicit-global-init.h"
 #include "slang-ir-glsl-legalize.h"
 #include "slang-ir-insts.h"
+#include "slang-ir-legalize-varying-params.h"
 #include "slang-ir-link.h"
+#include "slang-ir-lower-generics.h"
+#include "slang-ir-lower-tuple-types.h"
 #include "slang-ir-restructure.h"
 #include "slang-ir-restructure-scoping.h"
 #include "slang-ir-specialize.h"
+#include "slang-ir-specialize-arrays.h"
 #include "slang-ir-specialize-resources.h"
 #include "slang-ir-ssa.h"
 #include "slang-ir-strip-witness-tables.h"
+#include "slang-ir-synthesize-active-mask.h"
 #include "slang-ir-union.h"
 #include "slang-ir-validate.h"
 #include "slang-ir-wrap-structured-buffers.h"
@@ -59,7 +68,7 @@ EntryPointLayout* findEntryPointLayout(
 
     for( auto entryPointLayout : programLayout->entryPoints )
     {
-        if(entryPointLayout->entryPoint.GetName() != entryPoint->getName())
+        if(entryPointLayout->entryPoint.getName() != entryPoint->getName())
             continue;
 
         // TODO: We need to be careful about this check, since it relies on
@@ -118,29 +127,6 @@ StructTypeLayout* getGlobalStructLayout(
     return getScopeStructLayout(programLayout);
 }
 
-static void dumpIR(
-    BackEndCompileRequest* compileRequest,
-    IRModule*       irModule,
-    char const*     label)
-{
-    DiagnosticSinkWriter writerImpl(compileRequest->getSink());
-    WriterHelper writer(&writerImpl);
-
-    if(label)
-    {
-        writer.put("### ");
-        writer.put(label);
-        writer.put(":\n");
-    }
-
-    dumpIR(irModule, writer.getWriter());
-
-    if( label )
-    {
-        writer.put("###\n");
-    }
-}
-
 static void dumpIRIfEnabled(
     BackEndCompileRequest* compileRequest,
     IRModule*       irModule,
@@ -148,7 +134,8 @@ static void dumpIRIfEnabled(
 {
     if(compileRequest->shouldDumpIR)
     {
-        dumpIR(compileRequest, irModule, label);
+        DiagnosticSinkWriter writer(compileRequest->getSink());
+        dumpIR(irModule, &writer, label);
     }
 }
 
@@ -160,7 +147,7 @@ struct LinkingAndOptimizationOptions
 
 Result linkAndOptimizeIR(
     BackEndCompileRequest*                  compileRequest,
-    Int                                     entryPointIndex,
+    const List<Int>&                        entryPointIndices,
     CodeGenTarget                           target,
     TargetRequest*                          targetRequest,
     LinkingAndOptimizationOptions const&    options,
@@ -182,11 +169,11 @@ Result linkAndOptimizeIR(
     //
     outLinkedIR = linkIR(
         compileRequest,
-        entryPointIndex,
+        entryPointIndices,
         target,
         targetProgram);
     auto irModule = outLinkedIR.module;
-    auto irEntryPoint = outLinkedIR.entryPoint;
+    auto irEntryPoints = outLinkedIR.entryPoints;
 
 #if 0
     dumpIRIfEnabled(compileRequest, irModule, "LINKED");
@@ -221,25 +208,71 @@ Result linkAndOptimizeIR(
 #endif
     validateIRModuleIfEnabled(compileRequest, irModule);
 
-
-
-
-
     // Now that we've linked the IR code, any layout/binding
     // information has been attached to shader parameters
     // and entry points. Now we are safe to make transformations
     // that might move code without worrying about losing
     // the connection between a parameter and its layout.
+
+    // One example of a transformation that needs to wait until
+    // we have layout information is the step where we collect
+    // any global-scope shader parameters with ordinary/uniform
+    // type into an aggregate `struct`, and then (optionally)
+    // wrap that `struct` up in a constant buffer.
     //
-    // An easy transformation of this kind is to take uniform
+    // This step allows shaders to declare parameters of ordinary
+    // type as globals in the input file, while ensuring that
+    // downstream passes for graphics APIs like Vulkan and D3D
+    // can assume that all ordinary/uniform data is strictly
+    // passed using constant buffers.
+    //
+    collectGlobalUniformParameters(irModule, outLinkedIR.globalScopeVarLayout);
+#if 0
+    dumpIRIfEnabled(compileRequest, irModule, "GLOBAL UNIFORMS COLLECTED");
+#endif
+    validateIRModuleIfEnabled(compileRequest, irModule);
+
+    // Another transformation that needed to wait until we
+    // had layout information on parameters is to take uniform
     // parameters of a shader entry point and move them into
     // the global scope instead.
     //
-    moveEntryPointUniformParamsToGlobalScope(irModule, target);
-#if 0
-    dumpIRIfEnabled(compileRequest, irModule, "ENTRY POINT UNIFORMS MOVED");
-#endif
-    validateIRModuleIfEnabled(compileRequest, irModule);
+    // TODO: We should skip this step for CUDA targets.
+    //
+    {
+        CollectEntryPointUniformParamsOptions passOptions;
+        switch( target )
+        {
+        case CodeGenTarget::CUDASource:
+            break;
+
+        case CodeGenTarget::CPPSource:
+            passOptions.alwaysCreateCollectedParam = true;
+        default:
+            collectEntryPointUniformParams(irModule, passOptions);
+        #if 0
+            dumpIRIfEnabled(compileRequest, irModule, "ENTRY POINT UNIFORMS COLLECTED");
+        #endif
+            validateIRModuleIfEnabled(compileRequest, irModule);
+            break;
+        }
+    }
+
+    switch( target )
+    {
+    default:
+        moveEntryPointUniformParamsToGlobalScope(irModule);
+    #if 0
+        dumpIRIfEnabled(compileRequest, irModule, "ENTRY POINT UNIFORMS MOVED");
+    #endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+        break;
+
+    case CodeGenTarget::CPPSource:
+    case CodeGenTarget::CUDASource:
+        break;
+    }
+
 
     // Desguar any union types, since these will be illegal on
     // various targets.
@@ -269,8 +302,34 @@ Result linkAndOptimizeIR(
     // perform specialization of functions based on parameter
     // values that need to be compile-time constants.
     //
-    specializeModule(irModule);
+    if (!compileRequest->allowDynamicCode)
+        specializeModule(irModule);
 
+    switch (target)
+    {
+    case CodeGenTarget::CPPSource:
+        // For targets that supports dynamic dispatch, we need to lower the
+        // generics / interface types to ordinary functions and types using
+        // function pointers.
+        if (compileRequest->allowDynamicCode)
+        {
+            lowerGenerics(irModule, sink);
+            dumpIRIfEnabled(compileRequest, irModule, "LOWER-GENERICS");
+        }
+        break;
+    default:
+        break;
+    }
+
+    if (sink->getErrorCount() != 0)
+        return SLANG_FAIL;
+
+    lowerTuples(irModule, sink);
+    if (sink->getErrorCount() != 0)
+        return SLANG_FAIL;
+
+    // TODO(DG): There are multiple DCE steps here, which need to be changed
+    //   so that they don't just throw out any non-entry point code
     // Debugging code for IR transformations...
 #if 0
     dumpIRIfEnabled(compileRequest, irModule, "SPECIALIZED");
@@ -293,7 +352,7 @@ Result linkAndOptimizeIR(
 
     // We don't need the legalize pass for C/C++ based types
     if(options.shouldLegalizeExistentialAndResourceTypes )
-//    if (!(sourceStyle == SourceStyle::CPP || sourceStyle == SourceStyle::C))
+//    if (!(sourceLanguage == SourceLanguage::CPP || sourceStyle == SourceLanguage::C))
     {
         // The Slang language allows interfaces to be used like
         // ordinary types (including placing them in constant
@@ -328,7 +387,7 @@ Result linkAndOptimizeIR(
 #if 0
         dumpIRIfEnabled(compileRequest, irModule, "EXISTENTIALS LEGALIZED");
 #endif
-        validateIRModuleIfEnabled(compileRequest, irModule);
+    validateIRModuleIfEnabled(compileRequest, irModule);
 
         // Many of our target languages and/or downstream compilers
         // don't support `struct` types that have resource-type fields.
@@ -384,9 +443,18 @@ Result linkAndOptimizeIR(
     //
     specializeResourceParameters(compileRequest, targetRequest, irModule);
 
+    // For GLSL targets, we also want to specialize calls to functions that
+    // takes array parameters if possible, to avoid performance issues on
+    // those platforms.
+    if (isKhronosTarget(targetRequest))
+    {
+        specializeArrayParameters(compileRequest, targetRequest, irModule);
+    }
+
 #if 0
     dumpIRIfEnabled(compileRequest, irModule, "AFTER RESOURCE SPECIALIZATION");
 #endif
+
     validateIRModuleIfEnabled(compileRequest, irModule);
 
     // For HLSL (and fxc/dxc) only, we need to "wrap" any
@@ -479,7 +547,7 @@ Result linkAndOptimizeIR(
                 auto profile = targetRequest->targetProfile;
                 if( profile.getFamily() == ProfileFamily::DX )
                 {
-                    if(profile.GetVersion() <= ProfileVersion::DX_5_0)
+                    if(profile.getVersion() <= ProfileVersion::DX_5_0)
                     {
                         // Fxc and earlier dxc versions do not support
                         // a templates `.Load<T>` operation on byte-address
@@ -500,6 +568,31 @@ Result linkAndOptimizeIR(
         legalizeByteAddressBufferOps(session, irModule, byteAddressBufferOptions);
     }
 
+    // For CUDA targets only, we will need to turn operations
+    // the implicitly reference the "active mask" into ones
+    // that use (and pass around) an explicit mask instead.
+    //
+    switch(target)
+    {
+    case CodeGenTarget::CUDASource:
+    case CodeGenTarget::PTX:
+        {
+            synthesizeActiveMask(
+                irModule,
+                compileRequest->getSink());
+
+#if 0
+            dumpIRIfEnabled(compileRequest, irModule, "AFTER synthesizeActiveMask");
+#endif
+            validateIRModuleIfEnabled(compileRequest, irModule);
+
+        }
+        break;
+
+    default:
+        break;
+    }
+
     // For GLSL only, we will need to perform "legalization" of
     // the entry point and any entry-point parameters.
     //
@@ -513,10 +606,10 @@ Result linkAndOptimizeIR(
     {
         auto glslExtensionTracker = as<GLSLExtensionTracker>(options.sourceEmitter->getExtensionTracker());
 
-        legalizeEntryPointForGLSL(
+        legalizeEntryPointsForGLSL(
             session,
             irModule,
-            irEntryPoint,
+            irEntryPoints,
             compileRequest->getSink(),
             glslExtensionTracker);
 
@@ -527,8 +620,50 @@ Result linkAndOptimizeIR(
     }
     break;
 
+    case CodeGenTarget::CSource:
+    case CodeGenTarget::CPPSource:
+        {
+            legalizeEntryPointVaryingParamsForCPU(irModule, compileRequest->getSink());
+        }
+        break;
+
+    case CodeGenTarget::CUDASource:
+        {
+            legalizeEntryPointVaryingParamsForCUDA(irModule, compileRequest->getSink());
+        }
+        break;
+
     default:
         break;
+    }
+
+
+    switch( target )
+    {
+    default:
+        break;
+
+    case CodeGenTarget::CPPSource:
+    case CodeGenTarget::CUDASource:
+        moveGlobalVarInitializationToEntryPoints(irModule);
+        introduceExplicitGlobalContext(irModule, target);
+        if(target == CodeGenTarget::CPPSource)
+        {
+            convertEntryPointPtrParamsToRawPtrs(irModule);
+        }
+    #if 0
+        dumpIRIfEnabled(compileRequest, irModule, "EXPLICIT GLOBAL CONTEXT INTRODUCED");
+    #endif
+        validateIRModuleIfEnabled(compileRequest, irModule);
+        break;
+    }
+
+    if (!compileRequest->allowDynamicCode)
+    {
+        // For all targets that don't support true dynamic dispatch through
+        // witness tables, we need to eliminate witness tables from the IR so
+        // that they don't keep symbols live that we don't actually need.
+        stripWitnessTables(irModule);
     }
 
     // For all targets that don't support true dynamic dispatch through
@@ -560,19 +695,17 @@ Result linkAndOptimizeIR(
     return SLANG_OK;
 }
 
-SlangResult emitEntryPointSourceFromIR(
+SlangResult emitEntryPointsSourceFromIR(
     BackEndCompileRequest*  compileRequest,
-    Int                     entryPointIndex,
+    const List<Int>&        entryPointIndices,
     CodeGenTarget           target,
     TargetRequest*          targetRequest,
-    SourceResult&       outSource)
+    SourceResult&           outSource)
 {
     outSource.reset();
 
     auto sink = compileRequest->getSink();
     auto program = compileRequest->getProgram();
-
-    auto entryPoint = program->getEntryPoint(entryPointIndex);
 
     auto lineDirectiveMode = compileRequest->getLineDirectiveMode();
     // To try to make the default behavior reasonable, we will
@@ -592,8 +725,13 @@ SlangResult emitEntryPointSourceFromIR(
 
     desc.compileRequest = compileRequest;
     desc.target = target;
-    desc.entryPointStage = entryPoint->getStage();
-    desc.effectiveProfile = getEffectiveProfile(entryPoint, targetRequest);
+    // TODO(DG): Can't assume a single entry point stage for multiple entry points
+    if (entryPointIndices.getCount() == 1)
+    {
+        auto entryPoint = program->getEntryPoint(entryPointIndices[0]);
+        desc.entryPointStage = entryPoint->getStage();
+        desc.effectiveProfile = getEffectiveProfile(entryPoint, targetRequest);
+    }
     desc.sourceWriter = &sourceWriter;
 
     // Define here, because must be in scope longer than the sourceEmitter, as sourceEmitter might reference
@@ -602,27 +740,25 @@ SlangResult emitEntryPointSourceFromIR(
 
     RefPtr<CLikeSourceEmitter> sourceEmitter;
     
-    typedef CLikeSourceEmitter::SourceStyle SourceStyle;
-
-    SourceStyle sourceStyle = CLikeSourceEmitter::getSourceStyle(target);
-    switch (sourceStyle)
+    SourceLanguage sourceLanguage = CLikeSourceEmitter::getSourceLanguage(target);
+    switch (sourceLanguage)
     {
-        case SourceStyle::CPP:
+        case SourceLanguage::CPP:
         {
             sourceEmitter = new CPPSourceEmitter(desc);
             break;
         }
-        case SourceStyle::GLSL:
+        case SourceLanguage::GLSL:
         {
             sourceEmitter = new GLSLSourceEmitter(desc);
             break;
         }
-        case SourceStyle::HLSL:
+        case SourceLanguage::HLSL:
         {
             sourceEmitter = new HLSLSourceEmitter(desc);
             break;
         }
-        case SourceStyle::CUDA:
+        case SourceLanguage::CUDA:
         {
             sourceEmitter = new CUDASourceEmitter(desc);
             break;
@@ -636,30 +772,32 @@ SlangResult emitEntryPointSourceFromIR(
         return SLANG_FAIL;
     }
 
+    SLANG_RETURN_ON_FAIL(sourceEmitter->init());
+
     {
         LinkingAndOptimizationOptions linkingAndOptimizationOptions;
 
         linkingAndOptimizationOptions.sourceEmitter = sourceEmitter;
 
-        switch( sourceStyle )
+        switch( sourceLanguage )
         {
         default:
             break;
 
-        case SourceStyle::CPP:
-        case SourceStyle::C:
-        case SourceStyle::CUDA:
+        case SourceLanguage::CPP:
+        case SourceLanguage::C:
+        case SourceLanguage::CUDA:
             linkingAndOptimizationOptions.shouldLegalizeExistentialAndResourceTypes = false;
             break;
         }
 
-        linkAndOptimizeIR(
+        SLANG_RETURN_ON_FAIL(linkAndOptimizeIR(
             compileRequest,
-            entryPointIndex,
+            entryPointIndices,
             target,
             targetRequest,
             linkingAndOptimizationOptions,
-            linkedIR);
+            linkedIR));
 
         auto irModule = linkedIR.module;
 
@@ -669,30 +807,10 @@ SlangResult emitEntryPointSourceFromIR(
         //
         // TODO: do we want to emit directly from IR, or translate the
         // IR back into AST for emission?
+#if 0
+        dumpIR(compileRequest, irModule, "PRE-EMIT");
+#endif
         sourceEmitter->emitModule(irModule);
-    }
-
-    // Deal with cases where a particular stage requires certain GLSL versions
-    // and/or extensions.
-    switch( entryPoint->getStage() )
-    {
-    default:
-        break;
-
-    case Stage::AnyHit:
-    case Stage::Callable:
-    case Stage::ClosestHit:
-    case Stage::Intersection:
-    case Stage::Miss:
-    case Stage::RayGeneration:
-        if( target == CodeGenTarget::GLSL )
-        {
-            auto glslExtensionTracker = as<GLSLExtensionTracker>(sourceEmitter->getExtensionTracker());
-
-            glslExtensionTracker->requireExtension(UnownedStringSlice::fromLiteral("GL_NV_ray_tracing"));
-            glslExtensionTracker->requireVersion(ProfileVersion::GLSL_460);
-        }
-        break;
     }
 
     String code = sourceWriter.getContent();
@@ -702,25 +820,8 @@ SlangResult emitEntryPointSourceFromIR(
     // it is time to stitch together the final output.
 
     {
-        Session* session = compileRequest->getSession();
-
-        // Get the downstream compiler needed for final target
-        PassThroughMode passThru = getDownstreamCompilerRequiredForTarget(targetRequest->target);
-
-        // If generic CPP work out what compiler will actually be used
-        if (passThru == PassThroughMode::GenericCCpp)
-        {
-            const SourceLanguage sourceLanguage = (sourceStyle == SourceStyle::C) ? SourceLanguage::C : SourceLanguage::CPP;
-            // Get the compiler used for the language
-            DownstreamCompiler* compiler = session->getDefaultDownstreamCompiler(sourceLanguage);
-            if (compiler)
-            {
-                passThru = PassThroughMode(compiler->getDesc().type);
-            }
-        }
-
         // If there is a prelude emit it
-        const auto& prelude = compileRequest->getSession()->getDownstreamCompilerPrelude(passThru);
+        const auto& prelude = compileRequest->getSession()->getPreludeForLanguage(sourceLanguage);
         if (prelude.getLength() > 0)
         {
             sourceWriter.emit(prelude.getUnownedSlice());
@@ -758,12 +859,12 @@ SlangResult emitEntryPointSourceFromIR(
 SlangResult emitSPIRVFromIR(
     BackEndCompileRequest*  compileRequest,
     IRModule*               irModule,
-    IRFunc*                 irEntryPoint,
+    const List<IRFunc*>&    irEntryPoints,
     List<uint8_t>&          spirvOut);
 
-SlangResult emitSPIRVForEntryPointDirectly(
+SlangResult emitSPIRVForEntryPointsDirectly(
     BackEndCompileRequest*  compileRequest,
-    Int                     entryPointIndex,
+    const List<Int>&        entryPointIndices,
     TargetRequest*          targetRequest,
     List<uint8_t>&          spirvOut)
 {
@@ -772,26 +873,26 @@ SlangResult emitSPIRVForEntryPointDirectly(
     auto targetProgram = program->getTargetProgram(targetRequest);
     auto programLayout = targetProgram->getOrCreateLayout(sink);
 
-    RefPtr<EntryPointLayout> entryPointLayout = programLayout->entryPoints[entryPointIndex];
+    RefPtr<EntryPointLayout> entryPointLayout = programLayout->entryPoints[entryPointIndices[0]];
 
     // Outside because we want to keep IR in scope whilst we are processing emits
     LinkedIR linkedIR;
     LinkingAndOptimizationOptions linkingAndOptimizationOptions;
-    linkAndOptimizeIR(
+    SLANG_RETURN_ON_FAIL(linkAndOptimizeIR(
         compileRequest,
-        entryPointIndex,
+        entryPointIndices,
         targetRequest->getTarget(),
         targetRequest,
         linkingAndOptimizationOptions,
-        linkedIR);
+        linkedIR));
 
     auto irModule = linkedIR.module;
-    auto irEntryPoint = linkedIR.entryPoint;
+    auto irEntryPoints = linkedIR.entryPoints;
 
     emitSPIRVFromIR(
         compileRequest,
         irModule,
-        irEntryPoint,
+        irEntryPoints,
         spirvOut);
 
     return SLANG_OK;

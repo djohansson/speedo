@@ -40,21 +40,46 @@
 
 #define UNLIMITED 9999
 
-static TBuiltInResource gResources =
+static TBuiltInResource _calcBuiltinResources()
 {
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED,-UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, UNLIMITED, 
-    UNLIMITED, UNLIMITED, UNLIMITED,
+    // NOTE! This is a bit of a hack - to set all the fields to true/UNLIMITED.
+    // Care must be taken if new variables are introduced, the default may not be appropriate.
+    
+    // We are relying on limits being after the other fields. 
+    SLANG_COMPILE_TIME_ASSERT(SLANG_OFFSET_OF(TBuiltInResource, limits) > 0);
+    // We are relying on maxLights being the first parameter, and all values will have the same type
+    SLANG_COMPILE_TIME_ASSERT(SLANG_OFFSET_OF(TBuiltInResource, maxLights) == 0);
+    
+    TBuiltInResource resource;
+    // Set up all the integer values.
+    {
+        
+        auto* dst = &resource.maxLights;
+        const size_t count = SLANG_OFFSET_OF(TBuiltInResource, limits) / sizeof(*dst);
+        for (size_t i = 0; i < count; ++i)
+        {
+            dst[i] = UNLIMITED;
+        }
+    }
 
-    { true, true, true, true, true, true, true, true, true, }
-};
+    // In the sea of variables there is a min value
+    resource.minProgramTexelOffset = -UNLIMITED;
+
+    // Set up the bools
+    {
+        TLimits* limits = &resource.limits;
+        bool* dst = (bool*)limits;
+
+        const size_t count = sizeof(TLimits) / sizeof(bool);
+        for (size_t i = 0; i < count; ++i)
+        {
+            dst[i] = true;
+        }
+    }
+    return resource;
+}
+
+static TBuiltInResource gResources = _calcBuiltinResources();
 
 static void dump(
     void const*         data,
@@ -142,6 +167,8 @@ static void glslang_optimizeSPIRV(std::vector<unsigned int>& spirv, spv_target_e
         break;
     case SLANG_OPTIMIZATION_LEVEL_DEFAULT:
         // Use a minimal set of performance settings
+        // If we run CreateInlineExhaustivePass, We need to run CreateMergeReturnPass first. 
+        optimizer.RegisterPass(spvtools::CreateMergeReturnPass());
         optimizer.RegisterPass(spvtools::CreateInlineExhaustivePass());
         optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
         optimizer.RegisterPass(spvtools::CreatePrivateToLocalPass());

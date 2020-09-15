@@ -13,7 +13,7 @@ class DeclGroup: public DeclBase
 {
     SLANG_CLASS(DeclGroup)
 
-    List<RefPtr<Decl>> decls;
+    List<Decl*> decls;
 };
 
 
@@ -22,7 +22,7 @@ class ContainerDecl: public Decl
 {
     SLANG_ABSTRACT_CLASS(ContainerDecl)
 
-    List<RefPtr<Decl>> members;
+    List<Decl*> members;
 
     template<typename T>
     FilteredMemberList<T> getMembersOfType()
@@ -59,10 +59,10 @@ class VarDeclBase : public Decl
     // type of the variable
     TypeExp type;
 
-    Type* getType() { return (Type*)type.type.Ptr(); }
+    Type* getType() { return type.type; }
 
     // Initializer expression (optional)
-    RefPtr<Expr> initExpr;
+    Expr* initExpr = nullptr;
 };
 
 // Ordinary potentially-mutable variables (locals, globals, and member variables)
@@ -96,18 +96,12 @@ class ExtensionDecl : public AggTypeDeclBase
     SLANG_CLASS(ExtensionDecl)
 
     TypeExp targetType;
-
-    // next extension attached to the same nominal type
-    ExtensionDecl* nextCandidateExtension = nullptr;
 };
 
 // Declaration of a type that represents some sort of aggregate
 class AggTypeDecl : public  AggTypeDeclBase
 {
     SLANG_ABSTRACT_CLASS(AggTypeDecl)
-
-    // extensions that might apply to this declaration
-    ExtensionDecl* candidateExtensions = nullptr;
 
     FilteredMemberList<VarDecl> getFields()
     {
@@ -135,7 +129,7 @@ class EnumDecl : public AggTypeDecl
 {
     SLANG_CLASS(EnumDecl)
 
-    RefPtr<Type> tagType;
+    Type* tagType = nullptr;
 };
 
 // A single case in an enum.
@@ -155,10 +149,10 @@ class EnumCaseDecl : public Decl
     // type of the parent `enum`
     TypeExp type;
 
-    Type* getType() { return type.type.Ptr(); }
+    Type* getType() { return type.type; }
 
     // Tag value
-    RefPtr<Expr> tagExpr;
+    Expr* tagExpr = nullptr;
 };
 
 // An interface which other types can conform to
@@ -171,8 +165,11 @@ class InterfaceDecl : public  AggTypeDecl
 class TypeConstraintDecl : public  Decl
 {
     SLANG_ABSTRACT_CLASS(TypeConstraintDecl)
-    
-    SLANG_INLINE const TypeExp& getSup() const;
+
+    const TypeExp& getSup() const;
+    // Overrides should be public so base classes can access
+    // Implement _getSupOverride on derived classes to change behavior of getSup, as if getSup is virtual
+    const TypeExp& _getSupOverride() const;
 };
 
 // A kind of pseudo-member that represents an explicit
@@ -190,6 +187,9 @@ class InheritanceDecl : public TypeConstraintDecl
     // implementations in the type that contains
     // this inheritance declaration.
     RefPtr<WitnessTable> witnessTable;
+
+    // Overrides should be public so base classes can access
+    const TypeExp& _getSupOverride() const { return base; }
 };
 
 // TODO: may eventually need sub-classes for explicit/direct vs. implicit/indirect inheritance
@@ -288,7 +288,7 @@ class FunctionDeclBase : public CallableDecl
 {
     SLANG_ABSTRACT_CLASS(FunctionDeclBase)
 
-    RefPtr<Stmt> body;
+    Stmt* body = nullptr;
 };
 
 // A constructor/initializer to create instances of a type
@@ -301,6 +301,14 @@ class ConstructorDecl : public FunctionDeclBase
 class SubscriptDecl : public CallableDecl
 {
     SLANG_CLASS(SubscriptDecl)
+};
+
+    /// A property declaration that abstracts over storage with a getter/setter/etc.
+class PropertyDecl : public ContainerDecl
+{
+    SLANG_CLASS(PropertyDecl)
+
+    TypeExp type;
 };
 
 // An "accessor" for a subscript or property
@@ -357,6 +365,24 @@ class ModuleDecl : public NamespaceDeclBase
     // its chain of parents.
     //
     Module* module = nullptr;
+
+        /// Map a type to the list of extensions of that type (if any) declared in this module
+        ///
+        /// This mapping is filled in during semantic checking, as `ExtensionDecl`s get checked.
+        ///
+    Dictionary<AggTypeDecl*, RefPtr<CandidateExtensionList>> mapTypeToCandidateExtensions;
+};
+
+    /// A declaration that brings members of another declaration or namespace into scope
+class UsingDecl : public Decl
+{
+    SLANG_CLASS(UsingDecl)
+
+        /// An expression that identifies the entity (e.g., a namespace) to be brought into `scope`
+    Expr* arg;
+
+        /// The scope that the entity named by `arg` will be brought into
+    RefPtr<Scope> scope;
 };
 
 class ImportDecl : public Decl
@@ -370,7 +396,7 @@ class ImportDecl : public Decl
     RefPtr<Scope> scope;
 
     // The module that actually got imported
-    RefPtr<ModuleDecl> importedModuleDecl;
+    ModuleDecl* importedModuleDecl = nullptr;
 };
 
 // A generic declaration, parameterized on types/values
@@ -378,7 +404,7 @@ class GenericDecl : public ContainerDecl
 {
     SLANG_CLASS(GenericDecl)
     // The decl that is genericized...
-    RefPtr<Decl> inner;
+    Decl* inner = nullptr;
 };
 
 class GenericTypeParamDecl : public SimpleTypeDecl
@@ -403,6 +429,9 @@ class GenericTypeConstraintDecl : public TypeConstraintDecl
     // think of these fields as the sub-type and super-type, respectively.
     TypeExp sub;
     TypeExp sup;
+
+    // Overrides should be public so base classes can access
+    const TypeExp& _getSupOverride() const { return sup; }
 };
 
 class GenericValueParamDecl : public VarDeclBase
@@ -432,7 +461,7 @@ class SyntaxDecl : public Decl
     SLANG_CLASS(SyntaxDecl)
 
     // What type of syntax node will be produced when parsing with this keyword?
-    SyntaxClass<RefObject> syntaxClass;
+    SyntaxClass<NodeBase> syntaxClass;
 
     SLANG_UNREFLECTED
 
@@ -447,21 +476,7 @@ class AttributeDecl : public ContainerDecl
 {
     SLANG_CLASS(AttributeDecl)
     // What type of syntax node will be produced to represent this attribute.
-    SyntaxClass<RefObject> syntaxClass;
+    SyntaxClass<NodeBase> syntaxClass;
 };
-
-// ------------------------------------------------------------------------
-
-const TypeExp& TypeConstraintDecl::getSup() const
-{
-    ASTNodeType type = ASTNodeType(getClassInfo().m_classId);
-    switch (type)
-    {
-        case ASTNodeType::InheritanceDecl:              return static_cast<const InheritanceDecl*>(this)->base;
-        case ASTNodeType::GenericTypeConstraintDecl:    return static_cast<const GenericTypeConstraintDecl*>(this)->sup;
-        default:                                        SLANG_ASSERT(!"getSup not implemented for this type!"); return TypeExp::empty;
-    }
-}
-
 
 } // namespace Slang

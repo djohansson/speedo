@@ -1287,6 +1287,22 @@ extern "C"
         SlangCompileRequest*    request,
         SlangOptimizationLevel  level);
 
+
+    /*!
+    @brief Get the build version 'tag' string. The string is the same as produced via `git describe --tags`
+    for the project. If Slang is built separately from the automated build scripts
+    the contents will by default be 'unknown'. Any string can be set by changing the
+    contents of 'slang-tag-version.h' file and recompiling the project.
+
+    This function will return exactly the same result as the method getBuildTag string on IGlobalSession.
+
+    An advantage of using this function over the method is that doing so does not require the creation of
+    a session, which can be a fairly costly operation.
+
+    @return The build tag string
+    */
+    SLANG_API const char* spGetBuildTagString();
+
     /*!
     @brief Set the container format to be used for binary output.
     */
@@ -1794,6 +1810,7 @@ extern "C"
         SLANG_TYPE_KIND_INTERFACE,
         SLANG_TYPE_KIND_OUTPUT_STREAM,
         SLANG_TYPE_KIND_SPECIALIZED,
+        SLANG_TYPE_KIND_FEEDBACK,
         SLANG_TYPE_KIND_COUNT,
     };
 
@@ -1835,6 +1852,8 @@ extern "C"
         SLANG_ACCELERATION_STRUCTURE        = 0x09,
 
         SLANG_RESOURCE_EXT_SHAPE_MASK       = 0xF0,
+
+        SLANG_TEXTURE_FEEDBACK_FLAG         = 0x10,
         SLANG_TEXTURE_ARRAY_FLAG            = 0x40,
         SLANG_TEXTURE_MULTISAMPLE_FLAG      = 0x80,
 
@@ -1855,6 +1874,7 @@ extern "C"
         SLANG_RESOURCE_ACCESS_RASTER_ORDERED,
         SLANG_RESOURCE_ACCESS_APPEND,
         SLANG_RESOURCE_ACCESS_CONSUME,
+        SLANG_RESOURCE_ACCESS_WRITE,
     };
 
     typedef unsigned int SlangParameterCategory;
@@ -2198,6 +2218,7 @@ namespace slang
             Interface = SLANG_TYPE_KIND_INTERFACE,
             OutputStream = SLANG_TYPE_KIND_OUTPUT_STREAM,
             Specialized = SLANG_TYPE_KIND_SPECIALIZED,
+            Feedback = SLANG_TYPE_KIND_FEEDBACK,
         };
 
         enum ScalarType : SlangScalarType
@@ -2855,7 +2876,9 @@ namespace slang
             SlangPassThrough passThrough,
             char const* path) = 0;
 
-            /** Set the 'prelude' for generated code for a 'downstream compiler'.
+            /** DEPRECIATED: Use setLanguagePrelude
+
+            Set the 'prelude' for generated code for a 'downstream compiler'.
             @param passThrough The downstream compiler for generated code that will have the prelude applied to it. 
             @param preludeText The text added pre-pended verbatim before the generated source
 
@@ -2865,7 +2888,9 @@ namespace slang
             SlangPassThrough passThrough,
             const char* preludeText) = 0;
 
-            /** Get the 'prelude' for generated code for a 'downstream compiler'.
+            /** DEPRECIATED: Use getLanguagePrelude
+
+            Get the 'prelude' for generated code for a 'downstream compiler'.
             @param passThrough The downstream compiler for generated code that will have the prelude applied to it. 
             @param outPrelude  On exit holds a blob that holds the string of the prelude.
             */
@@ -2877,6 +2902,8 @@ namespace slang
             for the project. If Slang is built separately from the automated build scripts
             the contents will by default be 'unknown'. Any string can be set by changing the
             contents of 'slang-tag-version.h' file and recompiling the project.
+
+            This method will return exactly the same result as the free function spGetBuildTagString.
 
             @return The build tag string
             */
@@ -2900,6 +2927,25 @@ namespace slang
             @return The downstream compiler for that source language */
         virtual SlangPassThrough SLANG_MCALL getDefaultDownstreamCompiler(
             SlangSourceLanguage sourceLanguage) = 0;
+
+            /* Set the 'prelude' placed before generated code for a specific language type.
+            
+            @param sourceLanguage The language the prelude should be inserted on.
+            @param preludeText The text added pre-pended verbatim before the generated source
+
+            Note! That for pass-through usage, prelude is not pre-pended, preludes are for code generation only. 
+            */
+        virtual SLANG_NO_THROW void SLANG_MCALL setLanguagePrelude(
+            SlangSourceLanguage sourceLanguage,
+            const char* preludeText) = 0;
+
+            /** Get the 'prelude' associated with a specific source language. 
+            @param sourceLanguage The language the prelude should be inserted on.
+            @param outPrelude  On exit holds a blob that holds the string of the prelude.
+            */
+        virtual SLANG_NO_THROW void SLANG_MCALL getLanguagePrelude(
+            SlangSourceLanguage sourceLanguage,
+            ISlangBlob** outPrelude) = 0;
     };
 
     #define SLANG_UUID_IGlobalSession { 0xc140b5fd, 0xc78, 0x452e, { 0xba, 0x7c, 0x1a, 0x1e, 0x70, 0xc7, 0xf7, 0x1c } };
@@ -3064,6 +3110,13 @@ namespace slang
             SlangInt        targetIndex = 0,
             LayoutRules     rules = LayoutRules::Default,
             ISlangBlob**    outDiagnostics = nullptr) = 0;
+
+            /** Get the mangled name for a type witness.
+            */
+        virtual SLANG_NO_THROW SlangResult SLANG_MCALL getTypeConformanceWitnessMangledName(
+            TypeReflection* type,
+            TypeReflection* interfaceType,
+            ISlangBlob** outNameBlob) = 0;
 
             /** Create a request to load/compile front-end code.
             */

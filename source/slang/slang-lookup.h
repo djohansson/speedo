@@ -18,7 +18,7 @@ void buildMemberDictionary(ContainerDecl* decl);
 // Look up a name in the given scope, proceeding up through
 // parent scopes as needed.
 LookupResult lookUp(
-    Session*            session,
+    ASTBuilder*         astBuilder, 
     SemanticsVisitor*   semantics,
     Name*               name,
     RefPtr<Scope>       scope,
@@ -26,15 +26,16 @@ LookupResult lookUp(
 
 // Perform member lookup in the context of a type
 LookupResult lookUpMember(
-    Session*            session,
+    ASTBuilder*         astBuilder,
     SemanticsVisitor*   semantics,
     Name*               name,
     Type*               type,
-    LookupMask          mask = LookupMask::Default);
+    LookupMask          mask = LookupMask::Default,
+    LookupOptions       options = LookupOptions::None);
 
     /// Perform "direct" lookup in a container declaration
 LookupResult lookUpDirectAndTransparentMembers(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     SemanticsVisitor*       semantics,
     Name*                   name,
     DeclRef<ContainerDecl>  containerDeclRef,
@@ -43,15 +44,15 @@ LookupResult lookUpDirectAndTransparentMembers(
 // TODO: this belongs somewhere else
 
 QualType getTypeForDeclRef(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     SemanticsVisitor*       sema,
     DiagnosticSink*         sink,
     DeclRef<Decl>           declRef,
-    RefPtr<Type>*           outTypeResult,
+    Type**           outTypeResult,
     SourceLoc               loc);
 
 QualType getTypeForDeclRef(
-    Session*        session,
+    ASTBuilder*     astBuilder, 
     DeclRef<Decl>   declRef,
     SourceLoc       loc);
 

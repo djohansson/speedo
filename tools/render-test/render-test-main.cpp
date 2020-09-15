@@ -12,6 +12,7 @@
 #include "shader-renderer-util.h"
 
 #include "../source/core/slang-io.h"
+#include "../source/core/slang-string-util.h"
 
 #include "core/slang-token-reader.h"
 
@@ -212,7 +213,7 @@ SlangResult RenderTestApp::initialize(SlangSession* session, Renderer* renderer,
 
 Result RenderTestApp::_initializeShaders(SlangSession* session, Renderer* renderer, Options::ShaderProgramType shaderType, const ShaderCompilerUtil::Input& input)
 {
-    SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, gOptions, input,  m_compilationOutput));
+    SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, m_options, input,  m_compilationOutput));
     m_shaderInputLayout = m_compilationOutput.layout;
     m_shaderProgram = renderer->createProgram(m_compilationOutput.output.desc);
     return m_shaderProgram ? SLANG_OK : SLANG_FAIL;
@@ -368,9 +369,9 @@ Result RenderTestApp::update(Window* window)
             _outputProfileTime(m_startTicks, endTicks);
         }
 
-        if (gOptions.outputPath)
+        if (m_options.outputPath)
         {
-            if (gOptions.shaderType == Options::ShaderProgramType::Compute || gOptions.shaderType == Options::ShaderProgramType::GraphicsCompute)
+            if (m_options.shaderType == Options::ShaderProgramType::Compute || m_options.shaderType == Options::ShaderProgramType::GraphicsCompute)
             {
                 auto request = m_compilationOutput.output.request;
                 auto slangReflection = (slang::ShaderReflection*) spGetReflection(request);
@@ -379,13 +380,13 @@ Result RenderTestApp::update(Window* window)
                 GPULikeBindRoot bindRoot;
                 bindRoot.init(&bindSet, slangReflection, 0);
 
-                BindRoot* outputBindRoot = gOptions.outputUsingType ? &bindRoot : nullptr;
+                BindRoot* outputBindRoot = m_options.outputUsingType ? &bindRoot : nullptr;
 
-                SLANG_RETURN_ON_FAIL(writeBindingOutput(outputBindRoot, gOptions.outputPath));
+                SLANG_RETURN_ON_FAIL(writeBindingOutput(outputBindRoot, m_options.outputPath));
             }
             else
             {
-                SlangResult res = writeScreen(gOptions.outputPath);
+                SlangResult res = writeScreen(m_options.outputPath);
                 if (SLANG_FAILED(res))
                 {
                     fprintf(stderr, "ERROR: failed to write screen capture to file\n");
@@ -403,6 +404,33 @@ Result RenderTestApp::update(Window* window)
 }
 
 
+static SlangResult _setSessionPrelude(const Options& options, const char* exePath, SlangSession* session)
+{
+    // Let's see if we need to set up special prelude for HLSL
+    if (options.nvapiExtnSlot.getLength())
+    {
+        String rootPath;
+        SLANG_RETURN_ON_FAIL(TestToolUtil::getRootPath(exePath, rootPath));
+
+        String includePath;
+        SLANG_RETURN_ON_FAIL(TestToolUtil::getIncludePath(rootPath, "external/nvapi/nvHLSLExtns.h", includePath));
+
+        StringBuilder buf;
+        // We have to choose a slot that NVAPI will use. 
+        buf << "#define NV_SHADER_EXTN_SLOT " << options.nvapiExtnSlot << "\n";
+
+        // Include the NVAPI header
+        buf << "#include \"" << includePath << "\"\n\n";
+
+        session->setLanguagePrelude(SLANG_SOURCE_LANGUAGE_HLSL, buf.getBuffer());
+    }
+    else
+    {
+        session->setLanguagePrelude(SLANG_SOURCE_LANGUAGE_HLSL, "");
+    }
+
+    return SLANG_OK;
+}
 
 } //  namespace renderer_test
 
@@ -413,8 +441,10 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 
     StdWriters::setSingleton(stdWriters);
 
+    Options options;
+
 	// Parse command-line options
-	SLANG_RETURN_ON_FAIL(parseOptions(argcIn, argvIn, StdWriters::getError()));
+	SLANG_RETURN_ON_FAIL(Options::parse(argcIn, argvIn, StdWriters::getError(), options));
 
     // Declare window pointer before renderer, such that window is released after renderer
     RefPtr<renderer_test::Window> window;
@@ -423,13 +453,13 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
     
     input.profile = "";
     input.target = SLANG_TARGET_NONE;
-    input.args = &gOptions.slangArgs[0];
-    input.argCount = gOptions.slangArgCount;
+    input.args = &options.slangArgs[0];
+    input.argCount = options.slangArgCount;
 
 	SlangSourceLanguage nativeLanguage = SLANG_SOURCE_LANGUAGE_UNKNOWN;
 	SlangPassThrough slangPassThrough = SLANG_PASS_THROUGH_NONE;
     char const* profileName = "";
-	switch (gOptions.rendererType)
+	switch (options.rendererType)
 	{
 		case RendererType::DirectX11:
 			input.target = SLANG_DXBC;
@@ -445,7 +475,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 			nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
             slangPassThrough = SLANG_PASS_THROUGH_FXC;
             
-            if( gOptions.useDXIL )
+            if( options.useDXIL )
             {
                 input.target = SLANG_DXIL;
                 input.profile = "sm_6_0";
@@ -463,7 +493,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 		case RendererType::Vulkan:
 			input.target = SLANG_SPIRV;
             
-            if (gOptions.useDxcSpirv)
+            if (options.useDxcSpirv)
             {
                 input.profile = "sm_6_0";
                 nativeLanguage = SLANG_SOURCE_LANGUAGE_HLSL;
@@ -495,7 +525,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 			return SLANG_FAIL;
 	}
 
-    switch (gOptions.inputLanguageID)
+    switch (options.inputLanguageID)
     {
         case Options::InputLanguageID::Slang:
             input.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG;
@@ -511,7 +541,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
             break;
     }
 
-    switch( gOptions.shaderType )
+    switch( options.shaderType )
     {
     case Options::ShaderProgramType::Graphics:
     case Options::ShaderProgramType::GraphicsCompute:
@@ -530,9 +560,9 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
         break;
     }
 
-    if (gOptions.sourceLanguage != SLANG_SOURCE_LANGUAGE_UNKNOWN)
+    if (options.sourceLanguage != SLANG_SOURCE_LANGUAGE_UNKNOWN)
     {
-        input.sourceLanguage = gOptions.sourceLanguage;
+        input.sourceLanguage = options.sourceLanguage;
 
         if (input.sourceLanguage == SLANG_SOURCE_LANGUAGE_C || input.sourceLanguage == SLANG_SOURCE_LANGUAGE_CPP)
         {
@@ -541,18 +571,18 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
     }
 
     // Use the profile name set on options if set
-    input.profile = gOptions.profileName ? gOptions.profileName : input.profile;
+    input.profile = options.profileName ? options.profileName : input.profile;
 
     StringBuilder rendererName;
-    rendererName << "[" << RendererUtil::toText(gOptions.rendererType) << "] ";
-    if (gOptions.adapter.getLength())
+    rendererName << "[" << RendererUtil::toText(options.rendererType) << "] ";
+    if (options.adapter.getLength())
     {
-        rendererName << "'" << gOptions.adapter << "'";
+        rendererName << "'" << options.adapter << "'";
     }
 
-    if (gOptions.onlyStartup)
+    if (options.onlyStartup)
     {
-        switch (gOptions.rendererType)
+        switch (options.rendererType)
         {
             case RendererType::CUDA:
             {
@@ -571,11 +601,32 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
         }
     }
 
+    Index nvapiExtnSlot = -1;
+
+    // Let's see if we need to set up special prelude for HLSL
+    if (options.nvapiExtnSlot.getLength() && options.nvapiExtnSlot[0] == 'u')
+    {
+        //
+        Slang::Int value;
+        UnownedStringSlice slice = options.nvapiExtnSlot.getUnownedSlice();
+        UnownedStringSlice indexText(slice.begin() + 1 , slice.end());
+        if (SLANG_SUCCEEDED(StringUtil::parseInt(indexText, value)))
+        {
+            nvapiExtnSlot = Index(value);
+        }
+    }
+
+    // If can't set up a necessary prelude make not available (which will lead to the test being ignored)
+    if (SLANG_FAILED(_setSessionPrelude(options, argvIn[0], session)))
+    {
+        return SLANG_E_NOT_AVAILABLE;
+    }
+
     // If it's CPU testing we don't need a window or a renderer
-    if (gOptions.rendererType == RendererType::CPU)
+    if (options.rendererType == RendererType::CPU)
     {
         // Check we have all the required features
-        for (const auto& renderFeature : gOptions.renderFeatures)
+        for (const auto& renderFeature : options.renderFeatures)
         {
             if (!CPUComputeUtil::hasFeature(renderFeature.getUnownedSlice()))
             {
@@ -584,7 +635,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
         }
 
         ShaderCompilerUtil::OutputAndLayout compilationAndLayout;
-        SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, gOptions, input, compilationAndLayout));
+        SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, options, input, compilationAndLayout));
 
         {
             // Get the shared library -> it contains the executable code, we need to keep around if we recompile
@@ -597,7 +648,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
             // of the test implementer to *ensure* that the straight C++ code has the same layout as the slang C++ backend.
             //
             // If we are running c/c++ we still need binding information, so compile again as slang source
-            if (gOptions.sourceLanguage == SLANG_SOURCE_LANGUAGE_C || input.sourceLanguage == SLANG_SOURCE_LANGUAGE_CPP)
+            if (options.sourceLanguage == SLANG_SOURCE_LANGUAGE_C || input.sourceLanguage == SLANG_SOURCE_LANGUAGE_CPP)
             {
                 ShaderCompilerUtil::Input slangInput = input;
                 slangInput.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG;
@@ -605,7 +656,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
                 // We just want CPP, so we get suitable reflection
                 slangInput.target = SLANG_CPP_SOURCE;
 
-                SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, gOptions, slangInput, compilationAndLayout));
+                SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, options, slangInput, compilationAndLayout));
             }
 
             // calculate binding
@@ -614,39 +665,39 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 
             // Get the execution info from the lib
             CPUComputeUtil::ExecuteInfo info;
-            SLANG_RETURN_ON_FAIL(CPUComputeUtil::calcExecuteInfo(CPUComputeUtil::ExecuteStyle::GroupRange, sharedLibrary, gOptions.computeDispatchSize, compilationAndLayout, context, info));
+            SLANG_RETURN_ON_FAIL(CPUComputeUtil::calcExecuteInfo(CPUComputeUtil::ExecuteStyle::GroupRange, sharedLibrary, options.computeDispatchSize, compilationAndLayout, context, info));
 
             const uint64_t startTicks = ProcessUtil::getClockTick();
 
             SLANG_RETURN_ON_FAIL(CPUComputeUtil::execute(info));
 
-            if (gOptions.performanceProfile)
+            if (options.performanceProfile)
             {
                 const uint64_t endTicks = ProcessUtil::getClockTick();
                 _outputProfileTime(startTicks, endTicks);
             }
 
-            if (gOptions.outputPath)
+            if (options.outputPath)
             {
-                BindRoot* outputBindRoot = gOptions.outputUsingType ? &context.m_bindRoot : nullptr;
+                BindRoot* outputBindRoot = options.outputUsingType ? &context.m_bindRoot : nullptr;
 
 
                 // Dump everything out that was written
-                SLANG_RETURN_ON_FAIL(ShaderInputLayout::writeBindings(outputBindRoot, compilationAndLayout.layout, context.m_buffers, gOptions.outputPath));
+                SLANG_RETURN_ON_FAIL(ShaderInputLayout::writeBindings(outputBindRoot, compilationAndLayout.layout, context.m_buffers, options.outputPath));
 
                 // Check all execution styles produce the same result
-                SLANG_RETURN_ON_FAIL(CPUComputeUtil::checkStyleConsistency(sharedLibrary, gOptions.computeDispatchSize, compilationAndLayout));
+                SLANG_RETURN_ON_FAIL(CPUComputeUtil::checkStyleConsistency(sharedLibrary, options.computeDispatchSize, compilationAndLayout));
             }
         }
 
         return SLANG_OK;
     }
 
-    if (gOptions.rendererType == RendererType::CUDA)
+    if (options.rendererType == RendererType::CUDA)
     {        
 #if RENDER_TEST_CUDA
         // Check we have all the required features
-        for (const auto& renderFeature : gOptions.renderFeatures)
+        for (const auto& renderFeature : options.renderFeatures)
         {
             if (!CUDAComputeUtil::hasFeature(renderFeature.getUnownedSlice()))
             {
@@ -655,25 +706,25 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
         }
 
         ShaderCompilerUtil::OutputAndLayout compilationAndLayout;
-        SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, gOptions, input, compilationAndLayout));
+        SLANG_RETURN_ON_FAIL(ShaderCompilerUtil::compileWithLayout(session, options, input, compilationAndLayout));
 
         const uint64_t startTicks = ProcessUtil::getClockTick();
 
         CUDAComputeUtil::Context context;
-        SLANG_RETURN_ON_FAIL(CUDAComputeUtil::execute(compilationAndLayout, gOptions.computeDispatchSize, context));
+        SLANG_RETURN_ON_FAIL(CUDAComputeUtil::execute(compilationAndLayout, options.computeDispatchSize, context));
 
-        if (gOptions.performanceProfile)
+        if (options.performanceProfile)
         {
             const uint64_t endTicks = ProcessUtil::getClockTick();
             _outputProfileTime(startTicks, endTicks);
         }
 
-        if (gOptions.outputPath)
+        if (options.outputPath)
         {
-            BindRoot* outputBindRoot = gOptions.outputUsingType ? &context.m_bindRoot : nullptr;
+            BindRoot* outputBindRoot = options.outputUsingType ? &context.m_bindRoot : nullptr;
 
             // Dump everything out that was written
-            SLANG_RETURN_ON_FAIL(ShaderInputLayout::writeBindings(outputBindRoot, compilationAndLayout.layout, context.m_buffers, gOptions.outputPath));
+            SLANG_RETURN_ON_FAIL(ShaderInputLayout::writeBindings(outputBindRoot, compilationAndLayout.layout, context.m_buffers, options.outputPath));
         }
 
         return SLANG_OK;
@@ -684,7 +735,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 
     Slang::RefPtr<Renderer> renderer;
     {
-        RendererUtil::CreateFunc createFunc = RendererUtil::getCreateFunc(gOptions.rendererType);
+        RendererUtil::CreateFunc createFunc = RendererUtil::getCreateFunc(options.rendererType);
         if (createFunc)
         {
             renderer = createFunc();
@@ -692,7 +743,7 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
 
         if (!renderer)
         {
-            if (!gOptions.onlyStartup)
+            if (!options.onlyStartup)
             {
                 fprintf(stderr, "Unable to create renderer %s\n", rendererName.getBuffer());
             }
@@ -702,7 +753,9 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
         Renderer::Desc desc;
         desc.width = gWindowWidth;
         desc.height = gWindowHeight;
-        desc.adapter = gOptions.adapter;
+        desc.adapter = options.adapter;
+        desc.requiredFeatures = options.renderFeatures;
+        desc.nvapiExtnSlot = int(nvapiExtnSlot);
 
         window = renderer_test::Window::create();
         SLANG_RETURN_ON_FAIL(window->initialize(gWindowWidth, gWindowHeight));
@@ -710,14 +763,16 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
         SlangResult res = renderer->initialize(desc, window->getHandle());
         if (SLANG_FAILED(res))
         {
-            if (!gOptions.onlyStartup)
+            // Returns E_NOT_AVAILABLE only when specified features are not available.
+            // Will cause to be ignored.
+            if (!options.onlyStartup && res != SLANG_E_NOT_AVAILABLE)
             {
                 fprintf(stderr, "Unable to initialize renderer %s\n", rendererName.getBuffer());
             }
             return res;
         }
 
-        for (const auto& feature : gOptions.renderFeatures)
+        for (const auto& feature : options.renderFeatures)
         {
             // If doesn't have required feature... we have to give up
             if (!renderer->hasFeature(feature.getUnownedSlice()))
@@ -728,14 +783,14 @@ static SlangResult _innerMain(Slang::StdWriters* stdWriters, SlangSession* sessi
     }
    
     // If the only test is we can startup, then we are done
-    if (gOptions.onlyStartup)
+    if (options.onlyStartup)
     {
         return SLANG_OK;
     }
 
 	{
 		RefPtr<RenderTestApp> app(new RenderTestApp);
-		SLANG_RETURN_ON_FAIL(app->initialize(session, renderer, gOptions, input));
+		SLANG_RETURN_ON_FAIL(app->initialize(session, renderer, options, input));
         window->show();
         return window->runLoop(app);
 	}
@@ -769,7 +824,7 @@ int main(int argc, char**  argv)
     using namespace Slang;
     SlangSession* session = spCreateSession(nullptr);
 
-    TestToolUtil::setSessionDefaultPrelude(argv[0], session);
+    TestToolUtil::setSessionDefaultPreludeFromExePath(argv[0], session);
     
     auto stdWriters = StdWriters::initDefaultSingleton();
     

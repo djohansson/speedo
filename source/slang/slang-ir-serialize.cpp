@@ -462,9 +462,7 @@ static Result _writeArrayChunk(IRSerialCompressionType compressionType, FourCC c
             header.numCompressedEntries = uint32_t(numCompressedEntries);
 
             container->write(&header, sizeof(header));
-
-            const size_t compressedSize = compressedPayload.getCount();
-            container->moveOwned(container->addData(), compressedPayload.detachBuffer(), compressedSize);
+            container->write(compressedPayload.getBuffer(), compressedPayload.getCount());
             break;
         }
         default:
@@ -600,9 +598,7 @@ Result _writeInstArrayChunk(IRSerialCompressionType compressionType, FourCC chun
             header.numCompressedEntries = 0;          
 
             container->write(&header, sizeof(header));
-
-            const size_t compressedPayloadSize = compressedPayload.getCount();
-            container->moveOwned(container->addData(), compressedPayload.detachBuffer(), compressedPayloadSize);
+            container->write(compressedPayload.getBuffer(), compressedPayload.getCount());
 
             return SLANG_OK;
         }
@@ -1081,7 +1077,7 @@ static int _calcFixSourceLoc(const IRSerialData::DebugSourceInfo& info, SourceVi
     module->session = session;
 
     // Set up the string rep cache
-    m_stringRepresentationCache.init(&data.m_stringTable, session->getNamePool(), module->getObjectScopeManager());
+    m_stringRepresentationCache.init(&data.m_stringTable);
     
     // Add all the instructions
 

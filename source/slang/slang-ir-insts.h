@@ -42,6 +42,7 @@ struct IRHighLevelDeclDecoration : IRDecoration
 enum IRLoopControl
 {
     kIRLoopControl_Unroll,
+    kIRLoopControl_Loop,
 };
 
 struct IRLoopControlDecoration : IRDecoration
@@ -142,6 +143,44 @@ struct IRNameHintDecoration : IRDecoration
     }
 };
 
+/// A decoration on a RTTIObject providing type size information.
+struct IRRTTITypeSizeDecoration : IRDecoration
+{
+    enum { kOp = kIROp_RTTITypeSizeDecoration };
+    IR_LEAF_ISA(RTTITypeSizeDecoration)
+
+    IRIntLit* getTypeSizeOperand() { return cast<IRIntLit>(getOperand(0)); }
+    IRIntegerValue getTypeSize()
+    {
+        return getTypeSizeOperand()->getValue();
+    }
+};
+
+/// A decoration on `IRInterfaceType` that marks the size of `AnyValue` that should
+/// be used to represent a polymorphic value of the interface.
+struct IRAnyValueSizeDecoration : IRDecoration
+{
+    enum { kOp = kIROp_AnyValueSizeDecoration };
+    IR_LEAF_ISA(AnyValueSizeDecoration)
+
+    IRIntLit* getSizeOperand() { return cast<IRIntLit>(getOperand(0)); }
+    IRIntegerValue getSize()
+    {
+        return getSizeOperand()->getValue();
+    }
+};
+
+/// A decoration on `IRParam`s that represent generic parameters,
+/// marking the interface type that the generic parameter conforms to.
+/// A generic parameter can have more than one `IRTypeConstraintDecoration`s
+struct IRTypeConstraintDecoration : IRDecoration
+{
+    enum { kOp = kIROp_TypeConstraintDecoration };
+    IR_LEAF_ISA(TypeConstraintDecoration)
+
+    IRInst* getConstraintType() { return getOperand(0); }
+};
+
 #define IR_SIMPLE_DECORATION(NAME)      \
     struct IR##NAME : IRDecoration      \
     {                                   \
@@ -219,6 +258,7 @@ IR_SIMPLE_DECORATION(ReadNoneDecoration)
 IR_SIMPLE_DECORATION(EarlyDepthStencilDecoration)
 IR_SIMPLE_DECORATION(GloballyCoherentDecoration)
 IR_SIMPLE_DECORATION(PreciseDecoration)
+IR_SIMPLE_DECORATION(PublicDecoration)
 
 
 struct IROutputControlPointsDecoration : IRDecoration
@@ -277,6 +317,8 @@ struct IRNumThreadsDecoration : IRDecoration
     IRIntLit* getX() { return cast<IRIntLit>(getOperand(0)); }
     IRIntLit* getY() { return cast<IRIntLit>(getOperand(1)); }
     IRIntLit* getZ() { return cast<IRIntLit>(getOperand(2)); }
+
+    IRIntLit* getExtentAlongAxis(int axis) { return cast<IRIntLit>(getOperand(axis)); }
 };
 
 struct IREntryPointDecoration : IRDecoration
@@ -285,7 +327,7 @@ struct IREntryPointDecoration : IRDecoration
     IR_LEAF_ISA(EntryPointDecoration)
 
     IRIntLit* getProfileInst() { return cast<IRIntLit>(getOperand(0)); }
-    Profile getProfile() { return Profile(Profile::RawVal(GetIntVal(getProfileInst()))); }
+    Profile getProfile() { return Profile(Profile::RawVal(getIntVal(getProfileInst()))); }
 
     IRStringLit* getName()  { return cast<IRStringLit>(getOperand(1)); }
 };
@@ -408,12 +450,50 @@ struct IRLookupWitnessMethod : IRInst
 
     IRInst* getWitnessTable() { return witnessTable.get(); }
     IRInst* getRequirementKey() { return requirementKey.get(); }
+
+    IR_LEAF_ISA(lookup_interface_method)
 };
 
 struct IRLookupWitnessTable : IRInst
 {
     IRUse sourceType;
     IRUse interfaceType;
+};
+
+/// Allocates space from local stack.
+///
+struct IRAlloca : IRInst
+{
+    IR_LEAF_ISA(Alloca)
+
+    IRInst* getAllocSize() { return getOperand(0); }
+};
+
+/// Copies `size` bytes from `src` to `dst`.
+///
+struct IRCopy : IRInst
+{
+    IR_LEAF_ISA(Copy)
+
+    IRInst* getDst() { return getOperand(0); }
+    IRInst* getSrc() { return getOperand(1); }
+    IRInst* getSize() { return getOperand(2); }
+};
+
+/// Packs a value into an `AnyValue`.
+/// Return type is `IRAnyValueType`.
+struct IRPackAnyValue : IRInst
+{
+    IR_LEAF_ISA(PackAnyValue)
+    IRInst* getValue() { return getOperand(0); }
+};
+
+/// Unpacks a `AnyValue` value into a concrete type.
+/// Operand must have `IRAnyValueType`.
+struct IRUnpackAnyValue : IRInst
+{
+    IR_LEAF_ISA(UnpackAnyValue)
+    IRInst* getValue() { return getOperand(0); }
 };
 
 // Layout decorations
@@ -435,7 +515,7 @@ struct IRSemanticDecoration : public IRDecoration
     UnownedStringSlice getSemanticName() { return getSemanticNameOperand()->getStringSlice(); }
 
     IRIntLit* getSemanticIndexOperand() { return cast<IRIntLit>(getOperand(1)); }
-    int getSemanticIndex() { return int(GetIntVal(getSemanticIndexOperand())); }
+    int getSemanticIndex() { return int(getIntVal(getSemanticIndexOperand())); }
 };
 
     /// An attribute that can be attached to another instruction as an operand.
@@ -465,7 +545,7 @@ struct IRLayoutResourceInfoAttr : public IRAttr
     IR_PARENT_ISA(LayoutResourceInfoAttr);
 
     IRIntLit* getResourceKindInst() { return cast<IRIntLit>(getOperand(0)); }
-    LayoutResourceKind getResourceKind() { return LayoutResourceKind(GetIntVal(getResourceKindInst())); }
+    LayoutResourceKind getResourceKind() { return LayoutResourceKind(getIntVal(getResourceKindInst())); }
 };
 
     /// An attribute that specifies offset information for a single resource kind.
@@ -479,7 +559,7 @@ struct IRVarOffsetAttr : public IRLayoutResourceInfoAttr
     IR_LEAF_ISA(VarOffsetAttr);
 
     IRIntLit* getOffsetInst() { return cast<IRIntLit>(getOperand(1)); }
-    UInt getOffset() { return UInt(GetIntVal(getOffsetInst())); }
+    UInt getOffset() { return UInt(getIntVal(getOffsetInst())); }
 
     IRIntLit* getSpaceInst()
     {
@@ -491,7 +571,7 @@ struct IRVarOffsetAttr : public IRLayoutResourceInfoAttr
     UInt getSpace()
     {
         if(auto spaceInst = getSpaceInst())
-            return UInt(GetIntVal(spaceInst));
+            return UInt(getIntVal(spaceInst));
         return 0;
     }
 };
@@ -502,7 +582,7 @@ struct IRTypeSizeAttr : public IRLayoutResourceInfoAttr
     IR_LEAF_ISA(TypeSizeAttr);
 
     IRIntLit* getSizeInst() { return cast<IRIntLit>(getOperand(1)); }
-    LayoutSize getSize() { return LayoutSize::fromRaw(LayoutSize::RawValue(GetIntVal(getSizeInst()))); }
+    LayoutSize getSize() { return LayoutSize::fromRaw(LayoutSize::RawValue(getIntVal(getSizeInst()))); }
     size_t getFiniteSize() { return getSize().getFiniteValue(); }
 };
 
@@ -764,7 +844,7 @@ struct IRMatrixTypeLayout : IRTypeLayout
 
     MatrixLayoutMode getMode()
     {
-        return MatrixLayoutMode(GetIntVal(cast<IRIntLit>(getOperand(0))));
+        return MatrixLayoutMode(getIntVal(cast<IRIntLit>(getOperand(0))));
     }
 
     struct Builder : Super::Builder
@@ -789,9 +869,9 @@ struct IRStructFieldLayoutAttr : IRAttr
 {
     IR_LEAF_ISA(StructFieldLayoutAttr)
 
-    IRStructKey* getFieldKey()
+    IRInst* getFieldKey()
     {
-        return cast<IRStructKey>(getOperand(0));
+        return getOperand(0);
     }
 
     IRVarLayout* getLayout()
@@ -832,7 +912,7 @@ struct IRStructTypeLayout : IRTypeLayout
             : Super::Builder(irBuilder)
         {}
 
-        void addField(IRStructKey* key, IRVarLayout* layout)
+        void addField(IRInst* key, IRVarLayout* layout)
         {
             FieldInfo info;
             info.key = key;
@@ -851,7 +931,7 @@ struct IRStructTypeLayout : IRTypeLayout
 
         struct FieldInfo
         {
-            IRStructKey* key;
+            IRInst* key;
             IRVarLayout* layout;
         };
 
@@ -880,7 +960,7 @@ struct IRTaggedUnionTypeLayout : IRTypeLayout
         /// Get the (byte) offset of the tagged union's tag (aka "discriminator") field
     LayoutSize getTagOffset()
     {
-        return LayoutSize::fromRaw(LayoutSize::RawValue(GetIntVal(cast<IRIntLit>(getOperand(0)))));
+        return LayoutSize::fromRaw(LayoutSize::RawValue(getIntVal(cast<IRIntLit>(getOperand(0)))));
     }
 
         /// Get all the attributes representing layouts for the difference cases
@@ -962,7 +1042,7 @@ struct IRStageAttr : IRAttr
     IR_LEAF_ISA(StageAttr);
 
     IRIntLit* getStageOperand() { return cast<IRIntLit>(getOperand(0)); }
-    Stage getStage() { return Stage(GetIntVal(getStageOperand())); }
+    Stage getStage() { return Stage(getIntVal(getStageOperand())); }
 };
 
     /// Base type for attributes that associate a variable layout with a semantic name and index.
@@ -974,7 +1054,7 @@ struct IRSemanticAttr : IRAttr
     UnownedStringSlice getName() { return getNameOperand()->getStringSlice(); }
 
     IRIntLit* getIndexOperand() { return cast<IRIntLit>(getOperand(1)); }
-    UInt getIndex() { return UInt(GetIntVal(getIndexOperand())); }
+    UInt getIndex() { return UInt(getIntVal(getIndexOperand())); }
 };
 
     /// Attribute that associates a variable with a system-value semantic name and index
@@ -1085,6 +1165,10 @@ struct IRVarLayout : IRLayout
     };
 };
 
+bool isVaryingResourceKind(LayoutResourceKind kind);
+bool isVaryingParameter(IRTypeLayout* typeLayout);
+bool isVaryingParameter(IRVarLayout* varLayout);
+
     /// Associate layout information with an instruction.
     ///
     /// This decoration is used in three main ways:
@@ -1118,12 +1202,14 @@ struct IRCall : IRInst
 struct IRLoad : IRInst
 {
     IRUse ptr;
+    IR_LEAF_ISA(Load)
 };
 
 struct IRStore : IRInst
 {
     IRUse ptr;
     IRUse val;
+    IR_LEAF_ISA(Store)
 };
 
 struct IRFieldExtract : IRInst
@@ -1133,6 +1219,8 @@ struct IRFieldExtract : IRInst
 
     IRInst* getBase() { return base.get(); }
     IRInst* getField() { return field.get(); }
+    IR_LEAF_ISA(FieldExtract)
+
 };
 
 struct IRFieldAddress : IRInst
@@ -1142,6 +1230,13 @@ struct IRFieldAddress : IRInst
 
     IRInst* getBase() { return base.get(); }
     IRInst* getField() { return field.get(); }
+    IR_LEAF_ISA(FieldAddress)
+
+};
+
+struct IRGetAddress : IRInst
+{
+    IR_LEAF_ISA(getAddr);
 };
 
 // Terminators
@@ -1352,6 +1447,8 @@ struct IRVar : IRInst
 /// blocks nested inside this value.
 struct IRGlobalVar : IRGlobalValueWithCode
 {
+    IR_LEAF_ISA(GlobalVar)
+
     IRPtrType* getDataType()
     {
         return cast<IRPtrType>(IRInst::getDataType());
@@ -1422,7 +1519,27 @@ struct IRWitnessTable : IRInst
         return IRInstList<IRWitnessTableEntry>(getChildren());
     }
 
+    IRInst* getConformanceType()
+    {
+        return getOperand(0);
+    }
+
+    void setConformanceType(IRInst* type)
+    {
+        setOperand(0, type);
+    }
+
     IR_LEAF_ISA(WitnessTable)
+};
+
+/// Represents an RTTI object.
+/// An IRRTTIObject has 1 operand, specifying the type
+/// this RTTI object provides info for.
+/// All type info are encapsualted as `IRRTTI*Decoration`s attached
+/// to the object.
+struct IRRTTIObject : IRInst
+{
+    IR_LEAF_ISA(RTTIObject)
 };
 
 // An instruction that yields an undefined value.
@@ -1451,6 +1568,18 @@ struct IRBindGlobalGenericParam : IRInst
     IR_LEAF_ISA(BindGlobalGenericParam)
 };
 
+// An Instruction that creates a tuple value.
+struct IRMakeTuple : IRInst
+{
+    IR_LEAF_ISA(MakeTuple)
+};
+
+struct IRGetTupleElement : IRInst
+{
+    IR_LEAF_ISA(GetTupleElement)
+    IRInst* getTuple() { return getOperand(0); }
+    IRInst* getElementIndex() { return getOperand(1); }
+};
 
     /// An instruction that packs a concrete value into an existential-type "box"
 struct IRMakeExistential : IRInst
@@ -1459,6 +1588,16 @@ struct IRMakeExistential : IRInst
     IRInst* getWitnessTable() { return getOperand(1); }
 
     IR_LEAF_ISA(MakeExistential)
+};
+
+struct IRMakeExistentialWithRTTI : IRInst
+{
+    IRInst* getWrappedValue() { return getOperand(0); }
+    IRInst* getWitnessTable() { return getOperand(1); }
+    IRInst* getRTTI() { return getOperand(2); }
+
+
+    IR_LEAF_ISA(MakeExistentialWithRTTI)
 };
 
     /// Generalizes `IRMakeExistential` by allowing a type with existential sub-fields to be boxed
@@ -1473,6 +1612,20 @@ struct IRWrapExistential : IRInst
     IR_LEAF_ISA(WrapExistential)
 };
 
+struct IRExtractExistentialValue : IRInst
+{
+    IR_LEAF_ISA(ExtractExistentialValue);
+};
+
+struct IRExtractExistentialType : IRInst
+{
+    IR_LEAF_ISA(ExtractExistentialType);
+};
+
+struct IRExtractExistentialWitnessTable : IRInst
+{
+    IR_LEAF_ISA(ExtractExistentialWitnessTable);
+};
 
 // Description of an instruction to be used for global value numbering
 struct IRInstKey
@@ -1494,6 +1647,19 @@ struct IRConstantKey
 
 struct SharedIRBuilder
 {
+    SharedIRBuilder()
+    {}
+
+    SharedIRBuilder(Session* session, IRModule* module)
+        : session(session)
+        , module(module)
+    {}
+
+    explicit SharedIRBuilder(IRModule* module)
+        : session(module->getSession())
+        , module(module)
+    {}
+
     // The parent compilation session
     Session* session;
     Session* getSession()
@@ -1507,16 +1673,26 @@ struct SharedIRBuilder
     Dictionary<IRInstKey,       IRInst*>    globalValueNumberingMap;
     Dictionary<IRConstantKey,   IRConstant*>    constantMap;
 
-    // TODO: We probably shouldn't use this in the long run.
-    Dictionary<void*,           IRLayout*>        layoutMap;
+    void insertBlockAlongEdge(IREdge const& edge);
+
+    // Rebuilds `globalValueNumberingMap`. This is necessary if any existing
+    // keys are modified (thus its hash code is changed).
+    void deduplicateAndRebuildGlobalNumberingMap();
 };
 
 struct IRBuilderSourceLocRAII;
 
 struct IRBuilder
 {
+    IRBuilder()
+    {}
+
+    IRBuilder(SharedIRBuilder* sharedBuilder)
+        : sharedBuilder(sharedBuilder)
+    {}
+
     // Shared state for all IR builders working on the same module
-    SharedIRBuilder*    sharedBuilder;
+    SharedIRBuilder*    sharedBuilder = nullptr;
 
     Session* getSession()
     {
@@ -1557,10 +1733,23 @@ struct IRBuilder
     IRBasicType* getVoidType();
     IRBasicType* getBoolType();
     IRBasicType* getIntType();
+    IRBasicType* getUIntType();
     IRStringType* getStringType();
+    IRAssociatedType* getAssociatedType(ArrayView<IRInterfaceType*> constraintTypes);
+    IRThisType* getThisType(IRInterfaceType* interfaceType);
+    IRRawPointerType* getRawPointerType();
+    IRRTTIPointerType* getRTTIPointerType(IRInst* rttiPtr);
+    IRRTTIType* getRTTIType();
+    IRAnyValueType* getAnyValueType(IRIntegerValue size);
+    IRAnyValueType* getAnyValueType(IRInst* size);
+
+    IRTupleType* getTupleType(UInt count, IRType* const* types);
+    IRTupleType* getTupleType(IRType* type0, IRType* type1);
+    IRTupleType* getTupleType(IRType* type0, IRType* type1, IRType* type2);
 
     IRBasicBlockType*   getBasicBlockType();
-    IRType* getWitnessTableType() { return nullptr; }
+    IRWitnessTableType* getWitnessTableType(IRType* baseType);
+    IRType* getTypeType() { return getType(IROp::kIROp_TypeType); }
     IRType* getKeyType() { return nullptr; }
 
     IRTypeKind*     getTypeKind();
@@ -1663,6 +1852,14 @@ struct IRBuilder
         IRInst* witnessTableVal,
         IRInst* interfaceMethodVal);
 
+    IRInst* emitAlloca(IRInst* type, IRInst* rttiObjPtr);
+
+    IRInst* emitCopy(IRInst* dst, IRInst* src, IRInst* rttiObjPtr);
+
+    IRInst* emitPackAnyValue(IRType* type, IRInst* value);
+
+    IRInst* emitUnpackAnyValue(IRType* type, IRInst* value);
+
     IRInst* emitCallInst(
         IRType*         type,
         IRInst*         func,
@@ -1693,6 +1890,13 @@ struct IRBuilder
         IRType*         type,
         UInt            argCount,
         IRInst* const* args);
+
+    // Creates an RTTI object. Result is of `IRRTTIType`.
+    IRInst* emitMakeRTTIObject(IRInst* typeInst);
+
+    IRInst* emitMakeTuple(IRType* type, UInt count, IRInst* const* args);
+
+    IRInst* emitGetTupleElement(IRType* type, IRInst* tuple, UInt element);
 
     IRInst* emitMakeVector(
         IRType*         type,
@@ -1733,6 +1937,12 @@ struct IRBuilder
         IRInst* value,
         IRInst* witnessTable);
 
+    IRInst* emitMakeExistentialWithRTTI(
+        IRType* type,
+        IRInst* value,
+        IRInst* witnessTable,
+        IRInst* rtti);
+
     IRInst* emitWrapExistential(
         IRType*         type,
         IRInst*         value,
@@ -1751,6 +1961,8 @@ struct IRBuilder
 
         return emitWrapExistential(type, value, slotArgCount, slotArgVals.getBuffer());
     }
+
+    IRInst* emitGpuForeach(List<IRInst*> args);
 
     IRUndefined* emitUndefined(IRType* type);
 
@@ -1786,17 +1998,24 @@ struct IRBuilder
         IRType* valueType);
     IRGlobalParam* createGlobalParam(
         IRType* valueType);
-    IRWitnessTable* createWitnessTable();
+    
+    /// Creates an IRWitnessTable value.
+    /// @param baseType: The comformant-to type of this witness.
+    IRWitnessTable* createWitnessTable(IRType* baseType);
     IRWitnessTableEntry* createWitnessTableEntry(
         IRWitnessTable* witnessTable,
         IRInst*        requirementKey,
         IRInst*        satisfyingVal);
 
+    IRInterfaceRequirementEntry* createInterfaceRequirementEntry(
+        IRInst* requirementKey,
+        IRInst* requirementVal);
+
     // Create an initially empty `struct` type.
     IRStructType*   createStructType();
 
     // Create an empty `interface` type.
-    IRInterfaceType* createInterfaceType();
+    IRInterfaceType* createInterfaceType(UInt operandCount, IRInst* const* operands);
 
     // Create a global "key" to use for indexing into a `struct` type.
     IRStructKey*    createStructKey();
@@ -1851,6 +2070,8 @@ struct IRBuilder
         IRType* type);
     IRParam* emitParam(
         IRType* type);
+    IRParam* emitParamAtHead(
+        IRType* type);
 
     IRVar* emitVar(
         IRType* type);
@@ -1885,6 +2106,10 @@ struct IRBuilder
         IRType*     type,
         IRInst*    basePtr,
         IRInst*    index);
+
+    IRInst* emitGetAddress(
+        IRType* type,
+        IRInst* value);
 
     IRInst* emitSwizzle(
         IRType*         type,
@@ -1986,9 +2211,9 @@ struct IRBuilder
         return emitGlobalGenericParam(getTypeKind());
     }
 
-    IRGlobalGenericParam* emitGlobalGenericWitnessTableParam()
+    IRGlobalGenericParam* emitGlobalGenericWitnessTableParam(IRType* comformanceType)
     {
-        return emitGlobalGenericParam(getWitnessTableType());
+        return emitGlobalGenericParam(getWitnessTableType(comformanceType));
     }
 
     IRBindGlobalGenericParam* emitBindGlobalGenericParam(
@@ -2019,6 +2244,15 @@ struct IRBuilder
         IRType* type,
         IRInst* val);
 
+    IRInst* emitWaveMaskBallot(IRType* type, IRInst* mask, IRInst* condition);
+    IRInst* emitWaveMaskMatch(IRType* type, IRInst* mask, IRInst* value);
+
+    IRInst* emitBitAnd(IRType* type, IRInst* left, IRInst* right);
+    IRInst* emitBitNot(IRType* type, IRInst* value);
+
+    IRInst* emitAdd(IRType* type, IRInst* left, IRInst* right);
+    IRInst* emitMul(IRType* type, IRInst* left, IRInst* right);
+
     //
     // Decorations
     //
@@ -2039,13 +2273,6 @@ struct IRBuilder
     {
         IRInst* operands[] = { operand0, operand1 };
         return addDecoration(value, op, operands, SLANG_COUNT_OF(operands));
-    }
-
-    template <typename T>
-    T* addRefObjectToFree(T* ptr)
-    {
-        getModule()->getObjectScopeManager()->addMaybeNull(ptr);
-        return ptr;
     }
 
     template<typename T>
@@ -2071,7 +2298,7 @@ struct IRBuilder
     IRPendingLayoutAttr* getPendingLayoutAttr(
         IRLayout* pendingLayout);
     IRStructFieldLayoutAttr* getFieldLayoutAttr(
-        IRStructKey*    key,
+        IRInst*         key,
         IRVarLayout*    layout);
     IRCaseTypeLayoutAttr* getCaseTypeLayoutAttr(
         IRTypeLayout*   layout);
@@ -2214,6 +2441,21 @@ struct IRBuilder
     void addFormatDecoration(IRInst* inst, IRInst* format)
     {
         addDecoration(inst, kIROp_FormatDecoration, format);
+    }
+
+    void addRTTITypeSizeDecoration(IRInst* inst, IRIntegerValue value)
+    {
+        addDecoration(inst, kIROp_RTTITypeSizeDecoration, getIntValue(getIntType(), value));
+    }
+
+    void addAnyValueSizeDecoration(IRInst* inst, IRIntegerValue value)
+    {
+        addDecoration(inst, kIROp_AnyValueSizeDecoration, getIntValue(getIntType(), value));
+    }
+
+    void addTypeConstraintDecoration(IRInst* inst, IRInst* constraintType)
+    {
+        addDecoration(inst, kIROp_TypeConstraintDecoration, constraintType);
     }
 };
 

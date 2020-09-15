@@ -22,9 +22,6 @@ HLSLIntrinsicSet::HLSLIntrinsicSet(IRTypeSet* typeSet, HLSLIntrinsicOpLookup* lo
 {
 }
 
-namespace HlslIntrinsicSet
-{
-
 static IRBasicType* _getElementType(IRType* type)
 {
     switch (type->op)
@@ -34,8 +31,6 @@ static IRBasicType* _getElementType(IRType* type)
         default:                    break;
     }
     return dynamicCast<IRBasicType>(type);
-}
-
 }
 
 void HLSLIntrinsicSet::_calcIntrinsic(HLSLIntrinsic::Op op, IRType* returnType, IRType*const* inArgs, Index argsCount, HLSLIntrinsic& out)
@@ -93,7 +88,7 @@ void HLSLIntrinsicSet::_calcIntrinsic(HLSLIntrinsic::Op op, IRType* returnType, 
         {
             //SLANG_ASSERT(argsCount == 1);
             SLANG_ASSERT(argsCount == 1);
-            IRType* srcType = HlslIntrinsicSet::_getElementType(returnType);
+            IRType* srcType = _getElementType(returnType);
             IRType* argTypes[2] = { returnType, srcType };
 
             out.signatureType = builder.getFuncType(2, argTypes, builder.getVoidType());

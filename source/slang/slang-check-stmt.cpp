@@ -108,11 +108,11 @@ namespace Slang
         stmt->parentStmt = outer;
     }
 
-    RefPtr<Expr> SemanticsVisitor::checkPredicateExpr(Expr* expr)
+    Expr* SemanticsVisitor::checkPredicateExpr(Expr* expr)
     {
-        RefPtr<Expr> e = expr;
+        Expr* e = expr;
         e = CheckTerm(e);
-        e = coerce(getSession()->getBoolType(), e);
+        e = coerce(m_astBuilder->getBoolType(), e);
         return e;
     }
 
@@ -140,7 +140,7 @@ namespace Slang
         subContext.checkStmt(stmt->statement);
     }
 
-    RefPtr<Expr> SemanticsVisitor::checkExpressionAndExpectIntegerConstant(RefPtr<Expr> expr, RefPtr<IntVal>* outIntVal)
+    Expr* SemanticsVisitor::checkExpressionAndExpectIntegerConstant(Expr* expr, IntVal** outIntVal)
     {
         expr = CheckExpr(expr);
         auto intVal = CheckIntegerConstantExpression(expr);
@@ -153,12 +153,12 @@ namespace Slang
     {
         WithOuterStmt subContext(this, stmt);
 
-        stmt->varDecl->type.type = getSession()->getIntType();
-        addModifier(stmt->varDecl, new ConstModifier());
+        stmt->varDecl->type.type = m_astBuilder->getIntType();
+        addModifier(stmt->varDecl, m_astBuilder->create<ConstModifier>());
         stmt->varDecl->setCheckState(DeclCheckState::Checked);
 
-        RefPtr<IntVal> rangeBeginVal;
-        RefPtr<IntVal> rangeEndVal;
+        IntVal* rangeBeginVal = nullptr;
+        IntVal* rangeEndVal = nullptr;
 
         if (stmt->rangeBeginExpr)
         {
@@ -166,7 +166,7 @@ namespace Slang
         }
         else
         {
-            RefPtr<ConstantIntVal> rangeBeginConst = new ConstantIntVal();
+            ConstantIntVal* rangeBeginConst = m_astBuilder->create<ConstantIntVal>();
             rangeBeginConst->value = 0;
             rangeBeginVal = rangeBeginConst;
         }
@@ -250,7 +250,7 @@ namespace Slang
         auto function = getParentFunc();
         if (!stmt->expression)
         {
-            if (function && !function->returnType.equals(getSession()->getVoidType()))
+            if (function && !function->returnType.equals(m_astBuilder->getVoidType()))
             {
                 getSink()->diagnose(stmt, Diagnostics::returnNeedsExpression);
             }
@@ -258,7 +258,7 @@ namespace Slang
         else
         {
             stmt->expression = CheckTerm(stmt->expression);
-            if (!stmt->expression->type->equals(getSession()->getErrorType()))
+            if (!stmt->expression->type->equals(m_astBuilder->getErrorType()))
             {
                 if (function)
                 {
@@ -288,4 +288,13 @@ namespace Slang
         stmt->expression = CheckExpr(stmt->expression);
     }
 
+    void SemanticsStmtVisitor::visitGpuForeachStmt(GpuForeachStmt*stmt)
+    {
+        stmt->renderer = CheckExpr(stmt->renderer);
+        stmt->gridDims = CheckExpr(stmt->gridDims);
+        ensureDeclBase(stmt->dispatchThreadID, DeclCheckState::Checked);
+        WithOuterStmt subContext(this, stmt);
+        stmt->kernelCall = subContext.CheckExpr(stmt->kernelCall);
+        return;
+    }
 }

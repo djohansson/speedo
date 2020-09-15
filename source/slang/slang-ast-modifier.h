@@ -29,6 +29,9 @@ class ExportedModifier : public Modifier { SLANG_CLASS(ExportedModifier)};
 class ConstExprModifier : public Modifier { SLANG_CLASS(ConstExprModifier)};
 class GloballyCoherentModifier : public Modifier { SLANG_CLASS(GloballyCoherentModifier)};
 
+    /// A modifier that indicates an `InheritanceDecl` should be ignored during name lookup (and related checks).
+class IgnoreForLookupModifier : public Modifier { SLANG_CLASS(IgnoreForLookupModifier) };
+
 // A modifier that marks something as an operation that
 // has a one-to-one translation to the IR, and thus
 // has no direct definition in the high-level language.
@@ -511,7 +514,7 @@ class AttributeTargetModifier : public Modifier
     SLANG_CLASS(AttributeTargetModifier)
  
     // A class to which the declared attribute type is applicable
-    SyntaxClass<RefObject> syntaxClass;
+    SyntaxClass<NodeBase> syntaxClass;
 };
 
 // Base class for checked and unchecked `[name(arg0, ...)]` style attribute.
@@ -519,7 +522,7 @@ class AttributeBase : public Modifier
 {
     SLANG_CLASS(AttributeBase)
  
-    List<RefPtr<Expr>> args;
+    List<Expr*> args;
 };
 
 // A `[name(...)]` attribute that hasn't undergone any semantic analysis.
@@ -549,7 +552,7 @@ class AttributeUsageAttribute : public Attribute
 {
     SLANG_CLASS(AttributeUsageAttribute)
  
-    SyntaxClass<RefObject> targetSyntaxClass;
+    SyntaxClass<NodeBase> targetSyntaxClass;
 };
 
 // An `[unroll]` or `[unroll(count)]` attribute
@@ -668,7 +671,7 @@ class PatchConstantFuncAttribute : public Attribute
 {
     SLANG_CLASS(PatchConstantFuncAttribute)
  
-    RefPtr<FuncDecl> patchConstantFuncDecl;
+    FuncDecl* patchConstantFuncDecl = nullptr;
 };
 class DomainAttribute : public Attribute 
 {
@@ -770,6 +773,15 @@ class MutatingAttribute : public Attribute
     SLANG_CLASS(MutatingAttribute)
 };
 
+// A `[nonmutating]` attribute, which indicates that a
+// `set` accessor does not need to modify anything through
+// its `this` parameter.
+//
+class NonmutatingAttribute : public Attribute
+{
+    SLANG_CLASS(NonmutatingAttribute)
+};
+
 
 // A `[__readNone]` attribute, which indicates that a function
 // computes its results strictly based on argument values, without
@@ -814,23 +826,6 @@ class HLSLTriangleAdjModifier : public HLSLGeometryShaderInputPrimitiveTypeModif
     SLANG_CLASS(HLSLTriangleAdjModifier)
 };
 
-
-// A modifier to be attached to syntax after we've computed layout
-class ComputedLayoutModifier : public Modifier 
-{
-    SLANG_CLASS(ComputedLayoutModifier)
- 
-    RefPtr<Layout> layout;
-};
-
-
-class TupleVarModifier : public Modifier 
-{
-    SLANG_CLASS(TupleVarModifier)
- 
-//  TupleFieldModifier* tupleField = nullptr;
-};
-
 // A modifier to indicate that a constructor/initializer can be used
 // to perform implicit type conversion, and to specify the cost of
 // the conversion, if applied.
@@ -871,6 +866,25 @@ class ExternAttribute : public Attribute
 class UnsafeForceInlineEarlyAttribute : public Attribute 
 {
     SLANG_CLASS(UnsafeForceInlineEarlyAttribute)
+};
+
+    /// An attribute that marks a type declaration as either allowing or
+    /// disallowing the type to be inherited from in other modules.
+class InheritanceControlAttribute : public Attribute { SLANG_CLASS(InheritanceControlAttribute) };
+
+    /// An attribute that marks a type declaration as allowing the type to be inherited from in other modules.
+class OpenAttribute : public InheritanceControlAttribute { SLANG_CLASS(OpenAttribute) };
+
+    /// An attribute that marks a type declaration as disallowing the type to be inherited from in other modules.
+class SealedAttribute : public InheritanceControlAttribute { SLANG_CLASS(SealedAttribute) };
+
+    /// An attribute that defines the size of `AnyValue` type to represent a polymoprhic value that conforms to
+    /// the decorated interface type.
+class AnyValueSizeAttribute : public Attribute
+{
+    SLANG_CLASS(AnyValueSizeAttribute)
+
+    int32_t size;
 };
 
 } // namespace Slang

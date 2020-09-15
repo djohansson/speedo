@@ -7,6 +7,7 @@
 //WORKING: #include "options.h"
 #include "../render.h"
 #include "../d3d/d3d-util.h"
+#include "../nvapi/nvapi-util.h"
 
 #include "../surface.h"
 
@@ -28,6 +29,13 @@
 
 #include <d3d11_2.h>
 #include <d3dcompiler.h>
+
+#ifdef GFX_NVAPI
+// NVAPI integration is desribed here
+// https://developer.nvidia.com/unlocking-gpu-intrinsics-hlsl
+
+#   include "../nvapi/nvapi-include.h"
+#endif
 
 // We will use the C standard library just for printing error messages.
 #include <stdio.h>
@@ -53,6 +61,7 @@ public:
         kMaxRTVs = 8,
     };
 
+    
     // Renderer    implementation
     virtual SlangResult initialize(const Desc& desc, void* inWindowHandle) override;
     virtual const List<String>& getFeatures() override { return m_features; }
@@ -103,6 +112,17 @@ public:
 
     protected:
 
+    class ScopeNVAPI
+    {
+    public:
+        ScopeNVAPI() : m_renderer(nullptr) {}
+        SlangResult init(D3D11Renderer* renderer, Index regIndex);
+        ~ScopeNVAPI();
+
+    protected:
+        D3D11Renderer* m_renderer;
+    };
+
 #if 0
     struct BindingDetail
     {
@@ -125,6 +145,7 @@ public:
     };
 #endif
 
+    
     enum class D3D11DescriptorSlotType
     {
         ConstantBuffer,
@@ -140,13 +161,65 @@ public:
     class DescriptorSetLayoutImpl : public DescriptorSetLayout
     {
     public:
+        // Each descriptor set for the D3D11 renderer stores distinct
+        // arrays for each kind of shader-visible entity D3D11 understands:
+        // shader resource views (SRVs), unordered access views (UAVs),
+        // constant buffers (CBs), and samplers.
+        //
+        // (This description will ignore compiled image/sampler pairs,
+        // since they aren't really well supported at present)
+        //
+        // Each descriptor range in an input `DescriptorSetLayout::Desc`
+        // will map to a range of entries in one of those arrays, but
+        // in general there can be multiple `DescriptorSlotType`s that
+        // map to the same `D3D11DescriptorSlotType`.
+        //
+        // Each `RangeInfo` in a D3D11 descriptor set layout represents
+        // of of the descriptor slot ranges in the original `Desc`,
+        // and stores the information that is relevant to its layout
+        // in our D3D11 implementation.
+
         struct RangeInfo
         {
+                /// The type of descriptors in the range, in D3D11 terms (SRVs, UAVs, etc.)
             D3D11DescriptorSlotType type;
+
+                /// The start index of this range in the relevant descriptor-type-specific array.
+                ///
+                /// Note: This is *not* the same as the index of the range, both because multiple
+                /// `DescriptorSlotType`s might map to the same array in the D3D11 implementation,
+                /// and also because a given range might store multiple descriptors (so a 3-texture
+                /// range that comes after a 5-texture range will have an `arrayIndex` of 5 but
+                /// a range index of 1).
+                ///
             UInt                    arrayIndex;
+
+                /// For the case of a combined image/sampler pair, the `arrayIndex` is an index
+                /// into the array of SRVs, and we store a separate index into the array of
+                /// samplers.
+                ///
             UInt                    pairedSamplerArrayIndex;
         };
         List<RangeInfo> m_ranges;
+
+        // Because D3D11 does not support root constants as they appear in
+        // D3D12 and Vulkan, we need to map root-constant ranges in the original `Desc`
+        // over to ordinary constant buffers. Each root-constant range (of whatever
+        // size) will map to a constant-buffer range of a single buffer.
+        //
+        // In order to be able to properly allocate/initialize these root constant
+        // buffers, we store additional information about them in a flattened array
+        // that only stores information for root constant ranges.
+
+        struct RootConstantRangeInfo
+        {
+                /// Index of the `RangeInfo` corresponding to this root-constant range
+            Index rangeIndex;
+
+                /// Size of the original root-constant range, in bytes.
+            UInt  size;
+        };
+        List<RootConstantRangeInfo> m_rootConstantRanges;
 
         UInt m_counts[int(D3D11DescriptorSlotType::CountOf)];
     };
@@ -175,6 +248,13 @@ public:
             UInt index,
             ResourceView*   textureView,
             SamplerState*   sampler) override;
+        virtual void setRootConstants(
+            UInt range,
+            UInt offset,
+            UInt size,
+            void const* data) override;
+
+        D3D11Renderer*                          m_renderer = nullptr;
 
         RefPtr<DescriptorSetLayoutImpl>         m_layout;
 
@@ -333,12 +413,52 @@ public:
     float m_clearColor[4] = { 0, 0, 0, 0 };
 
     List<String> m_features;
+
+    bool m_nvapi = false;
 };
 
 Renderer* createD3D11Renderer()
 {
     return new D3D11Renderer();
 }
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!ScopeNVAPI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+SlangResult D3D11Renderer::ScopeNVAPI::init(D3D11Renderer* renderer, Index regIndex)
+{
+    if (!renderer->m_nvapi)
+    {
+        // There is nothing to set as nvapi is not set
+        return SLANG_OK;
+    }
+
+#ifdef GFX_NVAPI
+    NvAPI_Status nvapiStatus = NvAPI_D3D11_SetNvShaderExtnSlot(renderer->m_device, NvU32(regIndex));
+    if (nvapiStatus != NVAPI_OK)
+    {
+        return SLANG_FAIL;
+    }
+#endif
+
+    // Record the renderer so it can be freed
+    m_renderer = renderer;
+    return SLANG_OK;
+}
+
+D3D11Renderer::ScopeNVAPI::~ScopeNVAPI()
+{
+    // If the m_renderer is not set, it must not have been set up
+    if (m_renderer)
+    {
+#ifdef GFX_NVAPI
+        // Disable the slot used
+        NvAPI_Status nvapiStatus = NvAPI_D3D11_SetNvShaderExtnSlot(m_renderer->m_device, ~0);
+        SLANG_ASSERT(nvapiStatus == NVAPI_OK);
+#endif
+    }
+}
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!D3D11Renderer !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 /* static */HRESULT D3D11Renderer::captureTextureToSurface(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11Texture2D* texture, Surface& surfaceOut)
 {
@@ -394,6 +514,19 @@ Renderer* createD3D11Renderer()
 }
 
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!! Renderer interface !!!!!!!!!!!!!!!!!!!!!!!!!!
+
+static bool _isSupportedNVAPIOp(IUnknown* dev, uint32_t op)
+{
+#ifdef GFX_NVAPI
+    {
+        bool isSupported;
+        NvAPI_Status status = NvAPI_D3D11_IsNvShaderExtnOpCodeSupported(dev, NvU32(op), &isSupported);
+        return status == NVAPI_OK && isSupported;
+    }
+#else
+    return false;
+#endif
+}
 
 SlangResult D3D11Renderer::initialize(const Desc& desc, void* inWindowHandle)
 {
@@ -527,6 +660,33 @@ SlangResult D3D11Renderer::initialize(const Desc& desc, void* inWindowHandle)
         SLANG_ASSERT(m_immediateContext && m_swapChain && m_device);
     }
 
+    // NVAPI
+    if (desc.nvapiExtnSlot >= 0)
+    {
+        if (SLANG_FAILED(NVAPIUtil::initialize()))
+        {
+            return SLANG_E_NOT_AVAILABLE;
+        }
+
+#ifdef GFX_NVAPI
+        if (NvAPI_D3D11_SetNvShaderExtnSlot(m_device, NvU32(desc.nvapiExtnSlot)) != NVAPI_OK)
+        {
+            return SLANG_E_NOT_AVAILABLE;
+        }
+
+        if (_isSupportedNVAPIOp(m_device, NV_EXTN_OP_UINT64_ATOMIC ))
+        {
+            m_features.add("atomic-int64");
+        }
+        if (_isSupportedNVAPIOp(m_device, NV_EXTN_OP_FP32_ATOMIC))
+        {
+            m_features.add("atomic-float");
+        }
+
+        m_nvapi = true;
+#endif
+    }
+    
     // TODO: Add support for debugging to help detect leaks:
     //
     //      ComPtr<ID3D11Debug> gDebug;
@@ -1447,7 +1607,12 @@ Result D3D11Renderer::createProgram(const ShaderProgram::Desc& desc, ShaderProgr
         auto computeKernel = desc.findKernel(StageType::Compute);
 
         ComPtr<ID3D11ComputeShader> computeShader;
-        SLANG_RETURN_ON_FAIL(m_device->CreateComputeShader(computeKernel->codeBegin, computeKernel->getCodeSize(), nullptr, computeShader.writeRef()));
+
+        {
+            ScopeNVAPI scopeNVAPI;
+            SLANG_RETURN_ON_FAIL(scopeNVAPI.init(this, 0));
+            SLANG_RETURN_ON_FAIL(m_device->CreateComputeShader(computeKernel->codeBegin, computeKernel->getCodeSize(), nullptr, computeShader.writeRef()));
+        }
 
         RefPtr<ShaderProgramImpl> shaderProgram = new ShaderProgramImpl();
         shaderProgram->m_computeShader.swap(computeShader);
@@ -1463,8 +1628,13 @@ Result D3D11Renderer::createProgram(const ShaderProgram::Desc& desc, ShaderProgr
         ComPtr<ID3D11VertexShader> vertexShader;
         ComPtr<ID3D11PixelShader> pixelShader;
 
-        SLANG_RETURN_ON_FAIL(m_device->CreateVertexShader(vertexKernel->codeBegin, vertexKernel->getCodeSize(), nullptr, vertexShader.writeRef()));
-        SLANG_RETURN_ON_FAIL(m_device->CreatePixelShader(fragmentKernel->codeBegin, fragmentKernel->getCodeSize(), nullptr, pixelShader.writeRef()));
+        {
+            ScopeNVAPI scopeNVAPI;
+            SLANG_RETURN_ON_FAIL(scopeNVAPI.init(this, 0));
+
+            SLANG_RETURN_ON_FAIL(m_device->CreateVertexShader(vertexKernel->codeBegin, vertexKernel->getCodeSize(), nullptr, vertexShader.writeRef()));
+            SLANG_RETURN_ON_FAIL(m_device->CreatePixelShader(fragmentKernel->codeBegin, fragmentKernel->getCodeSize(), nullptr, pixelShader.writeRef()));
+        }
 
         RefPtr<ShaderProgramImpl> shaderProgram = new ShaderProgramImpl();
         shaderProgram->m_vertexShader.swap(vertexShader);
@@ -1763,6 +1933,7 @@ Result D3D11Renderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc&
 
         DescriptorSetLayoutImpl::RangeInfo rangeInfo;
 
+        UInt slotCount = rangeDesc.count;
         switch(rangeDesc.type)
         {
         default:
@@ -1777,6 +1948,11 @@ Result D3D11Renderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc&
             rangeInfo.type = D3D11DescriptorSlotType::CombinedTextureSampler;
             break;
 
+        case DescriptorSlotType::RootConstant:
+            // A root-constant range will be treated as if it were
+            // a constant-buffer range with a single buffer in it.
+            //
+            slotCount = 1;
         case DescriptorSlotType::UniformBuffer:
         case DescriptorSlotType::DynamicUniformBuffer:
             rangeInfo.type = D3D11DescriptorSlotType::ConstantBuffer;
@@ -1804,17 +1980,31 @@ Result D3D11Renderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc&
             rangeInfo.arrayIndex = counts[srvTypeIndex];
             rangeInfo.pairedSamplerArrayIndex = counts[samplerTypeIndex];
 
-            counts[srvTypeIndex] += rangeDesc.count;
-            counts[samplerTypeIndex] += rangeDesc.count;
+            counts[srvTypeIndex] += slotCount;
+            counts[samplerTypeIndex] += slotCount;
         }
         else
         {
             auto typeIndex = int(rangeInfo.type);
 
             rangeInfo.arrayIndex = counts[typeIndex];
-            counts[typeIndex] += rangeDesc.count;
+            counts[typeIndex] += slotCount;
         }
+        Index rangeIndex = descriptorSetLayoutImpl->m_ranges.getCount();
         descriptorSetLayoutImpl->m_ranges.add(rangeInfo);
+
+        if(rangeDesc.type == DescriptorSlotType::RootConstant)
+        {
+            // If the range represents a root constant range, then
+            // we need to also store the information we will need when
+            // allocating a constant buffer to provide backing storage
+            // for the range.
+            //
+            DescriptorSetLayoutImpl::RootConstantRangeInfo rootConstantRangeInfo;
+            rootConstantRangeInfo.rangeIndex = rangeIndex;
+            rootConstantRangeInfo.size = rangeDesc.count;
+            descriptorSetLayoutImpl->m_rootConstantRanges.add(rootConstantRangeInfo);
+        }
     }
 
     for(int ii = 0; ii < int(D3D11DescriptorSlotType::CountOf); ++ii)
@@ -1861,11 +2051,54 @@ Result D3D11Renderer::createDescriptorSet(DescriptorSetLayout* layout, Descripto
 
     RefPtr<DescriptorSetImpl> descriptorSetImpl = new DescriptorSetImpl();
 
+    descriptorSetImpl->m_renderer = this;
     descriptorSetImpl->m_layout = layoutImpl;
     descriptorSetImpl->m_cbs     .setCount(layoutImpl->m_counts[int(D3D11DescriptorSlotType::ConstantBuffer)]);
     descriptorSetImpl->m_srvs    .setCount(layoutImpl->m_counts[int(D3D11DescriptorSlotType::ShaderResourceView)]);
     descriptorSetImpl->m_uavs    .setCount(layoutImpl->m_counts[int(D3D11DescriptorSlotType::UnorderedAccessView)]);
     descriptorSetImpl->m_samplers.setCount(layoutImpl->m_counts[int(D3D11DescriptorSlotType::Sampler)]);
+
+    // If the layout includes any root constant ranges, then
+    // we will need to allocate a constant buffer for each
+    // range to provide "backing storage" for its data.
+    //
+    for(auto rootConstantRange : layoutImpl->m_rootConstantRanges)
+    {
+        // The root constant range will refer to a descriptor slot
+        // range that represents a range with a single constant
+        // buffer in it. We need to grab that range so that we
+        // know what constant-buffer bindign slot to fill in.
+        //
+        auto rangeIndex = rootConstantRange.rangeIndex;
+        auto bufferRange = layoutImpl->m_ranges[rangeIndex];
+
+        // We will allocate the constant buffer that provides
+        // backing storage directly using D3D11 API calls,
+        // rather than allocate it as a buffer resource.
+        //
+        // TODO: We could revisit that decision if allocating
+        // a buffer resource proves easier down the line.
+
+        // Note: A D3D11 constant buffer must be a multiple of 16 bytes
+        // in size, so we will round up the allocation size to match
+        // the requirement.
+        //
+        UINT size = (UINT) rootConstantRange.size;
+        size = (size + 15) & ~15;
+
+        D3D11_BUFFER_DESC bufferDesc;
+        bufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        bufferDesc.ByteWidth = size;
+        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        bufferDesc.MiscFlags = 0;
+        bufferDesc.StructureByteStride = 0;
+        bufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+
+        Slang::ComPtr<ID3D11Buffer> buffer;
+        SLANG_RETURN_ON_FAIL(m_device->CreateBuffer(&bufferDesc, nullptr, buffer.writeRef()));
+
+        descriptorSetImpl->m_cbs[bufferRange.arrayIndex] = buffer;
+    }
 
     *outDescriptorSet = descriptorSetImpl.detach();
     return SLANG_OK;
@@ -2276,6 +2509,44 @@ void D3D11Renderer::DescriptorSetImpl::setCombinedTextureSampler(
 
     // TODO: need a place to bind the matching sampler...
     m_srvs[rangeInfo.pairedSamplerArrayIndex + index] = srvImpl->m_srv;
+}
+
+void D3D11Renderer::DescriptorSetImpl::setRootConstants(
+    UInt range,
+    UInt offset,
+    UInt size,
+    void const* data)
+{
+    // The `range` parameter represents the index of a descriptor
+    // slot range in the layout of this descriptor set.
+    //
+    // A root constant range will have been translated into
+    // a constnat buffer range at creation time for the layout.
+    //
+    auto& rangeInfo = m_layout->m_ranges[range];
+    assert(rangeInfo.type == D3D11DescriptorSlotType::ConstantBuffer);
+
+    // At the time the descriptor set was allocated, a
+    // constant buffer will have been created and bound
+    // into `m_cbs` to provide backing storage for the
+    // root constant range.
+    //
+    auto dxBuffer = m_cbs[rangeInfo.arrayIndex];
+    auto dxContext = m_renderer->m_immediateContext;
+
+    // Once we have the buffer that provides backing
+    // storage we simply need to map it and write
+    // the user-provided data into it.
+    //
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    HRESULT hr = dxContext->Map(dxBuffer, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped);
+    if( FAILED(hr) )
+    {
+        SLANG_ASSERT(!"failed to map backing storage for root constant range");
+        return;
+    }
+    memcpy((char*)mapped.pData + offset, data, size);
+    dxContext->Unmap(dxBuffer, 0);
 }
 
 void D3D11Renderer::setDescriptorSet(PipelineType pipelineType, PipelineLayout* layout, UInt index, DescriptorSet* descriptorSet)

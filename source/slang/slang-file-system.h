@@ -302,9 +302,9 @@ public:
     virtual SLANG_NO_THROW SlangResult SLANG_MCALL saveFile(const char* path, const void* data, size_t size) SLANG_OVERRIDE;
 
     RelativeFileSystem(ISlangFileSystemExt* fileSystem, const String& relativePath, bool stripPath = false):
-        m_stripPath(stripPath),
         m_fileSystem(fileSystem),
-        m_relativePath(relativePath)
+        m_relativePath(relativePath),
+        m_stripPath(stripPath)
     {
     }
 

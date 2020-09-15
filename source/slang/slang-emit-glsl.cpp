@@ -12,6 +12,36 @@
 
 namespace Slang {
 
+SlangResult GLSLSourceEmitter::init()
+{
+    SLANG_RETURN_ON_FAIL(Super::init());
+
+    // Deal with cases where a particular stage requires certain GLSL versions
+    // and/or extensions.
+    switch (m_entryPointStage)
+    {
+        case Stage::AnyHit:
+        case Stage::Callable:
+        case Stage::ClosestHit:
+        case Stage::Intersection:
+        case Stage::Miss:
+        case Stage::RayGeneration:
+        {
+            _requireRayTracing();   
+            break;
+        }
+        default: break;
+    }
+
+    return SLANG_OK;
+}
+
+void GLSLSourceEmitter::_requireRayTracing()
+{
+    m_glslExtensionTracker->requireExtension(UnownedStringSlice::fromLiteral("GL_NV_ray_tracing"));
+    m_glslExtensionTracker->requireVersion(ProfileVersion::GLSL_460);
+}
+
 void GLSLSourceEmitter::_requireGLSLExtension(const UnownedStringSlice& name)
 {
     m_glslExtensionTracker->requireExtension(name);
@@ -19,7 +49,7 @@ void GLSLSourceEmitter::_requireGLSLExtension(const UnownedStringSlice& name)
 
 void GLSLSourceEmitter::_requireGLSLVersion(ProfileVersion version)
 {
-    if (getSourceStyle() != SourceStyle::GLSL)
+    if (getSourceLanguage() != SourceLanguage::GLSL)
         return;
 
     m_glslExtensionTracker->requireVersion(version);
@@ -523,12 +553,12 @@ void GLSLSourceEmitter::_emitGLSLLayoutQualifiers(IRVarLayout* layout, EmitVarCh
 {
     if (!layout) return;
 
-    switch (getSourceStyle())
+    switch (getSourceLanguage())
     {
         default:
             return;
 
-        case SourceStyle::GLSL:
+        case SourceLanguage::GLSL:
             break;
     }
 
@@ -676,6 +706,11 @@ void GLSLSourceEmitter::emitLoopControlDecorationImpl(IRLoopControlDecoration* d
         m_glslExtensionTracker->requireExtension(UnownedStringSlice::fromLiteral("GL_EXT_control_flow_attributes"));
         m_writer->emit("[[unroll]]\n");
     }
+    else if (decl->getMode() == kIRLoopControl_Loop)
+    {
+        m_glslExtensionTracker->requireExtension(UnownedStringSlice::fromLiteral("GL_EXT_control_flow_attributes"));
+        m_writer->emit("[[dont_unroll]]\n");
+    }
 }
 
 void GLSLSourceEmitter::emitSimpleValueImpl(IRInst* inst) 
@@ -771,7 +806,7 @@ void GLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoin
     SLANG_ASSERT(entryPointDecor);
 
     auto profile = entryPointDecor->getProfile();
-    auto stage = profile.GetStage();
+    auto stage = profile.getStage();
 
     switch (stage)
     {
@@ -797,7 +832,7 @@ void GLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoin
         {
             if (auto decor = irFunc->findDecoration<IRMaxVertexCountDecoration>())
             {
-                auto count = GetIntVal(decor->getCount());
+                auto count = getIntVal(decor->getCount());
                 m_writer->emit("layout(max_vertices = ");
                 m_writer->emit(Int(count));
                 m_writer->emit(") out;\n");
@@ -805,7 +840,7 @@ void GLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoin
 
             if (auto decor = irFunc->findDecoration<IRInstanceDecoration>())
             {
-                auto count = GetIntVal(decor->getCount());
+                auto count = getIntVal(decor->getCount());
                 m_writer->emit("layout(invocations = ");
                 m_writer->emit(Int(count));
                 m_writer->emit(") in;\n");
@@ -1463,7 +1498,7 @@ void GLSLSourceEmitter::emitPreprocessorDirectivesImpl()
     auto effectiveProfile = m_effectiveProfile;
     if (effectiveProfile.getFamily() == ProfileFamily::GLSL)
     {
-        _requireGLSLVersion(effectiveProfile.GetVersion());
+        _requireGLSLVersion(effectiveProfile.getVersion());
     }
 
     // HACK: We aren't picking GLSL versions carefully right now,
@@ -1594,7 +1629,7 @@ void GLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
         case kIROp_VectorType:
         {
             auto vecType = (IRVectorType*)type;
-            emitVectorTypeNameImpl(vecType->getElementType(), GetIntVal(vecType->getElementCount()));
+            emitVectorTypeNameImpl(vecType->getElementType(), getIntVal(vecType->getElementCount()));
             return;
         }
         case kIROp_MatrixType:
@@ -1673,9 +1708,11 @@ void GLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
         switch (untypedBufferType->op)
         {
             case kIROp_RaytracingAccelerationStructureType:
-                _requireGLSLExtension(UnownedStringSlice::fromLiteral("GL_NV_ray_tracing"));
+            {
+                _requireRayTracing();
                 m_writer->emit("accelerationStructureNV");
                 break;
+            }
 
                 // TODO: These "translations" are obviously wrong for GLSL.
             case kIROp_HLSLByteAddressBufferType:                   m_writer->emit("ByteAddressBuffer");                  break;

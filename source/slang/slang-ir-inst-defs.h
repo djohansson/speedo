@@ -26,6 +26,14 @@ INST(Nop, nop, 0, 0)
 
     INST(StringType, String, 0, 0)
 
+    INST(AnyValueType, AnyValueType, 1, 0)
+
+    INST(RawPointerType, RawPointerType, 0, 0)
+    INST(RTTIPointerType, RTTIPointerType, 1, 0)
+    INST(AfterRawPointerTypeBase, AfterRawPointerTypeBase, 0, 0)
+    INST_RANGE(RawPointerTypeBase, RawPointerType, AfterRawPointerTypeBase)
+
+
     /* ArrayTypeBase */
         INST(ArrayType, Array, 2, 0)
         INST(UnsizedArrayType, UnsizedArray, 1, 0)
@@ -164,9 +172,20 @@ INST(Nop, nop, 0, 0)
 // `field` instructions.
 //
 INST(StructType, struct, 0, PARENT)
-INST(InterfaceType, interface, 0, PARENT)
+INST(InterfaceType, interface, 0, 0)
+INST(AssociatedType, associated_type, 0, 0)
+INST(ThisType, this_type, 0, 0)
+INST(RTTIType, rtti_type, 0, 0)
+INST(TupleType, tuple_type, 0, 0)
 
-INST_RANGE(Type, VoidType, InterfaceType)
+// A TypeType-typed IRValue represents a IRType.
+// It is used to represent a type parameter/argument in a generics.
+INST(TypeType, type_t, 0, 0)
+
+// An `IRWitnessTable` has type `WitnessTableType`.
+INST(WitnessTableType, witness_table_t, 1, 0)
+
+INST_RANGE(Type, VoidType, WitnessTableType)
 
 /*IRGlobalValueWithCode*/
     /* IRGlobalValueWithParams*/
@@ -200,6 +219,12 @@ INST_RANGE(Constant, BoolLit, StringLit)
 
 INST(undefined, undefined, 0, 0)
 
+// A `defaultConstruct` operation creates an initialized
+// value of the result type, and can only be used for types
+// where default construction is a meaningful thing to do.
+//
+INST(DefaultConstruct, defaultConstruct, 0, 0)
+
 INST(Specialize, specialize, 2, 0)
 INST(lookup_interface_method, lookup_interface_method, 2, 0)
 INST(lookup_witness_table, lookup_witness_table, 2, 0)
@@ -211,11 +236,19 @@ INST(makeVector, makeVector, 0, 0)
 INST(MakeMatrix, makeMatrix, 0, 0)
 INST(makeArray, makeArray, 0, 0)
 INST(makeStruct, makeStruct, 0, 0)
+INST(MakeTuple, makeTuple, 0, 0)
+INST(GetTupleElement, getTupleElement, 2, 0)
 
 INST(Call, call, 1, 0)
 
+INST(RTTIObject, rtti_object, 0, 0)
+INST(Alloca, alloca, 1, 0)
+
+INST(PackAnyValue, packAnyValue, 1, 0)
+INST(UnpackAnyValue, unpackAnyValue, 1, 0)
 
 INST(WitnessTableEntry, witness_table_entry, 2, 0)
+INST(InterfaceRequirementEntry, interface_req_entry, 2, 0)
 
 INST(Param, param, 0, 0)
 INST(StructField, field, 2, 0)
@@ -223,12 +256,14 @@ INST(Var, var, 0, 0)
 
 INST(Load, load, 1, 0)
 INST(Store, store, 2, 0)
+INST(Copy, copy, 3, 0)
 
 INST(FieldExtract, get_field, 2, 0)
 INST(FieldAddress, get_field_addr, 2, 0)
 
 INST(getElement, getElement, 2, 0)
 INST(getElementPtr, getElementPtr, 2, 0)
+INST(getAddr, getAddr, 1, 0)
 
 // "Subscript" an image at a pixel coordinate to get pointer
 INST(ImageSubscript, imageSubscript, 2, 0)
@@ -417,12 +452,23 @@ INST(Dot, dot, 2, 0)
 
 INST(GetStringHash, getStringHash, 1, 0)
 
+INST(WaveGetActiveMask, waveGetActiveMask, 0, 0)
+
+    /// trueMask = waveMaskBallot(mask, condition)
+INST(WaveMaskBallot, waveMaskBallot, 2, 0)
+
+    /// matchMask = waveMaskBallot(mask, value)
+INST(WaveMaskMatch, waveMaskMatch, 2, 0)
+
 // Texture sampling operation of the form `t.Sample(s,u)`
 INST(Sample, sample, 3, 0)
 
 INST(SampleGrad, sampleGrad, 4, 0)
 
 INST(GroupMemoryBarrierWithGroupSync, GroupMemoryBarrierWithGroupSync, 0, 0)
+
+// GPU_FOREACH loop of the form 
+INST(GpuForeach, gpuForeach, 3, 0)
 
 /* Decoration */
 
@@ -454,7 +500,8 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
     INST(VulkanCallablePayloadDecoration,   vulkanCallablePayload,  0, 0)
     INST(EarlyDepthStencilDecoration,       earlyDepthStencil,      0, 0)
     INST(GloballyCoherentDecoration,        globallyCoherent,       0, 0)
-    INST(PreciseDecoration,                 precise,       0, 0)
+    INST(PreciseDecoration,                 precise,                0, 0)
+    INST(PublicDecoration,                  public,                 0, 0)
     INST(PatchConstantFuncDecoration,       patchConstantFunc,      1, 0)
 
     INST(OutputControlPointsDecoration,     outputControlPoints,    1, 0)
@@ -506,6 +553,12 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
     /* LinkageDecoration */
         INST(ImportDecoration, import, 1, 0)
         INST(ExportDecoration, export, 1, 0)
+
+    /* Decorations for RTTI objects */
+        INST(RTTITypeSizeDecoration, RTTI_typeSize, 1, 0)
+    INST(AnyValueSizeDecoration, AnyValueSize, 1, 0)
+
+    INST(TypeConstraintDecoration, TypeConstraintDecoration, 1, 0)
     INST_RANGE(LinkageDecoration, ImportDecoration, ExportDecoration)
 
     INST(SemanticDecoration, semantic, 2, 0)
@@ -520,6 +573,10 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
 // shows that `C` conforms to `I`.
 //
 INST(MakeExistential,                   makeExistential,                2, 0)
+// A `MakeExistentialWithRTTI(v, w, t)` is the same with `MakeExistential`,
+// but with the type of `v` being an explict operand.
+INST(MakeExistentialWithRTTI,           makeExistentialWithRTTI,        3, 0)
+
 
 // A `wrapExistential(v, T0,w0, T1,w0) : T` instruction is similar to `makeExistential`.
 // but applies to a value `v` that is of type `BindExistentials(T, T0,w0, ...)`. The
@@ -536,6 +593,9 @@ INST(ExtractTaggedUnionTag,             extractTaggedUnionTag,      1, 0)
 INST(ExtractTaggedUnionPayload,         extractTaggedUnionPayload,  1, 0)
 
 INST(BitCast,                           bitCast,                    1, 0)
+
+// Converts other resources (such as ByteAddressBuffer) to the equivalent StructuredBuffer
+INST(GetEquivalentStructuredBuffer,     getEquivalentStructuredBuffer, 1, 0)
 
 /* Layout */
     INST(VarLayout, varLayout, 1, 0)

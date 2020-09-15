@@ -228,6 +228,7 @@ IRInst* IRSpecContext::maybeCloneValue(IRInst* originalValue)
     case kIROp_StructKey:
     case kIROp_GlobalGenericParam:
     case kIROp_WitnessTable:
+    case kIROp_InterfaceType:
     case kIROp_TaggedUnionType:
         return cloneGlobalValue(this, originalValue);
 
@@ -567,7 +568,12 @@ IRWitnessTable* cloneWitnessTableImpl(
     IRWitnessTable* dstTable = nullptr,
     bool registerValue = true)
 {
-    auto clonedTable = dstTable ? dstTable : builder->createWitnessTable();
+    IRWitnessTable* clonedTable = dstTable;
+    if (!clonedTable)
+    {
+        auto clonedBaseType = cloneType(context, as<IRType>(originalTable->getOperand(0)));
+        clonedTable = builder->createWitnessTable(clonedBaseType);
+    }
     cloneSimpleGlobalValueImpl(context, originalTable, originalValues, clonedTable, registerValue);
     return clonedTable;
 }
@@ -599,7 +605,12 @@ IRInterfaceType* cloneInterfaceTypeImpl(
     IRInterfaceType*                originalInterface,
     IROriginalValuesForClone const& originalValues)
 {
-    auto clonedInterface = builder->createInterfaceType();
+    auto clonedInterface = builder->createInterfaceType(originalInterface->getOperandCount(), nullptr);
+    for (UInt i = 0; i < originalInterface->getOperandCount(); i++)
+    {
+        auto clonedKey = cloneValue(context, originalInterface->getOperand(i));
+        clonedInterface->setOperand(i, clonedKey);
+    }
     cloneSimpleGlobalValueImpl(context, originalInterface, originalValues, clonedInterface);
     return clonedInterface;
 }
@@ -617,6 +628,7 @@ void cloneGlobalValueWithCodeCommon(
 
     cloneDecorations(context, clonedValue, originalValue);
     cloneExtraDecorations(context, clonedValue, originalValues);
+    clonedValue->setFullType((IRType*)cloneValue(context, originalValue->getFullType()));
 
     // We will walk through the blocks of the function, and clone each of them.
     //
@@ -1141,7 +1153,6 @@ IRInst* cloneGlobalValueImpl(
     return clonedValue;
 }
 
-
     /// Clone a global value, which has the given `originalLinkage`.
     ///
     /// The `originalVal` is a known global IR value with that linkage, if one is available.
@@ -1205,7 +1216,7 @@ IRInst* cloneGlobalValueWithLinkage(
     for(IRSpecSymbol* ss = sym; ss; ss = ss->nextWithSameName )
     {
         IRInst* newVal = ss->irGlobalValue;
-        if(isBetterForTarget(context, newVal, bestVal))
+        if (isBetterForTarget(context, newVal, bestVal))
             bestVal = newVal;
     }
 
@@ -1337,7 +1348,7 @@ struct IRSpecializationState
 
 LinkedIR linkIR(
     BackEndCompileRequest*  compileRequest,
-    Int                     entryPointIndex,
+    const List<Int>&        entryPointIndices,
     CodeGenTarget           target,
     TargetProgram*          targetProgram)
 {
@@ -1391,7 +1402,8 @@ LinkedIR linkIR(
     // responsible for associating layout information to those
     // global symbols via decorations.
     //
-    insertGlobalValueSymbols(sharedContext, targetProgram->getExistingIRModuleForLayout());
+    auto irModuleForLayout = targetProgram->getExistingIRModuleForLayout();
+    insertGlobalValueSymbols(sharedContext, irModuleForLayout);
 
     auto context = state->getContext();
 
@@ -1435,8 +1447,25 @@ LinkedIR linkIR(
     // arguments which might end up affecting the mangled
     // entry point name.
     //
-    auto entryPointMangledName = program->getEntryPointMangledName(entryPointIndex);
-    auto irEntryPoint = specializeIRForEntryPoint(context, entryPointMangledName);
+
+    List<IRFunc*> irEntryPoints;
+    for (auto entryPointIndex : entryPointIndices)
+    {
+        auto entryPointMangledName = program->getEntryPointMangledName(entryPointIndex);
+        irEntryPoints.add(specializeIRForEntryPoint(context, entryPointMangledName));
+    }
+
+    // Layout information for global shader parameters is also required,
+    // and in particular every global parameter that is part of the layout
+    // should be present in the initial IR module so that steps that
+    // need to operate on all the global parameters can do so.
+    //
+    IRVarLayout* irGlobalScopeVarLayout = nullptr;
+    if( auto irGlobalScopeLayoutDecoration = irModuleForLayout->getModuleInst()->findDecoration<IRLayoutDecoration>() )
+    {
+        auto irOriginalGlobalScopeVarLayout = irGlobalScopeLayoutDecoration->getLayout();
+        irGlobalScopeVarLayout = cast<IRVarLayout>(cloneValue(context, irOriginalGlobalScopeVarLayout));
+    }
 
     // Bindings for global generic parameters are currently represented
     // as stand-alone global-scope instructions in the IR module for
@@ -1462,6 +1491,24 @@ LinkedIR linkIR(
             cloneValue(context, bindInst);
         }
     }
+    if (target == CodeGenTarget::CPPSource)
+    {
+        for (IRModule* irModule : irModules)
+        {
+            for (auto inst : irModule->getGlobalInsts())
+            {
+                auto hasPublic = inst->findDecoration<IRPublicDecoration>();
+                if (!hasPublic)
+                    continue;
+
+                auto cloned = cloneValue(context, inst);
+                if (!cloned->findDecorationImpl(kIROp_KeepAliveDecoration))
+                {
+                    context->builder->addKeepAliveDecoration(cloned);
+                }
+            }
+        }
+    }
 
     // TODO: *technically* we should consider the case where
     // we have global variables with initializers, since
@@ -1483,7 +1530,8 @@ LinkedIR linkIR(
     //
     LinkedIR linkedIR;
     linkedIR.module = state->irModule;
-    linkedIR.entryPoint = irEntryPoint;
+    linkedIR.globalScopeVarLayout = irGlobalScopeVarLayout;
+    linkedIR.entryPoints = irEntryPoints;
     return linkedIR;
 }
 

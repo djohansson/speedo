@@ -18,9 +18,11 @@ syntax constexpr : ConstExprModifier;
 syntax globallycoherent : GloballyCoherentModifier;
 
 // A type that can be used as an operand for builtins
+[sealed]
 interface __BuiltinType {}
 
 // A type that can be used for arithmetic operations
+[sealed]
 interface __BuiltinArithmeticType : __BuiltinType
 {
         /// Initialize from a 32-bit signed integer value.
@@ -28,19 +30,24 @@ interface __BuiltinArithmeticType : __BuiltinType
 }
 
     /// A type that can be used for logical/bitwsie operations
+[sealed]
 interface __BuiltinLogicalType : __BuiltinType {}
 
 // A type that logically has a sign (positive/negative/zero)
+[sealed]
 interface __BuiltinSignedArithmeticType : __BuiltinArithmeticType {}
 
 // A type that can represent integers
+[sealed]
 interface __BuiltinIntegerType : __BuiltinArithmeticType
 {}
 
 // A type that can represent non-integers
+[sealed]
 interface __BuiltinRealType : __BuiltinSignedArithmeticType {}
 
 // A type that uses a floating-point representation
+[sealed]
 interface __BuiltinFloatingPointType : __BuiltinRealType
 {
         /// Initialize from a 32-bit floating-point value.
@@ -185,7 +192,9 @@ ${{{{
     // Declare initializers to convert from various other types
     for (int ss = 0; ss < kBaseTypeCount; ++ss)
     {
-        // Don't allow conversion from `void`
+        // Don't allow conversion to or from `void`
+        if (kBaseTypes[tt].tag == BaseType::Void)
+            continue;
         if (kBaseTypes[ss].tag == BaseType::Void)
             continue;
 
@@ -243,6 +252,21 @@ ${{{{
 ${{{{
         break;
     }
+
+    // If this is the `void` type, then we want to allow
+    // explicit conversion to it from any other type, using
+    // `(void) someExpression`.
+    //
+    if( kBaseTypes[tt].tag == BaseType::Void )
+    {
+}}}}
+        __generic<T>
+        [__readNone]
+        __init(T value)
+        {}
+${{{{
+    }
+
 }}}}
 
 }
@@ -1096,7 +1120,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                         }
 
                         // Set
-                        sb << " set;\n";
+                        sb << " [nonmutating] set;\n";
                     }
 
                     // !!!!!!!!!!!!!!!!!! ref !!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1435,24 +1459,24 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
                             sb << "__target_intrinsic(cuda, \"tex2Dgather<$T0>($0, ($2).x, ($2).y, " << componentIndex << ")\")\n";
                         }
                         sb << outputType << " Gather" << componentName << "(SamplerState s, ";
-                        sb << "float" << kBaseTextureTypes[tt].coordCount << " location);\n";
+                        sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location);\n";
 
                         EMIT_LINE_DIRECTIVE();
                         sb << "__target_intrinsic(glsl, \"textureGatherOffset($p, $2, $3, " << componentIndex << ")\")\n";
                         sb << outputType << " Gather" << componentName << "(SamplerState s, ";
-                        sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
+                        sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                         sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset);\n";
 
                         EMIT_LINE_DIRECTIVE();
                         sb << outputType << " Gather" << componentName << "(SamplerState s, ";
-                        sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
+                        sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                         sb << "constexpr int" << kBaseTextureTypes[tt].coordCount << " offset, ";
                         sb << "out uint status);\n";
 
                         EMIT_LINE_DIRECTIVE();
                         sb << "__target_intrinsic(glsl, \"textureGatherOffsets($p, $2, int" << kBaseTextureTypes[tt].coordCount << "[]($3, $4, $5, $6), " << componentIndex << ")\")\n";
                         sb << outputType << " Gather" << componentName << "(SamplerState s, ";
-                        sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
+                        sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                         sb << "int" << kBaseTextureTypes[tt].coordCount << " offset1, ";
                         sb << "int" << kBaseTextureTypes[tt].coordCount << " offset2, ";
                         sb << "int" << kBaseTextureTypes[tt].coordCount << " offset3, ";
@@ -1460,7 +1484,7 @@ for (int tt = 0; tt < kBaseTextureTypeCount; ++tt)
 
                         EMIT_LINE_DIRECTIVE();
                         sb << outputType << " Gather" << componentName << "(SamplerState s, ";
-                        sb << "float" << kBaseTextureTypes[tt].coordCount << " location, ";
+                        sb << "float" << kBaseTextureTypes[tt].coordCount + isArray << " location, ";
                         sb << "int" << kBaseTextureTypes[tt].coordCount << " offset1, ";
                         sb << "int" << kBaseTextureTypes[tt].coordCount << " offset2, ";
                         sb << "int" << kBaseTextureTypes[tt].coordCount << " offset3, ";
@@ -1703,6 +1727,92 @@ for (auto op : intrinsicBinaryOps)
     }
 }
 
+// We will declare the shift operations entirely as generics
+// rather than try to handle all the pairings of left-hand
+// and right-hand side types.
+//
+static const struct ShiftOpInfo
+{
+    char const* name;
+    int op;
+} kShiftOps[] =
+{
+    { "<<",  kIROp_Lsh },
+    { ">>",  kIROp_Rsh },
+};
+for(auto info : kShiftOps) {
+}}}}
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType>
+__intrinsic_op($(info.op))
+L operator$(info.name)(L left, R right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType>
+[__unsafeForceInlineEarly]
+L operator$(info.name)=(in out L left, R right)
+{
+    left = left $(info.name) right;
+    return left;
+}
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int>
+__intrinsic_op($(info.op))
+vector<L,N> operator$(info.name)(vector<L,N> left, vector<R,N> right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int>
+[__unsafeForceInlineEarly]
+vector<L,N> operator$(info.name)=(in out vector<L,N> left, vector<R,N> right)
+{
+    left = left $(info.name) right;
+    return left;
+}
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int, let M : int>
+__intrinsic_op($(info.op))
+matrix<L,N,M> operator$(info.name)(matrix<L,N,M> left, matrix<R,N,M> right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int, let M : int>
+[__unsafeForceInlineEarly]
+matrix<L, N, M> operator$(info.name)=(in out matrix<L, N, M> left, matrix<R, N, M> right)
+{
+    left = left $(info.name) right;
+    return left;
+}
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int>
+__intrinsic_op($(info.op))
+vector<L,N> operator$(info.name)(L left, vector<R,N> right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int, let M : int>
+__intrinsic_op($(info.op))
+matrix<L,N,M> operator$(info.name)(L left, matrix<R,N,M> right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int>
+__intrinsic_op($(info.op))
+vector<L,N> operator$(info.name)(vector<L,N> left, R right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int>
+[__unsafeForceInlineEarly]
+vector<L, N> operator$(info.name)=(in out vector<L, N> left, R right)
+{
+    left = left $(info.name) right;
+    return left;
+}
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int, let M : int>
+__intrinsic_op($(info.op))
+matrix<L,N,M> operator$(info.name)(matrix<L,N,M> left, R right);
+
+__generic<L: __BuiltinIntegerType, R: __BuiltinIntegerType, let N : int, let M : int>
+[__unsafeForceInlineEarly]
+matrix<L,N,M> operator$(info.name)=(in out matrix<L,N,M> left, R right)
+{
+    left = left $(info.name) right;
+    return left;
+}
+
+${{{{
+}
 
     static const struct CompoundBinaryOpInfo
     {
@@ -1719,8 +1829,6 @@ for (auto op : intrinsicBinaryOps)
         { "&",  "__BuiltinLogicalType" },
         { "|",  "__BuiltinLogicalType" },
         { "^",  "__BuiltinLogicalType" },
-        { "<<", "__BuiltinIntegerType" },
-        { ">>", "__BuiltinIntegerType" },
     };
     for( auto op : kCompoundBinaryOps )
     {
@@ -1783,6 +1891,10 @@ int getStringHash(String string);
 __generic<E : __EnumType>
 __intrinsic_op($(kIROp_Eql))
 bool operator==(E left, E right);
+
+__generic<E : __EnumType>
+__intrinsic_op($(kIROp_Neq))
+bool operator!=(E left, E right);
 
 // Binding Attributes
 
@@ -1890,6 +2002,9 @@ attribute_syntax [__vulkanHitAttributes] : VulkanHitAttributesAttribute;
 __attributeTarget(FunctionDeclBase)
 attribute_syntax [mutating] : MutatingAttribute;
 
+__attributeTarget(SetterDecl)
+attribute_syntax [nonmutating] : NonmutatingAttribute;
+
     /// Indicates that a function computes its result as a function of its arguments without loading/storing any memory or other state.
     ///
     /// This is equivalent to the LLVM `readnone` function attribute.
@@ -1917,3 +2032,13 @@ attribute_syntax [__extern] : ExternAttribute;
 
 __attributeTarget(FunctionDeclBase)
 attribute_syntax [__unsafeForceInlineEarly] : UnsafeForceInlineEarlyAttribute;
+
+// Inheritance Control
+__attributeTarget(AggTypeDecl)
+attribute_syntax [sealed] : SealedAttribute;
+
+__attributeTarget(AggTypeDecl)
+attribute_syntax [open] : OpenAttribute;
+
+__attributeTarget(InterfaceDecl)
+attribute_syntax [anyValueSize(size:int)] : AnyValueSizeAttribute;

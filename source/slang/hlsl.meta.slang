@@ -48,6 +48,114 @@ struct ByteAddressBuffer
     }
 };
 
+// AtomicAdd
+
+// Make the GLSL atomicAdd available.
+// We have separate int/float implementations, as the float version requires some specific extensions
+// https://www.khronos.org/registry/OpenGL/extensions/NV/NV_shader_atomic_float.txt
+
+__target_intrinsic(glsl, "atomicAdd($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_float)
+float __atomicAdd(__ref float value, float amount);
+
+// Helper for hlsl, using NVAPI
+__target_intrinsic(hlsl, "NvInterlockedAddUint64($0, $1, $2)")
+uint2 __atomicAdd(RWByteAddressBuffer buf, uint offset, uint2);
+
+
+// Int versions require glsl 4.30
+// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/atomicAdd.xhtml
+
+__target_intrinsic(glsl, "atomicAdd($0, $1)")
+__glsl_version(430)
+int __atomicAdd(__ref int value, int amount);
+
+__target_intrinsic(glsl, "atomicAdd($0, $1)")
+__glsl_version(430)
+uint __atomicAdd(__ref uint value, uint amount);
+
+__target_intrinsic(glsl, "atomicAdd($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+int64_t __atomicAdd(__ref int64_t value, int64_t amount);
+
+// Cas - Compare and swap
+
+// Helper for HLSL, using NVAPI
+
+__target_intrinsic(hlsl, "NvInterlockedCompareExchangeUint64($0, $1, $2, $3)")
+uint2 __cas(RWByteAddressBuffer buf, uint offset, uint2 compareValue, uint2 value);
+
+__target_intrinsic(glsl, "atomicCompSwap($0, $1, $2)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+uint64_t __cas(__ref uint64_t ioValue, uint64_t compareValue, uint64_t newValue);
+
+// Max
+
+__target_intrinsic(hlsl, "NvInterlockedMaxUint64($0, $1, $2)")
+uint2 __atomicMax(RWByteAddressBuffer buf, uint offset, uint2 value);
+
+__target_intrinsic(glsl, "atomicMax($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+uint64_t __atomicMax(__ref uint64_t ioValue, uint64_t value);
+
+// Min
+
+__target_intrinsic(hlsl, "NvInterlockedMinUint64($0, $1, $2)")
+uint2 __atomicMin(RWByteAddressBuffer buf, uint offset, uint2 value);
+
+__target_intrinsic(glsl, "atomicMin($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+uint64_t __atomicMin(__ref uint64_t ioValue, uint64_t value);
+
+// And
+
+__target_intrinsic(hlsl, "NvInterlockedAndUint64($0, $1, $2)")
+uint2 __atomicAnd(RWByteAddressBuffer buf, uint offset, uint2 value);
+
+__target_intrinsic(glsl, "atomicAnd($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+uint64_t __atomicAnd(__ref uint64_t ioValue, uint64_t value);
+
+// Or
+
+__target_intrinsic(hlsl, "NvInterlockedOrUint64($0, $1, $2)")
+uint2 __atomicOr(RWByteAddressBuffer buf, uint offset, uint2 value);
+
+__target_intrinsic(glsl, "atomicOr($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+uint64_t __atomicOr(__ref uint64_t ioValue, uint64_t value);
+
+// Xor
+
+__target_intrinsic(hlsl, "NvInterlockedXorUint64($0, $1, $2)")
+uint2 __atomicXor(RWByteAddressBuffer buf, uint offset, uint2 value);
+
+__target_intrinsic(glsl, "atomicXor($0, $1)")
+__glsl_version(430)
+__glsl_extension(GL_EXT_shader_atomic_int64)
+uint64_t __atomicXor(__ref uint64_t ioValue, uint64_t value);
+
+// Conversion between uint64_t and uint2
+
+uint2 __asuint2(uint64_t i)
+{
+    return uint2(uint(i), uint(uint64_t(i) >> 32));
+}
+
+uint64_t __asuint64(uint2 i)
+{
+    return (uint64_t(i.y) << 32) | i.x;
+}
+
+// 
+
 __intrinsic_op($(kIROp_ByteAddressBufferLoad))
 T __byteAddressBufferLoad<T>(ByteAddressBuffer buffer, int offset);
 
@@ -159,6 +267,181 @@ struct $(item.name)
     {
         return __byteAddressBufferLoad<T>(this, location);
     }
+${{{{
+    if (item.op == kIROp_HLSLRWByteAddressBufferType)
+    {  
+}}}}
+
+    // float32 and int64 atomic support. This is a Slang specific extension, it uses
+    // GL_EXT_shader_atomic_float on vk
+    // NvAPI support on DX
+    // NOTE! To use this feature on HLSL, the shader needs to include 'nvHLSLExtns.h' from the NvAPI SDK
+    // 
+    // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#VK_EXT_shader_atomic_float
+    // https://htmlpreview.github.io/?https://github.com/KhronosGroup/SPIRV-Registry/blob/master/extensions/EXT/SPV_EXT_shader_atomic_float_add.html
+
+    // F32 Add
+
+    __target_intrinsic(hlsl, "($3 = NvInterlockedAddFp32($0, $1, $2))")
+    __cuda_sm_version(2.0)
+    __target_intrinsic(cuda, "(*$3 = atomicAdd((float*)$0._getPtrAt($1), $2))")
+    void InterlockedAddF32(uint byteAddress, float valueToAdd, out float originalValue);
+
+    __specialized_for_target(glsl)
+    void InterlockedAddF32(uint byteAddress, float valueToAdd, out float originalValue)
+    {
+        RWStructuredBuffer<float> buf = __getEquivalentStructuredBuffer<float>(this);
+        originalValue = __atomicAdd(buf[byteAddress / 4], valueToAdd);
+    }
+
+    // Without returning original value
+
+    __target_intrinsic(hlsl, "(NvInterlockedAddFp32($0, $1, $2))")
+    __cuda_sm_version(2.0)
+    __target_intrinsic(cuda, "atomicAdd((float*)$0._getPtrAt($1), $2)")
+    void InterlockedAddF32(uint byteAddress, float valueToAdd);
+
+    __specialized_for_target(glsl)
+    void InterlockedAddF32(uint byteAddress, float valueToAdd)
+    {
+        RWStructuredBuffer<float> buf = __getEquivalentStructuredBuffer<float>(this);
+        __atomicAdd(buf[byteAddress / 4], valueToAdd);
+    }
+
+    // Int64 Add
+    __cuda_sm_version(6.0)
+    __target_intrinsic(cuda, "(*$3 = atomicAdd((uint64_t*)$0._getPtrAt($1), $2))")
+    void InterlockedAddI64(uint byteAddress, int64_t valueToAdd, out int64_t originalValue);
+
+    __specialized_for_target(hlsl)
+    void InterlockedAddI64(uint byteAddress, int64_t valueToAdd, out int64_t outOriginalValue)
+    {
+        outOriginalValue = __asuint64(__atomicAdd(this, byteAddress, __asuint2(valueToAdd)));
+    }
+
+    __specialized_for_target(glsl)
+    void InterlockedAddI64(uint byteAddress, int64_t valueToAdd, out int64_t originalValue)
+    {
+        RWStructuredBuffer<int64_t> buf = __getEquivalentStructuredBuffer<int64_t>(this);
+        originalValue = __atomicAdd(buf[byteAddress / 8], valueToAdd);
+    }
+
+    // Without returning original value
+    __cuda_sm_version(6.0)
+    __target_intrinsic(cuda, "atomicAdd((uint64_t*)$0._getPtrAt($1), $2)")
+    void InterlockedAddI64(uint byteAddress, int64_t valueToAdd);
+
+    __specialized_for_target(hlsl)
+    void InterlockedAddI64(uint byteAddress, int64_t valueToAdd)
+    {
+        __atomicAdd(this, byteAddress, __asuint2(valueToAdd));
+    }
+
+    __specialized_for_target(glsl)
+    void InterlockedAddI64(uint byteAddress, int64_t valueToAdd)
+    {
+        RWStructuredBuffer<int64_t> buf = __getEquivalentStructuredBuffer<int64_t>(this);
+        __atomicAdd(buf[byteAddress / 8], valueToAdd);
+    }
+
+    // Cas uint64_t
+
+    __target_intrinsic(cuda, "(*$4 = atomicCAS((uint64_t*)$0._getPtrAt($1), $2, $3))")
+    void InterlockedCompareExchangeU64(uint byteAddress, uint64_t compareValue, uint64_t value, out uint64_t outOriginalValue);
+
+    __specialized_for_target(hlsl)
+    void InterlockedCompareExchangeU64(uint byteAddress, uint64_t compareValue, uint64_t value, out uint64_t outOriginalValue)
+    {
+        outOriginalValue = __asuint64(__cas(this, byteAddress, __asuint2(compareValue), __asuint2(value)));
+    }
+
+    __specialized_for_target(glsl)
+    void InterlockedCompareExchangeU64(uint byteAddress, uint64_t compareValue, uint64_t value, out uint64_t outOriginalValue)
+    {
+        RWStructuredBuffer<uint64_t> buf = __getEquivalentStructuredBuffer<uint64_t>(this);
+        outOriginalValue = __cas(buf[byteAddress / 8], compareValue, value);
+    }
+
+    // Max
+
+    __cuda_sm_version(3.5)
+    __target_intrinsic(cuda, "atomicMax((uint64_t*)$0._getPtrAt($1), $2)")
+    uint64_t InterlockedMaxU64(uint byteAddress, uint64_t value);
+
+    __specialized_for_target(hlsl)
+    uint64_t InterlockedMaxU64(uint byteAddress, uint64_t value) { return __asuint64(__atomicMax(this, byteAddress, __asuint2(value))); }
+
+    __specialized_for_target(glsl)
+    uint64_t InterlockedMaxU64(uint byteAddress, uint64_t value)
+    {
+        RWStructuredBuffer<uint64_t> buf = __getEquivalentStructuredBuffer<uint64_t>(this);
+        return __atomicMax(buf[byteAddress / 8], value);
+    }
+
+    // Min
+    
+    __cuda_sm_version(3.5)
+    __target_intrinsic(cuda, "atomicMin((uint64_t*)$0._getPtrAt($1), $2)")
+    uint64_t InterlockedMinU64(uint byteAddress, uint64_t value);
+
+    __specialized_for_target(hlsl)
+    uint64_t InterlockedMinU64(uint byteAddress, uint64_t value) { return __asuint64(__atomicMin(this, byteAddress, __asuint2(value))); }
+
+    __specialized_for_target(glsl)
+    uint64_t InterlockedMinU64(uint byteAddress, uint64_t value)
+    {
+        RWStructuredBuffer<uint64_t> buf = __getEquivalentStructuredBuffer<uint64_t>(this);
+        return __atomicMin(buf[byteAddress / 8], value);
+    }
+
+    // And
+
+    __target_intrinsic(cuda, "atomicAnd((uint64_t*)$0._getPtrAt($1), $2)")
+    uint64_t InterlockedAndU64(uint byteAddress, uint64_t value);
+
+    __specialized_for_target(hlsl)
+    uint64_t InterlockedAndU64(uint byteAddress, uint64_t value) { return __asuint64(__atomicAnd(this, byteAddress, __asuint2(value))); }
+
+    __specialized_for_target(glsl)
+    uint64_t InterlockedAndU64(uint byteAddress, uint64_t value)
+    {
+        RWStructuredBuffer<uint64_t> buf = __getEquivalentStructuredBuffer<uint64_t>(this);
+        return __atomicAnd(buf[byteAddress / 8], value);
+    }
+
+    // Or
+
+    __target_intrinsic(cuda, "atomicOr((uint64_t*)$0._getPtrAt($1), $2)")
+    uint64_t InterlockedOrU64(uint byteAddress, uint64_t value);
+
+    __specialized_for_target(hlsl)
+    uint64_t InterlockedOrU64(uint byteAddress, uint64_t value) { return __asuint64(__atomicOr(this, byteAddress, __asuint2(value))); }
+
+    __specialized_for_target(glsl)
+    uint64_t InterlockedOrU64(uint byteAddress, uint64_t value)
+    {
+        RWStructuredBuffer<uint64_t> buf = __getEquivalentStructuredBuffer<uint64_t>(this);
+        return __atomicOr(buf[byteAddress / 8], value);
+    }
+
+    // Xor
+
+    __target_intrinsic(cuda, "atomicXor((uint64_t*)$0._getPtrAt($1), $2)")
+    uint64_t InterlockedXorU64(uint byteAddress, uint64_t value);
+
+    __specialized_for_target(hlsl)
+    uint64_t InterlockedXorU64(uint byteAddress, uint64_t value) { return __asuint64(__atomicXor(this, byteAddress, __asuint2(value))); }
+
+    __specialized_for_target(glsl)
+    uint64_t InterlockedXorU64(uint byteAddress, uint64_t value)
+    {
+        RWStructuredBuffer<uint64_t> buf = __getEquivalentStructuredBuffer<uint64_t>(this);
+        return __atomicXor(buf[byteAddress / 8], value);
+    }
+
+${{{{
+    }
+}}}}
 
     // Added operations:
 
@@ -1091,6 +1374,10 @@ T dot(vector<T, N> x, vector<T, N> y)
 
 __generic<T : __BuiltinFloatingPointType> vector<T,4> dst(vector<T,4> x, vector<T,4> y);
 
+// Given a RWByteAddressBuffer allow it to be interpretted as a RWStructuredBuffer
+__intrinsic_op($(kIROp_GetEquivalentStructuredBuffer))
+RWStructuredBuffer<T> __getEquivalentStructuredBuffer<T>(RWByteAddressBuffer b);
+
 // Error message
 
 // void errorf( string format, ... );
@@ -1427,123 +1714,123 @@ void GroupMemoryBarrierWithGroupSync();
 // Atomics
 
 __target_intrinsic(glsl, "$atomicAdd($A, $1)")
-__target_intrinsic(cuda, "atomicAdd(&$0, $1)")
+__target_intrinsic(cuda, "atomicAdd($0, $1)")
 void InterlockedAdd(__ref  int dest,  int value);
 
 __target_intrinsic(glsl, "$atomicAdd($A, $1)")
-__target_intrinsic(cuda, "atomicAdd((uint*)&$0, $1)")
+__target_intrinsic(cuda, "atomicAdd((uint*)$0, $1)")
 void InterlockedAdd(__ref uint dest, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicAdd($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicAdd(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicAdd($0, $1))")
 void InterlockedAdd(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicAdd($A, $1))")
-__target_intrinsic(cuda, "($2 = (uint)atomicAdd((uint*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = (uint)atomicAdd((uint*)$0, $1))")
 void InterlockedAdd(__ref uint dest, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "$atomicAnd($A, $1)")
-__target_intrinsic(cuda, "atomicAnd(&$0, $1)")
+__target_intrinsic(cuda, "atomicAnd($0, $1)")
 void InterlockedAnd(__ref  int dest,  int value);
 
 __target_intrinsic(glsl, "$atomicAnd($A, $1)")
-__target_intrinsic(cuda, "atomicAnd((int*)&$0, $1)")
+__target_intrinsic(cuda, "atomicAnd((int*)$0, $1)")
 void InterlockedAnd(__ref uint dest, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicAnd($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicAnd(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicAnd($0, $1))")
 void InterlockedAnd(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicAnd($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicAnd((int*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicAnd((int*)$0, $1))")
 void InterlockedAnd(__ref uint dest, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "($3 = $atomicCompSwap($A, $1, $2))")
-__target_intrinsic(cuda, "($3 = atomicCAS(&$0, $1, $2))")
+__target_intrinsic(cuda, "(*$3 = atomicCAS($0, $1, $2))")
 void InterlockedCompareExchange(__ref  int dest,  int compare_value,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($3 = $atomicCompSwap($A, $1, $2))")
-__target_intrinsic(cuda, "($3 = (uint)atomicCAS((int*)&$0, $1, $2))")
+__target_intrinsic(cuda, "(*$3 = (uint)atomicCAS((int*)$0, $1, $2))")
 void InterlockedCompareExchange(__ref uint dest, uint compare_value, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "$atomicCompSwap($A, $1, $2)")
-__target_intrinsic(cuda, "atomicCAS(&$0, $1, $2)")
+__target_intrinsic(cuda, "atomicCAS($0, $1, $2)")
 void InterlockedCompareStore(__ref int dest,  int compare_value,  int value);
 
 __target_intrinsic(glsl, "$atomicCompSwap($A, $1, $2)")
-__target_intrinsic(cuda, "atomicCAS((int*)&$0, $1, $2)")
+__target_intrinsic(cuda, "atomicCAS((int*)$0, $1, $2)")
 void InterlockedCompareStore(__ref uint dest, uint compare_value, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicExchange($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicExch(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicExch($0, $1))")
 void InterlockedExchange(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicExchange($A, $1))")
-__target_intrinsic(cuda, "($2 = (uint)atomicExch((int*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = (uint)atomicExch((int*)$0, $1))")
 void InterlockedExchange(__ref uint dest, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "$atomicMax($A, $1)")
-__target_intrinsic(cuda, "atomicMax(&$0, $1)")
+__target_intrinsic(cuda, "atomicMax($0, $1)")
 void InterlockedMax(__ref  int dest,  int value);
 
 __target_intrinsic(glsl, "$atomicMax($A, $1)")
-__target_intrinsic(cuda, "atomicMax((int*)&$0, $1)")
+__target_intrinsic(cuda, "atomicMax((int*)$0, $1)")
 void InterlockedMax(__ref uint dest, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicMax($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicMax(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicMax($0, $1))")
 void InterlockedMax(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicMax($A, $1))")
-__target_intrinsic(cuda, "($2 = (uint)atomicMax((int*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = (uint)atomicMax((int*)$0, $1))")
 void InterlockedMax(__ref uint dest, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "$atomicMin($A, $1)")
-__target_intrinsic(cuda, "atomicMin(&$0, $1)")
+__target_intrinsic(cuda, "atomicMin($0, $1)")
 void InterlockedMin(__ref  int dest,  int value);
 
 __target_intrinsic(glsl, "$atomicMin($A, $1)")
-__target_intrinsic(cuda, "atomicMin((int*)&$0, $1)")
+__target_intrinsic(cuda, "atomicMin((int*)$0, $1)")
 void InterlockedMin(__ref uint dest, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicMin($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicMin(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicMin($0, $1))")
 void InterlockedMin(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicMin($A, $1))")
-__target_intrinsic(cuda, "($2 = (uint)atomicMin((int*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = (uint)atomicMin((int*)$0, $1))")
 void InterlockedMin(__ref uint dest, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "$atomicOr($A, $1)")
-__target_intrinsic(cuda, "atomicOr(&$0, $1)")
+__target_intrinsic(cuda, "atomicOr($0, $1)")
 void InterlockedOr(__ref  int dest,  int value);
 
 __target_intrinsic(glsl, "$atomicOr($A, $1)")
-__target_intrinsic(cuda, "atomicOr((int*)&$0, $1)")
+__target_intrinsic(cuda, "atomicOr((int*)$0, $1)")
 void InterlockedOr(__ref uint dest, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicOr($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicOr(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicOr($0, $1))")
 void InterlockedOr(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicOr($A, $1))")
-__target_intrinsic(cuda, "($2 = (uint)atomicOr((int*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = (uint)atomicOr((int*)$0, $1))")
 void InterlockedOr(__ref uint dest, uint value, out uint original_value);
 
 __target_intrinsic(glsl, "$atomicXor($A, $1)")
-__target_intrinsic(cuda, "atomicXor(&$0, $1)")
+__target_intrinsic(cuda, "atomicXor($0, $1)")
 void InterlockedXor(__ref  int dest,  int value);
 
 __target_intrinsic(glsl, "$atomicXor($A, $1)")
-__target_intrinsic(cuda, "atomicXor((int*)&$0, $1)")
+__target_intrinsic(cuda, "atomicXor((int*)$0, $1)")
 void InterlockedXor(__ref uint dest, uint value);
 
 __target_intrinsic(glsl, "($2 = $atomicXor($A, $1))")
-__target_intrinsic(cuda, "($2 = atomicXor(&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = atomicXor($0, $1))")
 void InterlockedXor(__ref  int dest,  int value, out  int original_value);
 
 __target_intrinsic(glsl, "($2 = $atomicXor($A, $1))")
-__target_intrinsic(cuda, "($2 = (uint)atomicXor((int*)&$0, $1))")
+__target_intrinsic(cuda, "(*$2 = (uint)atomicXor((int*)$0, $1))")
 void InterlockedXor(__ref uint dest, uint value, out uint original_value);
 
 // Is floating-point value finite?
@@ -2528,12 +2815,17 @@ __target_intrinsic(cuda, "__activemask()")
 __target_intrinsic(hlsl, "WaveActiveBallot(true).x")
 WaveMask WaveGetConvergedMask();
 
+__intrinsic_op($(kIROp_WaveGetActiveMask))
+WaveMask __WaveGetActiveMask();
+
 __glsl_extension(GL_KHR_shader_subgroup_ballot)
 __spirv_version(1.3)
 __target_intrinsic(glsl, "subgroupBallot(true).x")
 __target_intrinsic(hlsl, "WaveActiveBallot(true).x")
-__target_intrinsic(cuda, "__activemask()") // Note: semantically incorrect, but best we can do for now.
-WaveMask WaveGetActiveMask();
+WaveMask WaveGetActiveMask()
+{
+    return __WaveGetActiveMask();
+}
 
 __glsl_extension(GL_KHR_shader_subgroup_basic)
 __spirv_version(1.3)
@@ -2564,11 +2856,12 @@ __target_intrinsic(hlsl, "WaveActiveBallot($1)")
 WaveMask WaveMaskBallot(WaveMask mask, bool condition);
 
 __glsl_extension(GL_KHR_shader_subgroup_ballot)
-__spirv_version(1.3)
-__target_intrinsic(glsl, "bitCount(subgroupBallot($1))")
 __target_intrinsic(cuda, "__popc(__ballot_sync($0, $1))")
 __target_intrinsic(hlsl, "WaveActiveCountBits($1)")
-WaveMask WaveMaskCountBits(WaveMask mask, bool value);
+uint WaveMaskCountBits(WaveMask mask, bool value)
+{
+    return _WaveCountBits(WaveActiveBallot(value));
+}
 
 // Waits until all warp lanes named in mask have executed a WaveMaskSharedSync (with the same mask)
 // before resuming execution. Guarantees memory ordering in shared memory among threads participating
@@ -3287,6 +3580,23 @@ bool WaveIsFirstLane()
     return WaveMaskIsFirstLane(WaveGetActiveMask());
 }
 
+// It's useful to have a wave uint4 version of countbits, because some wave functions return uint4.
+// This implementation tries to limit the amount of work required by the actual lane count.
+uint _WaveCountBits(uint4 value)
+{
+    // Assume since WaveGetLaneCount should be known at compile time, the branches will hopefully boil away
+    const uint waveLaneCount = WaveGetLaneCount();
+    switch ((waveLaneCount - 1) / 32)
+    {
+        default:
+        case 0: return countbits(value.x); 
+        case 1: return countbits(value.x) + countbits(value.y); 
+        case 2: return countbits(value.x) + countbits(value.y) + countbits(value.z); 
+        case 3: return countbits(value.x) + countbits(value.y) + countbits(value.z) + countbits(value.w);
+    }
+}
+
+
 // Prefix
 
 __generic<T : __BuiltinArithmeticType>
@@ -3611,6 +3921,8 @@ matrix<T,N,M> WaveMultiPrefixSum(matrix<T,N,M> value, uint4 mask);
 // `typedef`s to help with the fact that HLSL has been sorta-kinda case insensitive at various points
 typedef Texture2D texture2D;
 
+
+
 ${{{{
 
 // Buffer types
@@ -3653,7 +3965,7 @@ for (int aa = 0; aa < kBaseBufferAccessLevelCount; ++aa)
 
     if (access != SLANG_RESOURCE_ACCESS_READ)
     {
-        sb << "__target_intrinsic(glsl, \"imageStore($0, int($1), $V2)\") set;\n";
+        sb << "__target_intrinsic(glsl, \"imageStore($0, int($1), $V2)\") [nonmutating] set;\n";
 
         sb << "__intrinsic_op(" << int(kIROp_ImageSubscript) << ") ref;\n";
     }
@@ -3984,8 +4296,121 @@ void SetMeshOutputCounts(uint vertexCount, uint primitiveCount);
 void DispatchMesh<P>(uint threadGroupCountX, uint threadGroupCountY, uint threadGroupCountZ, P meshPayload);
 
 //
-// TODO: "Sampler feedback" types `FeedbackTexture2D` and `FeedbackTexture2DArray`.
+// "Sampler feedback" types `FeedbackTexture2D` and `FeedbackTexture2DArray`.
 //
+
+// https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html
+
+// The docs describe these as 'types' but their syntax makes them seem enum like, and enum is a simpler way to implement them
+// But slang enums are always 'enum class like', so I use an empty struct type here
+
+[sealed]
+interface __BuiltinSamplerFeedbackType {};
+
+[sealed]
+__magic_type(FeedbackType, $(int(FeedbackType::Kind::MinMip)))
+__target_intrinsic(hlsl, SAMPLER_FEEDBACK_MIN_MIP)
+struct SAMPLER_FEEDBACK_MIN_MIP : __BuiltinSamplerFeedbackType {};
+
+[sealed]
+__magic_type(FeedbackType, $(int(FeedbackType::Kind::MipRegionUsed)))
+__target_intrinsic(hlsl, SAMPLER_FEEDBACK_MIP_REGION_USED)
+struct SAMPLER_FEEDBACK_MIP_REGION_USED : __BuiltinSamplerFeedbackType {};
+
+// All of these objects are write-only resources that point to a special kind of unordered access view meant for sampler feedback.
+
+// Calculate the flavor constants
+${{{{
+static const int feedbackTexture2DFlavor = int(TextureFlavor::create(TextureFlavor::Shape::Shape2D, SLANG_RESOURCE_ACCESS_WRITE, SLANG_TEXTURE_FEEDBACK_FLAG).flavor);
+static const int feedbackTexture2DArrayFlavor = int(TextureFlavor::create(TextureFlavor::Shape::Shape2D, SLANG_RESOURCE_ACCESS_WRITE, SLANG_TEXTURE_FEEDBACK_FLAG | SLANG_TEXTURE_ARRAY_FLAG).flavor);
+}}}}
+
+__magic_type(Texture, $(feedbackTexture2DFlavor))
+__intrinsic_type($(kIROp_TextureType + (feedbackTexture2DFlavor << kIROpMeta_OtherShift)))
+struct FeedbackTexture2D<T : __BuiltinSamplerFeedbackType>
+{
+    __target_intrinsic(hlsl)
+    void GetDimensions(out uint width, out uint height);
+
+    __target_intrinsic(hlsl)
+    void GetDimensions(uint mipLevel, out uint width, out uint height, out uint numberOfLevels);
+
+    __target_intrinsic(hlsl)
+    void GetDimensions(out float width,out float height);
+
+    __target_intrinsic(hlsl)
+    void GetDimensions(uint mipLevel, out float width,out float height, out float numberOfLevels);
+
+    // With Clamp
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedback($1, $2, $3, $4)")
+    void WriteSamplerFeedback<S>(Texture2D<S> tex, SamplerState samp, float2 location, float clamp);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackBias($1, $2, $3, $4, $5)")
+    void WriteSamplerFeedbackBias<S>(Texture2D<S> tex, SamplerState samp, float2 location, float bias, float clamp);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackGrad($1, $2, $3, $4, $5, $6)")
+    void WriteSamplerFeedbackGrad<S>(Texture2D<S> tex, SamplerState samp, float2 location, float2 ddx, float2 ddy, float clamp);
+
+    // Level
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackLevel($1, $2, $3, $4)")
+    void WriteSamplerFeedbackLevel<S>(Texture2D<S> tex, SamplerState samp, float2 location, float lod);
+    
+    // Without Clamp
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedback($1, $2, $3)")
+    void WriteSamplerFeedback<S>(Texture2D<S> tex, SamplerState samp, float2 location);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackBias($1, $2, $3, $4)")
+    void WriteSamplerFeedbackBias<S>(Texture2D<S> tex, SamplerState samp, float2 location, float bias);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackGrad($1, $2, $3, $4, $5)")
+    void WriteSamplerFeedbackGrad<S>(Texture2D<S> tex, SamplerState samp, float2 location, float2 ddx, float2 ddy);
+};
+
+
+
+__magic_type(Texture, $(feedbackTexture2DArrayFlavor))
+__intrinsic_type($(kIROp_TextureType + (feedbackTexture2DArrayFlavor << kIROpMeta_OtherShift)))
+struct FeedbackTexture2DArray<T : __BuiltinSamplerFeedbackType>
+{
+    __target_intrinsic(hlsl)
+    void GetDimensions(out uint width,out uint height, out uint elements);
+    __target_intrinsic(hlsl)
+    void GetDimensions(uint mipLevel, out uint width,out uint height, out uint elements, out uint numberOfLevels);
+    __target_intrinsic(hlsl)
+    void GetDimensions(out float width,out float height, out float elements);
+    __target_intrinsic(hlsl)
+    void GetDimensions(uint mipLevel, out float width,out float height, out float elements, out float numberOfLevels);
+
+    // With Clamp
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedback($1, $2, $3, $4)")
+    void WriteSamplerFeedback<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location, float clamp);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackBias($1, $2, $3, $4, $5)")
+    void WriteSamplerFeedbackBias<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location, float bias, float clamp);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackGrad($1, $2, $3, $4, $5, $6)")
+    void WriteSamplerFeedbackGrad<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location, float3 ddx, float3 ddy, float clamp);
+
+    // Level
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackLevel($1, $2, $3, $4)")
+    void WriteSamplerFeedbackLevel<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location, float lod);
+
+    // Without Clamp
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedback($1, $2, $3)")
+    void WriteSamplerFeedback<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackBias($1, $2, $3, $4)")
+    void WriteSamplerFeedbackBias<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location, float bias);
+
+    __target_intrinsic(hlsl, "($0).WriteSamplerFeedbackGrad($1, $2, $3, $4, $5)")
+    void WriteSamplerFeedbackGrad<S>(Texture2DArray<S> texArray, SamplerState samp, float3 location, float3 ddx, float3 ddy);
+};
 
 //
 // DXR 1.1 and `TraceRayInline` support
@@ -4036,6 +4461,11 @@ static const CANDIDATE_TYPE CANDIDATE_PROCEDURAL_PRIMITIVE = 1;
 __target_intrinsic(hlsl, RayQuery)
 struct RayQuery <let rayFlags : RAY_FLAG = RAY_FLAG_NONE>
 {
+    // Initialize the query object in a "fresh" state.
+    //
+    __intrinsic_op($(kIROp_DefaultConstruct))
+    __init();
+
     // Initialize a ray-tracing query.
     //
     // This method may be called on a "fresh" ray query, or

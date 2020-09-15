@@ -160,7 +160,7 @@ SlangResult CUDASourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, 
         case kIROp_VectorType:
         {
             auto vecType = static_cast<IRVectorType*>(type);
-            auto vecCount = int(GetIntVal(vecType->getElementCount()));
+            auto vecCount = int(getIntVal(vecType->getElementCount()));
             const IROp elemType = vecType->getElementType()->op;
 
             UnownedStringSlice prefix = getVectorPrefix(elemType);
@@ -178,8 +178,8 @@ SlangResult CUDASourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, 
             auto matType = static_cast<IRMatrixType*>(type);
 
             auto elementType = matType->getElementType();
-            const auto rowCount = int(GetIntVal(matType->getRowCount()));
-            const auto colCount = int(GetIntVal(matType->getColumnCount()));
+            const auto rowCount = int(getIntVal(matType->getRowCount()));
+            const auto colCount = int(getIntVal(matType->getColumnCount()));
 
             out << "Matrix<" << getBuiltinTypeName(elementType->op) << ", " << rowCount << ", " << colCount << ">";
             return SLANG_OK;
@@ -239,7 +239,15 @@ void CUDASourceEmitter::emitLayoutSemanticsImpl(IRInst* inst, char const* unifor
 
 void CUDASourceEmitter::emitParameterGroupImpl(IRGlobalParam* varDecl, IRUniformParameterGroupType* type)
 {
-    Super::emitParameterGroupImpl(varDecl, type);
+    auto elementType = type->getElementType();
+
+    m_writer->emit("extern \"C\" __constant__ ");
+    emitType(elementType, "SLANG_globalParams");
+    m_writer->emit(";\n");
+
+    m_writer->emit("#define ");
+    m_writer->emit(getName(varDecl));
+    m_writer->emit(" (&SLANG_globalParams)\n");
 }
 
 void CUDASourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPointDecoration* entryPointDecor)
@@ -248,54 +256,70 @@ void CUDASourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoin
     SLANG_UNUSED(entryPointDecor);
 }
 
-void CUDASourceEmitter::emitOperandImpl(IRInst* inst, EmitOpInfo const& outerPrec)
+void CUDASourceEmitter::emitFunctionPreambleImpl(IRInst* inst)
 {
-    if (shouldFoldInstIntoUseSites(inst))
+    if(inst && inst->findDecoration<IREntryPointDecoration>())
     {
-        emitInstExpr(inst, outerPrec);
-        return;
+        m_writer->emit("extern \"C\" __global__ ");
+    }
+    else
+    {
+        m_writer->emit("__device__ ");
+    }
+}
+
+String CUDASourceEmitter::generateEntryPointNameImpl(IREntryPointDecoration* entryPointDecor)
+{
+    // We have an entry-point function in the IR module, which we
+    // will want to emit as a `__global__` function in the generated
+    // CUDA C++.
+    //
+    // The most common case will be a compute kernel, in which case
+    // we will emit the function more or less as-is, including
+    // usingits original name as the name of the global symbol.
+    //
+    String funcName = Super::generateEntryPointNameImpl(entryPointDecor);
+    String globalSymbolName = funcName;
+
+    // We also suport emitting ray tracing kernels for use with
+    // OptiX, and in that case the name of the global symbol
+    // must be prefixed to indicate to the OptiX runtime what
+    // stage it is to be compiled for.
+    //
+    auto stage = entryPointDecor->getProfile().getStage();
+    switch( stage )
+    {
+    default:
+        break;
+
+#define CASE(STAGE, PREFIX) \
+    case Stage::STAGE: globalSymbolName = #PREFIX + funcName; break
+
+    // Optix 7 Guide, Section 6.1 (Program input)
+    //
+    // > The input PTX should include one or more NVIDIA OptiX programs.
+    // > The type of program affects how the program can be used during
+    // > the execution of the pipeline. These program types are specified
+    // by prefixing the program’s name with the following:
+    //
+    // >    Program type        Function name prefix
+    CASE(   RayGeneration,      __raygen__);
+    CASE(   Intersection,       __intersection__);
+    CASE(   AnyHit,             __anyhit__);
+    CASE(   ClosestHit,         __closesthit__);
+    CASE(   Miss,               __miss__);
+    CASE(   Callable,           __direct_callable__);
+    //
+    // There are two stages (or "program types") supported by OptiX
+    // that Slang currently cannot target:
+    //
+    // CASE(ContinuationCallable,   __continuation_callable__);
+    // CASE(Exception,              __exception__);
+    //
+#undef CASE
     }
 
-    switch (inst->op)
-    {
-        case kIROp_Param:
-        {
-            auto varLayout = getVarLayout(inst);
-            if (varLayout)
-            {
-                if (auto systemValueSemantic = varLayout->findSystemValueSemanticAttr())
-                {
-                    String semanticNameSpelling = systemValueSemantic->getName();
-                    semanticNameSpelling = semanticNameSpelling.toLower();
-
-                    if (semanticNameSpelling == "sv_dispatchthreadid")
-                    {
-                        m_semanticUsedFlags |= SemanticUsedFlag::DispatchThreadID;
-                        m_writer->emit("((blockIdx * blockDim) + threadIdx)");
-
-                        return;
-                    }
-                    else if (semanticNameSpelling == "sv_groupid")
-                    {
-                        m_semanticUsedFlags |= SemanticUsedFlag::GroupID;
-                        m_writer->emit("blockIdx");
-                        return;
-                    }
-                    else if (semanticNameSpelling == "sv_groupthreadid")
-                    {
-                        m_semanticUsedFlags |= SemanticUsedFlag::GroupThreadID;
-                        m_writer->emit("threadIdx");
-                        return;
-                    }
-                }
-            }
-
-            break;
-        }
-        default: break;
-    }
-
-    Super::emitOperandImpl(inst, outerPrec);
+    return globalSymbolName;
 }
 
 void CUDASourceEmitter::emitCall(const HLSLIntrinsic* specOp, IRInst* inst, const IRUse* operands, int numOperands, const EmitOpInfo& inOuterPrec)
@@ -312,7 +336,7 @@ void CUDASourceEmitter::emitCall(const HLSLIntrinsic* specOp, IRInst* inst, cons
 
             if (IRVectorType* vecType = as<IRVectorType>(retType))
             {
-                if (numOperands == GetIntVal(vecType->getElementCount()))
+                if (numOperands == getIntVal(vecType->getElementCount()))
                 {
                     // Get the type name
                     writer->emit("make_");
@@ -366,15 +390,15 @@ static bool _areEquivalent(IRType* a, IRType* b)
         {
             IRVectorType* vecA = static_cast<IRVectorType*>(a);
             IRVectorType* vecB = static_cast<IRVectorType*>(b);
-            return GetIntVal(vecA->getElementCount()) == GetIntVal(vecB->getElementCount()) &&
+            return getIntVal(vecA->getElementCount()) == getIntVal(vecB->getElementCount()) &&
                 _areEquivalent(vecA->getElementType(), vecB->getElementType());
         }
         case kIROp_MatrixType:
         {
             IRMatrixType* matA = static_cast<IRMatrixType*>(a);
             IRMatrixType* matB = static_cast<IRMatrixType*>(b);
-            return GetIntVal(matA->getColumnCount()) == GetIntVal(matB->getColumnCount()) &&
-                GetIntVal(matA->getRowCount()) == GetIntVal(matB->getRowCount()) && 
+            return getIntVal(matA->getColumnCount()) == getIntVal(matB->getColumnCount()) &&
+                getIntVal(matA->getRowCount()) == getIntVal(matB->getRowCount()) && 
                 _areEquivalent(matA->getElementType(), matB->getElementType());
         }
         default:
@@ -401,7 +425,7 @@ void CUDASourceEmitter::_emitInitializerListValue(IRType* dstType, IRInst* value
             {
                 if (auto vecType = as<IRVectorType>(type))
                 {
-                    if (UInt(GetIntVal(vecType->getElementCount())) == value->getOperandCount())
+                    if (UInt(getIntVal(vecType->getElementCount())) == value->getOperandCount())
                     {
                         _emitInitializerList(vecType->getElementType(), value->getOperands(), value->getOperandCount());
                         return;
@@ -409,8 +433,8 @@ void CUDASourceEmitter::_emitInitializerListValue(IRType* dstType, IRInst* value
                 }
                 else if (auto matType = as<IRMatrixType>(type))
                 {
-                    const Index colCount = Index(GetIntVal(matType->getColumnCount()));
-                    const Index rowCount = Index(GetIntVal(matType->getRowCount()));
+                    const Index colCount = Index(getIntVal(matType->getColumnCount()));
+                    const Index rowCount = Index(getIntVal(matType->getRowCount()));
 
                     // TODO(JS): If num cols = 1, then it *doesn't* actually return a vector.
                     // That could be argued is an error because we want swizzling or [] to work.
@@ -518,10 +542,40 @@ bool CUDASourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOu
             m_writer->emit("\n}");
             return true;
         }
+        case kIROp_WaveMaskBallot:
+        {
+            _requireCUDASMVersion(SemanticVersion(7, 0));
+
+            m_writer->emit("__ballot_sync(");
+            emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+            m_writer->emit(", ");
+            emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+            m_writer->emit(")");
+            return true;
+        }
+        case kIROp_WaveMaskMatch:
+        {
+            _requireCUDASMVersion(SemanticVersion(7, 0));
+
+            m_writer->emit("__match_any_sync(");
+            emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+            m_writer->emit(", ");
+            emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+            m_writer->emit(")");
+            return true;
+        }
         default: break;
     }
 
     return Super::tryEmitInstExprImpl(inst, inOuterPrec);
+}
+
+void CUDASourceEmitter::_requireCUDASMVersion(SemanticVersion const& version)
+{
+    if (version > m_extensionTracker->m_smVersion)
+    {
+        m_extensionTracker->m_smVersion = version;
+    }
 }
 
 void CUDASourceEmitter::handleCallExprDecorationsImpl(IRInst* funcValue)
@@ -541,11 +595,7 @@ void CUDASourceEmitter::handleCallExprDecorationsImpl(IRInst* funcValue)
         {
             SemanticVersion version;
             version.setFromInteger(SemanticVersion::IntegerType(smDecoration->getCUDASMVersion()));
-
-            if (version > m_extensionTracker->m_smVersion)
-            {
-                m_extensionTracker->m_smVersion = version;
-            }
+            _requireCUDASMVersion(version);
         }
     }
 }
@@ -653,6 +703,24 @@ void CUDASourceEmitter::emitPreprocessorDirectivesImpl()
     }
 }
 
+bool CUDASourceEmitter::tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType)
+{
+    // A global shader parameter in the IR for CUDA output will
+    // either be the unique constant buffer that wraps all the
+    // global-scope parameters in the original code (which is
+    // handled as a special-case before this routine would be
+    // called), or it is one of the system-defined varying inputs
+    // like `threadIdx`. We won't need to emit anything in the
+    // output code for the latter case, so we need to emit
+    // nothing here and return `true` so that the base class
+    // uses our logic instead of the default.
+    //
+    SLANG_UNUSED(varDecl);
+    SLANG_UNUSED(varType);
+    return true;
+}
+
+
 void CUDASourceEmitter::emitModuleImpl(IRModule* module)
 {
     // Setup all built in types used in the module
@@ -671,258 +739,7 @@ void CUDASourceEmitter::emitModuleImpl(IRModule* module)
 
     // TODO(JS): We may need to generate types (for example for matrices)
 
-    // TODO(JS): We need to determine which functions we need to inline
-
-    // The IR will usually come in an order that respects
-    // dependencies between global declarations, but this
-    // isn't guaranteed, so we need to be careful about
-    // the order in which we emit things.
-
-    List<EmitAction> actions;
-
-    computeEmitActions(module, actions);
-
-
-    _emitForwardDeclarations(actions);
-
-    IRGlobalParam* entryPointGlobalParams = nullptr;
-
-    // Output the global parameters in a 'UniformState' structure
-    {
-        m_writer->emit("struct UniformState\n{\n");
-        m_writer->indent();
-
-        // We need these to be prefixed by __device__
-        _emitUniformStateMembers(actions, &entryPointGlobalParams);
-
-        m_writer->dedent();
-        m_writer->emit("\n};\n\n");
-    }
-
-    // Output group shared variables
-
-    {
-        for (auto action : actions)
-        {
-            if (action.level == EmitAction::Level::Definition && action.inst->op == kIROp_GlobalVar && as<IRGroupSharedRate>(action.inst->getRate()))
-            {
-                emitGlobalInst(action.inst);   
-            }
-        }
-    }
-
-    // Output the 'Context' which will be used for execution
-    {
-        m_writer->emit("struct Context\n{\n");
-        m_writer->indent();
-
-        m_writer->emit("UniformState* uniformState;\n");
-
-        if (entryPointGlobalParams)
-        {
-            emitGlobalInst(entryPointGlobalParams);
-        }
-
-        // Output all the thread locals 
-        for (auto action : actions)
-        {
-            if (action.level == EmitAction::Level::Definition && action.inst->op == kIROp_GlobalVar && !as<IRGroupSharedRate>(action.inst->getRate()))
-            {
-                emitGlobalInst(action.inst);
-            }
-        }
-
-        // Finally output the functions as methods on the context
-        for (auto action : actions)
-        {
-            if (action.level == EmitAction::Level::Definition && as<IRFunc>(action.inst))
-            {
-                emitGlobalInst(action.inst);
-            }
-        }
-
-        m_writer->dedent();
-        m_writer->emit("};\n\n");
-    }
-
-    // Finally we need to output dll entry points
-
-    for (auto action : actions)
-    {
-        if (action.level == EmitAction::Level::Definition && as<IRFunc>(action.inst))
-        {
-            IRFunc* func = as<IRFunc>(action.inst);
-
-            IREntryPointDecoration* entryPointDecor = func->findDecoration<IREntryPointDecoration>();
-
-            if (entryPointDecor)
-            {
-                // We have an entry-point function in the IR module, which we
-                // will want to emit as a `__global__` function in the generated
-                // CUDA C++.
-                //
-                // The most common case will be a compute kernel, in which case
-                // we will emit the function more or less as-is, including
-                // usingits original name as the name of the global symbol.
-                //
-                String funcName = getName(func);
-                String globalSymbolName = funcName;
-
-                // We also suport emitting ray tracing kernels for use with
-                // OptiX, and in that case the name of the global symbol
-                // must be prefixed to indicate to the OptiX runtime what
-                // stage it is to be compiled for.
-                //
-                auto stage = entryPointDecor->getProfile().GetStage();
-                switch( stage )
-                {
-                default:
-                    break;
-
-            #define CASE(STAGE, PREFIX) \
-                case Stage::STAGE: globalSymbolName = #PREFIX + funcName; break
-
-                CASE(RayGeneration, __raygen__);
-                // TODO: Add the other ray tracing shader stages here.
-            #undef CASE
-                }
-
-                if( stage != Stage::Compute )
-                {
-                    // Non-compute shaders (currently just OptiX ray tracing kernels)
-                    // require parameter data that is shared across multiple kernels
-                    // (which in our case is the global-scope shader parameters)
-                    // to be passed using a global `__constant__` variable.
-                    //
-                    // The use of `"C"` linkage here is required because the name
-                    // of this symbol must be passed to the OptiX API when creating
-                    // a pipeline that uses this compiled module. The exact name
-                    // used here (`SLANG_globalParams`) is thus a part of the
-                    // binary interface for Slang->OptiX translation.
-                    //
-                    m_writer->emit("extern \"C\" { __constant__ UniformState SLANG_globalParams; }\n");
-                }
-
-                // As a convenience for anybody reading the generated
-                // CUDA C++ code, we will prefix a compute kernel
-                // with the information from the `[numthreads(...)]`
-                // attribute in the source.
-                //
-                if(stage == Stage::Compute)
-                {
-                    Int sizeAlongAxis[kThreadGroupAxisCount];
-                    getComputeThreadGroupSize(func, sizeAlongAxis);
-
-                    // 
-                    m_writer->emit("// [numthreads(");
-                    for (int ii = 0; ii < kThreadGroupAxisCount; ++ii)
-                    {
-                        if (ii != 0) m_writer->emit(", ");
-                        m_writer->emit(sizeAlongAxis[ii]);
-                    }
-                    m_writer->emit(")]\n");
-                }
-
-                m_writer->emit("extern \"C\" __global__  ");
-               
-                auto resultType = func->getResultType();
-
-                // Emit the actual function
-                emitEntryPointAttributes(func, entryPointDecor);
-                emitType(resultType, globalSymbolName);
-
-                if( stage == Stage::Compute )
-                {
-                    // CUDA compute shaders take all of their parameters explicitly as
-                    // part of the entry-point parameter list. This means that the
-                    // data representing Slang shader parameters at both the global
-                    // and entry-point scopes needs to be passed as parameters.
-                    //
-                    // At the binary level, our generated CUDA compute kernels will take
-                    // two pointer parameters: the first points to the per-entry-point
-                    // `uniform` parameter data, and the second poinst to the global-scope
-                    // parameter data (if any).
-                    //
-                    m_writer->emit("(UniformEntryPointParams* entryPointShaderParameters, UniformState* uniformState)");
-                }
-                else
-                {
-                    // Non-compute shaders (currently just OptiX ray tracing kernels)
-                    // rely on other mechanisms for parameter passing, and thus use
-                    // an empty parameter list on the kernel declaration.
-                    //
-                    m_writer->emit("()");
-                }
-
-                emitSemantics(func);
-                m_writer->emit("\n{\n");
-                m_writer->indent();
-
-                // Initialize when constructing so that globals are zeroed
-                m_writer->emit("Context context = {};\n");
-
-                // The global-scope parameter data got passed in differently depending on whether we have
-                // a compute shader or a ray-tracing shader, so we need to alter how we initialize
-                // the pointer in our `context` based on the stage.
-                //
-                if( stage == Stage::Compute )
-                {
-                    m_writer->emit("context.uniformState = uniformState;\n");
-                }
-                else
-                {
-                    m_writer->emit("context.uniformState = &SLANG_globalParams;\n");
-                }
-
-                if (entryPointGlobalParams)
-                {
-                    auto varDecl = entryPointGlobalParams;
-                    auto rawType = varDecl->getDataType();
-                    auto varType = rawType;
-
-                    m_writer->emit("context.");
-                    m_writer->emit(getName(varDecl));
-                    m_writer->emit(" =  (");
-                    emitType(varType);
-                    m_writer->emit("*)");
-
-                    // Similar to the case for global parameter data above, the entry-point
-                    // uniform parameter data gets passed in differently for compute kernels
-                    // vs. ray-tracing kernels, and we need to handle the two cases here.
-                    //
-                    if( stage == Stage::Compute )
-                    {
-                        // In the compute case, the entry-point uniform parameters came
-                        // in as an explicit parameter on the CUDA kernel, and we simply
-                        // cast it to the expected type here.
-                        //
-                        m_writer->emit("entryPointShaderParameters");
-                    }
-                    else
-                    {
-                        // In the ray-tracing case, the entry-point uniform parameters
-                        // implicitly map to the contents of the Shader Binding Table
-                        // (SBT) entry for the entry point instance being invoked.
-                        //
-                        // The OptiX API provides an accessor function to get a pointer
-                        // to the SBT data for the current entry, and we cast the result
-                        // of that to the expected type.
-                        //
-                        m_writer->emit("optixGetSbtDataPointer()");
-                    }
-                    m_writer->emit(";\n");
-                }
-
-                m_writer->emit("context.");
-                m_writer->emit(funcName);
-                m_writer->emit("();\n");
-
-                m_writer->dedent();
-                m_writer->emit("}\n");
-            }
-        }
-    }
-    
+    CLikeSourceEmitter::emitModuleImpl(module);
 }
 
 

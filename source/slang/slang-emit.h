@@ -36,11 +36,11 @@ namespace Slang
         /// generate different HLSL output if we know it
         /// will be used to generate SPIR-V).
         ///
-    SlangResult emitEntryPointSourceFromIR(
+    SlangResult emitEntryPointsSourceFromIR(
         BackEndCompileRequest*  compileRequest,
-        Int                     entryPointIndex,
+        const List<Int>&        entryPointIndices,
         CodeGenTarget           target,
         TargetRequest*          targetRequest,
-        SourceResult&       outSource);
+        SourceResult&           outSource);
 }
 #endif

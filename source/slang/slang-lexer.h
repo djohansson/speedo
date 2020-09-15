@@ -43,14 +43,14 @@ namespace Slang
         Token m_nextToken;
         TokenReader();
         explicit TokenReader(TokenSpan const& tokens)
-            : m_nextToken(tokens.begin() ? *tokens.begin() : getEndOfFileToken())
-            , m_cursor(tokens.begin())
+            : m_cursor(tokens.begin())
             , m_end   (tokens.end  ())
+            , m_nextToken(tokens.begin() ? *tokens.begin() : getEndOfFileToken())
         {}
         explicit TokenReader(TokenList const& tokens)
-            : m_nextToken(tokens.begin() ? *tokens.begin() : getEndOfFileToken())
-            , m_cursor(tokens.begin())
+            : m_cursor(tokens.begin())
             , m_end   (tokens.end  ())
+            , m_nextToken(tokens.begin() ? *tokens.begin() : getEndOfFileToken())
         {}
         struct ParsingCursor
         {

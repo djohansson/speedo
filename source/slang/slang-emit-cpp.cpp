@@ -219,7 +219,7 @@ void CPPSourceEmitter::emitTypeDefinition(IRType* inType)
         case kIROp_VectorType:
         {
             auto vecType = static_cast<IRVectorType*>(type);
-            int count = int(GetIntVal(vecType->getElementCount()));
+            int count = int(getIntVal(vecType->getElementCount()));
 
             SLANG_ASSERT(count > 0 && count < 4);
 
@@ -251,8 +251,8 @@ void CPPSourceEmitter::emitTypeDefinition(IRType* inType)
         {
             auto matType = static_cast<IRMatrixType*>(type);
 
-            const auto rowCount = int(GetIntVal(matType->getRowCount()));
-            const auto colCount = int(GetIntVal(matType->getColumnCount()));
+            const auto rowCount = int(getIntVal(matType->getRowCount()));
+            const auto colCount = int(getIntVal(matType->getColumnCount()));
 
             IRType* vecType = m_typeSet.addVectorType(matType->getElementType(), colCount);
             
@@ -340,6 +340,12 @@ SlangResult CPPSourceEmitter::_calcCPPTextureTypeName(IRTextureTypeBase* texType
         case SLANG_RESOURCE_ACCESS_CONSUME:
             outName << "Consume";
             break;
+        case SLANG_RESOURCE_ACCESS_WRITE:
+            if (texType->isFeedback())
+            {
+                outName << "Feedback";
+            }
+            break;
         default:
             SLANG_DIAGNOSE_UNEXPECTED(getSink(), SourceLoc(), "unhandled resource access mode");
             return SLANG_FAIL;
@@ -394,14 +400,13 @@ SlangResult CPPSourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, S
 {
     switch (type->op)
     {
+        case kIROp_OutType:
+        case kIROp_InOutType:
         case kIROp_PtrType:
         {
             auto ptrType = static_cast<IRPtrType*>(type);
             SLANG_RETURN_ON_FAIL(calcTypeName(ptrType->getValueType(), target, out));
-            // TODO(JS): It seems although it says it is a pointer, it can actually be output as a reference
-            // not clear where the ptr aspect is there, as in the definition it is just 'out', implying out
-            // is somewhere converted to a ptr?
-            out << "&";
+            out << "*";
             return SLANG_OK;
         }
         case kIROp_RefType:
@@ -420,7 +425,7 @@ SlangResult CPPSourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, S
         case kIROp_VectorType:
         {
             auto vecType = static_cast<IRVectorType*>(type);
-            auto vecCount = int(GetIntVal(vecType->getElementCount()));
+            auto vecCount = int(getIntVal(vecType->getElementCount()));
             auto elemType = vecType->getElementType();
 
             if (target == CodeGenTarget::CPPSource || target == CodeGenTarget::CUDASource)
@@ -446,8 +451,8 @@ SlangResult CPPSourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, S
             auto matType = static_cast<IRMatrixType*>(type);
 
             auto elementType = matType->getElementType();
-            const auto rowCount = int(GetIntVal(matType->getRowCount()));
-            const auto colCount = int(GetIntVal(matType->getColumnCount()));
+            const auto rowCount = int(getIntVal(matType->getRowCount()));
+            const auto colCount = int(getIntVal(matType->getColumnCount()));
 
             if (target == CodeGenTarget::CPPSource || target == CodeGenTarget::CUDASource)
             {
@@ -471,7 +476,7 @@ SlangResult CPPSourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, S
         {
             auto arrayType = static_cast<IRArrayType*>(type);
             auto elementType = arrayType->getElementType();
-            int elementCount = int(GetIntVal(arrayType->getElementCount()));
+            int elementCount = int(getIntVal(arrayType->getElementCount()));
 
             out << "FixedArray<";
             SLANG_RETURN_ON_FAIL(calcTypeName(elementType, target, out));
@@ -486,6 +491,45 @@ SlangResult CPPSourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, S
             out << "Array<";
             SLANG_RETURN_ON_FAIL(calcTypeName(elementType, target, out));
             out << ">";
+            return SLANG_OK;
+        }
+        case kIROp_WitnessTableType:
+        {
+            // A witness table typed value translates to a pointer to the
+            // struct of function pointers corresponding to the interface type.
+            auto witnessTableType = static_cast<IRWitnessTableType*>(type);
+            auto baseType = cast<IRType>(witnessTableType->getOperand(0));
+            SLANG_RETURN_ON_FAIL(calcTypeName(baseType, target, out));
+            out << "*";
+            return SLANG_OK;
+        }
+        case kIROp_RawPointerType:
+        case kIROp_RTTIPointerType:
+        {
+            out << "void*";
+            return SLANG_OK;
+        }
+        case kIROp_AnyValueType:
+        {
+            out << "AnyValue<";
+            auto anyValueType = static_cast<IRAnyValueType*>(type);
+            out << getIntVal(anyValueType->getSize());
+            out << ">";
+            return SLANG_OK;
+        }
+        case kIROp_ConstantBufferType:
+        case kIROp_ParameterBlockType:
+        {
+            auto groupType = cast<IRParameterGroupType>(type);
+            auto elementType = groupType->getElementType();
+
+            SLANG_RETURN_ON_FAIL(calcTypeName(elementType, target, out));
+            out << "*";
+            return SLANG_OK;
+        }
+        case kIROp_RTTIType:
+        {
+            out << "TypeInfo";
             return SLANG_OK;
         }
         default:
@@ -562,20 +606,12 @@ SlangResult CPPSourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, S
 
 void CPPSourceEmitter::useType(IRType* type)
 {
-    if (type->op == kIROp_PtrType)
-    {
-        // TODO(JS):
-        // If it's a pointer type we ignore. We may want to strip but in practice it's
-        // probably not necessary.
-        return;
-    }
-
     _getTypeName(type);
 }
 
 namespace EmitCpp
 {
-
+    
 static IRBasicType* _getElementType(IRType* type)
 {
     switch (type->op)
@@ -611,14 +647,14 @@ static IRBasicType* _getElementType(IRType* type)
         case kIROp_VectorType:
         {
             auto vecType = static_cast<IRVectorType*>(type);
-            const int elemCount = int(GetIntVal(vecType->getElementCount()));
+            const int elemCount = int(getIntVal(vecType->getElementCount()));
             return (!vecSwap) ? TypeDimension{1, elemCount} : TypeDimension{ elemCount, 1};
         }
         case kIROp_MatrixType:
         {
             auto matType = static_cast<IRMatrixType*>(type);
-            const int colCount = int(GetIntVal(matType->getColumnCount()));
-            const int rowCount = int(GetIntVal(matType->getRowCount()));
+            const int colCount = int(getIntVal(matType->getColumnCount()));
+            const int rowCount = int(getIntVal(matType->getRowCount()));
             return TypeDimension{rowCount, colCount};
         }
         default: return TypeDimension{1, 1};
@@ -924,22 +960,26 @@ void CPPSourceEmitter::_emitGetAtDefinition(const UnownedStringSlice& funcName, 
 
     IRType* srcType = funcType->getParamType(0);
 
-    for (Index i = 0; i < 2; ++i)
+    for (Index i = 0; i < 3; ++i)
     {
         UnownedStringSlice typePrefix = (i == 0) ? UnownedStringSlice::fromLiteral("const ") : UnownedStringSlice();
+        bool lValue = (i != 2);
 
         emitFunctionPreambleImpl(nullptr);
 
         writer->emit(typePrefix);
         emitType(specOp->returnType);
-        m_writer->emit("& ");
-
+        if (lValue)
+            m_writer->emit("*");
+        writer->emit(" ");
         writer->emit(funcName);
         writer->emit("(");
 
         writer->emit(typePrefix);
         emitType(funcType->getParamType(0));
-        writer->emit("& a,  ");
+        if (lValue)
+            writer->emit("*");
+        writer->emit(" a,  ");
         emitType(funcType->getParamType(1));
         writer->emit(" b)\n{\n");
 
@@ -947,24 +987,29 @@ void CPPSourceEmitter::_emitGetAtDefinition(const UnownedStringSlice& funcName, 
 
         if (auto vectorType = as<IRVectorType>(srcType))
         {
-            int vecSize = int(GetIntVal(vectorType->getElementCount()));
+            int vecSize = int(getIntVal(vectorType->getElementCount()));
 
             writer->emit("assert(b >= 0 && b < ");
             writer->emit(vecSize);
             writer->emit(");\n");
-
-            writer->emit("return (&a.x)[b];\n");
+            if (lValue)
+                writer->emit("return (&a->x) + b;\n");
+            else
+                writer->emit("return (&a.x)[b];\n");
         }
         else if (auto matrixType = as<IRMatrixType>(srcType))
         {
-            //int colCount = int(GetIntVal(matrixType->getColumnCount()));
-            int rowCount = int(GetIntVal(matrixType->getRowCount()));
+            //int colCount = int(getIntVal(matrixType->getColumnCount()));
+            int rowCount = int(getIntVal(matrixType->getRowCount()));
 
             writer->emit("assert(b >= 0 && b < ");
             writer->emit(rowCount);
             writer->emit(");\n");
 
-            writer->emit("return a.rows[b];\n");
+            if (lValue)
+                writer->emit("return &(a->rows[b]);\n");
+            else
+                writer->emit("return a.rows[b];\n");
         }
 
         writer->dedent();
@@ -1088,7 +1133,7 @@ void CPPSourceEmitter::_emitInitDefinition(const UnownedStringSlice& funcName, c
 
     if (IRVectorType* vecType = as<IRVectorType>(retType))
     {
-        Index elementCount = Index(GetIntVal(vecType->getElementCount()));
+        Index elementCount = Index(getIntVal(vecType->getElementCount()));
 
         Index paramIndex = 0;
         Index paramSubIndex = 0;
@@ -1110,7 +1155,7 @@ void CPPSourceEmitter::_emitInitDefinition(const UnownedStringSlice& funcName, c
 
                 if (IRVectorType* paramVecType = as<IRVectorType>(paramType))
                 {
-                    Index paramElementCount = Index(GetIntVal(paramVecType->getElementCount()));
+                    Index paramElementCount = Index(getIntVal(paramVecType->getElementCount()));
 
                     writer->emitChar('a' + char(paramIndex));
                     writer->emit(".");
@@ -1538,7 +1583,7 @@ void CPPSourceEmitter::_emitInOutParamType(IRType* type, String const& name, IRT
 
     UnownedStringSlice slice = _getTypeName(valueType);
     m_writer->emit(slice);
-    m_writer->emit("& ");
+    m_writer->emit("* ");
     m_writer->emitName(nameAndLoc);
 }
 
@@ -1562,6 +1607,165 @@ void CPPSourceEmitter::emitParamTypeImpl(IRType* type, String const& name)
     }
 
     emitType(type, name);
+}
+
+void CPPSourceEmitter::emitWitnessTable(IRWitnessTable* witnessTable)
+{
+    auto interfaceType = cast<IRInterfaceType>(witnessTable->getOperand(0));
+    auto witnessTableItems = witnessTable->getChildren();
+    _maybeEmitWitnessTableTypeDefinition(interfaceType);
+
+    // Define a global variable for the witness table.
+    m_writer->emit("extern \"C\" ");
+    emitSimpleType(interfaceType);
+    m_writer->emit(" ");
+    m_writer->emit(getName(witnessTable));
+    m_writer->emit(";\n");
+
+    // The actual definition of this witness table global variable
+    // is deferred until the entire `Context` class is emitted, so
+    // that the member functions are available for reference.
+    // The witness table definition emission logic is defined in the
+    // `_emitWitnessTableDefinitions` function.
+    pendingWitnessTableDefinitions.add(witnessTable);
+}
+
+void CPPSourceEmitter::_emitWitnessTableDefinitions()
+{
+    for (auto witnessTable : pendingWitnessTableDefinitions)
+    {
+        auto interfaceType = cast<IRInterfaceType>(witnessTable->getOperand(0));
+        List<IRWitnessTableEntry*> sortedWitnessTableEntries = getSortedWitnessTableEntries(witnessTable);
+        emitSimpleType(interfaceType);
+        m_writer->emit(" ");
+        m_writer->emit(getName(witnessTable));
+        m_writer->emit(" = {\n");
+        m_writer->indent();
+        bool isFirstEntry = true;
+        for (Index i = 0; i < sortedWitnessTableEntries.getCount(); i++)
+        {
+            auto entry = sortedWitnessTableEntries[i];
+            if (auto funcVal = as<IRFunc>(entry->satisfyingVal.get()))
+            {
+                if (!isFirstEntry)
+                    m_writer->emit(",\n");
+                else
+                    isFirstEntry = false;
+
+                m_writer->emit(getName(funcVal));
+            }
+            else if (auto witnessTableVal = as<IRWitnessTable>(entry->getSatisfyingVal()))
+            {
+                if (!isFirstEntry)
+                    m_writer->emit(",\n");
+                else
+                    isFirstEntry = false;
+                m_writer->emit("&");
+                m_writer->emit(getName(witnessTableVal));
+            }
+            else if (entry->getSatisfyingVal() &&
+                     isPointerOfType(entry->getSatisfyingVal()->getDataType(), kIROp_RTTIType))
+            {
+                if (!isFirstEntry)
+                    m_writer->emit(",\n");
+                else
+                    isFirstEntry = false;
+                emitInstExpr(entry->getSatisfyingVal(), getInfo(EmitOp::General));
+            }
+            else
+            {
+                SLANG_UNEXPECTED("unknown witnesstable entry type");
+            }
+        }
+        m_writer->dedent();
+        m_writer->emit("\n};\n");
+    }
+}
+
+void CPPSourceEmitter::emitInterface(IRInterfaceType* interfaceType)
+{
+    // The current IRInterfaceType defintion does not contain
+    // sufficient info for emitting a witness table struct by itself
+    // Instead, it defines the order of entries in a witness table.
+    // Therefore, we emit a forward declaration here, and actual definition
+    // for the witness table type during emitWitnessTable.
+    SLANG_UNUSED(interfaceType);
+    m_writer->emit("struct ");
+    emitSimpleType(interfaceType);
+    m_writer->emit(";\n");
+}
+
+void CPPSourceEmitter::emitRTTIObject(IRRTTIObject* rttiObject)
+{
+    // Declare the type info object as `extern "C"` first.
+    m_writer->emit("extern \"C\" TypeInfo ");
+    m_writer->emit(getName(rttiObject));
+    m_writer->emit(";\n");
+
+    // Now actually define the object.
+    m_writer->emit("TypeInfo ");
+    m_writer->emit(getName(rttiObject));
+    m_writer->emit(" = {");
+    auto typeSizeDecoration = rttiObject->findDecoration<IRRTTITypeSizeDecoration>();
+    SLANG_ASSERT(typeSizeDecoration);
+    m_writer->emit(typeSizeDecoration->getTypeSize());
+    m_writer->emit("};\n");
+}
+
+
+    /// Emits witness table type definition given a sorted list of witness tables
+    /// acoording to the order defined by `interfaceType`.
+    ///
+void CPPSourceEmitter::_maybeEmitWitnessTableTypeDefinition(
+    IRInterfaceType* interfaceType)
+{
+    m_writer->emit("struct ");
+    emitSimpleType(interfaceType);
+    m_writer->emit("\n{\n");
+    m_writer->indent();
+    for (UInt i = 0; i < interfaceType->getOperandCount(); i++)
+    {
+        auto entry = as<IRInterfaceRequirementEntry>(interfaceType->getOperand(i));
+        if (auto funcVal = as<IRFuncType>(entry->getRequirementVal()))
+        {
+            emitType(funcVal->getResultType());
+            m_writer->emit(" (*");
+            m_writer->emit(getName(entry->getRequirementKey()));
+            m_writer->emit(")");
+            m_writer->emit("(");
+            bool isFirstParam = true;
+            for (UInt p = 0; p < funcVal->getParamCount(); p++)
+            {
+                auto paramType = funcVal->getParamType(p);
+                // Ingore TypeType-typed parameters for now.
+                if (as<IRTypeType>(paramType))
+                    continue;
+
+                if (!isFirstParam)
+                    m_writer->emit(", ");
+                else
+                    isFirstParam = false;
+
+                emitParamType(paramType, String("param") + String(p));
+            }
+            m_writer->emit(");\n");
+        }
+        else if (auto witnessTableType = as<IRWitnessTableType>(entry->getRequirementVal()))
+        {
+            emitType((IRType*)witnessTableType->getConformanceType());
+            m_writer->emit("* ");
+            m_writer->emit(getName(entry->getRequirementKey()));
+            m_writer->emit(";\n");
+        }
+        else if (isPointerOfType(entry->getRequirementVal(), kIROp_RTTIType))
+        {
+            m_writer->emit("TypeInfo* ");
+            m_writer->emit(getName(entry->getRequirementKey()));
+            m_writer->emit(";\n");
+        }
+    }
+    m_writer->dedent();
+    m_writer->emit("};\n");
 }
 
 bool CPPSourceEmitter::tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType)
@@ -1622,7 +1826,7 @@ void CPPSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoint
     SLANG_UNUSED(entryPointDecor);
 
     auto profile = m_effectiveProfile;    
-    auto stage = profile.GetStage();
+    auto stage = profile.getStage();
 
     switch (stage)
     {
@@ -1656,32 +1860,47 @@ void CPPSourceEmitter::emitSimpleFuncImpl(IRFunc* func)
     // Deal with decorations that need
     // to be emitted as attributes
 
-    // We are going to ignore the parameters passed and just pass in the Context
 
+    // We start by emitting the result type and function name.
+    //
     if (IREntryPointDecoration* entryPointDecor = func->findDecoration<IREntryPointDecoration>())
     {
+        // Note: we currently emit multiple functions to represent an entry point
+        // on CPU/CUDA, and these all bottleneck through the actual `IRFunc`
+        // here as a workhorse.
+        //
+        // Because the workhorse function doesn't have the right signature to service
+        // general-purpose calls, it is being emitted with a `_` prefix.
+        //
         StringBuilder prefixName;
         prefixName << "_" << name;
         emitType(resultType, prefixName);
-        m_writer->emit("()\n");
     }
     else
     {
         emitType(resultType, name);
-
-        m_writer->emit("(");
-        auto firstParam = func->getFirstParam();
-        for (auto pp = firstParam; pp; pp = pp->getNextParam())
-        {
-            if (pp != firstParam)
-                m_writer->emit(", ");
-
-            emitSimpleFuncParamImpl(pp);
-        }
-        m_writer->emit(")");
-
-        emitSemantics(func);
     }
+
+    // Next we emit the parameter list of the function.
+    //
+    m_writer->emit("(");
+    auto firstParam = func->getFirstParam();
+    for (auto pp = firstParam; pp; pp = pp->getNextParam())
+    {
+        // Ingore TypeType-typed parameters for now.
+        // In the future we will pass around runtime type info
+        // for TypeType parameters.
+        if (as<IRTypeType>(pp->getFullType()))
+            continue;
+
+        if (pp != firstParam)
+            m_writer->emit(", ");
+
+        emitSimpleFuncParamImpl(pp);
+    }
+    m_writer->emit(")");
+
+    emitSemantics(func);
 
     // TODO: encode declaration vs. definition
     if (isDefinition(func))
@@ -1749,6 +1968,11 @@ void CPPSourceEmitter::emitSimpleValueImpl(IRInst* inst)
     {
         Super::emitSimpleValueImpl(inst);
     }
+}
+
+void CPPSourceEmitter::emitSimpleFuncParamImpl(IRParam* param)
+{
+    CLikeSourceEmitter::emitSimpleFuncParamImpl(param);
 }
 
 void CPPSourceEmitter::emitVectorTypeNameImpl(IRType* elementType, IRIntegerValue elementCount)
@@ -1834,21 +2058,39 @@ void CPPSourceEmitter::emitIntrinsicCallExprImpl(
         else
         {
             // The user is invoking a built-in subscript operator
-            auto prec = getInfo(EmitOp::Postfix);
-            needClose = maybeEmitParens(outerPrec, prec);
 
-            emitOperand(args[0].get(), leftSide(outerPrec, prec));
-            m_writer->emit("[");
-            emitOperand(args[1].get(), getInfo(EmitOp::General));
-            m_writer->emit("]");
+            // Determine if we are calling the `ref` accessor:
+            // `ref` accessor returns a pointer of element type.
+            auto ptrType = as<IRPtrType>(inst->getFullType());
+            auto resourceType = inst->getOperand(1)->getFullType();
+            auto elementType = resourceType ? resourceType->getOperand(0) : nullptr;
+            bool isRef = ptrType && ptrType->getValueType() == elementType;
 
+            auto emitSubscript = [this, &args](EmitOpInfo _outerPrec)
+            {
+                auto prec = getInfo(EmitOp::Postfix);
+                bool needCloseSubscript = maybeEmitParens(_outerPrec, prec);
+                emitOperand(args[0].get(), leftSide(_outerPrec, prec));
+                m_writer->emit("[");
+                emitOperand(args[1].get(), getInfo(EmitOp::General));
+                m_writer->emit("]");
+                maybeCloseParens(needCloseSubscript);
+            };
+
+            if (isRef)
+            {
+                auto prefixPrec = getInfo(EmitOp::Prefix);
+                needClose = maybeEmitParens(outerPrec, prefixPrec);
+                m_writer->emit("&");
+                outerPrec = rightSide(outerPrec, prefixPrec);
+            }
+            emitSubscript(outerPrec);
+            maybeCloseParens(needClose);
             if (argCount == 3)
             {
                 m_writer->emit(" = ");
                 emitOperand(args[2].get(), getInfo(EmitOp::General));
             }
-
-            maybeCloseParens(needClose);
         }
 
         return;
@@ -1953,6 +2195,62 @@ bool CPPSourceEmitter::tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOut
             // try doing automatically
             return _tryEmitInstExprAsIntrinsic(inst, inOuterPrec);
         }
+        case kIROp_lookup_interface_method:
+        {
+            emitInstExpr(inst->getOperand(0), inOuterPrec);
+            m_writer->emit("->");
+            m_writer->emit(getName(inst->getOperand(1)));
+            return true;
+        }
+        case kIROp_WitnessTable:
+        {
+            m_writer->emit("(&");
+            m_writer->emit(getName(inst));
+            m_writer->emit(")");
+            return true;
+        }
+        case kIROp_getAddr:
+        {
+            // Once we clean up the pointer emitting logic, we can
+            // just use GetElementAddress instruction in place of
+            // getAddr instruction, and this case can be removed.
+            m_writer->emit("(&(");
+            emitInstExpr(inst->getOperand(0), EmitOpInfo::get(EmitOp::General));
+            m_writer->emit("))");
+            return true;
+        }
+        case kIROp_RTTIObject:
+        {
+            m_writer->emit(getName(inst));
+            return true;
+        }
+        case kIROp_Alloca:
+        {
+            m_writer->emit("alloca(");
+            emitOperand(inst->getOperand(0), EmitOpInfo::get(EmitOp::Postfix));
+            m_writer->emit("->typeSize)");
+            return true;
+        }
+        case kIROp_Copy:
+        {
+            m_writer->emit("memcpy(");
+            emitOperand(inst->getOperand(0), EmitOpInfo::get(EmitOp::General));
+            m_writer->emit(", ");
+            emitOperand(inst->getOperand(1), EmitOpInfo::get(EmitOp::General));
+            m_writer->emit(", ");
+            emitOperand(inst->getOperand(2), EmitOpInfo::get(EmitOp::Postfix));
+            m_writer->emit("->typeSize)");
+            return true;
+        }
+        case kIROp_BitCast:
+        {
+            m_writer->emit("((");
+            emitType(inst->getDataType());
+            m_writer->emit(")(");
+            emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+            m_writer->emit("))");
+            return true;
+        }
     }
 }
 
@@ -1984,6 +2282,18 @@ void CPPSourceEmitter::emitPreprocessorDirectivesImpl()
     SourceWriter* writer = getSourceWriter();
 
     writer->emit("\n");
+
+    
+    if (m_target == CodeGenTarget::CPPSource)
+    {
+        // Put all into an anonymous namespace
+        // This includes any generated types, and generated intrinsics
+        if (!m_compileRequest->getLinkage()->m_heterogeneous)
+            m_writer->emit("namespace { // anonymous \n\n");
+        m_writer->emit("#ifdef SLANG_PRELUDE_NAMESPACE\n");
+        m_writer->emit("using namespace SLANG_PRELUDE_NAMESPACE;\n");
+        m_writer->emit("#endif\n\n");
+    }
 
     if (m_target == CodeGenTarget::CSource)
     {
@@ -2020,7 +2330,6 @@ void CPPSourceEmitter::emitPreprocessorDirectivesImpl()
         {
             _maybeEmitSpecializedOperationDefinition(intrinsic);
         }
-        
     }
 }
 
@@ -2034,79 +2343,11 @@ void CPPSourceEmitter::emitOperandImpl(IRInst* inst, EmitOpInfo const&  outerPre
 
     switch (inst->op)
     {
-        case 0: // nothing yet
-        case kIROp_GlobalParam:
-        {            
-            String name = getName(inst);
-
-            if (inst->findDecorationImpl(kIROp_EntryPointParamDecoration))
-            {
-                // It's an entry point parameter
-                // The parameter is held in a struct so always deref
-                m_writer->emit("(*");
-                m_writer->emit(name);
-                m_writer->emit(")");
-            }
-            else
-            {
-                // It's in UniformState
-                m_writer->emit("(");
-
-                switch (inst->getDataType()->op)
-                {
-                    case kIROp_ParameterBlockType:
-                    case kIROp_ConstantBufferType:
-                    case kIROp_StructType:
-                    {
-                        m_writer->emit("*");
-                        break;
-                    }
-                    default: break;
-                }
-
-                m_writer->emit("uniformState->");
-                m_writer->emit(name);
-                m_writer->emit(")");
-            }
-            break;
-        }
-        case kIROp_Param:
-        {
-            auto varLayout = getVarLayout(inst);
-
-            if (varLayout)
-            {
-                if(auto systemValueSemantic = varLayout->findSystemValueSemanticAttr())
-                {
-                    String semanticNameSpelling = systemValueSemantic->getName();
-                    semanticNameSpelling = semanticNameSpelling.toLower();
-
-                    if (semanticNameSpelling == "sv_dispatchthreadid")
-                    {
-                        m_semanticUsedFlags |= SemanticUsedFlag::DispatchThreadID;
-                        m_writer->emit("dispatchThreadID");
-                        return;
-                    }
-                    else if (semanticNameSpelling == "sv_groupid")
-                    {
-                        m_semanticUsedFlags |= SemanticUsedFlag::GroupID;
-                        m_writer->emit("groupID");
-                        return;
-                    }
-                    else if (semanticNameSpelling == "sv_groupthreadid")
-                    {
-                        m_semanticUsedFlags |= SemanticUsedFlag::GroupThreadID;
-                        m_writer->emit("calcGroupThreadID()");
-                        return;
-                    }
-                }
-            }
-
-            ;   // Fall-thru
-        }
+        case kIROp_Var:
         case kIROp_GlobalVar:
+            emitVarExpr(inst, outerPrec);
+            break;
         default:
-            // GlobalVar should be fine as should just be a member of Context
             m_writer->emit(getName(inst));
             break;
     }
@@ -2131,7 +2372,7 @@ static bool _isFunction(IROp op)
     return op == kIROp_Func;
 }
 
-void CPPSourceEmitter::_emitEntryPointDefinitionStart(IRFunc* func, IRGlobalParam* entryPointGlobalParams, const String& funcName, const UnownedStringSlice& varyingTypeName)
+void CPPSourceEmitter::_emitEntryPointDefinitionStart(IRFunc* func, const String& funcName, const UnownedStringSlice& varyingTypeName)
 {
     auto resultType = func->getResultType();
     
@@ -2144,28 +2385,11 @@ void CPPSourceEmitter::_emitEntryPointDefinitionStart(IRFunc* func, IRGlobalPara
 
     m_writer->emit("(");
     m_writer->emit(varyingTypeName);
-    m_writer->emit("* varyingInput, UniformEntryPointParams* params, UniformState* uniformState)");
+    m_writer->emit("* varyingInput, void* entryPointParams, void* globalParams)");
     emitSemantics(func);
     m_writer->emit("\n{\n");
 
     m_writer->indent();
-    // Initialize when constructing so that globals are zeroed
-    m_writer->emit("Context context = {};\n");
-    m_writer->emit("context.uniformState = uniformState;\n");
-    
-    if (entryPointGlobalParams)
-    {
-        auto varDecl = entryPointGlobalParams;
-        auto rawType = varDecl->getDataType();
-
-        auto varType = rawType;
-
-        m_writer->emit("context.");
-        m_writer->emit(getName(varDecl));
-        m_writer->emit(" =  (");
-        emitType(varType);
-        m_writer->emit("*)params; \n");
-    }
 }
 
 void CPPSourceEmitter::_emitEntryPointDefinitionEnd(IRFunc* func)
@@ -2220,19 +2444,19 @@ void CPPSourceEmitter::_emitEntryPointGroup(const Int sizeAlongAxis[kThreadGroup
         const auto& axis = axes[i];
         builder.Clear();
         const char elem[2] = { s_elemNames[axis.axis], 0 };
-        builder << "for (uint32_t " << elem << " = start." << elem << "; " << elem << " < start." << elem << " + " << axis.size << "; ++" << elem << ")\n{\n";
+        builder << "for (uint32_t " << elem << " = 0; " << elem << " < " << axis.size << "; ++" << elem << ")\n{\n";
         m_writer->emit(builder);
         m_writer->indent();
 
         builder.Clear();
-        builder << "context.dispatchThreadID." << elem << " = " << elem << ";\n";
+        builder << "threadInput.groupThreadID." << elem << " = " << elem << ";\n";
         m_writer->emit(builder);
     }
 
     // just call at inner loop point
-    m_writer->emit("context._");
+    m_writer->emit("_");
     m_writer->emit(funcName);
-    m_writer->emit("();\n");
+    m_writer->emit("(&threadInput, entryPointParams, globalParams);\n");
 
     // Close all the loops
     for (Index i = Index(axes.getCount() - 1); i >= 0; --i)
@@ -2255,57 +2479,20 @@ void CPPSourceEmitter::_emitEntryPointGroupRange(const Int sizeAlongAxis[kThread
         builder.Clear();
         const char elem[2] = { s_elemNames[axis.axis], 0 };
 
-        if (m_semanticUsedFlags & SemanticUsedFlag::GroupThreadID)
-        {
-            builder << "context.groupDispatchThreadID." << elem << " = start." << elem << ";\n";
-        }
-        if (m_semanticUsedFlags & SemanticUsedFlag::GroupID)
-        {
-            builder << "context.groupID." << elem << " += varyingInput->startGroupID." << elem << ";\n";
-        }
-
-        builder << "for (uint32_t " << elem << " = start." << elem << "; " << elem << " < end." << elem << "; ++" << elem << ")\n{\n";
+        builder << "for (uint32_t " << elem << " = vi.startGroupID." << elem << "; " << elem << " < vi.endGroupID." << elem << "; ++" << elem << ")\n{\n";
         m_writer->emit(builder);
         m_writer->indent();
 
-        builder.Clear();
-        builder << "context.dispatchThreadID." << elem << " = " << elem << ";\n";
-
-        if (m_semanticUsedFlags & (SemanticUsedFlag::GroupThreadID | SemanticUsedFlag::GroupID))
-        {
-            if (sizeAlongAxis[axis.axis] > 1)
-            {
-                builder << "const uint32_t next = context.groupDispatchThreadID." << elem << " + " << axis.size <<";\n";
-
-                if (m_semanticUsedFlags & SemanticUsedFlag::GroupID)
-                {
-                    builder << "context.groupID." << elem << " += uint32_t(next == " << elem << ");\n";
-                }
-                if (m_semanticUsedFlags & SemanticUsedFlag::GroupThreadID)
-                {
-                    builder << "context.groupDispatchThreadID." << elem << " = (" << elem << " == next) ? next : context.groupDispatchThreadID." << elem << ";\n";
-                }
-            }
-            else
-            {
-                if (m_semanticUsedFlags & SemanticUsedFlag::GroupThreadID)
-                {
-                    builder << "context.groupDispatchThreadID." << elem << " = " << elem << ";\n";
-                }
-                if (m_semanticUsedFlags & SemanticUsedFlag::GroupID)
-                {
-                    builder << "context.groupID." << elem << " = " << elem << ";\n";
-                }
-            }
-        }
-
-        m_writer->emit(builder);
+        m_writer->emit("groupVaryingInput.startGroupID.");
+        m_writer->emit(elem);
+        m_writer->emit(" = ");
+        m_writer->emit(elem);
+        m_writer->emit(";\n");
     }
 
     // just call at inner loop point
-    m_writer->emit("context._");
     m_writer->emit(funcName);
-    m_writer->emit("();\n");
+    m_writer->emit("_Group(&groupVaryingInput, entryPointParams, globalParams);\n");
 
     // Close all the loops
     for (Index i = Index(axes.getCount() - 1); i >= 0; --i)
@@ -2365,75 +2552,93 @@ void CPPSourceEmitter::_emitForwardDeclarations(const List<EmitAction>& actions)
     }
 }
 
-void CPPSourceEmitter::_calcGlobalParams(const List<EmitAction>& actions, List<GlobalParamInfo>& outParams, IRGlobalParam** outEntryPointGlobalParams)
-{
-    outParams.clear();
-    *outEntryPointGlobalParams = nullptr;
-
-    IRGlobalParam* entryPointGlobalParams = nullptr;
-    for (auto action : actions)
-    {
-        if (action.level == EmitAction::Level::Definition && action.inst->op == kIROp_GlobalParam)
-        {
-            auto inst = action.inst;
-
-            if (inst->findDecorationImpl(kIROp_EntryPointParamDecoration))
-            {
-                // Should only be one instruction marked this way
-                SLANG_ASSERT(entryPointGlobalParams == nullptr);
-                entryPointGlobalParams = as<IRGlobalParam>(inst);
-                continue;
-            }
-
-            IRVarLayout* varLayout = CLikeSourceEmitter::getVarLayout(action.inst);
-            SLANG_ASSERT(varLayout);
-
-            IRVarOffsetAttr* offsetAttr = varLayout->findOffsetAttr(LayoutResourceKind::Uniform);
-            IRTypeLayout* typeLayout = varLayout->getTypeLayout();
-            IRTypeSizeAttr* sizeAttr = typeLayout->findSizeAttr(LayoutResourceKind::Uniform);
-
-            GlobalParamInfo paramInfo;
-            paramInfo.inst = action.inst;
-            // Index is the byte offset for uniform
-            paramInfo.offset = offsetAttr ? offsetAttr->getOffset() : 0;
-            paramInfo.size = sizeAttr ? sizeAttr->getFiniteSize() : 0;
-
-            outParams.add(paramInfo);
-        }
-    }
-
-    // We want to sort by layout offset, and insert suitable padding
-    outParams.sort();
-
-    *outEntryPointGlobalParams = entryPointGlobalParams;
-}
-
-void CPPSourceEmitter::_emitUniformStateMembers(const List<EmitAction>& actions, IRGlobalParam** outEntryPointGlobalParams)
-{
-    List<GlobalParamInfo> params;
-    _calcGlobalParams(actions, params, outEntryPointGlobalParams);
-
-    int padIndex = 0;
-    size_t offset = 0;
-    for (const auto& paramInfo : params)
-    {
-        if (offset < paramInfo.offset)
-        {
-            // We want to output some padding
-            StringBuilder builder;
-            builder << "uint8_t _pad" << (padIndex++) << "[" << (paramInfo.offset - offset) << "];\n";
-            m_writer->emit(builder);
-        }
-
-        emitGlobalInst(paramInfo.inst);
-        // Set offset after this 
-        offset = paramInfo.offset + paramInfo.size;
-    }
-    m_writer->emit("\n");
-}
-
 void CPPSourceEmitter::emitModuleImpl(IRModule* module)
 {
+    // If we are emitting a heterogeneous program
+    // Emit the binary blob of each non-CPP target
+    ComponentType* program = m_compileRequest->getProgram();
+    auto linkage = m_compileRequest->getLinkage();
+    if (linkage->m_heterogeneous)
+    {
+        for (auto inst : module->getGlobalInsts())
+        {
+            auto func = as<IRFunc>(inst);
+            if (!func)
+                continue;
+            if (auto entryPointDecoration = func->findDecoration<IREntryPointDecoration>())
+            {
+                String entryPointName  = entryPointDecoration->getName()->getStringSlice();
+                for (int index = 0; index < program->getEntryPointCount(); index++)
+                {
+                    auto entryPoint = program->getEntryPoint(index);
+                    if (entryPointName  == entryPoint->getName()->text)
+                    {
+                        for (auto targetRequest : linkage->targets)
+                        {
+                            // Emit for all non-CPU targets
+                            switch (targetRequest->getTarget())
+                            {
+                            case(CodeGenTarget::CPPSource):
+                            case(CodeGenTarget::CSource):
+                            case(CodeGenTarget::HostCallable):
+                            case(CodeGenTarget::CUDASource):
+
+                                break;
+
+                            default:
+
+                                auto targetProgram = program->getTargetProgram(targetRequest);
+                                DiagnosticSink sink(linkage->getSourceManager());
+                                CompileResult result =
+                                    targetProgram->getOrCreateEntryPointResult(index, &sink);
+
+                                Slang::ComPtr<ISlangBlob> blob;
+                                result.getBlob(blob);
+                                auto ptr = (const unsigned char*)blob->getBufferPointer();
+
+                                m_writer->emit("size_t __");
+                                m_writer->emit(entryPointName );
+                                m_writer->emit("Size = ");
+                                m_writer->emitInt64(blob->getBufferSize());
+                                m_writer->emit(";\n");
+
+                                m_writer->emit("unsigned char __");
+                                m_writer->emit(entryPointName );
+                                m_writer->emit("[] = {");
+                                for (unsigned int i = 0; i < blob->getBufferSize() - 1; i++) {
+                                    m_writer->emitUInt64(ptr[i]);
+                                    m_writer->emit(", ");
+                                }
+                                m_writer->emitUInt64(ptr[blob->getBufferSize() - 1]);
+                                m_writer->emit("};\n");
+                            }
+                        }
+                        // Emit a wrapper function for calling the shader blob
+                        m_writer->emit("void ");
+                        m_writer->emit(entryPointName);
+                        m_writer->emit("_wrapper(gfx_Renderer_0* renderer, Vector<uint32_t, 3> gridDims, \n");
+                        m_writer->emit("\tRWStructuredBuffer<float> buffer)\n{");
+                        m_writer->emit("\n\tgfx_ShaderProgram_0* shaderProgram = loadShaderProgram_0(renderer, __");
+                        m_writer->emit(entryPointName);
+                        m_writer->emit(", __");
+                        m_writer->emit(entryPointName);
+                        m_writer->emit("Size);");
+                        m_writer->emit("\n\tgfx_DescriptorSetLayout_0* setLayout = buildDescriptorSetLayout_0(renderer);");
+                        m_writer->emit("\n\tgfx_PipelineLayout_0* pipelineLayout = buildPipeline_0(renderer, setLayout);");
+                        m_writer->emit("\n\tgfx_DescriptorSet_0* descriptorSet = ");
+                        m_writer->emit("buildDescriptorSet_0(renderer, setLayout, unconvertBuffer_0(buffer));");
+                        m_writer->emit("\n\tgfx_PipelineState_0* pipelineState = ");
+                        m_writer->emit("buildPipelineState_0(shaderProgram, renderer, pipelineLayout);");
+
+                        m_writer->emit("\n\tdispatchComputation_0(renderer, pipelineState, pipelineLayout, ");
+                        m_writer->emit("descriptorSet, gridDims.x, gridDims.y, gridDims.z);");
+                        m_writer->emit("\n}\n");
+                    }
+                }
+            }
+        }
+    }
+
     // Setup all built in types used in the module
     m_typeSet.addAllBuiltinTypes(module);
     // If any matrix types are used, then we need appropriate vector types too.
@@ -2441,56 +2646,11 @@ void CPPSourceEmitter::emitModuleImpl(IRModule* module)
 
     List<EmitAction> actions;
     computeEmitActions(module, actions);
-
+    
     _emitForwardDeclarations(actions);
 
-    IRGlobalParam* entryPointGlobalParams = nullptr;
-
-    // Output the global parameters in a 'UniformState' structure
+    
     {
-        m_writer->emit("struct UniformState\n{\n");
-        m_writer->indent();
-
-        _emitUniformStateMembers(actions, &entryPointGlobalParams);
-
-        m_writer->dedent();
-        m_writer->emit("\n};\n\n");
-    }
-
-    // Output the 'Context' which will be used for execution
-    {
-        m_writer->emit("struct Context\n{\n");
-        m_writer->indent();
-
-        m_writer->emit("UniformState* uniformState;\n");
-
-        
-        m_writer->emit("uint3 dispatchThreadID;\n");
-
-        //if (m_semanticUsedFlags & SemanticUsedFlag::GroupID)
-        {
-            // Note not always set!
-            m_writer->emit("uint3 groupID;\n");
-        }
-
-        //if (m_semanticUsedFlags & SemanticUsedFlag::GroupThreadID)
-        {
-            m_writer->emit("uint3 groupDispatchThreadID;\n");
-
-            m_writer->emit("uint3 calcGroupThreadID() const \n{\n");
-            m_writer->indent();
-            // groupThreadID = dispatchThreadID - groupDispatchThreadID
-            m_writer->emit("uint3 v = { dispatchThreadID.x - groupDispatchThreadID.x, dispatchThreadID.y - groupDispatchThreadID.y, dispatchThreadID.z - groupDispatchThreadID.z };\n");
-            m_writer->emit("return v;\n");
-            m_writer->dedent();
-            m_writer->emit("}\n");
-        }
-
-        if (entryPointGlobalParams)
-        {
-            emitGlobalInst(entryPointGlobalParams);
-        }
-
         // Output all the thread locals 
         for (auto action : actions)
         {
@@ -2508,9 +2668,16 @@ void CPPSourceEmitter::emitModuleImpl(IRModule* module)
                 emitGlobalInst(action.inst);
             }
         }
+    }
 
-        m_writer->dedent();
-        m_writer->emit("};\n\n");
+    // Emit all witness table definitions.
+    _emitWitnessTableDefinitions();
+
+    if (m_target == CodeGenTarget::CPPSource)
+    {
+        // Need to close the anonymous namespace when outputting for C++
+        if (!linkage->m_heterogeneous)
+            m_writer->emit("} // anonymous\n\n");
     }
 
      // Finally we need to output dll entry points
@@ -2523,11 +2690,8 @@ void CPPSourceEmitter::emitModuleImpl(IRModule* module)
 
             IREntryPointDecoration* entryPointDecor = func->findDecoration<IREntryPointDecoration>();
           
-            if (entryPointDecor && entryPointDecor->getProfile().GetStage() == Stage::Compute)
+            if (entryPointDecor && entryPointDecor->getProfile().getStage() == Stage::Compute)
             {
-                // https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/sv-dispatchthreadid
-                // SV_DispatchThreadID is the sum of SV_GroupID * numthreads and GroupThreadID.
-
                 Int groupThreadSize[kThreadGroupAxisCount];
                 getComputeThreadGroupSize(func, groupThreadSize);
                 
@@ -2539,25 +2703,11 @@ void CPPSourceEmitter::emitModuleImpl(IRModule* module)
 
                     String threadFuncName = builder;
 
-                    _emitEntryPointDefinitionStart(func, entryPointGlobalParams, threadFuncName, UnownedStringSlice::fromLiteral("ComputeThreadVaryingInput"));
+                    _emitEntryPointDefinitionStart(func, threadFuncName, UnownedStringSlice::fromLiteral("ComputeThreadVaryingInput"));
 
-                    if (m_semanticUsedFlags & SemanticUsedFlag::GroupThreadID)
-                    {
-                        m_writer->emit("context.groupDispatchThreadID = ");
-                        _emitInitAxisValues(groupThreadSize, UnownedStringSlice::fromLiteral("varyingInput->groupID"), UnownedStringSlice());
-                    }
-                    if (m_semanticUsedFlags & SemanticUsedFlag::GroupID)
-                    {
-                        m_writer->emit("context.groupID = varyingInput->groupID;\n");
-                    }
-
-                    // Emit dispatchThreadID
-                    m_writer->emit("context.dispatchThreadID = ");
-                    _emitInitAxisValues(groupThreadSize, UnownedStringSlice::fromLiteral("varyingInput->groupID"), UnownedStringSlice::fromLiteral("varyingInput->groupThreadID"));
-
-                    m_writer->emit("context._");
+                    m_writer->emit("_");
                     m_writer->emit(funcName);
-                    m_writer->emit("();\n");
+                    m_writer->emit("(varyingInput, entryPointParams, globalParams);\n");
 
                     _emitEntryPointDefinitionEnd(func);
                 }
@@ -2570,21 +2720,10 @@ void CPPSourceEmitter::emitModuleImpl(IRModule* module)
 
                     String groupFuncName = builder;
 
-                    _emitEntryPointDefinitionStart(func, entryPointGlobalParams, groupFuncName, UnownedStringSlice::fromLiteral("ComputeVaryingInput"));
+                    _emitEntryPointDefinitionStart(func, groupFuncName, UnownedStringSlice::fromLiteral("ComputeVaryingInput"));
 
-                    m_writer->emit("const uint3 start = ");
-                    _emitInitAxisValues(groupThreadSize, UnownedStringSlice::fromLiteral("varyingInput->startGroupID"), UnownedStringSlice());
-
-                    if (m_semanticUsedFlags & SemanticUsedFlag::GroupThreadID)
-                    {
-                        m_writer->emit("context.groupDispatchThreadID = start;\n");
-                    }
-
-                    if (m_semanticUsedFlags & SemanticUsedFlag::GroupID)
-                    {
-                        m_writer->emit("context.groupID = varyingInput->startGroupID;\n");
-                    }
-                    m_writer->emit("context.dispatchThreadID = start;\n");
+                    m_writer->emit("ComputeThreadVaryingInput threadInput = {};\n");
+                    m_writer->emit("threadInput.groupID = varyingInput->startGroupID;\n");
 
                     _emitEntryPointGroup(groupThreadSize, funcName);
                     _emitEntryPointDefinitionEnd(func);
@@ -2592,12 +2731,9 @@ void CPPSourceEmitter::emitModuleImpl(IRModule* module)
 
                 // Emit the main version - which takes a dispatch size
                 {
-                    _emitEntryPointDefinitionStart(func, entryPointGlobalParams, funcName, UnownedStringSlice::fromLiteral("ComputeVaryingInput"));
-
-                    m_writer->emit("const uint3 start = ");
-                    _emitInitAxisValues(groupThreadSize, UnownedStringSlice::fromLiteral("varyingInput->startGroupID"), UnownedStringSlice());
-                    m_writer->emit("const uint3 end = ");
-                    _emitInitAxisValues(groupThreadSize, UnownedStringSlice::fromLiteral("varyingInput->endGroupID"), UnownedStringSlice());
+                    _emitEntryPointDefinitionStart(func, funcName, UnownedStringSlice::fromLiteral("ComputeVaryingInput"));
+                    m_writer->emit("ComputeVaryingInput vi = *varyingInput;\n");
+                    m_writer->emit("ComputeVaryingInput groupVaryingInput = {};\n");
 
                     _emitEntryPointGroupRange(groupThreadSize, funcName);
                     _emitEntryPointDefinitionEnd(func);

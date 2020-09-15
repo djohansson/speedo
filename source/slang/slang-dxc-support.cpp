@@ -49,7 +49,82 @@ namespace Slang
         return UnownedStringSlice();
     }
 
-    SlangResult createDXCInstance(Slang::Session* session, Slang::DiagnosticSink* sink, ComPtr<IDxcCompiler>& dxcCompiler, ComPtr<IDxcLibrary>& dxcLibrary)
+    // IDxcIncludeHandler
+    // 7f61fc7d-950d-467f-b3e3-3c02fb49187c
+    static const Guid IID_IDxcIncludeHandler = { 0x7f61fc7d, 0x950d, 0x467f, { 0x3c, 0x02, 0xfb, 0x49, 0x18, 0x7c } };
+    static const Guid IID_IUnknown = SLANG_UUID_ISlangUnknown;
+
+    class DxcIncludeHandler : public IDxcIncludeHandler
+    {
+    public:
+        // Implement IUnknown
+        SLANG_NO_THROW HRESULT SLANG_MCALL QueryInterface(const IID& uuid, void** out)
+        { 
+            ISlangUnknown* intf = getInterface(reinterpret_cast<const Guid&>(uuid)); 
+            if (intf) 
+            { 
+                *out = intf; 
+                return SLANG_OK;
+            } 
+            return SLANG_E_NO_INTERFACE;
+        }
+        SLANG_NO_THROW ULONG SLANG_MCALL AddRef() SLANG_OVERRIDE { return 1; }
+        SLANG_NO_THROW ULONG SLANG_MCALL Release() SLANG_OVERRIDE { return 1; }
+
+        // Implement IDxcIncludeHandler
+        virtual HRESULT SLANG_MCALL LoadSource(LPCWSTR inFilename, IDxcBlob** outSource) SLANG_OVERRIDE
+        {
+            // Hmm DXC does something a bit odd - when it sees a path, it just passes that in with ./ in front!!
+            // NOTE! It doesn't make any difference if it is "" or <> quoted.
+
+            // So we just do a work around where we strip if we see a path starting with ./
+            String filePath = String::fromWString(inFilename);
+
+            // If it starts with ./ then attempt to strip it
+            if (filePath.startsWith("./"))
+            {
+                String remaining(filePath.subString(2, filePath.getLength() - 2));
+
+                // Okay if we strip ./ and what we have is absolute, then it's the absolute path that we care about,
+                // otherwise we just leave as is.
+                if (Path::isAbsolute(remaining))
+                {
+                    filePath = remaining;
+                }
+            }
+
+            ComPtr<ISlangBlob> blob;
+            PathInfo pathInfo;
+            SlangResult res = m_system.findAndLoadFile(filePath, String(), pathInfo, blob);
+
+            // NOTE! This only works because ISlangBlob is *binary compatible* with IDxcBlob, if either
+            // change things could go boom
+            *outSource = (IDxcBlob*)blob.detach();
+            return res;
+        }
+
+        DxcIncludeHandler(SearchDirectoryList* searchDirectories, ISlangFileSystemExt* fileSystemExt, SourceManager* sourceManager = nullptr) :
+            m_system(searchDirectories, fileSystemExt, sourceManager)
+        {
+        }
+
+    protected:
+
+        // Used by QueryInterface for casting
+        ISlangUnknown* getInterface(const Guid& guid)
+        {
+            if (guid == IID_IUnknown || guid == IID_IDxcIncludeHandler)
+            {
+                return (ISlangUnknown*)(static_cast<IDxcIncludeHandler*>(this));
+            }
+            return nullptr;
+        }
+
+        IncludeSystem m_system;
+    };
+
+
+	SlangResult createDXCInstance(Slang::Session* session, Slang::DiagnosticSink* sink, ComPtr<IDxcCompiler>& dxcCompiler, ComPtr<IDxcLibrary>& dxcLibrary)
     {
         // First deal with all the rigamarole of loading
         // the `dxcompiler` library, and creating the
@@ -76,16 +151,17 @@ namespace Slang
     }
 
     SlangResult compileUsingDXC(
-        IDxcCompiler*   dxcCompiler,
-        IDxcLibrary*    dxcLibrary,
-        DiagnosticSink* sink,
-        EntryPoint*     entryPoint,
-        Profile&        profile,
-        const String&   hlslCode,
-        const wchar_t*  sourceName,
-        LPCWSTR*        args,
-        UINT32          argCount,
-        List<uint8_t>&  outCode)
+        IDxcCompiler*   	dxcCompiler,
+        IDxcLibrary*    	dxcLibrary,
+		DxcIncludeHandler* 	dxcIncludeHandler,
+        DiagnosticSink* 	sink,
+        EntryPoint*     	entryPoint,
+        Profile&        	profile,
+        const String&   	hlslCode,
+        const wchar_t*  	sourceName,
+        LPCWSTR*        	args,
+        UINT32          	argCount,
+        List<uint8_t>&  	outCode)
     {
         ComPtr<IDxcOperationResult> dxcResult;
 
@@ -105,13 +181,13 @@ namespace Slang
 
         SLANG_RETURN_ON_FAIL(dxcCompiler->Compile(dxcSourceBlob,
             sourceName,
-            profile.GetStage() == Stage::Unknown ? L"" : wideEntryPointName.begin(),
+            profile.getStage() == Stage::Unknown ? L"" : wideEntryPointName.begin(),
             wideProfileName.begin(),
             args,
             argCount,
-            nullptr,        // `#define`s
-            0,              // `#define` count
-            nullptr,        // `#include` handler
+            nullptr,        			// `#define`s
+            0,              			// `#define` count
+            dxcIncludeHandler,        	// `#include` handler
             dxcResult.writeRef()));
 
         // Retrieve result.
@@ -220,7 +296,7 @@ namespace Slang
         // TODO: Ideally the dxc back-end should be passed some information
         // on the "capabilities" that were used and/or requested in the code.
         //
-        if( profile.GetVersion() >= ProfileVersion::DX_6_2 )
+        if( profile.getVersion() >= ProfileVersion::DX_6_2 )
         {
             outArgs[outArgCount++] = L"-enable-16bit-types";
         }
@@ -228,8 +304,8 @@ namespace Slang
 
 
     SlangResult emitDXILForEntryPointUsingDXC(
+        ComponentType*          program,
         BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
@@ -238,6 +314,7 @@ namespace Slang
         auto session = compileRequest->getSession();
         auto sink = compileRequest->getSink();
         auto linkage = compileRequest->getLinkage();
+        auto entryPoint = program->getEntryPoint(entryPointIndex);
         auto profile = getEffectiveProfile(entryPoint, targetReq);
 
         ComPtr<IDxcCompiler> dxcCompiler;
@@ -278,7 +355,9 @@ namespace Slang
         case OptimizationLevel::Maximal:    args[argCount++] = L"-O3"; break;
         }
 
-        return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
+		DxcIncludeHandler includeHandler(&linkage->searchDirectories, linkage->getFileSystemExt(), compileRequest->getSourceManager());
+
+        return compileUsingDXC(dxcCompiler, dxcLibrary, &includeHandler, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
     }
 
     SlangResult dissassembleDXILUsingDXC(
@@ -308,8 +387,8 @@ namespace Slang
     }
 
     SlangResult emitSPIRVForEntryPointUsingDXC(
+        ComponentType*          program,
         BackEndCompileRequest*  compileRequest,
-        EntryPoint*             entryPoint,
         Int                     entryPointIndex,
         TargetRequest*          targetReq,
         EndToEndCompileRequest* endToEndReq,
@@ -318,6 +397,7 @@ namespace Slang
         auto session = compileRequest->getSession();
         auto sink = compileRequest->getSink();
         auto linkage = compileRequest->getLinkage();
+        auto entryPoint = program->getEntryPoint(entryPointIndex);
         auto profile = getEffectiveProfile(entryPoint, targetReq);
 
         ComPtr<IDxcCompiler> dxcCompiler;
@@ -368,7 +448,9 @@ namespace Slang
         if (targetReq->targetFlags & SLANG_TARGET_FLAG_VK_USE_GL_LAYOUT)
             args[argCount++] = L"-fvk-use-gl-layout";
 
-        return compileUsingDXC(dxcCompiler, dxcLibrary, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
+		DxcIncludeHandler includeHandler(&linkage->searchDirectories, linkage->getFileSystemExt(), compileRequest->getSourceManager());
+
+        return compileUsingDXC(dxcCompiler, dxcLibrary, &includeHandler, sink, entryPoint, profile, hlslCode, sourceName, args, argCount, outCode);
     }
 
 

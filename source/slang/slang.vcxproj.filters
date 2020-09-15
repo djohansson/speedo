@@ -24,6 +24,9 @@
     <ClInclude Include="slang-ast-base.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-ast-builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ast-decl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -40,6 +43,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ast-modifier.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ast-reflect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ast-serialize.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ast-stmt.h">
@@ -105,6 +114,15 @@
     <ClInclude Include="slang-image-format-defs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-include-system.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-any-value-marshalling.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-augment-make-existential.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ir-bind-existentials.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -112,6 +130,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ir-clone.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-collect-global-uniforms.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ir-constexpr.h">
@@ -123,10 +144,25 @@
     <ClInclude Include="slang-ir-dominators.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-ir-entry-point-raw-ptr-params.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ir-entry-point-uniforms.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-ir-explicit-global-context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-explicit-global-init.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-generics-lowering-context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ir-glsl-legalize.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-hoist-local-types.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ir-inline.h">
@@ -141,7 +177,28 @@
     <ClInclude Include="slang-ir-layout.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-ir-legalize-varying-params.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ir-link.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-lower-existential.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-lower-generic-call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-lower-generic-function.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-lower-generic-type.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-lower-generics.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-lower-tuple-types.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ir-missing-return.h">
@@ -162,6 +219,12 @@
     <ClInclude Include="slang-ir-serialize.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-ir-specialize-arrays.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-specialize-function-call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ir-specialize-resources.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -180,6 +243,9 @@
     <ClInclude Include="slang-ir-strip.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="slang-ir-synthesize-active-mask.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="slang-ir-type-set.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -187,6 +253,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ir-validate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="slang-ir-witness-table-wrapper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-ir-wrap-structured-buffers.h">
@@ -237,10 +306,10 @@
     <ClInclude Include="slang-reflection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="slang-source-loc.h">
+    <ClInclude Include="slang-repro.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="slang-state-serialize.h">
+    <ClInclude Include="slang-source-loc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="slang-syntax.h">
@@ -263,10 +332,28 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="slang-ast-builder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ast-decl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ast-dump.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ast-reflect.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ast-serialize.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ast-substitutions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ast-type.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ast-val.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-check-conformance.cpp">
@@ -347,6 +434,15 @@
     <ClCompile Include="slang-hlsl-intrinsic-set.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-include-system.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-any-value-marshalling.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-augment-make-existential.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-bind-existentials.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -356,19 +452,40 @@
     <ClCompile Include="slang-ir-clone.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-ir-collect-global-uniforms.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-constexpr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ir-dce.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-ir-deduplicate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-dominators.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-entry-point-raw-ptr-params.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ir-entry-point-uniforms.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-ir-explicit-global-context.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-explicit-global-init.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-generics-lowering-context.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-glsl-legalize.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-hoist-local-types.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ir-inline.cpp">
@@ -380,7 +497,28 @@
     <ClCompile Include="slang-ir-legalize-types.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-ir-legalize-varying-params.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-link.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-lower-existential.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-lower-generic-call.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-lower-generic-function.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-lower-generic-type.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-lower-generics.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-lower-tuple-types.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ir-missing-return.cpp">
@@ -401,6 +539,12 @@
     <ClCompile Include="slang-ir-serialize.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-ir-specialize-arrays.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-specialize-function-call.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-specialize-resources.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -419,6 +563,9 @@
     <ClCompile Include="slang-ir-strip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="slang-ir-synthesize-active-mask.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="slang-ir-type-set.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -426,6 +573,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ir-validate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="slang-ir-witness-table-wrapper.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-ir-wrap-structured-buffers.cpp">
@@ -473,10 +623,10 @@
     <ClCompile Include="slang-reflection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="slang-source-loc.cpp">
+    <ClCompile Include="slang-repro.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="slang-state-serialize.cpp">
+    <ClCompile Include="slang-source-loc.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="slang-stdlib.cpp">
@@ -499,12 +649,12 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="core.meta.slang">
+    <None Include="core.meta.slang">
       <Filter>Source Files</Filter>
-    </CustomBuild>
-    <CustomBuild Include="hlsl.meta.slang">
+    </None>
+    <None Include="hlsl.meta.slang">
       <Filter>Source Files</Filter>
-    </CustomBuild>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="..\core\core.natvis">
@@ -513,11 +663,5 @@
     <Natvis Include="slang.natvis">
       <Filter>Source Files</Filter>
     </Natvis>
-    <CustomBuild Include="hlsl.meta.slang">
-      <Filter>Source Files</Filter>
-    </CustomBuild>
-    <CustomBuild Include="slang-ast-reflect.h">
-      <Filter>Header Files</Filter>
-    </CustomBuild>
   </ItemGroup>
 </Project>

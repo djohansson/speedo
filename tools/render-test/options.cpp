@@ -18,10 +18,6 @@
 namespace renderer_test {
 using namespace Slang;
 
-static const Options gDefaultOptions = Options();
-
-Options gOptions;
-
 static gfx::RendererType _toRenderType(Slang::RenderApiType apiType)
 {
     using namespace Slang;
@@ -37,23 +33,22 @@ static gfx::RendererType _toRenderType(Slang::RenderApiType apiType)
     }
 }
 
-static SlangResult _setRendererType(RendererType type, const char* arg, Slang::WriterHelper stdError)
+static SlangResult _setRendererType(RendererType type, const char* arg, Slang::WriterHelper stdError, Options& ioOptions)
 {
-    if (gOptions.rendererType != RendererType::Unknown)
+    if (ioOptions.rendererType != RendererType::Unknown)
     {
         stdError.print("Already has renderer option set. Found '%s'\n", arg);
         return SLANG_FAIL;
     }
-    gOptions.rendererType = type;
+    ioOptions.rendererType = type;
     return SLANG_OK;
 }
 
-SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper stdError)
+/* static */SlangResult Options::parse(int argc, const char*const* argv, Slang::WriterHelper stdError, Options& outOptions)
 {
     using namespace Slang;
 
-    // Reset the options
-    gOptions = gDefaultOptions;
+    outOptions = Options();
 
     List<const char*> positionalArgs;
 
@@ -68,7 +63,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
     // first argument is the application name
     if( argCursor != argEnd )
     {
-        gOptions.appName = *argCursor++;
+        outOptions.appName = *argCursor++;
     }
 
     // now iterate over arguments to collect options
@@ -96,7 +91,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 stdError.print("expected argument for '%s' option\n", arg);
                 return SLANG_FAIL;
             }
-            gOptions.outputPath = *argCursor++;
+            outOptions.outputPath = *argCursor++;
         }
         else if (strcmp(arg, "-profile") == 0)
         {
@@ -105,7 +100,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 stdError.print("expected argument for '%s' option\n", arg);
                 return SLANG_FAIL;
             }
-            gOptions.profileName = *argCursor++;
+            outOptions.profileName = *argCursor++;
         }
         else if (strcmp(arg, "-render-features") == 0 || strcmp(arg, "-render-feature") == 0)
         {
@@ -121,7 +116,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
 
             for (const auto& value : values)
             {
-                gOptions.renderFeatures.add(value);
+                outOptions.renderFeatures.add(value);
             }
         }
         else if( strcmp(arg, "-xslang") == 0 )
@@ -133,40 +128,40 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 stdError.print("expected argument for '%s' option\n", arg);
                 return SLANG_FAIL;
             }
-            if( gOptions.slangArgCount == Options::kMaxSlangArgs )
+            if( outOptions.slangArgCount == Options::kMaxSlangArgs )
             {
                 stdError.print("maximum number of '%s' options exceeded (%d)\n", arg, Options::kMaxSlangArgs);
                 return SLANG_FAIL;
             }
-            gOptions.slangArgs[gOptions.slangArgCount++] = *argCursor++;
+            outOptions.slangArgs[outOptions.slangArgCount++] = *argCursor++;
         }
 		else if (strcmp(arg, "-compute") == 0)
 		{
-			gOptions.shaderType = ShaderProgramType::Compute;
+			outOptions.shaderType = ShaderProgramType::Compute;
 		}
 		else if (strcmp(arg, "-graphics") == 0)
 		{
-			gOptions.shaderType = ShaderProgramType::Graphics;
+			outOptions.shaderType = ShaderProgramType::Graphics;
 		}
         else if (strcmp(arg, "-gcompute") == 0)
         {
-            gOptions.shaderType = ShaderProgramType::GraphicsCompute;
+            outOptions.shaderType = ShaderProgramType::GraphicsCompute;
         }
         else if (strcmp(arg, "-rt") == 0)
         {
-            gOptions.shaderType = ShaderProgramType::RayTracing;
+            outOptions.shaderType = ShaderProgramType::RayTracing;
         }
         else if( strcmp(arg, "-use-dxil") == 0 )
         {
-            gOptions.useDXIL = true;
+            outOptions.useDXIL = true;
         }
         else if( strcmp(arg, "-use-dxc-spirv") == 0 )
         {
-            gOptions.useDxcSpirv = true;
+            outOptions.useDxcSpirv = true;
         }
         else if (strcmp(arg, "-only-startup") == 0)
         {
-            gOptions.onlyStartup = true;
+            outOptions.onlyStartup = true;
         }
         else if (strcmp(arg, "-compile-arg") == 0)
         {
@@ -179,11 +174,11 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
             CommandLine::Arg arg;
             arg.type = CommandLine::ArgType::Escaped;
             arg.value = *argCursor++;
-            gOptions.compileArgs.add(arg);
+            outOptions.compileArgs.add(arg);
         }
         else if (strcmp(arg, "-performance-profile") == 0)
         {
-            gOptions.performanceProfile = true;
+            outOptions.performanceProfile = true;
         }
         else if (strcmp(arg, "-adapter") == 0)
         {
@@ -193,11 +188,11 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 return SLANG_FAIL;
             }
 
-            gOptions.adapter = *argCursor++;
+            outOptions.adapter = *argCursor++;
         }
         else if (strcmp(arg, "-output-using-type") == 0)
         {
-            gOptions.outputUsingType = true;
+            outOptions.outputUsingType = true;
         }
         else if (strcmp(arg, "-compute-dispatch") == 0)
         {
@@ -224,7 +219,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                     stdError.print("error: expected 3 comma positive integers for compute dispatch size for '%s'\n", arg);
                     return SLANG_FAIL;
                 }
-                gOptions.computeDispatchSize[i] = v;
+                outOptions.computeDispatchSize[i] = v;
             }
         }
         else if (strcmp(arg, "-source-language") == 0)
@@ -243,11 +238,21 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 return SLANG_FAIL;
             }
 
-            gOptions.sourceLanguage = sourceLanguage;
+            outOptions.sourceLanguage = sourceLanguage;
         }
         else if( strcmp(arg, "-no-default-entry-point") == 0 )
         {
-            gOptions.dontAddDefaultEntryPoints = true;
+            outOptions.dontAddDefaultEntryPoints = true;
+        }
+        else if (strcmp(arg, "-nvapi-slot") == 0)
+        {
+            if (argCursor == argEnd)
+            {
+                stdError.print("error: expecting a register name for '%s'\n", arg);
+                return SLANG_FAIL;
+            }
+
+            outOptions.nvapiExtnSlot = (*argCursor++);
         }
         else
         {
@@ -261,7 +266,7 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
 
                 if (rendererType != RendererType::Unknown)
                 {
-                    gOptions.rendererType = rendererType;
+                    outOptions.rendererType = rendererType;
                     continue;
                 }
 
@@ -269,8 +274,8 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
                 RendererType languageRenderType = _toRenderType(RenderApiUtil::findImplicitLanguageRenderApiType(argName));
                 if (languageRenderType != RendererType::Unknown)
                 {
-                    gOptions.targetLanguageRendererType = languageRenderType;
-                    gOptions.inputLanguageID = (argName == "hlsl" || argName == "glsl" || argName == "cpp" || argName == "cxx" || argName == "c") ?  InputLanguageID::Native : InputLanguageID::Slang;
+                    outOptions.targetLanguageRendererType = languageRenderType;
+                    outOptions.inputLanguageID = (argName == "hlsl" || argName == "glsl" || argName == "cpp" || argName == "cxx" || argName == "c") ?  InputLanguageID::Native : InputLanguageID::Slang;
                     continue;
                 }
             }
@@ -281,12 +286,12 @@ SlangResult parseOptions(int argc, const char*const* argv, Slang::WriterHelper s
     }
 
     // If a render option isn't set use defaultRenderType 
-    gOptions.rendererType = (gOptions.rendererType == RendererType::Unknown) ? gOptions.targetLanguageRendererType : gOptions.rendererType;
+    outOptions.rendererType = (outOptions.rendererType == RendererType::Unknown) ? outOptions.targetLanguageRendererType : outOptions.rendererType;
 
     // first positional argument is source shader path
     if(positionalArgs.getCount())
     {
-        gOptions.sourcePath = positionalArgs[0];
+        outOptions.sourcePath = positionalArgs[0];
         positionalArgs.removeAt(0);
     }
 

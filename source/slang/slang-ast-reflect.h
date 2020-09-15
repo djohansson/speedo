@@ -5,19 +5,23 @@
 
 #include "slang-ast-generated.h"
 
-// Switch based on node type - only inner and leaf classes define override
-#define SLANG_AST_OVERRIDE_BASE
-#define SLANG_AST_OVERRIDE_INNER override
-#define SLANG_AST_OVERRIDE_LEAF override
+#define SLANG_CLASS_REFLECT_SUPER_BASE(SUPER)
+#define SLANG_CLASS_REFLECT_SUPER_INNER(SUPER) typedef SUPER Super;
+#define SLANG_CLASS_REFLECT_SUPER_LEAF(SUPER) typedef SUPER Super;
 
 // Implementation for SLANG_ABSTRACT_CLASS(x) using reflection from C++ extractor in slang-ast-generated.h
 #define SLANG_CLASS_REFLECT_IMPL(NAME, SUPER, ORIGIN, LAST, MARKER, TYPE, param) \
+    protected: \
+    NAME() = default; \
     public:     \
-    typedef SUPER Super; \
+    typedef NAME This; \
     static const ASTNodeType kType = ASTNodeType::NAME; \
     static const ReflectClassInfo kReflectClassInfo;  \
     SLANG_FORCE_INLINE static bool isDerivedFrom(ASTNodeType type) { return int(type) >= int(kType) && int(type) <= int(ASTNodeType::LAST); } \
-    virtual const ReflectClassInfo& getClassInfo() const SLANG_AST_OVERRIDE_##TYPE { return kReflectClassInfo; } \
+    SLANG_CLASS_REFLECT_SUPER_##TYPE(SUPER) \
+    friend class ASTBuilder; \
+    friend struct ASTConstructAccess; \
+    friend struct ASTFieldAccess;
 
 // Macro definitions - use the SLANG_ASTNode_ definitions to invoke the IMPL to produce the code
 // injected into AST classes
@@ -28,5 +32,29 @@
 #define SLANG_REFLECT_BASE_CLASS(NAME)
 #define SLANG_REFLECTED
 #define SLANG_UNREFLECTED
+
+#define SLANG_CLASS_ROOT
+
+// Macros for simulating virtual methods without virtual methods
+
+#define SLANG_AST_NODE_INVOKE(method, methodParams) _##method##Override methodParams
+
+#define SLANG_AST_NODE_CASE(NAME, SUPER, ORIGIN, LAST, MARKER, TYPE, param)      case ASTNodeType::NAME: return static_cast<NAME*>(this)-> SLANG_AST_NODE_INVOKE param;
+
+#define SLANG_AST_NODE_VIRTUAL_CALL(base, methodName, methodParams) \
+    switch (astNodeType) \
+    { \
+        SLANG_ALL_ASTNode_##base(SLANG_AST_NODE_CASE, (methodName, methodParams)) \
+        default: return SLANG_AST_NODE_INVOKE (methodName, methodParams); \
+    }
+
+// Same but for a method that's const
+#define SLANG_AST_NODE_CONST_CASE(NAME, SUPER, ORIGIN, LAST, MARKER, TYPE, param)      case ASTNodeType::NAME: return static_cast<const NAME*>(this)-> SLANG_AST_NODE_INVOKE param;
+#define SLANG_AST_NODE_CONST_VIRTUAL_CALL(base, methodName, methodParams) \
+    switch (astNodeType) \
+    { \
+        SLANG_ALL_ASTNode_##base(SLANG_AST_NODE_CONST_CASE, (methodName, methodParams)) \
+        default: return SLANG_AST_NODE_INVOKE (methodName, methodParams); \
+    }
 
 #endif // SLANG_AST_REFLECT_H

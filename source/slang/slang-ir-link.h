@@ -5,10 +5,13 @@
 
 namespace Slang
 {
+    struct IRVarLayout;
+
     struct LinkedIR
     {
         RefPtr<IRModule>    module;
-        IRFunc*             entryPoint;
+        IRVarLayout*        globalScopeVarLayout;
+        List<IRFunc*>       entryPoints;
     };
 
 
@@ -20,7 +23,7 @@ namespace Slang
     //
     LinkedIR linkIR(
         BackEndCompileRequest*  compileRequest,
-        Int                     entryPointIndex,
+        const List<Int>&        entryPointIndices,
         CodeGenTarget           target,
         TargetProgram*          targetProgram);
 

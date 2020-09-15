@@ -19,6 +19,7 @@
 #include "../../source/core/slang-list.h"
 #include "../../source/core/slang-string.h"
 #include "../../source/core/slang-string-util.h"
+#include "../../source/core/slang-io.h"
 
 using namespace Slang;
 
@@ -40,18 +41,33 @@ struct Node
     StringSpan  span;
 
     // The body of this node for other flavors
-    Node*       body;
+    Node* body = nullptr;
 
     // The next node in the document
-    Node*       next;
+    Node* next = nullptr;
+
+    Node() = default;
+    ~Node()
+    {
+        if (body) delete body;
+        if (next) delete next;
+    }
 };
 
 // Information about a source file
-struct SourceFile
+struct SourceFile : public RefObject
 {
-    char const* inputPath;
-    StringSpan  text;
-    Node*       node;
+    String inputPath;
+    StringSpan   text;
+    Node* node = nullptr;
+    SourceFile() = default;
+    ~SourceFile()
+    {
+        if (text.begin())
+            free((void*)text.begin());
+        if (node)
+            delete node;
+    }
 };
 
 void addNode(
@@ -772,7 +788,7 @@ Node* parseSourceFile(SourceFile* file)
 
     for (auto hh : kHandlers)
     {
-        if (UnownedTerminatedStringSlice(path).endsWith(hh.extension))
+        if (path.endsWith(hh.extension))
         {
             return hh.handler(text);
         }
@@ -783,10 +799,10 @@ Node* parseSourceFile(SourceFile* file)
 
 
 
-SourceFile* parseSourceFile(char const* path)
+SourceFile* parseSourceFile(const String& path)
 {
     FILE* inputStream;
-    fopen_s(&inputStream, path, "rb");
+    fopen_s(&inputStream, path.getBuffer(), "rb");
     fseek(inputStream, 0, SEEK_END);
     size_t inputSize = ftell(inputStream);
     fseek(inputStream, 0, SEEK_SET);
@@ -805,8 +821,12 @@ SourceFile* parseSourceFile(char const* path)
     Node* node = parseSourceFile(sourceFile);
 
     sourceFile->node = node;
+
+    fclose(inputStream);
     return sourceFile;
 }
+
+List<RefPtr<SourceFile>> gSourceFiles;
 
 const char* getCmdOption(const char*const* begin, const char*const* end, const char* option)
 {
@@ -819,14 +839,12 @@ const char* getCmdOption(const char*const* begin, const char*const* end, const c
     return nullptr;
 }
 
-List<SourceFile*> gSourceFiles;
-
 int main(
     int     argc,
     const char*const*  argv)
 {
     // Parse command-line arguments.
-    List<const char*> inputPaths;
+    List<String> inputPaths;
     char const* appName = "slang-generate";
     const char* outputDir = nullptr;
 
@@ -847,7 +865,9 @@ int main(
         // Copy the input paths
         for (; argCursor != argEnd; ++argCursor)
         {
-            inputPaths.add(*argCursor);
+            // We simplify here because doing so also means paths separators are set to /
+            // and that makes path emitting work correctly
+            inputPaths.add(Path::simplify(UnownedStringSlice(*argCursor)));
         }
     }
 
@@ -859,7 +879,7 @@ int main(
 
     // Read each input file and process it according
     // to the type of treatment it requires.
-    for (const char* inputPath: inputPaths)
+    for (auto& inputPath: inputPaths)
     {
         SourceFile* sourceFile = parseSourceFile(inputPath);
         if (sourceFile)
@@ -875,7 +895,7 @@ int main(
         auto inputPath = sourceFile->inputPath;
         auto node = sourceFile->node;
 
-        std::string inputPathStr = std::string(inputPath);
+        std::string inputPathStr = std::string(inputPath.getBuffer());
         std::size_t lastSlash = inputPathStr.find_last_of("/\\");
         std::string inputFileStr = inputPathStr.substr(lastSlash + 1);
         std::string outputDirStr = std::string(outputDir);
@@ -904,7 +924,7 @@ int main(
         readAllText(outputPath.getBuffer(), allTextNew);
         if (allTextOld != allTextNew)
         {
-            writeAllText(inputPath, outputPathFinal.getBuffer(), allTextNew.getBuffer());
+            writeAllText(inputPath.getBuffer(), outputPathFinal.getBuffer(), allTextNew.getBuffer());
         }
         remove(outputPath.getBuffer());
     }

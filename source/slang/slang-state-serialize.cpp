@@ -1001,7 +1001,7 @@ struct LoadContext
 
             const char* name = srcEntryPoint.name ? base.asRaw(srcEntryPoint.name)->getCstr() : nullptr;
 
-            Stage stage = srcEntryPoint.profile.GetStage();
+            Stage stage = srcEntryPoint.profile.getStage();
 
             List<const char*> args = context.toList(srcEntryPoint.specializationArgStrings);
 
@@ -1361,7 +1361,7 @@ static SlangResult _calcCommandLine(OffsetBase& base, StateSerializeUtil::Reques
             cmd.addArg(name);
 
             cmd.addArg("-stage");
-            UnownedStringSlice stageText = getStageText(srcEntryPoint.profile.GetStage());
+            UnownedStringSlice stageText = getStageText(srcEntryPoint.profile.getStage());
             cmd.addArg(stageText);
 
             //cmd.addArg("-profile");

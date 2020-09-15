@@ -68,9 +68,9 @@ SLANG_FORCE_INLINE float F32_rsqrt(float f) { return 1.0f / F32_sqrt(f); }
 SLANG_FORCE_INLINE float F32_sign(float f) { return ( f == 0.0f) ? f : (( f < 0.0f) ? -1.0f : 1.0f); } 
 SLANG_FORCE_INLINE float F32_frac(float f) { return f - F32_floor(f); }
 
-SLANG_FORCE_INLINE bool F32_isnan(float f) { return isnan(f); }
-SLANG_FORCE_INLINE bool F32_isfinite(float f) { return isfinite(f); }
-SLANG_FORCE_INLINE bool F32_isinf(float f) { return isinf(f); }
+SLANG_FORCE_INLINE bool F32_isnan(float f) { return SLANG_PRELUDE_STD isnan(f); }
+SLANG_FORCE_INLINE bool F32_isfinite(float f) { return SLANG_PRELUDE_STD isfinite(f); }
+SLANG_FORCE_INLINE bool F32_isinf(float f) { return SLANG_PRELUDE_STD isinf(f); }
 
 // Binary
 SLANG_FORCE_INLINE float F32_min(float a, float b) { return ::fminf(a, b); }
@@ -80,16 +80,16 @@ SLANG_FORCE_INLINE float F32_fmod(float a, float b) { return ::fmodf(a, b); }
 SLANG_FORCE_INLINE float F32_remainder(float a, float b) { return ::remainderf(a, b); }
 SLANG_FORCE_INLINE float F32_atan2(float a, float b) { return float(::atan2(a, b)); }
 
-SLANG_FORCE_INLINE float F32_frexp(float x, float& e)
+SLANG_FORCE_INLINE float F32_frexp(float x, float* e)
 {
     int ei;
     float m = ::frexpf(x, &ei);
-    e = ei;
+    *e = float(ei);
     return m;
 }
-SLANG_FORCE_INLINE float F32_modf(float x, float& ip)
+SLANG_FORCE_INLINE float F32_modf(float x, float* ip)
 {
-    return ::modff(x, &ip);
+    return ::modff(x, ip);
 }
 
 SLANG_FORCE_INLINE uint32_t F32_asuint(float f) { Union32 u; u.f = f; return u.u; }
@@ -135,9 +135,9 @@ SLANG_FORCE_INLINE double F64_rsqrt(double f) { return 1.0 / F64_sqrt(f); }
 SLANG_FORCE_INLINE double F64_sign(double f) { return (f == 0.0) ? f : ((f < 0.0) ? -1.0 : 1.0); }
 SLANG_FORCE_INLINE double F64_frac(double f) { return f - F64_floor(f); }
 
-SLANG_FORCE_INLINE bool F64_isnan(double f) { return isnan(f); }
-SLANG_FORCE_INLINE bool F64_isfinite(double f) { return isfinite(f); }
-SLANG_FORCE_INLINE bool F64_isinf(double f) { return isinf(f); }
+SLANG_FORCE_INLINE bool F64_isnan(double f) { return SLANG_PRELUDE_STD isnan(f); }
+SLANG_FORCE_INLINE bool F64_isfinite(double f) { return SLANG_PRELUDE_STD isfinite(f); }
+SLANG_FORCE_INLINE bool F64_isinf(double f) { return SLANG_PRELUDE_STD isinf(f); }
 
 // Binary
 SLANG_FORCE_INLINE double F64_min(double a, double b) { return ::fmin(a, b); }
@@ -147,6 +147,34 @@ SLANG_FORCE_INLINE double F64_fmod(double a, double b) { return ::fmod(a, b); }
 SLANG_FORCE_INLINE double F64_remainder(double a, double b) { return ::remainder(a, b); }
 SLANG_FORCE_INLINE double F64_atan2(double a, double b) { return ::atan2(a, b); }
 
+SLANG_FORCE_INLINE double F64_frexp(double x, double* e)
+{
+    int ei;
+    double m = ::frexp(x, &ei);
+    *e = float(ei);
+    return m;
+}
+
+SLANG_FORCE_INLINE double F64_modf(double x, double* ip)
+{
+    return ::modf(x, ip);
+}
+
+SLANG_FORCE_INLINE void F64_asuint(double d, uint32_t* low, uint32_t* hi)
+{
+    Union64 u;
+    u.d = d;
+    *low = uint32_t(u.u);
+    *hi = uint32_t(u.u >> 32);
+}
+
+SLANG_FORCE_INLINE void F64_asint(double d, int32_t* low, int32_t* hi)
+{
+    Union64 u;
+    u.d = d;
+    *low = int32_t(u.u);
+    *hi = int32_t(u.u >> 32);
+}
 SLANG_FORCE_INLINE double F64_frexp(double x, double& e)
 {
     int ei;
@@ -236,14 +264,17 @@ SLANG_FORCE_INLINE uint64_t U64_abs(uint64_t f) { return f; }
 SLANG_FORCE_INLINE uint64_t U64_min(uint64_t a, uint64_t b) { return a < b ? a : b; }
 SLANG_FORCE_INLINE uint64_t U64_max(uint64_t a, uint64_t b) { return a > b ? a : b; }
 
+// TODO(JS): We don't define countbits for 64bit in stdlib currently.
+// It's not clear from documentation if it should return 32 or 64 bits, if it exists. 
+// 32 bits can always hold the result, and will be implicitly promoted. 
 SLANG_FORCE_INLINE uint32_t U64_countbits(uint64_t v)
 {
 #if SLANG_GCC_FAMILY    
-    return __builtin_popcountl(v);
+    return uint32_t(__builtin_popcountl(v));
 #elif SLANG_PROCESSOR_X86_64 && SLANG_VC
-    return __popcnt64(v);
+    return uint32_t(__popcnt64(v));
 #else     
-    uint64_t c = 0;
+    uint32_t c = 0;
     while (v)
     {
         c++;
@@ -260,6 +291,20 @@ SLANG_FORCE_INLINE int64_t I64_abs(int64_t f) { return (f < 0) ? -f : f; }
 SLANG_FORCE_INLINE int64_t I64_min(int64_t a, int64_t b) { return a < b ? a : b; }
 SLANG_FORCE_INLINE int64_t I64_max(int64_t a, int64_t b) { return a > b ? a : b; }
 
+
+// ----------------------------- Interlocked ---------------------------------
+#ifdef _WIN32
+#include <intrin.h>
+#endif
+
+void InterlockedAdd(uint32_t* dest, uint32_t value, uint32_t* oldValue)
+{
+#ifdef _WIN32
+    *oldValue = _InterlockedExchangeAdd((long*)dest, (long)value);
+#else
+    *oldValue = __sync_fetch_and_add(dest, value);
+#endif
+}
 #ifdef SLANG_PRELUDE_NAMESPACE
 } 
 #endif

@@ -54,6 +54,11 @@
 #   define SLANG_CUDA_BOUNDARY_MODE cudaBoundaryModeZero
 #endif
 
+struct TypeInfo
+{
+    size_t typeSize;
+};
+
 template <typename T, size_t SIZE>
 struct FixedArray
 {
@@ -140,7 +145,7 @@ SLANG_CUDA_CALL float F32_floor(float f) { return ::floorf(f); }
 SLANG_CUDA_CALL float F32_round(float f) { return ::roundf(f); }
 SLANG_CUDA_CALL float F32_sin(float f) { return ::sinf(f); }
 SLANG_CUDA_CALL float F32_cos(float f) { return ::cosf(f); }
-SLANG_CUDA_CALL void F32_sincos(float f, float& s, float& c) { ::sincosf(f, &s, &c); }
+SLANG_CUDA_CALL void F32_sincos(float f, float* s, float* c) { ::sincosf(f, s, c); }
 SLANG_CUDA_CALL float F32_tan(float f) { return ::tanf(f); }
 SLANG_CUDA_CALL float F32_asin(float f) { return ::asinf(f); }
 SLANG_CUDA_CALL float F32_acos(float f) { return ::acosf(f); }
@@ -172,16 +177,16 @@ SLANG_CUDA_CALL float F32_fmod(float a, float b) { return ::fmodf(a, b); }
 SLANG_CUDA_CALL float F32_remainder(float a, float b) { return ::remainderf(a, b); }
 SLANG_CUDA_CALL float F32_atan2(float a, float b) { return float(::atan2(a, b)); }
 
-SLANG_CUDA_CALL float F32_frexp(float x, float& e)
+SLANG_CUDA_CALL float F32_frexp(float x, float* e)
 {
     int ei;
     float m = ::frexpf(x, &ei);
-    e = ei;
+    *e = ei;
     return m;
 }
-SLANG_CUDA_CALL float F32_modf(float x, float& ip)
+SLANG_CUDA_CALL float F32_modf(float x, float* ip)
 {
-    return ::modff(x, &ip);
+    return ::modff(x, ip);
 }
 
 SLANG_CUDA_CALL uint32_t F32_asuint(float f) { Union32 u; u.f = f; return u.u; }
@@ -199,7 +204,7 @@ SLANG_CUDA_CALL double F64_floor(double f) { return ::floor(f); }
 SLANG_CUDA_CALL double F64_round(double f) { return ::round(f); }
 SLANG_CUDA_CALL double F64_sin(double f) { return ::sin(f); }
 SLANG_CUDA_CALL double F64_cos(double f) { return ::cos(f); }
-SLANG_CUDA_CALL void F64_sincos(double f, double& s, double& c) { ::sincos(f, &s, &c); }
+SLANG_CUDA_CALL void F64_sincos(double f, double* s, double* c) { ::sincos(f, s, c); }
 SLANG_CUDA_CALL double F64_tan(double f) { return ::tan(f); }
 SLANG_CUDA_CALL double F64_asin(double f) { return ::asin(f); }
 SLANG_CUDA_CALL double F64_acos(double f) { return ::acos(f); }
@@ -231,32 +236,32 @@ SLANG_CUDA_CALL double F64_fmod(double a, double b) { return ::fmod(a, b); }
 SLANG_CUDA_CALL double F64_remainder(double a, double b) { return ::remainder(a, b); }
 SLANG_CUDA_CALL double F64_atan2(double a, double b) { return ::atan2(a, b); }
 
-SLANG_CUDA_CALL double F64_frexp(double x, double& e)
+SLANG_CUDA_CALL double F64_frexp(double x, double* e)
 {
     int ei;
     double m = ::frexp(x, &ei);
-    e = ei;
+    *e = ei;
     return m;
 }
-SLANG_CUDA_CALL double F64_modf(double x, double& ip)
+SLANG_CUDA_CALL double F64_modf(double x, double* ip)
 {
-    return ::modf(x, &ip);
+    return ::modf(x, ip);
 }
 
-SLANG_CUDA_CALL void F64_asuint(double d, uint32_t& low, uint32_t& hi)
+SLANG_CUDA_CALL void F64_asuint(double d, uint32_t* low, uint32_t* hi)
 {
     Union64 u;
     u.d = d;
-    low = uint32_t(u.u);
-    hi = uint32_t(u.u >> 32);
+    *low = uint32_t(u.u);
+    *hi = uint32_t(u.u >> 32);
 }
 
-SLANG_CUDA_CALL void F64_asint(double d, int32_t& low, int32_t& hi)
+SLANG_CUDA_CALL void F64_asint(double d, int32_t* low, int32_t* hi)
 {
     Union64 u;
     u.d = d;
-    low = int32_t(u.u);
-    hi = int32_t(u.u >> 32);
+    *low = int32_t(u.u);
+    *hi = int32_t(u.u >> 32);
 }
 
 // Ternary
@@ -338,7 +343,7 @@ struct RWStructuredBuffer
 {
     SLANG_CUDA_CALL T& operator[](size_t index) const { SLANG_CUDA_BOUND_CHECK(index, count); return data[index]; }
     SLANG_CUDA_CALL const T& Load(size_t index) const { SLANG_CUDA_BOUND_CHECK(index, count); return data[index]; }  
-    SLANG_CUDA_CALL void GetDimensions(uint32_t& outNumStructs, uint32_t& outStride) { outNumStructs = uint32_t(count); outStride = uint32_t(sizeof(T)); }
+    SLANG_CUDA_CALL void GetDimensions(uint32_t* outNumStructs, uint32_t* outStride) { *outNumStructs = uint32_t(count); *outStride = uint32_t(sizeof(T)); }
   
     T* data;
     size_t count;
@@ -349,7 +354,7 @@ struct StructuredBuffer
 {
     SLANG_CUDA_CALL const T& operator[](size_t index) const { SLANG_CUDA_BOUND_CHECK(index, count); return data[index]; }
     SLANG_CUDA_CALL const T& Load(size_t index) const { SLANG_CUDA_BOUND_CHECK(index, count); return data[index]; }
-    SLANG_CUDA_CALL void GetDimensions(uint32_t& outNumStructs, uint32_t& outStride) { outNumStructs = uint32_t(count); outStride = uint32_t(sizeof(T)); }
+    SLANG_CUDA_CALL void GetDimensions(uint32_t* outNumStructs, uint32_t* outStride) { *outNumStructs = uint32_t(count); *outStride = uint32_t(sizeof(T)); }
     
     T* data;
     size_t count;
@@ -359,7 +364,7 @@ struct StructuredBuffer
 // Missing  Load(_In_  int  Location, _Out_ uint Status);
 struct ByteAddressBuffer
 {
-    SLANG_CUDA_CALL void GetDimensions(uint32_t& outDim) const { outDim = uint32_t(sizeInBytes); }
+    SLANG_CUDA_CALL void GetDimensions(uint32_t* outDim) const { *outDim = uint32_t(sizeInBytes); }
     SLANG_CUDA_CALL uint32_t Load(size_t index) const 
     { 
         SLANG_CUDA_BYTE_ADDRESS_BOUND_CHECK(index, 4, sizeInBytes);
@@ -399,7 +404,7 @@ struct ByteAddressBuffer
 // Missing support for Load with status
 struct RWByteAddressBuffer
 {
-    SLANG_CUDA_CALL void GetDimensions(uint32_t& outDim) const { outDim = uint32_t(sizeInBytes); }
+    SLANG_CUDA_CALL void GetDimensions(uint32_t* outDim) const { *outDim = uint32_t(sizeInBytes); }
     
     SLANG_CUDA_CALL uint32_t Load(size_t index) const 
     { 
@@ -465,6 +470,13 @@ struct RWByteAddressBuffer
     {
         SLANG_PRELUDE_ASSERT(offset + sizeof(T) <= sizeInBytes && (offset & (alignof(T)-1)) == 0); 
         *(T*)((char*)data + offset) = value;
+    }
+    
+        /// Can be used in stdlib to gain access
+    SLANG_CUDA_CALL uint* _getPtrAt(size_t offset)
+    {
+        SLANG_PRELUDE_ASSERT(offset + sizeof(T) <= sizeInBytes && (offset & (alignof(T)-1)) == 0); 
+        return (uint*)(((char*)data) + offset);
     }
     
     uint32_t* data;

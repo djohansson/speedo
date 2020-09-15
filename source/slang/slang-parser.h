@@ -9,21 +9,22 @@ namespace Slang
 {
     // Parse a source file into an existing translation unit
     void parseSourceFile(
+        ASTBuilder*                     astBuilder,
         TranslationUnitRequest*         translationUnit,
         TokenSpan const&                tokens,
         DiagnosticSink*                 sink,
         RefPtr<Scope> const&            outerScope);
 
-    RefPtr<Expr> parseTermFromSourceFile(
-        Session*                        session,
+    Expr* parseTermFromSourceFile(
+        ASTBuilder*                     astBuilder,
         TokenSpan const&                tokens,
         DiagnosticSink*                 sink,
         RefPtr<Scope> const&            outerScope,
         NamePool*                       namePool,
         SourceLanguage                  sourceLanguage);
 
-    RefPtr<ModuleDecl> populateBaseLanguageModule(
-        Session*        session,
+    ModuleDecl* populateBaseLanguageModule(
+        ASTBuilder*     astBuilder,
         RefPtr<Scope>   scope);
 }
 

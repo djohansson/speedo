@@ -13,8 +13,6 @@
 
 #include "slang-ast-reflect.h"
 
-
-
 #include "slang-name.h"
 
 #include <assert.h>
@@ -45,6 +43,15 @@ namespace Slang
     struct TypeExp;
     class Val;
 
+    class NodeBase;
+
+
+    template <typename T>
+    T* as(NodeBase* node);
+
+    template <typename T>
+    const T* as(const NodeBase* node);
+
     void printDiagnosticArg(StringBuilder& sb, Decl* decl);
     void printDiagnosticArg(StringBuilder& sb, Type* type);
     void printDiagnosticArg(StringBuilder& sb, TypeExp const& type);
@@ -55,7 +62,7 @@ namespace Slang
     SourceLoc const& getDiagnosticPos(SyntaxNode const* syntax);
     SourceLoc const& getDiagnosticPos(TypeExp const& typeExp);
 
-    typedef RefPtr<RefObject> (*SyntaxParseCallback)(Parser* parser, void* userData);
+    typedef NodeBase* (*SyntaxParseCallback)(Parser* parser, void* userData);
 
     typedef unsigned int ConversionCost;
     enum : ConversionCost
@@ -129,14 +136,6 @@ namespace Slang
     class Decl;
     class Val;
 
-#if 0
-    // Forward-declare all syntax classes
-#define SYNTAX_CLASS(NAME, BASE, ...) class NAME;
-#include "slang-object-meta-begin.h"
-#include "slang-syntax-defs.h"
-#include "slang-object-meta-end.h"
-#endif
-
     // Helper type for pairing up a name and the location where it appeared
     struct NameLoc
     {
@@ -194,7 +193,7 @@ namespace Slang
     {
         struct Iterator
         {
-            Modifier* current;
+            Modifier* current = nullptr;
 
             Modifier* operator*()
             {
@@ -202,11 +201,6 @@ namespace Slang
             }
 
             void operator++();
-#if 0
-            {
-                current = current->next.Ptr();
-            }
-#endif
 
             bool operator!=(Iterator other)
             {
@@ -233,7 +227,7 @@ namespace Slang
         Iterator begin() { return Iterator(modifiers); }
         Iterator end() { return Iterator(nullptr); }
 
-        Modifier* modifiers;
+        Modifier* modifiers = nullptr;
     };
 
     // Helper class for iterating over heap-allocated modifiers
@@ -243,7 +237,7 @@ namespace Slang
     {
         struct Iterator
         {
-            Modifier* current;
+            Modifier* current = nullptr;
 
             T* operator*()
             {
@@ -251,12 +245,7 @@ namespace Slang
             }
 
             void operator++();
-            #if 0
-            {
-                current = Adjust(current->next.Ptr());
-            }
-            #endif
-
+            
             bool operator!=(Iterator other)
             {
                 return current != other.current;
@@ -276,36 +265,25 @@ namespace Slang
         {}
 
         FilteredModifierList(Modifier* modifiers)
-            : modifiers(Adjust(modifiers))
+            : modifiers(adjust(modifiers))
         {}
 
         Iterator begin() { return Iterator(modifiers); }
         Iterator end() { return Iterator(nullptr); }
 
-        static Modifier* Adjust(Modifier* modifier);
-        #if 0
-        {
-            Modifier* m = modifier;
-            for (;;)
-            {
-                if (!m) return m;
-                if (dynamicCast<T>(m)) return m;
-                m = m->next.Ptr();
-            }
-        }
-        #endif
+        static Modifier* adjust(Modifier* modifier);
 
-        Modifier* modifiers;
+        Modifier* modifiers = nullptr;
     };
 
     // A set of modifiers attached to a syntax node
     struct Modifiers
     {
         // The first modifier in the linked list of heap-allocated modifiers
-        RefPtr<Modifier> first;
+        Modifier* first = nullptr;
 
         template<typename T>
-        FilteredModifierList<T> getModifiersOfType() { return FilteredModifierList<T>(first.Ptr()); }
+        FilteredModifierList<T> getModifiersOfType() { return FilteredModifierList<T>(first); }
 
         // Find the first modifier of a given type, or return `nullptr` if none is found.
         template<typename T>
@@ -317,7 +295,7 @@ namespace Slang
         template<typename T>
         bool hasModifier() { return findModifier<T>() != nullptr; }
 
-        FilteredModifierList<Modifier>::Iterator begin() { return FilteredModifierList<Modifier>::Iterator(first.Ptr()); }
+        FilteredModifierList<Modifier>::Iterator begin() { return FilteredModifierList<Modifier>::Iterator(first); }
         FilteredModifierList<Modifier>::Iterator end() { return FilteredModifierList<Modifier>::Iterator(nullptr); }
     };
 
@@ -327,7 +305,7 @@ namespace Slang
 
     // Try to extract a simple integer value from an `IntVal`.
     // This fill assert-fail if the object doesn't represent a literal value.
-    IntegerLiteralValue GetIntVal(RefPtr<IntVal> val);
+    IntegerLiteralValue getIntVal(IntVal* val);
 
         /// Represents how much checking has been applied to a declaration.
     enum class DeclCheckState : uint8_t
@@ -415,12 +393,13 @@ namespace Slang
     struct DeclCheckStateExt
     {
     public:
+        typedef uint8_t RawType;
         DeclCheckStateExt() {}
         DeclCheckStateExt(DeclCheckState state)
             : m_raw(uint8_t(state))
         {}
 
-        enum : uint8_t
+        enum : RawType
         {
                 /// A flag to indicate that a declaration is being checked.
                 ///
@@ -434,7 +413,7 @@ namespace Slang
         DeclCheckState getState() const { return DeclCheckState(m_raw & ~kBeingCheckedBit); }
         void setState(DeclCheckState state)
         {
-            m_raw = (m_raw & kBeingCheckedBit) | uint8_t(state);
+            m_raw = (m_raw & kBeingCheckedBit) | RawType(state);
         }
 
         bool isBeingChecked() const { return (m_raw & kBeingCheckedBit) != 0; }
@@ -450,40 +429,45 @@ namespace Slang
             return getState() >= state;
         }
 
+        RawType getRaw() const { return m_raw; }
+        void setRaw(RawType raw) { m_raw = raw; }
+
     private:
-        uint8_t m_raw = 0;
+        RawType m_raw = 0;
     };
 
     void addModifier(
-        RefPtr<ModifiableSyntaxNode>    syntax,
-        RefPtr<Modifier>                modifier);
+        ModifiableSyntaxNode*    syntax,
+        Modifier*                modifier);
 
     struct QualType
     {
-        RefPtr<Type>	type;
-        bool	        IsLeftValue;
+        Type*	type = nullptr;
+        bool	        isLeftValue;
 
         QualType()
-            : IsLeftValue(false)
+            : isLeftValue(false)
         {}
 
         QualType(Type* type)
             : type(type)
-            , IsLeftValue(false)
+            , isLeftValue(false)
         {}
 
-        Type* Ptr() { return type.Ptr(); }
+        Type* Ptr() { return type; }
 
         operator Type*() { return type; }
-        operator RefPtr<Type>() { return type; }
-        RefPtr<Type> operator->() { return type; }
+        Type* operator->() { return type; }
     };
+
+    class ASTBuilder;
 
     struct ReflectClassInfo
     {
         typedef ReflectClassInfo ThisType;
 
-        typedef void* (*CreateFunc)();
+        typedef void* (*CreateFunc)(ASTBuilder* astBuilder);
+        typedef void (*DestructorFunc)(void* ptr);
 
         /// A constant time implementation of isSubClassOf
         SLANG_FORCE_INLINE bool isSubClassOf(const ThisType& super) const
@@ -496,6 +480,13 @@ namespace Slang
         {
             return typeId >= m_classId && typeId <= m_lastClassId;
         }
+        SLANG_FORCE_INLINE static bool isSubClassOf(ASTNodeType type, const ThisType& super)
+        {
+            // Check the type appears valid
+            SLANG_ASSERT(int(type) >= 0);
+            // We include super.m_classId, because it's a subclass of itself.
+            return uint32_t(type) >= super.m_classId && uint32_t(type) <= super.m_lastClassId;
+        }
 
         /// Will produce the same result as isSubClassOf, but more slowly by traversing the m_superClass
         /// Works without initRange being called. 
@@ -506,7 +497,10 @@ namespace Slang
 
         const ReflectClassInfo* m_superClass;       ///< The super class of this class, or nullptr if has no super class. 
         const char* m_name;                         ///< Textual class name, for debugging 
-        CreateFunc m_createFunc;                    ///< Callback to use when creating instances
+        CreateFunc m_createFunc;                    ///< Callback to use when creating instances (using an ASTBuilder for backing memory)
+        DestructorFunc m_destructorFunc;            ///< The destructor for this type. Being just destructor, does not free backing memory for type.
+        uint32_t m_sizeInBytes;                     ///< Total size of the type
+        uint8_t m_alignment;                        ///< The required alignment of the type
 
         struct Infos
         {
@@ -522,8 +516,6 @@ namespace Slang
     // used to create instances on the fly
     struct SyntaxClassBase
     {
-        typedef void* (*CreateFunc)();
-
         SyntaxClassBase()
         {}
 
@@ -531,7 +523,7 @@ namespace Slang
             : classInfo(inClassInfo)
         {}
 
-        void* createInstanceImpl() const
+        void* createInstanceImpl(ASTBuilder* astBuilder) const
         {
             auto ci = classInfo;
             if (!ci) return nullptr;
@@ -539,7 +531,7 @@ namespace Slang
             auto cf = ci->m_createFunc;
             if (!cf) return nullptr;
 
-            return cf();
+            return cf(astBuilder);
         }
 
         SLANG_FORCE_INLINE bool isSubClassOfImpl(SyntaxClassBase const& super) const { return classInfo->isSubClassOf(*super.classInfo); }
@@ -560,9 +552,9 @@ namespace Slang
         {
         }
 
-        T* createInstance() const
+        T* createInstance(ASTBuilder* astBuilder) const
         {
-            return (T*)createInstanceImpl();
+            return (T*)createInstanceImpl(astBuilder);
         }
 
         SyntaxClass(const ReflectClassInfo* inClassInfo):
@@ -585,6 +577,18 @@ namespace Slang
         {
             return isSubClassOf(SyntaxClass<U>::getClass());
         }
+
+        template<typename U>
+        bool operator==(const SyntaxClass<U> other) const
+        {
+            return classInfo == other.classInfo;
+        }
+
+        template<typename U>
+        bool operator!=(const SyntaxClass<U> other) const
+        {
+            return classInfo != other.classInfo;
+        }
     };
 
     template<typename T>
@@ -595,20 +599,22 @@ namespace Slang
 
     struct SubstitutionSet
     {
-        RefPtr<Substitutions> substitutions;
+        Substitutions* substitutions = nullptr;
         operator Substitutions*() const
         {
             return substitutions;
         }
 
         SubstitutionSet() {}
-        SubstitutionSet(RefPtr<Substitutions> subst)
+        SubstitutionSet(Substitutions* subst)
             : substitutions(subst)
         {
         }
         bool equals(const SubstitutionSet& substSet) const;
         HashCode getHashCode() const;
     };
+
+    class ASTBuilder;
 
     template<typename T>
     struct DeclRef;
@@ -638,21 +644,21 @@ namespace Slang
             substitutions(subst)
         {}
 
-        DeclRefBase(Decl* decl, RefPtr<Substitutions> subst)
+        DeclRefBase(Decl* decl, Substitutions* subst)
             : decl(decl)
             , substitutions(subst)
         {}
 
         // Apply substitutions to a type or declaration
-        RefPtr<Type> Substitute(RefPtr<Type> type) const;
+        Type* substitute(ASTBuilder* astBuilder, Type* type) const;
 
-        DeclRefBase Substitute(DeclRefBase declRef) const;
+        DeclRefBase substitute(ASTBuilder* astBuilder, DeclRefBase declRef) const;
 
         // Apply substitutions to an expression
-        RefPtr<Expr> Substitute(RefPtr<Expr> expr) const;
+        Expr* substitute(ASTBuilder* astBuilder, Expr* expr) const;
 
         // Apply substitutions to this declaration reference
-        DeclRefBase SubstituteImpl(SubstitutionSet subst, int* ioDiff);
+        DeclRefBase substituteImpl(ASTBuilder* astBuilder, SubstitutionSet subst, int* ioDiff);
 
         // Returns true if 'as' will return a valid cast
         template <typename T>
@@ -670,9 +676,9 @@ namespace Slang
         }
 
         // Convenience accessors for common properties of declarations
-        Name* GetName() const;
+        Name* getName() const;
         SourceLoc getLoc() const;
-        DeclRefBase GetParent() const;
+        DeclRefBase getParent() const;
 
         HashCode getHashCode() const;
 
@@ -692,7 +698,7 @@ namespace Slang
             : DeclRefBase(decl, subst)
         {}
 
-        DeclRef(T* decl, RefPtr<Substitutions> subst)
+        DeclRef(T* decl, Substitutions* subst)
             : DeclRefBase(decl, SubstitutionSet(subst))
         {}
 
@@ -719,31 +725,31 @@ namespace Slang
             return DeclRef<T>((T*) declRef.decl, declRef.substitutions);
         }
 
-        RefPtr<Type> Substitute(RefPtr<Type> type) const
+        Type* substitute(ASTBuilder* astBuilder, Type* type) const
         {
-            return DeclRefBase::Substitute(type);
+            return DeclRefBase::substitute(astBuilder, type);
         }
-        RefPtr<Expr> Substitute(RefPtr<Expr> expr) const
+        Expr* substitute(ASTBuilder* astBuilder, Expr* expr) const
         {
-            return DeclRefBase::Substitute(expr);
+            return DeclRefBase::substitute(astBuilder, expr);
         }
 
         // Apply substitutions to a type or declaration
         template<typename U>
-        DeclRef<U> Substitute(DeclRef<U> declRef) const
+        DeclRef<U> substitute(ASTBuilder* astBuilder, DeclRef<U> declRef) const
         {
-            return DeclRef<U>::unsafeInit(DeclRefBase::Substitute(declRef));
+            return DeclRef<U>::unsafeInit(DeclRefBase::substitute(astBuilder, declRef));
         }
 
         // Apply substitutions to this declaration reference
-        DeclRef<T> SubstituteImpl(SubstitutionSet subst, int* ioDiff)
+        DeclRef<T> substituteImpl(ASTBuilder* astBuilder, SubstitutionSet subst, int* ioDiff)
         {
-            return DeclRef<T>::unsafeInit(DeclRefBase::SubstituteImpl(subst, ioDiff));
+            return DeclRef<T>::unsafeInit(DeclRefBase::substituteImpl(astBuilder, subst, ioDiff));
         }
 
-        DeclRef<ContainerDecl> GetParent() const
+        DeclRef<ContainerDecl> getParent() const
         {
-            return DeclRef<ContainerDecl>::unsafeInit(DeclRefBase::GetParent());
+            return DeclRef<ContainerDecl>::unsafeInit(DeclRefBase::getParent());
         }
     };
 
@@ -769,32 +775,32 @@ namespace Slang
         Static,                     ///< Only static (ie non instance) members
     };
 
-    const RefPtr<Decl>* adjustFilterCursorImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end);
-    const RefPtr<Decl>* getFilterCursorByIndexImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end, Index index);
-    Index getFilterCountImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end);
+    Decl*const* adjustFilterCursorImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end);
+    Decl*const* getFilterCursorByIndexImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end, Index index);
+    Index getFilterCountImpl(const ReflectClassInfo& clsInfo, MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end);
 
 
     template <typename T>
-    const RefPtr<Decl>* adjustFilterCursor(MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end)
+    Decl*const* adjustFilterCursor(MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end)
     {
         return adjustFilterCursorImpl(T::kReflectClassInfo, filterStyle, ptr, end);
     }
 
         /// Finds the element at index. If there is no element at the index (for example has too few elements), returns nullptr.
     template <typename T>
-    const RefPtr<Decl>* getFilterCursorByIndex(MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end, Index index)
+    Decl*const* getFilterCursorByIndex(MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end, Index index)
     {
         return getFilterCursorByIndexImpl(T::kReflectClassInfo, filterStyle, ptr, end, index);
     }
      
     template <typename T>
-    Index getFilterCount(MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end)
+    Index getFilterCount(MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end)
     {
         return getFilterCountImpl(T::kReflectClassInfo, filterStyle, ptr, end);
     }
      
     template <typename T>
-    bool isFilterNonEmpty(MemberFilterStyle filterStyle, const RefPtr<Decl>* ptr, const RefPtr<Decl>* end)
+    bool isFilterNonEmpty(MemberFilterStyle filterStyle, Decl*const* ptr, Decl*const* end)
     {
         return adjustFilterCursorImpl(T::kReflectClassInfo, filterStyle, ptr, end) != end;
     }
@@ -802,7 +808,7 @@ namespace Slang
     template<typename T>
     struct FilteredMemberList
     {
-        typedef RefPtr<Decl> Element;
+        typedef Decl* Element;
 
         FilteredMemberList()
             : m_begin(nullptr)
@@ -827,7 +833,7 @@ namespace Slang
 
             void operator++() { m_cursor = adjustFilterCursor<T>(m_filterStyle, m_cursor + 1, m_end); }
 
-            const RefPtr<T>& operator*() { return  *(RefPtr<T>*)(m_cursor); }
+            T* operator*() { return  static_cast<T*>(*m_cursor); }
         };
 
         Iterator begin()
@@ -844,14 +850,14 @@ namespace Slang
 
         // TODO(tfoley): It is ugly to have these.
         // We should probably fix the call sites instead.
-        const RefPtr<T>& getFirst() { return *begin(); }
+        T* getFirst() { return *begin(); }
         Index getCount() { return getFilterCount<T>(m_filterStyle, m_begin, m_end); }
 
-        RefPtr<T> operator[](Index index) const
+        T* operator[](Index index) const
         {
-            const RefPtr<Decl>* ptr = getFilterCursorByIndex<T>(m_filterStyle, m_begin, m_end, index);
+            Decl*const* ptr = getFilterCursorByIndex<T>(m_filterStyle, m_begin, m_end, index);
             SLANG_ASSERT(ptr);
-            return  *(RefPtr<T>*)(ptr);
+            return  static_cast<T*>(*ptr);
         }
 
             /// Returns true if empty (equivalent to getCount() == 0)
@@ -881,18 +887,18 @@ namespace Slang
     struct TransparentMemberInfo
     {
         // The declaration of the transparent member
-        Decl*	decl;
+        Decl*	decl = nullptr;
     };
 
     template<typename T>
     struct FilteredMemberRefList
     {
-        List<RefPtr<Decl>> const&	m_decls;
+        List<Decl*> const&	m_decls;
         SubstitutionSet		m_substitutions;
         MemberFilterStyle   m_filterStyle;
 
         FilteredMemberRefList(
-            List<RefPtr<Decl>> const&	decls,
+            List<Decl*> const&	decls,
             SubstitutionSet		substitutions,
             MemberFilterStyle   filterStyle = MemberFilterStyle::All)
             : m_decls(decls)
@@ -909,9 +915,9 @@ namespace Slang
 
         DeclRef<T> operator[](Index index) const
         {
-             const RefPtr<Decl>* decl = getFilterCursorByIndex<T>(m_filterStyle, m_decls.begin(), m_decls.end(), index);
+             Decl*const* decl = getFilterCursorByIndex<T>(m_filterStyle, m_decls.begin(), m_decls.end(), index);
              SLANG_ASSERT(decl);
-             return DeclRef<T>((T*) decl->Ptr(), m_substitutions);
+             return DeclRef<T>((T*) *decl, m_substitutions);
         }
 
         List<DeclRef<T>> toArray() const
@@ -925,15 +931,15 @@ namespace Slang
         struct Iterator
         {
             FilteredMemberRefList const* m_list;
-            const RefPtr<Decl>* m_ptr;
-            const RefPtr<Decl>* m_end;
+            Decl*const* m_ptr;
+            Decl*const* m_end;
             MemberFilterStyle m_filterStyle;
 
             Iterator() : m_list(nullptr), m_ptr(nullptr), m_filterStyle(MemberFilterStyle::All) {}
             Iterator(
                 FilteredMemberRefList const* list,
-                const RefPtr<Decl>* ptr,
-                const RefPtr<Decl>* end,
+                Decl*const* ptr,
+                Decl*const* end,
                 MemberFilterStyle filterStyle
                 )
                 : m_list(list)
@@ -946,7 +952,7 @@ namespace Slang
 
             void operator++() { m_ptr = adjustFilterCursor<T>(m_filterStyle, m_ptr + 1, m_end); }
 
-            DeclRef<T> operator*() { return DeclRef<T>((T*) m_ptr->Ptr(), m_list->m_substitutions); }
+            DeclRef<T> operator*() { return DeclRef<T>((T*)*m_ptr, m_list->m_substitutions); }
         };
 
         Iterator begin() const { return Iterator(this, adjustFilterCursor<T>(m_filterStyle, m_decls.begin(), m_decls.end()), m_decls.end(), m_filterStyle); }
@@ -968,23 +974,23 @@ namespace Slang
             : exp(other.exp)
             , type(other.type)
         {}
-        explicit TypeExp(RefPtr<Expr> exp)
+        explicit TypeExp(Expr* exp)
             : exp(exp)
         {}
-        explicit TypeExp(RefPtr<Type> type)
+        explicit TypeExp(Type* type)
             : type(type)
         {}
-        TypeExp(RefPtr<Expr> exp, RefPtr<Type> type)
+        TypeExp(Expr* exp, Type* type)
             : exp(exp)
             , type(type)
         {}
 
-        RefPtr<Expr> exp;
-        RefPtr<Type> type;
+        Expr* exp = nullptr;
+        Type* type = nullptr;
 
         bool equals(Type* other);
 
-        Type* Ptr() { return type.Ptr(); }
+        Type* Ptr() { return type; }
         operator Type*()
         {
             return type;
@@ -1014,7 +1020,7 @@ namespace Slang
         // Note(tfoley): This is kept as an unowned pointer
         // so that a scope can't keep parts of the AST alive,
         // but the opposite it allowed.
-        ContainerDecl*          containerDecl;
+        ContainerDecl*          containerDecl = nullptr;
     };
 
     // Masks to be applied when lookup up declarations
@@ -1026,6 +1032,13 @@ namespace Slang
         Attribute = 0x8,
 
         Default = type | Function | Value,
+    };
+
+        /// Flags for options to be used when looking up declarations
+    enum class LookupOptions : uint8_t
+    {
+        None = 0,
+        IgnoreBaseInterfaces = 1 << 0,
     };
 
     // Represents one item found during lookup
@@ -1105,7 +1118,7 @@ namespace Slang
                 // `T` is a subtype of some other type `U`, so that
                 // lookup was able to find a member through type `U`
                 // instead.
-                Constraint,
+                SuperType,
 
                 // The lookup process considered a member of an
                 // enclosing type as being in scope, so that any
@@ -1141,6 +1154,8 @@ namespace Slang
             //
             DeclRef<Decl> declRef;
 
+            Val* val = nullptr;
+
             // The next implicit step that the lookup process took to
             // arrive at a final value.
             RefPtr<Breadcrumb> next;
@@ -1148,11 +1163,13 @@ namespace Slang
             Breadcrumb(
                 Kind                kind,
                 DeclRef<Decl>       declRef,
+                Val*                val,
                 RefPtr<Breadcrumb>  next,
                 ThisParameterMode   thisParameterMode = ThisParameterMode::Default)
                 : kind(kind)
                 , thisParameterMode(thisParameterMode)
                 , declRef(declRef)
+                , val(val)
                 , next(next)
             {}
         };
@@ -1184,12 +1201,16 @@ namespace Slang
     // in the case where the result is overloaded.
     struct LookupResult
     {
-        // The one item that was found, in the smple case
+        // The one item that was found, in the simple case
         LookupResultItem item;
 
         // All of the items that were found, in the complex case.
         // Note: if there was no overloading, then this list isn't
         // used at all, to avoid allocation.
+        // 
+        // Additionally, if `items` is used, then `item` *must* hold an item that
+        // is also in the items list (typically the first entry), as an invariant.
+        // Otherwise isValid/begin will not function correctly.
         List<LookupResultItem> items;
 
         // Was at least one result found?
@@ -1199,7 +1220,7 @@ namespace Slang
 
         Name* getName() const
         {
-            return items.getCount() > 1 ? items[0].declRef.GetName() : item.declRef.GetName();
+            return items.getCount() > 1 ? items[0].declRef.getName() : item.declRef.getName();
         }
         LookupResultItem* begin()
         {
@@ -1236,6 +1257,7 @@ namespace Slang
         RefPtr<Scope>       endScope    = nullptr;
 
         LookupMask          mask        = LookupMask::Default;
+        LookupOptions       options     = LookupOptions::None;
     };
 
     struct WitnessTable;
@@ -1253,7 +1275,7 @@ namespace Slang
             , m_declRef(declRef)
         {}
 
-        RequirementWitness(RefPtr<Val> val);
+        RequirementWitness(Val* val);
 
         RequirementWitness(RefPtr<WitnessTable> witnessTable);
 
@@ -1276,20 +1298,20 @@ namespace Slang
             return m_declRef;
         }
 
-        RefPtr<Val> getVal()
+        Val* getVal()
         {
             SLANG_ASSERT(getFlavor() == Flavor::val);
-            return m_obj.as<Val>();
+            return m_val;
         }
 
         RefPtr<WitnessTable> getWitnessTable();
 
-        RequirementWitness specialize(SubstitutionSet const& subst);
+        RequirementWitness specialize(ASTBuilder* astBuilder, SubstitutionSet const& subst);
 
         Flavor              m_flavor;
         DeclRef<Decl>       m_declRef;
         RefPtr<RefObject>   m_obj;
-
+        Val*                m_val = nullptr;
     };
 
     typedef Dictionary<Decl*, RequirementWitness> RequirementDictionary;
@@ -1297,9 +1319,15 @@ namespace Slang
     struct WitnessTable : RefObject
     {
         RequirementDictionary requirementDictionary;
+
+        // The type that the witness table witnesses conformance to (e.g. an Interface)
+        Type* baseType;
+
+        // The type witnessesd by the witness table (a concrete type).
+        Type* witnessedType;
     };
 
-    typedef Dictionary<unsigned int, RefPtr<RefObject>> AttributeArgumentValueDict;
+    typedef Dictionary<unsigned int, NodeBase*> AttributeArgumentValueDict;
 
     struct SpecializationParam
     {
@@ -1312,21 +1340,29 @@ namespace Slang
         };
         Flavor              flavor;
         SourceLoc           loc;
-        RefPtr<NodeBase>    object;
+        NodeBase*    object = nullptr;
     };
     typedef List<SpecializationParam> SpecializationParams;
 
     struct SpecializationArg
     {
-        RefPtr<Val> val;
+        Val* val = nullptr;
     };
     typedef List<SpecializationArg> SpecializationArgs;
 
     struct ExpandedSpecializationArg : SpecializationArg
     {
-        RefPtr<Val> witness;
+        Val* witness = nullptr;
     };
     typedef List<ExpandedSpecializationArg> ExpandedSpecializationArgs;
+
+        /// A reference-counted object to hold a list of candidate extensions
+        /// that might be applicable to a type based on its declaration.
+        ///
+    struct CandidateExtensionList : RefObject
+    {
+        List<ExtensionDecl*> candidateExtensions;
+    };
 
 } // namespace Slang
 

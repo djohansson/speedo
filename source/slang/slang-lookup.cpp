@@ -11,7 +11,7 @@ void ensureDecl(SemanticsVisitor* visitor, Decl* decl, DeclCheckState state);
 DeclRef<ExtensionDecl> ApplyExtensionToType(
     SemanticsVisitor*   semantics,
     ExtensionDecl*          extDecl,
-    RefPtr<Type>  type);
+    Type*  type);
 
 //
 
@@ -22,6 +22,7 @@ struct BreadcrumbInfo
     LookupResultItem::Breadcrumb::Kind kind;
     LookupResultItem::Breadcrumb::ThisParameterMode thisParameterMode = LookupResultItem::Breadcrumb::ThisParameterMode::Default;
     DeclRef<Decl> declRef;
+    Val* val = nullptr;
     BreadcrumbInfo* prev = nullptr;
 };
 
@@ -165,6 +166,7 @@ LookupResultItem CreateLookupResultItem(
         breadcrumbs = new LookupResultItem::Breadcrumb(
             bb->kind,
             bb->declRef,
+            bb->val,
             breadcrumbs,
             bb->thisParameterMode);
     }
@@ -173,7 +175,7 @@ LookupResultItem CreateLookupResultItem(
 }
 
 static void _lookUpMembersInValue(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
     DeclRef<Decl>           valueDeclRef,
     LookupRequest const&    request,
@@ -187,7 +189,7 @@ static void _lookUpMembersInValue(
     /// inheritance clauses, etc.
     ///
 static void _lookUpDirectAndTransparentMembers(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
     DeclRef<ContainerDecl>  containerDeclRef,
     LookupRequest const&    request,
@@ -236,7 +238,7 @@ static void _lookUpDirectAndTransparentMembers(
         memberRefBreadcrumb.prev = inBreadcrumbs;
 
         _lookUpMembersInValue(
-            session,
+            astBuilder,
             name,
             transparentMemberDeclRef,
             request,
@@ -247,7 +249,7 @@ static void _lookUpDirectAndTransparentMembers(
 
     /// Perform "direct" lookup in a container declaration
 LookupResult lookUpDirectAndTransparentMembers(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     SemanticsVisitor*       semantics,
     Name*                   name,
     DeclRef<ContainerDecl>  containerDeclRef,
@@ -258,7 +260,7 @@ LookupResult lookUpDirectAndTransparentMembers(
     request.mask = mask;
     LookupResult result;
     _lookUpDirectAndTransparentMembers(
-        session,
+        astBuilder,
         name,
         containerDeclRef,
         request,
@@ -267,35 +269,45 @@ LookupResult lookUpDirectAndTransparentMembers(
     return result;
 }
 
-
-static RefPtr<SubtypeWitness> _makeSubtypeWitness(
+static SubtypeWitness* _makeSubtypeWitness(
+    ASTBuilder*                 astBuilder,
     Type*                       subType,
     SubtypeWitness*             subToMidWitness,
     Type*                       superType,
-    DeclRef<TypeConstraintDecl> midToSuperConstraint)
+    SubtypeWitness*             midtoSuperWitness)
 {
     if(subToMidWitness)
     {
-        RefPtr<TransitiveSubtypeWitness> transitiveWitness = new TransitiveSubtypeWitness();
+        TransitiveSubtypeWitness* transitiveWitness = astBuilder->create<TransitiveSubtypeWitness>();
         transitiveWitness->subToMid = subToMidWitness;
-        transitiveWitness->midToSup = midToSuperConstraint;
+        transitiveWitness->midToSup = midtoSuperWitness;
         transitiveWitness->sub = subType;
         transitiveWitness->sup = superType;
         return transitiveWitness;
     }
     else
     {
-        RefPtr<DeclaredSubtypeWitness> declaredWitness = new DeclaredSubtypeWitness();
-        declaredWitness->declRef = midToSuperConstraint;
-        declaredWitness->sub = subType;
-        declaredWitness->sup = superType;
-        return declaredWitness;
+        return midtoSuperWitness;
     }
 }
 
+static SubtypeWitness* _makeSubtypeWitness(
+    ASTBuilder*                 astBuilder,
+    Type*                       subType,
+    SubtypeWitness*             subToMidWitness,
+    Type*                       superType,
+    DeclRef<TypeConstraintDecl> midToSuperConstraint)
+{
+    DeclaredSubtypeWitness* midToSuperWitness = astBuilder->create<DeclaredSubtypeWitness>();
+    midToSuperWitness->declRef = midToSuperConstraint;
+    midToSuperWitness->sub = subType;
+    midToSuperWitness->sup = superType;
+    return _makeSubtypeWitness(astBuilder, subType, subToMidWitness, superType, midToSuperWitness);
+}
+
 // Same as the above, but we are specializing a type instead of a decl-ref
-static RefPtr<Type> _maybeSpecializeSuperType(
-    Session*                    session,
+static Type* _maybeSpecializeSuperType(
+    ASTBuilder*                 astBuilder, 
     Type*                       superType,
     SubtypeWitness*             subIsSuperWitness)
 {
@@ -303,14 +315,14 @@ static RefPtr<Type> _maybeSpecializeSuperType(
     {
         if (auto superInterfaceDeclRef = superDeclRefType->declRef.as<InterfaceDecl>())
         {
-            RefPtr<ThisTypeSubstitution> thisTypeSubst = new ThisTypeSubstitution();
+            ThisTypeSubstitution* thisTypeSubst = astBuilder->create<ThisTypeSubstitution>();
             thisTypeSubst->interfaceDecl = superInterfaceDeclRef.getDecl();
             thisTypeSubst->witness = subIsSuperWitness;
             thisTypeSubst->outer = superInterfaceDeclRef.substitutions.substitutions;
 
             auto specializedInterfaceDeclRef = DeclRef<Decl>(superInterfaceDeclRef.getDecl(), thisTypeSubst);
 
-            auto specializedInterfaceType = DeclRefType::Create(session, specializedInterfaceDeclRef);
+            auto specializedInterfaceType = DeclRefType::create(astBuilder, specializedInterfaceDeclRef);
             return specializedInterfaceType;
         }
     }
@@ -319,15 +331,15 @@ static RefPtr<Type> _maybeSpecializeSuperType(
 }
 
 static void _lookUpMembersInType(
-    Session*                session,
+    ASTBuilder*             astBuilder, 
     Name*                   name,
-    RefPtr<Type>            type,
+    Type*            type,
     LookupRequest const&    request,
     LookupResult&           ioResult,
     BreadcrumbInfo*         breadcrumbs);
 
 static void _lookUpMembersInSuperTypeImpl(
-    Session*                session,
+    ASTBuilder*             astBuilder, 
     Name*                   name,
     Type*                   leafType,
     Type*                   superType,
@@ -335,10 +347,49 @@ static void _lookUpMembersInSuperTypeImpl(
     LookupRequest const&    request,
     LookupResult&           ioResult,
     BreadcrumbInfo*         inBreadcrumbs);
+static void _lookUpMembersInSuperType(
+    ASTBuilder*                 astBuilder,
+    Name*                       name,
+    Type*                       leafType,
+    Type*                       superType,
+    SubtypeWitness*             leafIsSuperWitness,
+    LookupRequest const&        request,
+    LookupResult&               ioResult,
+    BreadcrumbInfo*             inBreadcrumbs)
+{
+    // If we are looking up through an interface type, then
+    // we need to be sure that we add an appropriate
+    // "this type" substitution here, since that needs to
+    // be applied to any members we look up.
+    //
+    superType = _maybeSpecializeSuperType(
+        astBuilder,
+        superType,
+        leafIsSuperWitness);
 
+    // We need to track the indirection we took in lookup,
+    // so that we can construct an appropriate AST on the other
+    // side that includes the "upcast" from sub-type to super-type.
+    //
+    BreadcrumbInfo breadcrumb;
+    breadcrumb.prev = inBreadcrumbs;
+    breadcrumb.kind = LookupResultItem::Breadcrumb::Kind::SuperType;
+    breadcrumb.val = leafIsSuperWitness;
+    breadcrumb.prev = inBreadcrumbs;
+
+    // TODO: Need to consider case where this might recurse infinitely (e.g.,
+    // if an inheritance clause does something like `Bad<T> : Bad<Bad<T>>`.
+    //
+    // TODO: The even simpler thing we need to worry about here is that if
+    // there is ever a "diamond" relationship in the inheritance hierarchy,
+    // we might end up seeing the same interface via different "paths" and
+    // we wouldn't want that to lead to overload-resolution failure.
+    //
+    _lookUpMembersInSuperTypeImpl(astBuilder, name, leafType, superType, leafIsSuperWitness, request, ioResult, &breadcrumb);
+}
 
 static void _lookUpMembersInSuperType(
-    Session*                    session,
+    ASTBuilder*                 astBuilder, 
     Name*                       name,
     Type*                       leafType,
     SubtypeWitness*             leafIsIntermediateWitness,
@@ -355,50 +406,23 @@ static void _lookUpMembersInSuperType(
     // The super-type in the constraint (e.g., `Foo` in `T : Foo`)
     // will tell us a type we should use for lookup.
     //
-    auto superType = GetSup(intermediateIsSuperConstraint);
+    auto superType = getSup(astBuilder, intermediateIsSuperConstraint);
     //
     // We will go ahead and perform lookup using `superType`,
     // after dealing with some details.
 
     auto leafIsSuperWitness = _makeSubtypeWitness(
+        astBuilder,
         leafType,
         leafIsIntermediateWitness,
         superType,
         intermediateIsSuperConstraint);
 
-    // If we are looking up through an interface type, then
-    // we need to be sure that we add an appropriate
-    // "this type" substitution here, since that needs to
-    // be applied to any members we look up.
-    //
-    superType = _maybeSpecializeSuperType(
-        session,
-        superType,
-        leafIsSuperWitness);
-
-    // We need to track the indirection we took in lookup,
-    // so that we can construct an appropriate AST on the other
-    // side that includes the "upcast" from sub-type to super-type.
-    //
-    BreadcrumbInfo breadcrumb;
-    breadcrumb.prev = inBreadcrumbs;
-    breadcrumb.kind = LookupResultItem::Breadcrumb::Kind::Constraint;
-    breadcrumb.declRef = intermediateIsSuperConstraint;
-    breadcrumb.prev = inBreadcrumbs;
-
-    // TODO: Need to consider case where this might recurse infinitely (e.g.,
-    // if an inheritance clause does something like `Bad<T> : Bad<Bad<T>>`.
-    //
-    // TODO: The even simpler thing we need to worry about here is that if
-    // there is ever a "diamond" relationship in the inheritance hierarchy,
-    // we might end up seeing the same interface via different "paths" and
-    // we wouldn't want that to lead to overload-resolution failure.
-    //
-    _lookUpMembersInSuperTypeImpl(session, name, leafType, superType, leafIsSuperWitness, request, ioResult, &breadcrumb);
+    return _lookUpMembersInSuperType(astBuilder, name, leafType, superType, leafIsSuperWitness, request, ioResult, inBreadcrumbs);
 }
 
 static void _lookUpMembersInSuperTypeDeclImpl(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
     Type*                   leafType,
     Type*                   superType,
@@ -420,7 +444,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
         // then the members it provides can only be discovered by looking
         // at the constraints that are placed on that type.
 
-        auto genericDeclRef = genericTypeParamDeclRef.GetParent().as<GenericDecl>();
+        auto genericDeclRef = genericTypeParamDeclRef.getParent().as<GenericDecl>();
         assert(genericDeclRef);
 
         for(auto constraintDeclRef : getMembersOfType<GenericTypeConstraintDecl>(genericDeclRef))
@@ -435,7 +459,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
             // We want constraints of the form `T : Foo` where `T` is the
             // generic parameter in question, and `Foo` is whatever we are
             // constraining it to.
-            auto subType = GetSub(constraintDeclRef);
+            auto subType = getSub(astBuilder, constraintDeclRef);
             auto subDeclRefType = as<DeclRefType>(subType);
             if(!subDeclRefType)
                 continue;
@@ -443,7 +467,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
                 continue;
 
             _lookUpMembersInSuperType(
-                session,
+                astBuilder,
                 name,
                 leafType,
                 leafIsSuperWitness,
@@ -458,7 +482,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
         for (auto constraintDeclRef : getMembersOfType<TypeConstraintDecl>(declRef.as<ContainerDecl>()))
         {
             _lookUpMembersInSuperType(
-                session,
+                astBuilder,
                 name,
                 leafType,
                 leafIsSuperWitness,
@@ -474,7 +498,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
         // type or an `extension`, so the first thing to do is to look for
         // matching members declared directly in the body of the type/`extension`.
         //
-        _lookUpDirectAndTransparentMembers(session, name, aggTypeDeclBaseRef, request, ioResult, inBreadcrumbs);
+        _lookUpDirectAndTransparentMembers(astBuilder, name, aggTypeDeclBaseRef, request, ioResult, inBreadcrumbs);
 
         // There are further lookup steps that we can only perform when a
         // semantic checking context is available to us. That means that
@@ -490,7 +514,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
                 // directly with that type.
                 //
                 ensureDecl(request.semantics, aggTypeDeclRef.getDecl(), DeclCheckState::ReadyForLookup);
-                for(auto extDecl = GetCandidateExtensions(aggTypeDeclRef); extDecl; extDecl = extDecl->nextCandidateExtension)
+                for(auto extDecl : getCandidateExtensions(aggTypeDeclRef, semantics))
                 {
                     // Note: In this case `extDecl` is an extension that was declared to apply
                     // (conditionally) to `aggTypeDeclRef`, which is the decl-ref part of
@@ -506,7 +530,7 @@ static void _lookUpMembersInSuperTypeDeclImpl(
                     // was found through an extension.
                     //
                     _lookUpMembersInSuperTypeDeclImpl(
-                        session,
+                        astBuilder,
                         name,
                         leafType,
                         superType,
@@ -525,14 +549,33 @@ static void _lookUpMembersInSuperTypeDeclImpl(
             for (auto inheritanceDeclRef : getMembersOfType<InheritanceDecl>(aggTypeDeclBaseRef))
             {
                 ensureDecl(semantics, inheritanceDeclRef.getDecl(), DeclCheckState::CanUseBaseOfInheritanceDecl);
-                _lookUpMembersInSuperType(session, name, leafType, leafIsSuperWitness, inheritanceDeclRef, request, ioResult, inBreadcrumbs);
+
+                // Some things that are syntactically `InheritanceDecl`s don't actually
+                // represent a subtype/supertype relationship, and thus we shouldn't
+                // include members from the base type when doing lookup in the
+                // derived type.
+                //
+                if(inheritanceDeclRef.getDecl()->hasModifier<IgnoreForLookupModifier>())
+                    continue;
+
+                auto baseType = getSup(astBuilder, inheritanceDeclRef);
+                if( auto baseDeclRefType = as<DeclRefType>(baseType) )
+                {
+                    if( auto baseInterfaceDeclRef = baseDeclRefType->declRef.as<InterfaceDecl>() )
+                    {
+                        if( int(request.options) & int(LookupOptions::IgnoreBaseInterfaces) )
+                            continue;
+                    }
+                }
+
+                _lookUpMembersInSuperType(astBuilder, name, leafType, leafIsSuperWitness, inheritanceDeclRef, request, ioResult, inBreadcrumbs);
             }
         }
     }
 }
 
 static void _lookUpMembersInSuperTypeImpl(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
     Type*                   leafType,
     Type*                   superType,
@@ -553,7 +596,7 @@ static void _lookUpMembersInSuperTypeImpl(
 
         // Recursively perform lookup on the result of deref
         _lookUpMembersInType(
-            session,
+            astBuilder, 
             name, pointerLikeType->elementType, request, ioResult, &derefBreacrumb);
         return;
     }
@@ -564,7 +607,33 @@ static void _lookUpMembersInSuperTypeImpl(
     {
         auto declRef = declRefType->declRef;
 
-        _lookUpMembersInSuperTypeDeclImpl(session, name, leafType, superType, leafIsSuperWitness, declRef, request, ioResult, inBreadcrumbs);
+        _lookUpMembersInSuperTypeDeclImpl(astBuilder, name, leafType, superType, leafIsSuperWitness, declRef, request, ioResult, inBreadcrumbs);
+    }
+    else if (auto extractExistentialType = as<ExtractExistentialType>(superType))
+    {
+        _lookUpMembersInSuperTypeDeclImpl(astBuilder, name, leafType, superType, leafIsSuperWitness, extractExistentialType->interfaceDeclRef, request, ioResult, inBreadcrumbs);
+    }
+    else if( auto thisType = as<ThisType>(superType) )
+    {
+        // We need to create a witness that represents the next link in the
+        // chain. The `leafIsSuperWitness` represents the knowledge that `leafType : superType`
+        // (and we know that `superType == thisType`,  but we now need to extend that
+        // with the knowledge that `thisType : thisType->interfaceTypeDeclRef`.
+        //
+        auto interfaceType = DeclRefType::create(astBuilder, thisType->interfaceDeclRef);
+
+        auto superIsInterfaceWitness = astBuilder->create<ThisTypeSubtypeWitness>();
+        superIsInterfaceWitness->sub = superType;
+        superIsInterfaceWitness->sup = interfaceType;
+
+        auto leafIsInterfaceWitness = _makeSubtypeWitness(
+            astBuilder,
+            leafType,
+            leafIsSuperWitness,
+            interfaceType,
+            superIsInterfaceWitness);
+
+        _lookUpMembersInSuperType(astBuilder, name, leafType, interfaceType, leafIsInterfaceWitness, request, ioResult, inBreadcrumbs);
     }
 }
 
@@ -580,9 +649,9 @@ static void _lookUpMembersInSuperTypeImpl(
     /// set of members visible on `type`.
     ///
 static void _lookUpMembersInType(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
-    RefPtr<Type>            type,
+    Type*            type,
     LookupRequest const&    request,
     LookupResult&           ioResult,
     BreadcrumbInfo*         breadcrumbs)
@@ -592,7 +661,7 @@ static void _lookUpMembersInType(
         return;
     }
 
-    _lookUpMembersInSuperTypeImpl(session, name, type, type, nullptr, request, ioResult, breadcrumbs);
+    _lookUpMembersInSuperTypeImpl(astBuilder, name, type, type, nullptr, request, ioResult, breadcrumbs);
 }
 
     /// Look up members by `name` in the given `valueDeclRef`.
@@ -602,7 +671,7 @@ static void _lookUpMembersInType(
     /// kind of lookup we'd expect for `valueDeclRef.<name>`.
     ///
 static void _lookUpMembersInValue(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
     DeclRef<Decl>           valueDeclRef,
     LookupRequest const&    request,
@@ -613,17 +682,13 @@ static void _lookUpMembersInValue(
     // be reduced to the problem of looking up `name`
     // in the *type* of that value.
     //
-    auto valueType = getTypeForDeclRef(
-        session,
-        valueDeclRef,
-        SourceLoc());
-    return _lookUpMembersInType(
-        session,
-        name, valueType, request, ioResult, breadcrumbs);
+    auto valueType = getTypeForDeclRef(astBuilder, valueDeclRef, SourceLoc());
+
+    return _lookUpMembersInType(astBuilder, name, valueType, request, ioResult, breadcrumbs);
 }
 
 static void _lookUpInScopes(
-    Session*                session,
+    ASTBuilder*             astBuilder,
     Name*                   name,
     LookupRequest const&    request,
     LookupResult&           result)
@@ -656,7 +721,7 @@ static void _lookUpInScopes(
             // just a decl.
             //
             DeclRef<ContainerDecl> containerDeclRef =
-                DeclRef<Decl>(containerDecl, createDefaultSubstitutions(session, containerDecl)).as<ContainerDecl>();
+                DeclRef<Decl>(containerDecl, createDefaultSubstitutions(astBuilder, containerDecl)).as<ContainerDecl>();
             
             // If the container we are looking into represents a type
             // or an `extension` of a type, then we need to treat
@@ -681,7 +746,7 @@ static void _lookUpInScopes(
                 breadcrumb.declRef = aggTypeDeclBaseRef;
                 breadcrumb.prev = nullptr;
 
-                RefPtr<Type> type;
+                Type* type = nullptr;
                 if(auto extDeclRef = aggTypeDeclBaseRef.as<ExtensionDecl>())
                 {
                     if( request.semantics )
@@ -693,15 +758,15 @@ static void _lookUpInScopes(
                     // declaration, then the `this` expression will have
                     // a type that uses the "target type" of the `extension`.
                     //
-                    type = GetTargetType(extDeclRef);
+                    type = getTargetType(astBuilder, extDeclRef);
                 }
                 else
                 {
                     assert(aggTypeDeclBaseRef.as<AggTypeDecl>());
-                    type = DeclRefType::Create(session, aggTypeDeclBaseRef);
+                    type = DeclRefType::create(astBuilder, aggTypeDeclBaseRef);
                 }
 
-                _lookUpMembersInType(session, name, type, request, result, &breadcrumb);
+                _lookUpMembersInType(astBuilder, name, type, request, result, &breadcrumb);
             }
             else
             {
@@ -709,7 +774,7 @@ static void _lookUpInScopes(
                 // type or `extension` declaration, so we can look up members
                 // in that scope much more simply.
                 //
-                _lookUpDirectAndTransparentMembers(session, name, containerDeclRef, request, result, nullptr);
+                _lookUpDirectAndTransparentMembers(astBuilder, name, containerDeclRef, request, result, nullptr);
             }
 
             // Before we proceed up to the next outer scope to perform lookup
@@ -726,6 +791,18 @@ static void _lookUpInScopes(
             {
                 // In the context of an `__init` declaration, the members of
                 // the surrounding type are accessible through a mutable `this`.
+                //
+                thisParameterMode = LookupResultItem::Breadcrumb::ThisParameterMode::MutableValue;
+            }
+            else if( containerDeclRef.is<SetterDecl>() )
+            {
+                // In the context of a `set` accessor, the members of the
+                // surrounding type are accessible through a mutable `this`.
+                //
+                // TODO: At some point we may want a way to opt out of this
+                // behavior; it is possible to have a setter on a `struct`
+                // that actually just sets data into a buffer that is
+                // referenced by one of the `struct`'s fields.
                 //
                 thisParameterMode = LookupResultItem::Breadcrumb::ThisParameterMode::MutableValue;
             }
@@ -779,7 +856,7 @@ static void _lookUpInScopes(
 }
 
 LookupResult lookUp(
-    Session*            session,
+    ASTBuilder*         astBuilder, 
     SemanticsVisitor*   semantics,
     Name*               name,
     RefPtr<Scope>       scope,
@@ -791,12 +868,12 @@ LookupResult lookUp(
     request.mask = mask;
 
     LookupResult result;
-    _lookUpInScopes(session, name, request, result);
+    _lookUpInScopes(astBuilder, name, request, result);
     return result;
 }
 
 void lookUpMemberImpl(
-    Session*            session,
+    ASTBuilder*         astBuilder, 
     SemanticsVisitor*   semantics,
     Name*               name,
     Type*               type,
@@ -805,18 +882,20 @@ void lookUpMemberImpl(
     LookupMask          mask);
 
 LookupResult lookUpMember(
-    Session*            session,
+    ASTBuilder*         astBuilder, 
     SemanticsVisitor*   semantics,
     Name*               name,
     Type*               type,
-    LookupMask          mask)
+    LookupMask          mask,
+    LookupOptions       options)
 {
     LookupRequest request;
     request.semantics = semantics;
     request.mask = mask;
+    request.options = options;
 
     LookupResult result;
-    _lookUpMembersInType(session, name, type, request, result, nullptr);
+    _lookUpMembersInType(astBuilder, name, type, request, result, nullptr);
     return result;
 }
 

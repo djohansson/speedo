@@ -5,6 +5,8 @@
 #include "../../source/core/slang-string-util.h"
 #include "../../source/core/slang-shared-library.h"
 
+#include "../../source/core/slang-test-tool-util.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -15,14 +17,14 @@ TestContext::TestContext()
     m_session = nullptr;
 }
 
-Result TestContext::init()
+Result TestContext::init(const char* exePath)
 {
     m_session = spCreateSession(nullptr);
     if (!m_session)
     {
         return SLANG_FAIL;
     }
-
+    SLANG_RETURN_ON_FAIL(TestToolUtil::getExeDirectoryPath(exePath, exeDirectoryPath));
     return SLANG_OK;
 }
 
@@ -109,4 +111,16 @@ Slang::DownstreamCompiler* TestContext::getDefaultCompiler(SlangSourceLanguage s
     DownstreamCompilerSet* set = getCompilerSet();
     return set ? set->getDefaultCompiler(sourceLanguage) : nullptr;
 }
+
+bool TestContext::canRunTestWithRenderApiFlags(Slang::RenderApiFlags requiredFlags)
+{
+    // If only allow tests that use API - then the requiredFlags must be 0
+    if (options.apiOnly && requiredFlags == 0)
+    {
+        return false;
+    }
+    // Are the required rendering APIs enabled from the -api command line switch
+    return (requiredFlags & options.enabledApis) == requiredFlags;
+}
+
 

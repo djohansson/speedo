@@ -1,6 +1,8 @@
 // render-gl.cpp
 #include "render-gl.h"
 
+#include "../nvapi/nvapi-util.h"
+
 //WORKING:#include "options.h"
 #include "../render.h"
 
@@ -275,6 +277,11 @@ public:
             UInt index,
             ResourceView*   textureView,
             SamplerState*   sampler) override;
+        virtual void setRootConstants(
+            UInt range,
+            UInt offset,
+            UInt size,
+            void const* data) override;
 
         RefPtr<DescriptorSetLayoutImpl>     m_layout;
         List<RefPtr<BufferResourceImpl>>    m_constantBuffers;
@@ -704,6 +711,14 @@ SlangResult GLRenderer::initialize(const Desc& desc, void* inWindowHandle)
 
         // The adapter is not available
         if (lowerRenderer.indexOf(lowerAdapter) == Index(-1))
+        {
+            return SLANG_E_NOT_AVAILABLE;
+        }
+    }
+
+    if (m_desc.nvapiExtnSlot >= 0)
+    {
+        if (SLANG_FAILED(NVAPIUtil::initialize()))
         {
             return SLANG_E_NOT_AVAILABLE;
         }
@@ -1306,6 +1321,15 @@ void GLRenderer::DescriptorSetImpl::setCombinedTextureSampler(
     m_samplers[arrayIndex] = samplerImpl;
 }
 
+void GLRenderer::DescriptorSetImpl::setRootConstants(
+    UInt range,
+    UInt offset,
+    UInt size,
+    void const* data)
+{
+    SLANG_UNEXPECTED("unimplemented: setRootConstants for GlRenderer");
+}
+
 void GLRenderer::setDescriptorSet(PipelineType pipelineType, PipelineLayout* layout, UInt index, DescriptorSet* descriptorSet)
 {
     auto descriptorSetImpl = (DescriptorSetImpl*)descriptorSet;
@@ -1341,6 +1365,8 @@ Result GLRenderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc& de
             glSlotType = GLDescriptorSlotType::CombinedTextureSampler;
             break;
 
+        case DescriptorSlotType::RootConstant:
+            rangeDesc.count = 1;
         case DescriptorSlotType::UniformBuffer:
         case DescriptorSlotType::DynamicUniformBuffer:
             glSlotType = GLDescriptorSlotType::ConstantBuffer;

@@ -350,6 +350,11 @@ struct SourceManager
         /// Find if the source file is defined on this manager.
     SourceFile* findSourceFile(const String& uniqueIdentity) const;
 
+        /// Searches this manager, and then the parent to see if can find a match
+    SourceFile* findSourceFileByContentRecursively(const char* text);
+        /// Find the source file that contains *the memory* text points to. 
+    SourceFile* findSourceFileByContent(const char* text) const;
+    
         /// Get the file system associated with this source manager
     ISlangFileSystemExt* getFileSystemExt() const { return m_fileSystemExt;  }
         /// Get the file system associated with this source manager
@@ -378,8 +383,8 @@ struct SourceManager
     const List<SourceFile*>& getSourceFiles() const { return m_sourceFiles; }
 
     SourceManager() :
-        m_slicePool(StringSlicePool::Style::Default),
-        m_memoryArena(2048)
+        m_memoryArena(2048),
+        m_slicePool(StringSlicePool::Style::Default)
     {}
     ~SourceManager();
 

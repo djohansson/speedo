@@ -78,7 +78,7 @@ struct CLikeSourceEmitter::ComputeEmitActionsContext
 
 /* !!!!!!!!!!!!!!!!!!!!!!!!!!!! CLikeSourceEmitter !!!!!!!!!!!!!!!!!!!!!!!!!! */
 
-/* static */CLikeSourceEmitter::SourceStyle CLikeSourceEmitter::getSourceStyle(CodeGenTarget target)
+/* static */SourceLanguage CLikeSourceEmitter::getSourceLanguage(CodeGenTarget target)
 {
     switch (target)
     {
@@ -86,17 +86,17 @@ struct CLikeSourceEmitter::ComputeEmitActionsContext
         case CodeGenTarget::Unknown:
         case CodeGenTarget::None:
         {
-            return SourceStyle::Unknown;
+            return SourceLanguage::Unknown;
         }
         case CodeGenTarget::GLSL:
         case CodeGenTarget::GLSL_Vulkan:
         case CodeGenTarget::GLSL_Vulkan_OneDesc:
         {
-            return SourceStyle::GLSL;
+            return SourceLanguage::GLSL;
         }
         case CodeGenTarget::HLSL:
         {
-            return SourceStyle::HLSL;
+            return SourceLanguage::HLSL;
         }
         case CodeGenTarget::PTX:
         case CodeGenTarget::SPIRV:
@@ -106,19 +106,19 @@ struct CLikeSourceEmitter::ComputeEmitActionsContext
         case CodeGenTarget::DXIL:
         case CodeGenTarget::DXILAssembly:
         {
-            return SourceStyle::Unknown;
+            return SourceLanguage::Unknown;
         }
         case CodeGenTarget::CSource:
         {
-            return SourceStyle::C;
+            return SourceLanguage::C;
         }
         case CodeGenTarget::CPPSource:
         {
-            return SourceStyle::CPP;
+            return SourceLanguage::CPP;
         }
         case CodeGenTarget::CUDASource:
         {
-            return SourceStyle::CUDA;
+            return SourceLanguage::CUDA;
         }
     }
 }
@@ -126,14 +126,19 @@ struct CLikeSourceEmitter::ComputeEmitActionsContext
 CLikeSourceEmitter::CLikeSourceEmitter(const Desc& desc)
 {
     m_writer = desc.sourceWriter;
-    m_sourceStyle = getSourceStyle(desc.target);
-    SLANG_ASSERT(m_sourceStyle != SourceStyle::Unknown);
+    m_sourceLanguage = getSourceLanguage(desc.target);
+    SLANG_ASSERT(m_sourceLanguage != SourceLanguage::Unknown);
 
     m_target = desc.target;
 
     m_compileRequest = desc.compileRequest;
     m_entryPointStage = desc.entryPointStage;
     m_effectiveProfile = desc.effectiveProfile;
+}
+
+SlangResult CLikeSourceEmitter::init()
+{
+    return SLANG_OK;
 }
 
 //
@@ -198,7 +203,7 @@ void CLikeSourceEmitter::emitSimpleType(IRType* type)
         case kIROp_HalfType:    return UnownedStringSlice("half");     
 
         case kIROp_FloatType:   return UnownedStringSlice("float");    
-        case kIROp_DoubleType:  return UnownedStringSlice("double");   
+        case kIROp_DoubleType:  return UnownedStringSlice("double");
         default:                return UnownedStringSlice();
     }
 }
@@ -209,9 +214,40 @@ void CLikeSourceEmitter::emitSimpleType(IRType* type)
     IRNumThreadsDecoration* decor = func->findDecoration<IRNumThreadsDecoration>();
     for (int i = 0; i < 3; ++i)
     {
-        outNumThreads[i] = decor ? Int(GetIntVal(decor->getOperand(i))) : 1;
+        outNumThreads[i] = decor ? Int(getIntVal(decor->getOperand(i))) : 1;
     }
     return decor;
+}
+
+List<IRWitnessTableEntry*> CLikeSourceEmitter::getSortedWitnessTableEntries(IRWitnessTable* witnessTable)
+{
+    List<IRWitnessTableEntry*> sortedWitnessTableEntries;
+    auto interfaceType = cast<IRInterfaceType>(witnessTable->getOperand(0));
+    auto witnessTableItems = witnessTable->getChildren();
+    // Build a dictionary of witness table entries for fast lookup.
+    Dictionary<IRInst*, IRWitnessTableEntry*> witnessTableEntryDictionary;
+    for (auto item : witnessTableItems)
+    {
+        if (auto entry = as<IRWitnessTableEntry>(item))
+        {
+            witnessTableEntryDictionary[entry->getRequirementKey()] = entry;
+        }
+    }
+    // Get a sorted list of entries using RequirementKeys defined in `interfaceType`.
+    for (UInt i = 0; i < interfaceType->getOperandCount(); i++)
+    {
+        auto reqEntry = cast<IRInterfaceRequirementEntry>(interfaceType->getOperand(i));
+        IRWitnessTableEntry* entry = nullptr;
+        if (witnessTableEntryDictionary.TryGetValue(reqEntry->getRequirementKey(), entry))
+        {
+            sortedWitnessTableEntries.add(entry);
+        }
+        else
+        {
+            SLANG_UNREACHABLE("interface requirement key not found in witness table.");
+        }
+    }
+    return sortedWitnessTableEntries;
 }
 
 void CLikeSourceEmitter::_emitArrayType(IRArrayType* arrayType, EDeclarator* declarator)
@@ -259,6 +295,27 @@ void CLikeSourceEmitter::_emitType(IRType* type, EDeclarator* declarator)
     }
 
 }
+
+void CLikeSourceEmitter::emitWitnessTable(IRWitnessTable* witnessTable)
+{
+    SLANG_UNUSED(witnessTable);
+    SLANG_DIAGNOSE_UNEXPECTED(getSink(), SourceLoc(), "Unimplemented emit: IROpWitnessTable.");
+}
+
+void CLikeSourceEmitter::emitInterface(IRInterfaceType* interfaceType)
+{
+    SLANG_UNUSED(interfaceType);
+    // By default, don't emit anything for interface types.
+    // This behavior is overloaded by concrete emitters.
+}
+
+void CLikeSourceEmitter::emitRTTIObject(IRRTTIObject* rttiObject)
+{
+    SLANG_UNUSED(rttiObject);
+    // Ignore rtti object by default.
+    // This is only used in targets that support dynamic dispatching.
+}
+
 
 void CLikeSourceEmitter::emitTypeImpl(IRType* type, const StringSliceLoc* nameAndLoc)
 {
@@ -338,17 +395,17 @@ void CLikeSourceEmitter::maybeCloseParens(bool needClose)
 
 bool CLikeSourceEmitter::isTargetIntrinsicModifierApplicable(const String& targetName)
 {
-    switch(getSourceStyle())
+    switch(getSourceLanguage())
     {
     default:
         SLANG_DIAGNOSE_UNEXPECTED(getSink(), SourceLoc(), "unhandled code generation target");
         return false;
 
-    case SourceStyle::C:    return targetName == "c";
-    case SourceStyle::CPP:  return targetName == "cpp";
-    case SourceStyle::GLSL: return targetName == "glsl";
-    case SourceStyle::HLSL: return targetName == "hlsl";
-    case SourceStyle::CUDA: return targetName == "cuda";
+    case SourceLanguage::C:    return targetName == "c";
+    case SourceLanguage::CPP:  return targetName == "cpp";
+    case SourceLanguage::GLSL: return targetName == "glsl";
+    case SourceLanguage::HLSL: return targetName == "hlsl";
+    case SourceLanguage::CUDA: return targetName == "cuda";
     }
 }
 
@@ -501,7 +558,7 @@ String CLikeSourceEmitter::scrubName(const String& name)
     // and write some legal characters to the output as we go.
     StringBuilder sb;
 
-    if(getSourceStyle() == SourceStyle::GLSL)
+    if(getSourceLanguage() == SourceLanguage::GLSL)
     {
         // GLSL reserves all names that start with `gl_`,
         // so if we are in danger of collision, then make
@@ -603,6 +660,11 @@ String CLikeSourceEmitter::scrubName(const String& name)
     return sb.ProduceString();
 }
 
+String CLikeSourceEmitter::generateEntryPointNameImpl(IREntryPointDecoration* entryPointDecor)
+{
+    return entryPointDecor->getName()->getStringSlice();
+}
+
 String CLikeSourceEmitter::generateName(IRInst* inst)
 {
     // If the instruction names something
@@ -616,7 +678,7 @@ String CLikeSourceEmitter::generateName(IRInst* inst)
     auto entryPointDecor = inst->findDecoration<IREntryPointDecoration>();
     if (entryPointDecor)
     {
-        if (getSourceStyle() == SourceStyle::GLSL)
+        if (getSourceLanguage() == SourceLanguage::GLSL)
         {
             // GLSL will always need to use `main` as the
             // name for an entry-point function, but other
@@ -629,7 +691,7 @@ String CLikeSourceEmitter::generateName(IRInst* inst)
             return "main";
         }
 
-        return entryPointDecor->getName()->getStringSlice();
+        return generateEntryPointNameImpl(entryPointDecor);
     }
 
     // If we have a name hint on the instruction, then we will try to use that
@@ -859,6 +921,7 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
     case kIROp_GlobalParam:
     case kIROp_Param:
     case kIROp_Func:
+    case kIROp_Alloca:
         return false;
 
     // Always fold these in, because they are trivial
@@ -879,6 +942,7 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
     case kIROp_FieldAddress:
     case kIROp_getElementPtr:
     case kIROp_Specialize:
+    case kIROp_lookup_interface_method:
         return true;
     }
 
@@ -919,10 +983,11 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
         type = arrayType->getElementType();
     }
 
-    // Don't allow temporaries of pointer types to be created.
+    // Don't allow temporaries of pointer types to be created,
+    // if target langauge doesn't support pointers.
     if(as<IRPtrTypeBase>(type))
     {
-        return true;
+        return !doesTargetSupportPtrTypes();
     }
 
     // First we check for uniform parameter groups,
@@ -959,7 +1024,7 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
     // GLSL doesn't allow texture/resource types to
     // be used as first-class values, so we need
     // to fold them into their use sites in all cases
-    if (getSourceStyle() == SourceStyle::GLSL)
+    if (getSourceLanguage() == SourceLanguage::GLSL)
     {
         if(as<IRResourceTypeBase>(type))
         {
@@ -1012,6 +1077,15 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
     // in ways that require a temporary to be introduced.
     //
     if(inst->findDecoration<IRPreciseDecoration>())
+        return false;
+
+    // In general, undefined value should be emitted as an uninitialized
+    // variable, so we shouldn't fold it.
+    // However, we cannot emit all undefined values a separate variable
+    // definition for certain types on certain targets (e.g. `out TriangleStream<T>`
+    // for GLSL), so we check this only after all those special cases are
+    // considered.
+    if (inst->op == kIROp_undefined)
         return false;
 
     // Okay, at this point we know our instruction must have a single use.
@@ -1111,6 +1185,50 @@ bool CLikeSourceEmitter::shouldFoldInstIntoUseSites(IRInst* inst)
     return true;
 }
 
+void CLikeSourceEmitter::emitDereferenceOperand(IRInst* inst, EmitOpInfo const& outerPrec)
+{
+    if (doesTargetSupportPtrTypes())
+    {
+        // If `inst` is a variable, dereferencing it is equivalent to just
+        // emit its name. i.e. *&var ==> var.
+        // We apply this peep hole optimization here to reduce the clutter of
+        // resulting code.
+        if (inst->op == kIROp_Var)
+        {
+            m_writer->emit(getName(inst));
+            return;
+        }
+
+        auto dereferencePrec = EmitOpInfo::get(EmitOp::Prefix);
+        EmitOpInfo newOuterPrec = outerPrec;
+        bool needClose = maybeEmitParens(newOuterPrec, dereferencePrec);
+        m_writer->emit("*");
+        emitOperand(inst, rightSide(newOuterPrec, dereferencePrec));
+        maybeCloseParens(needClose);
+    }
+    else
+    {
+        emitOperand(inst, outerPrec);
+    }
+}
+
+void CLikeSourceEmitter::emitVarExpr(IRInst* inst, EmitOpInfo const& outerPrec)
+{
+    if (doesTargetSupportPtrTypes())
+    {
+        auto prec = getInfo(EmitOp::Prefix);
+        auto newOuterPrec = outerPrec;
+        bool needClose = maybeEmitParens(newOuterPrec, prec);
+        m_writer->emit("&");
+        m_writer->emit(getName(inst));
+        maybeCloseParens(needClose);
+    }
+    else
+    {
+        m_writer->emit(getName(inst));
+    }
+}
+
 void CLikeSourceEmitter::emitOperandImpl(IRInst* inst, EmitOpInfo const&  outerPrec)
 {
     if( shouldFoldInstIntoUseSites(inst) )
@@ -1121,7 +1239,10 @@ void CLikeSourceEmitter::emitOperandImpl(IRInst* inst, EmitOpInfo const&  outerP
 
     switch(inst->op)
     {
-    case 0: // nothing yet
+    case kIROp_Var:
+    case kIROp_GlobalVar:
+        emitVarExpr(inst, outerPrec);
+        break;
     default:
         m_writer->emit(getName(inst));
         break;
@@ -1167,12 +1288,12 @@ void CLikeSourceEmitter::emitInstResultDecl(IRInst* inst)
     {
         // "Ordinary" instructions at module scope are constants
 
-        switch (getSourceStyle())
+        switch (getSourceLanguage())
         {
-        case SourceStyle::CUDA:
-        case SourceStyle::HLSL:
-        case SourceStyle::C:
-        case SourceStyle::CPP:
+        case SourceLanguage::CUDA:
+        case SourceLanguage::HLSL:
+        case SourceLanguage::C:
+        case SourceLanguage::CPP:
             m_writer->emit("static ");
             break;
 
@@ -1521,7 +1642,7 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
                         else if (auto vectorType = as<IRVectorType>(elementType))
                         {
                             // A vector result is expected
-                            auto elementCount = GetIntVal(vectorType->getElementCount());
+                            auto elementCount = getIntVal(vectorType->getElementCount());
 
                             if (elementCount < 4)
                             {
@@ -1553,7 +1674,7 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
                     auto vectorArg = args[argIndex].get();
                     if (auto vectorType = as<IRVectorType>(vectorArg->getDataType()))
                     {
-                        auto elementCount = GetIntVal(vectorType->getElementCount());
+                        auto elementCount = getIntVal(vectorType->getElementCount());
                         m_writer->emit(elementCount);
                     }
                     else
@@ -1578,7 +1699,7 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
                     IRType* elementType = arg->getDataType();
                     if (auto vectorType = as<IRVectorType>(elementType))
                     {
-                        elementCount = GetIntVal(vectorType->getElementCount());
+                        elementCount = getIntVal(vectorType->getElementCount());
                         elementType = vectorType->getElementType();
                     }
 
@@ -1600,7 +1721,7 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
                         for(IRIntegerValue ii = elementCount; ii < 4; ++ii)
                         {
                             m_writer->emit(", ");
-                            if(getSourceStyle() == SourceStyle::GLSL)
+                            if(getSourceLanguage() == SourceLanguage::GLSL)
                             {
                                 emitSimpleType(elementType);
                                 m_writer->emit("(0)");
@@ -1658,7 +1779,7 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
                     auto arg = args[argIndex].get();
                     if(arg->op == kIROp_ImageSubscript)
                     {
-                        if(getSourceStyle() == SourceStyle::GLSL)
+                        if(getSourceLanguage() == SourceLanguage::GLSL)
                         {
                             // TODO: we don't handle the multisample
                             // case correctly here, where the last
@@ -1685,7 +1806,7 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
                             if(coordsVecType)
                             {
                                 coordsType = coordsVecType->getElementType();
-                                elementCount = GetIntVal(coordsVecType->getElementCount());
+                                elementCount = getIntVal(coordsVecType->getElementCount());
                             }
 
                             SLANG_ASSERT(coordsType->op == kIROp_UIntType);
@@ -1838,6 +1959,31 @@ void CLikeSourceEmitter::emitIntrinsicCallExprImpl(
     }
 }
 
+void CLikeSourceEmitter::_emitCallArgList(IRCall* inst)
+{
+    bool isFirstArg = true;
+    m_writer->emit("(");
+    UInt argCount = inst->getOperandCount();
+    for (UInt aa = 1; aa < argCount; ++aa)
+    {
+        auto operand = inst->getOperand(aa);
+        if (as<IRVoidType>(operand->getDataType()))
+            continue;
+
+        // TODO: [generate dynamic dispatch code for generics]
+        // Pass RTTI object here. Ignore type argument for now.
+        if (as<IRType>(operand))
+            continue;
+
+        if (!isFirstArg)
+            m_writer->emit(", ");
+        else
+            isFirstArg = false;
+        emitOperand(inst->getOperand(aa), getInfo(EmitOp::General));
+    }
+    m_writer->emit(")");
+}
+
 void CLikeSourceEmitter::emitCallExpr(IRCall* inst, EmitOpInfo outerPrec)
 {
     auto funcValue = inst->getOperand(0);
@@ -1857,18 +2003,7 @@ void CLikeSourceEmitter::emitCallExpr(IRCall* inst, EmitOpInfo outerPrec)
         bool needClose = maybeEmitParens(outerPrec, prec);
 
         emitOperand(funcValue, leftSide(outerPrec, prec));
-        m_writer->emit("(");
-        UInt argCount = inst->getOperandCount();
-        for( UInt aa = 1; aa < argCount; ++aa )
-        {
-            auto operand = inst->getOperand(aa);
-            if (as<IRVoidType>(operand->getDataType()))
-                continue;
-            if(aa != 1) m_writer->emit(", ");
-            emitOperand(inst->getOperand(aa), getInfo(EmitOp::General));
-        }
-        m_writer->emit(")");
-
+        _emitCallArgList(inst);
         maybeCloseParens(needClose);
     }
 }
@@ -1897,6 +2032,13 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
     case kIROp_GlobalHashedStringLiterals:
         /* Don't need to to output anything for this instruction - it's used for reflecting string literals that
         are hashed with 'getStringHash' */
+        break;
+    case kIROp_RTTIPointerType:
+        break;
+
+    case kIROp_undefined:
+    case kIROp_DefaultConstruct:
+        m_writer->emit(getName(inst));
         break;
 
     case kIROp_IntLit:
@@ -1937,7 +2079,7 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
         auto base = fieldExtract->getBase();
         emitOperand(base, leftSide(outerPrec, prec));
         m_writer->emit(".");
-        if(getSourceStyle() == SourceStyle::GLSL
+        if(getSourceLanguage() == SourceLanguage::GLSL
             && as<IRUniformParameterGroupType>(base->getDataType()))
         {
             m_writer->emit("_data.");
@@ -1951,18 +2093,35 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
 
         IRFieldAddress* ii = (IRFieldAddress*) inst;
 
-        auto prec = getInfo(EmitOp::Postfix);
-        needClose = maybeEmitParens(outerPrec, prec);
-
-        auto base = ii->getBase();
-        emitOperand(base, leftSide(outerPrec, prec));
-        m_writer->emit(".");
-        if(getSourceStyle() == SourceStyle::GLSL
-            && as<IRUniformParameterGroupType>(base->getDataType()))
+        if (doesTargetSupportPtrTypes())
         {
-            m_writer->emit("_data.");
+            auto prec = getInfo(EmitOp::Prefix);
+            needClose = maybeEmitParens(outerPrec, prec);
+            m_writer->emit("&");
+            outerPrec = rightSide(outerPrec, prec);
+            auto innerPrec = getInfo(EmitOp::Postfix);
+            bool innerNeedClose = maybeEmitParens(outerPrec, innerPrec);
+            auto base = ii->getBase();
+            emitOperand(base, leftSide(outerPrec, innerPrec));
+            m_writer->emit("->");
+            m_writer->emit(getName(ii->getField()));
+            maybeCloseParens(innerNeedClose);
         }
-        m_writer->emit(getName(ii->getField()));
+        else
+        {
+            auto prec = getInfo(EmitOp::Postfix);
+            needClose = maybeEmitParens(outerPrec, prec);
+
+            auto base = ii->getBase();
+            emitOperand(base, leftSide(outerPrec, prec));
+            m_writer->emit(".");
+            if(getSourceLanguage() == SourceLanguage::GLSL
+                && as<IRUniformParameterGroupType>(base->getDataType()))
+            {
+                m_writer->emit("_data.");
+            }
+            m_writer->emit(getName(ii->getField()));
+        }
         break;
     }
 
@@ -2053,8 +2212,8 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
     case kIROp_Load:
         {
             auto base = inst->getOperand(0);
-            emitOperand(base, outerPrec);
-            if(getSourceStyle() == SourceStyle::GLSL
+            emitDereferenceOperand(base, outerPrec);
+            if(getSourceLanguage() == SourceLanguage::GLSL
                 && as<IRUniformParameterGroupType>(base->getDataType()))
             {
                 m_writer->emit("._data");
@@ -2067,7 +2226,7 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
             auto prec = getInfo(EmitOp::Assign);
             needClose = maybeEmitParens(outerPrec, prec);
 
-            emitOperand(inst->getOperand(0), leftSide(outerPrec, prec));
+            emitDereferenceOperand(inst->getOperand(0), leftSide(outerPrec, prec));
             m_writer->emit(" = ");
             emitOperand(inst->getOperand(1), rightSide(prec, outerPrec));
         }
@@ -2101,13 +2260,31 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
         }
         else
         {
-            auto prec = getInfo(EmitOp::Postfix);
-            needClose = maybeEmitParens(outerPrec, prec);
+            if (inst->op == kIROp_getElementPtr && doesTargetSupportPtrTypes())
+            {
+                const auto info = getInfo(EmitOp::Prefix);
+                needClose = maybeEmitParens(outerPrec, info);
+                m_writer->emit("&");
+                auto rightSidePrec = rightSide(outerPrec, info);
+                auto postfixInfo = getInfo(EmitOp::Postfix);
+                bool rightSideNeedClose = maybeEmitParens(rightSidePrec, postfixInfo);
+                emitDereferenceOperand(inst->getOperand(0), leftSide(rightSidePrec, postfixInfo));
+                m_writer->emit("[");
+                emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+                m_writer->emit("]");
+                maybeCloseParens(rightSideNeedClose);
+                break;
+            }
+            else
+            {
+                auto prec = getInfo(EmitOp::Postfix);
+                needClose = maybeEmitParens(outerPrec, prec);
 
-            emitOperand( inst->getOperand(0), leftSide(outerPrec, prec));
-            m_writer->emit("[");
-            emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
-            m_writer->emit("]");
+                emitOperand(inst->getOperand(0), leftSide(outerPrec, prec));
+                m_writer->emit("[");
+                emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+                m_writer->emit("]");
+            }
         }
         break;
 
@@ -2179,16 +2356,20 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
 
     case kIROp_BitCast:
         {
-            // TODO: we can simplify the logic for arbitrary bitcasts
-            // by always bitcasting the source to a `uint*` type (if it
-            // isn't already) and then bitcasting that to the destination
-            // type (if it isn't already `uint*`.
+            // Note: we are currently emitting casts as plain old
+            // C-style casts, which may not always perform a bitcast.
             //
-            // For now we are assuming the source type is *already*
-            // a `uint*` type of the appropriate size.
-            //
-            //  auto fromType = extractBaseType(inst->getOperand(0)->getDataType());
+            // TODO: This operation should map to an intrinsic to be
+            // provided in a prelude for C/C++, so that the target
+            // can easily emit code for whatever the best possible
+            // bitcast is on the platform.
          
+            auto prec = getInfo(EmitOp::Prefix);
+            needClose = maybeEmitParens(outerPrec, prec);
+
+            m_writer->emit("(");
+            emitType(inst->getDataType());
+            m_writer->emit(")");
             m_writer->emit("(");
             emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
             m_writer->emit(")");
@@ -2222,7 +2403,53 @@ void CLikeSourceEmitter::defaultEmitInstExpr(IRInst* inst, const EmitOpInfo& inO
             m_writer->emit(")");
         }
         break;
-
+    case kIROp_PackAnyValue:
+    {
+        m_writer->emit("packAnyValue<");
+        m_writer->emit(getIntVal(cast<IRAnyValueType>(inst->getDataType())->getSize()));
+        m_writer->emit(",");
+        emitType(inst->getOperand(0)->getDataType());
+        m_writer->emit(">(");
+        emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+        m_writer->emit(")");
+        break;
+    }
+    case kIROp_UnpackAnyValue:
+    {
+        m_writer->emit("unpackAnyValue<");
+        m_writer->emit(getIntVal(cast<IRAnyValueType>(inst->getOperand(0)->getDataType())->getSize()));
+        m_writer->emit(",");
+        emitType(inst->getDataType());
+        m_writer->emit(">(");
+        emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+        m_writer->emit(")");
+        break;
+    }
+    case kIROp_GpuForeach:
+    {
+        auto operand = inst->getOperand(2);
+        if (as<IRFunc>(operand))
+        {
+            //emitOperand(operand->findDecoration<IREntryPointDecoration>(), getInfo(EmitOp::General));
+            emitOperand(operand, getInfo(EmitOp::General));
+        }
+        else
+        {
+            SLANG_UNEXPECTED("Expected 3rd operand to be a function");
+        }
+        m_writer->emit("_wrapper(");
+        emitOperand(inst->getOperand(0), getInfo(EmitOp::General));
+        m_writer->emit(", ");
+        emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+        UInt argCount = inst->getOperandCount();
+        for (UInt aa = 3; aa < argCount; ++aa)
+        {
+            m_writer->emit(", ");
+            emitOperand(inst->getOperand(aa), getInfo(EmitOp::General));
+        }
+        m_writer->emit(")");
+        break;
+    }
     default:
         diagnoseUnhandledInst(inst);
         break;
@@ -2285,6 +2512,7 @@ void CLikeSourceEmitter::_emitInst(IRInst* inst)
         break;
 
     case kIROp_undefined:
+    case kIROp_DefaultConstruct:
         {
             auto type = inst->getDataType();
             emitType(type, getName(inst));
@@ -2369,7 +2597,7 @@ void CLikeSourceEmitter::_emitInst(IRInst* inst)
 
 
             auto ii = cast<IRSwizzledStore>(inst);
-            emitOperand(ii->getDest(), leftSide(subscriptOuter, subscriptPrec));
+            emitDereferenceOperand(ii->getDest(), leftSide(subscriptOuter, subscriptPrec));
             m_writer->emit(".");
             UInt elementCount = ii->getElementCount();
             for (UInt ee = 0; ee < elementCount; ++ee)
@@ -3032,6 +3260,17 @@ void CLikeSourceEmitter::emitParamTypeImpl(IRType* type, String const& name)
 IRInst* CLikeSourceEmitter::getSpecializedValue(IRSpecialize* specInst)
 {
     auto base = specInst->getBase();
+
+    // It is possible to have a `specialize(...)` where the first
+    // operand is also a `specialize(...)`, so that we need to
+    // look at what declaration is being specialized at the inner
+    // step to find the one being specialized at the outer step.
+    //
+    while(auto baseSpecialize = as<IRSpecialize>(base))
+    {
+        base = getSpecializedValue(baseSpecialize);
+    }
+
     auto baseGeneric = as<IRGeneric>(base);
     if (!baseGeneric)
         return base;
@@ -3174,7 +3413,7 @@ void CLikeSourceEmitter::emitStruct(IRStructType* structType)
             continue;
 
         // Note: GLSL doesn't support interpolation modifiers on `struct` fields
-        if( getSourceStyle() != SourceStyle::GLSL )
+        if( getSourceLanguage() != SourceLanguage::GLSL )
         {
             emitInterpolationModifiers(fieldKey, fieldType, nullptr);
         }
@@ -3389,9 +3628,9 @@ void CLikeSourceEmitter::emitGlobalVar(IRGlobalVar* varDecl)
     // shader parameter) may need special
     // modifiers to indicate it as such.
     //
-    switch (getSourceStyle())
+    switch (getSourceLanguage())
     {
-    case SourceStyle::HLSL:
+    case SourceLanguage::HLSL:
         // HLSL requires the `static` modifier on any
         // global variables; otherwise they are assumed
         // to be uniforms.
@@ -3491,6 +3730,11 @@ void CLikeSourceEmitter::emitGlobalInst(IRInst* inst)
         are hashed with 'getStringHash' */
         break;
 
+    case kIROp_InterfaceRequirementEntry:
+        // Don't emit anything for interface requirement at global level.
+        // They are handled in `emitInterface`.
+        break;
+
     case kIROp_Func:
         emitFunc((IRFunc*) inst);
         break;
@@ -3509,6 +3753,18 @@ void CLikeSourceEmitter::emitGlobalInst(IRInst* inst)
 
     case kIROp_StructType:
         emitStruct(cast<IRStructType>(inst));
+        break;
+
+    case kIROp_InterfaceType:
+        emitInterface(cast<IRInterfaceType>(inst));
+        break;
+
+    case kIROp_WitnessTable:
+        emitWitnessTable(cast<IRWitnessTable>(inst));
+        break;
+
+    case kIROp_RTTIObject:
+        emitRTTIObject(cast<IRRTTIObject>(inst));
         break;
 
     default:
@@ -3539,6 +3795,10 @@ void CLikeSourceEmitter::ensureInstOperandsRec(ComputeEmitActionsContext* ctx, I
     ensureInstOperand(ctx, inst->getFullType());
 
     UInt operandCount = inst->operandCount;
+    auto requiredLevel = EmitAction::Definition;
+    if (inst->op == kIROp_InterfaceType)
+        requiredLevel = EmitAction::ForwardDeclaration;
+
     for(UInt ii = 0; ii < operandCount; ++ii)
     {
         // TODO: there are some special cases we can add here,
@@ -3550,7 +3810,7 @@ void CLikeSourceEmitter::ensureInstOperandsRec(ComputeEmitActionsContext* ctx, I
         // Similarly, a `call` instruction only needs the callee
         // to be forward-declared, etc.
 
-        ensureInstOperand(ctx, inst->getOperand(ii));
+        ensureInstOperand(ctx, inst->getOperand(ii), requiredLevel);
     }
 
     for(auto child : inst->getDecorationsAndChildren())
@@ -3561,17 +3821,25 @@ void CLikeSourceEmitter::ensureInstOperandsRec(ComputeEmitActionsContext* ctx, I
 
 void CLikeSourceEmitter::ensureGlobalInst(ComputeEmitActionsContext* ctx, IRInst* inst, EmitAction::Level requiredLevel)
 {
-    // Skip certain instructions, since they
-    // don't affect output.
+    // Skip certain instructions that don't affect output.
     switch(inst->op)
     {
     case kIROp_WitnessTable:
+        // Only skip witness tables when we are generating
+        // static code.
+        if (!m_compileRequest->allowDynamicCode)
+            return;
+        break;
+
+    case kIROp_InterfaceRequirementEntry:
     case kIROp_Generic:
         return;
 
     default:
         break;
     }
+    if (as<IRBasicType>(inst))
+        return;
 
     // Have we already processed this instruction?
     EmitAction::Level existingLevel;

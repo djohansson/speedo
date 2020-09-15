@@ -37,18 +37,6 @@ public:
         int colCount;
     };
 
-    struct GlobalParamInfo
-    {
-        typedef GlobalParamInfo ThisType;
-        bool operator<(const ThisType& rhs) const { return offset < rhs.offset; }
-        bool operator==(const ThisType& rhs) const { return offset == rhs.offset; }
-        bool operator!=(const ThisType& rhs) const { return !(*this == rhs); }
-
-        IRInst* inst;
-        UInt offset;
-        UInt size;
-    };
-
     virtual void useType(IRType* type);
     virtual void emitCall(const HLSLIntrinsic* specOp, IRInst* inst, const IRUse* operands, int numOperands, const EmitOpInfo& inOuterPrec);
     virtual void emitTypeDefinition(IRType* type);
@@ -63,6 +51,7 @@ public:
 protected:
 
     // Implement CLikeSourceEmitter interface
+    virtual bool doesTargetSupportPtrTypes() SLANG_OVERRIDE { return true; }
     virtual void emitParameterGroupImpl(IRGlobalParam* varDecl, IRUniformParameterGroupType* type) SLANG_OVERRIDE;
     virtual void emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPointDecoration* entryPointDecor) SLANG_OVERRIDE;
     virtual void emitSimpleTypeImpl(IRType* type) SLANG_OVERRIDE;
@@ -71,11 +60,14 @@ protected:
     virtual bool tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOuterPrec) SLANG_OVERRIDE;
     virtual void emitPreprocessorDirectivesImpl() SLANG_OVERRIDE;
     virtual void emitSimpleValueImpl(IRInst* value) SLANG_OVERRIDE;
+    virtual void emitSimpleFuncParamImpl(IRParam* param) SLANG_OVERRIDE;
     virtual void emitModuleImpl(IRModule* module) SLANG_OVERRIDE;
     virtual void emitSimpleFuncImpl(IRFunc* func) SLANG_OVERRIDE;
     virtual void emitOperandImpl(IRInst* inst, EmitOpInfo const&  outerPrec) SLANG_OVERRIDE;
     virtual void emitParamTypeImpl(IRType* type, String const& name) SLANG_OVERRIDE;
-
+    virtual void emitWitnessTable(IRWitnessTable* witnessTable) SLANG_OVERRIDE;
+    virtual void emitInterface(IRInterfaceType* interfaceType) SLANG_OVERRIDE;
+    virtual void emitRTTIObject(IRRTTIObject* rttiObject) SLANG_OVERRIDE;
     virtual bool tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType) SLANG_OVERRIDE;
     virtual void emitIntrinsicCallExprImpl(IRCall* inst, IRTargetIntrinsicDecoration* targetIntrinsic, EmitOpInfo const& inOuterPrec) SLANG_OVERRIDE;
 
@@ -85,12 +77,12 @@ protected:
     virtual SlangResult calcTypeName(IRType* type, CodeGenTarget target, StringBuilder& out);
     virtual SlangResult calcFuncName(const HLSLIntrinsic* specOp, StringBuilder& out);
     virtual SlangResult calcScalarFuncName(HLSLIntrinsic::Op op, IRBasicType* type, StringBuilder& outBuilder);
-    
+
+        // Emits a struct of function pointers defined in `interfaceType`.
+    void _maybeEmitWitnessTableTypeDefinition(IRInterfaceType* interfaceType);
     void _maybeEmitSpecializedOperationDefinition(const HLSLIntrinsic* specOp);
 
     void _emitForwardDeclarations(const List<EmitAction>& actions);
-    void _calcGlobalParams(const List<EmitAction>& actions, List<GlobalParamInfo>& outParams, IRGlobalParam** outEntryPointGlobalParams);
-    void _emitUniformStateMembers(const List<EmitAction>& actions, IRGlobalParam** outEntryPointGlobalParams);
 
     void _emitAryDefinition(const HLSLIntrinsic* specOp);
 
@@ -118,15 +110,17 @@ protected:
     
     SlangResult _calcCPPTextureTypeName(IRTextureTypeBase* texType, StringBuilder& outName);
 
-    void _emitEntryPointDefinitionStart(IRFunc* func, IRGlobalParam* entryPointGlobalParams, const String& funcName, const UnownedStringSlice& varyingTypeName);
+    void _emitEntryPointDefinitionStart(IRFunc* func, const String& funcName, const UnownedStringSlice& varyingTypeName);
     void _emitEntryPointDefinitionEnd(IRFunc* func);
     void _emitEntryPointGroup(const Int sizeAlongAxis[kThreadGroupAxisCount], const String& funcName);
     void _emitEntryPointGroupRange(const Int sizeAlongAxis[kThreadGroupAxisCount], const String& funcName);
-
     void _emitInitAxisValues(const Int sizeAlongAxis[kThreadGroupAxisCount], const UnownedStringSlice& mulName, const UnownedStringSlice& addName);
 
     bool _tryEmitInstExprAsIntrinsic(IRInst* inst, const EmitOpInfo& inOuterPrec);
 
+        // Emit the actual definition (including intializer list)
+        // of all the witness table objects in `pendingWitnessTableDefinitions`.
+    void _emitWitnessTableDefinitions();
     HLSLIntrinsic* _addIntrinsic(HLSLIntrinsic::Op op, IRType* returnType, IRType*const* argTypes, Index argTypeCount);
 
     static bool _isVariable(IROp op);
@@ -143,6 +137,11 @@ protected:
     StringSlicePool m_slicePool;
 
     SemanticUsedFlags m_semanticUsedFlags;
+
+    // Witness tables pending for emitting their definitions.
+    // They must be emitted last, after the entire `Context` class so those member functions defined
+    // in `Context` may be referenced.
+    List<IRWitnessTable*> pendingWitnessTableDefinitions;
 };
 
 }

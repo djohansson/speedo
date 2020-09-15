@@ -17,9 +17,9 @@ Items with ^ means there is some discussion about support later in the document 
 | u/int64_t Intrinsics        |     No       |   No         |   Yes      |     Yes       |    Yes
 | int matrix                  |     Yes      |   Yes        |   No +     |     Yes       |    Yes
 | tex.GetDimension            |     Yes      |   Yes        |   Yes      |     No        |    Yes
-| SM6.0 Wave Intrinsics       |     No       |   Yes        |  Partial   |     No +      |    No
+| SM6.0 Wave Intrinsics       |     No       |   Yes        |  Partial   |     Yes ^     |    No
 | SM6.0 Quad Intrinsics       |     No       |   Yes        |   No +     |     No        |    No
-| SM6.5 Wave Intrinsics       |     No       |   Yes ^      |   No +     |     No +      |    No
+| SM6.5 Wave Intrinsics       |     No       |   Yes ^      |   No +     |     Yes ^     |    No
 | WaveMask Intrinsics         |     Yes ^    |   Yes ^      |   Yes +    |     Yes       |    No
 | WaveShuffle                 |     No       |   Limited ^  |   Yes      |     Yes       |    No
 | Tesselation                 |     Yes ^    |   Yes ^      |   No +     |     No        |    No
@@ -39,6 +39,8 @@ Items with ^ means there is some discussion about support later in the document 
 | `[unroll]`                  |     Yes      |   Yes        |   Yes ^    |     Yes       |    Limited + 
 | Atomics                     |     Yes      |   Yes        |   Yes      |     Yes       |    No + 
 | Atomics on RWBuffer         |     Yes      |   Yes        |   Yes      |     No        |    No + 
+| Sampler Feedback            |     No       |   Yes        |   No +     |     No        |    Yes ^
+| RWByteAddressBuffer Atomic  |     No       |   Yes ^      |   Yes ^    |     Yes       |    No +
 
 ## Half Type
 
@@ -58,9 +60,9 @@ tex.GetDimensions is the GetDimensions method on 'texture' objects. This is not 
 
 ## SM6.0 Wave Intrinsics
 
-CUDA does not currently support the HLSL Wave intrinsics. It does support 'WaveMask' intrinsics that follow the CUDA sync mechanism, where the programmer has to explicilty specify the lanes involved when calling the intrisnic.
+CUDA has premliminary support for Wave Intrinsics, introduced in [PR #1352](https://github.com/shader-slang/slang/pull/1352). Slang synthesizes the 'WaveMask' based on program flow and the implied 'programmer view' of exectution. This support is built on top of WaveMask intrinsics with Wave Intrinsics being replaced with WaveMask Intrinsic calls with Slang generating the code to calculate the appropriate WaveMasks.
 
-Currently there is the intention to look into making Slang generate suitable masks automatically such that that regular Wave intrinsics work. 
+Please read [PR #1352](https://github.com/shader-slang/slang/pull/1352) for a better description of the status.
 
 ## SM6.5 Wave Intrinsics
 
@@ -169,3 +171,68 @@ For VK the GLSL output from Slang seems plausible, but VK binding fails in tests
 On CUDA RWBuffer becomes CUsurfObject, which is a 'texture' type and does not support atomics. 
 
 On the CPU atomics are not supported, but will be in the future.
+
+## Sampler Feedback
+
+The HLSL [sampler feedback feature](https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html) is available for DirectX12. The features requires shader model 6.5 and therefore a version of [DXC](https://github.com/Microsoft/DirectXShaderCompiler) that supports that model or higher. The Shader Model 6.5 requirement also means only DXIL binary format is supported. 
+
+There doesn't not appear to be a similar feature available in Vulkan yet, but when it is available support should be addeed.
+
+For CPU targets there is the IFeedbackTexture interface that requires an implemention for use. Slang does not currently include CPU implementations for texture types.  
+
+## RWByteAddressBuffer Atomic
+
+The additional supported methods on RWByteAddressBuffer are...
+
+```
+void RWByteAddressBuffer::InterlockedAddF32(uint byteAddress, float valueToAdd, out float originalValue);
+void RWByteAddressBuffer::InterlockedAddF32(uint byteAddress, float valueToAdd);
+
+void RWByteAddressBuffer::InterlockedAddI64(uint byteAddress, int64_t valueToAdd, out int64_t originalValue);
+void RWByteAddressBuffer::InterlockedAddI64(uint byteAddress, int64_t valueToAdd);
+
+void RWByteAddressBuffer::InterlockedCompareExchangeU64(uint byteAddress, uint64_t compareValue, uint64_t value, out uint64_t outOriginalValue);
+
+uint64_t RWByteAddressBuffer::InterlockedMaxU64(uint byteAddress, uint64_t value);
+uint64_t RWByteAddressBuffer::InterlockedMinU64(uint byteAddress, uint64_t value);
+
+uint64_t RWByteAddressBuffer::InterlockedAndU64(uint byteAddress, uint64_t value);
+uint64_t RWByteAddressBuffer::InterlockedOrU64(uint byteAddress, uint64_t value);
+uint64_t RWByteAddressBuffer::InterlockedXorU64(uint byteAddress, uint64_t value);
+```
+
+On HLSL based targets this functionality is achieved using [NVAPI](https://developer.nvidia.com/nvapi). For this to work it is necessary to have NVAPI available on your system. The 'prelude' functionality in the Slang API allows for text to be inserted before any Slang code generated code is output. If the input source uses an NVAPI feature - like the methods above - it will output code that *assumes* that `nvHLSLExtns.h` is included.  The following code from `render-test-main.cpp` sets up a suitable prelude for HLSL that includes `nvHLSLExtns.h` with an absolute path.
+
+```
+String rootPath;
+SLANG_RETURN_ON_FAIL(TestToolUtil::getRootPath(exePath, rootPath));
+
+String includePath;
+SLANG_RETURN_ON_FAIL(TestToolUtil::getIncludePath(rootPath, "external/nvapi/nvHLSLExtns.h", includePath));
+
+StringBuilder buf;
+// We have to choose a slot that NVAPI will use. 
+buf << "#define NV_SHADER_EXTN_SLOT " << options.nvapiRegister << "\n";
+
+// Include the NVAPI header
+buf << "#include \"" << includePath << "\"\n\n";
+
+session->setLanguagePrelude(SLANG_SOURCE_LANGUAGE_HLSL, buf.getBuffer());
+```        
+
+This sets the HLSL prelude to something like...
+
+```
+#define NV_SHADER_EXTN_SLOT u0
+#include "d:/path/to/nvapi/nvHLSLExtns.h"
+```
+
+Note the use of the *absolute* path to the file `nvHLSLExtns.h`. Doing so means the other includes that `nvHLSLExtns.h` includes look in the correct place without having to set up special include paths. As is required by using NVAPI, before the include it is necessary to specify what UAV will be used. 
+
+To use NVAPI it is nessary to specify a unordered access views (UAV) based 'u' register that will be used to communicate with NVAPI. 
+
+Note! Slang does not do any special handling around this, it will be necessary for application code to ensure the UAV is either guarenteed to not collide with what Slang assigns, or it's specified (but not used) in the Slang source. The u register number has to be specified also to the NVAPI runtime library. 
+
+On Vulkan, for float the [`GL_EXT_shader_atomic_float`](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VK_EXT_shader_atomic_float.html) extension is required. For int64 the [`GL_EXT_shader_atomic_int64`](https://raw.githubusercontent.com/KhronosGroup/GLSL/master/extensions/ext/GL_EXT_shader_atomic_int64.txt) extension is required.
+
+CUDA requires SM6.0 or higher for int64 support. 

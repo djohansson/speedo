@@ -23,7 +23,6 @@ static ReflectClassInfo::Infos _calcInfos()
     ReflectClassInfo::Infos infos;
     memset(&infos, 0, sizeof(infos));
     SLANG_ALL_ASTNode_NodeBase(SLANG_REFLECT_GET_REFLECT_CLASS_INFO, _)
-    SLANG_ALL_ASTNode_Substitutions(SLANG_REFLECT_GET_REFLECT_CLASS_INFO, _)
     return infos;
 }
 
@@ -44,11 +43,22 @@ bool ReflectClassInfo::isSubClassOfSlow(const ThisType& super) const
 // Now try and implement all of the classes
 // Macro generated is of the format
 
-
-template <typename T>
-struct CreateImpl
+struct ASTConstructAccess
 {
-    static void* create() { return new T; }
+    template <typename T>
+    struct Impl
+    {
+        static void* create(ASTBuilder* astBuilder)
+        {
+            return astBuilder->create<T>();
+        }
+        static void destroy(void* ptr)
+        {
+            // Needed because if type has non dtor, Visual Studio claims ptr not used
+            SLANG_UNUSED(ptr);
+            reinterpret_cast<T*>(ptr)->~T();
+        }
+    };
 };
 
 #define SLANG_GET_SUPER_BASE(SUPER) nullptr
@@ -56,17 +66,15 @@ struct CreateImpl
 #define SLANG_GET_SUPER_LEAF(SUPER) &SUPER::kReflectClassInfo
 
 #define SLANG_GET_CREATE_FUNC_ABSTRACT(NAME) nullptr
-#define SLANG_GET_CREATE_FUNC_NONE(NAME) &CreateImpl<NAME>::create
+#define SLANG_GET_CREATE_FUNC_NONE(NAME) &ASTConstructAccess::Impl<NAME>::create
 
-#define SLANG_GET_CREATE_FUNC_NON_VISITOR_ABSTRACT(NAME) nullptr
-#define SLANG_GET_CREATE_FUNC_NON_VISITOR(NAME) &CreateImpl<NAME>::create
-
+#define SLANG_GET_DESTROY_FUNC_ABSTRACT(NAME) nullptr
+#define SLANG_GET_DESTROY_FUNC_NONE(NAME) &ASTConstructAccess::Impl<NAME>::destroy
 
 #define SLANG_REFLECT_CLASS_INFO(NAME, SUPER, ORIGIN, LAST, MARKER, TYPE, param) \
-    /* static */const ReflectClassInfo NAME::kReflectClassInfo = { uint32_t(ASTNodeType::NAME), uint32_t(ASTNodeType::LAST), SLANG_GET_SUPER_##TYPE(SUPER), #NAME, SLANG_GET_CREATE_FUNC_##MARKER(NAME)  };
+    /* static */const ReflectClassInfo NAME::kReflectClassInfo = { uint32_t(ASTNodeType::NAME), uint32_t(ASTNodeType::LAST), SLANG_GET_SUPER_##TYPE(SUPER), #NAME, SLANG_GET_CREATE_FUNC_##MARKER(NAME), SLANG_GET_DESTROY_FUNC_##MARKER(NAME), uint32_t(sizeof(NAME)), uint8_t(SLANG_ALIGN_OF(NAME)) };
 
 SLANG_ALL_ASTNode_NodeBase(SLANG_REFLECT_CLASS_INFO, _)
-SLANG_ALL_ASTNode_Substitutions(SLANG_REFLECT_CLASS_INFO, _)
 
 // We dispatch to non 'abstract' types
 #define SLANG_CASE_NONE(NAME)           case ASTNodeType::NAME: return visitor->dispatch_##NAME(static_cast<NAME*>(this), extra);

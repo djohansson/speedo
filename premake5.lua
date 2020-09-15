@@ -92,6 +92,14 @@ newoption {
 }
 
 newoption {
+   trigger     = "enable-nvapi",
+   description = "(Optional) If true will enable NVAPI, if NVAPI is found via CUDA_PATH",
+   value       = "bool",
+   default     = "false",
+   allowed     = { { "true", "True"}, { "false", "False" } }
+}
+
+newoption {
    trigger     = "cuda-sdk-path",
    description = "(Optional) Path to the root of CUDA SDK. If set will enable CUDA in build (ie in effect sets enable-cuda=true too)",
    value       = "path"
@@ -111,7 +119,6 @@ newoption {
    value       = "path"
 }
 
-
 newoption {
    trigger     = "enable-profile",
    description = "(Optional) If true will enable slang-profile tool - suitable for gprof usage on linux",
@@ -130,6 +137,10 @@ optixPath = _OPTIONS["optix-sdk-path"]
 enableOptix = not not (_OPTIONS["enable-optix"] == "true" or optixPath)
 enableProfile = (_OPTIONS["enable-profile"] == "true")
 
+-- This is the path where nvapi is expected to be found
+
+nvapiPath = "external/nvapi"
+
 if enableOptix then
     optixPath = optixPath or "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.0.0/"
     enableCuda = true;
@@ -144,6 +155,14 @@ end
 
 -- Is true when the target is really windows (ie not something on top of windows like cygwin)
 local isTargetWindows = (os.target() == "windows") and not (targetDetail == "mingw" or targetDetail == "cygwin")
+
+-- Even if we have the nvapi path, we only want to currently enable on windows targets
+
+enableNvapi = not not (os.isdir(nvapiPath) and isTargetWindows and _OPTIONS["enable-nvapi"] == "true")
+
+if enableNvapi then
+    printf("Enabled NVAPI")
+end
 
 overrideModule = {}
 local overrideModulePath = _OPTIONS["override-module"]
@@ -201,7 +220,7 @@ workspace "slang"
         architecture "ARM"
 
     filter { "toolset:clang or gcc*" }
-        buildoptions { "-Wno-unused-parameter", "-Wno-type-limits", "-Wno-sign-compare", "-Wno-unused-variable", "-Wno-reorder", "-Wno-switch", "-Wno-return-type", "-Wno-unused-local-typedefs", "-Wno-parentheses",  "-std=c++11", "-fvisibility=hidden" , "-Wno-ignored-optimization-argument", "-Wno-unknown-warning-option"} 
+        buildoptions { "-Wno-unused-parameter", "-Wno-type-limits", "-Wno-sign-compare", "-Wno-unused-variable", "-Wno-reorder", "-Wno-switch", "-Wno-return-type", "-Wno-unused-local-typedefs", "-Wno-parentheses",  "-std=c++11", "-fvisibility=hidden" , "-Wno-ignored-optimization-argument", "-Wno-unknown-warning-option", "-Wno-class-memaccess"} 
         
     filter { "toolset:gcc*"}
         buildoptions { "-Wno-unused-but-set-variable", "-Wno-implicit-fallthrough"  }
@@ -264,6 +283,9 @@ end
 -- First, we will define a helper routine for adding all
 -- the relevant files from a given directory path:
 --
+-- Note that this does not work recursively 
+-- so projects that spread their source over multiple
+-- directories will need to take more steps.
 function addSourceDir(path)
     files
     {
@@ -286,6 +308,10 @@ end
 -- is nested in `source/`, so we'd (indirectly) call:
 --
 --      baseSlangProject("slangc", "source/slangc")
+--
+-- NOTE! This function does not add any source from the sourceDir
+-- add the source after calling this function with 'addSourceDir', or 
+-- use `baseSlangProjectAddFiles`
 --
 function baseSlangProject(name, sourceDir)
 
@@ -331,15 +357,6 @@ function baseSlangProject(name, sourceDir)
     --
     language "C++"
 
-    -- Since we know the project directory, we can go ahead
-    -- and add any source files locate there.
-    --
-    -- Note that we do *not* recurse into subdirectories,
-    -- so projects that spread their source over multiple
-    -- directories will need to take more steps.
-    --
-    addSourceDir(sourceDir)
-
     -- By default, Premake generates VS project files that
     -- reflect the directory structure of the source code.
     -- While this is nice in principle, it creates messy
@@ -372,7 +389,23 @@ function baseSlangProject(name, sourceDir)
     end
 end
 
--- We can now use the `baseSlangProject()` subroutine to
+function baseSlangProjectAddFiles(name, sourceDir)
+    
+    --
+    -- Set up the base project
+    --
+
+    baseSlangProject(name, sourceDir)
+    
+    --
+    -- Add the files in the sourceDir
+    -- NOTE! This doesn't recursively add files in subdirectories
+    --
+    
+    addSourceDir(sourceDir)
+end
+
+-- We can now use the `baseSlangProjectAddFiles()` subroutine to
 -- define helpers for the different categories of project
 -- in our source tree.
 --
@@ -395,8 +428,8 @@ function tool(name)
     -- Now we invoke our shared project configuration logic,
     -- specifying that the project lives under the `tools/` path.
     --
-    baseSlangProject(name, "tools/" .. name)
-
+    baseSlangProjectAddFiles(name, "tools/" .. name)
+    
     -- Finally, we set the project "kind" to produce a console
     -- application. This is a reasonable default for tools,
     -- and it can be overriden because Premake is stateful,
@@ -420,14 +453,14 @@ function standardProject(name)
 
     -- A standard project has its code under `source/`
     --
-    baseSlangProject(name, "source/" .. name)
+    baseSlangProjectAddFiles(name, "source/" .. name)
 end
 
 function toolSharedLibrary(name)
     group "test-tool"
     -- specifying that the project lives under the `tools/` path.
     --
-    baseSlangProject(name .. "-tool", "tools/" .. name)
+    baseSlangProjectAddFiles(name .. "-tool", "tools/" .. name)
     
     defines { "SLANG_SHARED_LIBRARY_TOOL" }
    
@@ -441,7 +474,7 @@ function example(name)
     group "examples"
 
     -- They have their source code under `examples/<project-name>/`
-    baseSlangProject(name, "examples/" .. name)
+    baseSlangProjectAddFiles(name, "examples/" .. name)
 
     -- By default, all of our examples are GUI applications. One some
     -- platforms there is no meaningful distinction between GUI and
@@ -465,6 +498,30 @@ function example(name)
     links { "slang", "core", "gfx" }
 end
 
+--
+-- Create a project that is used as a build step, typically to 
+-- build items needed for other dependencies
+---
+    
+function generatorProject(name, sourcePath)
+    -- We use the `group` command here to specify that the
+    -- next project we create shold be placed into a group
+    -- named "generator" in a generated IDE solution/workspace.
+    --
+    -- This is used in the generated Visual Studio solution
+    -- to group all the tools projects together in a logical
+    -- sub-directory of the solution.
+    --
+    group "generator"
+
+    -- Set up the project, but do NOT add any source files.
+    baseSlangProject(name, sourcePath)
+
+    -- For now we just use static lib to force something
+    -- to build. 
+    kind "StaticLib"
+end   
+
 if isTargetWindows then
     --
     -- With all of these helper routines defined, we can now define the
@@ -481,6 +538,9 @@ if isTargetWindows then
 
     -- Let's go ahead and set up the projects for our other example now.
     example "model-viewer"
+
+    example "heterogeneous-hello-world"
+        kind "ConsoleApp"
 
     example "gpu-printing"
         kind "ConsoleApp"
@@ -518,6 +578,7 @@ standardProject "core"
     -- We need the core library to be relocatable to be able to link with slang.so
     filter { "system:linux" }
         buildoptions{"-fPIC"}
+
     
 --
 -- The cpp extractor is a tool that scans C++ header files to extract
@@ -619,7 +680,7 @@ toolSharedLibrary "render-test"
         defines { "RENDER_TEST_CUDA" }
         includedirs { cudaPath .. "/include" }
         includedirs { cudaPath .. "/include", cudaPath .. "/common/inc" }
-
+        
         if optixPath then
             defines { "RENDER_TEST_OPTIX" }
             includedirs { optixPath .. "include/" }
@@ -632,6 +693,7 @@ toolSharedLibrary "render-test"
            
         filter { "platforms:x64" }
             libdirs { cudaPath .. "/lib/x64/" }       
+        
     end
   
 --
@@ -647,6 +709,9 @@ tool "gfx"
     kind "StaticLib"
     
     includedirs { ".", "external", "source", "external/imgui" }
+
+    -- Will compile across targets
+    addSourceDir "tools/gfx/nvapi"
 
     -- To special case that we may be building using cygwin on windows. If 'true windows' we build for dx12/vk and run the script
     -- If not we assume it's a cygwin/mingw type situation and remove files that aren't appropriate
@@ -677,6 +742,25 @@ tool "gfx"
         --addSourceDir "tools/gfx/open-gl"
     end
         
+    -- If NVAPI is enabled
+    if enableNvapi then
+        -- Add the include path
+        includedirs { nvapiPath }
+        
+        -- Add a define so that render-test code can check if nvapi is available
+        defines { "GFX_NVAPI" }
+        
+        -- Set the nvapi libs directory
+        filter { "platforms:x86" }
+            libdirs { nvapiPath .. "/x86" }
+            links { "nvapi" }
+            
+        filter { "platforms:x64" }
+            libdirs { nvapiPath .. "/amd64" }
+            links { "nvapi64" }
+            
+    end
+    
     filter { "system:linux" }
         -- might be able to do pic(true)
         buildoptions{"-fPIC"}
@@ -693,7 +777,126 @@ standardProject "slangc"
     uuid "D56CBCEB-1EB5-4CA8-AEC4-48EA35ED61C7"
     kind "ConsoleApp"
     links { "core", "slang" }
+    
+    
+generatorProject("run-generators", "source/slang/")
+    
+    -- We make 'source/slang' the location of the source, to make paths to source
+    -- relative to that
+    
+    -- We include these, even though they are not really part of the dummy 
+    -- build, so that the filters below can pick up the appropriate locations.
+    
+    files
+    {
+        "source/slang/*.meta.slang",            -- The stdlib files
+        "source/slang/slang-ast-reflect.h",     -- The C++ reflection 
+        
+        --
+        -- To build we need to have some source! It has to be a source file that 
+        -- does not depend on anything that is generated, so we take something
+        -- from core that will compile without any generation. 
+        --
+       
+        "source/core/slang-string.cpp",          
+    }
+    
+    -- First, we need to ensure that `slang-generate`/`slang-cpp-extactor` 
+    -- gets built before `slang`, so we declare a non-linking dependency between
+    -- the projects here:
+    --
+    dependson { "slang-cpp-extractor", "slang-generate"  }
+    
+    local executableSuffix = "";
+    if(os.target() == "windows") then
+        executableSuffix = ".exe";
+    end
+        
+    -- We need to run the C++ extractor to generate some include files
+    if executeBinary then
+        filter "files:**/slang-ast-reflect.h"
+            buildmessage "slang-cpp-extractor AST %{file.relpath}"
 
+            -- Where the input files are located
+            local sourcePath = "%{file.directory}/"
+            
+            -- Specify the files that will be used for the generation
+            local inputFiles = { "slang-ast-base.h", "slang-ast-decl.h", "slang-ast-expr.h", "slang-ast-modifier.h", "slang-ast-stmt.h", "slang-ast-type.h", "slang-ast-val.h" }
+
+            -- Specify the actual command to run for this action.
+            --
+            -- Note that we use a single-quoted Lua string and wrap the path
+            -- to the `slang-cpp-extractor` command in double quotes to avoid
+            -- confusing the Windows shell. It seems that Premake outputs that
+            -- path with forward slashes, which confused the shell if we don't
+            -- quote the executable path.
+
+            local buildcmd = '"%{cfg.targetdir}/slang-cpp-extractor" -d ' .. sourcePath .. " " .. table.concat(inputFiles, " ") .. " -strip-prefix slang-ast- -o slang-ast-generated -output-fields"
+            
+            buildcommands { buildcmd }
+            
+            -- Specify the files output by the extactor - so custom action will run when these files are needed.
+            --
+            buildoutputs { sourcePath .. "slang-ast-generated.h", sourcePath .. "slang-ast-generated-macro.h"}
+            
+            -- Make it depend on the extractor tool itself
+            local buildInputTable = { "%{cfg.targetdir}/slang-cpp-extractor" .. executableSuffix }
+            for key, inputFile in ipairs(inputFiles) do
+                table.insert(buildInputTable, sourcePath .. inputFile)
+            end
+            
+            --
+            buildinputs(buildInputTable)
+    end       
+       
+    -- Next, we want to add a custom build rule for each of the
+    -- files that makes up the standard library. Those are
+    -- always named `*.meta.slang`, so we can select for them
+    -- using a `filter` and then use Premake's support for
+    -- defining custom build commands:
+    --
+    if executeBinary then
+        filter "files:**.meta.slang"
+            -- Specify the "friendly" message that should print to the build log for the action
+            buildmessage "slang-generate %{file.relpath}"
+            
+            -- Specify the actual command to run for this action.
+            --
+            -- Note that we use a single-quoted Lua string and wrap the path
+            -- to the `slang-generate` command in double quotes to avoid
+            -- confusing the Windows shell. It seems that Premake outputs that
+            -- path with forward slashes, which confused the shell if we don't
+            -- quote the executable path.
+            --
+            buildcommands { '"%{cfg.targetdir}/slang-generate" %{file.relpath}' }
+
+            -- Given `foo.meta.slang` we woutput `foo.meta.slang.h`.
+            -- This needs to be specified because the custom action will only
+            -- run when this file needs to be generated.
+            --
+            -- Note the use of abspath here, this ensures windows tests the correct file, otherwise
+            -- triggering doesn't work. The problem still remains on linux, because abspath *isn't* an 
+            -- absolute path, it remains relative. 
+            --
+            -- TODO(JS):
+            -- It's not clear how to determine how to create the absolute path on linux, using 
+            -- path.absolutepath, requires knowing the path to be relative to, and it's neither 
+            -- the current path, the source path or the targetpath.
+            buildoutputs { "%{file.abspath}.h" }
+
+            -- We will specify an additional build input dependency on the `slang-generate`
+            -- tool itself, so that changes to the code for the tool cause the generation
+            -- step to be re-run.
+            --
+            -- In order to get the file name right, we need to know the executable suffix
+            -- that the target platform will use. Premake might have a built-in way to
+            -- query this, but I couldn't find it, so I am just winging it for now:
+            --
+            --
+            buildinputs { "%{cfg.targetdir}/slang-generate" .. executableSuffix }
+    end
+    
+    
 --
 -- TODO: Slang's current `Makefile` build does some careful incantations
 -- to make sure that the binaries it generates use a "relative `RPATH`"
@@ -737,14 +940,22 @@ standardProject "slang"
  
     -- 
     -- The most challenging part of building `slang` is that we need
-    -- to invoke the `slang-generate`tools to generate the version
-    -- of the Slang standard library that we embed into the compiler.
+    -- to invoke generators such as slang-cpp-extractor and slang-generate
+    -- to generate. We do this by executing the run-generators 'dummy' project
+    -- which produces the appropriate source 
+    
+    dependson { "run-generators" }
+    
+    -- If we are not building glslang from source, then be
+    -- sure to copy a binary copy over to the output directory
+    if not buildGlslang then
+        filter { "system:windows" }
+            postbuildcommands {
+                "{COPY} ../../external/slang-binaries/bin/" .. targetName .. "/slang-glslang.dll %{cfg.targetdir}"
+            }
     -- We need to build the `slang-cpp-extractor` for similar reasons.
-    --
     -- First, we need to ensure that `slang-generate`/`slang-cpp-extactor` 
     -- gets built before `slang`, so we declare a non-linking dependency between
-    -- the projects here:
-    --
     dependson { "slang-cpp-extractor", "slang-generate"  }
     
     -- If we are not building glslang from source, then be
@@ -761,62 +972,17 @@ standardProject "slang"
             }
     end
 
+        filter { "system:linux" }
+            postbuildcommands {
+                "{COPY} ../../../external/slang-binaries/bin/" .. targetName .. "/libslang-glslang.so %{cfg.targetdir}"
+            }
+    end
+
     filter { "system:linux" }
         -- might be able to do pic(true)
         buildoptions{"-fPIC"}
        
-    -- We need to run the C++ extractor to generate some include files
-    if executeBinary then
-        filter "files:**/slang-ast-reflect.h"
-            buildmessage "slang-cpp-extractor AST %{file.relpath}"
-
-            -- Where the input files are located
-            local sourcePath = "%{file.directory}/"
-            
-            -- Specify the files that will be used for the generation
-            local inputFiles = { "slang-ast-base.h", "slang-ast-decl.h", "slang-ast-expr.h", "slang-ast-modifier.h", "slang-ast-stmt.h", "slang-ast-type.h", "slang-ast-val.h" }
-
-            -- Specify the actual command to run for this action.
-            --
-            -- Note that we use a single-quoted Lua string and wrap the path
-            -- to the `slang-cpp-extractor` command in double quotes to avoid
-            -- confusing the Windows shell. It seems that Premake outputs that
-            -- path with forward slashes, which confused the shell if we don't
-            -- quote the executable path.
-
-            local buildcmd = '"%{cfg.targetdir}/slang-cpp-extractor" -d ' .. sourcePath .. " " .. table.concat(inputFiles, " ") .. " -strip-prefix slang-ast- -o slang-ast-generated -output-fields"
-            
-            buildcommands { buildcmd }
-            
-            -- Specify the files output by the extactor - so custom action will run when these files are needed.
-            --
-            buildoutputs { sourcePath .. "slang-ast-generated.h", sourcePath .. "slang-ast-generated-macro.h"}
-            
-            local executableSuffix = "";
-            if(os.target() == "windows") then
-                executableSuffix = ".exe";
-            end
-            
-            -- Make it depend on the extractor tool itself
-            local buildInputTable = { "%{cfg.targetdir}/slang-cpp-extractor" .. executableSuffix }
-            for key, inputFile in ipairs(inputFiles) do
-                table.insert(buildInputTable, sourcePath .. inputFile)
-            end
-            
-            --
-            buildinputs(buildInputTable)
-    end       
-       
-    -- Next, we want to add a custom build rule for each of the
-    -- files that makes up the standard library. Those are
-    -- always named `*.meta.slang`, so we can select for them
-    -- using a `filter` and then use Premake's support for
-    -- defining custom build commands:
-    --
-    if executeBinary then
-        filter "files:**.meta.slang"
-            -- Specify the "friendly" message that should print to the build log for the action
-            buildmessage "slang-generate %{file.relpath}"
+    
 
             -- Specify the actual command to run for this action.
             --
@@ -886,6 +1052,20 @@ end
 
 if buildGlslang then
 
+standardProject "slang-spirv-tools"
+    uuid "C36F6185-49B3-467E-8388-D0E9BF5F7BB8"
+    kind "StaticLib"
+    includedirs { "external/spirv-tools", "external/spirv-tools/include", "external/spirv-headers/include",  "external/spirv-tools-generated"}
+
+    addSourceDir("external/spirv-tools/source")
+    addSourceDir("external/spirv-tools/source/opt")
+    addSourceDir("external/spirv-tools/source/util")
+    addSourceDir("external/spirv-tools/source/val")
+
+    filter { "system:linux or macosx" }
+        links { "dl"}
+        buildoptions{"-fPIC"}
+
 --
 -- The single most complicated part of our build is our custom version of glslang.
 -- Is not really set up to produce a shared library with a usable API, so we have
@@ -901,7 +1081,7 @@ if buildGlslang then
 standardProject "slang-glslang"
     uuid "C495878A-832C-485B-B347-0998A90CC936"
     kind "SharedLib"
-    includedirs { "external/glslang", "external/spirv-tools", "external/spirv-tools/include", "external/spirv-headers/include", "external/spirv-tools-generated" }
+    includedirs { "external/glslang", "external/spirv-tools", "external/spirv-tools/include", "external/spirv-headers/include",  "external/spirv-tools-generated", "external/glslang-generated" }
 
     defines
     {
@@ -921,15 +1101,10 @@ standardProject "slang-glslang"
     addSourceDir("external/glslang/glslang/GenericCodeGen")
     addSourceDir("external/glslang/glslang/MachineIndependent")
     addSourceDir("external/glslang/glslang/MachineIndependent/preprocessor")
-    addSourceDir("external/glslang/glslang/OSDependent")
     addSourceDir("external/glslang/OGLCompilersDLL")
     addSourceDir("external/glslang/SPIRV")
     addSourceDir("external/glslang/StandAlone")
-    addSourceDir("external/spirv-tools/source")
-    addSourceDir("external/spirv-tools/source/opt")
-    addSourceDir("external/spirv-tools/source/util")
-    addSourceDir("external/spirv-tools/source/val")
-
+    
     -- Unfortunately, blindly adding files like that also pulled in a declaration
     -- of a main entry point that we do *not* want, so we will specifically
     -- exclude that file from our build.
@@ -940,17 +1115,19 @@ standardProject "slang-glslang"
     -- don't really care about *any* of that, but we can't remove it from the
     -- build so we need to include the appropriate platform-specific sources.
 
+    links { "slang-spirv-tools" }    
+
     filter { "system:windows" }
         -- On Windows we need to add the platform-specific sources and then
         -- remove the `main.cpp` file since it tries to define a `DllMain`
         -- and we don't want the default glslang one.
-        addSourceDir( "external/glslang/glslang/OSDependent/Windows" )
         removefiles { "external/glslang/glslang/OSDependent/Windows/main.cpp" }
 
     filter { "system:linux or macosx" }
-        links { "dl", "pthread" }
-        addSourceDir("external/glslang/glslang/OSDependent/Unix")
-        buildoptions{"-fPIC", "-pthread"}
+        links { "dl" }
+        buildoptions{"-fPIC"}
+        
+    
         
 --
 -- With glslang's build out of the way, we've now covered everything we have

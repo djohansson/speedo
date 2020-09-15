@@ -68,7 +68,7 @@ namespace Slang
         switch (candidate.flavor)
         {
         case OverloadCandidate::Flavor::Func:
-            paramCounts = CountParameters(GetParameters(candidate.item.declRef.as<CallableDecl>()));
+            paramCounts = CountParameters(getParameters(candidate.item.declRef.as<CallableDecl>()));
             break;
 
         case OverloadCandidate::Flavor::Generic:
@@ -138,8 +138,6 @@ namespace Slang
         {
             return true;
         }
-
-        return false;
     }
 
     bool SemanticsVisitor::TryCheckGenericOverloadCandidateTypes(
@@ -165,9 +163,9 @@ namespace Slang
         //
         // Along the way we will build up a `GenericSubstitution`
         // to represent the arguments that have been coerced to
-        // appropriateforms.
+        // appropriate forms.
         //
-        auto genSubst = new GenericSubstitution();
+        auto genSubst = m_astBuilder->create<GenericSubstitution>();
         candidate.subst = genSubst;
         auto& checkedArgs = genSubst->args;
 
@@ -228,7 +226,7 @@ namespace Slang
                 //
                 if( !typeArg.type )
                 {
-                    typeArg.type = getSession()->getErrorType();
+                    typeArg.type = m_astBuilder->getErrorType();
                     success = false;
                 }
 
@@ -239,7 +237,7 @@ namespace Slang
                 // The case for a generic value parameter is similar to that
                 // for a generic type parameter.
                 //
-                RefPtr<Expr> arg;
+                Expr* arg = nullptr;
                 if( aa >= context.argCount )
                 {
                     // If there are no arguments left to consume, then
@@ -257,7 +255,7 @@ namespace Slang
                     if (context.mode == OverloadResolveContext::Mode::JustTrying)
                     {
                         ConversionCost cost = kConversionCost_None;
-                        if (!canCoerce(GetType(valParamRef), arg->type, &cost))
+                        if (!canCoerce(getType(m_astBuilder, valParamRef), arg->type, arg, &cost))
                         {
                             success = false;
                         }
@@ -265,7 +263,7 @@ namespace Slang
                     }
                     else
                     {
-                        arg = coerce(GetType(valParamRef), arg);
+                        arg = coerce(getType(m_astBuilder, valParamRef), arg);
                     }
                 }
 
@@ -276,7 +274,7 @@ namespace Slang
                 // generalize in order to support generic value parameters
                 // with types other than `int`.
                 //
-                RefPtr<Val> val;
+                Val* val = nullptr;
                 if( arg )
                 {
                     val = ExtractGenericArgInteger(arg, context.mode == OverloadResolveContext::Mode::JustTrying ? nullptr : getSink());
@@ -288,7 +286,7 @@ namespace Slang
                 //
                 if( !val )
                 {
-                    val = new ErrorIntVal();
+                    val = m_astBuilder->create<ErrorIntVal>();
                 }
                 checkedArgs.add(val);
             }
@@ -316,7 +314,7 @@ namespace Slang
         switch (candidate.flavor)
         {
         case OverloadCandidate::Flavor::Func:
-            params = GetParameters(candidate.item.declRef.as<CallableDecl>()).toArray();
+            params = getParameters(candidate.item.declRef.as<CallableDecl>()).toArray();
             break;
 
         case OverloadCandidate::Flavor::Generic:
@@ -343,10 +341,10 @@ namespace Slang
                 if( context.disallowNestedConversions )
                 {
                     // We need an exact match in this case.
-                    if(!GetType(param)->equals(argType))
+                    if(!getType(m_astBuilder, param)->equals(argType))
                         return false;
                 }
-                else if (!canCoerce(GetType(param), argType, &cost))
+                else if (!canCoerce(getType(m_astBuilder, param), argType, arg, &cost))
                 {
                     return false;
                 }
@@ -354,17 +352,60 @@ namespace Slang
             }
             else
             {
-                arg = coerce(GetType(param), arg);
+                arg = coerce(getType(m_astBuilder, param), arg);
             }
         }
         return true;
     }
 
-    bool SemanticsVisitor::TryCheckOverloadCandidateDirections(
-        OverloadResolveContext&		/*context*/,
-        OverloadCandidate const&	/*candidate*/)
+    bool isEffectivelyMutating(CallableDecl* decl)
     {
-        // TODO(tfoley): check `in` and `out` markers, as needed.
+        if(decl->hasModifier<MutatingAttribute>())
+            return true;
+
+        if(decl->hasModifier<NonmutatingAttribute>())
+            return false;
+
+        if(as<SetterDecl>(decl))
+            return true;
+
+        return false;
+    }
+
+    bool SemanticsVisitor::TryCheckOverloadCandidateDirections(
+        OverloadResolveContext&     context,
+        OverloadCandidate const&    candidate)
+    {
+        if(candidate.flavor != OverloadCandidate::Flavor::Func)
+            return true;
+
+        auto funcDeclRef = candidate.item.declRef.as<CallableDecl>();
+        SLANG_ASSERT(funcDeclRef);
+
+        // Note: This operation was originally introduced as
+        // a place to add checking around l-value-ness of arguments
+        // and parameters, but currently that checking is being
+        // done in other places.
+        //
+        // For now we will only use this step to check the
+        // mutability of the `this` parameter where necessary.
+        //
+        if(!isEffectivelyStatic(funcDeclRef.getDecl()))
+        {
+            if(isEffectivelyMutating(funcDeclRef.getDecl()))
+            {
+                if(context.baseExpr && !context.baseExpr->type.isLeftValue)
+                {
+                    if(context.mode == OverloadResolveContext::Mode::ForReal)
+                    {
+                        getSink()->diagnose(context.loc, Diagnostics::mutatingMethodOnImmutableValue, funcDeclRef.getName());
+                        maybeDiagnoseThisNotLValue(context.baseExpr);
+                    }
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 
@@ -383,7 +424,7 @@ namespace Slang
         // We should have the existing arguments to the generic
         // handy, so that we can construct a substitution list.
 
-        auto subst = candidate.subst.as<GenericSubstitution>();
+        auto subst = as<GenericSubstitution>(candidate.subst);
         SLANG_ASSERT(subst);
 
         subst->genericDecl = genericDeclRef.getDecl();
@@ -396,8 +437,8 @@ namespace Slang
             DeclRef<GenericTypeConstraintDecl> constraintDeclRef(
                 constraintDecl, subset);
 
-            auto sub = GetSub(constraintDeclRef);
-            auto sup = GetSup(constraintDeclRef);
+            auto sub = getSub(m_astBuilder, constraintDeclRef);
+            auto sup = getSup(m_astBuilder, constraintDeclRef);
 
             auto subTypeWitness = tryGetSubtypeWitness(sub, sup);
             if(subTypeWitness)
@@ -444,10 +485,10 @@ namespace Slang
         candidate.status = OverloadCandidate::Status::Applicable;
     }
 
-    RefPtr<Expr> SemanticsVisitor::createGenericDeclRef(
-        RefPtr<Expr>                baseExpr,
-        RefPtr<Expr>                originalExpr,
-        RefPtr<GenericSubstitution> subst)
+    Expr* SemanticsVisitor::createGenericDeclRef(
+        Expr*                baseExpr,
+        Expr*                originalExpr,
+        GenericSubstitution* subst)
     {
         auto baseDeclRefExpr = as<DeclRefExpr>(baseExpr);
         if (!baseDeclRefExpr)
@@ -465,9 +506,9 @@ namespace Slang
         subst->genericDecl = baseGenericRef.getDecl();
         subst->outer = baseGenericRef.substitutions.substitutions;
 
-        DeclRef<Decl> innerDeclRef(GetInner(baseGenericRef), subst);
+        DeclRef<Decl> innerDeclRef(getInner(baseGenericRef), subst);
 
-        RefPtr<Expr> base;
+        Expr* base = nullptr;
         if (auto mbrExpr = as<MemberExpr>(baseExpr))
             base = mbrExpr->baseExpression;
 
@@ -477,7 +518,7 @@ namespace Slang
             originalExpr->loc);
     }
 
-    RefPtr<Expr> SemanticsVisitor::CompleteOverloadCandidate(
+    Expr* SemanticsVisitor::CompleteOverloadCandidate(
         OverloadResolveContext&		context,
         OverloadCandidate&			candidate)
     {
@@ -520,10 +561,10 @@ namespace Slang
             {
             case OverloadCandidate::Flavor::Func:
                 {
-                    RefPtr<AppExprBase> callExpr = as<InvokeExpr>(context.originalExpr);
+                    AppExprBase* callExpr = as<InvokeExpr>(context.originalExpr);
                     if(!callExpr)
                     {
-                        callExpr = new InvokeExpr();
+                        callExpr = m_astBuilder->create<InvokeExpr>();
                         callExpr->loc = context.loc;
 
                         for(Index aa = 0; aa < context.argCount; ++aa)
@@ -540,7 +581,7 @@ namespace Slang
                         const auto& decl = subscriptDeclRef.getDecl();
                         if (decl->getMembersOfType<SetterDecl>().isNonEmpty() || decl->getMembersOfType<RefAccessorDecl>().isNonEmpty())
                         {
-                            callExpr->type.IsLeftValue = true;
+                            callExpr->type.isLeftValue = true;
                         }
                     }
 
@@ -555,7 +596,7 @@ namespace Slang
                 return createGenericDeclRef(
                     baseExpr,
                     context.originalExpr,
-                    candidate.subst.as<GenericSubstitution>());
+                    as<GenericSubstitution>(candidate.subst));
                 break;
 
             default:
@@ -569,7 +610,7 @@ namespace Slang
 
         if(context.originalExpr)
         {
-            return CreateErrorExpr(context.originalExpr.Ptr());
+            return CreateErrorExpr(context.originalExpr);
         }
         else
         {
@@ -584,9 +625,9 @@ namespace Slang
         if(!declRef)
             return false;
 
-        auto parent = declRef.GetParent();
+        auto parent = declRef.getParent();
         if(parent.as<GenericDecl>())
-            parent = parent.GetParent();
+            parent = parent.getParent();
 
         if(parent.as<InterfaceDecl>())
             return true;
@@ -606,7 +647,7 @@ namespace Slang
         // "inner" declaration of a generic. That means that
         // the parent of the decl ref must be a generic.
         //
-        auto parentGeneric = declRef.GetParent().as<GenericDecl>();
+        auto parentGeneric = declRef.getParent().as<GenericDecl>();
         if(!parentGeneric)
             return 0;
         //
@@ -615,7 +656,7 @@ namespace Slang
         // parent generic (and not somthing like a generic
         // parameter).
         //
-        if( parentGeneric.getDecl()->inner.Ptr() != declRef.getDecl())
+        if( parentGeneric.getDecl()->inner != declRef.getDecl())
             return 0;
 
         return CountParameters(parentGeneric).required;
@@ -940,13 +981,13 @@ namespace Slang
         OverloadCandidate candidate;
         candidate.flavor = OverloadCandidate::Flavor::Func;
         candidate.item = item;
-        candidate.resultType = GetResultType(funcDeclRef);
+        candidate.resultType = getResultType(m_astBuilder, funcDeclRef);
 
         AddOverloadCandidate(context, candidate);
     }
 
     void SemanticsVisitor::AddFuncOverloadCandidate(
-        RefPtr<FuncType>        funcType,
+        FuncType*        funcType,
         OverloadResolveContext& context)
     {
         SLANG_UNUSED(funcType);
@@ -955,11 +996,13 @@ namespace Slang
 
     void SemanticsVisitor::AddCtorOverloadCandidate(
         LookupResultItem            typeItem,
-        RefPtr<Type>                type,
+        Type*                type,
         DeclRef<ConstructorDecl>    ctorDeclRef,
         OverloadResolveContext&     context,
-        RefPtr<Type>                resultType)
+        Type*                resultType)
     {
+        SLANG_UNUSED(type)
+
         ensureDecl(ctorDeclRef, DeclCheckState::CanUseFuncSignature);
 
         // `typeItem` refers to the type being constructed (the thing
@@ -971,6 +1014,7 @@ namespace Slang
         ctorItem.breadcrumbs = new LookupResultItem::Breadcrumb(
             LookupResultItem::Breadcrumb::Kind::Member,
             typeItem.declRef,
+            nullptr,
             typeItem.breadcrumbs);
 
         OverloadCandidate candidate;
@@ -994,14 +1038,14 @@ namespace Slang
         // Construct a reference to the inner declaration that has any generic
         // parameter substitutions in place already, but *not* any substutions
         // for the generic declaration we are currently trying to infer.
-        auto innerDecl = GetInner(genericDeclRef);
+        auto innerDecl = getInner(genericDeclRef);
         DeclRef<Decl> unspecializedInnerRef = DeclRef<Decl>(innerDecl, genericDeclRef.substitutions);
 
         // Check what type of declaration we are dealing with, and then try
         // to match it up with the arguments accordingly...
         if (auto funcDeclRef = unspecializedInnerRef.as<CallableDecl>())
         {
-            auto params = GetParameters(funcDeclRef).toArray();
+            auto params = getParameters(funcDeclRef).toArray();
 
             Index argCount = context.getArgCount();
             Index paramCount = params.getCount();
@@ -1037,7 +1081,7 @@ namespace Slang
                 // So the question is then whether a mismatch during the
                 // unification step should be taken as an immediate failure...
 
-                TryUnifyTypes(constraints, context.getArgType(aa), GetType(params[aa]));
+                TryUnifyTypes(constraints, context.getArgTypeForInference(aa, this), getType(m_astBuilder, params[aa]));
 #endif
             }
         }
@@ -1060,7 +1104,7 @@ namespace Slang
     }
 
     void SemanticsVisitor::AddTypeOverloadCandidates(
-        RefPtr<Type>            type,
+        Type*            type,
         OverloadResolveContext&	context)
     {
         // The code being checked is trying to apply `type` like a function.
@@ -1086,7 +1130,7 @@ namespace Slang
         // some just to make code that does, e.g., `float(1.0f)` work.
 
         LookupResult initializers = lookUpMember(
-            getSession(),
+            m_astBuilder,
             this,
             getName("$init"),
             type);
@@ -1106,9 +1150,7 @@ namespace Slang
         }
         else if (auto aggTypeDeclRef = item.declRef.as<AggTypeDecl>())
         {
-            auto type = DeclRefType::Create(
-                getSession(),
-                aggTypeDeclRef);
+            auto type = DeclRefType::create(m_astBuilder, aggTypeDeclRef);
             AddTypeOverloadCandidates(type, context);
         }
         else if (auto genericDeclRef = item.declRef.as<GenericDecl>())
@@ -1142,14 +1184,12 @@ namespace Slang
         }
         else if( auto typeDefDeclRef = item.declRef.as<TypeDefDecl>() )
         {
-            auto type = getNamedType(getSession(), typeDefDeclRef);
+            auto type = getNamedType(m_astBuilder, typeDefDeclRef);
             AddTypeOverloadCandidates(type, context);
         }
         else if( auto genericTypeParamDeclRef = item.declRef.as<GenericTypeParamDecl>() )
         {
-            auto type = DeclRefType::Create(
-                getSession(),
-                genericTypeParamDeclRef);
+            auto type = DeclRefType::create(m_astBuilder, genericTypeParamDeclRef);
             AddTypeOverloadCandidates(type, context);
         }
         else
@@ -1176,7 +1216,7 @@ namespace Slang
     }
 
     void SemanticsVisitor::AddOverloadCandidates(
-        RefPtr<Expr>            funcExpr,
+        Expr*            funcExpr,
         OverloadResolveContext& context)
     {
         // A call of the form `(<something>)(<args>)` should be
@@ -1228,12 +1268,12 @@ namespace Slang
         }
     }
 
-    void SemanticsVisitor::formatType(StringBuilder& sb, RefPtr<Type> type)
+    void SemanticsVisitor::formatType(StringBuilder& sb, Type* type)
     {
         sb << type->toString();
     }
 
-    void SemanticsVisitor::formatVal(StringBuilder& sb, RefPtr<Val> val)
+    void SemanticsVisitor::formatVal(StringBuilder& sb, Val* val)
     {
         sb << val->toString();
     }
@@ -1257,14 +1297,14 @@ namespace Slang
     void SemanticsVisitor::formatDeclPath(StringBuilder& sb, DeclRef<Decl> declRef)
     {
         // Find the parent declaration
-        auto parentDeclRef = declRef.GetParent();
+        auto parentDeclRef = declRef.getParent();
 
         // If the immediate parent is a generic, then we probably
         // want the declaration above that...
         auto parentGenericDeclRef = parentDeclRef.as<GenericDecl>();
         if(parentGenericDeclRef)
         {
-            parentDeclRef = parentGenericDeclRef.GetParent();
+            parentDeclRef = parentGenericDeclRef.getParent();
         }
 
         // Depending on what the parent is, we may want to format things specially
@@ -1280,7 +1320,7 @@ namespace Slang
         // signature
         if( parentGenericDeclRef )
         {
-            auto genSubst = declRef.substitutions.substitutions.as<GenericSubstitution>();
+            auto genSubst = as<GenericSubstitution>(declRef.substitutions.substitutions);
             SLANG_RELEASE_ASSERT(genSubst);
             SLANG_RELEASE_ASSERT(genSubst->genericDecl == parentGenericDeclRef.getDecl());
 
@@ -1298,7 +1338,7 @@ namespace Slang
             bool first = true;
             for(auto arg : genSubst->args)
             {
-                // When printing the representation of a sepcialized
+                // When printing the representation of a specialized
                 // generic declaration we don't want to include the
                 // argument values for subtype witnesses since these
                 // do not correspond to parameters of the generic
@@ -1324,11 +1364,11 @@ namespace Slang
             sb << "(";
 
             bool first = true;
-            for (auto paramDeclRef : GetParameters(funcDeclRef))
+            for (auto paramDeclRef : getParameters(funcDeclRef))
             {
                 if (!first) sb << ", ";
 
-                formatType(sb, GetType(paramDeclRef));
+                formatType(sb, getType(m_astBuilder, paramDeclRef));
 
                 first = false;
 
@@ -1347,23 +1387,23 @@ namespace Slang
                     if (!first) sb << ", ";
                     first = false;
 
-                    sb << getText(genericTypeParam.GetName());
+                    sb << getText(genericTypeParam.getName());
                 }
                 else if(auto genericValParam = paramDeclRef.as<GenericValueParamDecl>())
                 {
                     if (!first) sb << ", ";
                     first = false;
 
-                    sb << getText(genericValParam.GetName());
+                    sb << getText(genericValParam.getName());
                     sb << ":";
-                    formatType(sb, GetType(genericValParam));
+                    formatType(sb, getType(m_astBuilder, genericValParam));
                 }
                 else
                 {}
             }
             sb << ">";
 
-            formatDeclParams(sb, DeclRef<Decl>(GetInner(genericDeclRef), genericDeclRef.substitutions));
+            formatDeclParams(sb, DeclRef<Decl>(getInner(genericDeclRef), genericDeclRef.substitutions));
         }
         else
         {
@@ -1387,7 +1427,7 @@ namespace Slang
         DeclRef<Decl> declRef = inDeclRef;
         if(auto genericDeclRef = declRef.as<GenericDecl>())
         {
-            declRef = DeclRef<Decl>(GetInner(genericDeclRef), genericDeclRef.substitutions);
+            declRef = DeclRef<Decl>(getInner(genericDeclRef), genericDeclRef.substitutions);
         }
 
         if(as<ConstructorDecl>(declRef))
@@ -1395,7 +1435,7 @@ namespace Slang
         else if(auto callableDeclRef = declRef.as<CallableDecl>())
         {
             sb << " -> ";
-            formatType(sb, GetResultType(callableDeclRef));
+            formatType(sb, getResultType(m_astBuilder, callableDeclRef));
         }
     }
 
@@ -1435,14 +1475,14 @@ namespace Slang
         return argsListBuilder.ProduceString();
     }
 
-    RefPtr<Expr> SemanticsVisitor::ResolveInvoke(InvokeExpr * expr)
+    Expr* SemanticsVisitor::ResolveInvoke(InvokeExpr * expr)
     {
         OverloadResolveContext context;
         // check if this is a stdlib operator call, if so we want to use cached results
         // to speed up compilation
         bool shouldAddToCache = false;
         OperatorOverloadCacheKey key;
-        TypeCheckingCache* typeCheckingCache = getSession()->getTypeCheckingCache();
+        TypeCheckingCache* typeCheckingCache = getLinkage()->getTypeCheckingCache();
         if (auto opExpr = as<OperatorExpr>(expr))
         {
             if (key.fromOperatorExpr(opExpr))
@@ -1476,6 +1516,11 @@ namespace Slang
         {
             if (IsErrorExpr(arg))
                 return CreateErrorExpr(expr);
+        }
+
+        for (auto& arg : expr->arguments)
+        {
+            arg = maybeOpenExistential(arg);
         }
 
         context.originalExpr = expr;
@@ -1632,7 +1677,7 @@ namespace Slang
         {
             // Nothing at all was found that we could even consider invoking
             getSink()->diagnose(expr->functionExpr, Diagnostics::expectedFunction, funcExprType);
-            expr->type = QualType(getSession()->getErrorType());
+            expr->type = QualType(m_astBuilder->getErrorType());
             return expr;
         }
     }
@@ -1655,7 +1700,7 @@ namespace Slang
     }
 
     void SemanticsVisitor::AddGenericOverloadCandidates(
-        RefPtr<Expr>	baseExpr,
+        Expr*	baseExpr,
         OverloadResolveContext&			context)
     {
         if(auto baseDeclRefExpr = as<DeclRefExpr>(baseExpr))
@@ -1678,7 +1723,7 @@ namespace Slang
         }
     }
 
-    RefPtr<Expr> SemanticsExprVisitor::visitGenericAppExpr(GenericAppExpr* genericAppExpr)
+    Expr* SemanticsExprVisitor::visitGenericAppExpr(GenericAppExpr* genericAppExpr)
     {
         // Start by checking the base expression and arguments.
         auto& baseExpr = genericAppExpr->functionExpr;
@@ -1693,7 +1738,7 @@ namespace Slang
     }
 
         /// Check a generic application where the operands have already been checked.
-    RefPtr<Expr> SemanticsVisitor::checkGenericAppWithCheckedArgs(GenericAppExpr* genericAppExpr)
+    Expr* SemanticsVisitor::checkGenericAppWithCheckedArgs(GenericAppExpr* genericAppExpr)
     {
         // We are applying a generic to arguments, but there might be multiple generic
         // declarations with the same name, so this becomes a specialized case of
@@ -1748,7 +1793,7 @@ namespace Slang
                 // There were multiple viable candidates, but that isn't an error: we just need
                 // to complete all of them and create an overloaded expression as a result.
 
-                auto overloadedExpr = new OverloadedExpr2();
+                auto overloadedExpr = m_astBuilder->create<OverloadedExpr2>();
                 overloadedExpr->base = context.baseExpr;
                 for (auto candidate : context.bestCandidates)
                 {

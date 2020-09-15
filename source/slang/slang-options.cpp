@@ -12,7 +12,7 @@
 
 #include "slang-file-system.h"
 
-#include "slang-state-serialize.h"
+#include "slang-repro.h"
 #include "slang-ir-serialize.h"
 
 #include "../core/slang-type-text-util.h"
@@ -149,6 +149,7 @@ struct OptionsParser
         CodeGenTarget   impliedFormat = CodeGenTarget::Unknown;
         int             targetIndex = -1;
         int             entryPointIndex = -1;
+        bool            isWholeProgram = false;
     };
     List<RawOutput> rawOutputs;
 
@@ -159,6 +160,7 @@ struct OptionsParser
         SlangTargetFlags    targetFlags = 0;
         int                 targetID = -1;
         FloatingPointMode   floatingPointMode = FloatingPointMode::Default;
+        bool                isWholeProgramRequest = false;
 
         // State for tracking command-line errors
         bool conflictingProfilesSet = false;
@@ -483,7 +485,7 @@ struct OptionsParser
                     String reproName;
                     SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, reproName));
 
-                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::extractFilesToDirectory(reproName));
+                    SLANG_RETURN_ON_FAIL(ReproUtil::extractFilesToDirectory(reproName));
                 }
                 else if (argStr == "-module-name")
                 {
@@ -498,16 +500,16 @@ struct OptionsParser
                     SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, reproName));
 
                     List<uint8_t> buffer;
-                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::loadState(reproName, buffer));
+                    SLANG_RETURN_ON_FAIL(ReproUtil::loadState(reproName, buffer));
 
-                    auto requestState = StateSerializeUtil::getRequest(buffer);
+                    auto requestState = ReproUtil::getRequest(buffer);
                     MemoryOffsetBase base;
                     base.set(buffer.getBuffer(), buffer.getCount());
 
                     // If we can find a directory, that exists, we will set up a file system to load from that directory
                     ComPtr<ISlangFileSystem> fileSystem;
                     String dirPath;
-                    if (SLANG_SUCCEEDED(StateSerializeUtil::calcDirectoryPathFromFilename(reproName, dirPath)))
+                    if (SLANG_SUCCEEDED(ReproUtil::calcDirectoryPathFromFilename(reproName, dirPath)))
                     {
                         SlangPathType pathType;
                         if (SLANG_SUCCEEDED(Path::getPathType(dirPath, &pathType)) && pathType == SLANG_PATH_TYPE_DIRECTORY)
@@ -516,7 +518,7 @@ struct OptionsParser
                         }
                     }
 
-                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::load(base, requestState, fileSystem, requestImpl));
+                    SLANG_RETURN_ON_FAIL(ReproUtil::load(base, requestState, fileSystem, requestImpl));
 
                     hasLoadedRepro = true;
                 }
@@ -526,16 +528,16 @@ struct OptionsParser
                     SLANG_RETURN_ON_FAIL(tryReadCommandLineArgument(sink, arg, &argCursor, argEnd, reproName));
 
                     List<uint8_t> buffer;
-                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::loadState(reproName, buffer));
+                    SLANG_RETURN_ON_FAIL(ReproUtil::loadState(reproName, buffer));
 
-                    auto requestState = StateSerializeUtil::getRequest(buffer);
+                    auto requestState = ReproUtil::getRequest(buffer);
                     MemoryOffsetBase base;
                     base.set(buffer.getBuffer(), buffer.getCount());
 
                     // If we can find a directory, that exists, we will set up a file system to load from that directory
                     ComPtr<ISlangFileSystem> dirFileSystem;
                     String dirPath;
-                    if (SLANG_SUCCEEDED(StateSerializeUtil::calcDirectoryPathFromFilename(reproName, dirPath)))
+                    if (SLANG_SUCCEEDED(ReproUtil::calcDirectoryPathFromFilename(reproName, dirPath)))
                     {
                         SlangPathType pathType;
                         if (SLANG_SUCCEEDED(Path::getPathType(dirPath, &pathType)) && pathType == SLANG_PATH_TYPE_DIRECTORY)
@@ -545,7 +547,7 @@ struct OptionsParser
                     }
 
                     RefPtr<CacheFileSystem> cacheFileSystem;
-                    SLANG_RETURN_ON_FAIL(StateSerializeUtil::loadFileSystem(base, requestState, dirFileSystem, cacheFileSystem));
+                    SLANG_RETURN_ON_FAIL(ReproUtil::loadFileSystem(base, requestState, dirFileSystem, cacheFileSystem));
 
                     // I might want to make the dir file system the fallback file system...
                     cacheFileSystem->setInnerFileSystem(dirFileSystem, cacheFileSystem->getUniqueIdentityMode(), cacheFileSystem->getPathStyle());
@@ -557,9 +559,13 @@ struct OptionsParser
                 {
                     requestImpl->getFrontEndReq()->useSerialIRBottleneck = true;
                 }
+                else if (argStr == "-allow-dynamic-code")
+                {
+                    requestImpl->getBackEndReq()->allowDynamicCode = true;
+                }
                 else if (argStr == "-verbose-paths")
                 {
-                    requestImpl->getSink()->flags |= DiagnosticSink::Flag::VerbosePath;
+                    requestImpl->getSink()->setFlag(DiagnosticSink::Flag::VerbosePath);
                 }
                 else if (argStr == "-verify-debug-serial-ir")
                 {
@@ -620,11 +626,11 @@ struct OptionsParser
                     {
                         auto profile = Profile(profileID);
 
-                        setProfileVersion(getCurrentTarget(), profile.GetVersion());
+                        setProfileVersion(getCurrentTarget(), profile.getVersion());
 
                         // A `-profile` option that also specifies a stage (e.g., `-profile vs_5_0`)
                         // should be treated like a composite (e.g., `-profile sm_5_0 -stage vertex`)
-                        auto stage = profile.GetStage();
+                        auto stage = profile.getStage();
                         if(stage != Stage::Unknown)
                         {
                             setStage(getCurrentEntryPoint(), stage);
@@ -657,6 +663,10 @@ struct OptionsParser
                     rawEntryPoint.translationUnitIndex = currentTranslationUnitIndex;
 
                     rawEntryPoints.add(rawEntryPoint);
+                }
+                else if (argStr == "-heterogeneous")
+                {
+                    requestImpl->getLinkage()->m_heterogeneous = true;
                 }
                 else if (argStr == "-lang")
                 {
@@ -1417,10 +1427,8 @@ struct OptionsParser
         //
         for(auto& rawOutput : rawOutputs)
         {
-            // For now, all output formats need to be tightly bound to
-            // both a target and an entry point (down the road we will
-            // need to support output formats that can store multiple
-            // entry points in one file).
+            // For now, most output formats need to be tightly bound to
+            // both a target and an entry point.
 
             // If an output doesn't have a target associated with
             // it, then search for the target with the matching format.
@@ -1452,10 +1460,24 @@ struct OptionsParser
             // with an entry point, since the case of a single entry
             // point was handled above, and the user is expected to
             // follow the ordering rules when using multiple entry points.
-            //
             if( rawOutput.entryPointIndex == -1 )
             {
-                sink->diagnose(SourceLoc(), Diagnostics::cannotMatchOutputFileToEntryPoint, rawOutput.path);
+                if (rawOutput.targetIndex != -1 )
+                {
+                    auto outputFormat = rawTargets[rawOutput.targetIndex].format;
+                    // Here we check whether the given output format supports multiple entry points
+                    // When we add targets with support for multiple entry points,
+                    // we should update this switch with those new formats
+                    switch (outputFormat)
+                    {
+                    case CodeGenTarget::CPPSource:
+                        rawOutput.isWholeProgram = true;
+                        break;
+                    default:
+                        sink->diagnose(SourceLoc(), Diagnostics::cannotMatchOutputFileToEntryPoint, rawOutput.path);
+                        break;
+                    }
+                }
             }
         }
 
@@ -1468,14 +1490,8 @@ struct OptionsParser
         for(auto& rawOutput : rawOutputs)
         {
             if(rawOutput.targetIndex == -1) continue;
-            if(rawOutput.entryPointIndex == -1) continue;
-
             auto targetID = rawTargets[rawOutput.targetIndex].targetID;
-            Int entryPointID = rawEntryPoints[rawOutput.entryPointIndex].entryPointID;
-
             auto target = requestImpl->getLinkage()->targets[targetID];
-            auto entryPointReq = requestImpl->getFrontEndReq()->getEntryPointReqs()[entryPointID];
-
             RefPtr<EndToEndCompileRequest::TargetInfo> targetInfo;
             if( !requestImpl->targetInfos.TryGetValue(target, targetInfo) )
             {
@@ -1483,18 +1499,38 @@ struct OptionsParser
                 requestImpl->targetInfos[target] = targetInfo;
             }
 
-            String outputPath;
-            if( targetInfo->entryPointOutputPaths.ContainsKey(entryPointID) )
+            if (rawOutput.isWholeProgram)
             {
-                sink->diagnose(SourceLoc(), Diagnostics::duplicateOutputPathsForEntryPointAndTarget, entryPointReq->getName(), target->getTarget());
+                if (targetInfo->wholeTargetOutputPath != "")
+                {
+                    sink->diagnose(SourceLoc(), Diagnostics::duplicateOutputPathsForTarget, target->getTarget());
+                }
+                else
+                {
+                    target->isWholeProgramRequest = true;
+                    targetInfo->wholeTargetOutputPath = rawOutput.path;
+                }
             }
             else
             {
-                targetInfo->entryPointOutputPaths[entryPointID] = rawOutput.path;
+                if (rawOutput.entryPointIndex == -1) continue;
+
+                Int entryPointID = rawEntryPoints[rawOutput.entryPointIndex].entryPointID;
+                auto entryPointReq = requestImpl->getFrontEndReq()->getEntryPointReqs()[entryPointID];
+
+                //String outputPath;
+                if (targetInfo->entryPointOutputPaths.ContainsKey(entryPointID))
+                {
+                    sink->diagnose(SourceLoc(), Diagnostics::duplicateOutputPathsForEntryPointAndTarget, entryPointReq->getName(), target->getTarget());
+                }
+                else
+                {
+                    targetInfo->entryPointOutputPaths[entryPointID] = rawOutput.path;
+                }
             }
         }
 
-        return (sink->GetErrorCount() == 0) ? SLANG_OK : SLANG_FAIL;
+        return (sink->getErrorCount() == 0) ? SLANG_OK : SLANG_FAIL;
     }
 };
 
@@ -1514,7 +1550,7 @@ SlangResult parseOptions(
     Result res = parser.parse(argc, argv);
 
     DiagnosticSink* sink = compileRequest->getSink();
-    if (sink->GetErrorCount() > 0)
+    if (sink->getErrorCount() > 0)
     {
         // Put the errors in the diagnostic 
         compileRequest->mDiagnosticOutput = sink->outputBuffer.ProduceString();

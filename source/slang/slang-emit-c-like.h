@@ -38,18 +38,6 @@ public:
         kThreadGroupAxisCount = 3,
     };
     
-        /// To simplify cases 
-    enum class SourceStyle
-    {
-        Unknown,
-        GLSL,
-        HLSL,
-        C,
-        CPP,
-        CUDA,
-        CountOf,
-    };
-    
     typedef unsigned int ESemanticMask;
     enum
     {
@@ -96,8 +84,12 @@ public:
         {}
     };
 
+        /// Must be called before used
+    virtual SlangResult init();
+
         /// Ctor
     CLikeSourceEmitter(const Desc& desc);
+
     
         /// Get the source manager
     SourceManager* getSourceManager() { return m_compileRequest->getSourceManager(); }
@@ -109,7 +101,7 @@ public:
         /// Get the code gen target
     CodeGenTarget getTarget() { return m_target; }
         /// Get the source style
-    SLANG_FORCE_INLINE SourceStyle getSourceStyle() const { return m_sourceStyle;  }
+    SLANG_FORCE_INLINE SourceLanguage getSourceLanguage() const { return m_sourceLanguage;  }
 
     void noteInternalErrorLoc(SourceLoc loc) { return getSink()->noteInternalErrorLoc(loc); }
 
@@ -164,6 +156,8 @@ public:
     String scrubName(const String& name);
 
     String generateName(IRInst* inst);
+    virtual String generateEntryPointNameImpl(IREntryPointDecoration* entryPointDecor);
+
     String getName(IRInst* inst);
 
     void emitDeclarator(IRDeclaratorInfo* declarator);    
@@ -270,6 +264,7 @@ public:
     void emitParameterGroup(IRGlobalParam* varDecl, IRUniformParameterGroupType* type);
 
     void emitVar(IRVar* varDecl);
+    void emitDereferenceOperand(IRInst* inst, EmitOpInfo const& outerPrec);
 
     void emitGlobalVar(IRGlobalVar* varDecl);
     void emitGlobalParam(IRGlobalParam* varDecl);
@@ -285,7 +280,7 @@ public:
     void computeEmitActions(IRModule* module, List<EmitAction>& ioActions);
 
     void executeEmitActions(List<EmitAction> const& actions);
-    void emitModule(IRModule* module) { emitModuleImpl(module); }
+    void emitModule(IRModule* module) { m_irModule = module; emitModuleImpl(module); }
 
     void emitPreprocessorDirectives() { emitPreprocessorDirectivesImpl(); }
     void emitSimpleType(IRType* type);
@@ -294,8 +289,9 @@ public:
 
     virtual RefObject* getExtensionTracker() { return nullptr; }
 
-        /// Gets a source style for a target. Returns Unknown if not a known target
-    static SourceStyle getSourceStyle(CodeGenTarget target);
+        /// Gets a source language for a target for a target. Returns Unknown if not a known target
+    static SourceLanguage getSourceLanguage(CodeGenTarget target);
+
         /// Gets the default type name for built in scalar types. Different impls may require something different.
         /// Returns an empty slice if not a built in type
     static UnownedStringSlice getDefaultBuiltinTypeName(IROp op);
@@ -305,6 +301,7 @@ public:
 
     protected:
 
+    virtual bool doesTargetSupportPtrTypes() { return false; }
     virtual void emitLayoutSemanticsImpl(IRInst* inst, char const* uniformSemanticSpelling = "register") { SLANG_UNUSED(inst); SLANG_UNUSED(uniformSemanticSpelling); }
     virtual void emitParameterGroupImpl(IRGlobalParam* varDecl, IRUniformParameterGroupType* type) = 0;
     virtual void emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPointDecoration* entryPointDecor) = 0;
@@ -325,6 +322,7 @@ public:
     virtual void emitSimpleValueImpl(IRInst* inst);
     virtual void emitModuleImpl(IRModule* module);
     virtual void emitSimpleFuncImpl(IRFunc* func);
+    virtual void emitVarExpr(IRInst* inst, EmitOpInfo const& outerPrec);
     virtual void emitOperandImpl(IRInst* inst, EmitOpInfo const& outerPrec);
     virtual void emitParamTypeImpl(IRType* type, String const& name);
     virtual void emitIntrinsicCallExprImpl(IRCall* inst, IRTargetIntrinsicDecoration* targetIntrinsic, EmitOpInfo const& inOuterPrec);
@@ -336,6 +334,10 @@ public:
         // Again necessary for & prefix intrinsics. May be removable in the future
     virtual void emitVectorTypeNameImpl(IRType* elementType, IRIntegerValue elementCount) = 0;
 
+    virtual void emitWitnessTable(IRWitnessTable* witnessTable);
+    virtual void emitInterface(IRInterfaceType* interfaceType);
+    virtual void emitRTTIObject(IRRTTIObject* rttiObject);
+
     virtual void handleCallExprDecorationsImpl(IRInst* funcValue) { SLANG_UNUSED(funcValue); }
 
     virtual bool tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType) { SLANG_UNUSED(varDecl); SLANG_UNUSED(varType); return false; }
@@ -345,8 +347,15 @@ public:
     void _emitUnsizedArrayType(IRUnsizedArrayType* arrayType, EDeclarator* declarator);
     void _emitType(IRType* type, EDeclarator* declarator);
     void _emitInst(IRInst* inst);
+
+        // Emit the argument list (including paranthesis) in a `CallInst`
+    void _emitCallArgList(IRCall* call);
+
+        // Sort witnessTable entries according to the order defined in the witnessed interface type.
+    List<IRWitnessTableEntry*> getSortedWitnessTableEntries(IRWitnessTable* witnessTable);
     
     BackEndCompileRequest* m_compileRequest = nullptr;
+    IRModule* m_irModule = nullptr;
 
     // The stage for which we are emitting code.
     //
@@ -355,25 +364,17 @@ public:
     // in some very specific cases to determine how a construct
     // should map to GLSL.
     //
-    Stage m_entryPointStage;
-
+    Stage m_entryPointStage = Stage::Unknown;
     // The target language we want to generate code for
     CodeGenTarget m_target;
-    // Source style - a simplification of the more nuanced m_target
-    SourceStyle m_sourceStyle;
+    // Source language (based on the more nuanced m_target)
+    SourceLanguage m_sourceLanguage;
 
     // Where source is written to
     SourceWriter* m_writer;
 
-    // We only want to emit each `import`ed module one time, so
-    // we maintain a set of already-emitted modules.
-    HashSet<ModuleDecl*> m_modulesAlreadyEmitted;
-
-    ModuleDecl* m_program;
-
     UInt m_uniqueIDCounter = 1;
     Dictionary<IRInst*, UInt> m_mapIRValueToID;
-    Dictionary<Decl*, UInt> m_mapDeclToID;
 
     HashSet<String> m_irDeclsVisited;
 

@@ -27,7 +27,7 @@ void HLSLSourceEmitter::_emitHLSLDecorationSingleInt(const char* name, IRFunc* e
     SLANG_UNUSED(entryPoint);
     SLANG_ASSERT(val);
 
-    auto intVal = GetIntVal(val);
+    auto intVal = getIntVal(val);
 
     m_writer->emit("[");
     m_writer->emit(name);
@@ -136,12 +136,12 @@ void HLSLSourceEmitter::_emitHLSLRegisterSemantics(EmitVarChain* chain, char con
 
     auto layout = chain->varLayout;
 
-    switch (getSourceStyle())
+    switch (getSourceLanguage())
     {
         default:
             return;
 
-        case SourceStyle::HLSL:
+        case SourceLanguage::HLSL:
             break;
     }
 
@@ -244,6 +244,13 @@ void HLSLSourceEmitter::_emitHLSLTextureType(IRTextureTypeBase* texType)
             m_writer->emit("Consume");
             break;
 
+        case SLANG_RESOURCE_ACCESS_WRITE:
+            if (texType->isFeedback())
+            {
+                m_writer->emit("Feedback");
+            }
+            break;
+
         default:
             SLANG_DIAGNOSE_UNEXPECTED(getSink(), SourceLoc(), "unhandled resource access mode");
             break;
@@ -291,11 +298,11 @@ void HLSLSourceEmitter::emitParameterGroupImpl(IRGlobalParam* varDecl, IRUniform
 void HLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPointDecoration* entryPointDecor)
 {
     auto profile = m_effectiveProfile;
-    auto stage = entryPointDecor->getProfile().GetStage();
+    auto stage = entryPointDecor->getProfile().getStage();
 
     if (profile.getFamily() == ProfileFamily::DX)
     {
-        if (profile.GetVersion() >= ProfileVersion::DX_6_1)
+        if (profile.getVersion() >= ProfileVersion::DX_6_1)
         {
             char const* stageName = getStageName(stage);
             if (stageName)
@@ -327,7 +334,7 @@ void HLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoin
         {
             if (auto decor = irFunc->findDecoration<IRMaxVertexCountDecoration>())
             {
-                auto count = GetIntVal(decor->getCount());
+                auto count = getIntVal(decor->getCount());
                 m_writer->emit("[maxvertexcount(");
                 m_writer->emit(Int(count));
                 m_writer->emit(")]\n");
@@ -335,7 +342,7 @@ void HLSLSourceEmitter::emitEntryPointAttributesImpl(IRFunc* irFunc, IREntryPoin
 
             if (auto decor = irFunc->findDecoration<IRInstanceDecoration>())
             {
-                auto count = GetIntVal(decor->getCount());
+                auto count = getIntVal(decor->getCount());
                 m_writer->emit("[instance(");
                 m_writer->emit(Int(count));
                 m_writer->emit(")]\n");
@@ -674,9 +681,16 @@ void HLSLSourceEmitter::emitVectorTypeNameImpl(IRType* elementType, IRIntegerVal
 
 void HLSLSourceEmitter::emitLoopControlDecorationImpl(IRLoopControlDecoration* decl)
 {
-    if (decl->getMode() == kIRLoopControl_Unroll)
+    switch (decl->getMode())
     {
+    case kIRLoopControl_Unroll:
         m_writer->emit("[unroll]\n");
+        break;
+    case kIRLoopControl_Loop:
+        m_writer->emit("[loop]\n");
+        break;
+    default:
+        break;
     }
 }
 
@@ -744,7 +758,7 @@ void HLSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
         case kIROp_VectorType:
         {
             auto vecType = (IRVectorType*)type;
-            emitVectorTypeNameImpl(vecType->getElementType(), GetIntVal(vecType->getElementCount()));
+            emitVectorTypeNameImpl(vecType->getElementType(), getIntVal(vecType->getElementCount()));
             return;
         }
         case kIROp_MatrixType:

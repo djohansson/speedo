@@ -96,14 +96,9 @@ static inline SlangReflection* convert(ProgramLayout* program)
     return (SlangReflection*) program;
 }
 
-} // namespace Reflection
-} // namespace Slang
-
 // user attaribute
 
-using namespace Slang;
-
-unsigned int getUserAttributeCount(Decl* decl)
+static unsigned int getUserAttributeCount(Decl* decl)
 {
     unsigned int count = 0;
     for (auto x : decl->getModifiersOfType<UserDefinedAttribute>())
@@ -114,7 +109,7 @@ unsigned int getUserAttributeCount(Decl* decl)
     return count;
 }
 
-SlangReflectionUserAttribute* findUserAttributeByName(Session* session, Decl* decl, const char* name)
+static SlangReflectionUserAttribute* findUserAttributeByName(Session* session, Decl* decl, const char* name)
 {
     auto nameObj = session->tryGetNameObj(name);
     for (auto x : decl->getModifiersOfType<UserDefinedAttribute>())
@@ -125,10 +120,8 @@ SlangReflectionUserAttribute* findUserAttributeByName(Session* session, Decl* de
     return nullptr;
 }
 
-SlangReflectionUserAttribute* getUserAttributeByIndex(Decl* decl, unsigned int index)
+static SlangReflectionUserAttribute* getUserAttributeByIndex(Decl* decl, unsigned int index)
 {
-    using namespace Reflection;
-
     unsigned int id = 0;
     for (auto x : decl->getModifiersOfType<UserDefinedAttribute>())
     {
@@ -139,16 +132,72 @@ SlangReflectionUserAttribute* getUserAttributeByIndex(Decl* decl, unsigned int i
     return nullptr;
 }
 
-SLANG_API char const* spReflectionUserAttribute_GetName(SlangReflectionUserAttribute* attrib)
+static size_t getReflectionSize(LayoutSize size)
 {
+    if(size.isFinite())
+        return size.getFiniteValue();
+
+    return SLANG_UNBOUNDED_SIZE;
+}
+
+} // namespace Reflection
+
+static SlangParameterCategory getParameterCategory(
+    LayoutResourceKind kind)
+{
+    return SlangParameterCategory(kind);
+}
+
+static SlangParameterCategory getParameterCategory(
+    TypeLayout*  typeLayout)
+{
+    auto resourceInfoCount = typeLayout->resourceInfos.getCount();
+    if(resourceInfoCount == 1)
+    {
+        return getParameterCategory(typeLayout->resourceInfos[0].kind);
+    }
+    else if(resourceInfoCount == 0)
+    {
+        // TODO: can this ever happen?
+        return SLANG_PARAMETER_CATEGORY_NONE;
+    }
+    return SLANG_PARAMETER_CATEGORY_MIXED;
+}
+
+static TypeLayout* maybeGetContainerLayout(TypeLayout* typeLayout)
+{
+    if (auto parameterGroupTypeLayout = as<ParameterGroupTypeLayout>(typeLayout))
+    {
+        auto containerTypeLayout = parameterGroupTypeLayout->containerVarLayout->typeLayout;
+        if (containerTypeLayout->resourceInfos.getCount() != 0)
+        {
+            return containerTypeLayout;
+        }
+    }
+
+    return typeLayout;
+}
+
+static bool hasDefaultConstantBuffer(ScopeLayout* layout)
+{
+    auto typeLayout = layout->parametersLayout->getTypeLayout();
+    return as<ParameterGroupTypeLayout>(typeLayout) != nullptr;
+}
+
+} // namespace Slang
+
+char const* spReflectionUserAttribute_GetName(SlangReflectionUserAttribute* attrib)
+{
+    using namespace Slang;
     using namespace Reflection;
 
     auto userAttr = convert(attrib);
     if (!userAttr) return nullptr;
     return userAttr->getName()->text.getBuffer();
 }
-SLANG_API unsigned int spReflectionUserAttribute_GetArgumentCount(SlangReflectionUserAttribute* attrib)
+unsigned int spReflectionUserAttribute_GetArgumentCount(SlangReflectionUserAttribute* attrib)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto userAttr = convert(attrib);
@@ -157,20 +206,22 @@ SLANG_API unsigned int spReflectionUserAttribute_GetArgumentCount(SlangReflectio
 }
 SlangReflectionType* spReflectionUserAttribute_GetArgumentType(SlangReflectionUserAttribute* attrib, unsigned int index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto userAttr = convert(attrib);
     if (!userAttr) return nullptr;
-    return convert(userAttr->args[index]->type.type.Ptr());
+    return convert(userAttr->args[index]->type.type);
 }
-SLANG_API SlangResult spReflectionUserAttribute_GetArgumentValueInt(SlangReflectionUserAttribute* attrib, unsigned int index, int * rs)
+SlangResult spReflectionUserAttribute_GetArgumentValueInt(SlangReflectionUserAttribute* attrib, unsigned int index, int * rs)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto userAttr = convert(attrib);
     if (!userAttr) return SLANG_ERROR_INVALID_PARAMETER;
     if (index >= (unsigned int)userAttr->args.getCount()) return SLANG_ERROR_INVALID_PARAMETER;
-    RefPtr<RefObject> val;
+    NodeBase* val = nullptr;
     if (userAttr->intArgVals.TryGetValue(index, val))
     {
         *rs = (int)as<ConstantIntVal>(val)->value;
@@ -178,8 +229,9 @@ SLANG_API SlangResult spReflectionUserAttribute_GetArgumentValueInt(SlangReflect
     }
     return SLANG_ERROR_INVALID_PARAMETER;
 }
-SLANG_API SlangResult spReflectionUserAttribute_GetArgumentValueFloat(SlangReflectionUserAttribute* attrib, unsigned int index, float * rs)
+SlangResult spReflectionUserAttribute_GetArgumentValueFloat(SlangReflectionUserAttribute* attrib, unsigned int index, float * rs)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto userAttr = convert(attrib);
@@ -192,8 +244,9 @@ SLANG_API SlangResult spReflectionUserAttribute_GetArgumentValueFloat(SlangRefle
     }
     return SLANG_ERROR_INVALID_PARAMETER;
 }
-SLANG_API const char* spReflectionUserAttribute_GetArgumentValueString(SlangReflectionUserAttribute* attrib, unsigned int index, size_t* bufLen)
+const char* spReflectionUserAttribute_GetArgumentValueString(SlangReflectionUserAttribute* attrib, unsigned int index, size_t* bufLen)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto userAttr = convert(attrib);
@@ -213,8 +266,9 @@ SLANG_API const char* spReflectionUserAttribute_GetArgumentValueString(SlangRefl
 // type Reflection
 
 
-SLANG_API SlangTypeKind spReflectionType_GetKind(SlangReflectionType* inType)
+SlangTypeKind spReflectionType_GetKind(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -261,6 +315,10 @@ SLANG_API SlangTypeKind spReflectionType_GetKind(SlangReflectionType* inType)
     else if (auto textureType = as<TextureTypeBase>(type))
     {
         return SLANG_TYPE_KIND_RESOURCE;
+    }
+    else if (auto feedbackType = as<FeedbackType>(type))
+    {
+        return SLANG_TYPE_KIND_FEEDBACK;
     }
     // TODO: need a better way to handle this stuff...
 #define CASE(TYPE)                          \
@@ -313,8 +371,9 @@ SLANG_API SlangTypeKind spReflectionType_GetKind(SlangReflectionType* inType)
     return SLANG_TYPE_KIND_NONE;
 }
 
-SLANG_API unsigned int spReflectionType_GetFieldCount(SlangReflectionType* inType)
+unsigned int spReflectionType_GetFieldCount(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -327,15 +386,16 @@ SLANG_API unsigned int spReflectionType_GetFieldCount(SlangReflectionType* inTyp
         auto declRef = declRefType->declRef;
         if( auto structDeclRef = declRef.as<StructDecl>())
         {
-            return (unsigned int)GetFields(structDeclRef, MemberFilterStyle::Instance).getCount();
+            return (unsigned int)getFields(structDeclRef, MemberFilterStyle::Instance).getCount();
         }
     }
 
     return 0;
 }
 
-SLANG_API SlangReflectionVariable* spReflectionType_GetFieldByIndex(SlangReflectionType* inType, unsigned index)
+SlangReflectionVariable* spReflectionType_GetFieldByIndex(SlangReflectionType* inType, unsigned index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -348,7 +408,7 @@ SLANG_API SlangReflectionVariable* spReflectionType_GetFieldByIndex(SlangReflect
         auto declRef = declRefType->declRef;
         if( auto structDeclRef = declRef.as<StructDecl>())
         {
-            auto fields = GetFields(structDeclRef, MemberFilterStyle::Instance);
+            auto fields = getFields(structDeclRef, MemberFilterStyle::Instance);
             auto fieldDeclRef = fields[index];
             return (SlangReflectionVariable*) fieldDeclRef.getDecl();
         }
@@ -357,8 +417,9 @@ SLANG_API SlangReflectionVariable* spReflectionType_GetFieldByIndex(SlangReflect
     return nullptr;
 }
 
-SLANG_API size_t spReflectionType_GetElementCount(SlangReflectionType* inType)
+size_t spReflectionType_GetElementCount(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -366,18 +427,19 @@ SLANG_API size_t spReflectionType_GetElementCount(SlangReflectionType* inType)
 
     if(auto arrayType = as<ArrayExpressionType>(type))
     {
-        return arrayType->arrayLength ? (size_t) GetIntVal(arrayType->arrayLength) : 0;
+        return arrayType->arrayLength ? (size_t) getIntVal(arrayType->arrayLength) : 0;
     }
     else if( auto vectorType = as<VectorExpressionType>(type))
     {
-        return (size_t) GetIntVal(vectorType->elementCount);
+        return (size_t) getIntVal(vectorType->elementCount);
     }
 
     return 0;
 }
 
-SLANG_API SlangReflectionType* spReflectionType_GetElementType(SlangReflectionType* inType)
+SlangReflectionType* spReflectionType_GetElementType(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -385,15 +447,15 @@ SLANG_API SlangReflectionType* spReflectionType_GetElementType(SlangReflectionTy
 
     if(auto arrayType = as<ArrayExpressionType>(type))
     {
-        return (SlangReflectionType*) arrayType->baseType.Ptr();
+        return (SlangReflectionType*) arrayType->baseType;
     }
     else if( auto parameterGroupType = as<ParameterGroupType>(type))
     {
-        return convert(parameterGroupType->elementType.Ptr());
+        return convert(parameterGroupType->elementType);
     }
     else if( auto vectorType = as<VectorExpressionType>(type))
     {
-        return convert(vectorType->elementType.Ptr());
+        return convert(vectorType->elementType);
     }
     else if( auto matrixType = as<MatrixExpressionType>(type))
     {
@@ -403,8 +465,9 @@ SLANG_API SlangReflectionType* spReflectionType_GetElementType(SlangReflectionTy
     return nullptr;
 }
 
-SLANG_API unsigned int spReflectionType_GetRowCount(SlangReflectionType* inType)
+unsigned int spReflectionType_GetRowCount(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -412,7 +475,7 @@ SLANG_API unsigned int spReflectionType_GetRowCount(SlangReflectionType* inType)
 
     if(auto matrixType = as<MatrixExpressionType>(type))
     {
-        return (unsigned int) GetIntVal(matrixType->getRowCount());
+        return (unsigned int) getIntVal(matrixType->getRowCount());
     }
     else if(auto vectorType = as<VectorExpressionType>(type))
     {
@@ -426,8 +489,9 @@ SLANG_API unsigned int spReflectionType_GetRowCount(SlangReflectionType* inType)
     return 0;
 }
 
-SLANG_API unsigned int spReflectionType_GetColumnCount(SlangReflectionType* inType)
+unsigned int spReflectionType_GetColumnCount(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -435,11 +499,11 @@ SLANG_API unsigned int spReflectionType_GetColumnCount(SlangReflectionType* inTy
 
     if(auto matrixType = as<MatrixExpressionType>(type))
     {
-        return (unsigned int) GetIntVal(matrixType->getColumnCount());
+        return (unsigned int) getIntVal(matrixType->getColumnCount());
     }
     else if(auto vectorType = as<VectorExpressionType>(type))
     {
-        return (unsigned int) GetIntVal(vectorType->elementCount);
+        return (unsigned int) getIntVal(vectorType->elementCount);
     }
     else if( auto basicType = as<BasicExpressionType>(type) )
     {
@@ -449,8 +513,9 @@ SLANG_API unsigned int spReflectionType_GetColumnCount(SlangReflectionType* inTy
     return 0;
 }
 
-SLANG_API SlangScalarType spReflectionType_GetScalarType(SlangReflectionType* inType)
+SlangScalarType spReflectionType_GetScalarType(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -462,7 +527,7 @@ SLANG_API SlangScalarType spReflectionType_GetScalarType(SlangReflectionType* in
     }
     else if(auto vectorType = as<VectorExpressionType>(type))
     {
-        type = vectorType->elementType.Ptr();
+        type = vectorType->elementType;
     }
 
     if(auto basicType = as<BasicExpressionType>(type))
@@ -498,8 +563,9 @@ SLANG_API SlangScalarType spReflectionType_GetScalarType(SlangReflectionType* in
     return SLANG_SCALAR_TYPE_NONE;
 }
 
-SLANG_API unsigned int spReflectionType_GetUserAttributeCount(SlangReflectionType* inType)
+unsigned int spReflectionType_GetUserAttributeCount(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -510,8 +576,9 @@ SLANG_API unsigned int spReflectionType_GetUserAttributeCount(SlangReflectionTyp
     }
     return 0;
 }
-SLANG_API SlangReflectionUserAttribute* spReflectionType_GetUserAttribute(SlangReflectionType* inType, unsigned int index)
+SlangReflectionUserAttribute* spReflectionType_GetUserAttribute(SlangReflectionType* inType, unsigned int index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -522,21 +589,26 @@ SLANG_API SlangReflectionUserAttribute* spReflectionType_GetUserAttribute(SlangR
     }
     return 0;
 }
-SLANG_API SlangReflectionUserAttribute* spReflectionType_FindUserAttributeByName(SlangReflectionType* inType, char const* name)
+SlangReflectionUserAttribute* spReflectionType_FindUserAttributeByName(SlangReflectionType* inType, char const* name)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
     if (!type) return 0;
     if (auto declRefType = as<DeclRefType>(type))
     {
-        return findUserAttributeByName(declRefType->getSession(), declRefType->declRef.getDecl(), name);
+        ASTBuilder* astBuilder = declRefType->getASTBuilder();
+        auto globalSession = astBuilder->getGlobalSession();
+
+        return findUserAttributeByName(globalSession, declRefType->declRef.getDecl(), name);
     }
     return 0;
 }
 
-SLANG_API SlangResourceShape spReflectionType_GetResourceShape(SlangReflectionType* inType)
+SlangResourceShape spReflectionType_GetResourceShape(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -544,7 +616,7 @@ SLANG_API SlangResourceShape spReflectionType_GetResourceShape(SlangReflectionTy
 
     while(auto arrayType = as<ArrayExpressionType>(type))
     {
-        type = arrayType->baseType.Ptr();
+        type = arrayType->baseType;
     }
 
     if(auto textureType = as<TextureTypeBase>(type))
@@ -573,8 +645,9 @@ SLANG_API SlangResourceShape spReflectionType_GetResourceShape(SlangReflectionTy
     return SLANG_RESOURCE_NONE;
 }
 
-SLANG_API SlangResourceAccess spReflectionType_GetResourceAccess(SlangReflectionType* inType)
+SlangResourceAccess spReflectionType_GetResourceAccess(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -582,7 +655,7 @@ SLANG_API SlangResourceAccess spReflectionType_GetResourceAccess(SlangReflection
 
     while(auto arrayType = as<ArrayExpressionType>(type))
     {
-        type = arrayType->baseType.Ptr();
+        type = arrayType->baseType;
     }
 
     if(auto textureType = as<TextureTypeBase>(type))
@@ -613,8 +686,9 @@ SLANG_API SlangResourceAccess spReflectionType_GetResourceAccess(SlangReflection
     return SLANG_RESOURCE_ACCESS_NONE;
 }
 
-SLANG_API char const* spReflectionType_GetName(SlangReflectionType* inType)
+char const* spReflectionType_GetName(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -629,14 +703,15 @@ SLANG_API char const* spReflectionType_GetName(SlangReflectionType* inType)
         if(decl->hasModifier<ImplicitParameterGroupElementTypeModifier>())
             return nullptr;
 
-        return getText(declRef.GetName()).begin();
+        return getText(declRef.getName()).begin();
     }
 
     return nullptr;
 }
 
-SLANG_API SlangReflectionType * spReflection_FindTypeByName(SlangReflection * reflection, char const * name)
+SlangReflectionType * spReflection_FindTypeByName(SlangReflection * reflection, char const * name)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto programLayout = convert(reflection);
@@ -650,8 +725,8 @@ SLANG_API SlangReflectionType * spReflection_FindTypeByName(SlangReflection * re
 
     try
     {
-        RefPtr<Type> result = program->getTypeFromString(name, &sink);
-        return (SlangReflectionType*)result.Ptr();
+        Type* result = program->getTypeFromString(name, &sink);
+        return (SlangReflectionType*)result;
     }
     catch( ... )
     {
@@ -659,11 +734,12 @@ SLANG_API SlangReflectionType * spReflection_FindTypeByName(SlangReflection * re
     }
 }
 
-SLANG_API SlangReflectionTypeLayout* spReflection_GetTypeLayout(
+SlangReflectionTypeLayout* spReflection_GetTypeLayout(
     SlangReflection* reflection,
     SlangReflectionType* inType,
     SlangLayoutRules /*rules*/)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto context = convert(reflection);
@@ -674,8 +750,9 @@ SLANG_API SlangReflectionTypeLayout* spReflection_GetTypeLayout(
     return convert(typeLayout);
 }
 
-SLANG_API SlangReflectionType* spReflectionType_GetResourceResultType(SlangReflectionType* inType)
+SlangReflectionType* spReflectionType_GetResourceResultType(SlangReflectionType* inType)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto type = convert(inType);
@@ -683,18 +760,18 @@ SLANG_API SlangReflectionType* spReflectionType_GetResourceResultType(SlangRefle
 
     while(auto arrayType = as<ArrayExpressionType>(type))
     {
-        type = arrayType->baseType.Ptr();
+        type = arrayType->baseType;
     }
 
     if (auto textureType = as<TextureTypeBase>(type))
     {
-        return convert(textureType->elementType.Ptr());
+        return convert(textureType->elementType);
     }
 
     // TODO: need a better way to handle this stuff...
 #define CASE(TYPE, SHAPE, ACCESS)                                                       \
     else if(as<TYPE>(type)) do {                                                      \
-        return convert(as<TYPE>(type)->elementType.Ptr());                            \
+        return convert(as<TYPE>(type)->elementType);                            \
     } while(0)
 
     // TODO: structured buffer needs to expose type layout!
@@ -711,29 +788,20 @@ SLANG_API SlangReflectionType* spReflectionType_GetResourceResultType(SlangRefle
 
 // type Layout Reflection
 
-SLANG_API SlangReflectionType* spReflectionTypeLayout_GetType(SlangReflectionTypeLayout* inTypeLayout)
+SlangReflectionType* spReflectionTypeLayout_GetType(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
     if(!typeLayout) return nullptr;
 
-    return (SlangReflectionType*) typeLayout->type.Ptr();
+    return (SlangReflectionType*) typeLayout->type;
 }
 
-namespace
+size_t spReflectionTypeLayout_GetSize(SlangReflectionTypeLayout* inTypeLayout, SlangParameterCategory category)
 {
-    static size_t getReflectionSize(LayoutSize size)
-    {
-        if(size.isFinite())
-            return size.getFiniteValue();
-
-        return SLANG_UNBOUNDED_SIZE;
-    }
-}
-
-SLANG_API size_t spReflectionTypeLayout_GetSize(SlangReflectionTypeLayout* inTypeLayout, SlangParameterCategory category)
-{
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -745,8 +813,9 @@ SLANG_API size_t spReflectionTypeLayout_GetSize(SlangReflectionTypeLayout* inTyp
     return getReflectionSize(info->count);
 }
 
-SLANG_API int32_t spReflectionTypeLayout_getAlignment(SlangReflectionTypeLayout* inTypeLayout, SlangParameterCategory category)
+int32_t spReflectionTypeLayout_getAlignment(SlangReflectionTypeLayout* inTypeLayout, SlangParameterCategory category)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -762,8 +831,9 @@ SLANG_API int32_t spReflectionTypeLayout_getAlignment(SlangReflectionTypeLayout*
     }
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_GetFieldByIndex(SlangReflectionTypeLayout* inTypeLayout, unsigned index)
+SlangReflectionVariableLayout* spReflectionTypeLayout_GetFieldByIndex(SlangReflectionTypeLayout* inTypeLayout, unsigned index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -777,8 +847,9 @@ SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_GetFieldByIndex(
     return nullptr;
 }
 
-SLANG_API size_t spReflectionTypeLayout_GetElementStride(SlangReflectionTypeLayout* inTypeLayout, SlangParameterCategory category)
+size_t spReflectionTypeLayout_GetElementStride(SlangReflectionTypeLayout* inTypeLayout, SlangParameterCategory category)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -814,8 +885,9 @@ SLANG_API size_t spReflectionTypeLayout_GetElementStride(SlangReflectionTypeLayo
     return 0;
 }
 
-SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_GetElementTypeLayout(SlangReflectionTypeLayout* inTypeLayout)
+SlangReflectionTypeLayout* spReflectionTypeLayout_GetElementTypeLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -841,8 +913,9 @@ SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_GetElementTypeLayout
     return nullptr;
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_GetElementVarLayout(SlangReflectionTypeLayout* inTypeLayout)
+SlangReflectionVariableLayout* spReflectionTypeLayout_GetElementVarLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -856,8 +929,9 @@ SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_GetElementVarLay
     return nullptr;
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getContainerVarLayout(SlangReflectionTypeLayout* inTypeLayout)
+SlangReflectionVariableLayout* spReflectionTypeLayout_getContainerVarLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -871,44 +945,9 @@ SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getContainerVarL
     return nullptr;
 }
 
-static SlangParameterCategory getParameterCategory(
-    LayoutResourceKind kind)
+SlangParameterCategory spReflectionTypeLayout_GetParameterCategory(SlangReflectionTypeLayout* inTypeLayout)
 {
-    return SlangParameterCategory(kind);
-}
-
-static SlangParameterCategory getParameterCategory(
-    TypeLayout*  typeLayout)
-{
-    auto resourceInfoCount = typeLayout->resourceInfos.getCount();
-    if(resourceInfoCount == 1)
-    {
-        return getParameterCategory(typeLayout->resourceInfos[0].kind);
-    }
-    else if(resourceInfoCount == 0)
-    {
-        // TODO: can this ever happen?
-        return SLANG_PARAMETER_CATEGORY_NONE;
-    }
-    return SLANG_PARAMETER_CATEGORY_MIXED;
-}
-
-static TypeLayout* maybeGetContainerLayout(TypeLayout* typeLayout)
-{
-    if (auto parameterGroupTypeLayout = as<ParameterGroupTypeLayout>(typeLayout))
-    {
-        auto containerTypeLayout = parameterGroupTypeLayout->containerVarLayout->typeLayout;
-        if (containerTypeLayout->resourceInfos.getCount() != 0)
-        {
-            return containerTypeLayout;
-        }
-    }
-
-    return typeLayout;
-}
-
-SLANG_API SlangParameterCategory spReflectionTypeLayout_GetParameterCategory(SlangReflectionTypeLayout* inTypeLayout)
-{
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -919,8 +958,9 @@ SLANG_API SlangParameterCategory spReflectionTypeLayout_GetParameterCategory(Sla
     return getParameterCategory(typeLayout);
 }
 
-SLANG_API unsigned spReflectionTypeLayout_GetCategoryCount(SlangReflectionTypeLayout* inTypeLayout)
+unsigned spReflectionTypeLayout_GetCategoryCount(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -931,8 +971,9 @@ SLANG_API unsigned spReflectionTypeLayout_GetCategoryCount(SlangReflectionTypeLa
     return (unsigned) typeLayout->resourceInfos.getCount();
 }
 
-SLANG_API SlangParameterCategory spReflectionTypeLayout_GetCategoryByIndex(SlangReflectionTypeLayout* inTypeLayout, unsigned index)
+SlangParameterCategory spReflectionTypeLayout_GetCategoryByIndex(SlangReflectionTypeLayout* inTypeLayout, unsigned index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -943,8 +984,9 @@ SLANG_API SlangParameterCategory spReflectionTypeLayout_GetCategoryByIndex(Slang
     return typeLayout->resourceInfos[index].kind;
 }
 
-SLANG_API SlangMatrixLayoutMode spReflectionTypeLayout_GetMatrixLayoutMode(SlangReflectionTypeLayout* inTypeLayout)
+SlangMatrixLayoutMode spReflectionTypeLayout_GetMatrixLayoutMode(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -961,8 +1003,9 @@ SLANG_API SlangMatrixLayoutMode spReflectionTypeLayout_GetMatrixLayoutMode(Slang
 
 }
 
-SLANG_API int spReflectionTypeLayout_getGenericParamIndex(SlangReflectionTypeLayout* inTypeLayout)
+int spReflectionTypeLayout_getGenericParamIndex(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -978,8 +1021,9 @@ SLANG_API int spReflectionTypeLayout_getGenericParamIndex(SlangReflectionTypeLay
     }
 }
 
-SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLayout(SlangReflectionTypeLayout* inTypeLayout)
+SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -989,8 +1033,9 @@ SLANG_API SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLa
     return convert(pendingDataTypeLayout);
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDataLayout(SlangReflectionVariableLayout* inVarLayout)
+SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDataLayout(SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1000,8 +1045,9 @@ SLANG_API SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDa
     return convert(pendingDataLayout);
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getSpecializedTypePendingDataVarLayout(SlangReflectionTypeLayout* inTypeLayout)
+SlangReflectionVariableLayout* spReflectionTypeLayout_getSpecializedTypePendingDataVarLayout(SlangReflectionTypeLayout* inTypeLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeLayout = convert(inTypeLayout);
@@ -1021,8 +1067,9 @@ SLANG_API SlangReflectionVariableLayout* spReflectionTypeLayout_getSpecializedTy
 
 // Variable Reflection
 
-SLANG_API char const* spReflectionVariable_GetName(SlangReflectionVariable* inVar)
+char const* spReflectionVariable_GetName(SlangReflectionVariable* inVar)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto var = convert(inVar);
@@ -1036,8 +1083,9 @@ SLANG_API char const* spReflectionVariable_GetName(SlangReflectionVariable* inVa
     return getText(var->getName()).getBuffer();
 }
 
-SLANG_API SlangReflectionType* spReflectionVariable_GetType(SlangReflectionVariable* inVar)
+SlangReflectionType* spReflectionVariable_GetType(SlangReflectionVariable* inVar)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto var = convert(inVar);
@@ -1046,8 +1094,9 @@ SLANG_API SlangReflectionType* spReflectionVariable_GetType(SlangReflectionVaria
     return  convert(var->getType());
 }
 
-SLANG_API SlangReflectionModifier* spReflectionVariable_FindModifier(SlangReflectionVariable* inVar, SlangModifierID modifierID)
+SlangReflectionModifier* spReflectionVariable_FindModifier(SlangReflectionVariable* inVar, SlangModifierID modifierID)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto var = convert(inVar);
@@ -1067,24 +1116,27 @@ SLANG_API SlangReflectionModifier* spReflectionVariable_FindModifier(SlangReflec
     return (SlangReflectionModifier*) modifier;
 }
 
-SLANG_API unsigned int spReflectionVariable_GetUserAttributeCount(SlangReflectionVariable* inVar)
+unsigned int spReflectionVariable_GetUserAttributeCount(SlangReflectionVariable* inVar)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varDecl = convert(inVar);
     if (!varDecl) return 0;
     return getUserAttributeCount(varDecl);
 }
-SLANG_API SlangReflectionUserAttribute* spReflectionVariable_GetUserAttribute(SlangReflectionVariable* inVar, unsigned int index)
+SlangReflectionUserAttribute* spReflectionVariable_GetUserAttribute(SlangReflectionVariable* inVar, unsigned int index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varDecl = convert(inVar);
     if (!varDecl) return 0;
     return getUserAttributeByIndex(varDecl, index);
 }
-SLANG_API SlangReflectionUserAttribute* spReflectionVariable_FindUserAttributeByName(SlangReflectionVariable* inVar, SlangSession* session, char const* name)
+SlangReflectionUserAttribute* spReflectionVariable_FindUserAttributeByName(SlangReflectionVariable* inVar, SlangSession* session, char const* name)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varDecl = convert(inVar);
@@ -1094,8 +1146,9 @@ SLANG_API SlangReflectionUserAttribute* spReflectionVariable_FindUserAttributeBy
 
 // Variable Layout Reflection
 
-SLANG_API SlangReflectionVariable* spReflectionVariableLayout_GetVariable(SlangReflectionVariableLayout* inVarLayout)
+SlangReflectionVariable* spReflectionVariableLayout_GetVariable(SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1104,8 +1157,9 @@ SLANG_API SlangReflectionVariable* spReflectionVariableLayout_GetVariable(SlangR
     return convert(varLayout->varDecl.getDecl());
 }
 
-SLANG_API SlangReflectionTypeLayout* spReflectionVariableLayout_GetTypeLayout(SlangReflectionVariableLayout* inVarLayout)
+SlangReflectionTypeLayout* spReflectionVariableLayout_GetTypeLayout(SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1164,8 +1218,9 @@ namespace Slang
     }
 }
 
-SLANG_API size_t spReflectionVariableLayout_GetOffset(SlangReflectionVariableLayout* inVarLayout, SlangParameterCategory category)
+size_t spReflectionVariableLayout_GetOffset(SlangReflectionVariableLayout* inVarLayout, SlangParameterCategory category)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1185,8 +1240,9 @@ SLANG_API size_t spReflectionVariableLayout_GetOffset(SlangReflectionVariableLay
     return info->index;
 }
 
-SLANG_API size_t spReflectionVariableLayout_GetSpace(SlangReflectionVariableLayout* inVarLayout, SlangParameterCategory category)
+size_t spReflectionVariableLayout_GetSpace(SlangReflectionVariableLayout* inVarLayout, SlangParameterCategory category)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1239,8 +1295,9 @@ SLANG_API size_t spReflectionVariableLayout_GetSpace(SlangReflectionVariableLayo
     return space;
 }
 
-SLANG_API char const* spReflectionVariableLayout_GetSemanticName(SlangReflectionVariableLayout* inVarLayout)
+char const* spReflectionVariableLayout_GetSemanticName(SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1252,8 +1309,9 @@ SLANG_API char const* spReflectionVariableLayout_GetSemanticName(SlangReflection
     return varLayout->semanticName.getBuffer();
 }
 
-SLANG_API size_t spReflectionVariableLayout_GetSemanticIndex(SlangReflectionVariableLayout* inVarLayout)
+size_t spReflectionVariableLayout_GetSemanticIndex(SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1265,9 +1323,10 @@ SLANG_API size_t spReflectionVariableLayout_GetSemanticIndex(SlangReflectionVari
     return varLayout->semanticIndex;
 }
 
-SLANG_API SlangStage spReflectionVariableLayout_getStage(
+SlangStage spReflectionVariableLayout_getStage(
     SlangReflectionVariableLayout* inVarLayout)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto varLayout = convert(inVarLayout);
@@ -1300,7 +1359,7 @@ SLANG_API SlangStage spReflectionVariableLayout_getStage(
 
 // Shader Parameter Reflection
 
-SLANG_API unsigned spReflectionParameter_GetBindingIndex(SlangReflectionParameter* inVarLayout)
+unsigned spReflectionParameter_GetBindingIndex(SlangReflectionParameter* inVarLayout)
 {
     SlangReflectionVariableLayout* varLayout = (SlangReflectionVariableLayout*)inVarLayout;
     return (unsigned) spReflectionVariableLayout_GetOffset(
@@ -1309,7 +1368,7 @@ SLANG_API unsigned spReflectionParameter_GetBindingIndex(SlangReflectionParamete
             spReflectionVariableLayout_GetTypeLayout(varLayout)));
 }
 
-SLANG_API unsigned spReflectionParameter_GetBindingSpace(SlangReflectionParameter* inVarLayout)
+unsigned spReflectionParameter_GetBindingSpace(SlangReflectionParameter* inVarLayout)
 {
     SlangReflectionVariableLayout* varLayout = (SlangReflectionVariableLayout*)inVarLayout;
     return (unsigned) spReflectionVariableLayout_GetSpace(
@@ -1355,18 +1414,20 @@ namespace Slang
 
 // Entry Point Reflection
 
-SLANG_API char const* spReflectionEntryPoint_getName(
+char const* spReflectionEntryPoint_getName(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
     return entryPointLayout ? getCstr(entryPointLayout->name) : nullptr;
 }
 
-SLANG_API unsigned spReflectionEntryPoint_getParameterCount(
+unsigned spReflectionEntryPoint_getParameterCount(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
@@ -1375,10 +1436,11 @@ SLANG_API unsigned spReflectionEntryPoint_getParameterCount(
     return getParameterCount(entryPointLayout->parametersLayout->typeLayout);
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getParameterByIndex(
+SlangReflectionVariableLayout* spReflectionEntryPoint_getParameterByIndex(
     SlangReflectionEntryPoint*  inEntryPoint,
     unsigned                    index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
@@ -1387,22 +1449,24 @@ SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getParameterByIn
     return convert(getParameterByIndex(entryPointLayout->parametersLayout->typeLayout, index));
 }
 
-SLANG_API SlangStage spReflectionEntryPoint_getStage(SlangReflectionEntryPoint* inEntryPoint)
+SlangStage spReflectionEntryPoint_getStage(SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
 
     if(!entryPointLayout) return SLANG_STAGE_NONE;
 
-    return SlangStage(entryPointLayout->profile.GetStage());
+    return SlangStage(entryPointLayout->profile.getStage());
 }
 
-SLANG_API void spReflectionEntryPoint_getComputeThreadGroupSize(
+void spReflectionEntryPoint_getComputeThreadGroupSize(
     SlangReflectionEntryPoint*  inEntryPoint,
     SlangUInt                   axisCount,
     SlangUInt*                  outSizeAlongAxis)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
@@ -1436,24 +1500,26 @@ SLANG_API void spReflectionEntryPoint_getComputeThreadGroupSize(
     }
 }
 
-SLANG_API int spReflectionEntryPoint_usesAnySampleRateInput(
+int spReflectionEntryPoint_usesAnySampleRateInput(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
     if(!entryPointLayout)
         return 0;
 
-    if (entryPointLayout->profile.GetStage() != Stage::Fragment)
+    if (entryPointLayout->profile.getStage() != Stage::Fragment)
         return 0;
 
     return (entryPointLayout->flags & EntryPointLayout::Flag::usesAnySampleRateInput) != 0;
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(
+SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
@@ -1463,9 +1529,10 @@ SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(
     return convert(entryPointLayout->parametersLayout);
 }
 
-SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getResultVarLayout(
+SlangReflectionVariableLayout* spReflectionEntryPoint_getResultVarLayout(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
@@ -1475,16 +1542,10 @@ SLANG_API SlangReflectionVariableLayout* spReflectionEntryPoint_getResultVarLayo
     return convert(entryPointLayout->resultLayout);
 }
 
-
-static bool hasDefaultConstantBuffer(ScopeLayout* layout)
-{
-    auto typeLayout = layout->parametersLayout->getTypeLayout();
-    return as<ParameterGroupTypeLayout>(typeLayout) != nullptr;
-}
-
-SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
+int spReflectionEntryPoint_hasDefaultConstantBuffer(
     SlangReflectionEntryPoint* inEntryPoint)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto entryPointLayout = convert(inEntryPoint);
@@ -1496,8 +1557,9 @@ SLANG_API int spReflectionEntryPoint_hasDefaultConstantBuffer(
 
 
 // SlangReflectionTypeParameter
-SLANG_API char const* spReflectionTypeParameter_GetName(SlangReflectionTypeParameter * inTypeParam)
+char const* spReflectionTypeParameter_GetName(SlangReflectionTypeParameter * inTypeParam)
 {
+    using namespace Slang;
     using namespace Reflection;
     
     auto specializationParam = convert(inTypeParam);
@@ -1509,16 +1571,18 @@ SLANG_API char const* spReflectionTypeParameter_GetName(SlangReflectionTypeParam
     return nullptr;
 }
 
-SLANG_API unsigned spReflectionTypeParameter_GetIndex(SlangReflectionTypeParameter * inTypeParam)
+unsigned spReflectionTypeParameter_GetIndex(SlangReflectionTypeParameter * inTypeParam)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto typeParam = convert(inTypeParam);
     return (unsigned)(typeParam->index);
 }
 
-SLANG_API unsigned int spReflectionTypeParameter_GetConstraintCount(SlangReflectionTypeParameter* inTypeParam)
+unsigned int spReflectionTypeParameter_GetConstraintCount(SlangReflectionTypeParameter* inTypeParam)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto specializationParam = convert(inTypeParam);
@@ -1535,8 +1599,9 @@ SLANG_API unsigned int spReflectionTypeParameter_GetConstraintCount(SlangReflect
     return 0;
 }
 
-SLANG_API SlangReflectionType* spReflectionTypeParameter_GetConstraintByIndex(SlangReflectionTypeParameter * inTypeParam, unsigned index)
+SlangReflectionType* spReflectionTypeParameter_GetConstraintByIndex(SlangReflectionTypeParameter * inTypeParam, unsigned index)
 {
+    using namespace Slang;
     using namespace Reflection;
     
     auto specializationParam = convert(inTypeParam);
@@ -1555,8 +1620,9 @@ SLANG_API SlangReflectionType* spReflectionTypeParameter_GetConstraintByIndex(Sl
 
 // Shader Reflection
 
-SLANG_API unsigned spReflection_GetParameterCount(SlangReflection* inProgram)
+unsigned spReflection_GetParameterCount(SlangReflection* inProgram)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1569,8 +1635,9 @@ SLANG_API unsigned spReflection_GetParameterCount(SlangReflection* inProgram)
     return (unsigned) globalStructLayout->fields.getCount();
 }
 
-SLANG_API SlangReflectionParameter* spReflection_GetParameterByIndex(SlangReflection* inProgram, unsigned index)
+SlangReflectionParameter* spReflection_GetParameterByIndex(SlangReflection* inProgram, unsigned index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1583,24 +1650,27 @@ SLANG_API SlangReflectionParameter* spReflection_GetParameterByIndex(SlangReflec
     return convert(globalStructLayout->fields[index].Ptr());
 }
 
-SLANG_API unsigned int spReflection_GetTypeParameterCount(SlangReflection * reflection)
+unsigned int spReflection_GetTypeParameterCount(SlangReflection * reflection)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(reflection);
     return (unsigned int) program->specializationParams.getCount();
 }
 
-SLANG_API SlangReflectionTypeParameter* spReflection_GetTypeParameterByIndex(SlangReflection * reflection, unsigned int index)
+SlangReflectionTypeParameter* spReflection_GetTypeParameterByIndex(SlangReflection * reflection, unsigned int index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(reflection);
     return (SlangReflectionTypeParameter*) program->specializationParams[index].Ptr();
 }
 
-SLANG_API SlangReflectionTypeParameter * spReflection_FindTypeParameter(SlangReflection * inProgram, char const * name)
+SlangReflectionTypeParameter * spReflection_FindTypeParameter(SlangReflection * inProgram, char const * name)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1620,8 +1690,9 @@ SLANG_API SlangReflectionTypeParameter * spReflection_FindTypeParameter(SlangRef
     return 0;
 }
 
-SLANG_API SlangUInt spReflection_getEntryPointCount(SlangReflection* inProgram)
+SlangUInt spReflection_getEntryPointCount(SlangReflection* inProgram)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1630,8 +1701,9 @@ SLANG_API SlangUInt spReflection_getEntryPointCount(SlangReflection* inProgram)
     return SlangUInt(program->entryPoints.getCount());
 }
 
-SLANG_API SlangReflectionEntryPoint* spReflection_getEntryPointByIndex(SlangReflection* inProgram, SlangUInt index)
+SlangReflectionEntryPoint* spReflection_getEntryPointByIndex(SlangReflection* inProgram, SlangUInt index)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1640,8 +1712,9 @@ SLANG_API SlangReflectionEntryPoint* spReflection_getEntryPointByIndex(SlangRefl
     return convert(program->entryPoints[(int) index].Ptr());
 }
 
-SLANG_API SlangReflectionEntryPoint* spReflection_findEntryPointByName(SlangReflection* inProgram, char const* name)
+SlangReflectionEntryPoint* spReflection_findEntryPointByName(SlangReflection* inProgram, char const* name)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1650,7 +1723,7 @@ SLANG_API SlangReflectionEntryPoint* spReflection_findEntryPointByName(SlangRefl
     // TODO: improve on naive linear search
     for(auto ep : program->entryPoints)
     {
-        if(ep->entryPoint.GetName()->text == name)
+        if(ep->entryPoint.getName()->text == name)
         {
             return convert(ep);
         }
@@ -1659,8 +1732,9 @@ SLANG_API SlangReflectionEntryPoint* spReflection_findEntryPointByName(SlangRefl
     return nullptr;
 }
 
-SLANG_API SlangUInt spReflection_getGlobalConstantBufferBinding(SlangReflection* inProgram)
+SlangUInt spReflection_getGlobalConstantBufferBinding(SlangReflection* inProgram)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1670,8 +1744,9 @@ SLANG_API SlangUInt spReflection_getGlobalConstantBufferBinding(SlangReflection*
     return cb->index;
 }
 
-SLANG_API size_t spReflection_getGlobalConstantBufferSize(SlangReflection* inProgram)
+size_t spReflection_getGlobalConstantBufferSize(SlangReflection* inProgram)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto program = convert(inProgram);
@@ -1682,13 +1757,14 @@ SLANG_API size_t spReflection_getGlobalConstantBufferSize(SlangReflection* inPro
     return getReflectionSize(uniform->count);
 }
 
-SLANG_API  SlangReflectionType* spReflection_specializeType(
+ SlangReflectionType* spReflection_specializeType(
     SlangReflection*            inProgramLayout,
     SlangReflectionType*        inType,
     SlangInt                    specializationArgCount,
     SlangReflectionType* const* specializationArgs,
     ISlangBlob**                outDiagnostics)
 {
+    using namespace Slang;
     using namespace Reflection;
     
     auto programLayout = convert(inProgramLayout);
@@ -1708,9 +1784,10 @@ SLANG_API  SlangReflectionType* spReflection_specializeType(
     return convert(specializedType);
 }
 
-SLANG_API SlangUInt spReflection_getHashedStringCount(
+SlangUInt spReflection_getHashedStringCount(
     SlangReflection*  reflection)
 {
+    using namespace Slang;
     using namespace Reflection;
 
     auto programLayout = convert(reflection);
@@ -1718,11 +1795,12 @@ SLANG_API SlangUInt spReflection_getHashedStringCount(
     return slices.getCount();
 }
 
-SLANG_API const char* spReflection_getHashedString(
+const char* spReflection_getHashedString(
     SlangReflection*  reflection,
     SlangUInt index,
     size_t* outCount)
 {
+    using namespace Slang;
     using namespace Reflection;
     
     auto programLayout = convert(reflection);
@@ -1734,7 +1812,9 @@ SLANG_API const char* spReflection_getHashedString(
     return slice.begin();
 }
 
-SLANG_API int spComputeStringHash(const char* chars, size_t count)
+int spComputeStringHash(const char* chars, size_t count)
 {
+    using namespace Slang;
+
     return (int)getStableHashCode32(chars, count);
 }

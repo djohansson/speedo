@@ -12,7 +12,6 @@
 #include "slang-source-loc.h"
 
 #include "../core/slang-memory-arena.h"
-#include "../core/slang-object-scope-manager.h"
 
 #include "slang-type-system-shared.h"
 
@@ -458,6 +457,7 @@ struct IRInst
 
     void setOperand(UInt index, IRInst* value)
     {
+        SLANG_ASSERT(getOperands()[index].user != nullptr);
         getOperands()[index].set(value);
     }
 
@@ -714,7 +714,7 @@ struct IRBoolLit : IRConstant
 
 // Get the compile-time constant integer value of an instruction,
 // if it has one, and assert-fail otherwise.
-IRIntegerValue GetIntVal(IRInst* inst);
+IRIntegerValue getIntVal(IRInst* inst);
 
 struct IRStringLit : IRConstant
 {
@@ -749,6 +749,31 @@ struct IRParam : IRInst
     IRParam* getPrevParam();
 
     IR_LEAF_ISA(Param)
+};
+
+    /// A control-flow edge from one basic block to another
+struct IREdge
+{
+public:
+    IREdge()
+    {}
+
+    explicit IREdge(IRUse* use)
+        : m_use(use)
+    {}
+
+    IRBlock* getPredecessor() const;
+    IRBlock* getSuccessor() const;
+
+    IRUse* getUse() const
+    {
+        return m_use;
+    }
+
+    bool isCritical() const;
+
+private:
+    IRUse* m_use = nullptr;
 };
 
 // A basic block is a parent instruction that adds the constraint
@@ -797,6 +822,7 @@ struct IRBlock : IRInst
     }
 
     void addParam(IRParam* param);
+    void insertParamAtHead(IRParam* param);
 
     // The "ordinary" instructions come after the parameters
     IRInst* getFirstOrdinaryInst();
@@ -849,6 +875,7 @@ struct IRBlock : IRInst
                 return use != that.use;
             }
 
+            IREdge getEdge() const { return IREdge(use); }
             IRUse* use;
         };
 
@@ -877,6 +904,8 @@ struct IRBlock : IRInst
             {
                 return use != that.use;
             }
+
+            IREdge getEdge() const { return IREdge(use); }
 
             IRUse* use;
             UInt stride;
@@ -907,6 +936,7 @@ struct IRResourceTypeBase : IRType
     {
         return getFlavor().getBaseShape();
     }
+    bool isFeedback() const { return getFlavor().isFeedback(); }
     bool isMultisample() const { return getFlavor().isMultisample(); }
     bool isArray() const { return getFlavor().isArray(); }
     SlangResourceShape getShape() const { return getFlavor().getShape(); }
@@ -1076,11 +1106,31 @@ struct IRPtrTypeBase : IRType
 
 SIMPLE_IR_TYPE(PtrType, PtrTypeBase)
 SIMPLE_IR_TYPE(RefType, PtrTypeBase)
-
 SIMPLE_IR_PARENT_TYPE(OutTypeBase, PtrTypeBase)
 SIMPLE_IR_TYPE(OutType, OutTypeBase)
 SIMPLE_IR_TYPE(InOutType, OutTypeBase)
 SIMPLE_IR_TYPE(ExistentialBoxType, PtrTypeBase)
+
+    /// The base class of RawPointerType and RTTIPointerType.
+struct IRRawPointerTypeBase : IRType
+{
+    IR_PARENT_ISA(RawPointerTypeBase);
+};
+
+    /// Represents a pointer to an object of unknown type.
+struct IRRawPointerType : IRRawPointerTypeBase
+{
+    IR_LEAF_ISA(RawPointerType)
+};
+
+    /// Represents a pointer to an object whose type is determined at runtime,
+    /// with type information available through `rttiOperand`.
+    ///
+struct IRRTTIPointerType : IRRawPointerTypeBase
+{
+    IRInst* getRTTIOperand() { return getOperand(0); }
+    IR_LEAF_ISA(RTTIPointerType)
+};
 
 struct IRGlobalHashedStringLiterals : IRInst
 {
@@ -1162,6 +1212,31 @@ struct IRStructType : IRType
     IR_LEAF_ISA(StructType)
 };
 
+struct IRAssociatedType : IRType
+{
+    IR_LEAF_ISA(AssociatedType)
+};
+
+struct IRThisType : IRType
+{
+    IR_LEAF_ISA(ThisType)
+
+    IRInst* getConstraintType()
+    {
+        return getOperand(0);
+    }
+};
+
+struct IRInterfaceRequirementEntry : IRInst
+{
+    IRInst* getRequirementKey() { return getOperand(0); }
+    IRInst* getRequirementVal() { return getOperand(1); }
+    void setRequirementKey(IRInst* val) { setOperand(0, val); }
+    void setRequirementVal(IRInst* val) { setOperand(1, val); }
+
+    IR_LEAF_ISA(InterfaceRequirementEntry);
+};
+
 struct IRInterfaceType : IRType
 {
     IR_LEAF_ISA(InterfaceType)
@@ -1170,6 +1245,42 @@ struct IRInterfaceType : IRType
 struct IRTaggedUnionType : IRType
 {
     IR_LEAF_ISA(TaggedUnionType)
+};
+
+/// Represents a tuple. Tuples are created by `IRMakeTuple` and its elements
+/// are accessed via `GetTupleElement(tupleValue, IRIntLit)`.
+struct IRTupleType : IRType
+{
+    IR_LEAF_ISA(TupleType)
+};
+
+struct IRTypeType : IRType
+{
+    IR_LEAF_ISA(TypeType);
+};
+
+    /// Represents the IR type for an `IRRTTIObject`.
+struct IRRTTIType : IRType
+{
+    IR_LEAF_ISA(RTTIType);
+};
+
+struct IRAnyValueType : IRType
+{
+    IR_LEAF_ISA(AnyValueType);
+    IRInst* getSize()
+    {
+        return getOperand(0);
+    }
+};
+
+struct IRWitnessTableType : IRType
+{
+    IRInst* getConformanceType()
+    {
+        return getOperand(0);
+    }
+    IR_LEAF_ISA(WitnessTableType);
 };
 
 struct IRBindExistentialsType : IRType
@@ -1210,6 +1321,7 @@ struct IRGlobalValueWithParams : IRGlobalValueWithCode
     IRParam* getFirstParam();
     IRParam* getLastParam();
     IRInstList<IRParam> getParams();
+    IRInst* getFirstOrdinaryInst();
 
     IR_PARENT_ISA(GlobalValueWithParams)
 };
@@ -1289,9 +1401,6 @@ struct IRModule : RefObject
 
     IRInstListBase getGlobalInsts() const { return getModuleInst()->getChildren(); }
 
-        /// Get the object scope manager
-    SLANG_FORCE_INLINE ObjectScopeManager* getObjectScopeManager() { return &m_objectScopeManager; }
-
         /// Ctor
     IRModule():
         memoryArena(kMemoryArenaBlockSize)
@@ -1303,10 +1412,6 @@ struct IRModule : RefObject
     // The compilation session in use.
     Session*    session;
     IRModuleInst* moduleInst;
-
-    protected:
-
-    ObjectScopeManager m_objectScopeManager;
 };
 
     /// How much detail to include in dumped IR.
@@ -1339,6 +1444,7 @@ String getSlangIRAssembly(IRModule* module, IRDumpMode mode = IRDumpMode::Simpli
 
 void dumpIR(IRModule* module, ISlangWriter* writer, IRDumpMode mode = IRDumpMode::Simplified);
 void dumpIR(IRInst* globalVal, ISlangWriter* writer, IRDumpMode mode = IRDumpMode::Simplified);
+void dumpIR(IRModule* module, ISlangWriter* slangWriter, char const* label);
 
 IRInst* createEmptyInst(
     IRModule*   module,
@@ -1352,6 +1458,12 @@ IRInst* createEmptyInstWithSize(
 
     /// True if the op type can be handled 'nominally' meaning that pointer identity is applicable. 
 bool isNominalOp(IROp op);
+
+    // True if ptrType is a pointer type to elementType
+bool isPointerOfType(IRInst* ptrType, IRInst* elementType);
+
+    // True if ptrType is a pointer type to a type of opCode
+bool isPointerOfType(IRInst* ptrType, IROp opCode);
 
 }
 

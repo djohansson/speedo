@@ -11,13 +11,13 @@
 
 namespace Slang
 {
-    RefPtr<ConstantIntVal> SemanticsVisitor::checkConstantIntVal(
-        RefPtr<Expr>    expr)
+    ConstantIntVal* SemanticsVisitor::checkConstantIntVal(
+        Expr*    expr)
     {
         // First type-check the expression as normal
         expr = CheckExpr(expr);
 
-        auto intVal = CheckIntegerConstantExpression(expr.Ptr());
+        auto intVal = CheckIntegerConstantExpression(expr);
         if(!intVal)
             return nullptr;
 
@@ -30,13 +30,13 @@ namespace Slang
         return constIntVal;
     }
 
-    RefPtr<ConstantIntVal> SemanticsVisitor::checkConstantEnumVal(
-        RefPtr<Expr>    expr)
+    ConstantIntVal* SemanticsVisitor::checkConstantEnumVal(
+        Expr*    expr)
     {
         // First type-check the expression as normal
         expr = CheckExpr(expr);
 
-        auto intVal = CheckEnumConstantExpression(expr.Ptr());
+        auto intVal = CheckEnumConstantExpression(expr);
         if(!intVal)
             return nullptr;
 
@@ -52,7 +52,7 @@ namespace Slang
     // Check an expression, coerce it to the `String` type, and then
     // ensure that it has a literal (not just compile-time constant) value.
     bool SemanticsVisitor::checkLiteralStringVal(
-        RefPtr<Expr>    expr,
+        Expr*    expr,
         String*         outVal)
     {
         // TODO: This should actually perform semantic checking, etc.,
@@ -80,15 +80,13 @@ namespace Slang
 
     AttributeDecl* SemanticsVisitor::lookUpAttributeDecl(Name* attributeName, Scope* scope)
     {
-        auto session = getSession();
-
         // We start by looking for an existing attribute matching
         // the name `attributeName`.
         //
         {
             // Look up the name and see what attributes we find.
             //
-            auto lookupResult = lookUp(session, this, attributeName, scope, LookupMask::Attribute);
+            auto lookupResult = lookUp(m_astBuilder, this, attributeName, scope, LookupMask::Attribute);
 
             // If the result was overloaded, then that means there
             // are multiple attributes matching the name, and we
@@ -118,7 +116,7 @@ namespace Slang
         // If the attribute was `[Something(...)]` then we will
         // look for a `struct` named `SomethingAttribute`.
         //
-        LookupResult lookupResult = lookUp(session, this, session->getNameObj(attributeName->text + "Attribute"), scope, LookupMask::type);
+        LookupResult lookupResult = lookUp(m_astBuilder, this, m_astBuilder->getGlobalSession()->getNameObj(attributeName->text + "Attribute"), scope, LookupMask::type);
         //
         // If we didn't find a matching type name, then we give up.
         //
@@ -140,12 +138,12 @@ namespace Slang
         // We will now synthesize a new `AttributeDecl` to mirror
         // what was declared on the `struct` type.
         //
-        RefPtr<AttributeDecl> attrDecl = new AttributeDecl();
+        AttributeDecl* attrDecl = m_astBuilder->create<AttributeDecl>();
         attrDecl->nameAndLoc.name = attributeName;
         attrDecl->nameAndLoc.loc = structDecl->nameAndLoc.loc;
         attrDecl->loc = structDecl->loc;
 
-        RefPtr<AttributeTargetModifier> targetModifier = new AttributeTargetModifier();
+        AttributeTargetModifier* targetModifier = m_astBuilder->create<AttributeTargetModifier>();
         targetModifier->syntaxClass = attrUsageAttr->targetSyntaxClass;
         targetModifier->loc = attrUsageAttr->loc;
         addModifier(attrDecl, targetModifier);
@@ -155,8 +153,8 @@ namespace Slang
         //
         // User-defined attributes create instances of
         // `UserDefinedAttribute`.
-        //
-        attrDecl->syntaxClass = session->findSyntaxClass(session->getNameObj("UserDefinedAttribute"));
+        //        
+        attrDecl->syntaxClass = m_astBuilder->findSyntaxClass(UnownedStringSlice::fromLiteral("UserDefinedAttribute"));
 
         // The fields of the user-defined `struct` type become
         // the parameters of the new attribute.
@@ -169,7 +167,7 @@ namespace Slang
             {
                 ensureDecl(varMember, DeclCheckState::CanUseTypeOfValueDecl);
 
-                RefPtr<ParamDecl> paramDecl = new ParamDecl();
+                ParamDecl* paramDecl = m_astBuilder->create<ParamDecl>();
                 paramDecl->nameAndLoc = member->nameAndLoc;
                 paramDecl->type = varMember->type;
                 paramDecl->loc = member->loc;
@@ -232,27 +230,27 @@ namespace Slang
         return true;
     }
 
-    bool SemanticsVisitor::getAttributeTargetSyntaxClasses(SyntaxClass<RefObject> & cls, uint32_t typeFlags)
+    bool SemanticsVisitor::getAttributeTargetSyntaxClasses(SyntaxClass<NodeBase> & cls, uint32_t typeFlags)
     {
         if (typeFlags == (int)UserDefinedAttributeTargets::Struct)
         {
-            cls = getSession()->findSyntaxClass(getSession()->getNameObj("StructDecl"));
+            cls = m_astBuilder->findSyntaxClass(UnownedStringSlice::fromLiteral("StructDecl"));
             return true;
         }
         if (typeFlags == (int)UserDefinedAttributeTargets::Var)
         {
-            cls = getSession()->findSyntaxClass(getSession()->getNameObj("VarDecl"));
+            cls = m_astBuilder->findSyntaxClass(UnownedStringSlice::fromLiteral("VarDecl"));
             return true;
         }
         if (typeFlags == (int)UserDefinedAttributeTargets::Function)
         {
-            cls = getSession()->findSyntaxClass(getSession()->getNameObj("FuncDecl"));
+            cls = m_astBuilder->findSyntaxClass(UnownedStringSlice::fromLiteral("FuncDecl"));
             return true;
         }
         return false;
     }
 
-    bool SemanticsVisitor::validateAttribute(RefPtr<Attribute> attr, AttributeDecl* attribClassDecl)
+    bool SemanticsVisitor::validateAttribute(Attribute* attr, AttributeDecl* attribClassDecl)
     {
         if(auto numThreadsAttr = as<NumThreadsAttribute>(attr))
         {
@@ -285,6 +283,31 @@ namespace Slang
             numThreadsAttr->x          = values[0];
             numThreadsAttr->y          = values[1];
             numThreadsAttr->z          = values[2]; 
+        }
+        else if (auto anyValueSizeAttr = as<AnyValueSizeAttribute>(attr))
+        {
+            // This case handles GLSL-oriented layout attributes
+            // that take a single integer argument.
+
+            if (attr->args.getCount() != 1)
+            {
+                return false;
+            }
+
+            auto value = checkConstantIntVal(attr->args[0]);
+            if (value == nullptr)
+            {
+                return false;
+            }
+
+            const IRIntegerValue kMaxAnyValueSize = 0x7FFF;
+            if (value->value > kMaxAnyValueSize)
+            {
+                getSink()->diagnose(anyValueSizeAttr->loc, Diagnostics::anyValueSizeExceedsLimit, kMaxAnyValueSize);
+                return false;
+            }
+
+            anyValueSizeAttr->size = int32_t(value->value);
         }
         else if (auto bindingAttr = as<GLSLBindingAttribute>(attr))
         {
@@ -403,7 +426,7 @@ namespace Slang
             uint32_t targetClassId = (uint32_t)UserDefinedAttributeTargets::None;
             if (attr->args.getCount() == 1)
             {
-                RefPtr<IntVal> outIntVal;
+                //IntVal* outIntVal;
                 if (auto cInt = checkConstantEnumVal(attr->args[0]))
                 {
                     targetClassId = (uint32_t)(cInt->value);
@@ -454,7 +477,7 @@ namespace Slang
                     }
                     if (!typeChecked)
                     {
-                        arg = CheckExpr(arg);
+                        arg = CheckTerm(arg);
                         arg = coerce(paramDecl->getType(), arg);
                     }
                 }
@@ -524,7 +547,7 @@ namespace Slang
         return true;
     }
 
-    RefPtr<AttributeBase> SemanticsVisitor::checkAttribute(
+    AttributeBase* SemanticsVisitor::checkAttribute(
         UncheckedAttribute*     uncheckedAttr,
         ModifiableSyntaxNode*   attrTarget)
     {
@@ -546,8 +569,8 @@ namespace Slang
         }
 
         // Manage scope
-        RefPtr<RefObject> attrInstance = attrDecl->syntaxClass.createInstance();
-        auto attr = attrInstance.as<Attribute>();
+        NodeBase* attrInstance = attrDecl->syntaxClass.createInstance(m_astBuilder);
+        auto attr = as<Attribute>(attrInstance);
         if(!attr)
         {
             SLANG_DIAGNOSE_UNEXPECTED(getSink(), attrDecl, "attribute class did not yield an attribute object");
@@ -639,8 +662,8 @@ namespace Slang
         return attr;
     }
 
-    RefPtr<Modifier> SemanticsVisitor::checkModifier(
-        RefPtr<Modifier>        m,
+    Modifier* SemanticsVisitor::checkModifier(
+        Modifier*        m,
         ModifiableSyntaxNode*   syntaxNode)
     {
         if(auto hlslUncheckedAttribute = as<UncheckedAttribute>(m))
@@ -675,10 +698,10 @@ namespace Slang
         // The process of checking a modifier may produce a new modifier in its place,
         // so we will build up a new linked list of modifiers that will replace
         // the old list.
-        RefPtr<Modifier> resultModifiers;
-        RefPtr<Modifier>* resultModifierLink = &resultModifiers;
+        Modifier* resultModifiers = nullptr;
+        Modifier** resultModifierLink = &resultModifiers;
 
-        RefPtr<Modifier> modifier = syntaxNode->modifiers.first;
+        Modifier* modifier = syntaxNode->modifiers.first;
         while(modifier)
         {
             // Because we are rewriting the list in place, we need to extract

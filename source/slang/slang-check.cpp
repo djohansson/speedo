@@ -197,24 +197,12 @@ namespace Slang
         return func;
     }
 
-    TypeCheckingCache* Session::getTypeCheckingCache()
-    {
-        if (!typeCheckingCache)
-            typeCheckingCache = new TypeCheckingCache();
-        return typeCheckingCache;
-    }
-
-    void Session::destroyTypeCheckingCache()
-    {
-        delete typeCheckingCache;
-        typeCheckingCache = nullptr;
-    }
-
     void checkTranslationUnit(
         TranslationUnitRequest* translationUnit)
     {
         SharedSemanticsContext sharedSemanticsContext(
             translationUnit->compileRequest->getLinkage(),
+            translationUnit->getModule(),
             translationUnit->compileRequest->getSink());
 
         SemanticsDeclVisitorBase visitor(&sharedSemanticsContext);

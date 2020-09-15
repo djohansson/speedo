@@ -24,7 +24,7 @@ namespace Slang
     }
 
     bool SemanticsVisitor::isEffectivelyScalarForInitializerLists(
-        RefPtr<Type>    type)
+        Type*    type)
     {
         if(as<ArrayExpressionType>(type)) return false;
         if(as<VectorExpressionType>(type)) return false;
@@ -58,8 +58,8 @@ namespace Slang
     }
 
     bool SemanticsVisitor::shouldUseInitializerDirectly(
-        RefPtr<Type>    toType,
-        RefPtr<Expr>    fromExpr)
+        Type*    toType,
+        Expr*    fromExpr)
     {
         // A nested initializer list should always be used directly.
         //
@@ -85,13 +85,13 @@ namespace Slang
         // we want to check for is whether a direct initialization
         // is possible (a type conversion exists).
         //
-        return canCoerce(toType, fromExpr->type);
+        return canCoerce(toType, fromExpr->type, fromExpr);
     }
 
     bool SemanticsVisitor::_readValueFromInitializerList(
-        RefPtr<Type>                toType,
-        RefPtr<Expr>*               outToExpr,
-        RefPtr<InitializerListExpr> fromInitializerListExpr,
+        Type*                toType,
+        Expr**               outToExpr,
+        InitializerListExpr* fromInitializerListExpr,
         UInt                       &ioInitArgIndex)
     {
         // First, we will check if we have run out of arguments
@@ -152,9 +152,9 @@ namespace Slang
     }
 
     bool SemanticsVisitor::_readAggregateValueFromInitializerList(
-        RefPtr<Type>                inToType,
-        RefPtr<Expr>*               outToExpr,
-        RefPtr<InitializerListExpr> fromInitializerListExpr,
+        Type*                inToType,
+        Expr**               outToExpr,
+        InitializerListExpr* fromInitializerListExpr,
         UInt                       &ioArgIndex)
     {
         auto toType = inToType;
@@ -162,7 +162,7 @@ namespace Slang
 
         // In the case where we need to build a result expression,
         // we will collect the new arguments here
-        List<RefPtr<Expr>> coercedArgs;
+        List<Expr*> coercedArgs;
 
         if(isEffectivelyScalarForInitializerLists(toType))
         {
@@ -215,7 +215,7 @@ namespace Slang
 
             for(UInt ee = 0; ee < elementCount; ++ee)
             {
-                RefPtr<Expr> coercedArg;
+                Expr* coercedArg = nullptr;
                 bool argResult = _readValueFromInitializerList(
                     toElementType,
                     outToExpr ? &coercedArg : nullptr,
@@ -263,7 +263,7 @@ namespace Slang
 
                 for(UInt ee = 0; ee < elementCount; ++ee)
                 {
-                    RefPtr<Expr> coercedArg;
+                    Expr* coercedArg = nullptr;
                     bool argResult = _readValueFromInitializerList(
                         toElementType,
                         outToExpr ? &coercedArg : nullptr,
@@ -289,7 +289,7 @@ namespace Slang
                 UInt elementCount = 0;
                 while(ioArgIndex < argCount)
                 {
-                    RefPtr<Expr> coercedArg;
+                    Expr* coercedArg = nullptr;
                     bool argResult = _readValueFromInitializerList(
                         toElementType,
                         outToExpr ? &coercedArg : nullptr,
@@ -310,9 +310,8 @@ namespace Slang
 
                 // We have a new type for the conversion, based on what
                 // we learned.
-                toType = getSession()->getArrayType(
-                    toElementType,
-                    new ConstantIntVal(elementCount));
+                toType = m_astBuilder->getArrayType(toElementType,
+                    m_astBuilder->create<ConstantIntVal>(elementCount));
             }
         }
         else if(auto toMatrixType = as<MatrixExpressionType>(toType))
@@ -353,7 +352,7 @@ namespace Slang
 
             for(UInt rr = 0; rr < rowCount; ++rr)
             {
-                RefPtr<Expr> coercedArg;
+                Expr* coercedArg = nullptr;
                 bool argResult = _readValueFromInitializerList(
                     toRowType,
                     outToExpr ? &coercedArg : nullptr,
@@ -381,9 +380,9 @@ namespace Slang
                 //
                 for(auto fieldDeclRef : getMembersOfType<VarDecl>(toStructDeclRef, MemberFilterStyle::Instance))
                 {
-                    RefPtr<Expr> coercedArg;
+                    Expr* coercedArg = nullptr;
                     bool argResult = _readValueFromInitializerList(
-                        GetType(fieldDeclRef),
+                        getType(m_astBuilder, fieldDeclRef),
                         outToExpr ? &coercedArg : nullptr,
                         fromInitializerListExpr,
                         ioArgIndex);
@@ -418,7 +417,7 @@ namespace Slang
         //
         if(outToExpr)
         {
-            auto toInitializerListExpr = new InitializerListExpr();
+            auto toInitializerListExpr = m_astBuilder->create<InitializerListExpr>();
             toInitializerListExpr->loc = fromInitializerListExpr->loc;
             toInitializerListExpr->type = QualType(toType);
             toInitializerListExpr->args = coercedArgs;
@@ -430,9 +429,9 @@ namespace Slang
     }
 
     bool SemanticsVisitor::_coerceInitializerList(
-        RefPtr<Type>                toType,
-        RefPtr<Expr>*               outToExpr,
-        RefPtr<InitializerListExpr> fromInitializerListExpr)
+        Type*                toType,
+        Expr**               outToExpr,
+        InitializerListExpr* fromInitializerListExpr)
     {
         UInt argCount = fromInitializerListExpr->args.getCount();
         UInt argIndex = 0;
@@ -455,9 +454,9 @@ namespace Slang
     }
 
     bool SemanticsVisitor::_failedCoercion(
-        RefPtr<Type>    toType,
-        RefPtr<Expr>*   outToExpr,
-        RefPtr<Expr>    fromExpr)
+        Type*    toType,
+        Expr**   outToExpr,
+        Expr*    fromExpr)
     {
         if(outToExpr)
         {
@@ -479,12 +478,32 @@ namespace Slang
     }
 
     bool SemanticsVisitor::_coerce(
-        RefPtr<Type>    toType,
-        RefPtr<Expr>*   outToExpr,
-        RefPtr<Type>    fromType,
-        RefPtr<Expr>    fromExpr,
+        Type*    toType,
+        Expr**   outToExpr,
+        Type*    fromType,
+        Expr*    fromExpr,
         ConversionCost* outCost)
     {
+        // If we are about to try and coerce an overloaded expression,
+        // then we should start by trying to resolve the ambiguous reference
+        // based on prioritization of the different candidates.
+        //
+        // TODO: A more powerful model would be to try to coerce each
+        // of the constituent overload candidates, filtering down to
+        // those that are coercible, and then disambiguating the result.
+        // Such an approach would let us disambiguate between overloaded
+        // symbols based on their type (e.g., by casting the name of
+        // an overloaded function to the type of the overload we mean
+        // to reference).
+        //
+        if( auto fromOverloadedExpr = as<OverloadedExpr>(fromExpr) )
+        {
+            auto resolvedExpr = maybeResolveOverloadedExpr(fromOverloadedExpr, LookupMask::Default, nullptr);
+
+            fromExpr = resolvedExpr;
+            fromType = resolvedExpr->type;
+        }
+
         // An important and easy case is when the "to" and "from" types are equal.
         //
         if( toType->equals(fromType) )
@@ -545,12 +564,12 @@ namespace Slang
         if (auto toDeclRefType = as<DeclRefType>(toType))
         {
             auto toTypeDeclRef = toDeclRefType->declRef;
-            if (auto interfaceDeclRef = toTypeDeclRef.as<InterfaceDecl>())
+            if (auto toAggTypeDeclRef = toTypeDeclRef.as<AggTypeDecl>())
             {
-                if(auto witness = tryGetInterfaceConformanceWitness(fromType, interfaceDeclRef))
+                if(auto witness = tryGetSubtypeWitness(fromType, toAggTypeDeclRef))
                 {
                     if (outToExpr)
-                        *outToExpr = createCastToInterfaceExpr(toType, fromExpr, witness);
+                        *outToExpr = createCastToSuperTypeExpr(toType, fromExpr, witness);
                     if (outCost)
                         *outCost = kConversionCost_CastToInterface;
                     return true;
@@ -572,10 +591,10 @@ namespace Slang
             //
             ConversionCost subCost = kConversionCost_None;
 
-            RefPtr<DerefExpr> derefExpr;
+            DerefExpr* derefExpr = nullptr;
             if(outToExpr)
             {
-                derefExpr = new DerefExpr();
+                derefExpr = m_astBuilder->create<DerefExpr>();
                 derefExpr->base = fromExpr;
                 derefExpr->type = QualType(fromElementType);
             }
@@ -755,8 +774,9 @@ namespace Slang
     }
 
     bool SemanticsVisitor::canCoerce(
-        RefPtr<Type>    toType,
-        RefPtr<Type>    fromType,
+        Type*    toType,
+        Type*    fromType,
+        Expr*    fromExpr,
         ConversionCost* outCost)
     {
         // As an optimization, we will maintain a cache of conversion results
@@ -765,11 +785,11 @@ namespace Slang
         
         bool shouldAddToCache = false;
         ConversionCost cost;
-        TypeCheckingCache* typeCheckingCache = getSession()->getTypeCheckingCache();
+        TypeCheckingCache* typeCheckingCache = getLinkage()->getTypeCheckingCache();
 
         BasicTypeKeyPair cacheKey;
-        cacheKey.type1 = makeBasicTypeKey(toType.Ptr());
-        cacheKey.type2 = makeBasicTypeKey(fromType.Ptr());
+        cacheKey.type1 = makeBasicTypeKey(toType);
+        cacheKey.type2 = makeBasicTypeKey(fromType);
     
         if( cacheKey.isValid())
         {
@@ -796,7 +816,7 @@ namespace Slang
             toType,
             nullptr,
             fromType,
-            nullptr,
+            fromExpr,
             &cost);
 
         if (outCost)
@@ -812,20 +832,20 @@ namespace Slang
         return rs;
     }
 
-    RefPtr<TypeCastExpr> SemanticsVisitor::createImplicitCastExpr()
+    TypeCastExpr* SemanticsVisitor::createImplicitCastExpr()
     {
-        return new ImplicitCastExpr();
+        return m_astBuilder->create<ImplicitCastExpr>();
     }
 
-    RefPtr<Expr> SemanticsVisitor::CreateImplicitCastExpr(
-        RefPtr<Type>	toType,
-        RefPtr<Expr>	fromExpr)
+    Expr* SemanticsVisitor::CreateImplicitCastExpr(
+        Type*	toType,
+        Expr*	fromExpr)
     {
-        RefPtr<TypeCastExpr> castExpr = createImplicitCastExpr();
+        TypeCastExpr* castExpr = createImplicitCastExpr();
 
-        auto typeType = getTypeType(toType);
+        auto typeType = m_astBuilder->getTypeType(toType);
 
-        auto typeExpr = new SharedTypeExpr();
+        auto typeExpr = m_astBuilder->create<SharedTypeExpr>();
         typeExpr->type.type = typeType;
         typeExpr->base.type = toType;
 
@@ -836,12 +856,12 @@ namespace Slang
         return castExpr;
     }
 
-    RefPtr<Expr> SemanticsVisitor::createCastToInterfaceExpr(
-        RefPtr<Type>    toType,
-        RefPtr<Expr>    fromExpr,
-        RefPtr<Val>     witness)
+    Expr* SemanticsVisitor::createCastToSuperTypeExpr(
+        Type*    toType,
+        Expr*    fromExpr,
+        Val*     witness)
     {
-        RefPtr<CastToInterfaceExpr> expr = new CastToInterfaceExpr();
+        CastToSuperTypeExpr* expr = m_astBuilder->create<CastToSuperTypeExpr>();
         expr->loc = fromExpr->loc;
         expr->type = QualType(toType);
         expr->valueArg = fromExpr;
@@ -849,16 +869,16 @@ namespace Slang
         return expr;
     }
 
-    RefPtr<Expr> SemanticsVisitor::coerce(
-        RefPtr<Type>    toType,
-        RefPtr<Expr>    fromExpr)
+    Expr* SemanticsVisitor::coerce(
+        Type*    toType,
+        Expr*    fromExpr)
     {
-        RefPtr<Expr> expr;
+        Expr* expr = nullptr;
         if (!_coerce(
             toType,
             &expr,
-            fromExpr->type.Ptr(),
-            fromExpr.Ptr(),
+            fromExpr->type,
+            fromExpr,
             nullptr))
         {
             // Note(tfoley): We don't call `CreateErrorExpr` here, because that would
@@ -866,19 +886,19 @@ namespace Slang
             // really shouldn't *change* the expression that is passed in, but should
             // introduce new AST nodes to coerce its value to a different type...
             return CreateImplicitCastExpr(
-                getSession()->getErrorType(),
+                m_astBuilder->getErrorType(),
                 fromExpr);
         }
         return expr;
     }
 
     bool SemanticsVisitor::canConvertImplicitly(
-        RefPtr<Type> toType,
-        RefPtr<Type> fromType)
+        Type* toType,
+        Type* fromType)
     {
         // Can we convert at all?
         ConversionCost conversionCost;
-        if(!canCoerce(toType, fromType, &conversionCost))
+        if(!canCoerce(toType, fromType, nullptr, &conversionCost))
             return false;
 
         // Is the conversion cheap enough to be done implicitly?

@@ -203,9 +203,8 @@ struct Preprocessor
     // diagnostics sink to use when writing messages
     DiagnosticSink*                         sink;
 
-    // An external callback interface to use when looking
-    // for files in a `#include` directive
-    IncludeHandler*                         includeHandler;
+    // Functionality for looking up files in a `#include` directive
+    IncludeSystem*                          includeSystem;
 
     // Current input stream (top of the stack of input)
     PreprocessorInputStream*                inputStream;
@@ -586,7 +585,7 @@ static bool _isMacroBusy(PreprocessorMacro* macro, PreprocessorEnvironment* env)
 // Reading Tokens With Expansion
 //
 
-static void InitializeMacroExpansion(
+static void initializeMacroExpansion(
     Preprocessor*       preprocessor,
     MacroExpansion*     expansion,
     PreprocessorMacro*  macro)
@@ -627,6 +626,16 @@ static void InitializeMacroExpansion(
     // macro, that environment will be the environment where
     // the function-like macro was *invoked*, which might be
     // in the context of another macro expansion.
+}
+
+static void pushMacroExpansion(
+    Preprocessor*   preprocessor,
+    MacroExpansion* expansion)
+{
+    // Before pushing a macro as an input stream,
+    // we need to set the appropraite "busy" state
+    // that will be used during expansions of that
+    // macro's definition.
 
     // A macro is always busy in its own expansion environment,
     // to prevent recursive expansion. Here we construct a
@@ -639,6 +648,7 @@ static void InitializeMacroExpansion(
     // expansion. We could try to avoid the extra step at
     // the cost of a bit more code complexity here.
     //
+    auto macro = expansion->macro;
     expansion->busy.macro = macro;
     expansion->expansionEnvironment.busyMacros = &expansion->busy;
 
@@ -653,23 +663,19 @@ static void InitializeMacroExpansion(
         // This happens to be what is stored in the parent
         // environment.
         //
+        auto parentEnvironment = expansion->expansionEnvironment.parent;
         expansion->busy.next = parentEnvironment->busyMacros;
     }
     else
     {
-        // For the other cases (function-like and objet-like
+        // For the other cases (function-like and object-like
         // macros), the busy list should include anything
         // that was already busy in the environment that
         // is beginning to expand a macro.
         //
         expansion->busy.next = preprocessor->inputStream->environment->busyMacros;
     }
-}
 
-static void PushMacroExpansion(
-    Preprocessor*   preprocessor,
-    MacroExpansion* expansion)
-{
     PushInputStream(preprocessor, expansion);
 }
 
@@ -930,7 +936,7 @@ static void MaybeBeginMacroExpansion(
             }
 
             MacroExpansion* expansion = new MacroExpansion();
-            InitializeMacroExpansion(preprocessor, expansion, macro);
+            initializeMacroExpansion(preprocessor, expansion, macro);
 
             // Consume the opening `(`
             Token leftParen = AdvanceRawToken(preprocessor);
@@ -963,7 +969,7 @@ static void MaybeBeginMacroExpansion(
             // Now that the arguments have been parsed and validated,
             // we are ready to proceed with expansion of the macro body.
             //
-            PushMacroExpansion(preprocessor, expansion);
+            pushMacroExpansion(preprocessor, expansion);
         }
         else
         {
@@ -972,8 +978,8 @@ static void MaybeBeginMacroExpansion(
 
             // Object-like macros are the easy case.
             MacroExpansion* expansion = new MacroExpansion();
-            InitializeMacroExpansion(preprocessor, expansion, macro);
-            PushMacroExpansion(preprocessor, expansion);
+            initializeMacroExpansion(preprocessor, expansion, macro);
+            pushMacroExpansion(preprocessor, expansion);
         }
     }
 }
@@ -1811,8 +1817,8 @@ static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
     
     PathInfo includedFromPathInfo = context->preprocessor->getSourceManager()->getPathInfo(directiveLoc, SourceLocType::Actual);
     
-    IncludeHandler* includeHandler = context->preprocessor->includeHandler;
-    if (!includeHandler)
+    IncludeSystem* includeSystem = context->preprocessor->includeSystem;
+    if (!includeSystem)
     {
         GetSink(context)->diagnose(pathToken.loc, Diagnostics::includeFailed, path);
         GetSink(context)->diagnose(pathToken.loc, Diagnostics::noIncludeHandlerSpecified);
@@ -1821,7 +1827,7 @@ static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
     
     /* Find the path relative to the foundPath */
     PathInfo filePathInfo;
-    if (SLANG_FAILED(includeHandler->findFile(path, includedFromPathInfo.foundPath, filePathInfo)))
+    if (SLANG_FAILED(includeSystem->findFile(path, includedFromPathInfo.foundPath, filePathInfo)))
     {
         GetSink(context)->diagnose(pathToken.loc, Diagnostics::includeFailed, path);
         return;
@@ -1846,7 +1852,7 @@ static void HandleIncludeDirective(PreprocessorDirectiveContext* context)
     }
 
     // Simplify the path
-    filePathInfo.foundPath = includeHandler->simplifyPath(filePathInfo.foundPath);
+    filePathInfo.foundPath = includeSystem->simplifyPath(filePathInfo.foundPath);
 
     // Push the new file onto our stack of input streams
     // TODO(tfoley): check if we have made our include stack too deep
@@ -2348,7 +2354,7 @@ static void InitializePreprocessor(
     DiagnosticSink* sink)
 {
     preprocessor->sink = sink;
-    preprocessor->includeHandler = NULL;
+    preprocessor->includeSystem = NULL;
     preprocessor->endOfFileToken.type = TokenType::EndOfFile;
     preprocessor->endOfFileToken.flags = TokenFlag::AtStartOfLine;
 }
@@ -2444,7 +2450,7 @@ static TokenList ReadAllTokens(
 TokenList preprocessSource(
     SourceFile*                 file,
     DiagnosticSink*             sink,
-    IncludeHandler*             includeHandler,
+    IncludeSystem*              includeSystem,
     Dictionary<String, String>  defines,
     Linkage*                    linkage,
     Module*                     parentModule)
@@ -2454,7 +2460,7 @@ TokenList preprocessSource(
     preprocessor.linkage = linkage;
     preprocessor.parentModule = parentModule;
 
-    preprocessor.includeHandler = includeHandler;
+    preprocessor.includeSystem = includeSystem;
     for (auto p : defines)
     {
         DefineMacro(&preprocessor, p.Key, p.Value);

@@ -1298,9 +1298,12 @@ LayoutRulesFamilyImpl* getDefaultLayoutRulesFamilyForTarget(TargetRequest* targe
 
 TypeLayoutContext getInitialLayoutContextForTarget(TargetRequest* targetReq, ProgramLayout* programLayout)
 {
+    auto astBuilder = targetReq->getLinkage()->getASTBuilder();
+
     LayoutRulesFamilyImpl* rulesFamily = getDefaultLayoutRulesFamilyForTarget(targetReq);
 
     TypeLayoutContext context;
+    context.astBuilder = astBuilder;
     context.targetReq = targetReq;
     context.programLayout = programLayout;
     context.rules = nullptr;
@@ -1315,7 +1318,7 @@ TypeLayoutContext getInitialLayoutContextForTarget(TargetRequest* targetReq, Pro
 }
 
 
-static LayoutSize GetElementCount(RefPtr<IntVal> val)
+static LayoutSize GetElementCount(IntVal* val)
 {
     // Lack of a size indicates an unbounded array.
     if(!val)
@@ -1362,7 +1365,7 @@ bool IsResourceKind(LayoutResourceKind kind)
     ///
 static TypeLayoutResult createSimpleTypeLayout(
     SimpleLayoutInfo        info,
-    RefPtr<Type>            type,
+    Type*            type,
     LayoutRulesImpl*        rules)
 {
     RefPtr<TypeLayout> typeLayout = new TypeLayout();
@@ -1378,7 +1381,7 @@ static TypeLayoutResult createSimpleTypeLayout(
 }
 
 static SimpleLayoutInfo getParameterGroupLayoutInfo(
-    RefPtr<ParameterGroupType>  type,
+    ParameterGroupType*  type,
     LayoutRulesImpl*            rules)
 {
     if( as<ConstantBufferType>(type) )
@@ -1462,6 +1465,35 @@ bool isKhronosTarget(TargetRequest* targetReq)
     }
 }
 
+bool isCPUTarget(TargetRequest* targetReq)
+{
+    switch( targetReq->getTarget() )
+    {
+    default:
+        return false;
+
+    case CodeGenTarget::CPPSource:
+    case CodeGenTarget::CSource:
+    case CodeGenTarget::HostCallable:
+    case CodeGenTarget::Executable:
+    case CodeGenTarget::SharedLibrary:
+        return true;
+    }
+}
+
+bool isCUDATarget(TargetRequest* targetReq)
+{
+    switch( targetReq->getTarget() )
+    {
+    default:
+        return false;
+
+    case CodeGenTarget::CUDASource:
+    case CodeGenTarget::PTX:
+        return true;
+    }
+}
+
 static bool isD3D11Target(TargetRequest*)
 {
     // We aren't officially supporting D3D11 right now
@@ -1484,7 +1516,7 @@ static bool isSM5OrEarlier(TargetRequest* targetReq)
 
     if(profile.getFamily() == ProfileFamily::DX)
     {
-        if(profile.GetVersion() <= ProfileVersion::DX_5_0)
+        if(profile.getVersion() <= ProfileVersion::DX_5_0)
             return true;
     }
 
@@ -1500,7 +1532,7 @@ static bool isSM5_1OrLater(TargetRequest* targetReq)
 
     if(profile.getFamily() == ProfileFamily::DX)
     {
-        if(profile.GetVersion() >= ProfileVersion::DX_5_1)
+        if(profile.getVersion() >= ProfileVersion::DX_5_1)
             return true;
     }
 
@@ -1858,7 +1890,7 @@ static void _addUnmaskedResourceUsage(
 
 static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     TypeLayoutContext const&    context,
-    RefPtr<ParameterGroupType>  parameterGroupType,
+    ParameterGroupType*  parameterGroupType,
     RefPtr<TypeLayout>          rawElementTypeLayout)
 {
     // We are being asked to create a layout for a parameter group,
@@ -1947,8 +1979,20 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     // can't retroactively change whether or not `U` needed
     // a constant buffer).
     //
+    // Note: On CUDA and CPU targets, where we have true pointers,
+    // we always want to create an actual indirection for a parameter
+    // group, since otherwise the layout of a constant buffer would
+    // depend on its contents (in particular, whether or not
+    // the contents are empty).
+    //
+    // TODO: there is a subroutine arleady that tries to determine
+    // if a wrapping constant buffer is needed based on an element
+    // type and layout context; we should be using that here.
+    //
     bool wantConstantBuffer = _usesOrdinaryData(rawElementTypeLayout)
-        || _usesExistentialData(rawElementTypeLayout);
+        || _usesExistentialData(rawElementTypeLayout)
+        || isCUDATarget(context.targetReq)
+        || isCPUTarget(context.targetReq);
     if( wantConstantBuffer )
     {
         // If there is any ordinary data, then we'll need to
@@ -2279,7 +2323,9 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
 }
 
     /// Do we need to wrap the given element type in a constant buffer layout?
-static bool needsConstantBuffer(RefPtr<TypeLayout> elementTypeLayout)
+static bool needsConstantBuffer(
+    TypeLayoutContext const&    context,
+    RefPtr<TypeLayout>          elementTypeLayout)
 {
     // We need a constant buffer if the element type has ordinary/uniform data.
     //
@@ -2295,6 +2341,14 @@ static bool needsConstantBuffer(RefPtr<TypeLayout> elementTypeLayout)
             return true;
     }
 
+    // Finally, on certain targets we always want to create
+    // wrapper constant buffer layouts, even if there is no
+    // data whatsoever.
+    //
+    auto targetReq = context.targetReq;
+    if( isCPUTarget(targetReq) || isCUDATarget(targetReq) )
+        return true;
+
     return false;
 }
 
@@ -2306,14 +2360,11 @@ RefPtr<TypeLayout> createConstantBufferTypeLayoutIfNeeded(
     // we are trying to lay out even needs a constant buffer allocated
     // for it.
     //
-    if(!needsConstantBuffer(elementTypeLayout))
+    if(!needsConstantBuffer(context, elementTypeLayout))
         return elementTypeLayout;
-
-    auto parameterGroupRules = context.getRulesFamily()->getConstantBufferRules();
 
     return _createParameterGroupTypeLayout(
         context
-            .with(parameterGroupRules)
             .with(context.targetReq->getDefaultMatrixLayoutMode()),
         nullptr,
         elementTypeLayout);
@@ -2322,8 +2373,8 @@ RefPtr<TypeLayout> createConstantBufferTypeLayoutIfNeeded(
 
 static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
     TypeLayoutContext const&    context,
-    RefPtr<ParameterGroupType>  parameterGroupType,
-    RefPtr<Type>                elementType,
+    ParameterGroupType*  parameterGroupType,
+    Type*                elementType,
     LayoutRulesImpl*            elementTypeRules)
 {
     // We will first compute a layout for the element type of
@@ -2343,7 +2394,7 @@ static RefPtr<TypeLayout> _createParameterGroupTypeLayout(
 }
 
 LayoutRulesImpl* getParameterBufferElementTypeLayoutRules(
-    RefPtr<ParameterGroupType>  parameterGroupType,
+    ParameterGroupType*  parameterGroupType,
     LayoutRulesImpl*            rules)
 {
     if( as<ConstantBufferType>(parameterGroupType) )
@@ -2373,13 +2424,13 @@ LayoutRulesImpl* getParameterBufferElementTypeLayoutRules(
     else
     {
         SLANG_UNEXPECTED("uhandled parameter block type");
-        return nullptr;
+        //return nullptr;
     }
 }
 
 RefPtr<TypeLayout> createParameterGroupTypeLayout(
     TypeLayoutContext const&    context,
-    RefPtr<ParameterGroupType>  parameterGroupType)
+    ParameterGroupType*  parameterGroupType)
 {
     auto parameterGroupRules = context.rules;
 
@@ -2402,7 +2453,7 @@ RefPtr<StructuredBufferTypeLayout>
 createStructuredBufferTypeLayout(
     TypeLayoutContext const&    context,
     ShaderParameterKind         kind,
-    RefPtr<Type>                structuredBufferType,
+    Type*                structuredBufferType,
     RefPtr<TypeLayout>          elementTypeLayout)
 {
     auto rules = context.rules;
@@ -2434,8 +2485,8 @@ RefPtr<StructuredBufferTypeLayout>
 createStructuredBufferTypeLayout(
     TypeLayoutContext const&    context,
     ShaderParameterKind         kind,
-    RefPtr<Type>                structuredBufferType,
-    RefPtr<Type>                elementType)
+    Type*                structuredBufferType,
+    Type*                elementType)
 {
     // look up the appropriate rules via the `LayoutRulesFamily` 
     auto structuredBufferLayoutRules = context.getRulesFamily()->getStructuredBufferRules();
@@ -2443,7 +2494,7 @@ createStructuredBufferTypeLayout(
     // Create and save type layout for the buffer contents.
     auto elementTypeLayout = createTypeLayout(
         context.with(structuredBufferLayoutRules),
-        elementType.Ptr());
+        elementType);
 
     return createStructuredBufferTypeLayout(
         context,
@@ -2501,13 +2552,13 @@ static TypeLayoutResult _createTypeLayout(
     return _createTypeLayout(subContext, type);
 }
 
-RefPtr<Type> findGlobalGenericSpecializationArg(
+Type* findGlobalGenericSpecializationArg(
     TypeLayoutContext const&    context,
     GlobalGenericParamDecl*     decl)
 {
-    RefPtr<Val> arg;
+    Val* arg = nullptr;
     context.programLayout->globalGenericArgs.TryGetValue(decl, arg);
-    return arg.as<Type>();
+    return as<Type>(arg);
 }
 
 Index findGlobalGenericSpecializationParamIndex(
@@ -2520,7 +2571,7 @@ Index findGlobalGenericSpecializationParamIndex(
         auto param = type->getSpecializationParam(pp);
         if(param.flavor != SpecializationParam::Flavor::GenericType)
             continue;
-        if(param.object.Ptr() != decl)
+        if(param.object != decl)
             continue;
 
         return pp;
@@ -3125,7 +3176,7 @@ static TypeLayoutResult _createTypeLayout(
                 context,                                                \
                 ShaderParameterKind::KIND,                              \
                 type_##TYPE,                                            \
-                type_##TYPE->elementType.Ptr());                        \
+                type_##TYPE->elementType);                        \
         return TypeLayoutResult(typeLayout, info);                      \
     } while(0)
 
@@ -3167,7 +3218,7 @@ static TypeLayoutResult _createTypeLayout(
     else if(auto vecType = as<VectorExpressionType>(type))
     {
         auto elementType = vecType->elementType;
-        size_t elementCount = (size_t) GetIntVal(vecType->elementCount);
+        size_t elementCount = (size_t) getIntVal(vecType->elementCount);
 
         auto element = _createTypeLayout(
             context,
@@ -3195,8 +3246,8 @@ static TypeLayoutResult _createTypeLayout(
     }
     else if(auto matType = as<MatrixExpressionType>(type))
     {
-        size_t rowCount = (size_t) GetIntVal(matType->getRowCount());
-        size_t colCount = (size_t) GetIntVal(matType->getColumnCount());
+        size_t rowCount = (size_t) getIntVal(matType->getRowCount());
+        size_t colCount = (size_t) getIntVal(matType->getColumnCount());
 
         auto elementType = matType->getElementType();
         auto elementResult = _createTypeLayout(
@@ -3254,7 +3305,7 @@ static TypeLayoutResult _createTypeLayout(
             colStride = minorStride;
         }
 
-        rowTypeLayout->type = type;
+        rowTypeLayout->type = rowType;
         rowTypeLayout->rules = rules;
         rowTypeLayout->uniformAlignment = elementInfo.getUniformLayout().alignment;
 
@@ -3280,7 +3331,7 @@ static TypeLayoutResult _createTypeLayout(
     {
         auto elementResult = _createTypeLayout(
             context,
-            arrayType->baseType.Ptr());
+            arrayType->baseType);
         auto elementInfo = elementResult.info;
         auto elementTypeLayout = elementResult.layout;
 
@@ -3436,7 +3487,7 @@ static TypeLayoutResult _createTypeLayout(
 
             typeLayoutBuilder.beginLayout(type, rules);
             auto typeLayout = typeLayoutBuilder.getTypeLayout();
-            for (auto field : GetFields(structDeclRef, MemberFilterStyle::Instance))
+            for (auto field : getFields(structDeclRef, MemberFilterStyle::Instance))
             {
                 // The fields of a `struct` type may include existential (interface)
                 // types (including as nested sub-fields), and any types present
@@ -3460,7 +3511,7 @@ static TypeLayoutResult _createTypeLayout(
 
                 TypeLayoutResult fieldResult = _createTypeLayout(
                     fieldLayoutContext,
-                    GetType(field).Ptr(),
+                    getType(context.astBuilder, field),
                     field.getDecl());
                 auto fieldTypeLayout = fieldResult.layout;
 
@@ -3571,7 +3622,7 @@ static TypeLayoutResult _createTypeLayout(
             if( context.specializationArgCount )
             {
                 auto& specializationArg = context.specializationArgs[0];
-                RefPtr<Type> concreteType = specializationArg.val.as<Type>();
+                Type* concreteType = as<Type>(specializationArg.val);
                 SLANG_ASSERT(concreteType);
 
                 RefPtr<TypeLayout> concreteTypeLayout = createTypeLayout(context, concreteType);
@@ -3586,6 +3637,17 @@ static TypeLayoutResult _createTypeLayout(
             }
 
             return TypeLayoutResult(typeLayout, SimpleLayoutInfo());
+        }
+        else if( auto enumDeclRef = declRef.as<EnumDecl>() )
+        {
+            // We lay out an enumeration type as its tag type.
+            //
+            // TODO: This code doesn't handle the case where we might
+            // have a generic `enum` (or an `enum` inside another generic
+            // type), and where the tag type of the `enum` depends on
+            // one or more of the generic parameters.
+            //
+            return _createTypeLayout(context, enumDeclRef.getDecl()->tagType);
         }
     }
     else if (auto errorType = as<ErrorType>(type))
@@ -3785,7 +3847,7 @@ RefPtr<TypeLayout> getSimpleVaryingParameterTypeLayout(
     else if(auto vecType = as<VectorExpressionType>(type))
     {
         auto elementType = vecType->elementType;
-        size_t elementCount = (size_t) GetIntVal(vecType->elementCount);
+        size_t elementCount = (size_t) getIntVal(vecType->elementCount);
 
         BaseType elementBaseType = BaseType::Void;
         if( auto elementBasicType = as<BasicExpressionType>(elementType) )
@@ -3819,8 +3881,8 @@ RefPtr<TypeLayout> getSimpleVaryingParameterTypeLayout(
     }
     else if(auto matType = as<MatrixExpressionType>(type))
     {
-        size_t rowCount = (size_t) GetIntVal(matType->getRowCount());
-        size_t colCount = (size_t) GetIntVal(matType->getColumnCount());
+        size_t rowCount = (size_t) getIntVal(matType->getRowCount());
+        size_t colCount = (size_t) getIntVal(matType->getColumnCount());
         auto elementType = matType->getElementType();
 
         BaseType elementBaseType = BaseType::Void;
@@ -3941,7 +4003,7 @@ RefPtr<TypeLayout> TypeLayout::unwrapArray()
 }
 
 
-RefPtr<GlobalGenericParamDecl> GenericParamTypeLayout::getGlobalGenericParamDecl()
+GlobalGenericParamDecl* GenericParamTypeLayout::getGlobalGenericParamDecl()
 {
     auto declRefType = as<DeclRefType>(type);
     SLANG_ASSERT(declRefType);

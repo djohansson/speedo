@@ -16,6 +16,8 @@
 
 #include "slang-file-system.h"
 
+#include "slang-include-system.h"
+
 #include "slang-ir-serialize-types.h"
 
 #include "../../slang.h"
@@ -180,7 +182,7 @@ namespace Slang
         Name* getName() { return m_name; }
 
             /// Get the stage that the entry point is to be compiled for
-        Stage getStage() { return m_profile.GetStage(); }
+        Stage getStage() { return m_profile.getStage(); }
 
             /// Get the profile that the entry point is to be compiled for
         Profile getProfile() { return m_profile; }
@@ -483,7 +485,7 @@ namespace Slang
         //
         // TODO: Remove this. Type lookup should only be supported on `Module`s.
         //
-        Dictionary<String, RefPtr<Type>> m_types;
+        Dictionary<String, Type*> m_types;
     };
 
         /// A component type built up from other component types.
@@ -604,7 +606,7 @@ namespace Slang
         List<String> const& getFilePathDependencies() SLANG_OVERRIDE { return m_base->getFilePathDependencies(); }
 
                     /// Get a list of tagged-union types referenced by the specialization parameters.
-        List<RefPtr<TaggedUnionType>> const& getTaggedUnionTypes() { return m_taggedUnionTypes; }
+        List<TaggedUnionType*> const& getTaggedUnionTypes() { return m_taggedUnionTypes; }
 
         RefPtr<IRModule> getIRModule() { return m_irModule; }
 
@@ -632,7 +634,7 @@ namespace Slang
         List<String> m_entryPointMangledNames;
 
         // Any tagged union types that were referenced by the specialization arguments.
-        List<RefPtr<TaggedUnionType>> m_taggedUnionTypes;
+        List<TaggedUnionType*> m_taggedUnionTypes;
 
     };
 
@@ -711,7 +713,7 @@ namespace Slang
         DeclRef<FuncDecl> getFuncDeclRef() { return m_funcDeclRef; }
 
             /// Get the function declaration (without generic arguments).
-        RefPtr<FuncDecl> getFuncDecl() { return m_funcDeclRef.getDecl(); }
+        FuncDecl* getFuncDecl() { return m_funcDeclRef.getDecl(); }
 
             /// Get the name of the entry point
         Name* getName() { return m_name; }
@@ -725,7 +727,7 @@ namespace Slang
         Profile getProfile() { return m_profile; }
 
             /// Get the stage that the entry point is for.
-        Stage getStage() { return m_profile.GetStage(); }
+        Stage getStage() { return m_profile.getStage(); }
 
             /// Get the module that contains the entry point.
         Module* getModule();
@@ -970,6 +972,9 @@ namespace Slang
         List<Module*> const& getModuleDependencies() SLANG_OVERRIDE { return m_moduleDependencyList.getModuleList(); }
         List<String> const& getFilePathDependencies() SLANG_OVERRIDE { return m_filePathDependencyList.getFilePathList(); }
 
+            /// Get the ASTBuilder
+        ASTBuilder* getASTBuilder() { return &m_astBuilder; }
+
             /// Collect information on the shader parameters of the module.
             ///
             /// This method should only be called once, after the core
@@ -986,8 +991,8 @@ namespace Slang
         public:
             struct GenericArgInfo
             {
-                RefPtr<Decl> paramDecl;
-                RefPtr<Val> argVal;
+                Decl* paramDecl = nullptr;
+                Val* argVal = nullptr;
             };
 
             List<GenericArgInfo> genericArgs;
@@ -1009,7 +1014,7 @@ namespace Slang
 
     private:
         // The AST for the module
-        RefPtr<ModuleDecl>  m_moduleDecl;
+        ModuleDecl*  m_moduleDecl = nullptr;
 
         // The IR for the module
         RefPtr<IRModule> m_irModule = nullptr;
@@ -1044,6 +1049,10 @@ namespace Slang
         // that was defined as part of the module.
         //
         List<RefPtr<EntryPoint>> m_entryPoints;
+
+        // The builder that owns all of the AST nodes from parsing the source of
+        // this module. 
+        ASTBuilder m_astBuilder;
     };
     typedef Module LoadedModule;
 
@@ -1085,7 +1094,7 @@ namespace Slang
         RefPtr<Module> module;
 
         Module* getModule() { return module; }
-        RefPtr<ModuleDecl> getModuleDecl() { return module->getModuleDecl(); }
+        ModuleDecl* getModuleDecl() { return module->getModuleDecl(); }
 
         Session* getSession();
         NamePool* getNamePool();
@@ -1122,6 +1131,7 @@ namespace Slang
         SlangTargetFlags    targetFlags = 0;
         Slang::Profile      targetProfile = Slang::Profile();
         FloatingPointMode   floatingPointMode = FloatingPointMode::Default;
+        bool                isWholeProgramRequest = false;
 
         Linkage* getLinkage() { return linkage; }
         CodeGenTarget getTarget() { return target; }
@@ -1161,31 +1171,12 @@ namespace Slang
     Profile getEffectiveProfile(EntryPoint* entryPoint, TargetRequest* target);
 
 
-    // A directory to be searched when looking for files (e.g., `#include`)
-    struct SearchDirectory
-    {
-        SearchDirectory() = default;
-        SearchDirectory(SearchDirectory const& other) = default;
-        SearchDirectory(String const& path)
-            : path(path)
-        {}
-
-        String  path;
-    };
-
-        /// A list of directories to search for files (e.g., `#include`)
-    struct SearchDirectoryList
-    {
-        // A parent list that should also be searched
-        SearchDirectoryList*    parent = nullptr;
-
-        // Directories to be searched
-        List<SearchDirectory>   searchDirectories;
-    };
-
         /// Given a target returns the required downstream compiler
     PassThroughMode getDownstreamCompilerRequiredForTarget(CodeGenTarget target);
+        /// Given a target returns a downstream compiler the prelude should be taken from.
+    SourceLanguage getDefaultSourceLanguageForDownstreamCompiler(PassThroughMode compiler);
 
+    struct TypeCheckingCache;
     
         /// A context for loading and re-using code modules.
     class Linkage : public RefObject, public slang::ISession
@@ -1214,6 +1205,10 @@ namespace Slang
             SlangInt               targetIndex = 0,
             slang::LayoutRules     rules = slang::LayoutRules::Default,
             ISlangBlob**    outDiagnostics = nullptr) override;
+        SLANG_NO_THROW SlangResult SLANG_MCALL getTypeConformanceWitnessMangledName(
+            slang::TypeReflection* type,
+            slang::TypeReflection* interfaceType,
+            ISlangBlob** outNameBlob) override;
         SLANG_NO_THROW SlangResult SLANG_MCALL createCompileRequest(
             SlangCompileRequest**   outCompileRequest) override;
 
@@ -1228,7 +1223,10 @@ namespace Slang
             SlangMatrixLayoutMode mode);
 
             /// Create an initially-empty linkage
-        Linkage(Session* session);
+        Linkage(Session* session, ASTBuilder* astBuilder);
+
+            /// Dtor
+        ~Linkage();
 
             /// Get the parent session for this linkage
         Session* getSessionImpl() { return m_session; }
@@ -1251,10 +1249,24 @@ namespace Slang
 
         bool m_obfuscateCode = false;
 
+        // Determine whether to output heterogeneity-related code
+        bool m_heterogeneous = false;
+
         // Name pool for looking up names
         NamePool namePool;
 
         NamePool* getNamePool() { return &namePool; }
+
+        ASTBuilder* getASTBuilder() { return m_astBuilder; }
+
+       
+        RefPtr<ASTBuilder> m_astBuilder;
+
+            // cache used by type checking, implemented in check.cpp
+        TypeCheckingCache* getTypeCheckingCache();
+        void destroyTypeCheckingCache();
+
+        TypeCheckingCache* m_typeCheckingCache = nullptr;
 
         // Modules that have been dynamically loaded via `import`
         //
@@ -1297,7 +1309,7 @@ namespace Slang
         ///
         SlangResult loadFile(String const& path, PathInfo& outPathInfo, ISlangBlob** outBlob);
 
-        RefPtr<Expr> parseTermString(String str, RefPtr<Scope> scope);
+        Expr* parseTermString(String str, RefPtr<Scope> scope);
 
         Type* specializeType(
             Type*           unspecializedType,
@@ -1415,7 +1427,7 @@ namespace Slang
             /// Is the given module in the middle of being imported?
         bool isBeingImported(Module* module);
 
-        List<RefPtr<Type>> m_specializedTypes;
+        List<Type*> m_specializedTypes;
 
     };
 
@@ -1657,7 +1669,13 @@ namespace Slang
             /// code generation to the given `sink`.
             ///
         CompileResult& getOrCreateEntryPointResult(Int entryPointIndex, DiagnosticSink* sink);
+        CompileResult& getOrCreateWholeProgramResult(const List<Int>& entryPointIndices, DiagnosticSink* sink);
 
+
+        CompileResult& getExistingWholeProgramResult()
+        {
+            return m_wholeProgramResult;
+        }
             /// Get the compiled code for an entry point on the target.
             ///
             /// This routine assumes that `getOrCreateEntryPointResult`
@@ -1668,7 +1686,10 @@ namespace Slang
             return m_entryPointResults[entryPointIndex];
         }
 
-
+        CompileResult& _createWholeProgramResult(
+            const List<Int>&        entryPointIndices,
+            BackEndCompileRequest*  backEndRequest,
+            EndToEndCompileRequest* endToEndRequest);
             /// Internal helper for `getOrCreateEntryPointResult`.
             ///
             /// This is used so that command-line and API-based
@@ -1703,6 +1724,7 @@ namespace Slang
         // Generated compile results for each entry point
         // in the parent `Program` (indexing matches
         // the order they are given in the `Program`)
+        CompileResult m_wholeProgramResult;
         List<CompileResult> m_entryPointResults;
 
         RefPtr<IRModule> m_irModuleForLayout;
@@ -1736,6 +1758,10 @@ namespace Slang
 
             /// Should SPIR-V be generated directly from Slang IR rather than via translation to GLSL?
         bool shouldEmitSPIRVDirectly = false;
+
+
+        // If true will allow generating dynamic dispatch code for generics.
+        bool allowDynamicCode = false;
 
         String m_dumpIntermediatePrefix;
 
@@ -1811,6 +1837,7 @@ namespace Slang
             // An empty string indices no output desired for
             // the given entry point.
             Dictionary<Int, String> entryPointOutputPaths;
+            String wholeTargetOutputPath;
         };
         Dictionary<TargetRequest*, RefPtr<TargetInfo>> targetInfos;
 
@@ -1916,7 +1943,8 @@ namespace Slang
     @param endToEndReq The end-to-end compile request which might be using pass-through compilation
     @param entryPointIndex The index of the entry point to compute a filename for.
     @return the appropriate source filename */
-    String calcSourcePathForEntryPoint(EndToEndCompileRequest* endToEndReq, UInt entryPointIndex);
+    String calcSourcePathForEntryPoint(EndToEndCompileRequest* endToEndReq, Int entryPointIndex);
+    String calcSourcePathForEntryPoints(EndToEndCompileRequest* endToEndReq, const List<Int>& entryPointIndices);
 
     struct SourceResult
     {
@@ -1933,6 +1961,14 @@ namespace Slang
 
     /* Emits entry point source taking into account if a pass-through or not. Uses 'target' to determine
     the target (not targetReq) */
+    SlangResult emitEntryPointsSource(
+        BackEndCompileRequest*  compileRequest,
+        const List<Int>&        entryPointIndices,
+        TargetRequest*          targetReq,
+        CodeGenTarget           target,
+        EndToEndCompileRequest* endToEndReq,
+        SourceResult&           outSource);
+
     SlangResult emitEntryPointSource(
         BackEndCompileRequest*  compileRequest,
         Int                     entryPointIndex,
@@ -1941,7 +1977,6 @@ namespace Slang
         EndToEndCompileRequest* endToEndReq,
         SourceResult&           outSource);
 
-    struct TypeCheckingCache;
     //
 
     // Information about BaseType that's useful for checking literals 
@@ -2006,7 +2041,10 @@ namespace Slang
 
         SLANG_NO_THROW SlangPassThrough SLANG_MCALL getDefaultDownstreamCompiler(SlangSourceLanguage sourceLanguage) override;
 
-            /// Get the default cpp compiler for a language
+        SLANG_NO_THROW void SLANG_MCALL setLanguagePrelude(SlangSourceLanguage inSourceLanguage, char const* prelude) override;
+        SLANG_NO_THROW void SLANG_MCALL getLanguagePrelude(SlangSourceLanguage inSourceLanguage, ISlangBlob** outPrelude) override;
+
+            /// Get the default compiler for a language
         DownstreamCompiler* getDefaultDownstreamCompiler(SourceLanguage sourceLanguage);
 
         enum class SharedLibraryFuncType
@@ -2026,7 +2064,8 @@ namespace Slang
         RefPtr<Scope>   hlslLanguageScope;
         RefPtr<Scope>   slangLanguageScope;
 
-        List<RefPtr<ModuleDecl>> loadedModuleCode;
+        ModuleDecl* baseModuleDecl = nullptr;
+        List<RefPtr<Module>> stdlibModules;
 
         SourceManager   builtinSourceManager;
 
@@ -2043,6 +2082,12 @@ namespace Slang
         Name* tryGetNameObj(String name) { return namePool.tryGetName(name); }
         //
 
+            /// This AST Builder should only be used for creating AST nodes that are global across requests
+            /// not doing so could lead to memory being consumed but not used.
+        ASTBuilder* getGlobalASTBuilder() { return globalAstBuilder; }
+
+        RefPtr<ASTBuilder> globalAstBuilder;
+
         // Generated code for stdlib, etc.
         String stdlibPath;
         String coreLibraryCode;
@@ -2054,77 +2099,12 @@ namespace Slang
         String getCoreLibraryCode();
         String getHLSLLibraryCode();
 
-        // Basic types that we don't want to re-create all the time
-        RefPtr<Type> errorType;
-        RefPtr<Type> initializerListType;
-        RefPtr<Type> overloadedType;
-        RefPtr<Type> constExprRate;
-        RefPtr<Type> irBasicBlockType;
+        
+        RefPtr<SharedASTBuilder> m_sharedASTBuilder;
 
-        RefPtr<Type> stringType;
-        RefPtr<Type> enumTypeType;
 
         
         RefPtr<Type> builtinTypes[Index(BaseType::CountOf)];
-        Dictionary<String, Decl*> magicDecls;
-
-        void initializeTypes();
-
-        Type* getBoolType();
-        Type* getHalfType();
-        Type* getFloatType();
-        Type* getDoubleType();
-        Type* getIntType();
-        Type* getInt64Type();
-        Type* getUIntType();
-        Type* getUInt64Type();
-        Type* getVoidType();
-        Type* getBuiltinType(BaseType flavor);
-
-        Type* getInitializerListType();
-        Type* getOverloadedType();
-        Type* getErrorType();
-        Type* getStringType();
-
-        Type* getEnumTypeType();
-
-        // Construct the type `Ptr<valueType>`, where `Ptr`
-        // is looked up as a builtin type.
-        RefPtr<PtrType> getPtrType(RefPtr<Type> valueType);
-
-        // Construct the type `Out<valueType>`
-        RefPtr<OutType> getOutType(RefPtr<Type> valueType);
-
-        // Construct the type `InOut<valueType>`
-        RefPtr<InOutType> getInOutType(RefPtr<Type> valueType);
-
-        // Construct the type `Ref<valueType>`
-        RefPtr<RefType> getRefType(RefPtr<Type> valueType);
-
-        // Construct a pointer type like `Ptr<valueType>`, but where
-        // the actual type name for the pointer type is given by `ptrTypeName`
-        RefPtr<PtrTypeBase> getPtrType(RefPtr<Type> valueType, char const* ptrTypeName);
-
-        // Construct a pointer type like `Ptr<valueType>`, but where
-        // the generic declaration for the pointer type is `genericDecl`
-        RefPtr<PtrTypeBase> getPtrType(RefPtr<Type> valueType, GenericDecl* genericDecl);
-
-        RefPtr<ArrayExpressionType> getArrayType(
-            Type*   elementType,
-            IntVal* elementCount);
-
-        RefPtr<VectorExpressionType> getVectorType(
-            RefPtr<Type>    elementType,
-            RefPtr<IntVal>  elementCount);
-
-        SyntaxClass<RefObject> findSyntaxClass(Name* name);
-
-        Dictionary<Name*, SyntaxClass<RefObject> > mapNameToSyntaxClass;
-
-        // cache used by type checking, implemented in check.cpp
-        TypeCheckingCache* typeCheckingCache = nullptr;
-        TypeCheckingCache* getTypeCheckingCache();
-        void destroyTypeCheckingCache();
         //
 
         void setSharedLibraryLoader(ISlangSharedLibraryLoader* loader);
@@ -2136,8 +2116,8 @@ namespace Slang
 
         SlangFuncPtr getSharedLibraryFunc(SharedLibraryFuncType type, DiagnosticSink* sink);
 
-            /// Get the downstream compiler prelude
-        const String& getDownstreamCompilerPrelude(PassThroughMode mode) { return m_downstreamCompilerPreludes[int(mode)]; }
+            /// Get the prelude associated with the language
+        const String& getPreludeForLanguage(SourceLanguage language) { return m_languagePreludes[int(language)]; }
 
         void init();
 
@@ -2165,27 +2145,10 @@ namespace Slang
             /// Linkage used for all built-in (stdlib) code.
         RefPtr<Linkage> m_builtinLinkage;
 
-        String m_downstreamCompilerPaths[int(PassThroughMode::CountOf)];              ///< Paths for each pass through
-        String m_downstreamCompilerPreludes[int(PassThroughMode::CountOf)];             ///< Prelude for each type of target
+        String m_downstreamCompilerPaths[int(PassThroughMode::CountOf)];         ///< Paths for each pass through
+        String m_languagePreludes[int(SourceLanguage::CountOf)];                  ///< Prelude for each source language
         PassThroughMode m_defaultDownstreamCompilers[int(SourceLanguage::CountOf)];
     };
-
-struct IncludeHandlerImpl : IncludeHandler
-{
-    Linkage*    linkage;
-    SearchDirectoryList*    searchDirectories;
-
-    ISlangFileSystemExt* _getFileSystemExt();
-
-    SlangResult _findFile(SlangPathType fromPathType, const String& fromPath, const String& path, PathInfo& pathInfoOut);
-
-    virtual SlangResult findFile(
-        String const& pathToInclude,
-        String const& pathIncludedFrom,
-        PathInfo& pathInfoOut) override;
-
-    virtual String simplifyPath(const String& path) override;
-};
 
 
 //

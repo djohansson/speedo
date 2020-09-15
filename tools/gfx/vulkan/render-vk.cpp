@@ -91,6 +91,9 @@ public:
 
     protected:
 
+        /// Flush state from descriptor set bindings into `commandBuffer`
+    void _flushBindingState(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint);
+
     class Buffer
     {
         public:
@@ -280,11 +283,57 @@ public:
         VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
 
+        // Vulkan descriptor sets are the closest in design to what
+        // the `Renderer` abstraction exposes as a `DescriptorSet`.
+        // The main difference is that a `DescriptorSet` can include
+        // root constant ranges, while under Vulkan push constant
+        // ranges are part of the `VkPipelineLayout`, but not part
+        // of any `VkDescriptorSetLayout`.
+        //
+        // Information about each descriptor slot range in the
+        // original `Desc` will be stored as `RangeInfo` values,
+        // which store the relevant information from the `Desc`
+        // as well as additional information specific to the
+        // Vulkan implementation path.
+        //
         struct RangeInfo
         {
-            VkDescriptorType descriptorType;
+                /// The type of descriptor slot range from the original `Desc`
+            DescriptorSlotType  type;
+
+                /// The start index of the range in the appropriate type-specific array
+            Index               arrayIndex;
+
+                /// The equivalent Vulkan descriptor type, where applicable
+            VkDescriptorType    vkDescriptorType;
+
+                /// The Vulkan `binding` index for this range
+            uint32_t            vkBindingIndex;
         };
         List<RangeInfo> m_ranges;
+
+        // Because root constant ranges aren't part of a `VkDescriptorSetLayout`,
+        // we store additional data to represent the ranges so that
+        // we can store their data on a `DescriptorSetImpl` and then
+        // bind it to the API later.
+        //
+        struct RootConstantRangeInfo
+        {
+                /// The offset of the range's data in the backing storage.
+            Index offset;
+
+                /// The size of the range's data.
+            Index size;
+        };
+        Slang::List<RootConstantRangeInfo> m_rootConstantRanges;
+
+            /// The total size, in bytes, or root constant data for this descriptor set.
+        uint32_t m_rootConstantDataSize = 0;
+
+            /// The total number of reference counted objects that can be bound
+            /// to descriptor sets described by this layout.
+            ///
+        Index m_totalBoundObjectCount = 0;
     };
 
     class PipelineLayoutImpl : public PipelineLayout
@@ -306,28 +355,14 @@ public:
         VulkanApi const*    m_api;
         VkPipelineLayout    m_pipelineLayout        = VK_NULL_HANDLE;
         UInt                m_descriptorSetCount    = 0;
+
+            /// For each descriptor set, stores the start offset of that set's root constant data in the pipeline layout
+        List<uint32_t>      m_descriptorSetRootConstantOffsets;
     };
 
     class DescriptorSetImpl : public DescriptorSet
     {
     public:
-        // Record the view binding
-        struct Binding
-        {
-            enum class Type : uint8_t
-            {
-                Unknown,
-                ResourceView,
-                SamplerState,
-                BufferResource,
-                CountOf,
-            };
-            Type type;
-            uint32_t range;
-            uint32_t index;
-            RefPtr<RefObject> obj;
-        };
-
         DescriptorSetImpl(VKRenderer* renderer)
             : m_renderer(renderer)
         {
@@ -345,59 +380,22 @@ public:
             UInt index,
             ResourceView*   textureView,
             SamplerState*   sampler) override;
-
-        static Binding::Type _getBindingType(RefObject* ptr);
-        void _setBinding(Binding::Type type, UInt range, UInt index, RefObject* ptr);
+        virtual void setRootConstants(
+            UInt range,
+            UInt offset,
+            UInt size,
+            void const* data) override;
 
         VKRenderer*                         m_renderer = nullptr;   ///< Weak pointer, can't be strong, because if set will become circular reference
         RefPtr<DescriptorSetLayoutImpl>     m_layout;
         VkDescriptorSet                     m_descriptorSet = VK_NULL_HANDLE;
 
-        List<Binding>                       m_bindings;             ///< Records entities are bound to this descriptor set, and keeps the associated resources/views/state in scope
+            /// Records entities that are bound to this descriptor set, and keeps the associated resources/views/state in scope
+        List<RefPtr<RefObject>>             m_boundObjects;
+
+            /// Backing storage for root constant ranges belonging to this descriptor set
+        List<char>                          m_rootConstantData;
     };
-
-#if 0
-    struct BindingDetail
-    {
-        VkImageView     m_srv = VK_NULL_HANDLE;
-        VkBufferView    m_uav = VK_NULL_HANDLE;
-        VkSampler       m_sampler = VK_NULL_HANDLE;
-    };
-
-    class BindingStateImpl: public BindingState
-    {
-		public:
-        typedef BindingState Parent;
-
-		BindingStateImpl(const Desc& desc, const VulkanApi* api):
-            Parent(desc),
-			m_api(api)
-		{
-		}
-        ~BindingStateImpl()
-        {
-            for (int i = 0; i < int(m_bindingDetails.Count()); ++i)
-            {
-                BindingDetail& detail = m_bindingDetails[i];
-                if (detail.m_sampler != VK_NULL_HANDLE)
-                {
-                    m_api->vkDestroySampler(m_api->m_device, detail.m_sampler, nullptr);
-                }
-                if (detail.m_srv != VK_NULL_HANDLE)
-                {
-                    m_api->vkDestroyImageView(m_api->m_device, detail.m_srv, nullptr);
-                }
-                if (detail.m_uav != VK_NULL_HANDLE)
-                {
-                    m_api->vkDestroyBufferView(m_api->m_device, detail.m_uav, nullptr);
-                }
-            }
-        }
-
-        const VulkanApi* m_api;
-        List<BindingDetail> m_bindingDetails;
-    };
-#endif
 
     struct BoundVertexBuffer
     {
@@ -423,11 +421,8 @@ public:
 
         const VulkanApi* m_api;
 
-//        VkPrimitiveTopology m_primitiveTopology;
-
         RefPtr<PipelineLayoutImpl>  m_pipelineLayout;
 
-//        RefPtr<InputLayoutImpl> m_inputLayout;
         RefPtr<ShaderProgramImpl> m_shaderProgram;
 
         VkPipeline m_pipeline = VK_NULL_HANDLE;
@@ -825,10 +820,37 @@ Renderer* createVKRenderer()
 
 VKRenderer::~VKRenderer()
 {
+    // Check the device queue is valid else, we can't wait on it..
+    if (m_deviceQueue.isValid())
+    {
+        waitForGpu();
+    }
+
+    m_currentPipeline.setNull();
+
+    // Same as clear but, also dtors all elements, which clear does not
+    m_boundVertexBuffers = List<BoundVertexBuffer>();
+
+    m_currentPipelineLayout.setNull();
+    for (auto& impl : m_currentDescriptorSetImpls)
+    {
+        impl.setNull();
+    }
+
     if (m_renderPass != VK_NULL_HANDLE)
     {
         m_api.vkDestroyRenderPass(m_device, m_renderPass, nullptr);
         m_renderPass = VK_NULL_HANDLE;
+    }
+
+    m_swapChain.destroy();
+
+    m_deviceQueue.destroy();
+
+    if (m_device != VK_NULL_HANDLE)
+    {
+        m_api.vkDestroyDevice(m_device, nullptr);
+        m_device = VK_NULL_HANDLE;
     }
 }
 
@@ -1024,30 +1046,39 @@ SlangResult VKRenderer::initialize(const Desc& desc, void* inWindowHandle)
     const uint32_t majorVersion = VK_VERSION_MAJOR(basicProps.apiVersion);
     const uint32_t minorVersion = VK_VERSION_MINOR(basicProps.apiVersion);
 
-    // Float16 features
     // Need in this scope because it will be linked into the device creation (if it is available)
+
+    // Float16 features
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR };
+    // AtomicInt64 features
+    VkPhysicalDeviceShaderAtomicInt64FeaturesKHR atomicInt64Features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR };
+    // Atomic Float features
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT };
 
     // API version check, can't use vkGetPhysicalDeviceProperties2 yet since this device might not support it
     if (VK_MAKE_VERSION(majorVersion, minorVersion, 0) >= VK_API_VERSION_1_1 &&
         m_api.vkGetPhysicalDeviceProperties2 &&
         m_api.vkGetPhysicalDeviceFeatures2)
     {
-        VkPhysicalDeviceProperties2 physicalDeviceProps2;
-
-        physicalDeviceProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        physicalDeviceProps2.pNext = nullptr;
-        physicalDeviceProps2.properties = {};
-
-        m_api.vkGetPhysicalDeviceProperties2(m_api.m_physicalDevice, &physicalDeviceProps2);
 
         // Get device features
         VkPhysicalDeviceFeatures2 deviceFeatures2 = {};
         deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 
-        // Link together for lookup 
+        // Float16
         float16Features.pNext = deviceFeatures2.pNext;
         deviceFeatures2.pNext = &float16Features;
+
+        // Atomic64
+        atomicInt64Features.pNext = deviceFeatures2.pNext;
+        deviceFeatures2.pNext = &atomicInt64Features;
+
+        // Atomic Float
+        // To detect atomic float we need
+        // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkPhysicalDeviceShaderAtomicFloatFeaturesEXT.html
+
+        atomicFloatFeatures.pNext = deviceFeatures2.pNext;
+        deviceFeatures2.pNext = &atomicFloatFeatures;
 
         m_api.vkGetPhysicalDeviceFeatures2(m_api.m_physicalDevice, &deviceFeatures2);
 
@@ -1063,7 +1094,27 @@ SlangResult VKRenderer::initialize(const Desc& desc, void* inWindowHandle)
 
             // We have half support
             m_features.add("half");
-        }   
+        }
+
+        if (atomicInt64Features.shaderBufferInt64Atomics)
+        {
+            // Link into the creation features
+            atomicInt64Features.pNext = (void*)deviceCreateInfo.pNext;
+            deviceCreateInfo.pNext = &atomicInt64Features;
+
+            deviceExtensions.add(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
+            m_features.add("atomic-int64");
+        }
+
+        if (atomicFloatFeatures.shaderBufferFloat32AtomicAdd)
+        {
+            // Link into the creation features
+            atomicFloatFeatures.pNext = (void*)deviceCreateInfo.pNext;
+            deviceCreateInfo.pNext = &atomicFloatFeatures;
+
+            deviceExtensions.add(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
+            m_features.add("atomic-float");
+        }
     }
 
     int queueFamilyIndex = m_api.findQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
@@ -2101,6 +2152,46 @@ void VKRenderer::setPipelineState(PipelineType pipelineType, PipelineState* stat
     m_currentPipeline = (PipelineStateImpl*)state;
 }
 
+void VKRenderer::_flushBindingState(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint)
+{
+    auto pipeline = m_currentPipeline;
+
+    // We start by binding the pipeline state.
+    //
+    m_api.vkCmdBindPipeline(commandBuffer, pipelineBindPoint, pipeline->m_pipeline);
+
+    // Next we bind all the descriptor sets that were set in the `VKRenderer`.
+    //
+    auto pipelineLayoutImpl = pipeline->m_pipelineLayout.Ptr();
+    auto vkPipelineLayout = pipelineLayoutImpl->m_pipelineLayout;
+    auto descriptorSetCount = pipelineLayoutImpl->m_descriptorSetCount;
+    m_api.vkCmdBindDescriptorSets(commandBuffer, pipelineBindPoint, vkPipelineLayout,
+        0, uint32_t(descriptorSetCount),
+        &m_currentDescriptorSets[0],
+        0, nullptr);
+
+    // For any descriptor sets with root-constant ranges, we need to
+    // bind the relevant data to the context.
+    //
+    for(gfx::UInt ii = 0; ii < descriptorSetCount; ++ii)
+    {
+        auto descriptorSet = m_currentDescriptorSetImpls[ii];
+        auto descriptorSetLayout = descriptorSet->m_layout;
+        auto size = descriptorSetLayout->m_rootConstantDataSize;
+        if(size == 0)
+            continue;
+        auto data = descriptorSet->m_rootConstantData.getBuffer();
+
+        // The absolute offset of the descriptor set's data in
+        // the push-constant data for the entire pipeline was
+        // computed and cached in the pipeline layout.
+        //
+        uint32_t offset = pipelineLayoutImpl->m_descriptorSetRootConstantOffsets[ii];
+
+        m_api.vkCmdPushConstants(commandBuffer, vkPipelineLayout, VK_SHADER_STAGE_ALL, offset, size, data);
+    }
+}
+
 void VKRenderer::draw(UInt vertexCount, UInt startVertex = 0)
 {
     auto pipeline = m_currentPipeline;
@@ -2115,13 +2206,7 @@ void VKRenderer::draw(UInt vertexCount, UInt startVertex = 0)
     // Also create descriptor sets based on the given pipeline layout
     VkCommandBuffer commandBuffer = m_deviceQueue.getCommandBuffer();
 
-    m_api.vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->m_pipeline);
-
-    auto pipelineLayoutImpl = pipeline->m_pipelineLayout.Ptr();
-    m_api.vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayoutImpl->m_pipelineLayout,
-        0, uint32_t(pipelineLayoutImpl->m_descriptorSetCount),
-        &m_currentDescriptorSets[0],
-        0, nullptr);
+    _flushBindingState(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
     // Bind the vertex buffer
     if (m_boundVertexBuffers.getCount() > 0 && m_boundVertexBuffers[0].m_buffer)
@@ -2155,13 +2240,7 @@ void VKRenderer::dispatchCompute(int x, int y, int z)
     // Also create descriptor sets based on the given pipeline layout
     VkCommandBuffer commandBuffer = m_deviceQueue.getCommandBuffer();
 
-    m_api.vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->m_pipeline);
-
-    auto pipelineLayoutImpl = pipeline->m_pipelineLayout.Ptr();
-    m_api.vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayoutImpl->m_pipelineLayout,
-        0, uint32_t(pipelineLayoutImpl->m_descriptorSetCount),
-        &m_currentDescriptorSets[0],
-        0, nullptr);
+    _flushBindingState(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE);
 
     m_api.vkCmdDispatch(commandBuffer, x, y, z);
 }
@@ -2335,29 +2414,96 @@ Result VKRenderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc& de
     RefPtr<DescriptorSetLayoutImpl> descriptorSetLayoutImpl = new DescriptorSetLayoutImpl(m_api);
 
     Slang::List<VkDescriptorSetLayoutBinding> dstBindings;
-
-    uint32_t descriptorCountForTypes[11] = { 0, };
+    Slang::List<uint32_t> descriptorCountForTypes; 
 
     UInt rangeCount = desc.slotRangeCount;
     for(UInt rr = 0; rr < rangeCount; ++rr)
     {
         auto& srcRange = desc.slotRanges[rr];
 
+        if(srcRange.type == DescriptorSlotType::RootConstant)
+        {
+            // Root constant ranges are a special case, since they
+            // don't actually map to `VkDescriptorSetLayoutBinding`s
+            // like the other cases.
+
+            // We start by computing the offset of the range within
+            // the backing storage for the descriptor set, while
+            // also updating the computed total size of root constant
+            // data needed by the set.
+            //
+            auto size = uint32_t(srcRange.count);
+            auto offset = descriptorSetLayoutImpl->m_rootConstantDataSize;
+            descriptorSetLayoutImpl->m_rootConstantDataSize += size;
+
+            // We will keep track of the information for this
+            // range as part of the descriptor set layout.
+            //
+            DescriptorSetLayoutImpl::RootConstantRangeInfo rootConstantRangeInfo;
+            rootConstantRangeInfo.offset = offset;
+            rootConstantRangeInfo.size = size;
+
+            auto rootConstantRangeIndex = descriptorSetLayoutImpl->m_rootConstantRanges.getCount();
+            descriptorSetLayoutImpl->m_rootConstantRanges.add(rootConstantRangeInfo);
+
+            // We will also add a `RangeInfo` to represent this
+            // range, even though it doesn't map to a VK-level
+            // descriptor range.
+            //
+            DescriptorSetLayoutImpl::RangeInfo rangeInfo;
+            rangeInfo.type = srcRange.type;
+            rangeInfo.vkDescriptorType = VkDescriptorType(-1);
+            rangeInfo.arrayIndex = rootConstantRangeIndex;
+            descriptorSetLayoutImpl->m_ranges.add(rangeInfo);
+
+            // Finally, we bail out instead of performing
+            // the logic that applies to the other descriptor
+            // range types.
+            //
+            continue;
+        }
+
+        // Note: Because of the existence of root constant ranges,
+        // we cannot assume that the `binding` for a range is
+        // the same as its index in the input array of ranges.
+        //
+        // Instead, the `binding` for a range is its index in
+        // the output array of `VkDescriptorSetLayoutBinding`s.
+        //
+        uint32_t bindingIndex = uint32_t(dstBindings.getCount());
+
         VkDescriptorType dstDescriptorType = translateDescriptorType(srcRange.type);
 
         VkDescriptorSetLayoutBinding dstBinding;
-        dstBinding.binding = uint32_t(rr);
+        dstBinding.binding = uint32_t(bindingIndex);
         dstBinding.descriptorType = dstDescriptorType;
         dstBinding.descriptorCount = uint32_t(srcRange.count);
         dstBinding.stageFlags = VK_SHADER_STAGE_ALL;
         dstBinding.pImmutableSamplers = nullptr;
 
+        if (descriptorCountForTypes.getCount() <= dstDescriptorType)
+        {
+            descriptorCountForTypes.setCount(dstDescriptorType + 1);
+        }
+
         descriptorCountForTypes[dstDescriptorType] += uint32_t(srcRange.count);
 
         dstBindings.add(dstBinding);
 
+        UInt boundObjectCount = srcRange.count;
+        if( srcRange.type == DescriptorSlotType::CombinedImageSampler )
+        {
+            boundObjectCount = 2 * srcRange.count;
+        }
+
+        auto boundObjectArrayIndex = descriptorSetLayoutImpl->m_totalBoundObjectCount;
+        descriptorSetLayoutImpl->m_totalBoundObjectCount += boundObjectCount;
+
         DescriptorSetLayoutImpl::RangeInfo rangeInfo;
-        rangeInfo.descriptorType = dstDescriptorType;
+        rangeInfo.type = srcRange.type;
+        rangeInfo.vkDescriptorType = dstDescriptorType;
+        rangeInfo.vkBindingIndex = bindingIndex;
+        rangeInfo.arrayIndex = boundObjectArrayIndex;
         descriptorSetLayoutImpl->m_ranges.add(rangeInfo);
     }
 
@@ -2370,23 +2516,23 @@ Result VKRenderer::createDescriptorSetLayout(const DescriptorSetLayout::Desc& de
 
     // Create a pool while we are at it, to allocate descriptor sets of this type.
 
-    VkDescriptorPoolSize poolSizes[11];
-    uint32_t poolSizeCount = 0;
-    for (int ii = 0; ii < SLANG_COUNT_OF(descriptorCountForTypes); ++ii)
+    List<VkDescriptorPoolSize> poolSizes; 
+    for (Index ii = 0; ii < descriptorCountForTypes.getCount(); ++ii)
     {
         auto descriptorCount = descriptorCountForTypes[ii];
         if (descriptorCount > 0)
         {
-            poolSizes[poolSizeCount].type = VkDescriptorType(ii);
-            poolSizes[poolSizeCount].descriptorCount = descriptorCount;
-            poolSizeCount++;
+            VkDescriptorPoolSize poolSize;
+            poolSize.type = VkDescriptorType(ii);
+            poolSize.descriptorCount = descriptorCount;
+            poolSizes.add(poolSize);
         }
     }
 
     VkDescriptorPoolCreateInfo descriptorPoolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     descriptorPoolInfo.maxSets = 128; // TODO: actually pick a size.
-    descriptorPoolInfo.poolSizeCount = poolSizeCount;
-    descriptorPoolInfo.pPoolSizes = &poolSizes[0];
+    descriptorPoolInfo.poolSizeCount = uint32_t(poolSizes.getCount());
+    descriptorPoolInfo.pPoolSizes = poolSizes.getBuffer();
 
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     SLANG_VK_CHECK(m_api.vkCreateDescriptorPool(m_device, &descriptorPoolInfo, nullptr, &descriptorPool));
@@ -2403,14 +2549,46 @@ Result VKRenderer::createPipelineLayout(const PipelineLayout::Desc& desc, Pipeli
     UInt descriptorSetCount = desc.descriptorSetCount;
 
     VkDescriptorSetLayout descriptorSetLayouts[kMaxDescriptorSets];
+    uint32_t descriptorSetRootConstantOffsets[kMaxDescriptorSets];
+    uint32_t totalRootConstantSize = 0;
     for(UInt ii = 0; ii < descriptorSetCount; ++ii)
     {
-        descriptorSetLayouts[ii] = ((DescriptorSetLayoutImpl*) desc.descriptorSets[ii].layout)->m_descriptorSetLayout;
+        auto descriptorSetLayoutImpl = (DescriptorSetLayoutImpl*) desc.descriptorSets[ii].layout;
+        descriptorSetLayouts[ii] = descriptorSetLayoutImpl->m_descriptorSetLayout;
+
+        descriptorSetRootConstantOffsets[ii] = totalRootConstantSize;
+        totalRootConstantSize += descriptorSetLayoutImpl->m_rootConstantDataSize;
     }
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
     pipelineLayoutInfo.setLayoutCount = uint32_t(desc.descriptorSetCount);
     pipelineLayoutInfo.pSetLayouts = &descriptorSetLayouts[0];
+
+    // Our abstraction allows the user to specify any number of root-constant
+    // ranges across all of their descriptor sets, but Vulkan has a restriction
+    // that a pipeline layout may only include a single push constant range
+    // accessible from a given stage. (In other words, the only situation where
+    // multiple push-constant ranges are allowed is if you want to have, say,
+    // distinct ranges for the vertex and fragment stages to access).
+    //
+    // We handle this by declaring at most one push constant range, which
+    // represents the concatenation of the data from all ranges that the
+    // user might have asked for.
+    //
+    // Note: The Slang compiler doesn't yet have logic to concatenate multiple
+    // push-constant ranges in this way, but if/when it does, it should hopefully
+    // Just Work with this logic.
+    //
+    VkPushConstantRange pushConstantRange;
+    if( totalRootConstantSize )
+    {
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = totalRootConstantSize;
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_ALL;
+
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    }
 
     VkPipelineLayout pipelineLayout;
     SLANG_VK_CHECK(m_api.vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &pipelineLayout));
@@ -2418,6 +2596,12 @@ Result VKRenderer::createPipelineLayout(const PipelineLayout::Desc& desc, Pipeli
     RefPtr<PipelineLayoutImpl> pipelineLayoutImpl = new PipelineLayoutImpl(m_api);
     pipelineLayoutImpl->m_pipelineLayout = pipelineLayout;
     pipelineLayoutImpl->m_descriptorSetCount = descriptorSetCount;
+
+    for(UInt ii = 0; ii < descriptorSetCount; ++ii)
+    {
+        pipelineLayoutImpl->m_descriptorSetRootConstantOffsets.add(
+            descriptorSetRootConstantOffsets[ii]);
+    }
 
     *outLayout = pipelineLayoutImpl.detach();
     return SLANG_OK;
@@ -2438,72 +2622,22 @@ Result VKRenderer::createDescriptorSet(DescriptorSetLayout* layout, DescriptorSe
     RefPtr<DescriptorSetImpl> descriptorSetImpl = new DescriptorSetImpl(this);
     descriptorSetImpl->m_layout = layoutImpl;
     descriptorSetImpl->m_descriptorSet = descriptorSet;
+
+    descriptorSetImpl->m_rootConstantData.setCount(layoutImpl->m_rootConstantDataSize);
+    descriptorSetImpl->m_boundObjects.setCount(layoutImpl->m_totalBoundObjectCount);
+
     *outDescriptorSet = descriptorSetImpl.detach();
     return SLANG_OK;
-}
-
-/* static */VKRenderer::DescriptorSetImpl::Binding::Type VKRenderer::DescriptorSetImpl::_getBindingType(RefObject* ptr)
-{
-    typedef Binding::Type Type;
-
-    if (ptr)
-    {
-        if (dynamic_cast<ResourceView*>(ptr))
-        {
-            return Type::ResourceView;
-        }
-        else if (dynamic_cast<BufferResource*>(ptr))
-        {
-            return Type::BufferResource;
-        }
-        else if (dynamic_cast<SamplerState*>(ptr))
-        {
-            return Type::SamplerState;
-        }
-    }
-    return Type::Unknown;
-}
-
-void VKRenderer::DescriptorSetImpl::_setBinding(Binding::Type type, UInt range, UInt index, RefObject* ptr)
-{
-    SLANG_ASSERT(ptr == nullptr || _getBindingType(ptr) == type);
-
-    const Index numBindings = m_bindings.getCount();
-    for (Index i = 0; i < numBindings; ++i)
-    {
-        Binding& binding = m_bindings[i];
-
-        if (binding.type == type && binding.range == uint32_t(range) && binding.index == uint32_t(index))
-        {
-            if (ptr)
-            {
-                binding.obj = ptr;
-            }
-            else
-            {
-                m_bindings.removeAt(i);
-            }
-
-            return;
-        }
-    }
-
-    // If an entry is not found, and we have a pointer, create an entry
-    if (ptr)
-    {
-        Binding binding;
-        binding.type = type;
-        binding.range = uint32_t(range);
-        binding.index = uint32_t(index);
-        binding.obj = ptr;
-
-        m_bindings.add(binding);
-    }
 }
 
 void VKRenderer::DescriptorSetImpl::setConstantBuffer(UInt range, UInt index, BufferResource* buffer)
 {
     auto bufferImpl = (BufferResourceImpl*)buffer;
+
+    SLANG_ASSERT(range < UInt(m_layout->m_ranges.getCount()));
+    auto& rangeInfo = m_layout->m_ranges[range];
+    auto bindingIndex = rangeInfo.vkBindingIndex;
+    auto boundObjectIndex = rangeInfo.arrayIndex + index;
 
     VkDescriptorBufferInfo bufferInfo = {};
     bufferInfo.buffer = bufferImpl->m_buffer.m_buffer;
@@ -2512,19 +2646,24 @@ void VKRenderer::DescriptorSetImpl::setConstantBuffer(UInt range, UInt index, Bu
 
     VkWriteDescriptorSet writeInfo = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
     writeInfo.dstSet = m_descriptorSet;
-    writeInfo.dstBinding = uint32_t(range);
+    writeInfo.dstBinding = uint32_t(bindingIndex);
     writeInfo.dstArrayElement = uint32_t(index);
     writeInfo.descriptorCount = 1;
-    writeInfo.descriptorType = m_layout->m_ranges[range].descriptorType;
+    writeInfo.descriptorType = rangeInfo.vkDescriptorType;
     writeInfo.pBufferInfo = &bufferInfo;
 
     m_renderer->m_api.vkUpdateDescriptorSets(m_renderer->m_device, 1, &writeInfo, 0, nullptr);
-
-    _setBinding(Binding::Type::BufferResource, range, index, buffer);
+    m_boundObjects[boundObjectIndex] = buffer;
 }
 
 void VKRenderer::DescriptorSetImpl::setResource(UInt range, UInt index, ResourceView* view)
 {
+    SLANG_ASSERT(range < UInt(m_layout->m_ranges.getCount()));
+    auto& rangeInfo = m_layout->m_ranges[range];
+    auto bindingIndex = rangeInfo.vkBindingIndex;
+    auto boundObjectIndex = rangeInfo.arrayIndex + index;
+    auto descriptorType = rangeInfo.vkDescriptorType;
+
     auto viewImpl = (ResourceViewImpl*)view;
     switch (viewImpl->m_type)
     {
@@ -2538,10 +2677,10 @@ void VKRenderer::DescriptorSetImpl::setResource(UInt range, UInt index, Resource
 
             VkWriteDescriptorSet writeInfo = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writeInfo.dstSet = m_descriptorSet;
-            writeInfo.dstBinding = uint32_t(range);
+            writeInfo.dstBinding = uint32_t(bindingIndex);
             writeInfo.dstArrayElement = uint32_t(index);
             writeInfo.descriptorCount = 1;
-            writeInfo.descriptorType = m_layout->m_ranges[range].descriptorType;
+            writeInfo.descriptorType = descriptorType;
             writeInfo.pImageInfo = &imageInfo;
 
             m_renderer->m_api.vkUpdateDescriptorSets(m_renderer->m_device, 1, &writeInfo, 0, nullptr);
@@ -2554,10 +2693,10 @@ void VKRenderer::DescriptorSetImpl::setResource(UInt range, UInt index, Resource
 
             VkWriteDescriptorSet writeInfo = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writeInfo.dstSet = m_descriptorSet;
-            writeInfo.dstBinding = uint32_t(range);
+            writeInfo.dstBinding = uint32_t(bindingIndex);
             writeInfo.dstArrayElement = uint32_t(index);
             writeInfo.descriptorCount = 1;
-            writeInfo.descriptorType = m_layout->m_ranges[range].descriptorType;
+            writeInfo.descriptorType = descriptorType;
             writeInfo.pTexelBufferView = &bufferViewImpl->m_view;
 
             m_renderer->m_api.vkUpdateDescriptorSets(m_renderer->m_device, 1, &writeInfo, 0, nullptr);
@@ -2575,25 +2714,32 @@ void VKRenderer::DescriptorSetImpl::setResource(UInt range, UInt index, Resource
 
             VkWriteDescriptorSet writeInfo = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             writeInfo.dstSet = m_descriptorSet;
-            writeInfo.dstBinding = uint32_t(range);
+            writeInfo.dstBinding = uint32_t(bindingIndex);
             writeInfo.dstArrayElement = uint32_t(index);
             writeInfo.descriptorCount = 1;
-            writeInfo.descriptorType = m_layout->m_ranges[range].descriptorType;
+            writeInfo.descriptorType = descriptorType;
             writeInfo.pBufferInfo = &bufferInfo;
 
             m_renderer->m_api.vkUpdateDescriptorSets(m_renderer->m_device, 1, &writeInfo, 0, nullptr);
         }
         break;
-
     }
 
-    _setBinding(Binding::Type::ResourceView, range, index, view);
+    m_boundObjects[boundObjectIndex] = view;
 }
 
 void VKRenderer::DescriptorSetImpl::setSampler(UInt range, UInt index, SamplerState* sampler)
 {
+    SLANG_ASSERT(range < UInt(m_layout->m_ranges.getCount()));
+    auto& rangeInfo = m_layout->m_ranges[range];
+    SLANG_ASSERT(rangeInfo.type == DescriptorSlotType::Sampler);
+    auto bindingIndex = rangeInfo.vkBindingIndex;
+    auto boundObjectIndex = rangeInfo.arrayIndex + index;
+    auto descriptorType = rangeInfo.vkDescriptorType;
 
-    _setBinding(Binding::Type::SamplerState, range, index, sampler);
+    // TODO: Actually bind it!
+
+    m_boundObjects[boundObjectIndex] = sampler;
 }
 
 void VKRenderer::DescriptorSetImpl::setCombinedTextureSampler(
@@ -2602,9 +2748,46 @@ void VKRenderer::DescriptorSetImpl::setCombinedTextureSampler(
     ResourceView*   textureView,
     SamplerState*   sampler)
 {
+    SLANG_ASSERT(range < UInt(m_layout->m_ranges.getCount()));
+    auto& rangeInfo = m_layout->m_ranges[range];
+    SLANG_ASSERT(rangeInfo.type == DescriptorSlotType::CombinedImageSampler);
+    auto bindingIndex = rangeInfo.vkBindingIndex;
+    auto descriptorType = rangeInfo.vkDescriptorType;
 
-    _setBinding(Binding::Type::SamplerState, range, index, sampler);
-    _setBinding(Binding::Type::ResourceView, range, index, textureView);
+    // TODO: Actually bind it!
+
+    // Note: Each entry in a combined texture/sampler range consumes
+    // two entries in the `m_boundObjects` array, since we have
+    // to keep both the texture view and the sampler object live.
+    //
+    auto boundObjectIndex = rangeInfo.arrayIndex + 2 * index;
+    m_boundObjects[boundObjectIndex + 0] = textureView;
+    m_boundObjects[boundObjectIndex + 1] = sampler;
+}
+
+void VKRenderer::DescriptorSetImpl::setRootConstants(
+    UInt range,
+    UInt offset,
+    UInt size,
+    void const* data)
+{
+    // The `range` variabel is the index of one of the descriptor
+    // slot ranges, which had better be a `RootConstant` range.
+    //
+    SLANG_ASSERT(range < UInt(m_layout->m_ranges.getCount()));
+    auto& rangeInfo = m_layout->m_ranges[range];
+    SLANG_ASSERT(rangeInfo.type == DescriptorSlotType::RootConstant);
+
+    // The `arrayIndex` for the descriptor slot range will refer
+    // to a root constant range, which is the range to be set.
+    //
+    auto rootConstantIndex = rangeInfo.arrayIndex;
+    SLANG_ASSERT(rootConstantIndex >= 0);
+    SLANG_ASSERT(rootConstantIndex < m_layout->m_rootConstantRanges.getCount());
+    auto& rootConstantRangeInfo = m_layout->m_rootConstantRanges[rootConstantIndex];
+    SLANG_ASSERT(offset + size <= UInt(rootConstantRangeInfo.size));
+
+    memcpy(m_rootConstantData.getBuffer() + rootConstantRangeInfo.offset + offset, data, size);
 }
 
 void VKRenderer::setDescriptorSet(PipelineType pipelineType, PipelineLayout* layout, UInt index, DescriptorSet* descriptorSet)
