@@ -76,7 +76,7 @@
 		.ExecInputPattern = '*.meta.slang'
 		.ExecInputPath = '$BuildRootPath$/source/slang'
 		.ExecArguments = '-o %2 %1'
-		.ExecOutput + '/include/core.meta.slang.h'
+		.ExecOutputName = 'include/core.meta.slang.h'
 	]
 
 	.SlangCPPExtractorObjectList = 
@@ -147,7 +147,7 @@
 			'$BuildRootPath$/source/slang/slang-ast-val.h',
 		}
 		.ExecArguments = '-o %2 %1 -strip-prefix slang-ast- -output-fields'
-		.ExecOutput + '/include/slang-ast-generated.h'
+		.ExecOutputName = 'include/slang-ast-generated.h'
 	]
 
 	// .SlangUnity = 
@@ -257,7 +257,7 @@
 		.ExecExecutable = '$PythonExecutable$'
 		.ExecInput = '$BuildRootPath$/external/gl3w/gl3w_gen.py'
 		.ExecArguments = '%1'
-		.ExecOutput + '/src/gl3w.c'
+		.ExecOutputName = 'src/gl3w.c'
 	]
 
 	.Gl3wLibrary =
@@ -374,7 +374,7 @@
 		.ExecExecutable = '$PythonExecutable$'
 		.ExecInput = '$BuildRootPath$/external/glslang/build_info.py'
 		.ExecArguments = '%1 $BuildRootPath$/external/glslang -i $BuildRootPath$/external/glslang/build_info.h.tmpl -o %2'
-		.ExecOutput + '/glslang/build_info.h'
+		.ExecOutputName = 'glslang/build_info.h'
 	]
 
 	.GlslangGlslangUnity = 
@@ -618,6 +618,19 @@
 			+ ' -I$BuildRootPath$/external/mio/include'
 		.CompilerInputFiles = {
 			'$BuildRootPath$/external/mio/test/test.cpp',
+		}
+	]
+
+	.PicoSHA2TestObjectList =
+	[
+		Using(.ObjectListCommon)
+
+		.Name = 'picosha2'
+		.ObjectListCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$BuildRootPath$/external/PicoSHA2'
+			+ ' -I$BuildRootPath$/external/SHA-Intrinsics'
+		.CompilerInputFiles = {
+			'$BuildRootPath$/external/PicoSHA2/test/test.cpp',
 		}
 	]
 
@@ -1083,7 +1096,33 @@
 		.DependencyExecutables = {
 			.MioTestExecutable,
 		}
-		.TestOutput = '/mio-test'
+		.TestOutputName = 'mio-test'
+	]
+
+	.PicoSHA2TestExecutable =
+	[
+		Using(.ExecutableCommon)
+
+		.Name = 'picosha2'
+		.DependencyObjectLists = {
+			.PicoSHA2TestObjectList,
+		}
+		.DependencyLibraries = {
+			.SHAIntrinsicsLibrary,
+		}
+		.ExecutableLinkerOptions = .LinkerOptionsCpp
+	]
+	
+	.PicoSHA2Test =
+	[
+		Using(.TestCommon)
+
+		.Name = 'picosha2'
+		.DependencyExecutables = {
+			.PicoSHA2TestExecutable,
+		}
+		.TestOutputName = 'picosha-test'
+		.TestWorkingDir = '$BuildRootPath$/external/PicoSHA2/test'
 	]
 
 	{
@@ -1106,6 +1145,7 @@
 		#endif
 			AddExecutable(.VolcanoExecutable .CompilerConfig)
 			AddTest(.MioTest .CompilerConfig)
+			AddTest(.PicoSHA2Test .CompilerConfig)
 
 			Alias('$ConfigName$') {}
 

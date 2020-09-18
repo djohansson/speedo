@@ -203,7 +203,7 @@
             "name": "(Windows) debug/mio-test",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/mio-test.exe",
+            "program": "${workspaceFolder}/build.output/debug/mio.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
@@ -219,7 +219,7 @@
             "name": "(Windows) release/mio-test",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/mio-test.exe",
+            "program": "${workspaceFolder}/build.output/release/mio.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
@@ -235,10 +235,58 @@
             "name": "(Windows) profile/mio-test",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/mio-test.exe",
+            "program": "${workspaceFolder}/build.output/profile/mio.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
+            "environment": [
+                {
+                    "name": "_NO_DEBUG_HEAP",
+                    "value": "1"
+                }
+            ],
+            "externalConsole": false
+        },
+        {
+            "name": "(Windows) debug/picosha2-test",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build.output/debug/picosha2.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/external/PicoSHA2/test",
+            "environment": [
+                {
+                    "name": "_NO_DEBUG_HEAP",
+                    "value": "1"
+                }
+            ],
+            "externalConsole": false
+        },
+        {
+            "name": "(Windows) release/picosha2-test",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build.output/release/picosha2.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/external/PicoSHA2/test",
+            "environment": [
+                {
+                    "name": "_NO_DEBUG_HEAP",
+                    "value": "1"
+                }
+            ],
+            "externalConsole": false
+        },
+        {
+            "name": "(Windows) profile/picosha2-test",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build.output/profile/picosha2.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/external/PicoSHA2/test",
             "environment": [
                 {
                     "name": "_NO_DEBUG_HEAP",
