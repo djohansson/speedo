@@ -168,8 +168,8 @@
         },
         {
             "name": "(Windows) release/volcano",
-            //"type": "cppvsdbg",
-            "type": "lldb",
+            "type": "cppvsdbg",
+            //"type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/release/volcano.exe",
             "args": [],

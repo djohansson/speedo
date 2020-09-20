@@ -7,38 +7,35 @@
 			"label": "FastBuild (Cache)",
 			"type": "shell",
 			"windows": {
-				"command": "fbuild.exe",
+				"command": "fbuild.exe"
 			},
 			"linux": {
-				"command": "fbuild",
+				"command": "fbuild"
 			},
 			"osx": {
-				"command": "fbuild",
+				"command": "fbuild"
 			},
 			"args": [
-			//	"-showcmds",
 				"-cache",
-			//	"-cacheverbose",
 				"-summary",
-			//	"all"
-				"debug"
+				"all"
 			],
 			"group": {
-                "kind": "build",
-                "isDefault": true
-            }
+				"kind": "build",
+				"isDefault": true
+			}
 		},
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
 			"windows": {
-				"command": "fbuild.exe",
+				"command": "fbuild.exe"
 			},
 			"linux": {
-				"command": "fbuild",
+				"command": "fbuild"
 			},
 			"osx": {
-				"command": "fbuild",
+				"command": "fbuild"
 			},
 			"args": [
 				"-clean",
@@ -52,13 +49,13 @@
 			"label": "FastBuild (Clean, No Cache)",
 			"type": "shell",
 			"windows": {
-				"command": "fbuild.exe",
+				"command": "fbuild.exe"
 			},
 			"linux": {
-				"command": "fbuild",
+				"command": "fbuild"
 			},
 			"osx": {
-				"command": "fbuild",
+				"command": "fbuild"
 			},
 			"args": [
 				"-clean",
@@ -66,6 +63,6 @@
 				"all"
 			],
 			"group": "build"
-        }
-    ]
+		}
+	]
 }
