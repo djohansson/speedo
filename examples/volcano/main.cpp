@@ -18,6 +18,8 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 
 #include <imgui.h>
 #include <examples/imgui_impl_glfw.h>
@@ -239,8 +241,14 @@ int main(int argc, char** argv)
 	glfwSetWindowRefreshCallback(window, onWindowRefresh);
 	glfwSetMonitorCallback(onMonitorChanged);
 
+#if __WINDOWS__
+	auto windowHandle = glfwGetWin32Window(window);
 	volcano_create(
-		window,
+		reinterpret_cast<void*>(&windowHandle),
+#else
+	volcano_create(
+		reinterpret_cast<void*>(window),
+#endif
 		g_window.width,
 		g_window.height,
 		getCmdOption(argv, argv + argc, R"(-r)"),
@@ -250,10 +258,9 @@ int main(int argc, char** argv)
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 
-	
-	#if defined(_DEBUG) && defined(__WINDOWS__)
+#if defined(_DEBUG) && defined(__WINDOWS__)
 	uint64_t frameIndex = 0;
-	#endif
+#endif
 	do
 	{
 		FrameMark;

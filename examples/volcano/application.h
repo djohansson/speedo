@@ -47,7 +47,7 @@ class Application
 public:
 
 	Application(
-		void* view,
+		void* windowHandle,
 		int width,
 		int height,
 		const char* resourcePath,

@@ -44,7 +44,7 @@ class InstanceContext : public Noncopyable
 {
 public:
 
-    InstanceContext(AutoSaveJSONFileObject<InstanceConfiguration<B>>&& config, void* surfaceHandle);
+    InstanceContext(AutoSaveJSONFileObject<InstanceConfiguration<B>>&& config, void* windowHandle);
     ~InstanceContext();
 
     const auto& getConfig() const { return myConfig; }

@@ -4,12 +4,16 @@
 static std::unique_ptr<Application<Vk>> theApplication;
 
 int volcano_create(
-	void* view, int width, int height, const char* resourcePath, const char* userProfilePath)
+	void* windowHandle,
+	int width,
+	int height,
+	const char* resourcePath,
+	const char* userProfilePath)
 {
-	assert(view != nullptr);
+	assert(windowHandle != nullptr);
 
 	theApplication = std::make_unique<Application<Vk>>(
-		view, width, height, resourcePath, userProfilePath);
+		windowHandle, width, height, resourcePath, userProfilePath);
 
 	return EXIT_SUCCESS;
 }

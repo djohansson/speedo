@@ -6,9 +6,14 @@
 #endif
 #include <vk_mem_alloc.h>
 
+#ifdef __WINDOWS__
+#include <windows.h>
+#include <vulkan/vulkan_win32.h>
+#else
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#endif
 
 #include "vk-utils.h"
 
@@ -855,8 +860,18 @@ VkPipelineLayout createPipelineLayout(
 
 VkSurfaceKHR createSurface(VkInstance instance,	void* view)
 {
-    VkSurfaceKHR surface;
+	VkSurfaceKHR surface;
+#ifdef __WINDOWS__
+	auto vkCreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(
+		vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR"));
+	assert(vkCreateWin32SurfaceKHR);
+	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
+    surfaceCreateInfo.hinstance = GetModuleHandle(NULL);
+    surfaceCreateInfo.hwnd = *reinterpret_cast<HWND*>(view);
+    VK_CHECK(vkCreateWin32SurfaceKHR(instance, &surfaceCreateInfo, nullptr, &surface));
+#else
     VK_CHECK(glfwCreateWindowSurface(instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
+#endif
 
     return surface;
 }

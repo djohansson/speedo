@@ -190,7 +190,7 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
 
 template <>
 Application<Vk>::Application(
-    void* view,
+    void* windowHandle,
     int width,
     int height,
     const char* resourcePath,
@@ -217,7 +217,7 @@ Application<Vk>::Application(
         AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
             myUserProfilePath / "instance.json",
             "instanceConfiguration"),
-        view);
+        windowHandle);
 
     const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
     if (graphicsDeviceCandidates.empty())

@@ -162,7 +162,7 @@ void InstanceContext<Vk>::updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> dev
 template <>
 InstanceContext<Vk>::InstanceContext(
     AutoSaveJSONFileObject<InstanceConfiguration<Vk>>&& config,
-    void* surfaceHandle)
+    void* windowHandle)
 : myConfig(std::move(config))
 {
     ZoneScopedN("Instance()");
@@ -259,7 +259,7 @@ InstanceContext<Vk>::InstanceContext(
 
     VK_CHECK(vkCreateInstance(&info, nullptr, &myInstance));
 
-    mySurface = createSurface(myInstance, surfaceHandle);
+    mySurface = createSurface(myInstance, windowHandle);
 
     uint32_t physicalDeviceCount = 0;
     VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));

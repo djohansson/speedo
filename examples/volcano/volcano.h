@@ -8,7 +8,7 @@ extern "C"
 #endif
 
 int volcano_create(
-    void* view,
+    void* windowHandle,
     int windowWidth,
     int windowHeight,
     const char* resourcePath,
