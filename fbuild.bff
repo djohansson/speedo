@@ -5,8 +5,6 @@
 
 #include "buildsystem.bff"
 
-.BuildName = 'slang'
-
 {
 	Using(.Clang_BaseConfig)
 
@@ -1125,10 +1123,38 @@
 		.TestWorkingDir = '$BuildRootPath$/external/PicoSHA2/test'
 	]
 
+	.AllProject =
+	[
+		Using(.ProjectCommon)
+		
+		.Name = 'all'
+		.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(Configuration)'
+		.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(Configuration)'
+		.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide clean-all-^$(Configuration)'
+	]
+
+	.NoneProject =
+	[
+		Using(.ProjectCommon)
+		
+		.Name = 'none'
+	]
+
 	{
 		Using(.GlobalContext)
+
+		ForEach(.CompilerConfig in .Clang_Native_Configs)
+		{
+			.LocalContext = []
+
+			Using(.LocalContext)
+
+			AddProjectConfig(.ArchitectureName .CompilerConfig)
+
+			^GlobalContext + .LocalContext
+		}
 		
-		ForEach(.CompilerConfig in .Clang_x64_Configs)
+		ForEach(.CompilerConfig in .Clang_Native_Configs)
 		{
 			.LocalContext = []
 
@@ -1152,122 +1178,23 @@
 			^GlobalContext + .LocalContext
 		}
 
+		AddProject(.AllProject .ProjectConfigs)
+		AddProject(.NoneProject .ProjectConfigs)
+
+		AddProject(.SlangDLL .ProjectConfigs)
+		AddProject(.SlangGlslangDLL .ProjectConfigs)
+		AddProject(.SlangCExecutable .ProjectConfigs)
+		AddProject(.TracyExecutable .ProjectConfigs)
+	#if __WINDOWS__
+		AddProject(.HelloWorldExecutable .ProjectConfigs)
+		AddProject(.ModelViewerExecutable .ProjectConfigs)
+	#endif
+		AddProject(.VolcanoExecutable .ProjectConfigs)
+		AddProject(.MioTest .ProjectConfigs)
+		AddProject(.PicoSHA2Test .ProjectConfigs)
+
+		AddSolution('slang' .ProjectConfigs .ProjectNames)
+
 		Alias('all') {}
 	}
 }
-
-// .Clang_x64_ProjectConfig =
-// [
-// 	Using(.CompilerConfig)
-
-// 	.Platform = .ArchInfo
-// 	.Config = .ConfigName
-// ]
-// ^AllProjectConfigs + .Clang_x64_ProjectConfig;
-
-// .Clang_x64_SolutionConfig = 
-// [
-// 	Using(.CompilerConfig)
-	
-// 	.Platform = .ArchInfo
-// 	.Config = .ConfigName
-// ]
-// ^AllSolutionConfigs + .Clang_x64_SolutionConfig
-//}
-
-// // Projects
-// ForEach(.RootProject in .RootProjects)
-// {
-// 	.LocalProjects = { }
-// 	.LocalSolutionDependencies = { }
-// 	.LocalSolutionFolders = { }
-
-// 	{
-// 		.Project = 
-// 		[
-// 			Using(.RootProject)
-
-// 			.ProjectName = '$Name$-$ProjectType$'
-// 			.ProjectOutput = '$BuildRootPath$/$ProjectName$.vcxproj'
-// 			.ProjectInputFiles = .CompilerInputFiles + .CompilerInputUnity
-// 			.Output = '$BuildOutputPath$/^$(Configuration)/$OutputFilePrefix$$Name$$OutputFilePrefix$'
-// 			.ProjectConfigs = .AllProjectConfigs
-// 		]
-// 		^LocalProjects + .Project
-
-// 		.SolutionDependency = 
-// 		[
-// 			Using(.Project)
-
-// 			.Projects = { .ProjectName }
-// 		]
-// 		^LocalSolutionDependencies + .SolutionDependency
-
-// 		.SolutionFolder = 
-// 		[
-// 			Using(.Project)
-
-// 			.Path = '$Name$'
-// 			.Projects = { .ProjectName }
-// 		]
-// 		^LocalSolutionFolders + .SolutionFolder
-// 	}
-
-// 	^AllProjects + .LocalProjects
-// 	^AllSolutionDependencies + .LocalSolutionDependencies
-// 	^AllSolutionFolders + .LocalSolutionFolders
-// }
-
-// {
-// 	// "Build all" project
-// 	{
-// 		.Project =
-// 		[
-// 			Using(.ProjectCommon)
-			
-// 			.ProjectName = 'all-vcxproj'
-// 			.ProjectFiles = { '$BuildRootPath$/fbuild.bff' }
-// 			.ProjectOutput = '$BuildRootPath$/$ProjectName$.vcxproj'
-// 			.ProjectConfigs = .AllProjectConfigs
-// 			.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(Configuration)'
-// 			.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(Configuration)'
-// 			.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide clean-all-^$(Configuration)'
-// 		]
-// 		^AllProjects + .Project
-// 	}
-
-// 	// "Build none" project
-// 	{
-// 		.Project =
-// 		[
-// 			Using(.ProjectCommon)
-			
-// 			.ProjectName = 'none-vcxproj'
-// 			.ProjectFiles = { '$BuildRootPath$/fbuild.bff' }
-// 			.ProjectOutput = '$BuildRootPath$/$ProjectName$.vcxproj'
-// 			.ProjectConfigs = .AllProjectConfigs
-// 		]
-// 		^AllProjects + .Project
-// 		{
-// 			Using(.Project)
-// 			^AllProjectNames + .ProjectName
-// 		}
-// 	}
-
-// 	{
-// 		.Solution = 
-// 		[
-// 			.SolutionName = '$BuildName$'
-// 			.SolutionOutput = '$BuildRootPath$/$BuildName$.sln'
-// 			.SolutionProjects = .AllProjectNames
-// 			.SolutionConfigs = .AllSolutionConfigs
-// 			.SolutionFolders = .AllSolutionFolders
-// 			.SolutionDependencies = .AllSolutionDependencies
-// 			//.SolutionVisualStudioVersion        // (optional) Version of Solution (default "14.0.22823.1" VS2015 RC)
-// 			//.SolutionMinimumVisualStudioVersion // (optional) Min version of Solution (default "10.0.40219.1" VS2010 Express)
-// 			.SolutionBuildProject = 'all-vcxproj'
-// 			//.SolutionDeployProjects             // (optional) Project(s) set deploy
-// 		]
-// 		^AllSolutions + .Solution
-// 	}
-// }

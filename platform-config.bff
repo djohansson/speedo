@@ -1,5 +1,10 @@
 #once
 
+.X86String = 'x86'
+.X64String = 'x64'
+
+.ArchitectureName = '$X64String$'
+
 #if __WINDOWS__
 .LibPrefix = ''
 .LibSuffix = '.lib'

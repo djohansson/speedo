@@ -7,6 +7,8 @@
 .ProjectCommon = 
 [
     .EmptyString = ''
+    
+    .ProjectType = 'vcxproj'
 	.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(ProjectName)-^$(Configuration)'
 	.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(ProjectName)-^$(Configuration)'
 	.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide Clean-^$(ProjectName)-^$(Configuration)'
@@ -16,6 +18,23 @@
 	.Platform = 'x64'
 	.PlatformToolset = 'llvm'
 	.Dependencies = { 'none-vcxproj' }
+    
+    .PreBuildDependencies = { }
+	.DependencyObjectLists = { }
+	.DependencyLibraries = { }
+	.DependencyDLLs = { }
+    .DependencyExecutables = { }
+    .DependencyTasks = { }
+    .UnityInputPath = { }
+	.UnityInputPattern = '*.cpp'
+    .UnityInputFiles = { }
+    //.UnityInputExcludedFiles = { }
+    .CompilerInputPath = { }
+    .CompilerInputPattern = '*.cpp'
+    .CompilerInputFiles = { }
+    //.CompilerInputExcludedFiles = { }
+    .OutputFilePrefix = ''
+	.OutputFileSuffix = ''
 ]	
 
 .UnityCommon = 
@@ -29,12 +48,7 @@
     Using(.ProjectCommon)
 
     .ProjectType = 'obj'
-    .PreBuildDependencies = { }
-	.DependencyTasks = { }
-	.OutputFilePrefix = ''
-	.OutputFileSuffix = ''
-	.CompilerInputFiles = { }
-	.CompilerInputUnity = { }
+    .CompilerInputUnity = { }
 	.ConfigDependentCompilerOptions = { }
     .UseConfigDependentInputPath = false
 ]
@@ -53,9 +67,6 @@
 	Using(.ProjectCommon)
 
     .ProjectType = 'dll'
-    .PreBuildDependencies = { }
-	.DependencyObjectLists = { }
-	.DependencyLibraries = { }
 	.Libraries = { }
 	.OutputFilePrefix = .DllPrefix
 	.OutputFileSuffix = .DllSuffix
@@ -66,10 +77,6 @@
 	Using(.ProjectCommon)
 
     .ProjectType = 'exe'
-    .PreBuildDependencies = { }
-	.DependencyObjectLists = { }
-	.DependencyLibraries = { }
-	.DependencyDLLs = { }
 	.Libraries = { }
 	.OutputFilePrefix = ''
 	.OutputFileSuffix = .ExeSuffix
@@ -80,8 +87,6 @@
 	Using(.ProjectCommon)
 
     .ProjectType = 'test'
-    .PreBuildDependencies = { }
-    .DependencyExecutables = { }
     .TestWorkingDir = ''
     .TestOutputName = ''
 ]
@@ -91,8 +96,6 @@
 	Using(.ProjectCommon)
     
     .ProjectType = 'task'
-    .PreBuildDependencies = { }
-	.DependencyExecutables = { }
     .ExecExecutable = ''
     .ExecWorkingDir = ''
 	.ExecOutputName = ''
@@ -102,6 +105,10 @@
 [
     .Targets = { }
     .ReturnValues = { }
+    .ProjectConfigs = { }
+    .ProjectNames = { }
+ 	// .SolutionDependencies = { }
+    // .SolutionFolders = { }
 ]
 
 function PrintArray(.ArrayName .Array)
@@ -401,4 +408,129 @@ function AddTask(.Task .CompilerConfig)
 	}
 
     ^ReturnValues = { '$TaskName$' }
+}
+
+function AddProjectConfig(.ArchitectureName .CompilerConfig)
+{
+    .LocalProjectConfig = 
+    [
+        Using(.CompilerConfig)
+
+        .Platform = .ArchitectureName
+        .Config = .ConfigName
+        .ProjectConfigName = '$Config$_$Platform$'
+    ]
+
+    Using(.LocalProjectConfig)
+
+    If(.ProjectConfigName not in .Targets)
+	{
+		Print('AddProjectConfig:$ProjectConfigName$')
+        ^ProjectConfigs + .LocalProjectConfig
+	}
+
+    ^ReturnValues = { '$ProjectConfigName$' }
+}
+
+function AddProject(.Project .AllProjectConfigs)
+{
+    .LocalProject = 
+    [
+        Using(.Project)
+
+        .ProjectName = '$Name$-$ProjectType$'
+        .ProjectInputPaths = .CompilerInputPath
+        // .ProjectInputPathsExclude       // (optional) Paths to exclude from project
+        // .ProjectPatternToExclude        // (optional) Pattern(s) for files to exclude from project
+        // .ProjectAllowedFileExtensions   // (optional) Extensions to allow in path searches
+        .ProjectFiles = .CompilerInputFiles
+        // .ProjectFilesToExclude          // (optional) List of files to exclude from project
+        // .ProjectBasePath                // (optional) Base path(s) for root folder(s) in project
+        .ProjectOutput = '$BuildRootPath$/$ProjectName$.vcxproj'
+        .Output = '$BuildOutputPath$/^$(Configuration)/$OutputFilePrefix$$Name$$OutputFilePrefix$'
+        .ProjectConfigs = .AllProjectConfigs
+    ]
+
+    Using(.LocalProject)
+
+    // .SolutionDependency = 
+    // [
+    //      Using(.Project)
+    //     .Projects = { '$ProjectName$' }
+    //     .Dependencies = { .Dependencies }
+    // ]
+    
+    // .SolutionFolder = 
+    // [
+    //      Using(.Project)
+    //     .Path = '$Name$'
+    //     .Projects = { '$ProjectName$' }
+    // ]
+
+    //^SolutionDependencies + .SolutionDependency
+    //^SolutionFolders + .SolutionFolder
+
+    If(.ProjectName not in .Targets)
+	{
+        ForEach(.ObjectList in .DependencyObjectLists)
+		{
+            ^ReturnValues = { }
+            AddProject(.ObjectList .AllProjectConfigs)
+            //^Dependencies + .ReturnValues
+		}
+
+		ForEach(.Library in .DependencyLibraries)
+		{
+            ^ReturnValues = { }
+            AddProject(.Library .AllProjectConfigs)
+            //^Dependencies + .ReturnValues
+		}
+
+		ForEach(.DLL in .DependencyDLLs)
+		{
+            ^ReturnValues = { }
+            AddProject(.DLL .AllProjectConfigs)
+            //^Dependencies + .ReturnValues
+		}
+
+		Print('AddProject:$ProjectName$')
+        VCXProject('$ProjectName$') {}
+        ^Targets + .ProjectName
+	}
+
+    If(.ProjectName not in .ProjectNames)
+	{
+        ^ProjectNames + .ProjectName
+	}
+
+    ^ReturnValues = { '$ProjectName$' }
+}
+
+function AddSolution(.Name .AllProjectConfigs .AllProjectNames)
+{
+    .LocalSolution = 
+    [
+        .SolutionName = '$Name$'
+        .SolutionOutput = '$BuildRootPath$/$Name$.sln'
+        .SolutionProjects = .AllProjectNames
+        .SolutionConfigs = .AllProjectConfigs
+        //.SolutionFolders = .AllSolutionFolders
+        //.SolutionDependencies = .AllSolutionDependencies
+        //.SolutionVisualStudioVersion        // (optional) Version of Solution (default "14.0.22823.1" VS2015 RC)
+        //.SolutionMinimumVisualStudioVersion // (optional) Min version of Solution (default "10.0.40219.1" VS2010 Express)
+        .SolutionBuildProject = 'all-vcxproj'
+        //.SolutionDeployProjects             // (optional) Project(s) set deploy
+    ]
+
+    Using(.LocalSolution)
+    
+    If(.SolutionName not in .Targets)
+	{
+        PrintArray('AddSolution:SolutionProjects:' .SolutionProjects)
+        Print('AddSolution:$SolutionName$')
+        VSSolution('$SolutionName$') {}
+        ^Targets + .SolutionName
+    }
+
+    ^ReturnValues = { '$SolutionName$' }
 }

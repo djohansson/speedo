@@ -1,6 +1,7 @@
 #once
 
-.Clang_BaseConfig = [
+.Clang_BaseConfig =
+[
 #if exists(LLVM_PATH)
 #import LLVM_PATH
 	.LLVMPath = '$LLVM_PATH$'
@@ -61,6 +62,7 @@
 		+ ' -D_WIN32_LEAN_AND_MEAN'
 		+ ' -DNOMINMAX'
 		+ ' -gcodeview'
+		+ ' -Xclang -cfguard'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -109,13 +111,18 @@
 #endif
 	.ProfilingEnabled = '0'
 ]
-.Clang_x64_BaseConfig = [
+
+.Clang_Native_BaseConfig =
+[
 	Using(.Clang_BaseConfig)
-	.ArchInfo = 'x64'
-	.CompilerOptions + ' -m64 -march=native'
+
+	.CompilerOptions + ' -march=native'
 ]
-.Clang_x64_DebugConfig = [
-	Using(.Clang_x64_BaseConfig)
+
+.Clang_Native_DebugConfig =
+[
+	Using(.Clang_Native_BaseConfig)
+
 	.ConfigName = 'debug'
 	.ProfilingEnabled = '1'
 	.CompilerOptions + ' -D_DEBUG'
@@ -129,8 +136,11 @@
 		+ ' -lmsvcrtd'
 #endif //__WINDOWS__
 ]
-.Clang_x64_ReleaseConfig = [
-	Using(.Clang_x64_BaseConfig)
+
+.Clang_Native_ReleaseConfig =
+[
+	Using(.Clang_Native_BaseConfig)
+
 	.ConfigName = 'release'
 	.CompilerOptions + ' -DRELEASE -DNDEBUG'
 		+ .CompilerReleaseOptimizations
@@ -140,14 +150,17 @@
 		+ ' -lmsvcrt'
 #endif //__WINDOWS__
 ]
-.Clang_x64_ProfileConfig = [
-	Using(.Clang_x64_ReleaseConfig)
+
+.Clang_Native_ProfileConfig =
+[
+	Using(.Clang_Native_ReleaseConfig)
+
 	.ConfigName = 'profile'
 	.ProfilingEnabled = '1'
 ]
 
-.Clang_x64_Configs = {
-	.Clang_x64_DebugConfig, .Clang_x64_ProfileConfig, .Clang_x64_ReleaseConfig
+.Clang_Native_Configs = {
+	.Clang_Native_DebugConfig, .Clang_Native_ProfileConfig, .Clang_Native_ReleaseConfig
 }
 
 Compiler('Compiler-Clang')
