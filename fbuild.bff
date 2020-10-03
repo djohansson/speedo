@@ -403,34 +403,34 @@
 			' -I$IntermediateFilePath$/glslang-generate',
 		}
 		.CompilerInputPath = {
-			'$ProjectBasePath$',
-			// '$ProjectBasePath$/HLSL',
-			// '$ProjectBasePath$/OSDependent',
+			//'$ProjectBasePath$',
+			'$ProjectBasePath$/HLSL',
+			'$ProjectBasePath$/OSDependent',
 		}
-		// .CompilerInputFiles = {
-		// 	'$ProjectBasePath$/MachineIndependent/glslang_tab.cpp'
+		.CompilerInputFiles = {
+			'$ProjectBasePath$/MachineIndependent/glslang_tab.cpp'
+		}
+		// .CompilerInputExcludedFiles = {
+		//  	'$ProjectBasePath$/MachineIndependent/glslang_angle_tab.cpp'
 		// }
-		.CompilerInputExcludedFiles = {
-		 	'$ProjectBasePath$/MachineIndependent/glslang_angle_tab.cpp'
-		}
 	#if !__WINDOWS__
 	 	.CompilerInputExcludePath = '$ProjectBasePath$/OSDependent/Windows'
 	#else
 	 	.CompilerInputExcludePath = '$ProjectBasePath$/OSDependent/Unix'
 	#endif
-		// .CompilerInputUnity = '$Name$-unity'
-		// .UnityInputPath = {
-		// 	'$ProjectBasePath$/GenericCodeGen',
-		// 	'$ProjectBasePath$/MachineIndependent',
-		// 	'$ProjectBasePath$/OGLCompilersDLL',
-		// }
-		// .UnityInputPattern = "*.cpp"
-		// .UnityInputExcludedFiles = {
-		// 	'$ProjectBasePath$/MachineIndependent/glslang_tab.cpp'
-		// 	'$ProjectBasePath$/MachineIndependent/glslang_angle_tab.cpp'
-		// }
-		// .UnityOutputPath + '/external/glslang/glslang'
-		// .UnityOutputPattern = 'glslang-glslang-unity*.cpp'
+		.CompilerInputUnity = '$Name$-unity'
+		.UnityInputPath = {
+			'$ProjectBasePath$/GenericCodeGen',
+			'$ProjectBasePath$/MachineIndependent',
+			'$ProjectBasePath$/OGLCompilersDLL',
+		}
+		.UnityInputPattern = "*.cpp"
+		.UnityInputExcludedFiles = {
+			'$ProjectBasePath$/MachineIndependent/glslang_tab.cpp'
+			'$ProjectBasePath$/MachineIndependent/glslang_angle_tab.cpp'
+		}
+		.UnityOutputPath + '/external/glslang/glslang'
+		.UnityOutputPattern = 'glslang-glslang-unity*.cpp'
 	]
 
 	.GlslangHlslObjectList =
