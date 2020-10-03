@@ -593,6 +593,7 @@
 			+ ' -I$BuildRootPath$/external/VulkanMemoryAllocator/src'
 			+ ' -I$BuildRootPath$/external/imgui'
 			+ ' -I$BuildRootPath$/external/imnodes'
+			+ ' -I$BuildRootPath$/external/lz4/lib'
 			+ ' -I$BuildRootPath$/external/cereal/include'
 			+ ' -I$BuildRootPath$/external/picosha2'
 			+ ' -I$BuildRootPath$/external/SHA-Intrinsics'
@@ -738,6 +739,22 @@
 		.LibraryCompilerOptions = .CompilerOptionsC
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/xxhash.c',
+		}
+	]
+
+	.LZ4Library = 
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/external/lz4'
+
+		.Name = 'lz4'
+		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -I$ProjectBasePath$/external/xxhash'
+		.CompilerInputFiles = {
+			'$ProjectBasePath$/lib/lz4.c',
+			'$ProjectBasePath$/lib/lz4hc.c',
+			'$ProjectBasePath$/lib/lz4frame.c',
 		}
 	]
 
@@ -976,6 +993,7 @@
 		}
 		.DependencyLibraries = {
 			.XXHashLibrary,
+			.LZ4Library,
 			.ZStdLibrary,
 			.Gl3wLibrary,
 			.GlfwLibrary,
@@ -1060,6 +1078,7 @@
 			.Gl3wLibrary,
 			.GlfwLibrary,
 			.XXHashLibrary,
+			.LZ4Library,
 			.SHAIntrinsicsLibrary,
 			.ImguiLibrary,
 			.Freetype2Library,

@@ -3,6 +3,8 @@
 
 #include <stb_sprintf.h>
 
+#include <cereal/archives/lz4_binary.hpp>
+
 #pragma pack(push, 1)
 template <>
 struct PipelineCacheHeader<Vk>
@@ -54,7 +56,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 
 	auto loadCacheOp = [&physicalDeviceProperties, &cacheData](std::istream& stream)
 	{
-		cereal::BinaryInputArchive bin(stream);
+		cereal::LZ4BinaryInputArchive bin(stream);
 		bin(cacheData);
 
 		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
@@ -111,7 +113,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 				return false;
 			}
 			
-			cereal::BinaryOutputArchive bin(stream);
+			cereal::LZ4BinaryOutputArchive bin(stream);
 			bin(cacheData);
 		}
 		else

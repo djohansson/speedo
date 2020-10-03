@@ -1,5 +1,4 @@
 #include <cereal/cereal.hpp>
-#include <cereal/archives/binary.hpp>
 
 namespace descriptorset
 {
