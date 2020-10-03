@@ -48,3 +48,5 @@ private:
 	Buffer<B> myBuffer;
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 };
+
+#include "model.inl"

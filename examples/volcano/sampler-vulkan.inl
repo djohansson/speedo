@@ -1,5 +1,4 @@
 #include <cereal/cereal.hpp>
-#include <cereal/archives/binary.hpp>
 #include <cereal/types/vector.hpp>
 
 template <class Archive>

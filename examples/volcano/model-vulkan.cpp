@@ -23,12 +23,7 @@
 #	include <tiny_obj_loader.h>
 #endif
 
-#include <cereal/archives/binary.hpp>
-#include <cereal/cereal.hpp>
-#include <cereal/types/map.hpp>
-#include <cereal/types/string.hpp>
-#include <cereal/types/utility.hpp>
-#include <cereal/types/vector.hpp>
+#include <cereal/archives/lz4_binary.hpp>
 
 namespace model
 {
@@ -93,8 +88,8 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
 	{
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::BinaryInputArchive bin(stream);
-		bin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
+		cereal::LZ4BinaryInputArchive bin(stream);
+		bin(desc);
 
 		std::string debugString;
 		debugString.append(desc.name);
@@ -119,8 +114,8 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream) {
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::BinaryOutputArchive bin(stream);
-		bin(desc.aabb, desc.attributes, desc.indexBufferSize, desc.vertexBufferSize, desc.indexCount);
+		cereal::LZ4BinaryOutputArchive bin(stream);
+		bin(desc);
 
 		std::byte* data;
 		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
