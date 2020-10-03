@@ -13,6 +13,13 @@
 	.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(ProjectName)-^$(Configuration)'
 	.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide Clean-^$(ProjectName)-^$(Configuration)'
 	.ProjectBasePath  = '$BuildRootPath$'
+    //.ProjectInputPathsExclude = // (optional) Paths to exclude from project
+    //.ProjectFilesToExclude          // (optional) List of files to exclude from project
+    //.ProjectPatternToExclude        // (optional) Pattern(s) for files to exclude from project
+    //.ProjectAllowedFileExtensions   // (optional) Extensions to allow in path searches
+    //.ProjectPatternToExclude // (optional) Pattern(s) for files to exclude from project
+    //.ProjectAllowedFileExtensions // (optional) Extensions to allow in path searches
+
 	.OutputDirectory = '$BuildOutputPath$'
 	.IntermediateDirectory = '$IntermediateFilePath$'
 	.Platform = 'x64'
@@ -28,24 +35,19 @@
     .UnityInputPath = { }
 	.UnityInputPattern = '*.cpp'
     .UnityInputFiles = { }
-    //.UnityInputExcludedFiles = { }
+    .UnityInputExcludedFiles = { }
+    .UnityOutputPath = '$IntermediateFilePath$'
     .CompilerInputPath = { }
     .CompilerInputPattern = '*.cpp'
     .CompilerInputFiles = { }
-    //.CompilerInputExcludedFiles = { }
+    .CompilerInputExcludedFiles = { }
     .OutputFilePrefix = ''
 	.OutputFileSuffix = ''
 ]	
 
-.UnityCommon = 
-[
-	.UnityOutputPath = '$IntermediateFilePath$'
-]
-
 .ObjectListCommon = 
 [
-	Using(.UnityCommon)
-    Using(.ProjectCommon)
+	Using(.ProjectCommon)
 
     .ProjectType = 'obj'
     .CompilerInputUnity = { }
@@ -432,23 +434,18 @@ function AddProjectConfig(.ArchitectureName .CompilerConfig)
     ^ReturnValues = { '$ProjectConfigName$' }
 }
 
-function AddProject(.Project .AllProjectConfigs)
+function AddProject(.Project .ProjectConfigs)
 {
     .LocalProject = 
     [
         Using(.Project)
 
         .ProjectName = '$Name$-$ProjectType$'
-        .ProjectInputPaths = .CompilerInputPath
-        // .ProjectInputPathsExclude       // (optional) Paths to exclude from project
-        // .ProjectPatternToExclude        // (optional) Pattern(s) for files to exclude from project
-        // .ProjectAllowedFileExtensions   // (optional) Extensions to allow in path searches
-        .ProjectFiles = .CompilerInputFiles
-        // .ProjectFilesToExclude          // (optional) List of files to exclude from project
-        // .ProjectBasePath                // (optional) Base path(s) for root folder(s) in project
+        .ProjectInputPaths = .UnityInputPath + .CompilerInputPath
+        .ProjectFiles = .UnityInputFiles + .CompilerInputFiles
         .ProjectOutput = '$BuildRootPath$/$ProjectName$.vcxproj'
         .Output = '$BuildOutputPath$/^$(Configuration)/$OutputFilePrefix$$Name$$OutputFilePrefix$'
-        .ProjectConfigs = .AllProjectConfigs
+        .ProjectConfigs = .ProjectConfigs
     ]
 
     Using(.LocalProject)
@@ -475,21 +472,21 @@ function AddProject(.Project .AllProjectConfigs)
         ForEach(.ObjectList in .DependencyObjectLists)
 		{
             ^ReturnValues = { }
-            AddProject(.ObjectList .AllProjectConfigs)
+            AddProject(.ObjectList .ProjectConfigs)
             //^Dependencies + .ReturnValues
 		}
 
 		ForEach(.Library in .DependencyLibraries)
 		{
             ^ReturnValues = { }
-            AddProject(.Library .AllProjectConfigs)
+            AddProject(.Library .ProjectConfigs)
             //^Dependencies + .ReturnValues
 		}
 
 		ForEach(.DLL in .DependencyDLLs)
 		{
             ^ReturnValues = { }
-            AddProject(.DLL .AllProjectConfigs)
+            AddProject(.DLL .ProjectConfigs)
             //^Dependencies + .ReturnValues
 		}
 
@@ -506,14 +503,14 @@ function AddProject(.Project .AllProjectConfigs)
     ^ReturnValues = { '$ProjectName$' }
 }
 
-function AddSolution(.Name .AllProjectConfigs .AllProjectNames)
+function AddSolution(.Name .ProjectConfigs .ProjectNames)
 {
     .LocalSolution = 
     [
         .SolutionName = '$Name$'
         .SolutionOutput = '$BuildRootPath$/$Name$.sln'
-        .SolutionProjects = .AllProjectNames
-        .SolutionConfigs = .AllProjectConfigs
+        .SolutionProjects = .ProjectNames
+        .SolutionConfigs = .ProjectConfigs
         //.SolutionFolders = .AllSolutionFolders
         //.SolutionDependencies = .AllSolutionDependencies
         //.SolutionVisualStudioVersion        // (optional) Version of Solution (default "14.0.22823.1" VS2015 RC)
