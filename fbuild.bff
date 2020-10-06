@@ -603,6 +603,7 @@
 			+ ' -I$BuildRootPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
+			//+ ' -DLZ4_DEBUG=5'
 		.CompilerInputPath = '$ProjectBasePath$'
 	//	.CompilerInputUnity = '$Name$-unity'
 	// 	.UnityInputPath = '$ProjectBasePath$'
@@ -751,6 +752,7 @@
 		.Name = 'lz4'
 		.LibraryCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$/external/xxhash'
+			//+ ' -DLZ4_DEBUG=5'
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/lib/lz4.c',
 			'$ProjectBasePath$/lib/lz4hc.c',

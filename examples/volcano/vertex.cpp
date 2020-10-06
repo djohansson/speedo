@@ -1,23 +1,23 @@
 #include "vertex.h"
 
-std::byte* VertexAllocator::allocate(size_t count)
+void* VertexAllocator::allocate(size_t count)
 {
     auto bytes = count * stride();
     myData.resize(myData.size() + bytes);
     return (myData.data() + myData.size()) - bytes;
 }
 
-void VertexAllocator::deallocate(std::byte* ptr, size_t count)
+void VertexAllocator::deallocate(void* ptr, size_t count)
 {
     assert(ptr != nullptr);
 
-    std::byte* first = myData.data();
-    std::byte* last = first + myData.size();
+    auto* first = myData.data();
+    auto* last = first + myData.size();
 
     auto bytes = count * stride();
     assert(bytes > 0);
 
-    std::byte* next = ptr + bytes;
+    auto* next = static_cast<char*>(ptr) + bytes;
 
     if (next == last) // is we are freeing the last item we can just resize
     {
@@ -28,7 +28,7 @@ void VertexAllocator::deallocate(std::byte* ptr, size_t count)
         if ((next < last && next > first)) // and that we are inside the right range
         {
             // copy over this item with rest of range, resize down to right size.
-            std::copy(next, last, ptr);
+            std::copy(next, last, static_cast<char*>(ptr));
             myData.resize(myData.size() - bytes);
         }
     }

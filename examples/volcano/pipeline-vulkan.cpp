@@ -33,7 +33,7 @@ bool isCacheValid(
 
 PipelineCacheHandle<Vk> createPipelineCache(
 	DeviceHandle<Vk> device,
-	const std::vector<std::byte>& cacheData)
+	const std::vector<char>& cacheData)
 {
 	PipelineCacheHandle<Vk> cache;
 
@@ -52,7 +52,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 	DeviceHandle<Vk> device,
 	PhysicalDeviceProperties<Vk> physicalDeviceProperties)
 {
-	std::vector<std::byte> cacheData;
+	std::vector<char> cacheData;
 
 	auto loadCacheOp = [&physicalDeviceProperties, &cacheData](std::istream& stream)
 	{
@@ -78,11 +78,11 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 	return (fileState == FileState::Valid ? createPipelineCache(device, cacheData) : VK_NULL_HANDLE);
 }
 
-std::vector<std::byte> getPipelineCacheData(
+std::vector<char> getPipelineCacheData(
 	DeviceHandle<Vk> device,
 	PipelineCacheHandle<Vk> pipelineCache)
 {
-	std::vector<std::byte> cacheData;
+	std::vector<char> cacheData;
 	size_t cacheDataSize = 0;
 	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
 	if (cacheDataSize)

@@ -124,8 +124,8 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 
 			slangModule->shaders.emplace_back(std::make_pair(blob->getBufferSize(), ep));
 			std::copy(
-				static_cast<const std::byte*>(blob->getBufferPointer()),
-				static_cast<const std::byte*>(blob->getBufferPointer()) + blob->getBufferSize(),
+				static_cast<const char*>(blob->getBufferPointer()),
+				static_cast<const char*>(blob->getBufferPointer()) + blob->getBufferSize(),
 				slangModule->shaders.back().first.data());
 			blob->release();
 		}

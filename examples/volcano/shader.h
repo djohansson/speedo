@@ -12,7 +12,7 @@
 
 #include <slang.h>
 
-using ShaderBinary = std::vector<std::byte>;
+using ShaderBinary = std::vector<char>;
 
 template <GraphicsBackend B>
 using EntryPoint = std::pair<std::string, ShaderStageFlagBits<B>>;

@@ -89,7 +89,7 @@ private:
     QueueCreateDesc<B> myDesc = {};
     std::vector<QueueSubmitInfo<B>> myPendingSubmits;
     QueuePresentInfo<B> myPendingPresent = {};
-    std::vector<std::byte> myScratchMemory;
+    std::vector<char> myScratchMemory;
     FenceHandle<B> myFence = {};
     std::any myUserData;
 };

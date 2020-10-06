@@ -65,7 +65,7 @@ public:
 		return myStride;
 	}
 
-	inline const std::byte* data() const
+	inline const void* data() const
 	{
 		return myData.data();
 	}
@@ -78,10 +78,10 @@ public:
 	// todo: handle alignment properly
 	// todo: rewrite without vector
 	// todo: handle pointer invalidation. std::deque? needs to be flattened before upload to gpu in that case.
-	std::byte* allocate(size_t count = 1);
+	void* allocate(size_t count = 1);
 
 	// unless freeing the last item this is _very_ inefficient
-	void deallocate(std::byte* ptr, size_t count = 1);
+	void deallocate(void* ptr, size_t count = 1);
 
 	void clear();
 
@@ -93,7 +93,7 @@ public:
 	}
 
 private:
-	std::vector<std::byte> myData;
+	std::vector<char> myData;
 	size_t myStride = 0;
 	bool myIsLocked = false;
 };

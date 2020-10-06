@@ -1,5 +1,6 @@
 #include "nodegraph.h"
 
+#include <cereal/archives/json.hpp>
 #include <cereal/types/polymorphic.hpp>
 
 CEREAL_REGISTER_POLYMORPHIC_RELATION(INode, InputOutputNode)
