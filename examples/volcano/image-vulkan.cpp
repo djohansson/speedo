@@ -64,6 +64,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
     auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
     {
+        ZoneScopedN("image::loadBin");
+
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         cereal::LZ4BinaryInputArchive bin(stream);
         bin(desc);
@@ -81,19 +83,25 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
-        std::byte* data;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-        bin(cereal::binary_data(data, size));
-        vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+        {
+            ZoneScopedN("image::loadBin::buffers");
 
-        bufferHandle = locBufferHandle;
-        memoryHandle = locMemoryHandle;
+            std::byte* data;
+            VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+            bin(cereal::binary_data(data, size));
+            vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+
+            bufferHandle = locBufferHandle;
+            memoryHandle = locMemoryHandle;
+        }
 
         return true;
     };
 
     auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
     {
+        ZoneScopedN("image::saveBin");
+
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         cereal::LZ4BinaryOutputArchive bin(stream);
         bin(desc);
@@ -102,16 +110,22 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         for (const auto& mipLevel : desc.mipLevels)
             size += mipLevel.size;
 
-        std::byte* data;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
-        bin(cereal::binary_data(data, size));
-        vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+        {
+            ZoneScopedN("image::saveBin::buffers");
+
+            std::byte* data;
+            VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
+            bin(cereal::binary_data(data, size));
+            vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+        }
 
         return true;
     };
 
     auto loadImage = [&descAndInitialData, &deviceContext](std::istream& stream)
     {
+        ZoneScopedN("image::loadImage");
+
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
         
         stbi_io_callbacks callbacks;
@@ -167,6 +181,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
             bool hasAlpha,
             uint32_t threadCount)
         {
+            ZoneScopedN("image::loadImage::compressBlocks");
+
             auto blockRowCount = extent.height >> 2;
             auto blockColCount = extent.width >> 2;
             auto blockCount = blockRowCount * blockColCount;
@@ -190,6 +206,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
                 threadIds.begin(), threadCount,
                 [&](uint32_t /*threadId*/)
                 {
+                    ZoneScopedN("image::loadImage::compressBlocks::thread");
+
                     auto blockIt = blockAtomic++;
                     while (blockIt < blockCount)
                     {
@@ -222,6 +240,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         std::array<std::vector<stbi_uc>, 2> mipBuffers;
         for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
         {
+            ZoneScopedN("image::loadImage::mip");
+
             uint32_t previousMipIt = (mipIt-1);
             uint32_t currentBuffer = mipIt & 1;
 
@@ -243,6 +263,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
                     threadIds.begin(), threadCount,
                     [&](uint32_t threadId)
                     {
+                        ZoneScopedN("image::loadImage::mip::resize::thread");
+
                         uint32_t threadRowCountRest = (threadId == (threadCount-1) ? previousExtent.height % threadCount : 0);
 
                         stbir_resize_uint8(
@@ -259,6 +281,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
             }
             else
             {
+                ZoneScopedN("image::loadImage::mip::resize");
+
                 stbir_resize_uint8(
                     src,
                     previousExtent.width,

@@ -87,6 +87,8 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	
 	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
 	{
+		ZoneScopedN("model::loadBin");
+
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		cereal::LZ4BinaryInputArchive bin(stream);
 		bin(desc);
@@ -100,33 +102,46 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			debugString.c_str());
 
-		std::byte* data;
-		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-		bin(cereal::binary_data(data, desc.indexBufferSize));
-		bin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
-		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+		{
+			ZoneScopedN("model::loadBin::buffers");
 
-		bufferHandle = locBufferHandle;
-        memoryHandle = locMemoryHandle;
+			std::byte* data;
+			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+			bin(cereal::binary_data(data, desc.indexBufferSize + desc.vertexBufferSize));
+			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
+			bufferHandle = locBufferHandle;
+			memoryHandle = locMemoryHandle;
+		}
+
+		
 		return true;
 	};
 
-	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream) {
+	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
+	{
+		ZoneScopedN("model::saveBin");
+
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		cereal::LZ4BinaryOutputArchive bin(stream);
 		bin(desc);
 
-		std::byte* data;
-		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
-		bin(cereal::binary_data(data, desc.indexBufferSize));
-		bin(cereal::binary_data(data + desc.indexBufferSize, desc.vertexBufferSize));
-		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+		{
+			ZoneScopedN("model::saveBin::buffers");
+
+			std::byte* data;
+			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
+			bin(cereal::binary_data(data, desc.indexBufferSize + desc.vertexBufferSize));
+			vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+		}
 
 		return true;
 	};
 
-	auto loadOBJ = [&descAndInitialData, &deviceContext](std::istream& stream) {
+	auto loadOBJ = [&descAndInitialData, &deviceContext](std::istream& stream)
+	{
+		ZoneScopedN("model::loadOBJ");
+
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 		using namespace tinyobj_opt;
@@ -239,14 +254,18 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			debugString.c_str());
 
-		std::byte* data;
-		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-		memcpy(data, indices.data(), desc.indexBufferSize);
-		memcpy(data + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
-		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+		{
+			ZoneScopedN("model::loadObj::buffers");
 
-		bufferHandle = locBufferHandle;
-        memoryHandle = locMemoryHandle;
+			std::byte* data;
+			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+			memcpy(data, indices.data(), desc.indexBufferSize);
+			memcpy(data + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
+			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+
+			bufferHandle = locBufferHandle;
+			memoryHandle = locMemoryHandle;
+		}
 
 		return true;
 	};
