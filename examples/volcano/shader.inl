@@ -1,6 +1,6 @@
 #include "file.h"
 
-#include <cereal/archives/lz4_binary.hpp>
+#include <cereal/archives/binary.hpp>
 
 namespace shader
 {
@@ -31,7 +31,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 
 	auto loadBin = [&slangModule](std::istream& stream)
 	{
-		cereal::LZ4BinaryInputArchive bin(stream);
+		cereal::BinaryInputArchive bin(stream);
 		bin(*slangModule);
 
 		return true;
@@ -39,7 +39,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 
 	auto saveBin = [&slangModule](std::ostream& stream)
 	{
-		cereal::LZ4BinaryOutputArchive bin(stream);
+		cereal::BinaryOutputArchive bin(stream);
 		bin(*slangModule);
 
 		return true;

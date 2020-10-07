@@ -23,7 +23,7 @@
 #	include <tiny_obj_loader.h>
 #endif
 
-#include <cereal/archives/lz4_binary.hpp>
+#include <cereal/archives/binary.hpp>
 
 namespace model
 {
@@ -90,7 +90,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		ZoneScopedN("model::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::LZ4BinaryInputArchive bin(stream);
+		cereal::BinaryInputArchive bin(stream);
 		bin(desc);
 
 		std::string debugString;
@@ -123,7 +123,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		ZoneScopedN("model::saveBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::LZ4BinaryOutputArchive bin(stream);
+		cereal::BinaryOutputArchive bin(stream);
 		bin(desc);
 
 		{

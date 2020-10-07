@@ -22,7 +22,7 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb_image_resize.h>
 
-#include <cereal/archives/lz4_binary.hpp>
+#include <cereal/archives/binary.hpp>
 
 namespace stbi_istream_callbacks
 {
@@ -67,7 +67,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         ZoneScopedN("image::loadBin");
 
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        cereal::LZ4BinaryInputArchive bin(stream);
+        cereal::BinaryInputArchive bin(stream);
         bin(desc);
 
         uint32_t size = 0;
@@ -103,7 +103,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         ZoneScopedN("image::saveBin");
 
         auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        cereal::LZ4BinaryOutputArchive bin(stream);
+        cereal::BinaryOutputArchive bin(stream);
         bin(desc);
 
         uint32_t size = 0;
