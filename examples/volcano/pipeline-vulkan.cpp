@@ -131,6 +131,15 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 }
 
 template <>
+PipelineLayout<Vk>::PipelineLayout(PipelineLayout<Vk>&& other)
+: DeviceResource<Vk>(std::move(other))
+, myShaders(std::move(other.myShaders))
+, myDescriptorSetLayouts(std::move(other.myDescriptorSetLayouts))
+, myLayout(std::exchange(other.myLayout, {}))
+{
+}
+
+template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
@@ -206,15 +215,24 @@ PipelineLayout<Vk>::~PipelineLayout()
 template<>
 uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 {
-    // todo
-    return 0;
+    ZoneScopedN("Pipeline::internalCalculateHashKey");
+
+    constexpr XXH64_hash_t seed = 42;
+    auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
+    assert(result != XXH_ERROR);
+
+    auto layoutHandle = static_cast<PipelineLayoutHandle<Vk>>(getCurrentLayout());
+    result = XXH3_64bits_update(myXXHState.get(), &layoutHandle, sizeof(layoutHandle));
+    assert(result != XXH_ERROR);
+
+    return XXH3_64bits_digest(myXXHState.get());
 }
 
 template <>
 PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
     myShaderStages.clear();
-    for (const auto& shader : myLayout->getShaders())
+    for (const auto& shader : getCurrentLayout().getShaders())
     {
         if (shader.getEntryPoint().second ^ VK_SHADER_STAGE_COMPUTE_BIT)
             myShaderStages.emplace_back(
@@ -345,7 +363,8 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
         static_cast<uint32_t>(myDynamicStateDescs.size()),
         myDynamicStateDescs.data()};
 
-    auto renderPassAndFramebuffer = myResources->renderTarget->renderPassAndFramebuffer();
+    myRenderPassAndFramebuffer = myResources->renderTarget->renderPassAndFramebuffer();
+    mySubpass = myResources->renderTarget->getSubpass().value_or(0);
 
     VkGraphicsPipelineCreateInfo pipelineInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
     pipelineInfo.stageCount = static_cast<uint32_t>(myShaderStages.size());
@@ -358,9 +377,9 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
     pipelineInfo.pDepthStencilState = &myDepthStencil;
     pipelineInfo.pColorBlendState = &myColorBlend;
     pipelineInfo.pDynamicState = &myDynamicState;
-    pipelineInfo.layout = *myLayout;
-    pipelineInfo.renderPass = std::get<0>(renderPassAndFramebuffer);
-    pipelineInfo.subpass = myResources->renderTarget->getSubpass().value_or(0);
+    pipelineInfo.layout = getCurrentLayout();
+    pipelineInfo.renderPass = std::get<0>(myRenderPassAndFramebuffer);
+    pipelineInfo.subpass = mySubpass;
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;
 
@@ -396,7 +415,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 }
 
 template <>
-Pipeline<Vk>::PipelineMap::const_iterator Pipeline<Vk>::internalUpdateMap()
+Pipeline<Vk>::PipelineMapConstIterator Pipeline<Vk>::internalUpdateMap()
 {
     auto hashKey = internalCalculateHashKey();
     auto emplaceResult = myPipelineMap.emplace(
@@ -407,6 +426,18 @@ Pipeline<Vk>::PipelineMap::const_iterator Pipeline<Vk>::internalUpdateMap()
         emplaceResult.first->second = internalCreateGraphicsPipeline(hashKey);
 
     return emplaceResult.first;
+}
+
+template<>
+void Pipeline<Vk>::setCurrentLayout(PipelineLayoutHandle<Vk> handle)
+{
+    myCurrentLayout = myLayouts.find(handle);
+    myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(
+        this->getDeviceContext(),
+        getCurrentLayout().getDescriptorSetLayouts(),
+        DescriptorSetVectorCreateDesc<Vk>{
+            {"DescriptorSetVector"},
+            myDescriptorPool});
 }
 
 template<>
@@ -469,7 +500,7 @@ Pipeline<Vk>::~Pipeline()
     vkDestroySampler(getDeviceContext()->getDevice(), myResources->sampler, nullptr);
 
     myResources.reset();
-	myLayout.reset();
+	// myLayout.reset();
 	myDescriptorSets.reset();
 
     if (myDescriptorPool)

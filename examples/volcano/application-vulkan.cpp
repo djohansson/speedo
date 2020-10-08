@@ -230,21 +230,19 @@ Application<Vk>::Application(
             "deviceConfiguration",
             {graphicsDeviceCandidates.front().first}));
 
-    auto shaderModule = loadSlangShaders<Vk>(
-        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
-        myResourcePath / "shaders" / "shaders.slang");
-
     myGraphicsPipeline = std::make_shared<Pipeline<Vk>>(
         myDevice,
         PipelineCreateDesc<Vk>{
             { "GraphicsPipeline" },
             myUserProfilePath / "pipeline.cache" });
 
-    myGraphicsPipelineLayout = std::make_shared<PipelineLayout<Vk>>(
-        myDevice,
-        shaderModule);
-
-    myGraphicsPipeline->layout() = myGraphicsPipelineLayout;
+    auto shaderModule = loadSlangShaders<Vk>(
+        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
+        myResourcePath / "shaders" / "shaders.slang");
+    
+    myLayout = myGraphicsPipeline->emplaceLayout(PipelineLayout<Vk>(myDevice, shaderModule));
+    
+    myGraphicsPipeline->setCurrentLayout(myLayout);
 
     myGraphicsQueue = std::make_shared<Queue<Vk>>(
         myDevice,
@@ -299,13 +297,6 @@ Application<Vk>::Application(
 
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
-    myGraphicsPipeline->descriptorSets() = std::make_shared<DescriptorSetVector<Vk>>(
-        myDevice,
-        myGraphicsPipeline->layout()->getDescriptorSetLayouts(),
-        DescriptorSetVectorCreateDesc<Vk>{
-            {"DescriptorSetVector"},
-            myGraphicsPipeline->getDescriptorPool()});
-
     myGraphicsPipeline->descriptorSets()->set(
         DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
@@ -333,7 +324,7 @@ Application<Vk>::Application(
                 DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
                 VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
 
-            myGraphicsPipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *myGraphicsPipeline->layout(), 1);
+            myGraphicsPipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline->getCurrentLayout(), 1);
         };
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);

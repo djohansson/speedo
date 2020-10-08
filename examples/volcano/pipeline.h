@@ -9,9 +9,9 @@
 #include "shader.h"
 #include "types.h"
 
-#include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 #include <xxh3.h>
 
@@ -42,9 +42,12 @@ public:
 
     PipelineLayout& operator=(PipelineLayout&& other);
     operator auto() const { return myLayout; }
+    bool operator==(const PipelineLayoutHandle<B>& other) { return myLayout == other; }
+    bool operator<(const PipelineLayout& other) { return myLayout < other; }
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
+    uint64_t getHash() const { return 0; } // todo
 
 private:
 
@@ -92,29 +95,40 @@ public:
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
 
+    const PipelineLayout<B>& getCurrentLayout() const { return *myCurrentLayout.value_or(myLayouts.cend()); }
+    const PipelineLayout<B>& getLayout(PipelineLayoutHandle<B> handle) const { return *myLayouts.find(handle); }
+
+    void setCurrentLayout(PipelineLayoutHandle<B> handle);
+    
+    PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout) { return *myLayouts.emplace(std::move(layout)).first; }
+    
     // temp! remove lazy updates and recalc when touched.
     // probably do not have these as shared ptrs, since we want pipeline to own them alone.
-    auto& resources() { return myResources; }
-    auto& layout() { return myLayout; }
-    auto& descriptorSets() { return myDescriptorSets; }
+    const auto& resources() const { return myResources; }
+    const auto& descriptorSets() const { return myDescriptorSets; }
     //
 
 private:
 
+    using PipelineLayoutSet = std::set<PipelineLayout<B>, std::less<>>;
+    using PipelineLayoutConstIterator = typename PipelineLayoutSet::const_iterator;
+
+    // todo:: move pipeline cache to its own class, and pass in reference to it.
     using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
+    using PipelineMapConstIterator = typename PipelineMap::const_iterator;
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
-    typename PipelineMap::const_iterator internalUpdateMap();
+    PipelineMapConstIterator internalUpdateMap();
 
     const PipelineCreateDesc<B> myDesc = {};
+    PipelineLayoutSet myLayouts;
     PipelineCacheHandle<B> myCache = {};
     PipelineMap myPipelineMap;
     DescriptorPoolHandle<B> myDescriptorPool = {};
 
     // temp
     std::shared_ptr<PipelineResourceView<B>> myResources;
-	std::shared_ptr<PipelineLayout<B>> myLayout;
 	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
 
@@ -132,6 +146,9 @@ private:
     PipelineColorBlendStateCreateInfo<B> myColorBlend = {};
     std::vector<DynamicState<B>> myDynamicStateDescs;
     PipelineDynamicStateCreateInfo<B> myDynamicState = {};
+    std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>> myRenderPassAndFramebuffer;
+    uint32_t mySubpass = 0;
+    std::optional<PipelineLayoutConstIterator> myCurrentLayout;
     //
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
