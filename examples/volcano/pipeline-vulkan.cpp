@@ -131,6 +131,16 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 }
 
 template <>
+PipelineLayout<Vk>& PipelineLayout<Vk>::operator=(PipelineLayout<Vk>&& other)
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+    myShaders = std::move(other.myShaders);
+    myDescriptorSetLayouts = std::move(other.myDescriptorSetLayouts);
+    myLayout = std::exchange(other.myLayout, {});
+    return *this;
+}
+
+template <>
 PipelineLayout<Vk>::PipelineLayout(PipelineLayout<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 , myShaders(std::move(other.myShaders))
@@ -221,7 +231,7 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
     auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
     assert(result != XXH_ERROR);
 
-    auto layoutHandle = static_cast<PipelineLayoutHandle<Vk>>(getCurrentLayout());
+    auto layoutHandle = static_cast<PipelineLayoutHandle<Vk>>(getLayout());
     result = XXH3_64bits_update(myXXHState.get(), &layoutHandle, sizeof(layoutHandle));
     assert(result != XXH_ERROR);
 
@@ -232,7 +242,7 @@ template <>
 PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
     myShaderStages.clear();
-    for (const auto& shader : getCurrentLayout().getShaders())
+    for (const auto& shader : getLayout().getShaders())
     {
         if (shader.getEntryPoint().second ^ VK_SHADER_STAGE_COMPUTE_BIT)
             myShaderStages.emplace_back(
@@ -377,7 +387,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
     pipelineInfo.pDepthStencilState = &myDepthStencil;
     pipelineInfo.pColorBlendState = &myColorBlend;
     pipelineInfo.pDynamicState = &myDynamicState;
-    pipelineInfo.layout = getCurrentLayout();
+    pipelineInfo.layout = *myLayout;
     pipelineInfo.renderPass = std::get<0>(myRenderPassAndFramebuffer);
     pipelineInfo.subpass = mySubpass;
     pipelineInfo.basePipelineHandle = 0;
@@ -429,15 +439,17 @@ Pipeline<Vk>::PipelineMapConstIterator Pipeline<Vk>::internalUpdateMap()
 }
 
 template<>
-void Pipeline<Vk>::setCurrentLayout(PipelineLayoutHandle<Vk> handle)
+void Pipeline<Vk>::setLayout(PipelineLayoutHandle<Vk> handle)
 {
-    myCurrentLayout = myLayouts.find(handle);
-    myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(
-        this->getDeviceContext(),
-        getCurrentLayout().getDescriptorSetLayouts(),
-        DescriptorSetVectorCreateDesc<Vk>{
-            {"DescriptorSetVector"},
-            myDescriptorPool});
+    myLayout = myLayouts.find(handle);
+    assert(myLayout != myLayouts.cend());
+    
+    // myDescriptorSets = std::make_shared<DescriptorSetVector<Vk>>(
+    //     this->getDeviceContext(),
+    //     getLayout().getDescriptorSetLayouts(),
+    //     DescriptorSetVectorCreateDesc<Vk>{
+    //         {"DescriptorSetVector"},
+    //         myDescriptorPool});
 }
 
 template<>

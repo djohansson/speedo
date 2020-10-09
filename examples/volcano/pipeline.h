@@ -42,12 +42,15 @@ public:
 
     PipelineLayout& operator=(PipelineLayout&& other);
     operator auto() const { return myLayout; }
+    bool operator==(const PipelineLayout& other) { return myLayout == other; }
     bool operator==(const PipelineLayoutHandle<B>& other) { return myLayout == other; }
+    bool operator!=(const PipelineLayout& other) { return !(myLayout == other); }
+    bool operator!=(const PipelineLayoutHandle<B>& other) { return !(myLayout == other); }
     bool operator<(const PipelineLayout& other) { return myLayout < other; }
+    bool operator<(const PipelineLayoutHandle<B>& other) { return myLayout < other; }
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
-    uint64_t getHash() const { return 0; } // todo
 
 private:
 
@@ -94,11 +97,9 @@ public:
     const auto& getDesc() const { return myDesc; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
+    const PipelineLayout<B>& getLayout() const { return *myLayout; }
 
-    const PipelineLayout<B>& getCurrentLayout() const { return *myCurrentLayout.value_or(myLayouts.cend()); }
-    const PipelineLayout<B>& getLayout(PipelineLayoutHandle<B> handle) const { return *myLayouts.find(handle); }
-
-    void setCurrentLayout(PipelineLayoutHandle<B> handle);
+    void setLayout(PipelineLayoutHandle<B> handle);
     
     PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout) { return *myLayouts.emplace(std::move(layout)).first; }
     
@@ -132,7 +133,7 @@ private:
 	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
 
-    // shadow state
+    // graphics shadow state
     std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
     PipelineVertexInputStateCreateInfo<B> myVertexInput = {};
     PipelineInputAssemblyStateCreateInfo<B> myInputAssembly = {};
@@ -148,7 +149,7 @@ private:
     PipelineDynamicStateCreateInfo<B> myDynamicState = {};
     std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>> myRenderPassAndFramebuffer;
     uint32_t mySubpass = 0;
-    std::optional<PipelineLayoutConstIterator> myCurrentLayout;
+    PipelineLayoutConstIterator myLayout = {};
     //
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };

@@ -240,9 +240,11 @@ Application<Vk>::Application(
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
         myResourcePath / "shaders" / "shaders.slang");
     
-    myLayout = myGraphicsPipeline->emplaceLayout(PipelineLayout<Vk>(myDevice, shaderModule));
-    
-    myGraphicsPipeline->setCurrentLayout(myLayout);
+    myGraphicsPipeline->setLayout(
+        myGraphicsPipeline->emplaceLayout(
+            PipelineLayout<Vk>(
+                myDevice,
+                shaderModule)));
 
     myGraphicsQueue = std::make_shared<Queue<Vk>>(
         myDevice,
@@ -324,7 +326,7 @@ Application<Vk>::Application(
                 DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
                 VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
 
-            myGraphicsPipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline->getCurrentLayout(), 1);
+            myGraphicsPipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline->getLayout(), 1);
         };
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);

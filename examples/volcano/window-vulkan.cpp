@@ -182,7 +182,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
-                            const auto& pipelineLayout = pipeline->getCurrentLayout();
+                            const auto& pipelineLayout = pipeline->getLayout();
                             auto indexCount = pipeline->resources()->model->getDesc().indexCount;
                             //auto descriptorSetCount = pipeline->descriptorSets()->size();
                             auto descriptorSets = pipeline->descriptorSets()->data();
