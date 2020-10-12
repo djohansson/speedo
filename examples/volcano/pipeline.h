@@ -101,10 +101,21 @@ public:
 
     void setLayout(PipelineLayoutHandle<B> handle);
     
-    PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout) { return *myLayouts.emplace(std::move(layout)).first; }
+    PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout);
+
+    template <typename T>
+    void setDescriptor(T&& data, DescriptorType<B> type, uint32_t set, uint32_t binding, uint32_t index = 0);
+    
+    //void copyDescriptorSet(uint32_t set, DescriptorSetVector<B>& dst) const;
+    void pushDescriptorSet(
+        CommandBufferHandle<B> cmd,
+        PipelineBindPoint<B> bindPoint,
+        PipelineLayoutHandle<B> layout,
+        uint32_t set) const;
+    void writeDescriptorSet(uint32_t set) const;
     
     // temp! remove lazy updates and recalc when touched.
-    // probably do not have these as shared ptrs, since we want pipeline to own them alone.
+    // probably do not have these as shared ptrs, since we likely want pipeline to own them.
     const auto& resources() const { return myResources; }
     const auto& descriptorSets() const { return myDescriptorSets; }
     //
@@ -114,9 +125,14 @@ private:
     using PipelineLayoutSet = std::set<PipelineLayout<B>, std::less<>>;
     using PipelineLayoutConstIterator = typename PipelineLayoutSet::const_iterator;
 
-    // todo:: move pipeline cache to its own class, and pass in reference to it.
     using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
     using PipelineMapConstIterator = typename PipelineMap::const_iterator;
+
+    using DescriptorVariantType = std::variant<
+        std::vector<DescriptorBufferInfo<B>>,
+        std::vector<DescriptorImageInfo<B>>,
+        std::vector<BufferViewHandle<B>>>;
+    using DescriptorValueMapType = std::map<uint32_t, std::vector<std::tuple<DescriptorType<B>, DescriptorVariantType>>>;
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
@@ -124,7 +140,7 @@ private:
 
     const PipelineCreateDesc<B> myDesc = {};
     PipelineLayoutSet myLayouts;
-    PipelineCacheHandle<B> myCache = {};
+    PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
     PipelineMap myPipelineMap;
     DescriptorPoolHandle<B> myDescriptorPool = {};
 
@@ -151,6 +167,12 @@ private:
     uint32_t mySubpass = 0;
     PipelineLayoutConstIterator myLayout = {};
     //
+
+    // descriptor shadow state
+    DescriptorValueMapType myDescriptorValueMap;
+    //
     
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };
+
+#include "pipeline-vulkan.inl"

@@ -240,11 +240,10 @@ Application<Vk>::Application(
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
         myResourcePath / "shaders" / "shaders.slang");
     
-    myGraphicsPipeline->setLayout(
-        myGraphicsPipeline->emplaceLayout(
-            PipelineLayout<Vk>(
-                myDevice,
-                shaderModule)));
+    myGraphicsPipeline->emplaceLayout(
+        PipelineLayout<Vk>(
+            myDevice,
+            shaderModule));
 
     myGraphicsQueue = std::make_shared<Queue<Vk>>(
         myDevice,
@@ -299,11 +298,11 @@ Application<Vk>::Application(
 
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
-    myGraphicsPipeline->descriptorSets()->set(
+    myGraphicsPipeline->setDescriptor(
         DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
 
-    myGraphicsPipeline->descriptorSets()->write(0);
+    myGraphicsPipeline->writeDescriptorSet(0);
     
     // stuff that needs to be initialized on graphics queue
     {
@@ -319,14 +318,14 @@ Application<Vk>::Application(
 
             myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-            myGraphicsPipeline->descriptorSets()->set(
+            myGraphicsPipeline->setDescriptor(
                 DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
                 VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
-            myGraphicsPipeline->descriptorSets()->set(
+            myGraphicsPipeline->setDescriptor(
                 DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
                 VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
 
-            myGraphicsPipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline->getLayout(), 1);
+            myGraphicsPipeline->pushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline->getLayout(), 1);
         };
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);
@@ -411,7 +410,7 @@ Application<Vk>::Application(
 
         myLastFrameTimelineValue = myGraphicsQueue->submit();
 
-        myGraphicsPipeline->descriptorSets()->set(
+        myGraphicsPipeline->setDescriptor(
             DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
     };
@@ -971,11 +970,11 @@ void Application<Vk>::resizeFramebuffer(int, int)
     
     myWindow->onResizeFramebuffer(framebufferExtent);
 
-    myGraphicsPipeline->descriptorSets()->set(
+    myGraphicsPipeline->setDescriptor(
         DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
     
-    myGraphicsPipeline->descriptorSets()->write(0);
+    myGraphicsPipeline->writeDescriptorSet(0);
 
     createWindowDependentObjects(framebufferExtent);
 }

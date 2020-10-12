@@ -191,7 +191,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
                                 1/*descriptorSetCount*/, descriptorSets, 1, &viewBufferOffset);
-                            pipeline->descriptorSets()->push(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1);
+                            pipeline->pushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1);
                             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
                         };
 

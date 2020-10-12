@@ -62,12 +62,6 @@ struct DescriptorSetVectorCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetVector : public DeviceResource<B>
 {
-    using VariantType = std::variant<
-        std::vector<DescriptorBufferInfo<B>>,
-        std::vector<DescriptorImageInfo<B>>,
-        std::vector<BufferViewHandle<B>>>;
-    using ValueMapType = std::map<uint32_t, std::vector<std::tuple<DescriptorType<B>, VariantType>>>;
-
 public:
 
     DescriptorSetVector(DescriptorSetVector&& other);
@@ -89,22 +83,10 @@ public:
     auto size() const { return myDescriptorSets.size(); }
     auto data() const { return myDescriptorSets.data(); }
 
-    template <typename T>
-    void set(T&& data, DescriptorType<B> type, uint32_t set, uint32_t binding, uint32_t index = 0);
-    
-    void copy(uint32_t set, DescriptorSetVector<B>& dst) const;
-    void push(
-        CommandBufferHandle<B> cmd,
-        PipelineBindPoint<B> bindPoint,
-        PipelineLayoutHandle<B> layout,
-        uint32_t set) const;
-    void write(uint32_t set) const;
-
 private:
 
     DescriptorSetVectorCreateDesc<B> myDesc = {};
 	std::vector<DescriptorSetHandle<B>> myDescriptorSets;
-    ValueMapType myData;
 };
 
 #include "descriptorset.inl"

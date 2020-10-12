@@ -1,13 +1,6 @@
 #include "descriptorset.h"
 #include "vk-utils.h"
 
-namespace descriptorset
-{
-
-static PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR = {};
-
-}
-
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
@@ -78,223 +71,6 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 }
 
 template <>
-void DescriptorSetVector<Vk>::copy(uint32_t set, DescriptorSetVector<Vk>& dst) const
-{
-    if (const auto& bindingVector = myData.at(set); !bindingVector.empty())
-    {
-        std::vector<CopyDescriptorSet<Vk>> descriptorCopies;
-        descriptorCopies.reserve(descriptorCopies.size() + bindingVector.size());
-
-        for (const auto& binding : bindingVector)
-        {
-            auto srcSetHandle = myDescriptorSets[set];
-            auto dstSetHandle = dst[set];
-            auto bindingIt = static_cast<uint32_t>(&binding - &bindingVector[0]);
-            const auto& variantVector = std::get<1>(binding);
-
-            descriptorCopies.emplace_back(std::visit(descriptorset::overloaded{
-                [srcSetHandle, dstSetHandle, bindingIt](
-                    const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                        return CopyDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                            nullptr,
-                            srcSetHandle,
-                            bindingIt,
-                            0,
-                            dstSetHandle,
-                            bindingIt,
-                            0,
-                            static_cast<uint32_t>(bufferInfos.size())};
-                },
-                [srcSetHandle, dstSetHandle, bindingIt](
-                    const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                        return CopyDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                            nullptr,
-                            srcSetHandle,
-                            bindingIt,
-                            0,
-                            dstSetHandle,
-                            bindingIt,
-                            0,
-                            static_cast<uint32_t>(imageInfos.size())};
-                },
-                [srcSetHandle, dstSetHandle, bindingIt](
-                    const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                        return CopyDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                            nullptr,
-                            srcSetHandle,
-                            bindingIt,
-                            0,
-                            dstSetHandle,
-                            bindingIt,
-                            0,
-                            static_cast<uint32_t>(bufferViews.size())};
-                },
-            }, variantVector));
-        }
-
-        vkUpdateDescriptorSets(
-            getDeviceContext()->getDevice(),
-            0,
-            nullptr,
-            static_cast<uint32_t>(descriptorCopies.size()),
-            descriptorCopies.data());
-    }
-}
-
-template <>
-void DescriptorSetVector<Vk>::push(
-    CommandBufferHandle<Vk> cmd,
-    PipelineBindPoint<Vk> bindPoint,
-    PipelineLayoutHandle<Vk> layout,
-    uint32_t set) const
-{
-    if (const auto& bindingVector = myData.at(set); !bindingVector.empty())
-    {
-        std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-        descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
-
-        for (uint32_t bindingIt = 0; bindingIt < bindingVector.size(); bindingIt++)
-        {
-            const auto& binding = bindingVector[bindingIt];
-            auto bindingType = std::get<0>(binding);
-            const auto& variantVector = std::get<1>(binding);
-
-            descriptorWrites.emplace_back(std::visit(descriptorset::overloaded{
-                [bindingType, bindingIt](
-                const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        0,
-                        bindingIt,
-                        0,
-                        static_cast<uint32_t>(bufferInfos.size()),
-                        bindingType,
-                        nullptr,
-                        bufferInfos.data(),
-                        nullptr};
-                },
-                [bindingType, bindingIt](
-                const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        0,
-                        bindingIt,
-                        0,
-                        static_cast<uint32_t>(imageInfos.size()),
-                        bindingType,
-                        imageInfos.data(),
-                        nullptr,
-                        nullptr};
-                },
-                [bindingType, bindingIt](
-                const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        0,
-                        bindingIt,
-                        0,
-                        static_cast<uint32_t>(bufferViews.size()),
-                        bindingType,
-                        nullptr,
-                        nullptr,
-                        bufferViews.data()};
-                },
-            }, variantVector));
-        }
-
-        if (!descriptorset::vkCmdPushDescriptorSetKHR)
-            descriptorset::vkCmdPushDescriptorSetKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
-                vkGetDeviceProcAddr(
-                    getDeviceContext()->getDevice(),
-                    "vkCmdPushDescriptorSetKHR"));
-
-        descriptorset::vkCmdPushDescriptorSetKHR(
-            cmd,
-            bindPoint,
-            layout,
-            set,
-            static_cast<uint32_t>(descriptorWrites.size()),
-            descriptorWrites.data());
-    }
-}
-
-template <>
-void DescriptorSetVector<Vk>::write(uint32_t set) const
-{
-    if (const auto& bindingVector = myData.at(set); !bindingVector.empty())
-    {
-        std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-        descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
-
-        for (const auto& binding : bindingVector)
-        {
-            auto setHandle = myDescriptorSets[set];
-            auto bindingType = std::get<0>(binding);
-            auto bindingIt = static_cast<uint32_t>(&binding - &bindingVector[0]);
-            const auto& variantVector = std::get<1>(binding);
-
-            descriptorWrites.emplace_back(std::visit(descriptorset::overloaded{
-                [setHandle, bindingType, bindingIt](
-                    const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            nullptr,
-                            setHandle,
-                            bindingIt,
-                            0,
-                            static_cast<uint32_t>(bufferInfos.size()),
-                            bindingType,
-                            nullptr,
-                            bufferInfos.data(),
-                            nullptr};
-                },
-                [setHandle, bindingType, bindingIt](
-                    const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            nullptr,
-                            setHandle,
-                            bindingIt,
-                            0,
-                            static_cast<uint32_t>(imageInfos.size()),
-                            bindingType,
-                            imageInfos.data(),
-                            nullptr,
-                            nullptr};
-                },
-                [setHandle, bindingType, bindingIt](
-                    const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            nullptr,
-                            setHandle,
-                            bindingIt,
-                            0,
-                            static_cast<uint32_t>(bufferViews.size()),
-                            bindingType,
-                            nullptr,
-                            nullptr,
-                            bufferViews.data()};
-                },
-            }, variantVector));
-        }
-
-        vkUpdateDescriptorSets(
-            getDeviceContext()->getDevice(),
-            static_cast<uint32_t>(descriptorWrites.size()),
-            descriptorWrites.data(),
-            0,
-            nullptr);
-    }
-}
-
-template <>
 DescriptorSetVector<Vk>::DescriptorSetVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetVectorCreateDesc<Vk>&& desc,
@@ -315,7 +91,6 @@ DescriptorSetVector<Vk>::DescriptorSetVector(DescriptorSetVector<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
-, myData(std::exchange(other.myData, {}))
 {
 }
 
@@ -365,6 +140,5 @@ DescriptorSetVector<Vk>& DescriptorSetVector<Vk>::operator=(DescriptorSetVector<
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myDescriptorSets = std::exchange(other.myDescriptorSets, {});
-    myData = std::exchange(other.myData, {});
     return *this;
 }
