@@ -153,6 +153,7 @@ public:
 
     const auto& getName() const { return myName; }
     const auto& getId() const { return myId; }
+    bool isValid() const { return getId() != 0; }
 
 protected:
 

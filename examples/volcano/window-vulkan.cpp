@@ -24,7 +24,7 @@ void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
 {
     ZoneScopedN("WindowContext::createFrameObjects");
     
-    mySwapchain = std::make_shared<SwapchainContext<Vk>>(
+    mySwapchain = std::make_shared<Swapchain<Vk>>(
         myDevice,
         SwapchainCreateDesc<Vk>{{{"mySwapchain"}, frameBufferExtent}, mySwapchain ? mySwapchain->getSwapchain() : nullptr});
 

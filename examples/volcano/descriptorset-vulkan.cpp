@@ -122,7 +122,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 template <>
 DescriptorSetArray<Vk>::~DescriptorSetArray()
 {
-    if (getId())
+    if (isValid())
         getDeviceContext()->addTimelineCallback(
             [device = getDeviceContext()->getDevice(), pool = myDesc.pool, descriptorSetHandles = std::move(myDescriptorSets)](uint64_t){
                 vkFreeDescriptorSets(

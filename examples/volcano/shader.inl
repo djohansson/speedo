@@ -20,8 +20,6 @@ void createLayoutBindings(
 	uint32_t& setCount,
 	const char* parentName = nullptr);
 
-}
-
 template <GraphicsBackend B>
 std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	const std::filesystem::path& compilerPath,
@@ -184,4 +182,6 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		throw std::runtime_error("Failed to load shaders.");
 
 	return slangModule;
+}
+
 }

@@ -5,6 +5,9 @@
 
 #include "glm.h"
 
+// this is old temp crap that should be reviewed/refactored/obliterated. in that order.
+// original idea was that this would be pure c and part of the base application api.
+
 struct MouseState
 {
     float xpos = 0.0f;

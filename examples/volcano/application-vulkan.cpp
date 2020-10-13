@@ -237,7 +237,7 @@ Application<Vk>::Application(
             "graphicsPipelineConfiguration",
             { { "GraphicsPipeline" }, myUserProfilePath / "pipeline.cache" }});
 
-    auto shaderModule = loadSlangShaders<Vk>(
+    auto shaderModule = shader::loadSlangShaders<Vk>(
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
         myResourcePath / "shaders" / "shaders.slang");
     

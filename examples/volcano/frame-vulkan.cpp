@@ -92,9 +92,12 @@ template <>
 Frame<Vk>::~Frame()
 {
     ZoneScopedN("~Frame()");
-   
-    vkDestroySemaphore(getDeviceContext()->getDevice(), myRenderCompleteSemaphore, nullptr);
-    vkDestroySemaphore(getDeviceContext()->getDevice(), myNewImageAcquiredSemaphore, nullptr);
+
+    if (isValid())
+    {
+        vkDestroySemaphore(getDeviceContext()->getDevice(), myRenderCompleteSemaphore, nullptr);
+        vkDestroySemaphore(getDeviceContext()->getDevice(), myNewImageAcquiredSemaphore, nullptr);
+    }
 }
 
 template <>

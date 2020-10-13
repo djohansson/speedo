@@ -74,9 +74,9 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 {
     ZoneScopedN("~CommandBufferArray()");
 
-    if (auto deviceContext = getDeviceContext())
+    if (isValid()) // todo: put on timeline?
         vkFreeCommandBuffers(
-            deviceContext->getDevice(),
+            getDeviceContext()->getDevice(),
             myDesc.pool,
             kCommandBufferCount,
             myArray.data());

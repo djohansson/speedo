@@ -87,7 +87,7 @@ private:
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
 	WindowCreateDesc<B> myDesc = {};
-	std::shared_ptr<SwapchainContext<B>> mySwapchain;
+	std::shared_ptr<Swapchain<B>> mySwapchain;
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;

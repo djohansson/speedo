@@ -18,7 +18,8 @@
 			"args": [
 				"-cache",
 				"-summary",
-				"all"
+				//"all"
+				"debug"
 			],
 			"group": {
 				"kind": "build",

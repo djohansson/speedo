@@ -517,6 +517,6 @@ DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other)
 {
     myDevice = std::exchange(other.myDevice, {});
     myName = std::exchange(other.myName, {});
-    myId = std::exchange(other.myId, {});
+    myId = std::exchange(other.myId, 0);
     return *this;
 }

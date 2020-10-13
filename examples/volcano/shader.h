@@ -28,6 +28,16 @@ struct ShaderReflectionInfo
 	DescriptorSetLayoutMap<B> bindingsMap;
 };
 
+namespace shader
+{
+
+template <GraphicsBackend B>
+std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
+	const std::filesystem::path& compilerPath,
+	const std::filesystem::path& slangFile);
+	
+}
+
 template <GraphicsBackend B>
 class ShaderModule : public DeviceResource<B>
 {

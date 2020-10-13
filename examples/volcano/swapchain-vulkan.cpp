@@ -4,13 +4,13 @@
 #include <stb_sprintf.h>
 
 template <>
-SwapchainContext<Vk>::SwapchainContext(
+Swapchain<Vk>::Swapchain(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     SwapchainCreateDesc<Vk>&& desc)
 : DeviceResource(deviceContext, desc)
 , myDesc(std::move(desc))
 {
-    ZoneScopedN("SwapchainContext()");
+    ZoneScopedN("Swapchain()");
 
     const auto& config = deviceContext->getDesc().swapchainConfig;
 
@@ -76,7 +76,7 @@ SwapchainContext<Vk>::SwapchainContext(
 }
 
 template <>
-const std::optional<RenderPassBeginInfo<Vk>>& SwapchainContext<Vk>::begin(
+const std::optional<RenderPassBeginInfo<Vk>>& Swapchain<Vk>::begin(
     CommandBufferHandle<Vk> cmd,
     SubpassContents<Vk> contents)
 {
@@ -84,31 +84,31 @@ const std::optional<RenderPassBeginInfo<Vk>>& SwapchainContext<Vk>::begin(
 }
 
 template <>
-void SwapchainContext<Vk>::end(CommandBufferHandle<Vk> cmd)
+void Swapchain<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
     return myFrames[myFrameIndex]->end(cmd);
 }
 
 template <>
-const RenderTargetCreateDesc<Vk>& SwapchainContext<Vk>::getRenderTargetDesc() const
+const RenderTargetCreateDesc<Vk>& Swapchain<Vk>::getRenderTargetDesc() const
 {
     return myDesc;
 }
 
 template <>
-ImageLayout<Vk> SwapchainContext<Vk>::getColorImageLayout(uint32_t index) const
+ImageLayout<Vk> Swapchain<Vk>::getColorImageLayout(uint32_t index) const
 {
     return myFrames[myFrameIndex]->getColorImageLayout(index);
 }
 
 template <>
-ImageLayout<Vk> SwapchainContext<Vk>::getDepthStencilImageLayout() const
+ImageLayout<Vk> Swapchain<Vk>::getDepthStencilImageLayout() const
 {
     return myFrames[myFrameIndex]->getDepthStencilImageLayout();
 }
 
 template <>
-void SwapchainContext<Vk>::blit(
+void Swapchain<Vk>::blit(
     CommandBufferHandle<Vk> cmd,
     const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
     const ImageSubresourceLayers<Vk>& srcSubresource,
@@ -121,7 +121,7 @@ void SwapchainContext<Vk>::blit(
 }
 
 template <>
-void SwapchainContext<Vk>::clearSingleAttachment(
+void Swapchain<Vk>::clearSingleAttachment(
     CommandBufferHandle<Vk> cmd,
     const ClearAttachment<Vk>& clearAttachment) const
 {
@@ -129,7 +129,7 @@ void SwapchainContext<Vk>::clearSingleAttachment(
 }
 
 template <>
-void SwapchainContext<Vk>::clearAllAttachments(
+void Swapchain<Vk>::clearAllAttachments(
     CommandBufferHandle<Vk> cmd,
     const ClearColorValue<Vk>& color,
     const ClearDepthStencilValue<Vk>& depthStencil) const
@@ -138,31 +138,31 @@ void SwapchainContext<Vk>::clearAllAttachments(
 }
 
 template <>
-void SwapchainContext<Vk>::clearColor(CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
+void Swapchain<Vk>::clearColor(CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
 {
     myFrames[myFrameIndex]->clearColor(cmd, color, index);
 }
 
 template <>
-void SwapchainContext<Vk>::clearDepthStencil(CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
+void Swapchain<Vk>::clearDepthStencil(CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
 {
     myFrames[myFrameIndex]->clearDepthStencil(cmd, depthStencil);
 }
 
 template <>
-void SwapchainContext<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
+void Swapchain<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
 {
     myFrames[myFrameIndex]->transitionColor(cmd, layout, index);
 }
 
 template <>
-void SwapchainContext<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void Swapchain<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
     myFrames[myFrameIndex]->transitionDepthStencil(cmd, layout);
 }
 
 template <>
-std::tuple<SemaphoreHandle<Vk>, SemaphoreHandle<Vk>> SwapchainContext<Vk>::getFrameSyncSemaphores() const
+std::tuple<SemaphoreHandle<Vk>, SemaphoreHandle<Vk>> Swapchain<Vk>::getFrameSyncSemaphores() const
 {
     const auto& lastFrame = *myFrames[myLastFrameIndex];
     const auto& frame = *myFrames[myFrameIndex];
@@ -171,11 +171,11 @@ std::tuple<SemaphoreHandle<Vk>, SemaphoreHandle<Vk>> SwapchainContext<Vk>::getFr
 }
 
 template <>
-std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
+std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 {
     ZoneScoped;
 
-    static constexpr std::string_view flipFrameStr = "SwapchainContext::flip";
+    static constexpr std::string_view flipFrameStr = "Swapchain::flip";
 
     const auto& lastFrame = *myFrames[myLastFrameIndex];
 
@@ -227,7 +227,7 @@ std::tuple<bool, uint64_t> SwapchainContext<Vk>::flip()
 }
 
 template <>
-QueuePresentInfo<Vk> SwapchainContext<Vk>::preparePresent(uint64_t timelineValue)
+QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
 {
     myLastFrameIndex = myFrameIndex;
 
@@ -238,9 +238,9 @@ QueuePresentInfo<Vk> SwapchainContext<Vk>::preparePresent(uint64_t timelineValue
 }
 
 template <>
-SwapchainContext<Vk>::~SwapchainContext()
+Swapchain<Vk>::~Swapchain()
 {
-    ZoneScopedN("~SwapchainContext()");
+    ZoneScopedN("~Swapchain()");
 
     if (mySwapchain)
         vkDestroySwapchainKHR(getDeviceContext()->getDevice(), mySwapchain, nullptr);

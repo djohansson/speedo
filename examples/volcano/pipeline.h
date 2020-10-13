@@ -42,12 +42,6 @@ public:
 
     PipelineLayout& operator=(PipelineLayout&& other);
     operator auto() const { return myLayout; }
-    bool operator==(const PipelineLayout& other) { return myLayout == other; }
-    bool operator==(const PipelineLayoutHandle<B>& other) { return myLayout == other; }
-    bool operator!=(const PipelineLayout& other) { return !(myLayout == other); }
-    bool operator!=(const PipelineLayoutHandle<B>& other) { return !(myLayout == other); }
-    bool operator<(const PipelineLayout& other) { return myLayout < other; }
-    bool operator<(const PipelineLayoutHandle<B>& other) { return myLayout < other; }
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }

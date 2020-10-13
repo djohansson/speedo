@@ -15,17 +15,17 @@ struct SwapchainCreateDesc : RenderTargetCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class SwapchainContext : public IRenderTarget<B>, public DeviceResource<B>
+class Swapchain : public IRenderTarget<B>, public DeviceResource<B>
 {
 public:
 
-	SwapchainContext(SwapchainContext&& other);
-	SwapchainContext(
+	Swapchain(Swapchain&& other);
+	Swapchain(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		SwapchainCreateDesc<B>&& desc);
-    ~SwapchainContext();
+    ~Swapchain();
 
-	SwapchainContext& operator=(SwapchainContext&& other);
+	Swapchain& operator=(Swapchain&& other);
 	operator auto() const { return mySwapchain; }
 
 	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const final;
