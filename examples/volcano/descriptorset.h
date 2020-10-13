@@ -4,6 +4,7 @@
 #include "sampler.h"
 #include "types.h"
 
+#include <array>
 #include <map>
 #include <memory>
 #include <variant>
@@ -60,33 +61,35 @@ struct DescriptorSetVectorCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class DescriptorSetVector : public DeviceResource<B>
+class DescriptorSetArray : public DeviceResource<B>
 {
 public:
 
-    DescriptorSetVector(DescriptorSetVector&& other);
-    DescriptorSetVector( // allocates vector of descriptor set handles using vector of layouts
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::vector<DescriptorSetLayout<B>>& layouts,
-        DescriptorSetVectorCreateDesc<B>&& desc);
-    DescriptorSetVector( // takes ownership of provided descriptor set handles.
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        DescriptorSetVectorCreateDesc<B>&& desc,
-        std::vector<DescriptorSetHandle<B>>&& descriptorSetHandles);
-    ~DescriptorSetVector();
+    static constexpr uint32_t kDescriptorSetCount = 4;
+    using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
 
-    DescriptorSetVector& operator=(DescriptorSetVector&& other);
-    const auto& operator[](uint32_t set) const { return myDescriptorSets[set]; };
+    DescriptorSetArray(DescriptorSetArray&& other);
+    DescriptorSetArray( // allocates array of descriptor set handles using single layout
+        const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+        const DescriptorSetLayout<Vk>& layout,
+        DescriptorSetVectorCreateDesc<Vk>&& desc);
+    DescriptorSetArray( // takes ownership of provided descriptor set handles
+        const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+        DescriptorSetVectorCreateDesc<Vk>&& desc,
+        ArrayType&& descriptorSetHandles);
+    ~DescriptorSetArray();
+
+    DescriptorSetArray& operator=(DescriptorSetArray&& other);
+
+    constexpr auto& operator[](uint32_t set) const { return myDescriptorSets[set]; };
+    operator const auto&() const { return myDescriptorSets; }
 
     const auto& getDesc() const { return myDesc; }
-
-    auto size() const { return myDescriptorSets.size(); }
-    auto data() const { return myDescriptorSets.data(); }
 
 private:
 
     DescriptorSetVectorCreateDesc<B> myDesc = {};
-	std::vector<DescriptorSetHandle<B>> myDescriptorSets;
+	ArrayType myDescriptorSets;
 };
 
 #include "descriptorset.inl"

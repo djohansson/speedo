@@ -228,13 +228,14 @@ Application<Vk>::Application(
         AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
             myUserProfilePath / "device.json",
             "deviceConfiguration",
-            {graphicsDeviceCandidates.front().first}));
+            { graphicsDeviceCandidates.front().first }));
 
-    myGraphicsPipeline = std::make_shared<Pipeline<Vk>>(
+    myGraphicsPipeline = std::make_shared<PipelineContext<Vk>>(
         myDevice,
-        PipelineCreateDesc<Vk>{
-            { "GraphicsPipeline" },
-            myUserProfilePath / "pipeline.cache" });
+        AutoSaveJSONFileObject<PipelineConfiguration<Vk>>{
+            myUserProfilePath / "graphicspipeline.json",
+            "graphicsPipelineConfiguration",
+            { { "GraphicsPipeline" }, myUserProfilePath / "pipeline.cache" }});
 
     auto shaderModule = loadSlangShaders<Vk>(
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
@@ -519,8 +520,8 @@ Application<Vk>::Application(
                 Text("Buffer Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
                 Text("Image Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
                 Text("Shader Modules: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
-                Text("Pipeline Caches: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
-                Text("Pipeline Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
+                Text("PipelineContext Caches: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
+                Text("PipelineContext Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
                 Text("Render Passes: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
                 Text("Pipelines: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE));
                 Text("Descriptor Set Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));

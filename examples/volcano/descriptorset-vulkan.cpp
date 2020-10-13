@@ -71,10 +71,10 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 }
 
 template <>
-DescriptorSetVector<Vk>::DescriptorSetVector(
+DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetVectorCreateDesc<Vk>&& desc,
-    std::vector<DescriptorSetHandle<Vk>>&& descriptorSetHandles)
+    ArrayType&& descriptorSetHandles)
 : DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSet"},
@@ -87,7 +87,7 @@ DescriptorSetVector<Vk>::DescriptorSetVector(
 }
 
 template <>
-DescriptorSetVector<Vk>::DescriptorSetVector(DescriptorSetVector<Vk>&& other)
+DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
@@ -95,25 +95,24 @@ DescriptorSetVector<Vk>::DescriptorSetVector(DescriptorSetVector<Vk>&& other)
 }
 
 template <>
-DescriptorSetVector<Vk>::DescriptorSetVector(
+DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::vector<DescriptorSetLayout<Vk>>& layouts,
+    const DescriptorSetLayout<Vk>& layout,
     DescriptorSetVectorCreateDesc<Vk>&& desc)
-: DescriptorSetVector<Vk>(
+: DescriptorSetArray<Vk>(
     deviceContext,
     std::move(desc),
-    [device = deviceContext->getDevice(), &layouts, &desc]
+    [device = deviceContext->getDevice(), &layout, &desc]
     {
-        std::vector<DescriptorSetHandle<Vk>> sets;
-        sets.reserve(layouts.size());
+        std::array<VkDescriptorSetLayout, kDescriptorSetCount> layouts;
+        layouts.fill(layout);
 
-        for (const auto& layout : layouts)
-        {
-            if (layout.getDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-                sets.emplace_back(DescriptorSetHandle<Vk>{});
-            else
-                sets.emplace_back(allocateDescriptorSet(device, desc.pool, layout));
-        }
+        ArrayType sets;
+        VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        allocInfo.descriptorPool = desc.pool;
+        allocInfo.descriptorSetCount = layouts.size();
+        allocInfo.pSetLayouts = layouts.data();
+        VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, sets.data()));
 
         return sets;
     }())
@@ -121,9 +120,9 @@ DescriptorSetVector<Vk>::DescriptorSetVector(
 }
 
 template <>
-DescriptorSetVector<Vk>::~DescriptorSetVector()
+DescriptorSetArray<Vk>::~DescriptorSetArray()
 {
-    if (!myDescriptorSets.empty())
+    if (getId())
         getDeviceContext()->addTimelineCallback(
             [device = getDeviceContext()->getDevice(), pool = myDesc.pool, descriptorSetHandles = std::move(myDescriptorSets)](uint64_t){
                 vkFreeDescriptorSets(
@@ -135,7 +134,7 @@ DescriptorSetVector<Vk>::~DescriptorSetVector()
 }
 
 template <>
-DescriptorSetVector<Vk>& DescriptorSetVector<Vk>::operator=(DescriptorSetVector<Vk>&& other)
+DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray<Vk>&& other)
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});

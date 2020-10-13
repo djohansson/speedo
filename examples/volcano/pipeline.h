@@ -72,7 +72,7 @@ struct PipelineResourceView
 };
 
 template <GraphicsBackend B>
-struct PipelineCreateDesc : DeviceResourceCreateDesc<B>
+struct PipelineConfiguration : DeviceResourceCreateDesc<B>
 {
     std::filesystem::path cachePath;
 };
@@ -81,23 +81,24 @@ struct PipelineCreateDesc : DeviceResourceCreateDesc<B>
 //       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
 
 template <GraphicsBackend B>
-class Pipeline : public DeviceResource<B>
+class PipelineContext : public DeviceResource<B>
 {
 public:
 
-    Pipeline(Pipeline<B>&& other);
-    Pipeline(
+    PipelineContext(PipelineContext<B>&& other);
+    PipelineContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        PipelineCreateDesc<B>&& desc);
-    ~Pipeline();
+        AutoSaveJSONFileObject<PipelineConfiguration<B>>&& config);
+    ~PipelineContext();
 
-    Pipeline& operator=(Pipeline&& other);
+    PipelineContext& operator=(PipelineContext&& other);
     operator auto() { return internalUpdateMap()->second; };
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
     const PipelineLayout<B>& getLayout() const { return *myLayout; }
+    const auto& getDescriptorSet(uint32_t set) const { return myDescriptorSets[set][0]; }
 
     void setLayout(PipelineLayoutHandle<B> handle);
     
@@ -106,7 +107,7 @@ public:
     template <typename T>
     void setDescriptor(T&& data, DescriptorType<B> type, uint32_t set, uint32_t binding, uint32_t index = 0);
     
-    //void copyDescriptorSet(uint32_t set, DescriptorSetVector<B>& dst) const;
+    //void copyDescriptorSet(uint32_t set, DescriptorSetArray<B>& dst) const;
     void pushDescriptorSet(
         CommandBufferHandle<B> cmd,
         PipelineBindPoint<B> bindPoint,
@@ -117,7 +118,6 @@ public:
     // temp! remove lazy updates and recalc when touched.
     // probably do not have these as shared ptrs, since we likely want pipeline to own them.
     const auto& resources() const { return myResources; }
-    const auto& descriptorSets() const { return myDescriptorSets; }
     //
 
 private:
@@ -138,15 +138,15 @@ private:
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
     PipelineMapConstIterator internalUpdateMap();
 
-    const PipelineCreateDesc<B> myDesc = {};
+    AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     PipelineLayoutSet myLayouts;
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
     PipelineMap myPipelineMap;
     DescriptorPoolHandle<B> myDescriptorPool = {};
+    std::vector<DescriptorSetArray<B>> myDescriptorSets;
 
     // temp
     std::shared_ptr<PipelineResourceView<B>> myResources;
-	std::shared_ptr<DescriptorSetVector<B>> myDescriptorSets;
     //
 
     // graphics shadow state
@@ -175,4 +175,5 @@ private:
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };
 
+#include "pipeline.inl"
 #include "pipeline-vulkan.inl"

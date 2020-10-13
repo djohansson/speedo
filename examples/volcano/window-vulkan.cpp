@@ -77,7 +77,7 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
 
 template <>
 uint32_t WindowContext<Vk>::internalDrawViews(
-    const std::shared_ptr<Pipeline<Vk>>& pipeline,
+    const std::shared_ptr<PipelineContext<Vk>>& pipeline,
     const RenderPassBeginInfo<Vk>& renderPassInfo,
     const Extent2d<Vk>& extent,
     uint32_t frameIndex)
@@ -184,13 +184,12 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                             const auto& pipelineLayout = pipeline->getLayout();
                             auto indexCount = pipeline->resources()->model->getDesc().indexCount;
-                            //auto descriptorSetCount = pipeline->descriptorSets()->size();
-                            auto descriptorSets = pipeline->descriptorSets()->data();
+                            auto descriptorSet = pipeline->getDescriptorSet(0);
                             
                             uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
                             vkCmdBindDescriptorSets(
                                 cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                                1/*descriptorSetCount*/, descriptorSets, 1, &viewBufferOffset);
+                                1, &descriptorSet, 1, &viewBufferOffset);
                             pipeline->pushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1);
                             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
                         };
@@ -212,7 +211,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 }
 
 template <>
-void WindowContext<Vk>::draw(const std::shared_ptr<Pipeline<Vk>>& pipeline)
+void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipeline)
 {
     ZoneScopedN("WindowContext::draw");
 

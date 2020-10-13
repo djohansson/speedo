@@ -87,7 +87,7 @@ private:
 	std::shared_ptr<DeviceContext<B>> myDevice;
 	std::shared_ptr<WindowContext<B>> myWindow;
 	std::shared_ptr<CommandContext<B>> myTransferCommands;
-	std::shared_ptr<Pipeline<B>> myGraphicsPipeline;
+	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
 	std::shared_ptr<Queue<B>> myGraphicsQueue;
 	std::shared_ptr<Queue<B>> myTransferQueue;
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;

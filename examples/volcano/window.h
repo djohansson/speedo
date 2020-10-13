@@ -62,7 +62,7 @@ public:
 	
 	void updateInput(const InputState& input);
 
-	void draw(const std::shared_ptr<Pipeline<B>>& pipeline);
+	void draw(const std::shared_ptr<PipelineContext<B>>& pipeline);
 
 	struct ViewBufferData // todo: needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment. right now uses manual padding.
 	{
@@ -79,7 +79,7 @@ private:
 	void destroyFrameObjects();
 
 	uint32_t internalDrawViews(
-		const std::shared_ptr<Pipeline<Vk>>& pipeline,
+		const std::shared_ptr<PipelineContext<Vk>>& pipeline,
 		const RenderPassBeginInfo<Vk>& renderPassInfo,
 		const Extent2d<Vk>& extent,
 		uint32_t frameIndex);
