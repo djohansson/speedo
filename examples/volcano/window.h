@@ -58,7 +58,9 @@ public:
 		createFrameObjects(framebufferExtent);
 	}
 
+	// todo: move out from window
 	auto& commandContext(uint32_t frameIndex, uint32_t contextIndex = 0) { return myCommands[frameIndex][contextIndex]; }
+	//
 	
 	void updateInput(const InputState& input);
 
@@ -92,5 +94,5 @@ private:
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
-	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommands;
+	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommands; // todo: move out from window
 };

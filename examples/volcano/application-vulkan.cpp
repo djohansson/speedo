@@ -265,6 +265,7 @@ Application<Vk>::Application(
             {"TransferQueue"},
             myDevice->getTransferQueue()});
 
+    // stuff that needs to be initialized on transfer queue
     {
         myGraphicsPipeline->resources()->model = std::make_shared<Model<Vk>>(
             myDevice,
@@ -278,13 +279,6 @@ Application<Vk>::Application(
             myDevice,
             *(myGraphicsPipeline->resources()->image),
             VK_IMAGE_ASPECT_COLOR_BIT);
-
-        myWindow = std::make_shared<WindowContext<Vk>>(
-            myDevice,    
-            WindowCreateDesc<Vk>{
-                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                {3, 2}});
         
         myTransferQueue->enqueueSubmit(
             myTransferCommands->flush({
@@ -297,13 +291,23 @@ Application<Vk>::Application(
         myLastTransferTimelineValue = myTransferQueue->submit();
     }
 
-    createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
+    // create window, set view buffer descriptor
+    {
+        myWindow = std::make_shared<WindowContext<Vk>>(
+            myDevice,    
+            WindowCreateDesc<Vk>{
+                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                {3, 2}});
 
-    myGraphicsPipeline->setDescriptor(
-        DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
+        createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
-    myGraphicsPipeline->writeDescriptorSet(0);
+        myGraphicsPipeline->setDescriptor(
+            DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
+
+        myGraphicsPipeline->writeDescriptorSet(0);
+    }
     
     // stuff that needs to be initialized on graphics queue
     {
@@ -341,6 +345,8 @@ Application<Vk>::Application(
 
         myLastFrameTimelineValue = myGraphicsQueue->submit();
     }
+
+    // GUI + misc callbacks
 
     auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
     {
