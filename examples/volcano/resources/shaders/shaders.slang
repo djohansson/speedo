@@ -9,11 +9,11 @@ struct MaterialParams
 {
 	Texture2D texture;
     SamplerState sampler;
-    
-    //layout(push_constant) float3 color;
 };
 
-layout(binding = 0, set = 1) ParameterBlock<MaterialParams> g_materialParams;
+[[vk::binding(0, 2)]]
+[[vk::push_constant]]
+ParameterBlock<MaterialParams> g_materialParams;
 
 struct InputStream
 {
@@ -67,11 +67,11 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 }
 
 //RWStructuredBuffer<float4> colorTarget;
-RWTexture2D<float4> colorTarget;
+//RWTexture2D<float4> colorTarget;
 
-[numthreads(1, 1, 1)]
-void computeMain(uint3 threadIds : SV_DispatchThreadID)
-{
+//[numthreads(1, 1, 1)]
+//void computeMain(uint3 threadIds : SV_DispatchThreadID)
+//{
     // float4 color[3];
     // color[0].r = (r0 >> 0  & 0xFF) / 255.0f;
     // color[0].g = (r0 >> 8  & 0xFF) / 255.0f;
@@ -91,7 +91,7 @@ void computeMain(uint3 threadIds : SV_DispatchThreadID)
     // float4 result = lerp(lerp(lerp(0, color[2], color[2].a), color[1], color[1].a), color[0], color[0].a);
     // result.a = 1.0f;
     // colorTarget[threadIds.xy] = result;
-}
+//}
 
 //[[vk::push_constant]]
 //ParameterBlock<MaterialParams> g_pushDescriptor;

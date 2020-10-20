@@ -88,8 +88,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
     uint32_t drawThreadCount = std::min<uint32_t>(drawCount, drawCommandContextCount);
 
     std::atomic_uint32_t drawAtomic = 0;
-    PipelineHandle<Vk> pipelineHandle = *pipeline;
-
+    
     // draw views using secondary command buffers
     // todo: generalize this to other types of draws
     {
@@ -98,11 +97,11 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
         std::for_each_n(
-    #if defined(__WINDOWS__)
-            std::execution::par,
-    #endif
+    // #if defined(__WINDOWS__)
+    //         std::execution::par,
+    // #endif
             seq.begin(), drawThreadCount,
-            [this, &pipeline, pipelineHandle, &renderPassInfo, &extent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
+            [this, &pipeline, &renderPassInfo, &extent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -136,7 +135,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     ZoneScopedN("WindowContext::drawViews::bind");
 
                     // bind pipeline and vertex/index buffers
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineHandle);
+                    pipeline->bind(cmd);
 
                     VkBuffer vertexBuffers[] = { pipeline->resources()->model->getBuffer() };
                     VkDeviceSize vertexOffsets[] = { pipeline->resources()->model->getVertexOffset() };
@@ -156,8 +155,11 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                         uint32_t i = viewIt % myDesc.splitScreenGrid.width;
                         uint32_t j = viewIt / myDesc.splitScreenGrid.width;
 
-                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y,
-                                                        int32_t width, int32_t height)
+                        uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
+
+                        pipeline->bindDescriptorSet(cmd, 0, std::make_optional(viewBufferOffset));
+
+                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height)
                         {
                             ZoneScopedN("WindowContext::drawViews::set");
 
@@ -178,19 +180,14 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
                         };
 
-                        auto drawModel = [viewIt, drawCount, &frameIndex, &pipeline](VkCommandBuffer cmd)
+                        auto drawModel = [&pipeline](VkCommandBuffer cmd)
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
-                            const auto& pipelineLayout = pipeline->getLayout();
                             auto indexCount = pipeline->resources()->model->getDesc().indexCount;
-                            auto descriptorSet = pipeline->getDescriptorSet(0);
                             
-                            uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
-                            vkCmdBindDescriptorSets(
-                                cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0,
-                                1, &descriptorSet, 1, &viewBufferOffset);
-                            pipeline->pushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1);
+                            pipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
+                            
                             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
                         };
 

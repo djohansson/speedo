@@ -3,15 +3,19 @@ namespace descriptorset
 
 template <GraphicsBackend B>
 std::vector<DescriptorSetLayoutHandle<B>> getDescriptorSetLayoutHandles(
-    const std::vector<DescriptorSetLayout<B>>& layouts)
+    const DescriptorSetLayoutMap<B>& layouts)
 {
     std::vector<DescriptorSetLayoutHandle<Vk>> handles;
-    handles.reserve(layouts.size());
-    std::transform(
-        layouts.begin(),
-        layouts.end(),
-        std::back_inserter(handles),
-        [](const auto& layout){ return static_cast<DescriptorSetLayoutHandle<Vk>>(layout); });
+    if (!layouts.empty())
+    {
+        handles.resize(layouts.rbegin()->first + 1);
+        
+        auto layoutIt = layouts.begin();
+        std::fill(handles.begin(), handles.end(), static_cast<DescriptorSetLayoutHandle<Vk>>(layoutIt->second));
+        while (++layoutIt != layouts.end())
+            handles[layoutIt->first] = static_cast<DescriptorSetLayoutHandle<Vk>>(layoutIt->second);
+    }
+    
     return handles;
 }
 

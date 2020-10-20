@@ -10,8 +10,6 @@
 #include <utility>
 #include <vector>
 
-#include <slang.h>
-
 using ShaderBinary = std::vector<char>;
 
 template <GraphicsBackend B>
@@ -25,7 +23,7 @@ template <GraphicsBackend B>
 struct ShaderReflectionInfo
 {
 	std::vector<Shader<B>> shaders;
-	DescriptorSetLayoutMap<B> bindingsMap;
+	DescriptorSetLayoutBindingsMap<B> bindingsMap;
 };
 
 namespace shader

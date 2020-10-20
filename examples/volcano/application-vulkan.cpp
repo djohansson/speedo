@@ -304,9 +304,9 @@ Application<Vk>::Application(
 
         myGraphicsPipeline->setDescriptor(
             DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
-
-        myGraphicsPipeline->writeDescriptorSet(0);
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, static_cast<uint32_t>(DescriptorSetCategory::Global), 0);
+        
+        myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
     }
     
     // stuff that needs to be initialized on graphics queue
@@ -325,12 +325,12 @@ Application<Vk>::Application(
 
             myGraphicsPipeline->setDescriptor(
                 DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
-                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
+                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(DescriptorSetCategory::Material), 0);
             myGraphicsPipeline->setDescriptor(
                 DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
-                VK_DESCRIPTOR_TYPE_SAMPLER, 1, 1);
+                VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<uint32_t>(DescriptorSetCategory::Material), 1);
 
-            myGraphicsPipeline->pushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, myGraphicsPipeline->getLayout(), 1);
+            myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
         };
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);
@@ -419,7 +419,7 @@ Application<Vk>::Application(
 
         myGraphicsPipeline->setDescriptor(
             DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, 0);
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(DescriptorSetCategory::Material), 0);
     };
 
     myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage]
@@ -979,9 +979,9 @@ void Application<Vk>::resizeFramebuffer(int, int)
 
     myGraphicsPipeline->setDescriptor(
         DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0, 0);
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, static_cast<uint32_t>(DescriptorSetCategory::Global), 0);
     
-    myGraphicsPipeline->writeDescriptorSet(0);
+    myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
 
     createWindowDependentObjects(framebufferExtent);
 }

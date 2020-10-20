@@ -96,10 +96,10 @@ template <>
 void createLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-    DescriptorSetLayoutMap<Vk>& bindings,
-	uint32_t currentSet,
-	uint32_t& setCount,
-	const char* parentName)
+    DescriptorSetLayoutBindingsMap<Vk>& bindings,
+	const unsigned* parentSpace,
+	const char* parentName,
+	bool parentPushConstant)
 {
 	using MapType = std::remove_reference_t<decltype(bindings)>;
 	using MapValueType = typename MapType::mapped_type;
@@ -107,26 +107,40 @@ void createLayoutBindings<Vk>(
 	using BindingType = typename BindingVectorType::value_type;
 
 	auto* typeLayout = parameter->getTypeLayout();
-	auto arrayElementCount = typeLayout->getElementCount();
+	auto type = typeLayout->getType();
+	auto userAttributeCount = type->getUserAttributeCount();
+	auto arrayElementCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
 	auto fieldCount = typeLayout->getFieldCount();
 	auto* elementTypeLayout = typeLayout->getElementTypeLayout();
 	auto elementKind = elementTypeLayout->getKind();
 	auto elementFieldCount = elementTypeLayout->getFieldCount();
 	auto genericParamIndex = elementTypeLayout->getGenericParamIndex();
+	auto space = parameter->getBindingSpace();
+	auto index = parameter->getBindingIndex();
+	auto name = parameter->getName();
+	auto stage = parameter->getStage();
+	bool pushConstant = (parameter->findModifier(slang::Modifier::ID::PushConstant) ? true : false);
+
+	std::string fullName;
+	if (parentName)
+	{
+		fullName.append(parentName);
+		fullName.append(".");
+	}
+	fullName.append(name);
 	
-	for (auto ff = 0; ff < fieldCount; ff++)
+	for (auto fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
 		createLayoutBindings<Vk>(
-			typeLayout->getFieldByIndex(ff),
+			typeLayout->getFieldByIndex(fieldIndex),
 			genericParameterIndices,
 			bindings,
-			currentSet,
-			setCount,
-			parameter->getName());
+			&space,
+			name);
 
 	auto categoryCount = parameter->getCategoryCount();
-	for (auto cc = 0; cc < categoryCount; cc++)
+	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
 	{
-		auto category = parameter->getCategoryByIndex(cc);
+		auto category = parameter->getCategoryByIndex(categoryIndex);
 		auto offsetForCategory = parameter->getOffset(category);
 		auto spaceForCategory = parameter->getBindingSpace(category);
 		auto elementStride = typeLayout->getElementStride(category);
@@ -136,58 +150,56 @@ void createLayoutBindings<Vk>(
 		
 		if (category == slang::ParameterCategory::DescriptorTableSlot)
 		{
-			std::string name;
-			if (parentName)
-			{
-				name.append(parentName);
-				name.append(".");
-			}
-			name.append(parameter->getName());
-
 			std::cout << "name: " << name
-				<< ", set: " << currentSet
-				<< ", index: " << parameter->getBindingIndex()
-				<< ", space: " << parameter->getBindingSpace()
-				<< ", stage: " << parameter->getStage()
+				<< ", fullName: " << fullName
+				<< ", space: " << space
+				<< ", parent space: " << (parentSpace ? std::to_string(*parentSpace) : "(nullptr)")
+				<< ", index: " << index
+				<< ", stage: " << stage
 				<< ", kind: " << (int)typeLayout->getKind()
-				<< ", typeName: " << typeLayout->getName();
+				<< ", typeName: " << typeLayout->getName()
+				<< ", userAttributeCount: " << userAttributeCount;
 			
-			std::cout << ", arrayElementCount: " << arrayElementCount
+			std::cout << ", arrayElementCount: " << (typeLayout->isArray() ? arrayElementCount : 0)
 				<< ", fieldCount: " << fieldCount;
 
 			std::cout << ", category: " << category
-				<< ", offsetForCategory: " << offsetForCategory
 				<< ", spaceForCategory: " << spaceForCategory
+				<< ", offsetForCategory: " << offsetForCategory
 				<< ", elementStride: " << elementStride
 				<< ", elementSize: " << elementSize
 				<< ", elementKind: " << (int)elementKind
 				<< ", elementFieldCount: " << (int)elementKind
-				<< ", genericParamIndex: " << genericParamIndex;
+				<< ", genericParamIndex: " << genericParamIndex
+				<< ", pushConstant: " << pushConstant
+				<< ", parent pushConstant: " << parentPushConstant;
 
 			std::cout << std::endl;
 
 			BindingType binding;
-			binding.binding = parameter->getBindingIndex();
+			binding.binding = index;
 			binding.descriptorType = shader::getDescriptorType<Vk>(typeLayout);
-			binding.descriptorCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
-			binding.stageFlags = shader::getStageFlags<Vk>(parameter->getStage());
+			binding.descriptorCount = arrayElementCount;
+			binding.stageFlags = shader::getStageFlags<Vk>(stage);
 			binding.pImmutableSamplers = nullptr;
-            std::get<0>(bindings[currentSet]).push_back(binding);
-			//std::get<1>(bindings[currentSet]).push_back(SamplerCreateInfo<Vk>{}); // todo: immutable samplers
-			std::get<2>(bindings[currentSet]) = (currentSet == 1 ?//(parentName && strcmp(parentName, "g_pushDescriptor") == 0 ?
-				VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0);
+
+			auto bindingSpace = (parentSpace ? *parentSpace : space);
+            std::get<0>(bindings[bindingSpace]).push_back(binding);
+			// todo: immutable samplers
+			//std::get<1>(bindings[space]).push_back(SamplerCreateInfo<Vk>{});
+			bool usePushConstant = parentPushConstant || pushConstant;
+			std::get<2>(bindings[bindingSpace]) = (usePushConstant ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0);
 		}
 		else if (category == slang::ParameterCategory::RegisterSpace)
 		{
-			currentSet = ++setCount;
-			for (auto ff = 0; ff < elementFieldCount; ff++)
+			for (auto fieldIndex = 0; fieldIndex < elementFieldCount; fieldIndex++)
 				createLayoutBindings<Vk>(
-					elementTypeLayout->getFieldByIndex(ff),
+					elementTypeLayout->getFieldByIndex(fieldIndex),
 					genericParameterIndices,
 					bindings,
-					currentSet,
-					setCount,
-					parameter->getName());
+					(parentSpace ? parentSpace : &space),
+					fullName.c_str(),
+					parentPushConstant || pushConstant);
 		}
 		else
 		{

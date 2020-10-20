@@ -73,7 +73,7 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 template <>
 DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    DescriptorSetVectorCreateDesc<Vk>&& desc,
+    DescriptorSetArrayCreateDesc<Vk>&& desc,
     ArrayType&& descriptorSetHandles)
 : DeviceResource<Vk>(
     deviceContext,
@@ -98,7 +98,7 @@ template <>
 DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const DescriptorSetLayout<Vk>& layout,
-    DescriptorSetVectorCreateDesc<Vk>&& desc)
+    DescriptorSetArrayCreateDesc<Vk>&& desc)
 : DescriptorSetArray<Vk>(
     deviceContext,
     std::move(desc),

@@ -2,6 +2,8 @@
 
 #include <cereal/archives/binary.hpp>
 
+#include <slang.h>
+
 namespace shader
 {
 
@@ -15,10 +17,10 @@ template <GraphicsBackend B>
 void createLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	DescriptorSetLayoutMap<B>& bindingsMap,
-	uint32_t currentSet,
-	uint32_t& setCount,
-	const char* parentName = nullptr);
+	DescriptorSetLayoutBindingsMap<B>& bindingsMap,
+	const unsigned* parentSpace = nullptr,
+	const char* parentName = nullptr,
+	bool parentPushConstant = false);
 
 template <GraphicsBackend B>
 std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
@@ -58,6 +60,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
 		
 		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
+		//spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "GLSL_460"));
 		spSetTargetFlags(slangRequest, targetIndex, SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
 		
 		int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
@@ -70,8 +73,16 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			shaderString.c_str(), shaderString.c_str() + shaderString.size());
 
 		// temp
-		const char* epStrings[] = {"vertexMain", "fragmentMain", "computeMain"};
-		const SlangStage epStages[] = {SLANG_STAGE_VERTEX, SLANG_STAGE_FRAGMENT, SLANG_STAGE_COMPUTE};
+		const char* epStrings[] = {
+			"vertexMain",
+			"fragmentMain",
+			//"computeMain",
+		};
+		const SlangStage epStages[] = {
+			SLANG_STAGE_VERTEX,
+			SLANG_STAGE_FRAGMENT,
+			//SLANG_STAGE_COMPUTE,
+		};
 		// end temp
 
 		static_assert(sizeof_array(epStrings) == sizeof_array(epStages));
@@ -150,14 +161,11 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			}
 		}
 
-		uint32_t setCount = 0;
 		for (auto pp = 0; pp < shaderReflection->getParameterCount(); pp++)
 			shader::createLayoutBindings<B>(
 				shaderReflection->getParameterByIndex(pp),
 				genericParameterIndices,
-				slangModule->bindingsMap,
-				0,
-				setCount);
+				slangModule->bindingsMap);
 
 		// for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 		// {

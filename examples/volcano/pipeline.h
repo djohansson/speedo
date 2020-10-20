@@ -9,6 +9,7 @@
 #include "shader.h"
 #include "types.h"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -32,16 +33,18 @@ public:
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
-        std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts);
+        DescriptorSetLayoutMap<B>&& descriptorSetLayouts);
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
-        std::vector<DescriptorSetLayout<B>>&& descriptorSetLayouts,
+        DescriptorSetLayoutMap<B>&& descriptorSetLayouts,
         PipelineLayoutHandle<B>&& layout);
     ~PipelineLayout();
 
     PipelineLayout& operator=(PipelineLayout&& other);
     operator auto() const { return myLayout; }
+    bool operator==(const PipelineLayout& other) { return myLayout == other; }
+    bool operator<(const PipelineLayout& other) { return myLayout < other; }
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
@@ -49,7 +52,7 @@ public:
 private:
 
     std::vector<ShaderModule<B>> myShaders;
-	std::vector<DescriptorSetLayout<B>> myDescriptorSetLayouts;
+	DescriptorSetLayoutMap<B> myDescriptorSetLayouts;
 	PipelineLayoutHandle<B> myLayout = {};
 };
 
@@ -86,28 +89,36 @@ public:
     ~PipelineContext();
 
     PipelineContext& operator=(PipelineContext&& other);
-    operator auto() { return internalUpdateMap()->second; };
+    operator auto() { return internalGetPipeline(); };
 
     const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
-    const PipelineLayout<B>& getLayout() const { return *myLayout; }
-    const auto& getDescriptorSet(uint32_t set) const { return myDescriptorSets[set][0]; }
+    auto getCurrentLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myCurrentLayout); }
 
-    void setLayout(PipelineLayoutHandle<B> handle);
+    void bind(CommandBufferHandle<B> cmd);
+    void bindDescriptorSet(
+        CommandBufferHandle<B> cmd,
+        uint8_t set,
+        std::optional<uint32_t> bufferOffset = std::nullopt) const;
+
+    void setCurrentLayout(PipelineLayoutHandle<B> handle);
     
     PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout);
 
     template <typename T>
-    void setDescriptor(T&& data, DescriptorType<B> type, uint32_t set, uint32_t binding, uint32_t index = 0);
+    void setDescriptor(
+        T&& data,
+        DescriptorType<B> type,
+        uint8_t set,
+        uint32_t binding,
+        uint32_t index = 0);
     
-    //void copyDescriptorSet(uint32_t set, DescriptorSetArray<B>& dst) const;
-    void pushDescriptorSet(
-        CommandBufferHandle<B> cmd,
-        PipelineBindPoint<B> bindPoint,
-        PipelineLayoutHandle<B> layout,
-        uint32_t set) const;
-    void writeDescriptorSet(uint32_t set) const;
+    // todo: these should not be externally visible, but handled internally and "automagically" in this class.
+    //void copyDescriptorSet(uint8_t set, DescriptorSetArray<B>& dst) const;
+    void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
+    void writeDescriptorSet(uint8_t set) const;
+    //
     
     // temp! remove lazy updates and recalc when touched.
     // probably do not have these as shared ptrs, since we likely want pipeline to own them.
@@ -116,34 +127,51 @@ public:
 
 private:
 
-    using PipelineLayoutSet = std::set<PipelineLayout<B>, std::less<>>;
-    using PipelineLayoutConstIterator = typename PipelineLayoutSet::const_iterator;
-
     using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
     using PipelineMapConstIterator = typename PipelineMap::const_iterator;
 
-    using DescriptorVariantType = std::variant<
+    using PipelineLayoutSet = typename std::set<PipelineLayout<B>, std::less<>>;
+    using PipelineLayoutConstIterator = typename PipelineLayoutSet::const_iterator;
+
+    using DescriptorVariantVector = std::variant<
         std::vector<DescriptorBufferInfo<B>>,
         std::vector<DescriptorImageInfo<B>>,
         std::vector<BufferViewHandle<B>>>;
-    using DescriptorValueMapType = std::map<uint32_t, std::vector<std::tuple<DescriptorType<B>, DescriptorVariantType>>>;
+    using DescriptorValueMap = typename std::map<
+        uint64_t, // key
+        std::vector< // bindings
+            std::tuple<
+                DescriptorType<B>, // type
+                DescriptorVariantVector>>>; // value(s)
 
-    uint64_t internalCalculateHashKey() const;
+    uint64_t internalCalculateHashKey(PipelineLayoutHandle<Vk> layoutHandle) const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
     PipelineMapConstIterator internalUpdateMap();
 
-    AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
-    PipelineLayoutSet myLayouts;
-    PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
-    PipelineMap myPipelineMap;
-    DescriptorPoolHandle<B> myDescriptorPool = {};
-    std::vector<DescriptorSetArray<B>> myDescriptorSets;
+    const PipelineHandle<Vk>& internalGetPipeline();
+    const DescriptorSetHandle<Vk>& internalGetDescriptorSet(uint8_t set) const;
 
+    static uint64_t internalMakeDescriptorKey(const PipelineLayout<B>& layout, uint8_t set);
+    
     // temp
     std::shared_ptr<PipelineResourceView<B>> myResources;
     //
 
-    // graphics shadow state
+    // pipelinecontext data
+    AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
+    DescriptorPoolHandle<B> myDescriptorPool = {};
+    PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
+    PipelineLayoutSet myLayouts;
+    PipelineMap myPipelineMap;
+    DescriptorValueMap myDescriptorValues;
+    std::array<std::optional<std::tuple<DescriptorSetArray<B>, uint32_t>>, 4> myDescriptorSets; // temp!
+    std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
+
+    // base state
+    PipelineBindPoint<B> myBindPoint = {};
+    PipelineLayoutConstIterator myCurrentLayout = {};
+
+    // graphics state
     std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
     PipelineVertexInputStateCreateInfo<B> myVertexInput = {};
     PipelineInputAssemblyStateCreateInfo<B> myInputAssembly = {};
@@ -159,14 +187,13 @@ private:
     PipelineDynamicStateCreateInfo<B> myDynamicState = {};
     std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>> myRenderPassAndFramebuffer;
     uint32_t mySubpass = 0;
-    PipelineLayoutConstIterator myLayout = {};
     //
 
-    // descriptor shadow state
-    DescriptorValueMapType myDescriptorValueMap;
+    // todo: compute shadow state
     //
-    
-    std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
+
+    // todo: raytrace shadow state
+    //
 };
 
 #include "pipeline.inl"

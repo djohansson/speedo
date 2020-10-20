@@ -155,7 +155,7 @@ template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
-    std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts,
+    DescriptorSetLayoutMap<Vk>&& descriptorSetLayouts,
     PipelineLayoutHandle<Vk>&& layout)
 : DeviceResource<Vk>(
     deviceContext,
@@ -173,7 +173,7 @@ template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
-    std::vector<DescriptorSetLayout<Vk>>&& descriptorSetLayouts)
+    DescriptorSetLayoutMap<Vk>&& descriptorSetLayouts)
 : PipelineLayout(
     deviceContext,
     std::move(shaderModules),
@@ -201,17 +201,18 @@ PipelineLayout<Vk>::PipelineLayout(
     }(),
     [&slangModule, &deviceContext]
     {
-        std::vector<DescriptorSetLayout<Vk>> layouts;
-        layouts.reserve(slangModule->bindingsMap.size());
+        DescriptorSetLayoutMap<Vk> layouts;
         for (auto setBindings : slangModule->bindingsMap)
-            layouts.emplace_back(
-                DescriptorSetLayout<Vk>(
-                    deviceContext,
-                    DescriptorSetLayoutCreateDesc<Vk>{
-                        {"DescriptorSetLayout"},
-                        std::get<2>(setBindings.second)},
-                    std::get<1>(setBindings.second),
-                    std::get<0>(setBindings.second)));
+            layouts.emplace(
+                std::make_pair(
+                    setBindings.first,
+                    DescriptorSetLayout<Vk>(
+                        deviceContext,
+                        DescriptorSetLayoutCreateDesc<Vk>{
+                            {"DescriptorSetLayout"},
+                            std::get<2>(setBindings.second)},
+                        std::get<1>(setBindings.second),
+                        std::get<0>(setBindings.second))));
         return layouts;
     }())
 {
@@ -225,7 +226,7 @@ PipelineLayout<Vk>::~PipelineLayout()
 }
 
 template<>
-uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
+uint64_t PipelineContext<Vk>::internalCalculateHashKey(PipelineLayoutHandle<Vk> layoutHandle) const
 {
     ZoneScopedN("Pipeline::internalCalculateHashKey");
 
@@ -233,7 +234,6 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
     auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
     assert(result != XXH_ERROR);
 
-    auto layoutHandle = static_cast<PipelineLayoutHandle<Vk>>(getLayout());
     result = XXH3_64bits_update(myXXHState.get(), &layoutHandle, sizeof(layoutHandle));
     assert(result != XXH_ERROR);
 
@@ -246,7 +246,7 @@ template <>
 PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
     myShaderStages.clear();
-    for (const auto& shader : getLayout().getShaders())
+    for (const auto& shader : myCurrentLayout->getShaders())
     {
         if (shader.getEntryPoint().second ^ VK_SHADER_STAGE_COMPUTE_BIT)
             myShaderStages.emplace_back(
@@ -391,7 +391,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     pipelineInfo.pDepthStencilState = &myDepthStencil;
     pipelineInfo.pColorBlendState = &myColorBlend;
     pipelineInfo.pDynamicState = &myDynamicState;
-    pipelineInfo.layout = *myLayout;
+    pipelineInfo.layout = getCurrentLayout();
     pipelineInfo.renderPass = std::get<0>(myRenderPassAndFramebuffer);
     pipelineInfo.subpass = mySubpass;
     pipelineInfo.basePipelineHandle = 0;
@@ -431,7 +431,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 template <>
 PipelineContext<Vk>::PipelineMapConstIterator PipelineContext<Vk>::internalUpdateMap()
 {
-    auto hashKey = internalCalculateHashKey();
+    auto hashKey = internalCalculateHashKey(getCurrentLayout());
     auto emplaceResult = myPipelineMap.emplace(
         hashKey,
         PipelineHandle<Vk>{});
@@ -443,26 +443,65 @@ PipelineContext<Vk>::PipelineMapConstIterator PipelineContext<Vk>::internalUpdat
 }
 
 template<>
-void PipelineContext<Vk>::setLayout(PipelineLayoutHandle<Vk> handle)
+const PipelineHandle<Vk>& PipelineContext<Vk>::internalGetPipeline()
 {
-    myLayout = myLayouts.find(handle);
-    assert(myLayout != myLayouts.cend());
+    return internalUpdateMap()->second;
+}
 
-    // temp!
-    myDescriptorSets.emplace_back(DescriptorSetArray<Vk>(
-        getDeviceContext(),
-        getLayout().getDescriptorSetLayouts()[0],
-        DescriptorSetVectorCreateDesc<Vk>{
-            {"DescriptorSetArray"},
-            myDescriptorPool}));
-    //
+template<>
+const DescriptorSetHandle<Vk>& PipelineContext<Vk>::internalGetDescriptorSet(uint8_t set) const
+{
+    const auto& setOptionalTuple = myDescriptorSets[set];
+    assert(setOptionalTuple);
+    const auto& setTuple = setOptionalTuple.value();
+
+    return std::get<0>(setTuple)[std::get<1>(setTuple)];
+}
+
+template<>
+uint64_t PipelineContext<Vk>::internalMakeDescriptorKey(const PipelineLayout<Vk>& layout, uint8_t set)
+{
+    static_assert(static_cast<uint32_t>(DescriptorSetCategory::Count) <= 4);
+    assert(set < static_cast<uint32_t>(DescriptorSetCategory::Count));
+    assert((reinterpret_cast<uint64_t>(&layout) & 0x3) == 0);
+    
+    return reinterpret_cast<uint64_t>(&layout) | (static_cast<uint64_t>(set) & 0x3);
+}
+
+template <>
+void PipelineContext<Vk>::bind(CommandBufferHandle<Vk> cmd)
+{
+    vkCmdBindPipeline(cmd, myBindPoint, *this);
+}
+
+template <>
+void PipelineContext<Vk>::bindDescriptorSet(
+    CommandBufferHandle<Vk> cmd,
+    uint8_t set,
+    std::optional<uint32_t> bufferOffset) const
+{
+    vkCmdBindDescriptorSets(
+        cmd,
+        myBindPoint,
+        getCurrentLayout(),
+        0,
+        1,
+        &internalGetDescriptorSet(set),
+        bufferOffset ? 1 : 0,
+        bufferOffset ? &bufferOffset.value() : nullptr);
+}
+
+template<>
+void PipelineContext<Vk>::setCurrentLayout(PipelineLayoutHandle<Vk> handle)
+{
+    myCurrentLayout = myLayouts.find(handle);
+    assert(myCurrentLayout != myLayouts.cend());
 }
 
 // template <>
-// void Pipeline<Vk>::copyDescriptorSet(uint32_t set, DescriptorSetArray<Vk>& dst) const
+// void Pipeline<Vk>::copyDescriptorSet(uint8_t set, DescriptorSetArray<Vk>& dst) const
 // {
-//     if (const auto& bindingVector = myDescriptorValueMap.at(set); !bindingVector.empty())
-//     {
+//     if (const auto& bindingVector = myDescriptorValues.at(internalMakeDescriptorKey(*myCurrentLayout, set)); !bindingVector.empty())//     {
 //         std::vector<CopyDescriptorSet<Vk>> descriptorCopies;
 //         descriptorCopies.reserve(descriptorCopies.size() + bindingVector.size());
 
@@ -526,13 +565,9 @@ void PipelineContext<Vk>::setLayout(PipelineLayoutHandle<Vk> handle)
 // }
 
 template <>
-void PipelineContext<Vk>::pushDescriptorSet(
-    CommandBufferHandle<Vk> cmd,
-    PipelineBindPoint<Vk> bindPoint,
-    PipelineLayoutHandle<Vk> layout,
-    uint32_t set) const
+void PipelineContext<Vk>::pushDescriptorSet(CommandBufferHandle<Vk> cmd, uint8_t set) const
 {
-    if (const auto& bindingVector = myDescriptorValueMap.at(set); !bindingVector.empty())
+    if (const auto& bindingVector = myDescriptorValues.at(internalMakeDescriptorKey(*myCurrentLayout, set)); !bindingVector.empty())
     {
         std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
         descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
@@ -597,8 +632,8 @@ void PipelineContext<Vk>::pushDescriptorSet(
 
         pipeline::vkCmdPushDescriptorSetKHR(
             cmd,
-            bindPoint,
-            layout,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            getCurrentLayout(),
             set,
             static_cast<uint32_t>(descriptorWrites.size()),
             descriptorWrites.data());
@@ -606,16 +641,17 @@ void PipelineContext<Vk>::pushDescriptorSet(
 }
 
 template <>
-void PipelineContext<Vk>::writeDescriptorSet(uint32_t set) const
+void PipelineContext<Vk>::writeDescriptorSet(uint8_t set) const
 {
-    if (const auto& bindingVector = myDescriptorValueMap.at(set); !bindingVector.empty())
+    if (const auto& bindingVector = myDescriptorValues.at(internalMakeDescriptorKey(*myCurrentLayout, set)); !bindingVector.empty())
     {
+        auto setHandle = internalGetDescriptorSet(set);
+
         std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
         descriptorWrites.reserve(descriptorWrites.size() + bindingVector.size());
 
         for (const auto& binding : bindingVector)
-        {
-            auto setHandle = myDescriptorSets[set][0];
+        {    
             auto bindingType = std::get<0>(binding);
             auto bindingIt = static_cast<uint32_t>(&binding - &bindingVector[0]);
             const auto& variantVector = std::get<1>(binding);
@@ -678,9 +714,17 @@ void PipelineContext<Vk>::writeDescriptorSet(uint32_t set) const
 template<>
 PipelineLayoutHandle<Vk> PipelineContext<Vk>::emplaceLayout(PipelineLayout<Vk>&& layout)
 {
-    auto layoutIt = myLayouts.emplace(std::move(layout)).first;
-    setLayout(*layoutIt);
-    return *layoutIt;
+    auto emplaceResult = myLayouts.emplace(std::move(layout));
+    myCurrentLayout = emplaceResult.first;
+    // temp!
+    myDescriptorSets[0] = std::make_optional(std::make_tuple(DescriptorSetArray<Vk>(
+        getDeviceContext(),
+        myCurrentLayout->getDescriptorSetLayouts().at(0),
+        DescriptorSetArrayCreateDesc<Vk>{
+            {"DescriptorSetArray"},
+            myDescriptorPool}), 0));
+    //
+    return *myCurrentLayout;
 }
 
 template<>
@@ -744,7 +788,7 @@ PipelineContext<Vk>::~PipelineContext()
 
     myResources.reset();
 	// myLayout.reset();
-	myDescriptorSets.clear();
+	myDescriptorSets = {};
 
     if (myDescriptorPool)
         getDeviceContext()->addTimelineCallback(

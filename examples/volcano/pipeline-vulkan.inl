@@ -15,9 +15,14 @@ inline constexpr bool always_false_v = false;
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptor(T&& data, DescriptorType<Vk> type, uint32_t set, uint32_t binding, uint32_t index)
+void PipelineContext<Vk>::setDescriptor(
+    T&& data,
+    DescriptorType<Vk> type,
+    uint8_t set,
+    uint32_t binding,
+    uint32_t index)
 {
-    auto& bindingVector = myDescriptorValueMap[set];
+    auto& bindingVector = myDescriptorValues[internalMakeDescriptorKey(*myCurrentLayout, set)];
     if (bindingVector.size() <= binding)
     {
         bindingVector.resize(binding + 1);
