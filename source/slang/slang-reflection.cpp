@@ -1108,6 +1108,9 @@ SlangReflectionModifier* spReflectionVariable_FindModifier(SlangReflectionVariab
     case SLANG_MODIFIER_SHARED:
         modifier = var->findModifier<HLSLEffectSharedModifier>();
         break;
+    case SLANG_MODIFIER_PUSH_CONSTANT:
+        modifier = var->findModifier<PushConstantAttribute>();
+        break;
 
     default:
         return nullptr;

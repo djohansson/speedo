@@ -1962,6 +1962,7 @@ extern "C"
     enum
     {
         SLANG_MODIFIER_SHARED,
+        SLANG_MODIFIER_PUSH_CONSTANT,
     };
 
     // User Attribute
@@ -2526,6 +2527,7 @@ namespace slang
         enum ID : SlangModifierID
         {
             Shared = SLANG_MODIFIER_SHARED,
+            PushConstant = SLANG_MODIFIER_PUSH_CONSTANT,
         };
     };
 
