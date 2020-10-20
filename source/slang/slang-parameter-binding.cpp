@@ -1011,7 +1011,7 @@ static void addExplicitParameterBindings_GLSL(
             getSink(context)->diagnose(attr, Diagnostics::wholeSpaceParameterRequiresZeroBinding, varDecl.getName(), attr->binding);
         }
         semanticInfo.index = attr->set;
-        semanticInfo.space = 0;
+        semanticInfo.space = attr->set;
     }
     else if( (resInfo = typeLayout->FindResourceInfo(LayoutResourceKind::SpecializationConstant)) != nullptr )
     {
@@ -1195,13 +1195,9 @@ static void completeBindingsForParameterImpl(
                 // the number of spaces consumed.
                 //
                 bindingInfo.index = currentAllocatedSpace;
-                currentAllocatedSpace += count.getFiniteValue();
+                bindingInfo.space = currentAllocatedSpace;
 
-                // TODO: what should we store as the "space" for
-                // an allocation of register spaces? Either zero
-                // or `space` makes sense, but it isn't clear
-                // which is a better choice.
-                bindingInfo.space = 0;
+                currentAllocatedSpace += count.getFiniteValue();
 
                 continue;
             }
