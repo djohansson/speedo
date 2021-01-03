@@ -346,7 +346,7 @@ Application<Vk>::Application(
 
             // glm::vec3 color = glm::vec3(1.0f, 0.0f, 0.0f);
             // myGraphicsPipeline->setDescriptorData(
-            //     WriteDescriptorSetInlineUniformBlock<Vk>{
+            //     InlineUniformBlock<Vk>{
             //         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
             //         nullptr,
             //         sizeof(color),

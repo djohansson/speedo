@@ -437,20 +437,24 @@ template <>
 PipelineContext<Vk>::PipelineMapConstIterator PipelineContext<Vk>::internalUpdateMap()
 {
     auto hashKey = internalCalculateHashKey(getCurrentLayout());
-    auto emplaceResult = myPipelineMap.emplace(
-        hashKey,
-        PipelineHandle<Vk>{});
+    auto insertResult = myPipelineMap.insert(std::make_pair(hashKey, PipelineMapValueType{}));
 
-    if (emplaceResult.second)
-        emplaceResult.first->second = internalCreateGraphicsPipeline(hashKey);
+    if (insertResult.second)
+        insertResult.first->second = PipelineMapValueType(internalCreateGraphicsPipeline(hashKey));
 
-    return emplaceResult.first;
+    return insertResult.first;
 }
 
 template<>
-const PipelineHandle<Vk>& PipelineContext<Vk>::internalGetPipeline()
+const PipelineContext<Vk>::PipelineMapValueType& PipelineContext<Vk>::internalGetPipeline()
 {
-    return internalUpdateMap()->second;
+    auto& pipelineHandle = internalUpdateMap()->second;
+
+    //internalUpdateMap()->second.wait(nullptr); todo: c++20
+    while (!pipelineHandle.load(std::memory_order_relaxed))
+        std::this_thread::yield();
+    
+    return pipelineHandle;
 }
 
 template<>
@@ -628,7 +632,7 @@ void PipelineContext<Vk>::pushDescriptorSet(CommandBufferHandle<Vk> cmd, uint8_t
                         bufferViews.data()};
                 },
                 [bindingType, bindingIndex](
-                const std::vector<WriteDescriptorSetInlineUniformBlock<Vk>>& parameterBlocks){
+                const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
                     assert(parameterBlocks.size() == 1);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -722,7 +726,7 @@ void PipelineContext<Vk>::writeDescriptorSet(uint8_t set) const
                             bufferViews.data()};
                 },
                 [setHandle, bindingType, bindingIndex](
-                    const std::vector<WriteDescriptorSetInlineUniformBlock<Vk>>& parameterBlocks){
+                    const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
                         assert(parameterBlocks.size() == 1);
                         return WriteDescriptorSet<Vk>{
                             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,

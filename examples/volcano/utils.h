@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <chrono>
@@ -103,6 +104,29 @@ public:
 private:
 	void *operator new(size_t);
     void *operator new[](size_t);
+};
+
+template <typename T>
+class CopyableAtomic : public std::atomic<T>
+{
+public:
+    
+    CopyableAtomic() = default;
+    constexpr CopyableAtomic(T val)
+     : std::atomic<T>(val) 
+    {
+        this->store(val);
+    }
+    constexpr CopyableAtomic(const CopyableAtomic<T>& other)
+    {
+        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
+    }
+
+    CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other)
+    {
+        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
+        return *this;
+    }
 };
 
 template <class T0, class... Ts>

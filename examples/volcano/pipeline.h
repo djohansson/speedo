@@ -8,12 +8,17 @@
 #include "rendertarget.h"
 #include "shader.h"
 #include "types.h"
+#include "utils.h"
 
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
-
+#if defined(__WINDOWS__)
+#include <concurrent_unordered_map.h>
+#else
+#include <unordered_map>
+#endif
 #include <xxh3.h>
 
 template <GraphicsBackend B>
@@ -89,7 +94,7 @@ public:
     ~PipelineContext();
 
     PipelineContext& operator=(PipelineContext&& other);
-    operator auto() { return internalGetPipeline(); };
+    operator auto() { return internalGetPipeline().load(std::memory_order_relaxed); };
 
     const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
@@ -147,7 +152,18 @@ public:
 
 private:
 
-    using PipelineMap = std::map<uint64_t, PipelineHandle<B>>;
+    template <typename Key, typename Value>
+#if defined(__WINDOWS__)
+    using UnorderedMapType = Concurrency::concurrent_unordered_map<Key, Value>;
+#else
+    using UnorderedMapType = std::unordered_map<Key, Value>;
+#endif
+
+    using PipelineMapKeyType = uint64_t;
+    using PipelineMapValueType = CopyableAtomic<PipelineHandle<B>>;
+
+    using PipelineMap = UnorderedMapType<PipelineMapKeyType, PipelineMapValueType>;
+
     using PipelineMapConstIterator = typename PipelineMap::const_iterator;
 
     using PipelineLayoutSet = std::set<PipelineLayout<B>, std::less<>>;
@@ -157,7 +173,7 @@ private:
         std::vector<DescriptorBufferInfo<B>>,
         std::vector<DescriptorImageInfo<B>>,
         std::vector<BufferViewHandle<B>>,
-        std::vector<WriteDescriptorSetInlineUniformBlock<Vk>>>; // WriteDescriptorSetInlineUniformBlock can only have one array element per binding
+        std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
     using BindingData = std::tuple<DescriptorType<B>, BindingVariantVector>;
     using BindingsMap = std::map<uint32_t, BindingData>;
 
@@ -167,7 +183,7 @@ private:
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
     PipelineMapConstIterator internalUpdateMap();
 
-    const PipelineHandle<Vk>& internalGetPipeline();
+    const PipelineMapValueType& internalGetPipeline();
     const DescriptorSetHandle<Vk>& internalGetDescriptorSet(uint8_t set) const;
 
     static uint64_t internalMakeDescriptorKey(const PipelineLayout<B>& layout, uint8_t set);
