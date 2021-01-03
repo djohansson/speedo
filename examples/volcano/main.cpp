@@ -6,6 +6,8 @@
 #include <clocale>
 
 #if defined(_DEBUG) && defined(__WINDOWS__)
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
 #include <crtdbg.h>
 #ifndef _AMD64_
 #define _AMD64_ 1
@@ -18,8 +20,10 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#if __WINDOWS__
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+#endif
 
 #include <imgui.h>
 #include <examples/imgui_impl_glfw.h>
