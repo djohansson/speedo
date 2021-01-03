@@ -186,6 +186,7 @@
         {
             "name": "(Windows) profile/volcano",
             "type": "cppvsdbg",
+            //"type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/profile/volcano.exe",
             "args": [],

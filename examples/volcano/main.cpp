@@ -6,7 +6,6 @@
 #include <clocale>
 
 #if defined(_DEBUG) && defined(__WINDOWS__)
-#define _CRTDBG_MAP_ALLOC
 #include <stdlib.h>
 #include <crtdbg.h>
 #ifndef _AMD64_
