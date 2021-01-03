@@ -14,10 +14,10 @@ template <GraphicsBackend B>
 DescriptorType<B> getDescriptorType(slang::TypeLayoutReflection* type);
 
 template <GraphicsBackend B>
-void createLayoutBindings(
+uint32_t createLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	DescriptorSetLayoutBindingsMap<B>& bindingsMap,
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr,
 	bool parentPushConstant = false);
@@ -143,9 +143,9 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 
 		std::vector<uint32_t> genericParameterIndices(shaderReflection->getTypeParameterCount());
 		uint32_t parameterBlockCounter = 0;
-		for (auto pp = 0; pp < shaderReflection->getParameterCount(); pp++)
+		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount(); parameterIndex++)
 		{
-			auto parameter = shaderReflection->getParameterByIndex(pp);
+			auto parameter = shaderReflection->getParameterByIndex(parameterIndex);
 			auto* typeLayout = parameter->getTypeLayout();
 			
 	        if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
@@ -161,11 +161,11 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			}
 		}
 
-		for (auto pp = 0; pp < shaderReflection->getParameterCount(); pp++)
+		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount(); parameterIndex++)
 			shader::createLayoutBindings<B>(
-				shaderReflection->getParameterByIndex(pp),
+				shaderReflection->getParameterByIndex(parameterIndex),
 				genericParameterIndices,
-				slangModule->bindingsMap);
+				slangModule->layouts);
 
 		// for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 		// {
@@ -173,8 +173,8 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		// SlangUInt threadGroupSize[3];
 		// epReflection->getComputeThreadGruopSize(3, &threadGroupSize[0]);
 
-		// 	for (unsigned pp = 0; pp < epReflection->getParameterCount(); pp++)
-		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), slangModule->bindingsMap);
+		// 	for (unsigned parameterIndex = 0; parameterIndex < epReflection->getParameterCount(); parameterIndex++)
+		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), slangModule->layouts);
 		// }
 
 		spDestroyCompileRequest(slangRequest);

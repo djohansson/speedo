@@ -96,29 +96,49 @@ public:
     auto getDescriptorPool() const { return myDescriptorPool; }
     auto getCurrentLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myCurrentLayout); }
 
+    // note scope 1: not quite sure yet on how we should interact with these functions. Perhaps some sort of layout begin/end that returns a proxy object so set all state?
     void bind(CommandBufferHandle<B> cmd);
     void bindDescriptorSet(
         CommandBufferHandle<B> cmd,
         uint8_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt) const;
 
-    void setCurrentLayout(PipelineLayoutHandle<B> handle);
-    
     PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout);
 
+    void setCurrentLayout(PipelineLayoutHandle<B> handle);
+    
+    // object
     template <typename T>
-    void setDescriptor(
+    void setDescriptorData(
+        T&& data,
+        DescriptorType<B> type,
+        uint8_t set,
+        uint32_t binding);
+
+    // array
+    template <typename T>
+    void setDescriptorData(
+        std::vector<T>&& data,
+        DescriptorType<B> type,
+        uint8_t set,
+        uint32_t binding);
+
+    // array-element
+    template <typename T>
+    void setDescriptorData(
         T&& data,
         DescriptorType<B> type,
         uint8_t set,
         uint32_t binding,
-        uint32_t index = 0);
+        uint32_t index);
     
     // todo: these should not be externally visible, but handled internally and "automagically" in this class.
     //void copyDescriptorSet(uint8_t set, DescriptorSetArray<B>& dst) const;
     void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
     void writeDescriptorSet(uint8_t set) const;
     //
+
+    // note scope 1 end
     
     // temp! remove lazy updates and recalc when touched.
     // probably do not have these as shared ptrs, since we likely want pipeline to own them.
@@ -127,22 +147,21 @@ public:
 
 private:
 
-    using PipelineMap = typename std::map<uint64_t, PipelineHandle<B>>;
+    using PipelineMap = std::map<uint64_t, PipelineHandle<B>>;
     using PipelineMapConstIterator = typename PipelineMap::const_iterator;
 
-    using PipelineLayoutSet = typename std::set<PipelineLayout<B>, std::less<>>;
+    using PipelineLayoutSet = std::set<PipelineLayout<B>, std::less<>>;
     using PipelineLayoutConstIterator = typename PipelineLayoutSet::const_iterator;
 
-    using DescriptorVariantVector = std::variant<
+    using BindingVariantVector = std::variant<
         std::vector<DescriptorBufferInfo<B>>,
         std::vector<DescriptorImageInfo<B>>,
-        std::vector<BufferViewHandle<B>>>;
-    using DescriptorValueMap = typename std::map<
-        uint64_t, // key
-        std::vector< // bindings
-            std::tuple<
-                DescriptorType<B>, // type
-                DescriptorVariantVector>>>; // value(s)
+        std::vector<BufferViewHandle<B>>,
+        std::vector<WriteDescriptorSetInlineUniformBlock<Vk>>>; // WriteDescriptorSetInlineUniformBlock can only have one array element per binding
+    using BindingData = std::tuple<DescriptorType<B>, BindingVariantVector>;
+    using BindingsMap = std::map<uint32_t, BindingData>;
+
+    using DescriptorDataMap = std::map<uint64_t, BindingsMap>;
 
     uint64_t internalCalculateHashKey(PipelineLayoutHandle<Vk> layoutHandle) const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
@@ -163,7 +182,7 @@ private:
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
     PipelineLayoutSet myLayouts;
     PipelineMap myPipelineMap;
-    DescriptorValueMap myDescriptorValues;
+    DescriptorDataMap myDescriptorData;
     std::array<std::optional<std::tuple<DescriptorSetArray<B>, uint32_t>>, 4> myDescriptorSets; // temp!
     std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 

@@ -23,7 +23,7 @@ template <GraphicsBackend B>
 struct ShaderReflectionInfo
 {
 	std::vector<Shader<B>> shaders;
-	DescriptorSetLayoutBindingsMap<B> bindingsMap;
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
 };
 
 namespace shader

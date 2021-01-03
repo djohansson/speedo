@@ -302,9 +302,14 @@ Application<Vk>::Application(
 
         createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
-        myGraphicsPipeline->setDescriptor(
-            DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, static_cast<uint32_t>(DescriptorSetCategory::Global), 0);
+        std::vector<DescriptorBufferInfo<Vk>> bufferInfos;
+        bufferInfos.emplace_back(DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE});
+
+        myGraphicsPipeline->setDescriptorData(
+            std::move(bufferInfos),
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            static_cast<uint32_t>(DescriptorSetCategory::Global),
+            0);
         
         myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
     }
@@ -323,14 +328,54 @@ Application<Vk>::Application(
 
             myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-            myGraphicsPipeline->setDescriptor(
-                DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
-                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(DescriptorSetCategory::Material), 0);
-            myGraphicsPipeline->setDescriptor(
-                DescriptorImageInfo<Vk>{myGraphicsPipeline->resources()->sampler},
-                VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<uint32_t>(DescriptorSetCategory::Material), 1);
+            myGraphicsPipeline->setDescriptorData(
+                DescriptorImageInfo<Vk>{
+                    0,
+                    *myGraphicsPipeline->resources()->imageView,
+                    myGraphicsPipeline->resources()->image->getImageLayout()},
+                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                static_cast<uint32_t>(DescriptorSetCategory::Material),
+                0);
 
-            myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
+            myGraphicsPipeline->setDescriptorData(
+                DescriptorImageInfo<Vk>{
+                    myGraphicsPipeline->resources()->sampler},
+                VK_DESCRIPTOR_TYPE_SAMPLER,
+                static_cast<uint32_t>(DescriptorSetCategory::Material),
+                1);
+
+            // glm::vec3 color = glm::vec3(1.0f, 0.0f, 0.0f);
+            // myGraphicsPipeline->setDescriptorData(
+            //     WriteDescriptorSetInlineUniformBlock<Vk>{
+            //         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
+            //         nullptr,
+            //         sizeof(color),
+            //         &color},
+            //     VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
+            //     static_cast<uint32_t>(DescriptorSetCategory::Object),
+            //     0);
+
+            myGraphicsPipeline->setDescriptorData(
+                DescriptorImageInfo<Vk>{
+                    0,
+                    *myGraphicsPipeline->resources()->imageView,
+                    myGraphicsPipeline->resources()->image->getImageLayout()},
+                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                static_cast<uint32_t>(DescriptorSetCategory::Object),
+                0);
+
+            myGraphicsPipeline->setDescriptorData(
+                DescriptorImageInfo<Vk>{
+                    myGraphicsPipeline->resources()->sampler},
+                VK_DESCRIPTOR_TYPE_SAMPLER,
+                static_cast<uint32_t>(DescriptorSetCategory::Object),
+                1);
+
+            myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
+            //myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Object));
+            //myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
+            myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
+            
         };
 
         initDrawCommands(commandContext->commands(), frame.getDesc().index);
@@ -397,9 +442,31 @@ Application<Vk>::Application(
 
         ///////////
 
+        myGraphicsPipeline->setDescriptorData(
+            DescriptorImageInfo<Vk>{
+                0,
+                *myGraphicsPipeline->resources()->imageView,
+                myGraphicsPipeline->resources()->image->getImageLayout()},
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            static_cast<uint32_t>(DescriptorSetCategory::Material),
+            0);
+
+        myGraphicsPipeline->setDescriptorData(
+            DescriptorImageInfo<Vk>{
+                0,
+                *myGraphicsPipeline->resources()->imageView,
+                myGraphicsPipeline->resources()->image->getImageLayout()},
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            static_cast<uint32_t>(DescriptorSetCategory::Object),
+            0);
+
         const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrameIndex()];
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
+
+        myGraphicsPipeline->pushDescriptorSet(
+            cmd,
+            static_cast<uint32_t>(DescriptorSetCategory::Object));
 
         myGraphicsPipeline->resources()->image->transition(
             cmd,
@@ -417,9 +484,7 @@ Application<Vk>::Application(
 
         myLastFrameTimelineValue = myGraphicsQueue->submit();
 
-        myGraphicsPipeline->setDescriptor(
-            DescriptorImageInfo<Vk>{0, *myGraphicsPipeline->resources()->imageView, myGraphicsPipeline->resources()->image->getImageLayout()},
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(DescriptorSetCategory::Material), 0);
+        myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
     };
 
     myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage]
@@ -977,9 +1042,14 @@ void Application<Vk>::resizeFramebuffer(int, int)
     
     myWindow->onResizeFramebuffer(framebufferExtent);
 
-    myGraphicsPipeline->setDescriptor(
-        DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, static_cast<uint32_t>(DescriptorSetCategory::Global), 0);
+    myGraphicsPipeline->setDescriptorData(
+        DescriptorBufferInfo<Vk>{
+            myWindow->getViewBuffer(),
+            0,
+            VK_WHOLE_SIZE},
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        static_cast<uint32_t>(DescriptorSetCategory::Global),
+        0);
     
     myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
 

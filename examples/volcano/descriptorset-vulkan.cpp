@@ -14,7 +14,7 @@ template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetLayoutCreateDesc<Vk>&& desc,
-    std::tuple<DescriptorSetLayoutHandle<Vk>, SamplerVector<Vk>>&& layout)
+    ValueType&& layout)
 : DeviceResource<Vk>(
     deviceContext,
     {"_DescriptorSetLayout"},
@@ -29,25 +29,24 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    DescriptorSetLayoutCreateDesc<Vk>&& desc,
-    const std::vector<SamplerCreateInfo<Vk>>& immutableSamplers,
-    std::vector<DescriptorSetLayoutBinding<Vk>>& bindings)
+    DescriptorSetLayoutCreateDesc<Vk>&& desc)
 : DescriptorSetLayout<Vk>(
     deviceContext,
     std::move(desc),
-    [&deviceContext, &desc, &immutableSamplers, &bindings]
+    [&deviceContext, &desc]
     {
-        auto samplers = SamplerVector<Vk>(deviceContext, immutableSamplers);
+        auto& bindingVector = desc.bindings;
+        auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
 
-        for (auto& binding : bindings)
+        for (auto& binding : bindingVector)
             binding.pImmutableSamplers = samplers.data();
-
+        
         return std::make_tuple(
             createDescriptorSetLayout(
                 deviceContext->getDevice(),
                 desc.flags,
-                bindings.data(),
-                bindings.size()),
+                bindingVector.data(),
+                bindingVector.size()),
             std::move(samplers));
     }())
 {

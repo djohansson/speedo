@@ -7,20 +7,18 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
 template <GraphicsBackend B>
-using DescriptorSetLayoutBindingsMap = std::map<
-    uint32_t, // set index
-    std::tuple<
-        std::vector<DescriptorSetLayoutBinding<B>>, // bindings
-        std::vector<SamplerCreateInfo<B>>, // immutable samplers
-        DescriptorSetLayoutCreateFlags<B>>>; // layout flags
-
-template <GraphicsBackend B>
 struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 {
+    std::vector<DescriptorSetLayoutBinding<B>> bindings;
+    std::vector<std::string> variableNames;
+    std::vector<SamplerCreateInfo<B>> immutableSamplers;
+    std::optional<PushConstantRange<B>> pushConstantRange;
     DescriptorSetLayoutCreateFlags<B> flags = {};
 };
 
@@ -34,9 +32,7 @@ public:
     DescriptorSetLayout(DescriptorSetLayout&& other);
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        DescriptorSetLayoutCreateDesc<B>&& desc,
-        const std::vector<SamplerCreateInfo<B>>& immutableSamplers, // todo: replace with DescriptorSetLayoutBindingsMap?
-        std::vector<DescriptorSetLayoutBinding<B>>& bindings); // todo: replace with DescriptorSetLayoutBindingsMap?
+        DescriptorSetLayoutCreateDesc<B>&& desc);
     DescriptorSetLayout( // takes ownership of provided handle
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutCreateDesc<B>&& desc,

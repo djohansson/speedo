@@ -112,7 +112,9 @@ VkRenderPass createRenderPass(
 VkPipelineLayout createPipelineLayout(
 	VkDevice device,
 	const VkDescriptorSetLayout* descriptorSetLayouts,
-	uint32_t descriptorSetLayoutCount);
+	uint32_t descriptorSetLayoutCount,
+	const VkPushConstantRange* pushConstantRanges,
+	uint32_t pushConstantRangeCount);
 
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
 

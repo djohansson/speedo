@@ -844,13 +844,15 @@ VkRenderPass createRenderPass(
 VkPipelineLayout createPipelineLayout(
 	VkDevice device,
 	const VkDescriptorSetLayout* descriptorSetLayouts,
-	uint32_t descriptorSetLayoutCount)
+	uint32_t descriptorSetLayoutCount,
+	const VkPushConstantRange* pushConstantRanges,
+	uint32_t pushConstantRangeCount)
 {
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	pipelineLayoutInfo.setLayoutCount = descriptorSetLayoutCount;
 	pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts;
-	pipelineLayoutInfo.pushConstantRangeCount = 0;
-	pipelineLayoutInfo.pPushConstantRanges = nullptr;
+	pipelineLayoutInfo.pushConstantRangeCount = pushConstantRangeCount;
+	pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges;
 
 	VkPipelineLayout layout;
 	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &layout));

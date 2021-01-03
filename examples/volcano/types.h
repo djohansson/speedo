@@ -291,3 +291,9 @@ using CopyDescriptorSet = std::conditional_t<B == Vk, VkCopyDescriptorSet, std::
 
 template <GraphicsBackend B>
 using WriteDescriptorSet = std::conditional_t<B == Vk, VkWriteDescriptorSet, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using WriteDescriptorSetInlineUniformBlock = std::conditional_t<B == Vk, VkWriteDescriptorSetInlineUniformBlockEXT, std::nullptr_t>; 
+
+template <GraphicsBackend B>
+using PushConstantRange = std::conditional_t<B == Vk, VkPushConstantRange, std::nullptr_t>;

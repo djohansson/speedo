@@ -157,7 +157,10 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                         uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
 
-                        pipeline->bindDescriptorSet(cmd, 0, std::make_optional(viewBufferOffset));
+                        pipeline->bindDescriptorSet(
+                            cmd,
+                            static_cast<uint32_t>(DescriptorSetCategory::Global),
+                            std::make_optional(viewBufferOffset));
 
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height)
                         {
@@ -180,18 +183,19 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
                         };
 
+                        setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+
+                        pipeline->bindDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
+
                         auto drawModel = [&pipeline](VkCommandBuffer cmd)
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
-                            auto indexCount = pipeline->resources()->model->getDesc().indexCount;
-                            
-                            pipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
-                            
-                            vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+                            pipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
+
+                            vkCmdDrawIndexed(cmd, pipeline->resources()->model->getDesc().indexCount, 1, 0, 0, 0);
                         };
 
-                        setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
                         drawModel(cmd);
                     };
 

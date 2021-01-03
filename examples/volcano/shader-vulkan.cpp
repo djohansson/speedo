@@ -45,7 +45,8 @@ ShaderStageFlagBits<Vk> getStageFlags<Vk>(SlangStage stage)
 template <>
 DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeLayoutReflection* typeLayout)
 {
-	switch (typeLayout->getKind())
+	auto kind = typeLayout->getKind();
+	switch (kind)
 	{
 	case slang::TypeReflection::Kind::ConstantBuffer:
 		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -71,6 +72,8 @@ DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeLayoutReflection* typeLayout
 	}
 	case slang::TypeReflection::Kind::SamplerState:
 		return VK_DESCRIPTOR_TYPE_SAMPLER;
+	case slang::TypeReflection::Kind::ParameterBlock:
+		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	case slang::TypeReflection::Kind::None:
 	case slang::TypeReflection::Kind::Struct:
 	case slang::TypeReflection::Kind::Array:
@@ -79,7 +82,6 @@ DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeLayoutReflection* typeLayout
 	case slang::TypeReflection::Kind::Scalar:
 	case slang::TypeReflection::Kind::TextureBuffer:
 	case slang::TypeReflection::Kind::ShaderStorageBuffer:
-	case slang::TypeReflection::Kind::ParameterBlock:
 	case slang::TypeReflection::Kind::GenericTypeParameter:
 	case slang::TypeReflection::Kind::Interface:
 	case slang::TypeReflection::Kind::OutputStream:
@@ -93,33 +95,41 @@ DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeLayoutReflection* typeLayout
 }
 
 template <>
-void createLayoutBindings<Vk>(
+uint32_t createLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-    DescriptorSetLayoutBindingsMap<Vk>& bindings,
+    std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
 	const unsigned* parentSpace,
 	const char* parentName,
 	bool parentPushConstant)
 {
-	using MapType = std::remove_reference_t<decltype(bindings)>;
-	using MapValueType = typename MapType::mapped_type;
-	using BindingVectorType = std::tuple_element_t<0, MapValueType>;
-	using BindingType = typename BindingVectorType::value_type;
-
+	using BindingType = DescriptorSetLayoutBinding<Vk>;
+	
+	auto space = parameter->getBindingSpace();
+	auto index = parameter->getBindingIndex();
+	auto name = std::string(parameter->getName());
+	auto stage = parameter->getStage();
+	bool pushConstant = (parameter->findModifier(slang::Modifier::ID::PushConstant) ? true : false);
+	auto categoryCount = parameter->getCategoryCount();
 	auto* typeLayout = parameter->getTypeLayout();
 	auto type = typeLayout->getType();
 	auto userAttributeCount = type->getUserAttributeCount();
-	auto arrayElementCount = typeLayout->isArray() ? typeLayout->getElementCount() : 1;
+	auto kind = typeLayout->getKind();
+	auto typeName = typeLayout->getName();
+	auto arrayElementCount = typeLayout->isArray() ? typeLayout->getElementCount() : 0;
 	auto fieldCount = typeLayout->getFieldCount();
 	auto* elementTypeLayout = typeLayout->getElementTypeLayout();
 	auto elementKind = elementTypeLayout->getKind();
 	auto elementFieldCount = elementTypeLayout->getFieldCount();
 	auto genericParamIndex = elementTypeLayout->getGenericParamIndex();
-	auto space = parameter->getBindingSpace();
-	auto index = parameter->getBindingIndex();
-	auto name = parameter->getName();
-	auto stage = parameter->getStage();
-	bool pushConstant = (parameter->findModifier(slang::Modifier::ID::PushConstant) ? true : false);
+
+	// auto* elementVarLayout = typeLayout->getElementVarLayout();
+
+	// if (auto elementVarName = elementVarLayout->getName())
+	// 	std::cout << "elementVarLayout name: " << elementVarName << std::endl;
+
+	// std::cout << "elementVarLayout space: " << elementVarLayout->getBindingSpace() << std::endl;
+
 
 	std::string fullName;
 	if (parentName)
@@ -128,84 +138,144 @@ void createLayoutBindings<Vk>(
 		fullName.append(".");
 	}
 	fullName.append(name);
-	
+
+	auto bindingSpace = (parentSpace ? *parentSpace : space);
+	bool usePushConstant = parentPushConstant || pushConstant;
+
+	uint32_t fieldSize = 0;
 	for (auto fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
-		createLayoutBindings<Vk>(
+		fieldSize += createLayoutBindings<Vk>(
 			typeLayout->getFieldByIndex(fieldIndex),
 			genericParameterIndices,
-			bindings,
-			&space,
-			name);
+			layouts,
+			&bindingSpace,
+			fullName.c_str(),
+			usePushConstant);
 
-	auto categoryCount = parameter->getCategoryCount();
+	uint32_t elementFieldSize = 0;
+	for (auto elementFieldIndex = 0; elementFieldIndex < elementFieldCount; elementFieldIndex++)
+		elementFieldSize += createLayoutBindings<Vk>(
+			elementTypeLayout->getFieldByIndex(elementFieldIndex),
+			genericParameterIndices,
+			layouts,
+			&bindingSpace,
+			fullName.c_str(),
+			usePushConstant);
+
+	uint32_t categoriesTotalSize = 0;
 	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
 	{
 		auto category = parameter->getCategoryByIndex(categoryIndex);
 		auto offsetForCategory = parameter->getOffset(category);
 		auto spaceForCategory = parameter->getBindingSpace(category);
-		auto elementStride = typeLayout->getElementStride(category);
+		auto elementStride = elementTypeLayout->getElementStride(category);
 		auto elementSize = elementTypeLayout->getSize(category);
-		// auto sizeInBytes = typeLayout->getSize(slang::ParameterCategory::Uniform);
-		// auto tRegCount = typeLayout->getSize(slang::ParameterCategory::ShaderResource);
+		auto sizeInBytes = typeLayout->getSize(category);
+		categoriesTotalSize += sizeInBytes;
+
+		std::cout << "DEBUG: name: " << name
+			<< ", fullName: " << fullName
+			<< ", space: " << space
+			<< ", parent space: " << (parentSpace ? std::to_string(*parentSpace) : "(nullptr)")
+			<< ", index: " << index
+			<< ", stage: " << stage
+			<< ", kind: " << (int)kind
+			<< ", typeName: " << typeName
+			<< ", userAttributeCount: " << userAttributeCount;
 		
-		if (category == slang::ParameterCategory::DescriptorTableSlot)
+		std::cout << ", arrayElementCount: " << arrayElementCount
+			<< ", fieldCount: " << fieldCount;
+
+		std::cout << ", category: " << category
+			<< ", spaceForCategory: " << spaceForCategory
+			<< ", offsetForCategory: " << offsetForCategory
+			<< ", elementStride: " << elementStride
+			<< ", elementSize: " << elementSize
+			<< ", elementKind: " << (int)elementKind
+			<< ", elementFieldCount: " << elementFieldCount
+			<< ", sizeInBytes: " << sizeInBytes
+			<< ", genericParamIndex: " << genericParamIndex
+			<< ", pushConstant: " << pushConstant
+			<< ", parent pushConstant: " << parentPushConstant;
+
+		std::cout << std::endl;
+
+		auto addBinding = [&layouts](
+			auto bindingSpace,
+			auto typeLayout,
+			auto usePushConstant,
+			auto usePushDescriptor,
+			auto arrayElementCount,
+			auto elementFieldSize,
+			auto stage,
+			auto name)
 		{
-			std::cout << "name: " << name
-				<< ", fullName: " << fullName
-				<< ", space: " << space
-				<< ", parent space: " << (parentSpace ? std::to_string(*parentSpace) : "(nullptr)")
-				<< ", index: " << index
-				<< ", stage: " << stage
-				<< ", kind: " << (int)typeLayout->getKind()
-				<< ", typeName: " << typeLayout->getName()
-				<< ", userAttributeCount: " << userAttributeCount;
-			
-			std::cout << ", arrayElementCount: " << (typeLayout->isArray() ? arrayElementCount : 0)
-				<< ", fieldCount: " << fieldCount;
+			auto getDescriptorCount = [](auto arrayElementCount, auto descriptorType)
+			{
+				size_t result = 1;
 
-			std::cout << ", category: " << category
-				<< ", spaceForCategory: " << spaceForCategory
-				<< ", offsetForCategory: " << offsetForCategory
-				<< ", elementStride: " << elementStride
-				<< ", elementSize: " << elementSize
-				<< ", elementKind: " << (int)elementKind
-				<< ", elementFieldCount: " << (int)elementKind
-				<< ", genericParamIndex: " << genericParamIndex
-				<< ", pushConstant: " << pushConstant
-				<< ", parent pushConstant: " << parentPushConstant;
+				if (arrayElementCount)
+					result = arrayElementCount;
 
-			std::cout << std::endl;
+				if (descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT)
+					result = roundUp(result, 4);
 
-			BindingType binding;
-			binding.binding = index;
-			binding.descriptorType = shader::getDescriptorType<Vk>(typeLayout);
-			binding.descriptorCount = arrayElementCount;
-			binding.stageFlags = shader::getStageFlags<Vk>(stage);
-			binding.pImmutableSamplers = nullptr;
+				return result;
+			};
 
-			auto bindingSpace = (parentSpace ? *parentSpace : space);
-            std::get<0>(bindings[bindingSpace]).push_back(binding);
+			auto& layout = layouts[bindingSpace];
+
+			BindingType slot;
+			slot.binding = layout.bindings.size();
+			slot.descriptorType = shader::getDescriptorType<Vk>(typeLayout);
+			slot.descriptorCount = getDescriptorCount(arrayElementCount, slot.descriptorType);
+			slot.stageFlags = shader::getStageFlags<Vk>(stage);
+			slot.pImmutableSamplers = nullptr;
+
+			layout.bindings.push_back(slot);
+			layout.variableNames.push_back(name);
 			// todo: immutable samplers
-			//std::get<1>(bindings[space]).push_back(SamplerCreateInfo<Vk>{});
-			bool usePushConstant = parentPushConstant || pushConstant;
-			std::get<2>(bindings[bindingSpace]) = (usePushConstant ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0);
-		}
-		else if (category == slang::ParameterCategory::RegisterSpace)
+			//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
+			if (usePushDescriptor)
+				layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+
+			if (usePushConstant)
+			{
+				assert(!layout.pushConstantRange.has_value());
+				assert(elementFieldSize > 0);
+				layout.pushConstantRange = PushConstantRange<Vk>{slot.stageFlags, 0, roundUp(elementFieldSize, 4)};
+			}
+
+			std::cout << "Set: " << bindingSpace << ", Binding: " << slot.binding << " : " << name << std::endl;
+		};
+
+		if (category == slang::ParameterCategory::DescriptorTableSlot && kind != slang::TypeReflection::Kind::ParameterBlock)
 		{
-			for (auto fieldIndex = 0; fieldIndex < elementFieldCount; fieldIndex++)
-				createLayoutBindings<Vk>(
-					elementTypeLayout->getFieldByIndex(fieldIndex),
-					genericParameterIndices,
-					bindings,
-					(parentSpace ? parentSpace : &space),
-					fullName.c_str(),
-					parentPushConstant || pushConstant);
+			addBinding(
+				bindingSpace,
+				typeLayout,
+				usePushConstant && elementFieldSize > 0,
+				usePushConstant, // yes
+				arrayElementCount,
+				elementFieldSize,
+				stage,
+				fullName);
 		}
-		else
-		{
-			assert(false);
-		}
+		// else if (category == slang::ParameterCategory::RegisterSpace)
+		// {
+		// 	addBinding(
+		// 		bindingSpace,
+		// 		typeLayout,
+		// 		elementFieldSize > 0,
+		// 		usePushConstant && usePushConstant, // yes
+		// 		arrayElementCount,
+		// 		elementFieldSize,
+		// 		stage,
+		// 		fullName);
+		// }
 	}
+
+	return categoriesTotalSize;
 }
 
 }
