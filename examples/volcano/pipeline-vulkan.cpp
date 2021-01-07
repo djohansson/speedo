@@ -75,7 +75,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 	if (fileState != FileState::Missing)
 		auto [fileState, fileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
 
-	return (fileState == FileState::Valid ? createPipelineCache(device, cacheData) : VK_NULL_HANDLE);
+	return createPipelineCache(device, cacheData);
 }
 
 std::vector<char> getPipelineCacheData(
@@ -440,7 +440,9 @@ PipelineContext<Vk>::PipelineMapConstIterator PipelineContext<Vk>::internalUpdat
     auto insertResult = myPipelineMap.insert(std::make_pair(hashKey, PipelineMapValueType{}));
 
     if (insertResult.second)
-        insertResult.first->second = PipelineMapValueType(internalCreateGraphicsPipeline(hashKey));
+        insertResult.first->second.store(
+            internalCreateGraphicsPipeline(hashKey),
+            std::memory_order_relaxed);
 
     return insertResult.first;
 }
@@ -451,8 +453,7 @@ const PipelineContext<Vk>::PipelineMapValueType& PipelineContext<Vk>::internalGe
     auto& pipelineHandle = internalUpdateMap()->second;
 
     //internalUpdateMap()->second.wait(nullptr); todo: c++20
-    while (!pipelineHandle.load(std::memory_order_relaxed))
-        std::this_thread::yield();
+    while (!pipelineHandle.load(std::memory_order_relaxed));
     
     return pipelineHandle;
 }
