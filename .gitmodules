@@ -70,3 +70,6 @@
 [submodule "external/SHA-Intrinsics"]
 	path = external/SHA-Intrinsics
 	url = https://github.com/djohansson/SHA-Intrinsics.git
+[submodule "external/robin-hood-hashing"]
+	path = external/robin-hood-hashing
+	url = https://github.com/martinus/robin-hood-hashing
