@@ -3,13 +3,9 @@
 #include "device.h"
 #include "types.h"
 
-#include <map>
-#include <memory>
 #include <optional>
 #include <vector>
 #include <tuple>
-
-#include <xxh3.h>
 
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
@@ -65,7 +61,11 @@ class RenderTarget : public IRenderTarget<B>, public DeviceResource<B>
 {
 public:
 
+    using ValueType = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
+
     virtual ~RenderTarget();
+
+    operator auto() { return internalGetValues(); };
 
     virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) override;
@@ -93,8 +93,6 @@ public:
     auto getAttachment(uint32_t index) const { return myAttachments[index]; }
     const auto& getAttachmentDesc(uint32_t index) const { return myAttachmentDescs[index]; }
     const auto& getSubpass() const { return myCurrentSubpass; }
-
-    std::tuple<RenderPassHandle<B>, FramebufferHandle<B>> renderPassAndFramebuffer();
     
     void addSubpassDescription(SubpassDescription<B>&& description);
     void addSubpassDependency(SubpassDependency<B>&& dependency);
@@ -117,12 +115,11 @@ protected:
 
 private:
 
-    using RenderPassFramebufferTuple = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
-    using RenderPassFramebufferTupleMap = typename std::map<uint64_t, RenderPassFramebufferTuple>;
+    using ValueMap = MapType<uint64_t, ValueType>;
 
     uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;
 
-    RenderPassFramebufferTuple internalCreateRenderPassAndFrameBuffer(
+    ValueType internalCreateRenderPassAndFrameBuffer(
         uint64_t hashKey,
         const RenderTargetCreateDesc<Vk>& desc);
     
@@ -132,7 +129,9 @@ private:
     void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
 
-    typename RenderPassFramebufferTupleMap::const_iterator internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
+    const ValueType& internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
+
+    const ValueType& internalGetValues();
 
     std::vector<ImageViewHandle<B>> myAttachments;
     std::vector<AttachmentDescription<B>> myAttachmentDescs;
@@ -140,12 +139,10 @@ private:
     std::vector<SubpassDescription<B>> mySubPassDescs;
     std::vector<SubpassDependency<B>> mySubPassDependencies;
 
-    RenderPassFramebufferTupleMap myMap;
+    ValueMap myMap;
 
     std::optional<RenderPassBeginInfo<B>> myCurrentPass;
     std::optional<uint32_t> myCurrentSubpass;
-    
-    std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 };
 
 #include "rendertarget.inl"

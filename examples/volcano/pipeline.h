@@ -10,16 +10,8 @@
 #include "types.h"
 #include "utils.h"
 
-#include <map>
 #include <memory>
 #include <optional>
-#include <set>
-#if defined(__WINDOWS__)
-#include <concurrent_unordered_map.h>
-#else
-#include <unordered_map>
-#endif
-#include <xxh3.h>
 
 template <GraphicsBackend B>
 struct PipelineCacheHeader
@@ -65,12 +57,12 @@ template <GraphicsBackend B>
 struct PipelineResourceView
 {	
 	// begin temp
+    // probably do not have these as shared ptrs, since we likely want pipeline to own them.
 	std::shared_ptr<Model<B>> model;
 	std::shared_ptr<Image<B>> image;
 	std::shared_ptr<ImageView<B>> imageView;
 	SamplerHandle<B> sampler = {};
 	// end temp
-	std::shared_ptr<RenderTarget<B>> renderTarget;
 };
 
 template <GraphicsBackend B>
@@ -94,12 +86,12 @@ public:
     ~PipelineContext();
 
     PipelineContext& operator=(PipelineContext&& other);
-    operator auto() { return internalGetPipeline().load(std::memory_order_relaxed); };
+    operator auto() { return internalGetPipeline(); };
 
     const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
-    auto getCurrentLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myCurrentLayout); }
+    auto getCurrentLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myCurrentLayout.value()); }
 
     // note scope 1: not quite sure yet on how we should interact with these functions. Perhaps some sort of layout begin/end that returns a proxy object so set all state?
     void bind(CommandBufferHandle<B> cmd);
@@ -145,66 +137,56 @@ public:
 
     // note scope 1 end
     
-    // temp! remove lazy updates and recalc when touched.
-    // probably do not have these as shared ptrs, since we likely want pipeline to own them.
+
+    // temp
     const auto& resources() const { return myResources; }
+    auto& renderTarget() { return myRenderTarget; }
     //
 
 private:
 
-    template <typename Key, typename Value>
-#if defined(__WINDOWS__)
-    using UnorderedMapType = Concurrency::concurrent_unordered_map<Key, Value>;
-#else
-    using UnorderedMapType = std::unordered_map<Key, Value>;
-#endif
+    using PipelineMap = ConcurrentMapType<uint64_t, CopyableAtomic<PipelineHandle<B>>>;
 
-    using PipelineMapKeyType = uint64_t;
-    using PipelineMapValueType = CopyableAtomic<PipelineHandle<B>>;
-
-    using PipelineMap = UnorderedMapType<PipelineMapKeyType, PipelineMapValueType>;
-
-    using PipelineMapConstIterator = typename PipelineMap::const_iterator;
-
-    using PipelineLayoutSet = std::set<PipelineLayout<B>, std::less<>>;
-    using PipelineLayoutConstIterator = typename PipelineLayoutSet::const_iterator;
+    using PipelineLayoutSet = SetType<PipelineLayout<B>, robin_hood::hash<PipelineLayoutHandle<B>>, std::equal_to<>>;
 
     using BindingVariantVector = std::variant<
         std::vector<DescriptorBufferInfo<B>>,
         std::vector<DescriptorImageInfo<B>>,
         std::vector<BufferViewHandle<B>>,
         std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
-    using BindingData = std::tuple<DescriptorType<B>, BindingVariantVector>;
-    using BindingsMap = std::map<uint32_t, BindingData>;
+    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantVector>;
+    using BindingsMap = MapType<uint32_t, BindingValueType>;
 
-    using DescriptorDataMap = std::map<uint64_t, BindingsMap>;
+    using DescriptorMap = MapType<uint64_t, BindingsMap>;
 
-    uint64_t internalCalculateHashKey(PipelineLayoutHandle<Vk> layoutHandle) const;
+    // temp - need more fine grained control here
+    void internalResetLayoutState();
+    void internalResetResourceState();
+    void internalResetRasterizationState();
+    void internalResetAllState();
+    //
+
+    uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
-    PipelineMapConstIterator internalUpdateMap();
 
-    const PipelineMapValueType& internalGetPipeline();
+    PipelineHandle<B> internalGetPipeline();
     const DescriptorSetHandle<Vk>& internalGetDescriptorSet(uint8_t set) const;
 
     static uint64_t internalMakeDescriptorKey(const PipelineLayout<B>& layout, uint8_t set);
-    
-    // temp
-    std::shared_ptr<PipelineResourceView<B>> myResources;
-    //
 
-    // pipelinecontext data
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
     PipelineLayoutSet myLayouts;
     PipelineMap myPipelineMap;
-    DescriptorDataMap myDescriptorData;
+    DescriptorMap myDescriptorMap;
     std::array<std::optional<std::tuple<DescriptorSetArray<B>, uint32_t>>, 4> myDescriptorSets; // temp!
-    std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> myXXHState = { XXH3_createState(), XXH3_freeState };
 
-    // base state
+    // shared state
     PipelineBindPoint<B> myBindPoint = {};
-    PipelineLayoutConstIterator myCurrentLayout = {};
+    std::optional<typename PipelineLayoutSet::const_iterator> myCurrentLayout;
+    std::shared_ptr<RenderTarget<B>> myRenderTarget;
+    // end shared state
 
     // graphics state
     std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
@@ -220,15 +202,14 @@ private:
     PipelineColorBlendStateCreateInfo<B> myColorBlend = {};
     std::vector<DynamicState<B>> myDynamicStateDescs;
     PipelineDynamicStateCreateInfo<B> myDynamicState = {};
-    std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>> myRenderPassAndFramebuffer;
-    uint32_t mySubpass = 0;
+    // temp
+    std::shared_ptr<PipelineResourceView<B>> myResources;
     //
+    // end graphics state
 
     // todo: compute shadow state
-    //
 
     // todo: raytrace shadow state
-    //
 };
 
 #include "pipeline.inl"

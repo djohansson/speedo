@@ -587,6 +587,7 @@
 			+ ' -I$BuildRootPath$/source'
 			+ ' -I$BuildRootPath$/external/glm'
 			+ ' -I$BuildRootPath$/external/xxhash'
+			+ ' -I$BuildRootPath$/external/robin-hood-hashing/src/include'
 			+ ' -I$BuildRootPath$/external/stb'
 			+ ' -I$BuildRootPath$/external/tinyobjloader'
 			+ ' -I$BuildRootPath$/external/glfw/include'

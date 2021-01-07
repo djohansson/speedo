@@ -225,7 +225,7 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
 
     auto& frame = *mySwapchain->getFrames()[frameIndex];
     auto& commandContext = myCommands[frameIndex][0];
-    auto& renderTarget = pipeline->resources()->renderTarget;
+    auto& renderTarget = pipeline->renderTarget();
 
     auto cmd = commandContext->commands();
     auto renderPassInfo = renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);

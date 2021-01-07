@@ -69,6 +69,7 @@ private:
 	void initIMGUI(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		CommandBufferHandle<B> commands,
+		RenderPassHandle<B> renderPass,
 		const std::filesystem::path& userProfilePath) const;
 	void shutdownIMGUI();
 
@@ -95,7 +96,6 @@ private:
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
-	RenderPassHandle<B> myIMGUIRenderPass = {};
 
 	uint64_t myLastFrameTimelineValue = 0;
 	uint64_t myLastTransferTimelineValue = 0;

@@ -18,6 +18,7 @@ template <>
 void Application<Vk>::initIMGUI(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CommandBufferHandle<Vk> commands,
+    RenderPassHandle<Vk> renderPass,
     const std::filesystem::path& userProfilePath) const
 {
     ZoneScopedN("Application::initIMGUI");
@@ -107,9 +108,7 @@ void Application<Vk>::initIMGUI(
         });
     };
     initInfo.UserData = deviceContext.get();
-    ImGui_ImplVulkan_Init(
-        &initInfo,
-        myIMGUIRenderPass);
+    ImGui_ImplVulkan_Init(&initInfo, renderPass);
 
     // Upload Fonts
     ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -164,7 +163,7 @@ void Application<Vk>::createWindowDependentObjects(
         make_vector(colorImage),
         depthStencilImage);
 
-    myGraphicsPipeline->resources()->renderTarget = myRenderImageSet;
+    myGraphicsPipeline->renderTarget() = myRenderImageSet;
 }
 
 template <>
@@ -237,15 +236,6 @@ Application<Vk>::Application(
             "graphicsPipelineConfiguration",
             { { "GraphicsPipeline" }, myUserProfilePath / "pipeline.cache" }});
 
-    auto shaderModule = shader::loadSlangShaders<Vk>(
-        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
-        myResourcePath / "shaders" / "shaders.slang");
-    
-    myGraphicsPipeline->emplaceLayout(
-        PipelineLayout<Vk>(
-            myDevice,
-            shaderModule));
-
     myGraphicsQueue = std::make_shared<Queue<Vk>>(
         myDevice,
         QueueCreateDesc<Vk>{
@@ -291,7 +281,7 @@ Application<Vk>::Application(
         myLastTransferTimelineValue = myTransferQueue->submit();
     }
 
-    // create window, set view buffer descriptor
+    // create window and render targets
     {
         myWindow = std::make_shared<WindowContext<Vk>>(
             myDevice,    
@@ -301,6 +291,24 @@ Application<Vk>::Application(
                 {3, 2}});
 
         createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
+    }
+
+    // load shaders, set pipeline layout
+    {
+        auto shaders = shader::loadSlangShaders<Vk>(
+            std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
+            myResourcePath / "shaders" / "shaders.slang");
+    
+        myGraphicsPipeline->emplaceLayout(PipelineLayout<Vk>(myDevice, shaders));
+    }
+    
+    // perform resource transitions, set all descriptors, initialize IMGUI
+    {
+        auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
+        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
+        auto cmd = commandContext->commands();
+
+        myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         std::vector<DescriptorBufferInfo<Vk>> bufferInfos;
         bufferInfos.emplace_back(DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE});
@@ -312,73 +320,60 @@ Application<Vk>::Application(
             0);
         
         myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
-    }
-    
-    // stuff that needs to be initialized on graphics queue
-    {
-        const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
-        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
 
-        auto initDrawCommands = [this](CommandBufferHandle<Vk> cmd, uint32_t frameIndex)
-        {
-            myIMGUIRenderPass = std::get<0>(
-                myWindow->getSwapchain()->getFrames()[frameIndex]->renderPassAndFramebuffer());
+        myGraphicsPipeline->setDescriptorData(
+            DescriptorImageInfo<Vk>{
+                0,
+                *myGraphicsPipeline->resources()->imageView,
+                myGraphicsPipeline->resources()->image->getImageLayout()},
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            static_cast<uint32_t>(DescriptorSetCategory::Material),
+            0);
 
-            initIMGUI(myDevice, cmd, myUserProfilePath);
+        myGraphicsPipeline->setDescriptorData(
+            DescriptorImageInfo<Vk>{
+                myGraphicsPipeline->resources()->sampler},
+            VK_DESCRIPTOR_TYPE_SAMPLER,
+            static_cast<uint32_t>(DescriptorSetCategory::Material),
+            1);
 
-            myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // glm::vec3 color = glm::vec3(1.0f, 0.0f, 0.0f);
+        // myGraphicsPipeline->setDescriptorData(
+        //     InlineUniformBlock<Vk>{
+        //         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
+        //         nullptr,
+        //         sizeof(color),
+        //         &color},
+        //     VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
+        //     static_cast<uint32_t>(DescriptorSetCategory::Object),
+        //     0);
 
-            myGraphicsPipeline->setDescriptorData(
-                DescriptorImageInfo<Vk>{
-                    0,
-                    *myGraphicsPipeline->resources()->imageView,
-                    myGraphicsPipeline->resources()->image->getImageLayout()},
-                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                static_cast<uint32_t>(DescriptorSetCategory::Material),
-                0);
+        myGraphicsPipeline->setDescriptorData(
+            DescriptorImageInfo<Vk>{
+                0,
+                *myGraphicsPipeline->resources()->imageView,
+                myGraphicsPipeline->resources()->image->getImageLayout()},
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            static_cast<uint32_t>(DescriptorSetCategory::Object),
+            0);
 
-            myGraphicsPipeline->setDescriptorData(
-                DescriptorImageInfo<Vk>{
-                    myGraphicsPipeline->resources()->sampler},
-                VK_DESCRIPTOR_TYPE_SAMPLER,
-                static_cast<uint32_t>(DescriptorSetCategory::Material),
-                1);
+        myGraphicsPipeline->setDescriptorData(
+            DescriptorImageInfo<Vk>{
+                myGraphicsPipeline->resources()->sampler},
+            VK_DESCRIPTOR_TYPE_SAMPLER,
+            static_cast<uint32_t>(DescriptorSetCategory::Object),
+            1);
 
-            // glm::vec3 color = glm::vec3(1.0f, 0.0f, 0.0f);
-            // myGraphicsPipeline->setDescriptorData(
-            //     InlineUniformBlock<Vk>{
-            //         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
-            //         nullptr,
-            //         sizeof(color),
-            //         &color},
-            //     VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
-            //     static_cast<uint32_t>(DescriptorSetCategory::Object),
-            //     0);
+        myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
+        myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
 
-            myGraphicsPipeline->setDescriptorData(
-                DescriptorImageInfo<Vk>{
-                    0,
-                    *myGraphicsPipeline->resources()->imageView,
-                    myGraphicsPipeline->resources()->image->getImageLayout()},
-                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                static_cast<uint32_t>(DescriptorSetCategory::Object),
-                0);
+        initIMGUI(
+            myDevice,
+            cmd,
+            std::get<0>(static_cast<RenderTarget<Vk>::ValueType>(frame)),
+            myUserProfilePath);
 
-            myGraphicsPipeline->setDescriptorData(
-                DescriptorImageInfo<Vk>{
-                    myGraphicsPipeline->resources()->sampler},
-                VK_DESCRIPTOR_TYPE_SAMPLER,
-                static_cast<uint32_t>(DescriptorSetCategory::Object),
-                1);
-
-            myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
-            //myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Object));
-            //myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
-            myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
-            
-        };
-
-        initDrawCommands(commandContext->commands(), frame.getDesc().index);
+        cmd.end();
 
         myGraphicsQueue->enqueueSubmit(
             commandContext->flush({
@@ -591,8 +586,8 @@ Application<Vk>::Application(
                 Text("Buffer Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
                 Text("Image Views: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
                 Text("Shader Modules: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
-                Text("PipelineContext Caches: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
-                Text("PipelineContext Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
+                Text("Pipeline Caches: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
+                Text("Pipeline Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
                 Text("Render Passes: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
                 Text("Pipelines: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE));
                 Text("Descriptor Set Layouts: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));

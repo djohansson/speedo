@@ -1,7 +1,11 @@
 #include "rendertarget.h"
 #include "vk-utils.h"
 
+#include <memory>
+
 #include <stb_sprintf.h>
+
+#include <xxh3.h>
 
 template <>
 void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)
@@ -157,33 +161,39 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
 {
     ZoneScopedN("RenderTarget::internalCalculateHashKey");
 
+    thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> threadXXHState =
+    {
+        XXH3_createState(),
+        XXH3_freeState
+    };
+
     constexpr XXH64_hash_t seed = 42;
-    auto result = XXH3_64bits_reset_withSeed(myXXHState.get(), seed);
+    auto result = XXH3_64bits_reset_withSeed(threadXXHState.get(), seed);
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
+    result = XXH3_64bits_update(threadXXHState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), myAttachmentDescs.data(), myAttachmentDescs.size() * sizeof(myAttachmentDescs.front()));
+    result = XXH3_64bits_update(threadXXHState.get(), myAttachmentDescs.data(), myAttachmentDescs.size() * sizeof(myAttachmentDescs.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
+    result = XXH3_64bits_update(threadXXHState.get(), myAttachmentsReferences.data(), myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), mySubPassDescs.data(), mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
+    result = XXH3_64bits_update(threadXXHState.get(), mySubPassDescs.data(), mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
+    result = XXH3_64bits_update(threadXXHState.get(), mySubPassDependencies.data(), mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
     assert(result != XXH_ERROR);
 
-    result = XXH3_64bits_update(myXXHState.get(), &desc.extent, sizeof(desc.extent));
+    result = XXH3_64bits_update(threadXXHState.get(), &desc.extent, sizeof(desc.extent));
     assert(result != XXH_ERROR);
 
-    return XXH3_64bits_digest(myXXHState.get());
+    return XXH3_64bits_digest(threadXXHState.get());
 }
 
 template <>
-RenderTarget<Vk>::RenderPassFramebufferTuple
+RenderTarget<Vk>::ValueType
 RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc)
 {
     ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
@@ -243,21 +253,22 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
 }
 
 template <>
-RenderTarget<Vk>::RenderPassFramebufferTupleMap::const_iterator RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
+const std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>>& RenderTarget<Vk>::internalUpdateMap(
+    const RenderTargetCreateDesc<Vk>& desc)
 {
     ZoneScopedN("RenderTarget::internalUpdateMap");
 
     auto hashKey = internalCalculateHashKey(desc);
-    auto emplaceResult = myMap.emplace(
+    auto insertResult = myMap.emplace(
         hashKey,
         std::make_tuple(
             RenderPassHandle<Vk>{},
             FramebufferHandle<Vk>{}));
 
-    if (emplaceResult.second)
-        emplaceResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
+    if (insertResult.second)
+        insertResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
 
-    return emplaceResult.first;
+    return insertResult.first->second;
 }
 
 template <>
@@ -432,12 +443,12 @@ void RenderTarget<Vk>::nextSubpass(
 }
 
 template <>
-std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>> RenderTarget<Vk>::renderPassAndFramebuffer()
+const std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>>& RenderTarget<Vk>::internalGetValues()
 {
     internalUpdateAttachments(getRenderTargetDesc());
     internalUpdateRenderPasses(getRenderTargetDesc());
 
-    return internalUpdateMap(getRenderTargetDesc())->second;
+    return internalUpdateMap(getRenderTargetDesc());
 }
 
 template <>
@@ -449,7 +460,7 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
 
     assert(myCurrentPass == std::nullopt);
 
-    auto rpf = renderPassAndFramebuffer();
+    auto rpf = internalGetValues();
 
     myCurrentPass = std::make_optional(RenderPassBeginInfo<Vk>{
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -525,7 +536,6 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget<Vk>&& other)
     myMap = std::exchange(other.myMap, {});
     myCurrentPass = std::exchange(other.myCurrentPass, {});
     myCurrentSubpass = std::exchange(other.myCurrentSubpass, {});
-    myXXHState.reset(other.myXXHState.release());
     return *this;
 }
 

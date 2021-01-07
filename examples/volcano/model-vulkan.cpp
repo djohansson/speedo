@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
-#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -31,7 +30,7 @@ namespace model
 std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
 {
-	using AttributeMap = std::map<uint32_t, std::pair<VkFormat, uint32_t>>;
+	using AttributeMap = MapType<uint32_t, std::pair<VkFormat, uint32_t>>;
 
 	AttributeMap attributeMap;
 
@@ -67,8 +66,7 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 
 	// assert(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
 
-	return {VertexInputBindingDescription<Vk>{0u, stride,
-																   VK_VERTEX_INPUT_RATE_VERTEX}};
+	return {VertexInputBindingDescription<Vk>{0u, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
 std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
@@ -184,7 +182,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		desc.attributes.emplace_back(
 			VertexInputAttributeDescription<Vk>{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u});
 
-		std::unordered_map<uint64_t, uint32_t> uniqueVertices;
+		MapType<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
 		vertices.setStride(32);

@@ -1,9 +1,9 @@
 #pragma once
 
 #include <array>
-#include <map>
 
 #include "glm.h"
+#include "utils.h"
 
 // this is old temp crap that should be reviewed/refactored/obliterated. in that order.
 // original idea was that this would be pure c and part of the base application api.
@@ -40,7 +40,7 @@ struct WindowState
 
 struct InputState
 {
-    std::map<uint32_t, bool> keysPressed;
+    MapType<uint32_t, bool> keysPressed;
 	std::array<bool, 3> mouseButtonsPressed;
 	std::array<glm::vec2, 2> mousePosition;
 };

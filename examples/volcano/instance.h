@@ -5,7 +5,6 @@
 #include "utils.h"
 
 #include <any>
-#include <map>
 #include <vector>
 #include <string>
 
@@ -62,7 +61,7 @@ private:
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
-    std::map<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
+    MapType<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
     std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };

@@ -5,7 +5,6 @@
 #include "types.h"
 
 #include <array>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -53,9 +52,7 @@ private:
 };
 
 template <GraphicsBackend B>
-using DescriptorSetLayoutMap = std::map<
-    uint32_t, // set index
-    DescriptorSetLayout<B>>; // layout
+using DescriptorSetLayoutMap = MapType<uint32_t, DescriptorSetLayout<B>>; // [set, layout]
 
 template <GraphicsBackend B>
 struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
@@ -66,10 +63,10 @@ struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetArray : public DeviceResource<B>
 {
-public:
-
     static constexpr uint8_t kDescriptorSetCount = 4;
     using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
+    
+public:
 
     DescriptorSetArray(DescriptorSetArray&& other);
     DescriptorSetArray( // allocates array of descriptor set handles using single layout

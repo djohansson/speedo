@@ -26,6 +26,13 @@
 #include <cereal/cereal.hpp>
 #include <cereal/types/string.hpp>
 
+#if defined(__WINDOWS__)
+#include <concurrent_unordered_map.h>
+#include <concurrent_unordered_set.h>
+#endif
+
+#include <robin_hood.h>
+
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
 #define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
@@ -160,3 +167,20 @@ namespace filesystem
 
 CEREAL_SPECIALIZE_FOR_ALL_ARCHIVES(
 	std::filesystem::path, cereal::specialization::non_member_load_save_minimal);
+
+template <typename Key, typename T, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+using MapType = robin_hood::unordered_map<Key, T, Hash, KeyEqual>;
+template <typename Key, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+using SetType = robin_hood::unordered_set<Key, Hash, KeyEqual>;
+
+#if defined(__WINDOWS__)
+template <typename Key, typename T, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+using ConcurrentMapType = Concurrency::concurrent_unordered_map<Key, T, Hash, KeyEqual>;
+template <typename Key, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+using ConcurrentSetType = Concurrency::concurrent_unordered_set<Key, Hash, KeyEqual>;
+#else
+template <typename Key, typename T, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+using ConcurrentMapType = MapType<Key, T, Hash, KeyEqual>;
+template <typename Key, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+using ConcurrentSetType = SetType<Key, Hash, KeyEqual>;
+#endif

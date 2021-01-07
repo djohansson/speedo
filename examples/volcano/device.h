@@ -8,7 +8,6 @@
 #include <atomic>
 #include <functional>
 #include <list>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -134,8 +133,8 @@ private:
     };
 
     std::shared_mutex myObjectsMutex; // todo: replace with asserting mutex
-    std::map<uint32_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
-    std::map<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
+    MapType<uint32_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
+    MapType<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
 };
 
 template <GraphicsBackend B>

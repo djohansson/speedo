@@ -5,6 +5,7 @@
 #include "sampler.h"
 #include "types.h"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -23,6 +24,7 @@ template <GraphicsBackend B>
 struct ShaderReflectionInfo
 {
 	std::vector<Shader<B>> shaders;
+	// todo: use MapType, once I can figure out how to make it cereal:ized
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
 };
 
