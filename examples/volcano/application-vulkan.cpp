@@ -163,7 +163,7 @@ void Application<Vk>::createWindowDependentObjects(
         make_vector(colorImage),
         depthStencilImage);
 
-    myGraphicsPipeline->renderTarget() = myRenderImageSet;
+    myGraphicsPipeline->setRenderTarget(myRenderImageSet);
 }
 
 template <>
@@ -257,17 +257,18 @@ Application<Vk>::Application(
 
     // stuff that needs to be initialized on transfer queue
     {
-        myGraphicsPipeline->resources()->model = std::make_shared<Model<Vk>>(
-            myDevice,
-            myTransferCommands,
-            myResourcePath / "models" / "gallery.obj");
-        myGraphicsPipeline->resources()->image = std::make_shared<Image<Vk>>(
+        myGraphicsPipeline->setModel(
+            std::make_shared<Model<Vk>>(
+                myDevice,
+                myTransferCommands,
+                myResourcePath / "models" / "gallery.obj"));
+        myGraphicsPipeline->resources().image = std::make_shared<Image<Vk>>(
             myDevice,
             myTransferCommands,
             myResourcePath / "images" / "gallery.jpg");
-        myGraphicsPipeline->resources()->imageView = std::make_shared<ImageView<Vk>>(
+        myGraphicsPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
             myDevice,
-            *(myGraphicsPipeline->resources()->image),
+            *(myGraphicsPipeline->resources().image),
             VK_IMAGE_ASPECT_COLOR_BIT);
         
         myTransferQueue->enqueueSubmit(
@@ -299,7 +300,7 @@ Application<Vk>::Application(
             std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
             myResourcePath / "shaders" / "shaders.slang");
     
-        myGraphicsPipeline->emplaceLayout(PipelineLayout<Vk>(myDevice, shaders));
+        myGraphicsPipeline->emplaceAndSetLayout(PipelineLayout<Vk>(myDevice, shaders));
     }
     
     // perform resource transitions, set all descriptors, initialize IMGUI
@@ -308,7 +309,7 @@ Application<Vk>::Application(
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
 
-        myGraphicsPipeline->resources()->image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        myGraphicsPipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         std::vector<DescriptorBufferInfo<Vk>> bufferInfos;
         bufferInfos.emplace_back(DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE});
@@ -324,15 +325,15 @@ Application<Vk>::Application(
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
                 0,
-                *myGraphicsPipeline->resources()->imageView,
-                myGraphicsPipeline->resources()->image->getImageLayout()},
+                *myGraphicsPipeline->resources().imageView,
+                myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             static_cast<uint32_t>(DescriptorSetCategory::Material),
             0);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
-                myGraphicsPipeline->resources()->sampler},
+                myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
             static_cast<uint32_t>(DescriptorSetCategory::Material),
             1);
@@ -351,15 +352,15 @@ Application<Vk>::Application(
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
                 0,
-                *myGraphicsPipeline->resources()->imageView,
-                myGraphicsPipeline->resources()->image->getImageLayout()},
+                *myGraphicsPipeline->resources().imageView,
+                myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             static_cast<uint32_t>(DescriptorSetCategory::Object),
             0);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
-                myGraphicsPipeline->resources()->sampler},
+                myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
             static_cast<uint32_t>(DescriptorSetCategory::Object),
             1);
@@ -398,10 +399,11 @@ Application<Vk>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        myGraphicsPipeline->resources()->model = std::make_shared<Model<Vk>>(
-            myDevice,
-            myTransferCommands,
-            openFilePath);
+        myGraphicsPipeline->setModel(
+            std::make_shared<Model<Vk>>(
+                myDevice,
+                myTransferCommands,
+                openFilePath));
 
         myTransferQueue->enqueueSubmit(
             myTransferCommands->flush({
@@ -416,13 +418,13 @@ Application<Vk>::Application(
 
     auto loadImage = [this](nfdchar_t* openFilePath)
     {
-        myGraphicsPipeline->resources()->image = std::make_shared<Image<Vk>>(
+        myGraphicsPipeline->resources().image = std::make_shared<Image<Vk>>(
             myDevice,
             myTransferCommands,
             openFilePath);
-        myGraphicsPipeline->resources()->imageView = std::make_shared<ImageView<Vk>>(
+        myGraphicsPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
             myDevice,
-            *myGraphicsPipeline->resources()->image,
+            *myGraphicsPipeline->resources().image,
             VK_IMAGE_ASPECT_COLOR_BIT);
 
         myTransferQueue->enqueueSubmit(
@@ -440,8 +442,8 @@ Application<Vk>::Application(
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
                 0,
-                *myGraphicsPipeline->resources()->imageView,
-                myGraphicsPipeline->resources()->image->getImageLayout()},
+                *myGraphicsPipeline->resources().imageView,
+                myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             static_cast<uint32_t>(DescriptorSetCategory::Material),
             0);
@@ -449,8 +451,8 @@ Application<Vk>::Application(
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
                 0,
-                *myGraphicsPipeline->resources()->imageView,
-                myGraphicsPipeline->resources()->image->getImageLayout()},
+                *myGraphicsPipeline->resources().imageView,
+                myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             static_cast<uint32_t>(DescriptorSetCategory::Object),
             0);
@@ -463,7 +465,7 @@ Application<Vk>::Application(
             cmd,
             static_cast<uint32_t>(DescriptorSetCategory::Object));
 
-        myGraphicsPipeline->resources()->image->transition(
+        myGraphicsPipeline->resources().image->transition(
             cmd,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 

@@ -57,8 +57,7 @@ template <GraphicsBackend B>
 struct PipelineResourceView
 {	
 	// begin temp
-    // probably do not have these as shared ptrs, since we likely want pipeline to own them.
-	std::shared_ptr<Model<B>> model;
+    std::shared_ptr<Model<B>> model;
 	std::shared_ptr<Image<B>> image;
 	std::shared_ptr<ImageView<B>> imageView;
 	SamplerHandle<B> sampler = {};
@@ -93,17 +92,21 @@ public:
     auto getDescriptorPool() const { return myDescriptorPool; }
     auto getCurrentLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myCurrentLayout.value()); }
 
-    // note scope 1: not quite sure yet on how we should interact with these functions. Perhaps some sort of layout begin/end that returns a proxy object so set all state?
+    void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
+    const auto& getRenderTarget() const { return myRenderTarget; }
+
     void bind(CommandBufferHandle<B> cmd);
     void bindDescriptorSet(
         CommandBufferHandle<B> cmd,
         uint8_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt) const;
+    void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
 
-    PipelineLayoutHandle<B> emplaceLayout(PipelineLayout<B>&& layout);
+    // note scope 1: not quite sure yet on how we should interact with these functions. Perhaps some sort of layout begin/end that returns a proxy object so set all state?
+    PipelineLayoutHandle<B> emplaceAndSetLayout(PipelineLayout<B>&& layout);
 
     void setCurrentLayout(PipelineLayoutHandle<B> handle);
-    
+
     // object
     template <typename T>
     void setDescriptorData(
@@ -131,7 +134,7 @@ public:
     
     // todo: ideally these should not be externally visible, but handled internally and "automagically" in this class.
     //void copyDescriptorSet(uint8_t set, DescriptorSetArray<B>& dst) const;
-    void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
+    
     void writeDescriptorSet(uint8_t set) const;
     //
 
@@ -139,8 +142,8 @@ public:
     
 
     // temp
-    const auto& resources() const { return myGraphicsState.resources; }
-    auto& renderTarget() { return myRenderTarget; }
+    void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
+    auto& resources() { return myGraphicsState.resources; }
     //
 
 private:
@@ -208,9 +211,9 @@ private:
         PipelineColorBlendStateCreateInfo<B> colorBlend = {};
         std::vector<DynamicState<B>> dynamicStateDescs;
         PipelineDynamicStateCreateInfo<B> dynamicState = {};
-    // temp
-        std::shared_ptr<PipelineResourceView<B>> resources;
-    //
+        // temp
+        PipelineResourceView<B> resources;
+        //
     } myGraphicsState = {};
 
     struct ComputeState

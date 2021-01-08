@@ -137,12 +137,12 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     // bind pipeline and vertex/index buffers
                     pipeline->bind(cmd);
 
-                    VkBuffer vertexBuffers[] = { pipeline->resources()->model->getBuffer() };
-                    VkDeviceSize vertexOffsets[] = { pipeline->resources()->model->getVertexOffset() };
+                    VkBuffer vertexBuffers[] = { pipeline->resources().model->getBuffer() };
+                    VkDeviceSize vertexOffsets[] = { pipeline->resources().model->getVertexOffset() };
 
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, pipeline->resources()->model->getBuffer(),
-                        pipeline->resources()->model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(cmd, pipeline->resources().model->getBuffer(),
+                        pipeline->resources().model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
                 uint32_t dx = extent.width / myDesc.splitScreenGrid.width;
@@ -193,7 +193,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                             pipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
 
-                            vkCmdDrawIndexed(cmd, pipeline->resources()->model->getDesc().indexCount, 1, 0, 0, 0);
+                            vkCmdDrawIndexed(cmd, pipeline->resources().model->getDesc().indexCount, 1, 0, 0, 0);
                         };
 
                         drawModel(cmd);
@@ -225,7 +225,7 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
 
     auto& frame = *mySwapchain->getFrames()[frameIndex];
     auto& commandContext = myCommands[frameIndex][0];
-    auto& renderTarget = pipeline->renderTarget();
+    auto renderTarget = pipeline->getRenderTarget();
 
     auto cmd = commandContext->commands();
     auto renderPassInfo = renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);

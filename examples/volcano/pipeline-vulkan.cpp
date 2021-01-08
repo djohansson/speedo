@@ -308,14 +308,6 @@ void PipelineContext<Vk>::internalResetGraphicsInputState()
         0,
         nullptr};
 
-    if (myGraphicsState.resources->model)
-    {
-        myGraphicsState.vertexInput.vertexBindingDescriptionCount = static_cast<uint32_t>(myGraphicsState.resources->model->getBindings().size());
-        myGraphicsState.vertexInput.pVertexBindingDescriptions = myGraphicsState.resources->model->getBindings().data();
-        myGraphicsState.vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(myGraphicsState.resources->model->getDesc().attributes.size());
-        myGraphicsState.vertexInput.pVertexAttributeDescriptions = myGraphicsState.resources->model->getDesc().attributes.data();
-    }
-
     myGraphicsState.inputAssembly = {
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         nullptr,
@@ -327,20 +319,11 @@ void PipelineContext<Vk>::internalResetGraphicsInputState()
 template <>
 void PipelineContext<Vk>::internalResetGraphicsRasterizationState()
 {
-    auto extent = myRenderTarget ? myRenderTarget->getRenderTargetDesc().extent : Extent2d<Vk>{ 0, 0 };
-
     myGraphicsState.viewports.clear();
-    myGraphicsState.viewports.emplace_back(
-        Viewport<Vk>{
-            0.0f,
-            0.0f,
-            static_cast<float>(extent.width),
-            static_cast<float>(extent.height),
-            0.0f,
-            1.0f});
+    myGraphicsState.viewports.emplace_back(Viewport<Vk>{0.0f, 0.0f, 0, 0, 0.0f, 1.0f});
 
     myGraphicsState.scissorRects.clear();
-    myGraphicsState.scissorRects.emplace_back(Rect2D<Vk>{{0, 0}, {extent.width, extent.height}});
+    myGraphicsState.scissorRects.emplace_back(Rect2D<Vk>{{0, 0}, {0, 0}});
 
     myGraphicsState.viewport = {
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -519,6 +502,9 @@ const DescriptorSetHandle<Vk>& PipelineContext<Vk>::internalGetDescriptorSet(uin
 template<>
 uint64_t PipelineContext<Vk>::internalMakeDescriptorKey(const PipelineLayout<Vk>& layout, uint8_t set)
 {
+    // todo: use precalculated hash of the layout instead of using the pointer.
+    // should allow us to squeeze in more set in a uint64_t
+
     static_assert(static_cast<uint32_t>(DescriptorSetCategory::Count) <= 4);
     assert(set < static_cast<uint32_t>(DescriptorSetCategory::Count));
     assert((reinterpret_cast<uint64_t>(&layout) & 0x3) == 0);
@@ -556,6 +542,30 @@ void PipelineContext<Vk>::setCurrentLayout(PipelineLayoutHandle<Vk> handle)
     assert(myCurrentLayout != myLayouts.cend());
     
     internalResetSharedState();
+}
+
+template<>
+void PipelineContext<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
+{
+    myGraphicsState.vertexInput.vertexBindingDescriptionCount = static_cast<uint32_t>(model->getBindings().size());
+    myGraphicsState.vertexInput.pVertexBindingDescriptions = model->getBindings().data();
+    myGraphicsState.vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(model->getDesc().attributes.size());
+    myGraphicsState.vertexInput.pVertexAttributeDescriptions = model->getDesc().attributes.data();
+
+    myGraphicsState.resources.model = model;
+}
+
+template<>
+void PipelineContext<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>>& renderTarget)
+{
+    auto extent = renderTarget ? renderTarget->getRenderTargetDesc().extent : Extent2d<Vk>{ 0, 0 };
+    
+    myGraphicsState.viewports[0].width = static_cast<float>(extent.width);
+    myGraphicsState.viewports[0].height = static_cast<float>(extent.height);
+    myGraphicsState.scissorRects[0].offset = {0, 0};
+    myGraphicsState.scissorRects[0].extent = {extent.width, extent.height};
+
+    myRenderTarget = renderTarget;
 }
 
 // template <>
@@ -804,7 +814,7 @@ void PipelineContext<Vk>::writeDescriptorSet(uint8_t set) const
 }
 
 template<>
-PipelineLayoutHandle<Vk> PipelineContext<Vk>::emplaceLayout(PipelineLayout<Vk>&& layout)
+PipelineLayoutHandle<Vk> PipelineContext<Vk>::emplaceAndSetLayout(PipelineLayout<Vk>&& layout)
 {
     auto emplaceResult = myLayouts.emplace(std::move(layout));
     assert(emplaceResult.second);
@@ -812,7 +822,6 @@ PipelineLayoutHandle<Vk> PipelineContext<Vk>::emplaceLayout(PipelineLayout<Vk>&&
     myCurrentLayout = emplaceResult.first;
 
     internalResetSharedState();
-    internalResetGraphicsInputState(); // todo: move
     
     return *myCurrentLayout.value();
 }
@@ -858,14 +867,14 @@ PipelineContext<Vk>::PipelineContext(
         "Device_DescriptorPool");
 
     // temp
-    myGraphicsState.resources = std::make_shared<PipelineResourceView<Vk>>();
-    myGraphicsState.resources->sampler = createDefaultSampler(device);
+    myGraphicsState.resources.sampler = createDefaultSampler(device);
     //
 
+    internalResetSharedState();
+    internalResetGraphicsInputState();
     internalResetGraphicsRasterizationState();
     internalResetGraphicsOutputState();
     internalResetGraphicsDynamicState();
-    // todo: reset all here
 }
 
 template<>
@@ -881,11 +890,11 @@ PipelineContext<Vk>::~PipelineContext()
         vkDestroyPipeline(getDeviceContext()->getDevice(), pipelineIt.second, nullptr);
     
     vkDestroyPipelineCache(getDeviceContext()->getDevice(), myCache, nullptr);
-    vkDestroySampler(getDeviceContext()->getDevice(), myGraphicsState.resources->sampler, nullptr);
+    vkDestroySampler(getDeviceContext()->getDevice(), myGraphicsState.resources.sampler, nullptr);
 
-    myGraphicsState.resources.reset();
-	// myLayout.reset();
-	myDescriptorSets = {};
+    myDescriptorSets = {};
+    
+    myGraphicsState.resources = {};
 
     if (myDescriptorPool)
         getDeviceContext()->addTimelineCallback(
