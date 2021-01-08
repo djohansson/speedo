@@ -778,6 +778,7 @@ VkRenderPass createRenderPass(
 
 VkRenderPass createRenderPass(
 	VkDevice device,
+	VkPipelineBindPoint bindPoint,
 	VkFormat colorFormat,
 	VkAttachmentLoadOp colorLoadOp,
 	VkAttachmentStoreOp colorStoreOp,
@@ -806,7 +807,7 @@ VkRenderPass createRenderPass(
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.pipelineBindPoint = bindPoint;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorAttachmentRef;
 

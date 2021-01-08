@@ -98,6 +98,7 @@ VkRenderPass createRenderPass(
 
 VkRenderPass createRenderPass(
 	VkDevice device,
+	VkPipelineBindPoint bindPoint,
 	VkFormat colorFormat,
 	VkAttachmentLoadOp colorLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 	VkAttachmentStoreOp colorStoreOp = VK_ATTACHMENT_STORE_OP_STORE,

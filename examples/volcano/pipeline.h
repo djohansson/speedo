@@ -129,7 +129,7 @@ public:
         uint32_t binding,
         uint32_t index);
     
-    // todo: these should not be externally visible, but handled internally and "automagically" in this class.
+    // todo: ideally these should not be externally visible, but handled internally and "automagically" in this class.
     //void copyDescriptorSet(uint8_t set, DescriptorSetArray<B>& dst) const;
     void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
     void writeDescriptorSet(uint8_t set) const;
@@ -139,7 +139,7 @@ public:
     
 
     // temp
-    const auto& resources() const { return myResources; }
+    const auto& resources() const { return myGraphicsState.resources; }
     auto& renderTarget() { return myRenderTarget; }
     //
 
@@ -147,7 +147,10 @@ private:
 
     using PipelineMap = ConcurrentMapType<uint64_t, CopyableAtomic<PipelineHandle<B>>>;
 
-    using PipelineLayoutSet = SetType<PipelineLayout<B>, robin_hood::hash<PipelineLayoutHandle<B>>, std::equal_to<>>;
+    using PipelineLayoutSet = SetType<
+        PipelineLayout<B>,
+        robin_hood::hash<PipelineLayoutHandle<B>>,
+        std::equal_to<>>;
 
     using BindingVariantVector = std::variant<
         std::vector<DescriptorBufferInfo<B>>,
@@ -159,11 +162,13 @@ private:
 
     using DescriptorMap = MapType<uint64_t, BindingsMap>;
 
-    // temp - need more fine grained control here
-    void internalResetLayoutState();
-    void internalResetResourceState();
-    void internalResetRasterizationState();
-    void internalResetAllState();
+    // temp - might need more fine grained control here
+    void internalResetSharedState();
+
+    void internalResetGraphicsInputState();
+    void internalResetGraphicsRasterizationState();
+    void internalResetGraphicsOutputState();
+    void internalResetGraphicsDynamicState();
     //
 
     uint64_t internalCalculateHashKey() const;
@@ -184,32 +189,39 @@ private:
 
     // shared state
     PipelineBindPoint<B> myBindPoint = {};
+    std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
     std::optional<typename PipelineLayoutSet::const_iterator> myCurrentLayout;
     std::shared_ptr<RenderTarget<B>> myRenderTarget;
     // end shared state
 
-    // graphics state
-    std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
-    PipelineVertexInputStateCreateInfo<B> myVertexInput = {};
-    PipelineInputAssemblyStateCreateInfo<B> myInputAssembly = {};
-    std::vector<Viewport<B>> myViewports;
-    std::vector<Rect2D<B>> myScissorRects;
-    PipelineViewportStateCreateInfo<B> myViewport = {};
-    PipelineRasterizationStateCreateInfo<B> myRasterization = {};
-    PipelineMultisampleStateCreateInfo<B> myMultisample = {};
-    PipelineDepthStencilStateCreateInfo<B> myDepthStencil = {};
-    std::vector<PipelineColorBlendAttachmentState<B>> myColorBlendAttachments = {};
-    PipelineColorBlendStateCreateInfo<B> myColorBlend = {};
-    std::vector<DynamicState<B>> myDynamicStateDescs;
-    PipelineDynamicStateCreateInfo<B> myDynamicState = {};
+    struct GraphicsState
+    {
+        PipelineVertexInputStateCreateInfo<B> vertexInput = {};
+        PipelineInputAssemblyStateCreateInfo<B> inputAssembly = {};
+        std::vector<Viewport<B>> viewports;
+        std::vector<Rect2D<B>> scissorRects;
+        PipelineViewportStateCreateInfo<B> viewport = {};
+        PipelineRasterizationStateCreateInfo<B> rasterization = {};
+        PipelineMultisampleStateCreateInfo<B> multisample = {};
+        PipelineDepthStencilStateCreateInfo<B> depthStencil = {};
+        std::vector<PipelineColorBlendAttachmentState<B>> colorBlendAttachments = {};
+        PipelineColorBlendStateCreateInfo<B> colorBlend = {};
+        std::vector<DynamicState<B>> dynamicStateDescs;
+        PipelineDynamicStateCreateInfo<B> dynamicState = {};
     // temp
-    std::shared_ptr<PipelineResourceView<B>> myResources;
+        std::shared_ptr<PipelineResourceView<B>> resources;
     //
-    // end graphics state
+    } myGraphicsState = {};
 
-    // todo: compute shadow state
+    struct ComputeState
+    {
+        // todo:
+    } myComputeState = {};
 
-    // todo: raytrace shadow state
+    struct RayTracingState
+    {
+        // todo:
+    } myRayTracingState = {};
 };
 
 #include "pipeline.inl"

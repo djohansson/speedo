@@ -266,23 +266,22 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 }
 
 template <>
-void PipelineContext<Vk>::internalResetLayoutState()
+void PipelineContext<Vk>::internalResetSharedState()
 {
     myShaderStages.clear();
 
     if (myCurrentLayout.has_value() && myCurrentLayout != myLayouts.cend())
     {
         for (const auto& shader : myCurrentLayout.value()->getShaders())
-            if (shader.getEntryPoint().second ^ VK_SHADER_STAGE_COMPUTE_BIT)
-                myShaderStages.emplace_back(
-                    PipelineShaderStageCreateInfo<Vk>{
-                        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                        nullptr,
-                        0,
-                        shader.getEntryPoint().second,
-                        shader,
-                        shader.getEntryPoint().first.c_str(),
-                        nullptr});
+            myShaderStages.emplace_back(
+                PipelineShaderStageCreateInfo<Vk>{
+                    VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                    nullptr,
+                    0,
+                    shader.getEntryPoint().second,
+                    shader,
+                    shader.getEntryPoint().first.c_str(),
+                    nullptr});
 
         for (const auto& [set, layout] : myCurrentLayout.value()->getDescriptorSetLayouts())
             if (layout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
@@ -298,9 +297,9 @@ void PipelineContext<Vk>::internalResetLayoutState()
 }
 
 template <>
-void PipelineContext<Vk>::internalResetResourceState()
+void PipelineContext<Vk>::internalResetGraphicsInputState()
 {
-    myVertexInput = {
+    myGraphicsState.vertexInput = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -309,15 +308,15 @@ void PipelineContext<Vk>::internalResetResourceState()
         0,
         nullptr};
 
-    if (myResources->model)
+    if (myGraphicsState.resources->model)
     {
-        myVertexInput.vertexBindingDescriptionCount = static_cast<uint32_t>(myResources->model->getBindings().size());
-        myVertexInput.pVertexBindingDescriptions = myResources->model->getBindings().data();
-        myVertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(myResources->model->getDesc().attributes.size());
-        myVertexInput.pVertexAttributeDescriptions = myResources->model->getDesc().attributes.data();
+        myGraphicsState.vertexInput.vertexBindingDescriptionCount = static_cast<uint32_t>(myGraphicsState.resources->model->getBindings().size());
+        myGraphicsState.vertexInput.pVertexBindingDescriptions = myGraphicsState.resources->model->getBindings().data();
+        myGraphicsState.vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(myGraphicsState.resources->model->getDesc().attributes.size());
+        myGraphicsState.vertexInput.pVertexAttributeDescriptions = myGraphicsState.resources->model->getDesc().attributes.data();
     }
 
-    myInputAssembly = {
+    myGraphicsState.inputAssembly = {
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -326,12 +325,12 @@ void PipelineContext<Vk>::internalResetResourceState()
 }
 
 template <>
-void PipelineContext<Vk>::internalResetRasterizationState()
+void PipelineContext<Vk>::internalResetGraphicsRasterizationState()
 {
     auto extent = myRenderTarget ? myRenderTarget->getRenderTargetDesc().extent : Extent2d<Vk>{ 0, 0 };
 
-    myViewports.clear();
-    myViewports.emplace_back(
+    myGraphicsState.viewports.clear();
+    myGraphicsState.viewports.emplace_back(
         Viewport<Vk>{
             0.0f,
             0.0f,
@@ -340,19 +339,19 @@ void PipelineContext<Vk>::internalResetRasterizationState()
             0.0f,
             1.0f});
 
-    myScissorRects.clear();
-    myScissorRects.emplace_back(Rect2D<Vk>{{0, 0}, {extent.width, extent.height}});
+    myGraphicsState.scissorRects.clear();
+    myGraphicsState.scissorRects.emplace_back(Rect2D<Vk>{{0, 0}, {extent.width, extent.height}});
 
-    myViewport = {
+    myGraphicsState.viewport = {
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         nullptr,
         0,
-        static_cast<uint32_t>(myViewports.size()),
-        myViewports.data(),
-        static_cast<uint32_t>(myScissorRects.size()),
-        myScissorRects.data()};
+        static_cast<uint32_t>(myGraphicsState.viewports.size()),
+        myGraphicsState.viewports.data(),
+        static_cast<uint32_t>(myGraphicsState.scissorRects.size()),
+        myGraphicsState.scissorRects.data()};
 
-    myRasterization = {
+    myGraphicsState.rasterization = {
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -367,7 +366,7 @@ void PipelineContext<Vk>::internalResetRasterizationState()
         0.0f,
         1.0f};
 
-    myMultisample = {
+    myGraphicsState.multisample = {
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -377,8 +376,12 @@ void PipelineContext<Vk>::internalResetRasterizationState()
         nullptr,
         VK_FALSE,
         VK_FALSE};
+}
 
-    myDepthStencil = {
+template <>
+void PipelineContext<Vk>::internalResetGraphicsOutputState()
+{
+    myGraphicsState.depthStencil = {
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -392,8 +395,8 @@ void PipelineContext<Vk>::internalResetRasterizationState()
         0.0f,
         1.0f};
 
-    myColorBlendAttachments.clear();
-    myColorBlendAttachments.emplace_back(
+    myGraphicsState.colorBlendAttachments.clear();
+    myGraphicsState.colorBlendAttachments.emplace_back(
         PipelineColorBlendAttachmentState<Vk>{
             VK_FALSE,
             VK_BLEND_FACTOR_ONE,
@@ -407,34 +410,30 @@ void PipelineContext<Vk>::internalResetRasterizationState()
             VK_COLOR_COMPONENT_B_BIT |
             VK_COLOR_COMPONENT_A_BIT});
     
-    myColorBlend = {
+    myGraphicsState.colorBlend = {
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         nullptr,
         0,
         VK_FALSE,
         VK_LOGIC_OP_COPY,
-        static_cast<uint32_t>(myColorBlendAttachments.size()),
-        myColorBlendAttachments.data(),
+        static_cast<uint32_t>(myGraphicsState.colorBlendAttachments.size()),
+        myGraphicsState.colorBlendAttachments.data(),
         {0.0f, 0.0f, 0.0f, 0.0f}};
-
-    myDynamicStateDescs.clear();
-    myDynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
-    myDynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_SCISSOR);
+}
     
-    myDynamicState = {
+template <>
+void PipelineContext<Vk>::internalResetGraphicsDynamicState()
+{
+    myGraphicsState.dynamicStateDescs.clear();
+    myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
+    myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_SCISSOR);
+    
+    myGraphicsState.dynamicState = {
         VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         nullptr,
         0,
-        static_cast<uint32_t>(myDynamicStateDescs.size()),
-        myDynamicStateDescs.data()};
-}
-
-template <>
-void PipelineContext<Vk>::internalResetAllState()
-{
-    internalResetLayoutState();
-    internalResetResourceState();
-    internalResetRasterizationState();
+        static_cast<uint32_t>(myGraphicsState.dynamicStateDescs.size()),
+        myGraphicsState.dynamicStateDescs.data()};
 }
 
 template <>
@@ -443,14 +442,14 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     VkGraphicsPipelineCreateInfo pipelineInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
     pipelineInfo.stageCount = static_cast<uint32_t>(myShaderStages.size());
     pipelineInfo.pStages = myShaderStages.data();
-    pipelineInfo.pVertexInputState = &myVertexInput;
-    pipelineInfo.pInputAssemblyState = &myInputAssembly;
-    pipelineInfo.pViewportState = &myViewport;
-    pipelineInfo.pRasterizationState = &myRasterization;
-    pipelineInfo.pMultisampleState = &myMultisample;
-    pipelineInfo.pDepthStencilState = &myDepthStencil;
-    pipelineInfo.pColorBlendState = &myColorBlend;
-    pipelineInfo.pDynamicState = &myDynamicState;
+    pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
+    pipelineInfo.pInputAssemblyState = &myGraphicsState.inputAssembly;
+    pipelineInfo.pViewportState = &myGraphicsState.viewport;
+    pipelineInfo.pRasterizationState = &myGraphicsState.rasterization;
+    pipelineInfo.pMultisampleState = &myGraphicsState.multisample;
+    pipelineInfo.pDepthStencilState = &myGraphicsState.depthStencil;
+    pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
+    pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
     pipelineInfo.layout = getCurrentLayout();
     pipelineInfo.renderPass = std::get<0>(static_cast<RenderTarget<Vk>::ValueType>(*myRenderTarget));
     pipelineInfo.subpass = myRenderTarget->getSubpass().value_or(0);
@@ -556,7 +555,7 @@ void PipelineContext<Vk>::setCurrentLayout(PipelineLayoutHandle<Vk> handle)
     myCurrentLayout = myLayouts.find(handle, robin_hood::is_transparent_tag{});
     assert(myCurrentLayout != myLayouts.cend());
     
-    internalResetLayoutState();
+    internalResetSharedState();
 }
 
 // template <>
@@ -709,7 +708,7 @@ void PipelineContext<Vk>::pushDescriptorSet(CommandBufferHandle<Vk> cmd, uint8_t
 
         pipeline::vkCmdPushDescriptorSetKHR(
             cmd,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            myBindPoint,
             getCurrentLayout(),
             set,
             static_cast<uint32_t>(descriptorWrites.size()),
@@ -812,8 +811,8 @@ PipelineLayoutHandle<Vk> PipelineContext<Vk>::emplaceLayout(PipelineLayout<Vk>&&
 
     myCurrentLayout = emplaceResult.first;
 
-    //internalResetLayoutState();
-    internalResetAllState(); // temp hack, remove
+    internalResetSharedState();
+    internalResetGraphicsInputState(); // todo: move
     
     return *myCurrentLayout.value();
 }
@@ -828,9 +827,6 @@ PipelineContext<Vk>::PipelineContext(
     auto device = deviceContext->getDevice();
 
     char stringBuffer[128];
-
-    myResources = std::make_shared<PipelineResourceView<Vk>>();
-    myResources->sampler = createDefaultSampler(device);
 
     myCache = pipeline::loadPipelineCache(
         myConfig.cachePath,
@@ -861,7 +857,15 @@ PipelineContext<Vk>::PipelineContext(
         reinterpret_cast<uint64_t>(myDescriptorPool),
         "Device_DescriptorPool");
 
-    internalResetAllState();
+    // temp
+    myGraphicsState.resources = std::make_shared<PipelineResourceView<Vk>>();
+    myGraphicsState.resources->sampler = createDefaultSampler(device);
+    //
+
+    internalResetGraphicsRasterizationState();
+    internalResetGraphicsOutputState();
+    internalResetGraphicsDynamicState();
+    // todo: reset all here
 }
 
 template<>
@@ -877,9 +881,9 @@ PipelineContext<Vk>::~PipelineContext()
         vkDestroyPipeline(getDeviceContext()->getDevice(), pipelineIt.second, nullptr);
     
     vkDestroyPipelineCache(getDeviceContext()->getDevice(), myCache, nullptr);
-    vkDestroySampler(getDeviceContext()->getDevice(), myResources->sampler, nullptr);
+    vkDestroySampler(getDeviceContext()->getDevice(), myGraphicsState.resources->sampler, nullptr);
 
-    myResources.reset();
+    myGraphicsState.resources.reset();
 	// myLayout.reset();
 	myDescriptorSets = {};
 
