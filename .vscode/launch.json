@@ -158,12 +158,12 @@
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
+            // "environment": [
+            //     {
+            //         "name": "_NO_DEBUG_HEAP",
+            //         "value": "1"
+            //     }
+            // ],
             "externalConsole": false
         },
         {

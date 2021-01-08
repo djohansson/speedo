@@ -564,7 +564,7 @@ template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
     RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other)
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    RenderTarget<Vk>::operator=(std::move(other));
 	myDesc = std::exchange(other.myDesc, {});
     return *this;
 }
