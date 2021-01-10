@@ -5,7 +5,7 @@
 
 #include <stb_sprintf.h>
 
-#include <xxh3.h>
+#include <xxhash.h>
 
 #pragma pack(push, 1)
 template <>
@@ -475,8 +475,12 @@ template<>
 PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 {
     auto hashKey = internalCalculateHashKey();
-    //auto insertResult = myPipelineMap.emplace(hashKey, nullptr);
+    
+#if defined(__WINDOWS__)
     auto insertResult = myPipelineMap.insert(std::make_pair(hashKey, nullptr));
+#else
+    auto insertResult = myPipelineMap.emplace(hashKey, nullptr);
+#endif
 
     if (insertResult.second)
         insertResult.first->second.store(

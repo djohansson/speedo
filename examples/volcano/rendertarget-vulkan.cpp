@@ -5,7 +5,7 @@
 
 #include <stb_sprintf.h>
 
-#include <xxh3.h>
+#include <xxhash.h>
 
 template <>
 void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)

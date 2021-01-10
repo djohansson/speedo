@@ -144,7 +144,16 @@ public:
 
 private:
 
-    using PipelineMap = ConcurrentMapType<uint64_t, CopyableAtomic<PipelineHandle<B>>>;
+    template <typename T>
+    struct PassThroughHash
+    {
+        size_t operator()(const T& key) const { return static_cast<size_t>(key); }
+    };
+
+    using PipelineMap = ConcurrentMapType<
+        uint64_t,
+        CopyableAtomic<PipelineHandle<B>>,
+        PassThroughHash<uint64_t>>;
 
     using PipelineLayoutSet = SetType<
         PipelineLayout<B>,
