@@ -130,7 +130,6 @@ private:
     void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
 
     const ValueType& internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
-
     const ValueType& internalGetValues();
 
     std::vector<ImageViewHandle<B>> myAttachments;

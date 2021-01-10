@@ -175,7 +175,7 @@ private:
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
 
     PipelineHandle<B> internalGetPipeline();
-    const DescriptorSetHandle<Vk>& internalGetDescriptorSet(uint8_t set) const;
+    DescriptorSetHandle<Vk> internalGetDescriptorSet(uint8_t set) const;
 
     static uint64_t internalMakeDescriptorKey(const PipelineLayout<B>& layout, uint8_t set);
 

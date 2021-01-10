@@ -40,8 +40,8 @@ public:
 
     DescriptorSetLayout& operator=(DescriptorSetLayout&& other);
     operator auto() const { return std::get<0>(myLayout); }
-    bool operator==(const DescriptorSetLayout& other) { return myLayout == other; }
-    bool operator<(const DescriptorSetLayout& other) { return myLayout < other; }
+    bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
+    bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
 
     const auto& getDesc() const { return myDesc; }
 
@@ -80,9 +80,7 @@ public:
     ~DescriptorSetArray();
 
     DescriptorSetArray& operator=(DescriptorSetArray&& other);
-
-    constexpr auto& operator[](uint8_t set) const { return myDescriptorSets[set]; };
-    operator const auto&() const { return myDescriptorSets; }
+    auto operator[](uint8_t set) const { return myDescriptorSets[set]; };
 
     const auto& getDesc() const { return myDesc; }
 

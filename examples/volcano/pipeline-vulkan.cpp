@@ -495,7 +495,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 }
 
 template<>
-const DescriptorSetHandle<Vk>& PipelineContext<Vk>::internalGetDescriptorSet(uint8_t set) const
+DescriptorSetHandle<Vk> PipelineContext<Vk>::internalGetDescriptorSet(uint8_t set) const
 {
     const auto& setOptionalTuple = myDescriptorSets[set];
     assert(setOptionalTuple);
@@ -529,13 +529,14 @@ void PipelineContext<Vk>::bindDescriptorSet(
     uint8_t set,
     std::optional<uint32_t> bufferOffset) const
 {
+    auto descriptorSetHandle = internalGetDescriptorSet(set);
     vkCmdBindDescriptorSets(
         cmd,
         myBindPoint,
         *getLayout(),
         set,
         1,
-        &internalGetDescriptorSet(set),
+        &descriptorSetHandle,
         bufferOffset ? 1 : 0,
         bufferOffset ? &bufferOffset.value() : nullptr);
 }
