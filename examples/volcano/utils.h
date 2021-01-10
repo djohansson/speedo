@@ -168,19 +168,72 @@ namespace filesystem
 CEREAL_SPECIALIZE_FOR_ALL_ARCHIVES(
 	std::filesystem::path, cereal::specialization::non_member_load_save_minimal);
 
-template <typename Key, typename T, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-using MapType = robin_hood::unordered_map<Key, T, Hash, KeyEqual>;
-template <typename Key, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-using SetType = robin_hood::unordered_set<Key, Hash, KeyEqual>;
+template <typename T, typename Handle>
+struct HandleHash : robin_hood::hash<Handle>
+{
+	size_t operator()(const T& obj) const
+	{
+        return robin_hood::hash<Handle>::operator()(static_cast<Handle>(obj));
+    }
+};
+
+template <typename T, typename Handle>
+struct HandleHash<std::shared_ptr<T>, Handle> : robin_hood::hash<Handle>
+{
+	size_t operator()(const std::shared_ptr<T>& ptr) const
+	{
+        return robin_hood::hash<Handle>::operator()(static_cast<Handle>(*ptr));
+    }
+	size_t operator()(const Handle& handle) const
+	{
+        return robin_hood::hash<Handle>::operator()(handle);
+    }
+
+	using is_transparent = int;
+};
+
+template <typename T = void>
+struct SharedPtrEqualTo : std::equal_to<T>
+{
+};
+
+template <>
+struct SharedPtrEqualTo<void> : std::equal_to<void>
+{
+	template <typename U, typename V>
+	constexpr bool operator()(const std::shared_ptr<U>& lhs, const std::shared_ptr<V>& rhs) const
+	{
+		return *lhs == *rhs;
+	}
+	template <typename U, typename V>
+	constexpr bool operator()(const std::shared_ptr<U>& lhs, const V& rhs) const
+	{
+		return *lhs == rhs;
+	}
+	template <typename U, typename V>
+	constexpr bool operator()(const U& lhs, const std::shared_ptr<V>& rhs) const
+	{
+		return lhs == *rhs;
+	}
+
+	using is_transparent = int;
+};
+
+template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEquals = std::equal_to<Key>>
+using MapType = robin_hood::unordered_map<Key, Value, KeyHash, KeyEquals>;
+template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEquals = std::equal_to<Key>>
+using SetType = robin_hood::unordered_set<Key, KeyHash, KeyEquals>;
+template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEquals = SharedPtrEqualTo<>>
+using HandleSetType = robin_hood::unordered_set<Key, KeyHash, KeyEquals>;
 
 #if defined(__WINDOWS__)
-template <typename Key, typename T, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-using ConcurrentMapType = Concurrency::concurrent_unordered_map<Key, T, Hash, KeyEqual>;
-template <typename Key, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-using ConcurrentSetType = Concurrency::concurrent_unordered_set<Key, Hash, KeyEqual>;
+template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEquals = std::equal_to<Key>>
+using ConcurrentMapType = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEquals>;
+template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEquals = std::equal_to<Key>>
+using ConcurrentSetType = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEquals>;
 #else
-template <typename Key, typename T, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-using ConcurrentMapType = MapType<Key, T, Hash, KeyEqual>;
-template <typename Key, typename Hash = robin_hood::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-using ConcurrentSetType = SetType<Key, Hash, KeyEqual>;
+template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEquals = std::equal_to<Key>>
+using ConcurrentMapType = MapType<Key, Value, KeyHash, KeyEqual>;
+template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEquals = std::equal_to<Key>>
+using ConcurrentSetType = SetType<Key, KeyHash, KeyEqual>;
 #endif

@@ -40,8 +40,8 @@ public:
 
     PipelineLayout& operator=(PipelineLayout&& other);
     operator auto() const { return myLayout; }
-    bool operator==(const PipelineLayout& other) { return myLayout == other; }
-    bool operator<(const PipelineLayout& other) { return myLayout < other; }
+    bool operator==(const PipelineLayout& other) const { return myLayout == other; }
+    bool operator<(const PipelineLayout& other) const { return myLayout < other; }
 
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
     const auto& getShaders() const { return myShaders; }
@@ -86,9 +86,10 @@ public:
     const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
-    auto getLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myLayoutIt.value()); }
+    const auto& getLayout() const { return myLayout; }
     const auto& getRenderTarget() const { return myRenderTarget; }
 
+    void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
 
     void bind(CommandBufferHandle<B> cmd);
@@ -97,11 +98,6 @@ public:
         uint8_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt) const;
     void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
-
-    // note scope 1: not quite sure yet on how we should interact with these functions. Perhaps some sort of layout begin/end that returns a proxy object so set all state?
-    PipelineLayoutHandle<B> emplaceAndSetLayout(PipelineLayout<B>&& layout);
-
-    void setLayout(PipelineLayoutHandle<B> handle);
 
     // object
     template <typename T>
@@ -155,11 +151,6 @@ private:
         CopyableAtomic<PipelineHandle<B>>,
         PassThroughHash<uint64_t>>;
 
-    using PipelineLayoutSet = SetType<
-        PipelineLayout<B>,
-        robin_hood::hash<PipelineLayoutHandle<B>>,
-        std::equal_to<>>;
-
     using BindingVariantVector = std::variant<
         std::vector<DescriptorBufferInfo<B>>,
         std::vector<DescriptorImageInfo<B>>,
@@ -191,7 +182,6 @@ private:
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
-    PipelineLayoutSet myLayouts; // todo: do not store these in here. we can treat them the same way as render targets.
     PipelineMap myPipelineMap;
     DescriptorMap myDescriptorMap;
     std::array<std::optional<std::tuple<DescriptorSetArray<B>, uint32_t>>, 4> myDescriptorSets; // temp!
@@ -199,7 +189,7 @@ private:
     // shared state
     PipelineBindPoint<B> myBindPoint = {};
     std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
-    std::optional<typename PipelineLayoutSet::const_iterator> myLayoutIt;
+    std::shared_ptr<PipelineLayout<B>> myLayout;
     std::shared_ptr<RenderTarget<B>> myRenderTarget;
     // end shared state
 

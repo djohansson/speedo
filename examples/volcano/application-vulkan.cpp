@@ -299,8 +299,13 @@ Application<Vk>::Application(
         auto shaders = shader::loadSlangShaders<Vk>(
             std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
             myResourcePath / "shaders" / "shaders.slang");
-    
-        myGraphicsPipeline->emplaceAndSetLayout(PipelineLayout<Vk>(myDevice, shaders));
+
+        auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
+        assert(insertResult);
+        PipelineLayoutHandle<Vk> handle = *(*layoutIt);
+        // layoutIt = myLayouts.find(handle);
+        // assert(layoutIt != myLayouts.cend());
+        myGraphicsPipeline->setLayout(*layoutIt);
     }
     
     // perform resource transitions, set all descriptors, initialize IMGUI

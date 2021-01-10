@@ -93,6 +93,8 @@ private:
 	std::shared_ptr<Queue<B>> myTransferQueue;
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 
+	HandleSetType<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
+
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
