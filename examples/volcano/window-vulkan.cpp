@@ -79,7 +79,6 @@ template <>
 uint32_t WindowContext<Vk>::internalDrawViews(
     const std::shared_ptr<PipelineContext<Vk>>& pipeline,
     const RenderPassBeginInfo<Vk>& renderPassInfo,
-    const Extent2d<Vk>& extent,
     uint32_t frameIndex)
 {
     // setup draw parameters
@@ -101,7 +100,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
             std::execution::par,
     #endif
             seq.begin(), drawThreadCount,
-            [this, &pipeline, &renderPassInfo, &extent, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
+            [this, &pipeline, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -145,8 +144,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                         pipeline->resources().model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 
-                uint32_t dx = extent.width / myDesc.splitScreenGrid.width;
-                uint32_t dy = extent.height / myDesc.splitScreenGrid.height;
+                uint32_t dx = renderPassInfo.renderArea.extent.width / myDesc.splitScreenGrid.width;
+                uint32_t dy = renderPassInfo.renderArea.extent.height / myDesc.splitScreenGrid.height;
 
                 while (drawIt < drawCount)
                 {
@@ -229,9 +228,8 @@ void WindowContext<Vk>::draw(const std::shared_ptr<PipelineContext<Vk>>& pipelin
 
     auto cmd = commandContext->commands();
     auto renderPassInfo = renderTarget->begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-    const auto& extent = renderTarget->getRenderTargetDesc().extent;
-
-    uint32_t drawThreadCount = internalDrawViews(pipeline, renderPassInfo.value(), extent, frameIndex);
+    
+    uint32_t drawThreadCount = internalDrawViews(pipeline, renderPassInfo.value(), frameIndex);
     
     for (uint32_t contextIt = 0; contextIt < drawThreadCount; contextIt++)
         commandContext->execute(*myCommands[frameIndex][contextIt]);

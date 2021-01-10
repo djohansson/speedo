@@ -83,7 +83,6 @@ private:
 	uint32_t internalDrawViews(
 		const std::shared_ptr<PipelineContext<Vk>>& pipeline,
 		const RenderPassBeginInfo<Vk>& renderPassInfo,
-		const Extent2d<Vk>& extent,
 		uint32_t frameIndex);
 
 	std::shared_ptr<InstanceContext<B>> myInstance;

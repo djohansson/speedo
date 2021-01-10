@@ -469,7 +469,7 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
         std::get<1>(rpf),
         {{0, 0}, {getRenderTargetDesc().extent.width, getRenderTargetDesc().extent.height}}});
 
-    vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);   
+    vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);
     
     return myCurrentPass;
 }

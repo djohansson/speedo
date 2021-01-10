@@ -70,9 +70,6 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
     std::filesystem::path cachePath;
 };
 
-// todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
-//       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
-
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
 {
@@ -85,15 +82,14 @@ public:
     ~PipelineContext();
 
     PipelineContext& operator=(PipelineContext&& other);
-    operator auto() { return internalGetPipeline(); };
-
+    
     const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
-    auto getCurrentLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myCurrentLayout.value()); }
+    auto getLayout() const { return static_cast<PipelineLayoutHandle<B>>(*myLayoutIt.value()); }
+    const auto& getRenderTarget() const { return myRenderTarget; }
 
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
-    const auto& getRenderTarget() const { return myRenderTarget; }
 
     void bind(CommandBufferHandle<B> cmd);
     void bindDescriptorSet(
@@ -105,7 +101,7 @@ public:
     // note scope 1: not quite sure yet on how we should interact with these functions. Perhaps some sort of layout begin/end that returns a proxy object so set all state?
     PipelineLayoutHandle<B> emplaceAndSetLayout(PipelineLayout<B>&& layout);
 
-    void setCurrentLayout(PipelineLayoutHandle<B> handle);
+    void setLayout(PipelineLayoutHandle<B> handle);
 
     // object
     template <typename T>
@@ -165,9 +161,10 @@ private:
 
     using DescriptorMap = MapType<uint64_t, BindingsMap>;
 
-    // temp - might need more fine grained control here
+    // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
+    //       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
+    //       might need more fine grained control here...
     void internalResetSharedState();
-
     void internalResetGraphicsInputState();
     void internalResetGraphicsRasterizationState();
     void internalResetGraphicsOutputState();
@@ -185,7 +182,7 @@ private:
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
-    PipelineLayoutSet myLayouts;
+    PipelineLayoutSet myLayouts; // todo: do not store these in here. we can treat them the same way as render targets.
     PipelineMap myPipelineMap;
     DescriptorMap myDescriptorMap;
     std::array<std::optional<std::tuple<DescriptorSetArray<B>, uint32_t>>, 4> myDescriptorSets; // temp!
@@ -193,7 +190,7 @@ private:
     // shared state
     PipelineBindPoint<B> myBindPoint = {};
     std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
-    std::optional<typename PipelineLayoutSet::const_iterator> myCurrentLayout;
+    std::optional<typename PipelineLayoutSet::const_iterator> myLayoutIt;
     std::shared_ptr<RenderTarget<B>> myRenderTarget;
     // end shared state
 
