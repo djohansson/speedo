@@ -302,7 +302,7 @@ Application<Vk>::Application(
 
         auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
         assert(insertResult);
-        PipelineLayoutHandle<Vk> handle = *(*layoutIt);
+        // PipelineLayoutHandle<Vk> handle = *(*layoutIt);
         // layoutIt = myLayouts.find(handle);
         // assert(layoutIt != myLayouts.cend());
         myGraphicsPipeline->setLayout(*layoutIt);
