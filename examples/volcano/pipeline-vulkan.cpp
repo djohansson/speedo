@@ -476,11 +476,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 {
     auto hashKey = internalCalculateHashKey();
     
-#if defined(__WINDOWS__)
-    auto insertResult = myPipelineMap.insert(std::make_pair(hashKey, nullptr));
-#else
-    auto insertResult = myPipelineMap.emplace(hashKey, nullptr);
-#endif
+    auto insertResult = myPipelineMap.insert({hashKey, nullptr});
 
     if (insertResult.second)
         insertResult.first->second.store(
