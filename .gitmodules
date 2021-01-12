@@ -76,3 +76,6 @@
 [submodule "external/glTF-SDK"]
 	path = external/glTF-SDK
 	url = https://github.com/microsoft/glTF-SDK.git
+[submodule "external/rapidjson"]
+	path = external/rapidjson
+	url = https://github.com/Tencent/rapidjson
