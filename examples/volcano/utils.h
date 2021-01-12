@@ -175,6 +175,10 @@ struct HandleHash : robin_hood::hash<Handle>
 	{
         return robin_hood::hash<Handle>::operator()(static_cast<Handle>(obj));
     }
+	size_t operator()(const Handle& handle) const
+	{
+        return robin_hood::hash<Handle>::operator()(handle);
+    }
 };
 
 template <typename T, typename Handle>
@@ -195,6 +199,10 @@ struct HandleHash<std::shared_ptr<T>, Handle> : robin_hood::hash<Handle>
 template <typename T = void>
 struct SharedPtrEqualTo : std::equal_to<T>
 {
+	constexpr bool operator()(const std::shared_ptr<T>& lhs, const std::shared_ptr<T>& rhs) const
+	{
+		return *lhs == *rhs;
+	}
 };
 
 template <>
@@ -223,8 +231,6 @@ template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>
 using MapType = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using SetType = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
-template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
-using HandleSetType = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
 #if defined(__WINDOWS__)
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>

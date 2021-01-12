@@ -143,7 +143,7 @@ private:
     template <typename T>
     struct PassThroughHash
     {
-        size_t operator()(const T& key) const { return static_cast<size_t>(key); }
+        inline size_t operator()(const T& key) const { return static_cast<size_t>(key); }
     };
 
     using PipelineMap = ConcurrentMapType<
