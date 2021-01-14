@@ -97,7 +97,7 @@ private:
 	using HandleSetType = SetType<Key, KeyHash, KeyEqualTo>;
 	HandleSetType<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 
-	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<void(nfdchar_t*)>>> myOpenFileFuture;
+	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 

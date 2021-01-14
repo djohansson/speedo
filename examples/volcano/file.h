@@ -9,7 +9,7 @@
 #include <optional>
 #include <tuple>
 
-#include <mio/mmap_streambuf.hpp>
+#include <mio/mmap_iostream.hpp>
 
 #include <cereal/archives/json.hpp>
 

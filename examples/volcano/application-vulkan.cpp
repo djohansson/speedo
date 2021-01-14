@@ -1,4 +1,5 @@
 #include "application.h"
+#include "gltfstream.h"
 #include "vk-utils.h"
 
 #include <stb_sprintf.h>
@@ -302,9 +303,6 @@ Application<Vk>::Application(
 
         auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
         assert(insertResult);
-        // PipelineLayoutHandle<Vk> handle = *(*layoutIt);
-        // layoutIt = myLayouts.find(handle);
-        // assert(layoutIt != myLayouts.cend());
         myGraphicsPipeline->setLayout(*layoutIt);
     }
     
@@ -394,7 +392,10 @@ Application<Vk>::Application(
 
     // GUI + misc callbacks
 
-    auto openFileDialogue = [](const std::filesystem::path& resourcePath, const nfdchar_t* filterList, std::function<void(nfdchar_t*)>&& onCompletionCallback)
+    auto openFileDialogue = [](
+        const std::filesystem::path& resourcePath,
+        const nfdchar_t* filterList,
+        std::function<uint32_t(nfdchar_t*)>&& onCompletionCallback)
     {
         std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
         nfdchar_t* openFilePath;
@@ -419,6 +420,8 @@ Application<Vk>::Application(
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
         myLastTransferTimelineValue = myTransferQueue->submit();
+
+        return 1;
     };
 
     auto loadImage = [this](nfdchar_t* openFilePath)
@@ -487,9 +490,39 @@ Application<Vk>::Application(
         myLastFrameTimelineValue = myGraphicsQueue->submit();
 
         myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
+
+        return 1;
     };
 
-    myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage]
+    auto loadGlTF = [](nfdchar_t* openFilePath)
+    {
+        try
+        {
+            std::filesystem::path path(openFilePath);
+
+            if (path.is_relative())
+                path = std::filesystem::absolute(path);
+
+            if (!path.has_filename())
+                throw std::runtime_error("Command line argument path has no filename");
+            
+            if (!path.has_extension())
+                throw std::runtime_error("Command line argument path has no filename extension");
+            
+            gltfstream::PrintInfo(path);
+        }
+        catch (const std::runtime_error& ex)
+        {
+            std::cerr << "Error! - ";
+            std::cerr << ex.what() << "\n";
+
+            throw;
+        }
+
+        return 0;
+    };
+
+    myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage, loadGlTF]
     {
         ZoneScopedN("Application::IMGUIPrepareDraw");
 
@@ -809,6 +842,8 @@ Application<Vk>::Application(
                     myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", loadModel);
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", loadImage);
+                if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "gltf,glb", loadGlTF);
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -1003,7 +1038,7 @@ bool Application<Vk>::draw()
             const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
             if (openFileResult == NFD_OKAY)
             {
-                onCompletionCallback(openFilePath);
+                transferCount += onCompletionCallback(openFilePath);
                 free(openFilePath);
                 ++transferCount;
             }

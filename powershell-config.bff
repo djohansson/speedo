@@ -1,0 +1,13 @@
+#once
+#include "platform-config.bff"
+
+#if __WINDOWS__
+#if exists(POWERSHELL_PATH)
+#import POWERSHELL_PATH
+.PowerShellExecutable = '$POWERSHELL_PATH$/pwsh.exe'
+#else
+.PowerShellExecutable = 'C:/Program Files/PowerShell/7/pwsh.exe'
+#endif
+#else
+.PowerShellExecutable = '/usr/bin/pwsh'
+#endif

@@ -125,7 +125,9 @@
 			"parentbad": "cpp",
 			"*.inc": "cpp",
 			"bit": "cpp",
-			"compare": "cpp"
+			"compare": "cpp",
+			"hash_map": "cpp",
+			"hash_set": "cpp"
 		}
 	}
 }

@@ -100,7 +100,10 @@
     .ProjectType = 'task'
     .ExecExecutable = ''
     .ExecWorkingDir = ''
+    .UseConfigDependentWorkingDir = true
 	.ExecOutputName = ''
+    .ExecOutputPath = ''
+    .UseConfigDependentOutputPath = true
 ]
 
 .GlobalContext =
@@ -374,11 +377,6 @@ function AddTask(.Task .CompilerConfig)
         Using(.CompilerConfig)
 
         .TaskName = '$Name$-task-$ConfigName$'
-        
-        If (.ExecOutputName == .EmptyString)
-        {
-            ^ExecOutputName = '$Name$'
-        }
 
         If (.ExecExecutable == .EmptyString)
         {
@@ -387,10 +385,30 @@ function AddTask(.Task .CompilerConfig)
 
         If (.ExecWorkingDir == .EmptyString)
         {
-            ^ExecWorkingDir = '$IntermediateDirectory$/$Name$/$ConfigName$'
+            ^ExecWorkingDir = '$IntermediateDirectory$'
         }
 
-        .ExecOutput = '$IntermediateDirectory$/$Name$/$ConfigName$/$ExecOutputName$'
+        If (.UseConfigDependentWorkingDir)
+        {
+            ^ExecWorkingDir + '/$Name$/$ConfigName$'
+        }
+
+        If (.ExecOutputName == .EmptyString)
+        {
+            ^ExecOutputName = '$Name$'
+        }
+
+        If (.ExecOutputPath == .EmptyString)
+        {
+            ^ExecOutputPath = '$IntermediateDirectory$'
+        }
+
+        If (.UseConfigDependentOutputPath)
+        {
+            ^ExecOutputPath + '/$Name$/$ConfigName$'
+        }
+
+        .ExecOutput = '$ExecOutputPath$/$ExecOutputName$'
     ]
 
 	Using(.LocalTask)

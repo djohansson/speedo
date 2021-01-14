@@ -1,5 +1,6 @@
 #include "platform-config.bff"
 #include "clang-config.bff"
+#include "powershell-config.bff"
 #include "python-config.bff"
 #include "vulkan-config.bff"
 
@@ -277,6 +278,39 @@
 		}
 		.CompilerInputPattern = '*.c'
 		.CompilerInputPath = '$IntermediateFilePath$/gl3w-generate'
+		.UseConfigDependentInputPath = true
+	]
+
+	.GlTFSDKGenerateTask =
+	[
+		Using(.TaskCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/external/glTF-SDK/GLTFSDK'
+
+		.Name = 'glTF-SDK-generate'
+		.ExecExecutable = '$PowerShellExecutable$'
+		.ExecInput = '$ProjectBasePath$/GenerateSchemaJsonHeader.ps1'
+		.ExecArguments = '-ExecutionPolicy Bypass %1 -outPath %2'
+		.ExecOutputName = 'SchemaJson.h'
+		.ExecWorkingDir = '$ProjectBasePath$'
+		.UseConfigDependentWorkingDir = false
+	]
+
+	.GlTFSDKLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/external/glTF-SDK/GLTFSDK'
+
+		.Name = 'glTF-SDK'
+		.DependencyTasks = { .GlTFSDKGenerateTask }
+		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$/Inc'
+			+ ' -I$BuildRootPath$/external/rapidjson/include'
+		.ConfigDependentCompilerOptions = {
+			' -I$IntermediateFilePath$/glTF-SDK-generate',
+		}
+		.CompilerInputPath = '$ProjectBasePath$/Source'
 		.UseConfigDependentInputPath = true
 	]
 
@@ -591,6 +625,7 @@
 			+ ' -I$BuildRootPath$/external/stb'
 			+ ' -I$BuildRootPath$/external/tinyobjloader'
 			+ ' -I$BuildRootPath$/external/glfw/include'
+			+ ' -I$BuildRootPath$/external/glTF-SDK/GLTFSDK/Inc'
 			+ ' -I$BuildRootPath$/external/VulkanMemoryAllocator/src'
 			+ ' -I$BuildRootPath$/external/imgui'
 			+ ' -I$BuildRootPath$/external/imnodes'
@@ -1079,6 +1114,7 @@
 		}
 		.DependencyLibraries = {
 			.Gl3wLibrary,
+			.GlTFSDKLibrary,
 			.GlfwLibrary,
 			.XXHashLibrary,
 			.LZ4Library,
