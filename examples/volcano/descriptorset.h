@@ -32,10 +32,6 @@ public:
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutCreateDesc<B>&& desc);
-    DescriptorSetLayout( // takes ownership of provided handle
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        DescriptorSetLayoutCreateDesc<B>&& desc,
-        ValueType&& layout);
     ~DescriptorSetLayout();
 
     DescriptorSetLayout& operator=(DescriptorSetLayout&& other);
@@ -46,6 +42,11 @@ public:
     const auto& getDesc() const { return myDesc; }
 
 private:
+
+    DescriptorSetLayout( // takes ownership of provided handle
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        DescriptorSetLayoutCreateDesc<B>&& desc,
+        ValueType&& layout);
 
     DescriptorSetLayoutCreateDesc<B> myDesc = {};
 	ValueType myLayout = {};
@@ -73,10 +74,6 @@ public:
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
         const DescriptorSetLayout<Vk>& layout,
         DescriptorSetArrayCreateDesc<Vk>&& desc);
-    DescriptorSetArray( // takes ownership of provided descriptor set handles
-        const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-        DescriptorSetArrayCreateDesc<Vk>&& desc,
-        ArrayType&& descriptorSetHandles);
     ~DescriptorSetArray();
 
     DescriptorSetArray& operator=(DescriptorSetArray&& other);
@@ -85,6 +82,11 @@ public:
     const auto& getDesc() const { return myDesc; }
 
 private:
+
+    DescriptorSetArray( // takes ownership of provided descriptor set handles
+        const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+        DescriptorSetArrayCreateDesc<Vk>&& desc,
+        ArrayType&& descriptorSetHandles);
 
     DescriptorSetArrayCreateDesc<B> myDesc = {};
 	ArrayType myDescriptorSets;

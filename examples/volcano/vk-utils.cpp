@@ -260,6 +260,24 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
     return std::make_tuple(outBuffer, outBufferMemory);
 }
 
+std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
+    VmaAllocator allocator, const void* srcData, size_t srcDataSize, const char* debugName)
+{
+    auto bufferData = createBuffer(
+        allocator, srcDataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        debugName);
+
+    auto& [bufferHandle, memoryHandle] = bufferData;
+
+    void* data;
+    VK_CHECK(vmaMapMemory(allocator, memoryHandle, &data));
+    memcpy(data, srcData, srcDataSize);
+    vmaUnmapMemory(allocator, memoryHandle);
+
+    return bufferData;
+}
+
 VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 	VkBufferViewCreateFlags flags, VkFormat format, VkDeviceSize offset, VkDeviceSize range)
 {

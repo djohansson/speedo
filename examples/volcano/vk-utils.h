@@ -59,6 +59,9 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, VkDeviceSize bufferSize,
 	VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
+std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
+    VmaAllocator allocator, const void* srcData, size_t srcDataSize, const char* debugName);
+
 VkBufferView createBufferView(VkDevice device, VkBuffer buffer,
 	VkBufferViewCreateFlags flags, VkFormat format, VkDeviceSize offset, VkDeviceSize range);
 

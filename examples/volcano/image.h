@@ -21,7 +21,9 @@ struct ImageCreateDesc : DeviceResourceCreateDesc<B>
 {
     std::vector<ImageMipLevelDesc<B>> mipLevels;
     Format<B> format = {};
-    Flags<B> usage = {};
+    ImageTiling<B> tiling = {};
+    Flags<B> usageFlags = {};
+    Flags<B> memoryFlags = {};
 };
 
 template <GraphicsBackend B>
@@ -35,18 +37,16 @@ public:
     Image( // creates uninitialized image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
-    Image( // copies the initial buffer into a new image. buffer gets garbage collected when finished copying.
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<CommandContext<B>>& commandContext,
-        std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData);
-    Image( // loads a file into a buffer and creates a new image from it. buffer gets garbage collected when finished copying.
+    Image( // loads a file into a buffer and creates a new image from it.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& imageFile);
-    Image( // takes ownership of provided image handle & allocation
+    Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
         ImageCreateDesc<B>&& desc,
-        ValueType&& data);
+        const void* initialData,
+        size_t initialDataSize);
     ~Image();
 
     Image& operator=(Image&& other);
@@ -57,13 +57,25 @@ public:
     const auto& getImageLayout() const { return std::get<2>(myImage); }
 
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
+    
+private:
+
+    Image( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        const std::shared_ptr<CommandContext<B>>& commandContext,
+        std::tuple<ImageCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
+    Image( // takes ownership of provided image handle & allocation
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ImageCreateDesc<B>&& desc,
+        ValueType&& data);
+
+    template <GraphicsBackend _B>
+    friend class RenderImageSet;
 
     // this method is not meant to be used except in very special cases
     // such as for instance to update the image layout after a render pass
     // (which implicitly changes the image layout).
     void setImageLayout(ImageLayout<B> layout) { std::get<2>(myImage) = layout; }
-    
-private:
 
     const ImageCreateDesc<B> myDesc = {};
     ValueType myImage = {};
@@ -79,15 +91,16 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,
         Flags<Vk> aspectFlags);
-    ImageView( // uses provided image view
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ImageViewHandle<B>&& imageView);
     ~ImageView();
 
     ImageView& operator=(ImageView&& other);
     operator auto() const { return myImageView; }
 
 private:
+
+    ImageView( // uses provided image view
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ImageViewHandle<B>&& imageView);
 
     ImageViewHandle<B> myImageView = {};
 };

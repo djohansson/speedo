@@ -136,11 +136,11 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     // bind pipeline and vertex/index buffers
                     pipeline->bind(cmd);
 
-                    VkBuffer vertexBuffers[] = { pipeline->resources().model->getBuffer() };
+                    VkBuffer vertexBuffers[] = { *pipeline->resources().model };
                     VkDeviceSize vertexOffsets[] = { pipeline->resources().model->getVertexOffset() };
 
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, pipeline->resources().model->getBuffer(),
+                    vkCmdBindIndexBuffer(cmd, *pipeline->resources().model,
                         pipeline->resources().model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 }
 

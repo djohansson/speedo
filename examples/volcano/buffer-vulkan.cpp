@@ -61,6 +61,26 @@ Buffer<Vk>::Buffer(
 }
 
 template <>
+Buffer<Vk>::Buffer(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    BufferCreateDesc<Vk>&& desc,
+    const void* initialData,
+    size_t initialDataSize)
+: Buffer(
+    deviceContext,
+    commandContext, 
+    std::tuple_cat(
+        std::make_tuple(std::move(desc)),
+        createStagingBuffer(
+            deviceContext->getAllocator(),
+            initialData,
+            initialDataSize,
+            desc.name.append("_staging").c_str())))
+{
+}
+
+template <>
 Buffer<Vk>::~Buffer()
 {
     if (BufferHandle<Vk> buffer = *this; buffer)

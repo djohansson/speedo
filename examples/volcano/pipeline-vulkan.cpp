@@ -258,7 +258,7 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 
     // todo: rendertargets need to use hash key derived from its state and not its handles/pointers, since they are recreated often
     // auto [renderPassHandle, frameBufferHandle] =
-    //     static_cast<RenderTarget<Vk>::ValueType>(*myRenderTarget);
+    //     static_cast<RenderTarget<Vk>::ValueType>(*getRenderTarget());
     // result = XXH3_64bits_update(threadXXHState.get(), &renderPassHandle, sizeof(renderPassHandle));
     // result = XXH3_64bits_update(threadXXHState.get(), &frameBufferHandle, sizeof(frameBufferHandle));
     // assert(result != XXH_ERROR);
@@ -435,8 +435,8 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
     pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
     pipelineInfo.layout = *getLayout();
-    pipelineInfo.renderPass = std::get<0>(static_cast<RenderTarget<Vk>::ValueType>(*myRenderTarget));
-    pipelineInfo.subpass = myRenderTarget->getSubpass().value_or(0);
+    pipelineInfo.renderPass = *getRenderTarget();
+    pipelineInfo.subpass = getRenderTarget()->getSubpass().value_or(0);
     pipelineInfo.basePipelineHandle = 0;
     pipelineInfo.basePipelineIndex = -1;
 

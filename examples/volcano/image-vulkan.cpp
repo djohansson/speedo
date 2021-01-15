@@ -26,6 +26,7 @@
 
 namespace stbi_istream_callbacks
 {
+
 int read(void* user, char* data, int size)
 {
 	std::istream* stream = static_cast<std::istream*>(user);
@@ -43,6 +44,7 @@ int eof(void* user)
 	std::istream* stream = static_cast<std::istream*>(user);
 	return stream->tellg() != std::istream::pos_type(-1);
 }
+
 } // namespace stbi_istream_callbacks
 
 namespace image
@@ -70,7 +72,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         cereal::BinaryInputArchive bin(stream);
         bin(desc);
 
-        uint32_t size = 0;
+        size_t size = 0;
         for (const auto& mipLevel : desc.mipLevels)
             size += mipLevel.size;
 
@@ -83,17 +85,13 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
-        {
-            ZoneScopedN("image::loadBin::buffers");
+        void* data;
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
+        bin(cereal::binary_data(data, size));
+        vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
-            std::byte* data;
-            VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-            bin(cereal::binary_data(data, size));
-            vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
-
-            bufferHandle = locBufferHandle;
-            memoryHandle = locMemoryHandle;
-        }
+        bufferHandle = locBufferHandle;
+        memoryHandle = locMemoryHandle;
 
         return true;
     };
@@ -106,18 +104,14 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         cereal::BinaryOutputArchive bin(stream);
         bin(desc);
 
-        uint32_t size = 0;
+        size_t size = 0;
         for (const auto& mipLevel : desc.mipLevels)
             size += mipLevel.size;
 
-        {
-            ZoneScopedN("image::saveBin::buffers");
-
-            std::byte* data;
-            VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
-            bin(cereal::binary_data(data, size));
-            vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
-        }
+        void* data;
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, &data));
+        bin(cereal::binary_data(data, size));
+        vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
 
         return true;
     };
@@ -142,7 +136,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
         desc.mipLevels.resize(mipCount);
         desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-        desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+        desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
 
         uint32_t mipOffset = 0;
         for (uint32_t mipIt = 0; mipIt < mipCount; mipIt++)
@@ -170,8 +164,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             debugString.c_str());
 
-        unsigned char* stagingBuffer;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&stagingBuffer));
+        void* stagingBuffer;
+        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &stagingBuffer));
 
         auto compressBlocks = [](
             const stbi_uc* src,
@@ -232,8 +226,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         };
 
         auto threadCount = std::thread::hardware_concurrency();
-        const stbi_uc* src = stbiImageData;
-        unsigned char* dst = stagingBuffer;
+        auto src = stbiImageData;
+        auto dst = static_cast<unsigned char*>(stagingBuffer);
 
         dst += compressBlocks(src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
 
@@ -363,9 +357,9 @@ Image<Vk>::Image(
             desc.mipLevels[0].extent.height,
             desc.mipLevels.size(),
             desc.format, 
-            VK_IMAGE_TILING_OPTIMAL,
-            desc.usage,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            desc.tiling,
+            desc.usageFlags,
+            desc.memoryFlags,
             desc.name.c_str()),
         std::make_tuple(VK_IMAGE_LAYOUT_UNDEFINED)))
 {
@@ -390,15 +384,35 @@ Image<Vk>::Image(
             &std::get<0>(descAndInitialData).mipLevels[0].offset,
             sizeof(ImageMipLevelDesc<Vk>) / sizeof(uint32_t),
             std::get<0>(descAndInitialData).format, 
-            VK_IMAGE_TILING_OPTIMAL,
-            std::get<0>(descAndInitialData).usage,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            std::get<0>(descAndInitialData).tiling,
+            std::get<0>(descAndInitialData).usageFlags,
+            std::get<0>(descAndInitialData).memoryFlags,
             std::get<0>(descAndInitialData).name.c_str()),
         std::make_tuple(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)))
 {   
     commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
+}
+
+template <>
+Image<Vk>::Image(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    ImageCreateDesc<Vk>&& desc,
+    const void* initialData,
+    size_t initialDataSize)
+: Image(
+    deviceContext,
+    commandContext,
+    std::tuple_cat(
+        std::make_tuple(std::move(desc)),
+        createStagingBuffer(
+            deviceContext->getAllocator(),
+            initialData,
+            initialDataSize,
+            desc.name.append("_staging").c_str())))
+{   
 }
 
 template <>

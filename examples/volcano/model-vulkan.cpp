@@ -91,21 +91,25 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		cereal::BinaryInputArchive bin(stream);
 		bin(desc);
 
+		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
+
 		std::string debugString;
 		debugString.append(desc.name);
 		debugString.append("_staging");
 		
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			deviceContext->getAllocator(),
+			size,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			debugString.c_str());
 
 		{
 			ZoneScopedN("model::loadBin::buffers");
 
-			std::byte* data;
-			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
-			bin(cereal::binary_data(data, desc.indexBufferSize + desc.vertexBufferSize));
+			void* data;
+			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
+			bin(cereal::binary_data(data, size));
 			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
@@ -124,12 +128,14 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		cereal::BinaryOutputArchive bin(stream);
 		bin(desc);
 
+		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
+
 		{
 			ZoneScopedN("model::saveBin::buffers");
 
-			std::byte* data;
-			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, (void**)&data));
-			bin(cereal::binary_data(data, desc.indexBufferSize + desc.vertexBufferSize));
+			void* data;
+			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, &data));
+			bin(cereal::binary_data(data, size));
 			vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
 		}
 
@@ -255,10 +261,10 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		{
 			ZoneScopedN("model::loadObj::buffers");
 
-			std::byte* data;
-			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, (void**)&data));
+			void* data;
+			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
 			memcpy(data, indices.data(), desc.indexBufferSize);
-			memcpy(data + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
+			memcpy(static_cast<std::byte*>(data) + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
 			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
@@ -284,8 +290,7 @@ Model<Vk>::Model(
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
 	const std::shared_ptr<CommandContext<Vk>>& commandContext,
 	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
-: myDesc(std::move(std::get<0>(descAndInitialData)))
-, myBuffer(
+: Buffer(
 	deviceContext,
 	commandContext,
 	std::make_tuple(
@@ -295,6 +300,7 @@ Model<Vk>::Model(
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT },
 		std::get<1>(descAndInitialData),
 		std::get<2>(descAndInitialData)))
+, myDesc(std::move(std::get<0>(descAndInitialData)))
 , myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
 {
 }

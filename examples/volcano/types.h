@@ -51,6 +51,9 @@ template <GraphicsBackend B>
 using ImageLayout = std::conditional_t<B == Vk, VkImageLayout, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using ImageTiling = std::conditional_t<B == Vk, VkImageTiling, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using AllocatorHandle = std::conditional_t<B == Vk, VmaAllocator, std::nullptr_t>;
 
 template <GraphicsBackend B>

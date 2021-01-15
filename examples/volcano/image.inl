@@ -17,5 +17,7 @@ void serialize(Archive& archive, ImageCreateDesc<B>& desc)
 {
     archive(cereal::make_nvp("mipLevels", desc.mipLevels));
     archive(cereal::make_nvp("format", desc.format));
-    archive(cereal::make_nvp("usage", desc.usage));
+    archive(cereal::make_nvp("tiling", desc.tiling));
+    archive(cereal::make_nvp("usageFlags", desc.usageFlags));
+    archive(cereal::make_nvp("memoryFlags", desc.memoryFlags));
 }

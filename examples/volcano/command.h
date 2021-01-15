@@ -30,9 +30,6 @@ public:
 
     CommandBufferArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::tuple<CommandBufferArrayCreateDesc<B>, std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
-    CommandBufferArray(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandBufferArrayCreateDesc<B>&& desc);
     CommandBufferArray(CommandBufferArray<B>&& other);
     ~CommandBufferArray();
@@ -59,6 +56,10 @@ public:
     const CommandBufferHandle<B>& operator[](uint8_t index) const { return myArray[index]; }
 
 private:
+
+    CommandBufferArray(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<CommandBufferArrayCreateDesc<B>, std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
         
     CommandBufferArrayCreateDesc<B> myDesc = {};
     std::array<CommandBufferHandle<B>, kCommandBufferCount> myArray = {};

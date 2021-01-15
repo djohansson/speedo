@@ -46,10 +46,6 @@ public:
     ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Shader<B>& shader);
-	ShaderModule( // takes ownership of provided handle
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ShaderModuleHandle<B>&& shaderModule,
-		const EntryPoint<B>& entryPoint);
 	ShaderModule(ShaderModule&& other);
     ~ShaderModule();
 
@@ -59,6 +55,11 @@ public:
 	const auto& getEntryPoint() const { return myEntryPoint; }
 
 private:
+
+	ShaderModule( // takes ownership of provided handle
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        ShaderModuleHandle<B>&& shaderModule,
+		const EntryPoint<B>& entryPoint);
 
 	ShaderModuleHandle<B> myShaderModule = {};
 	EntryPoint<B> myEntryPoint = {}; 

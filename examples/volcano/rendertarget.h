@@ -59,13 +59,13 @@ struct IRenderTarget
 template <GraphicsBackend B>
 class RenderTarget : public IRenderTarget<B>, public DeviceResource<B>
 {
-public:
-
     using ValueType = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
+
+public:
 
     virtual ~RenderTarget();
 
-    operator auto() { return internalGetValues(); };
+    operator auto() { return std::get<0>(internalGetValues()); };
 
     virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) override;

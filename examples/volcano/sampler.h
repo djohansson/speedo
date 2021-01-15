@@ -13,9 +13,6 @@ public:
     SamplerVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::vector<SamplerCreateInfo<B>>& createInfos);
-    SamplerVector( // takes ownership of provided handle
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<SamplerHandle<B>>&& samplers);
     SamplerVector(SamplerVector&& other);
     ~SamplerVector();
 
@@ -27,8 +24,11 @@ public:
 
 private:
 
+    SamplerVector( // takes ownership of provided handle
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::vector<SamplerHandle<B>>&& samplers);
+
 	 std::vector<SamplerHandle<B>> mySamplers = {};
 };
 
-#include "sampler.inl"
 #include "sampler-vulkan.inl"

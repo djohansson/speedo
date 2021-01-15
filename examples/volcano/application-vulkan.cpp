@@ -145,7 +145,9 @@ void Application<Vk>::createWindowDependentObjects(
             {"rtColorImage"},
             { { frameBufferExtent } },
             myDevice->getDesc().swapchainConfig->surfaceFormat.format,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
     
     auto depthStencilImage = std::make_shared<Image<Vk>>(
         myDevice,
@@ -156,7 +158,9 @@ void Application<Vk>::createWindowDependentObjects(
                 myDevice->getPhysicalDevice(),
                 {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
                 VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT});
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
     
     myRenderImageSet = std::make_shared<RenderImageSet<Vk>>(
         myDevice,
@@ -371,11 +375,7 @@ Application<Vk>::Application(
         myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
         myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
 
-        initIMGUI(
-            myDevice,
-            cmd,
-            std::get<0>(static_cast<RenderTarget<Vk>::ValueType>(frame)),
-            myUserProfilePath);
+        initIMGUI(myDevice, cmd, frame, myUserProfilePath);
 
         cmd.end();
 

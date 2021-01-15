@@ -27,15 +27,6 @@ public:
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<ShaderReflectionInfo<B>>& shaderModule);
-    PipelineLayout( // takes ownership over provided handles
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<ShaderModule<B>>&& shaderModules,
-        DescriptorSetLayoutMap<B>&& descriptorSetLayouts);
-    PipelineLayout( // takes ownership over provided handles
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        std::vector<ShaderModule<B>>&& shaderModules,
-        DescriptorSetLayoutMap<B>&& descriptorSetLayouts,
-        PipelineLayoutHandle<B>&& layout);
     ~PipelineLayout();
 
     PipelineLayout& operator=(PipelineLayout&& other);
@@ -47,6 +38,16 @@ public:
     const auto& getShaders() const { return myShaders; }
 
 private:
+
+    PipelineLayout( // takes ownership over provided handles
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::vector<ShaderModule<B>>&& shaderModules,
+        DescriptorSetLayoutMap<B>&& descriptorSetLayouts);
+    PipelineLayout( // takes ownership over provided handles
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::vector<ShaderModule<B>>&& shaderModules,
+        DescriptorSetLayoutMap<B>&& descriptorSetLayouts,
+        PipelineLayoutHandle<B>&& layout);
 
     std::vector<ShaderModule<B>> myShaders;
 	DescriptorSetLayoutMap<B> myDescriptorSetLayouts;
