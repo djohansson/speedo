@@ -90,6 +90,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
     
     // draw views using secondary command buffers
     // todo: generalize this to other types of draws
+    if (pipeline->resources().model)
     {
         ZoneScopedN("WindowContext::drawViews");
 
