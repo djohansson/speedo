@@ -40,6 +40,8 @@ public:
     bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
 
     const auto& getDesc() const { return myDesc; }
+    auto getKey() const { return myKey; }
+    const auto& getImmutableSamplers() const { return std::get<1>(myLayout); }
 
 private:
 
@@ -49,6 +51,7 @@ private:
         ValueType&& layout);
 
     DescriptorSetLayoutCreateDesc<B> myDesc = {};
+    uint64_t myKey = 0;
 	ValueType myLayout = {};
 };
 
@@ -64,7 +67,7 @@ struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetArray : public DeviceResource<B>
 {
-    static constexpr uint8_t kDescriptorSetCount = 4;
+    static constexpr uint8_t kDescriptorSetCount = 3;
     using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
     
 public:

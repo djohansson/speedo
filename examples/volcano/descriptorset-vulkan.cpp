@@ -1,10 +1,66 @@
 #include "descriptorset.h"
 #include "vk-utils.h"
 
+#include <memory>
+
+#include <xxhash.h>
+
+namespace descriptorsetlayout
+{
+
+uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
+{
+    thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> threadXXHState =
+    {
+        XXH3_createState(),
+        XXH3_freeState
+    };
+
+    auto result = XXH3_64bits_reset(threadXXHState.get());
+    assert(result != XXH_ERROR);
+
+    if (!desc.bindings.empty())
+    {
+        result = XXH3_64bits_update(
+            threadXXHState.get(),
+            desc.bindings.data(),
+            desc.bindings.size() * sizeof(DescriptorSetLayoutBinding<Vk>));
+        assert(result != XXH_ERROR);
+    }
+
+    if (!desc.variableNames.empty())
+    {
+        result = XXH3_64bits_update(
+            threadXXHState.get(),
+            desc.variableNames.data(),
+            desc.variableNames.size() * sizeof(std::string::value_type));
+        assert(result != XXH_ERROR);
+    }
+
+    if (desc.pushConstantRange.has_value())
+    {
+        result = XXH3_64bits_update(
+            threadXXHState.get(),
+            &desc.pushConstantRange.value(),
+            sizeof(PushConstantRange<Vk>));
+        assert(result != XXH_ERROR);
+    }
+
+    result = XXH3_64bits_update(
+        threadXXHState.get(),
+        &desc.flags,
+        sizeof(desc.flags));
+
+    return XXH3_64bits_digest(threadXXHState.get());
+}
+
+}
+
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout<Vk>&& other)
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
+, myKey(std::exchange(other.myKey, 0))
 , myLayout(std::move(other.myLayout))
 {
     std::get<0>(other.myLayout) = {};
@@ -22,6 +78,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
     VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
     reinterpret_cast<uint64_t*>(&std::get<0>(layout)))
 , myDesc(std::move(desc))
+, myKey(descriptorsetlayout::hash(myDesc))
 , myLayout(std::move(layout))
 {
 }
@@ -64,6 +121,7 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
+    myKey = std::exchange(other.myKey, 0);
     std::get<0>(myLayout) = std::exchange(std::get<0>(other.myLayout), {});
     std::get<1>(myLayout) = std::move(std::get<1>(other.myLayout));
 	return *this;

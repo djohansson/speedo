@@ -96,16 +96,16 @@ public:
     void bind(CommandBufferHandle<B> cmd);
     void bindDescriptorSet(
         CommandBufferHandle<B> cmd,
-        uint8_t set,
+        uint32_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt) const;
-    void pushDescriptorSet(CommandBufferHandle<B> cmd, uint8_t set) const;
+    void pushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set) const;
 
     // object
     template <typename T>
     void setDescriptorData(
         T&& data,
         DescriptorType<B> type,
-        uint8_t set,
+        uint32_t set,
         uint32_t binding);
 
     // array
@@ -113,7 +113,7 @@ public:
     void setDescriptorData(
         std::vector<T>&& data,
         DescriptorType<B> type,
-        uint8_t set,
+        uint32_t set,
         uint32_t binding);
 
     // array-element
@@ -121,14 +121,14 @@ public:
     void setDescriptorData(
         T&& data,
         DescriptorType<B> type,
-        uint8_t set,
+        uint32_t set,
         uint32_t binding,
         uint32_t index);
     
     // todo: ideally these should not be externally visible, but handled internally and "automagically" in this class.
-    //void copyDescriptorSet(uint8_t set, DescriptorSetArray<B>& dst) const;
+    //void copyDescriptorSet(uint32_t set, DescriptorSetArray<B>& dst) const;
     
-    void writeDescriptorSet(uint8_t set) const;
+    void writeDescriptorSet(uint32_t set) const;
     //
 
     // note scope 1 end
@@ -176,16 +176,14 @@ private:
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
 
     PipelineHandle<B> internalGetPipeline();
-    DescriptorSetHandle<Vk> internalGetDescriptorSet(uint8_t set) const;
-
-    static uint64_t internalMakeDescriptorKey(const PipelineLayout<B>& layout, uint8_t set);
+    DescriptorSetHandle<Vk> internalGetDescriptorSet(uint32_t set) const;
 
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
     PipelineMap myPipelineMap;
     DescriptorMap myDescriptorMap;
-    std::array<std::optional<std::tuple<DescriptorSetArray<B>, uint32_t>>, 4> myDescriptorSets; // temp!
+    MapType<uint32_t, DescriptorSetArray<B>> myDescriptorSets;
 
     // shared state
     PipelineBindPoint<B> myBindPoint = {};

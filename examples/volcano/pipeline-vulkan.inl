@@ -18,10 +18,10 @@ template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
     T&& data,
     DescriptorType<Vk> type,
-    uint8_t set,
+    uint32_t set,
     uint32_t binding)
 {
-    auto& bindingsMap = myDescriptorMap[internalMakeDescriptorKey(*getLayout(), set)];
+    auto& bindingsMap = myDescriptorMap[getLayout()->getDescriptorSetLayouts().at(set).getKey()];
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     BindingVariantVector& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
@@ -36,10 +36,10 @@ template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
     std::vector<T>&& data,
     DescriptorType<Vk> type,
-    uint8_t set,
+    uint32_t set,
     uint32_t binding)
 {
-    auto& bindingsMap = myDescriptorMap[internalMakeDescriptorKey(*getLayout(), set)];
+    auto& bindingsMap = myDescriptorMap[getLayout()->getDescriptorSetLayouts().at(set).getKey()];
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     BindingVariantVector& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
@@ -52,11 +52,11 @@ template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
     T&& data,
     DescriptorType<Vk> type,
-    uint8_t set,
+    uint32_t set,
     uint32_t binding,
     uint32_t index)
 {
-    auto& bindingsMap = myDescriptorMap[internalMakeDescriptorKey(*getLayout(), set)];
+    auto& bindingsMap = myDescriptorMap[getLayout()->getDescriptorSetLayouts().at(set).getKey()];
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     BindingVariantVector& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);

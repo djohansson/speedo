@@ -243,8 +243,7 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
         XXH3_freeState
     };
 
-    constexpr XXH64_hash_t seed = 42;
-    auto result = XXH3_64bits_reset_withSeed(threadXXHState.get(), seed);
+    auto result = XXH3_64bits_reset(threadXXHState.get());
     assert(result != XXH_ERROR);
 
     result = XXH3_64bits_update(threadXXHState.get(), &myBindPoint, sizeof(myBindPoint));
@@ -286,14 +285,15 @@ void PipelineContext<Vk>::internalResetSharedState()
 
         for (const auto& [set, layout] : getLayout()->getDescriptorSetLayouts())
             if (layout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
-                myDescriptorSets[set] = std::make_optional(
-                    std::make_tuple(
+                myDescriptorSets.emplace(
+                    std::make_pair(
+                        set,
                         DescriptorSetArray<Vk>(
                             getDeviceContext(),
                             layout,
                             DescriptorSetArrayCreateDesc<Vk>{
                                 {"DescriptorSetArray"},
-                                myDescriptorPool}), 0));
+                                myDescriptorPool})));
     }
 }
 
@@ -491,26 +491,10 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 }
 
 template<>
-DescriptorSetHandle<Vk> PipelineContext<Vk>::internalGetDescriptorSet(uint8_t set) const
+DescriptorSetHandle<Vk> PipelineContext<Vk>::internalGetDescriptorSet(uint32_t set) const
 {
-    const auto& setOptionalTuple = myDescriptorSets[set];
-    assert(setOptionalTuple);
-    const auto& setTuple = setOptionalTuple.value();
-
-    return std::get<0>(setTuple)[std::get<1>(setTuple)];
-}
-
-template<>
-uint64_t PipelineContext<Vk>::internalMakeDescriptorKey(const PipelineLayout<Vk>& layout, uint8_t set)
-{
-    // todo: use precalculated hash of the layout instead of using the pointer.
-    // should allow us to squeeze in more set in a uint64_t
-
-    static_assert(static_cast<uint32_t>(DescriptorSetCategory::Count) <= 4);
-    assert(set < static_cast<uint32_t>(DescriptorSetCategory::Count));
-    assert((reinterpret_cast<uint64_t>(&layout) & 0x3) == 0);
-    
-    return reinterpret_cast<uint64_t>(&layout) | (static_cast<uint64_t>(set) & 0x3);
+    // todo:
+    return myDescriptorSets.at(set)[0];
 }
 
 template <>
@@ -522,7 +506,7 @@ void PipelineContext<Vk>::bind(CommandBufferHandle<Vk> cmd)
 template <>
 void PipelineContext<Vk>::bindDescriptorSet(
     CommandBufferHandle<Vk> cmd,
-    uint8_t set,
+    uint32_t set,
     std::optional<uint32_t> bufferOffset) const
 {
     auto descriptorSetHandle = internalGetDescriptorSet(set);
@@ -570,9 +554,9 @@ void PipelineContext<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>
 }
 
 // template <>
-// void Pipeline<Vk>::copyDescriptorSet(uint8_t set, DescriptorSetArray<Vk>& dst) const
+// void Pipeline<Vk>::copyDescriptorSet(uint32_t set, DescriptorSetArray<Vk>& dst) const
 // {
-//     if (const auto& bindings = myDescriptorMap.at(internalMakeDescriptorKey(*getLayout(), set)); !bindings.empty())//     {
+//     if (const auto& bindings = myDescriptorMap.at(getLayout()->getDescriptorSetLayouts().at(set).getKey()); !bindings.empty())//     {
 //         std::vector<CopyDescriptorSet<Vk>> descriptorCopies;
 //         descriptorCopies.reserve(bindings.size());
 
@@ -636,9 +620,9 @@ void PipelineContext<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>
 // }
 
 template <>
-void PipelineContext<Vk>::pushDescriptorSet(CommandBufferHandle<Vk> cmd, uint8_t set) const
+void PipelineContext<Vk>::pushDescriptorSet(CommandBufferHandle<Vk> cmd, uint32_t set) const
 {
-    if (const auto& bindings = myDescriptorMap.at(internalMakeDescriptorKey(*getLayout(), set)); !bindings.empty())
+    if (const auto& bindings = myDescriptorMap.at(getLayout()->getDescriptorSetLayouts().at(set).getKey()); !bindings.empty())
     {
         std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
         descriptorWrites.reserve(bindings.size());
@@ -728,9 +712,9 @@ void PipelineContext<Vk>::pushDescriptorSet(CommandBufferHandle<Vk> cmd, uint8_t
 }
 
 template <>
-void PipelineContext<Vk>::writeDescriptorSet(uint8_t set) const
+void PipelineContext<Vk>::writeDescriptorSet(uint32_t set) const
 {
-    if (const auto& bindings = myDescriptorMap.at(internalMakeDescriptorKey(*getLayout(), set)); !bindings.empty())
+    if (const auto& bindings = myDescriptorMap.at(getLayout()->getDescriptorSetLayouts().at(set).getKey()); !bindings.empty())
     {
         auto setHandle = internalGetDescriptorSet(set);
 
@@ -804,6 +788,8 @@ void PipelineContext<Vk>::writeDescriptorSet(uint8_t set) const
                 },
             }, variantVector));
         }
+
+        // todo: increment active set to avoid writing to in-flight set.
 
         vkUpdateDescriptorSets(
             getDeviceContext()->getDevice(),
@@ -880,7 +866,7 @@ PipelineContext<Vk>::~PipelineContext()
     vkDestroyPipelineCache(getDeviceContext()->getDevice(), myCache, nullptr);
     vkDestroySampler(getDeviceContext()->getDevice(), myGraphicsState.resources.sampler, nullptr);
 
-    myDescriptorSets = {};
+    myDescriptorSets.clear();
     
     myGraphicsState.resources = {};
 

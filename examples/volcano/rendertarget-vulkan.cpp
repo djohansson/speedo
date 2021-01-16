@@ -167,8 +167,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
         XXH3_freeState
     };
 
-    constexpr XXH64_hash_t seed = 42;
-    auto result = XXH3_64bits_reset_withSeed(threadXXHState.get(), seed);
+    auto result = XXH3_64bits_reset(threadXXHState.get());
     assert(result != XXH_ERROR);
 
     result = XXH3_64bits_update(threadXXHState.get(), myAttachments.data(), myAttachments.size() * sizeof(myAttachments.front()));
