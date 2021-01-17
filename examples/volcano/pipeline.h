@@ -93,12 +93,11 @@ public:
     void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
 
-    void bind(CommandBufferHandle<B> cmd);
+    void bindPipeline(CommandBufferHandle<B> cmd);
     void bindDescriptorSet(
         CommandBufferHandle<B> cmd,
         uint32_t set,
-        std::optional<uint32_t> bufferOffset = std::nullopt) const;
-    void pushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set) const;
+        std::optional<uint32_t> bufferOffset = std::nullopt);
 
     // object
     template <typename T>
@@ -125,43 +124,33 @@ public:
         uint32_t binding,
         uint32_t index);
     
-    // todo: ideally these should not be externally visible, but handled internally and "automagically" in this class.
-    //void copyDescriptorSet(uint32_t set, DescriptorSetArray<B>& dst) const;
-    
-    void writeDescriptorSet(uint32_t set) const;
-    //
-
-    // note scope 1 end
-    
-
     // temp
     void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
     auto& resources() { return myGraphicsState.resources; }
     //
 
 private:
-
-    template <typename T>
-    struct PassThroughHash
-    {
-        inline size_t operator()(const T& key) const { return static_cast<size_t>(key); }
-    };
-
-    using PipelineMap = ConcurrentMapType<
-        uint64_t,
-        CopyableAtomic<PipelineHandle<B>>,
-        PassThroughHash<uint64_t>>;
-
     using BindingVariantVector = std::variant<
         std::vector<DescriptorBufferInfo<B>>,
         std::vector<DescriptorImageInfo<B>>,
         std::vector<BufferViewHandle<B>>,
         std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
     using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantVector>;
-    using BindingsMap = MapType<uint32_t, BindingValueType>;
-
-    using DescriptorMap = MapType<uint64_t, BindingsMap>;
-
+    using BindingsMap = MapType<uint32_t, BindingValueType>; // [binding, data], perhaps make this an array?
+    using DescriptorSetArrayList = std::list<
+        std::tuple<
+            DescriptorSetArray<B>, // descriptor set array
+            uint8_t>>; // current array index
+    using DescriptorMap = MapType<
+        uint64_t, // setLayout key
+        std::tuple<
+            std::tuple<BindingsMap, bool>, // [bindings, isDirty]
+            std::optional<DescriptorSetArrayList>>>; // optional descriptor sets - if std::nullopt -> uses push descriptors
+    using PipelineMap = ConcurrentMapType<
+        uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
+        CopyableAtomic<PipelineHandle<B>>,
+        PassThroughHash<uint64_t>>;
+    
     // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
     //       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
     //       might need more fine grained control here...
@@ -172,19 +161,19 @@ private:
     void internalResetGraphicsDynamicState();
     //
 
+    void internalPushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set) const;
+    void internalWriteDescriptorSet(uint32_t set);
+
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
-
     PipelineHandle<B> internalGetPipeline();
-    DescriptorSetHandle<Vk> internalGetDescriptorSet(uint32_t set) const;
 
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
-    PipelineMap myPipelineMap;
     DescriptorMap myDescriptorMap;
-    MapType<uint32_t, DescriptorSetArray<B>> myDescriptorSets;
-
+    PipelineMap myPipelineMap;
+    
     // shared state
     PipelineBindPoint<B> myBindPoint = {};
     std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;

@@ -66,11 +66,10 @@ struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
 
 template <GraphicsBackend B>
 class DescriptorSetArray : public DeviceResource<B>
-{
-    static constexpr uint8_t kDescriptorSetCount = 3;
-    using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
-    
+{   
 public:
+
+    static constexpr size_t kDescriptorSetCount = 256;
 
     DescriptorSetArray(DescriptorSetArray&& other);
     DescriptorSetArray( // allocates array of descriptor set handles using single layout
@@ -80,11 +79,13 @@ public:
     ~DescriptorSetArray();
 
     DescriptorSetArray& operator=(DescriptorSetArray&& other);
-    auto operator[](uint8_t set) const { return myDescriptorSets[set]; };
+    const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
 
     const auto& getDesc() const { return myDesc; }
 
 private:
+
+    using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
 
     DescriptorSetArray( // takes ownership of provided descriptor set handles
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,

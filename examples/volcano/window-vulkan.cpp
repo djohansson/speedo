@@ -97,9 +97,9 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
         std::for_each_n(
-    #if defined(__WINDOWS__)
-            std::execution::par,
-    #endif
+    // #if defined(__WINDOWS__)
+    //         std::execution::par,
+    // #endif
             seq.begin(), drawThreadCount,
             [this, &pipeline, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
@@ -135,7 +135,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     ZoneScopedN("WindowContext::drawViews::bind");
 
                     // bind pipeline and vertex/index buffers
-                    pipeline->bind(cmd);
+                    pipeline->bindPipeline(cmd);
 
                     VkBuffer vertexBuffers[] = { *pipeline->resources().model };
                     VkDeviceSize vertexOffsets[] = { pipeline->resources().model->getVertexOffset() };
@@ -191,7 +191,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
-                            pipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
+                            pipeline->bindDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
 
                             vkCmdDrawIndexed(cmd, pipeline->resources().model->getDesc().indexCount, 1, 0, 0, 0);
                         };

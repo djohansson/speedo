@@ -282,13 +282,9 @@ Application<Vk>::Application(
         assert(insertResult);
         myGraphicsPipeline->setLayout(*layoutIt);
     }
-    
-    // write global descriptor sets, initialize IMGUI
-    {
-        auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
-        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
-        auto cmd = commandContext->commands();
 
+    // set global descriptor set data
+    {
         std::vector<DescriptorBufferInfo<Vk>> bufferInfos;
         bufferInfos.emplace_back(DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE});
 
@@ -297,9 +293,14 @@ Application<Vk>::Application(
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             static_cast<uint32_t>(DescriptorSetCategory::Global),
             0);
+    }
+    
+    // initialize IMGUI
+    {
+        auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
+        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
+        auto cmd = commandContext->commands();
         
-        myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
-
         initIMGUI(myDevice, cmd, frame, myUserProfilePath);
 
         cmd.end();
@@ -409,9 +410,6 @@ Application<Vk>::Application(
             VK_DESCRIPTOR_TYPE_SAMPLER,
             static_cast<uint32_t>(DescriptorSetCategory::Object),
             1);
-
-        myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Material));
-        myGraphicsPipeline->pushDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
 
         cmd.end();
 
@@ -1022,7 +1020,5 @@ void Application<Vk>::resizeFramebuffer(int, int)
         static_cast<uint32_t>(DescriptorSetCategory::Global),
         0);
     
-    myGraphicsPipeline->writeDescriptorSet(static_cast<uint32_t>(DescriptorSetCategory::Global));
-
     createWindowDependentObjects(framebufferExtent);
 }
