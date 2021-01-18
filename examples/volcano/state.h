@@ -40,7 +40,7 @@ struct WindowState
 
 struct InputState
 {
-    MapType<uint32_t, bool> keysPressed;
+    UnorderedMapType<uint32_t, bool> keysPressed;
 	std::array<bool, 3> mouseButtonsPressed;
 	std::array<glm::vec2, 2> mousePosition;
 };

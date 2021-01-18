@@ -133,8 +133,8 @@ private:
     };
 
     std::shared_mutex myObjectsMutex; // todo: replace with asserting mutex
-    MapType<uint32_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
-    MapType<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
+    UnorderedMapType<uint32_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
+    UnorderedMapType<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
 };
 
 template <GraphicsBackend B>

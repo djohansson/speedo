@@ -141,17 +141,17 @@ private:
         std::vector<BufferViewHandle<B>>,
         std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
     using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantVector>;
-    using BindingsMap = MapType<uint32_t, BindingValueType>; // [binding, data], perhaps make this an array?
+    using BindingsMap = UnorderedMapType<uint32_t, BindingValueType>; // [binding, data], perhaps make this an array?
     using DescriptorSetArrayList = std::list<
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
             uint8_t>>; // current array index
-    using DescriptorMap = MapType<
+    using DescriptorMap = UnorderedMapType<
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
         std::tuple<
             std::tuple<BindingsMap, bool>, // [bindings, isDirty]
             std::optional<DescriptorSetArrayList>>>; // optional descriptor sets - if std::nullopt -> uses push descriptors
-    using PipelineMap = ConcurrentMapType<
+    using PipelineMap = ConcurrentUnorderedMapType<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
         CopyableAtomic<PipelineHandle<B>>,
         PassThroughHash<uint64_t>>;

@@ -61,7 +61,7 @@ private:
     InstanceHandle<B> myInstance;
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
-    MapType<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
+    UnorderedMapType<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
     std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };

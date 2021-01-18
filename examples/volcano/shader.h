@@ -24,7 +24,7 @@ template <GraphicsBackend B>
 struct ShaderReflectionInfo
 {
 	std::vector<Shader<B>> shaders;
-	// todo: use MapType, once I can figure out how to make it cereal:ized
+	// todo: use UnorderedMapType, once I can figure out how to make it cereal:ized
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
 };
 

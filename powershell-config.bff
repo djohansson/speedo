@@ -9,5 +9,5 @@
 .PowerShellExecutable = 'C:/Program Files/PowerShell/7/pwsh.exe'
 #endif
 #else
-.PowerShellExecutable = '/usr/bin/pwsh'
+.PowerShellExecutable = '/usr/local/bin/pwsh'
 #endif
