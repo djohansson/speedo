@@ -56,7 +56,7 @@ private:
 };
 
 template <GraphicsBackend B>
-using DescriptorSetLayoutMap = MapType<uint32_t, DescriptorSetLayout<B>>; // [set, layout]
+using DescriptorSetLayoutMap = UnorderedMapType<uint32_t, DescriptorSetLayout<B>>; // [set, layout]
 
 template <GraphicsBackend B>
 struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>

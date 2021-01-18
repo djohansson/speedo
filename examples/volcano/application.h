@@ -1,9 +1,6 @@
-// wip: dynamic mesh layout, depending on input data structure.
 // wip: specialize on graphics backend
-// wip: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
-// wip: move stuff from headers into compilation units
 // wip: graph based GUI
-// todo: extract descriptor sets
+// wip: extract descriptor sets
 // todo: resource loading / manager
 // todo: frame graph
 // todo: compute pipeline
@@ -14,6 +11,9 @@
 // done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
 // done: instrumentation and timing information
+// done: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
+// done: move stuff from headers into compilation units
+// cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 
 #pragma once
 
@@ -94,7 +94,7 @@ private:
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 
 	template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
-	using HandleSetType = SetType<Key, KeyHash, KeyEqualTo>;
+	using HandleSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
 	HandleSetType<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;

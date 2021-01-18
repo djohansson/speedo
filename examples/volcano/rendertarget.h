@@ -115,7 +115,7 @@ protected:
 
 private:
 
-    using ValueMap = MapType<uint64_t, ValueType>;
+    using ValueMap = UnorderedMapType<uint64_t, ValueType>;
 
     uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;
 

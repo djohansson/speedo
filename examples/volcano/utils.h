@@ -234,18 +234,18 @@ struct PassThroughHash
 };
 
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using MapType = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
+using UnorderedMapType = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using SetType = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
+using UnorderedSetType = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
 #if defined(__WINDOWS__)
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentMapType = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedMapType = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentSetType = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedSetType = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEqualTo>;
 #else
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentMapType = MapType<Key, Value, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedMapType = UnorderedMapType<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentSetType = SetType<Key, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
 #endif
