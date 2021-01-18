@@ -269,7 +269,7 @@ template <>
 void PipelineContext<Vk>::internalResetSharedState()
 {
     myShaderStages.clear();
-    myDescriptorMap.clear();
+    myDescriptorMap.clear(); // perhaps not clear this?
 
     const auto& layout = *getLayout();
 
@@ -293,8 +293,8 @@ void PipelineContext<Vk>::internalResetSharedState()
                         BindingsMap{},
                         false),
                     setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
-                    std::make_optional(DescriptorSetArrayList{}) :
-                    std::nullopt)));
+                        std::make_optional(DescriptorSetArrayList{}) :
+                        std::nullopt)));
 }
 
 template <>
@@ -644,15 +644,17 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
             false :
             std::get<1>(setArrays.front()) == (DescriptorSetArray<Vk>::kDescriptorSetCount - 1);
 
-        if (frontArrayIsFull)
-        {
-            getDeviceContext()->addTimelineCallback(
-                [this, setLayoutKey = setLayout.getKey(), setArrayIt = setArrays.begin()](uint64_t){
-                    auto& [bindingsMap, setArraysOptional] = myDescriptorMap.at(setLayoutKey);
-                    auto& setArrays = setArraysOptional.value();
-                    setArrays.erase(setArrayIt);
-                });
-        }
+        // todo: this recycling strategy will not work
+        //       - implement some sort of frame reference counting
+        // if (frontArrayIsFull)
+        // {
+        //     getDeviceContext()->addTimelineCallback(
+        //         [this, setLayoutKey = setLayout.getKey(), setArrayIt = setArrays.begin()](uint64_t){
+        //             auto& [bindingsMap, setArraysOptional] = myDescriptorMap.at(setLayoutKey);
+        //             auto& setArrays = setArraysOptional.value();
+        //             setArrays.erase(setArrayIt);
+        //         });
+        // }
 
         if (setArraysIsEmpty || frontArrayIsFull)
         {
@@ -667,7 +669,7 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                     0));
         }
 
-        auto& setArray = setArrays.front();
+        const auto& setArray = setArrays.front();
         const auto& descriptorSetHandle = std::get<0>(setArray)[std::get<1>(setArray)];
         
         std::vector<WriteDescriptorSet<Vk>> descriptorWrites;

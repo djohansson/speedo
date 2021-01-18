@@ -71,6 +71,11 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
     std::filesystem::path cachePath;
 };
 
+// todo: create single-thread / multi-thread interface:
+//         * fork() pushes/copies/pops thread-specific state on stack
+//         * descriptor pools created in groups for each thread instance
+//         * pipeline map/cache shared across thread instances
+//         * descriptor data shared across thread instances (if possible. avoids excessive copying...)
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
 {
@@ -142,7 +147,7 @@ private:
             DescriptorSetArray<B>, // descriptor set array
             uint8_t>>; // current array index
     using DescriptorMap = MapType<
-        uint64_t, // setLayout key
+        uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
         std::tuple<
             std::tuple<BindingsMap, bool>, // [bindings, isDirty]
             std::optional<DescriptorSetArrayList>>>; // optional descriptor sets - if std::nullopt -> uses push descriptors
@@ -170,9 +175,9 @@ private:
 
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
-    PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline cache to its own class, and pass in reference to it.
+    PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
     DescriptorMap myDescriptorMap;
-    PipelineMap myPipelineMap;
+    PipelineMap myPipelineMap; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
     
     // shared state
     PipelineBindPoint<B> myBindPoint = {};
