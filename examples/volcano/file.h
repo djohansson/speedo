@@ -9,8 +9,6 @@
 #include <optional>
 #include <tuple>
 
-#include <mio/mmap_iostream.hpp>
-
 #include <cereal/archives/json.hpp>
 
 #include <picosha2.h>

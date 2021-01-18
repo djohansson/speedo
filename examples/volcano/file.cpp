@@ -92,8 +92,7 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 	{
 		ZoneScopedN("loadBinaryFile::loadOp");
 
-		mio::mmap_istreambuf fileStreamBuf(filePath.string());
-		std::istream fileStream(&fileStreamBuf);
+		auto fileStream = mio::mmap_istream(filePath.string());
 
 		if (!loadOp(fileStream))
 			return std::make_tuple(FileState::Stale, std::move(outFileInfo));
@@ -106,8 +105,8 @@ std::tuple<FileState, FileInfo> loadBinaryFile(
 			fileStream.seekg(0, std::ios_base::beg);
 			
 			picosha2::hash256(
-				std::istreambuf_iterator(&fileStreamBuf),
-				std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
+				std::istreambuf_iterator(fileStream),
+				std::istreambuf_iterator<mio::mmap_istreambuf::char_type>(),
 				outFileInfo.sha2.begin(),
 				outFileInfo.sha2.end());
 		}
@@ -208,8 +207,7 @@ void loadCachedSourceFile(
 
 		doImport = false;
 
-		mio::mmap_istreambuf fileStreamBuf(jsonFilePath.string());
-		std::istream fileStream(&fileStreamBuf);
+		auto fileStream = mio::mmap_istream(jsonFilePath.string());
 
 		sourceFile = getFileInfo(
 			sourceFilePath,
@@ -244,9 +242,8 @@ void loadCachedSourceFile(
 	{
 		ZoneScopedN("loadCachedSourceFile::importSourceFile");
 
-		mio::mmap_ostreambuf streamBuf(jsonFilePath.string());
-		std::ostream stream(&streamBuf);
-		cereal::JSONOutputArchive json(stream);
+		auto fileStream = mio::mmap_ostream(jsonFilePath.string());
+		cereal::JSONOutputArchive json(fileStream);
 
 		json(cereal::make_nvp("loaderType", loaderType));
 		json(cereal::make_nvp("loaderVersion", loaderVersion));

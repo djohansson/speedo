@@ -2,6 +2,8 @@
 #include <cereal/types/array.hpp>
 #include <cereal/types/string.hpp>
 
+#include <mio/mmap_iostream.hpp>
+
 template <class Archive>
 void load(Archive& archive, FileInfo& info)
 {
@@ -43,18 +45,16 @@ std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& 
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::make_tuple(std::nullopt, FileState::Missing);
 
-    mio::mmap_istreambuf fileStreamBuf(filePath.string());
-    std::istream fileStream(&fileStreamBuf);
-
+    auto fileStream = mio::mmap_istream(filePath.string());
+    
     return std::make_tuple(std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
 }
 
 template <typename T, typename Archive>
 void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
 {
-    mio::mmap_ostreambuf fileStreamBuf(filePath.string());
-	std::ostream fileStream(&fileStreamBuf);
-    saveObject<T, Archive>(object, fileStream, name);
+    auto fileStream = mio::mmap_ostream(filePath.string());
+	saveObject<T, Archive>(object, fileStream, name);
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
