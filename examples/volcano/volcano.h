@@ -11,6 +11,7 @@ int volcano_create(
     void* windowHandle,
     int windowWidth,
     int windowHeight,
+    const char* rootPath,
     const char* resourcePath,
     const char* userProfilePath);
 bool volcano_draw();

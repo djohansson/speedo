@@ -172,7 +172,7 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 // }
 // #endif
 
-const char* getCmdOption(const char*const* begin, const char*const* end, const char* option)
+const char* getCmdOption(const char* const* begin, const char* const* end, const char* option)
 {
 	while (begin != end)
 	{
@@ -254,6 +254,7 @@ int main(int argc, char** argv)
 #endif
 		g_window.width,
 		g_window.height,
+		"./",
 		getCmdOption(argv, argv + argc, R"(-r)"),
 		getCmdOption(argv, argv + argc, R"(-u)"));
 

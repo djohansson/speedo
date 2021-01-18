@@ -24,8 +24,9 @@ uint32_t createLayoutBindings(
 
 template <GraphicsBackend B>
 std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
-	const std::filesystem::path& compilerPath,
-	const std::filesystem::path& slangFile)
+	const std::filesystem::path& slangFile,
+	const std::vector<std::filesystem::path>& includePaths,
+	const std::optional<std::filesystem::path>& compilerPath)
 {
 	auto slangModule = std::make_shared<ShaderReflectionInfo<B>>();
 
@@ -45,14 +46,22 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		return true;
 	};
 
-	auto loadSlang = [&slangModule, &compilerPath, &slangFile](std::istream& stream)
+	auto loadSlang = [&slangModule, &slangFile, &includePaths, &compilerPath](std::istream& stream)
 	{
 		SlangSession* slangSession = spCreateSession(NULL);
 		
-		slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath.generic_string().c_str());
+		if (compilerPath.has_value())
+			slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath->generic_string().c_str());
+
 		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
+
+		for (const auto& includePath : includePaths)
+		{
+			spAddSearchPath(slangRequest, includePath.generic_string().c_str());
+			std::cout << "Add search path: " << includePath << std::endl;
+		}
 
 		spSetDumpIntermediates(slangRequest, true);
 		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
@@ -65,12 +74,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		
 		int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
 
-		std::string shaderString(
-			(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-
-		spAddTranslationUnitSourceStringSpan(
-			slangRequest, translationUnitIndex, std::filesystem::absolute(slangFile).generic_string().c_str(),
-			shaderString.c_str(), shaderString.c_str() + shaderString.size());
+		spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, slangFile.generic_string().c_str());
 
 		// temp
 		const char* epStrings[] = {
@@ -116,8 +120,8 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		for (int dep = 0; dep < depCount; dep++)
 		{
 			char const* depPath = spGetDependencyFilePath(slangRequest, dep);
-			// ... todo: add dependencies for hot reload
-			std::cout << depPath << std::endl;
+			// ... todo: add dependencies for recompile & hot reload
+			std::cout << "File include/import: " << depPath << std::endl;
 		}
 
 		for (const auto& ep : entryPoints)

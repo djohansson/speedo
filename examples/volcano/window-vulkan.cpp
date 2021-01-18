@@ -1,4 +1,5 @@
 #include "window.h"
+#include "resources/shaders/shadertypes.h"
 #include "vk-utils.h"
 
 #include <stb_sprintf.h>
@@ -157,10 +158,9 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                         uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
 
-                        pipeline->bindDescriptorSet(
-                            cmd,
-                            static_cast<uint32_t>(DescriptorSetCategory::Global),
-                            std::make_optional(viewBufferOffset));
+                        pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_Global, std::make_optional(viewBufferOffset));
+
+                        pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_View);
 
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height)
                         {
@@ -185,13 +185,13 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
-                        pipeline->bindDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Material));
+                        pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_Material);
 
                         auto drawModel = [&pipeline](VkCommandBuffer cmd)
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
-                            pipeline->bindDescriptorSet(cmd, static_cast<uint32_t>(DescriptorSetCategory::Object));
+                            pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_Object);
 
                             vkCmdDrawIndexed(cmd, pipeline->resources().model->getDesc().indexCount, 1, 0, 0, 0);
                         };

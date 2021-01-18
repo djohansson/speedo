@@ -548,7 +548,7 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
             auto bindingType = std::get<0>(binding);
             const auto& variantVector = std::get<1>(binding);
 
-            descriptorWrites.emplace_back(std::visit(pipeline::overloaded{
+            descriptorWrites.emplace_back(std::visit(std::overloaded{
                 [bindingType, bindingIndex](
                 const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                     return WriteDescriptorSet<Vk>{
@@ -682,7 +682,7 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
             auto bindingType = std::get<0>(binding);
             const auto& variantVector = std::get<1>(binding);
 
-            descriptorWrites.emplace_back(std::visit(pipeline::overloaded{
+            descriptorWrites.emplace_back(std::visit(std::overloaded{
                 [descriptorSetHandle, bindingType, bindingIndex](
                     const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                         return WriteDescriptorSet<Vk>{
@@ -763,29 +763,34 @@ void PipelineContext<Vk>::bindDescriptorSet(
     std::optional<uint32_t> bufferOffset) 
 {
     const auto& layout = *getLayout();
-    const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    const auto& [bindingsTuple, setArraysOptional] = myDescriptorMap.at(setLayout.getKey());
+    const auto& setLayouts = layout.getDescriptorSetLayouts();
 
-    if (setArraysOptional.has_value())
+    if (const auto setLayoutIt = setLayouts.find(set); setLayoutIt != setLayouts.cend())
     {
-        internalWriteDescriptorSet(set);
+        const auto& [setLayoutKey, setLayout] = *setLayoutIt;
+        const auto& [bindingsTuple, setArraysOptional] = myDescriptorMap.at(setLayout.getKey());
 
-        const auto& setArray = setArraysOptional.value().front();
-        const auto& descriptorSetHandle = std::get<0>(setArray)[std::get<1>(setArray)];
+        if (setArraysOptional.has_value())
+        {
+            internalWriteDescriptorSet(set);
 
-        vkCmdBindDescriptorSets(
-            cmd,
-            myBindPoint,
-            layout,
-            set,
-            1,
-            &descriptorSetHandle,
-            bufferOffset ? 1 : 0,
-            bufferOffset ? &bufferOffset.value() : nullptr);
-    }
-    else
-    {
-        internalPushDescriptorSet(cmd, set);
+            const auto& setArray = setArraysOptional.value().front();
+            const auto& descriptorSetHandle = std::get<0>(setArray)[std::get<1>(setArray)];
+
+            vkCmdBindDescriptorSets(
+                cmd,
+                myBindPoint,
+                layout,
+                set,
+                1,
+                &descriptorSetHandle,
+                bufferOffset ? 1 : 0,
+                bufferOffset ? &bufferOffset.value() : nullptr);
+        }
+        else
+        {
+            internalPushDescriptorSet(cmd, set);
+        }
     }
 }
 

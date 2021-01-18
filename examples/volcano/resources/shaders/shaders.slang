@@ -1,3 +1,5 @@
+#include "shadertypes.h"
+
 struct ViewParams
 {
     float4x4 viewProj;
@@ -12,7 +14,7 @@ struct MaterialParams
     SamplerState sampler;
 };
 
-[[vk::binding(0, 2)]]
+[[vk::binding(0, DescriptorSetCategory_Material)]]
 ParameterBlock<MaterialParams> g_material;
 
 struct ObjectParams
@@ -23,7 +25,7 @@ struct ObjectParams
 };
 
 [[vk::push_constant]]
-[[vk::binding(0, 3)]]
+[[vk::binding(0, DescriptorSetCategory_Object)]]
 ParameterBlock<ObjectParams> g_object;
 
 struct InputStream
@@ -31,6 +33,7 @@ struct InputStream
     float3 position : POSITION;
     float3 color : COLOR;
     float2 texCoord : TEXCOORD0;
+    uint vertexId : SV_VertexID;
 };
 
 struct Interpolants
@@ -86,7 +89,7 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 //RWTexture2D<float4> colorTarget;
 
 //[numthreads(1, 1, 1)]
-//void computeMain(uint3 threadIds : SV_DispatchThreadID)
+//void computeMain(uint3 threadIds : SV_DispatchThreadID, uint3 groupId : SV_GroupID)
 //{
     // float4 color[3];
     // color[0].r = (r0 >> 0  & 0xFF) / 255.0f;

@@ -33,8 +33,9 @@ namespace shader
 
 template <GraphicsBackend B>
 std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
-	const std::filesystem::path& compilerPath,
-	const std::filesystem::path& slangFile);
+	const std::filesystem::path& slangFile,
+	const std::vector<std::filesystem::path>& includePaths = {},
+	const std::optional<std::filesystem::path>& compilerPath = std::nullopt);
 	
 }
 

@@ -1,5 +1,6 @@
 #include "application.h"
 #include "gltfstream.h"
+#include "resources/shaders/shadertypes.h"
 #include "vk-utils.h"
 
 #include <stb_sprintf.h>
@@ -197,9 +198,16 @@ Application<Vk>::Application(
     void* windowHandle,
     int width,
     int height,
+    const char* rootPath,
     const char* resourcePath,
     const char* userProfilePath)
-: myResourcePath([](const char* pathStr, const char* defaultPathStr)
+: myRootPath([](const char* pathStr, const char* defaultPathStr)
+{
+    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+    assert(std::filesystem::is_directory(path));
+    return path;
+}(resourcePath, "./"))
+, myResourcePath([](const char* pathStr, const char* defaultPathStr)
 {
     auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
     assert(std::filesystem::is_directory(path));
@@ -275,8 +283,9 @@ Application<Vk>::Application(
     // load shaders, set pipeline layout
     {
         auto shaders = shader::loadSlangShaders<Vk>(
-            std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
-            myResourcePath / "shaders" / "shaders.slang");
+            myResourcePath / "shaders" / "shaders.slang",
+            { myResourcePath / "shaders" },
+            std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin");
 
         auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
         assert(insertResult);
@@ -291,7 +300,7 @@ Application<Vk>::Application(
         myGraphicsPipeline->setDescriptorData(
             std::move(bufferInfos),
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            static_cast<uint32_t>(DescriptorSetCategory::Global),
+            DescriptorSetCategory_Global,
             0);
     }
     
@@ -387,13 +396,13 @@ Application<Vk>::Application(
                 *myGraphicsPipeline->resources().imageView,
                 myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            static_cast<uint32_t>(DescriptorSetCategory::Material),
+            DescriptorSetCategory_Material,
             0);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
-            static_cast<uint32_t>(DescriptorSetCategory::Material),
+            DescriptorSetCategory_Material,
             1);
 
         myGraphicsPipeline->setDescriptorData(
@@ -402,13 +411,13 @@ Application<Vk>::Application(
                 *myGraphicsPipeline->resources().imageView,
                 myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            static_cast<uint32_t>(DescriptorSetCategory::Object),
+            DescriptorSetCategory_Object,
             0);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
-            static_cast<uint32_t>(DescriptorSetCategory::Object),
+            DescriptorSetCategory_Object,
             1);
 
         cmd.end();
@@ -1017,7 +1026,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
             0,
             VK_WHOLE_SIZE},
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        static_cast<uint32_t>(DescriptorSetCategory::Global),
+        DescriptorSetCategory_Global,
         0);
     
     createWindowDependentObjects(framebufferExtent);

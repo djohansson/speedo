@@ -67,9 +67,9 @@ Swapchain<Vk>::Swapchain(
             FrameCreateDesc<Vk>{
                 {{"Frame"},
                 myDesc.extent,
-                make_vector(config->surfaceFormat.format),
-                make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
-                make_vector(colorImages[frameIt])},
+                std::make_vector(config->surfaceFormat.format),
+                std::make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
+                std::make_vector(colorImages[frameIt])},
                 frameIt}));
 
     myLastFrameIndex = frameCount - 1;

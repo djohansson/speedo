@@ -50,8 +50,9 @@ public:
 		void* windowHandle,
 		int width,
 		int height,
-		const char* resourcePath,
-		const char* userProfilePath);
+		const char* rootPath = nullptr,
+		const char* resourcePath = nullptr,
+		const char* userProfilePath = nullptr);
 	~Application();
 
 	bool draw();
@@ -77,6 +78,7 @@ private:
 
 	void processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue);
 
+	std::filesystem::path myRootPath;
 	std::filesystem::path myResourcePath;
 	std::filesystem::path myUserProfilePath;
 

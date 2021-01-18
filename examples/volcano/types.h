@@ -281,8 +281,6 @@ using PresentInfo = std::conditional_t<B == Vk, VkPresentInfoKHR, std::nullptr_t
 template <GraphicsBackend B>
 using DescriptorType = std::conditional_t<B == Vk, VkDescriptorType, std::nullptr_t>;
 
-enum class DescriptorSetCategory : uint32_t { Global = 0, View, Material, Object, Count };
-
 template <GraphicsBackend B>
 using DescriptorBufferInfo = std::conditional_t<B == Vk, VkDescriptorBufferInfo, std::nullptr_t>;
 

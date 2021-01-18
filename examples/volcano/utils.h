@@ -136,6 +136,9 @@ public:
     }
 };
 
+namespace std
+{
+
 template <class T0, class... Ts>
 auto make_vector(T0&& first, Ts&&... args)
 {
@@ -146,23 +149,32 @@ auto make_vector(T0&& first, Ts&&... args)
     };
 }
 
-namespace std
-{
+template <typename... Ts>
+struct overloaded : Ts... { using Ts::operator()...; };
+
+template <typename... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
+template <typename>
+inline constexpr bool always_false_v = false;
+
 namespace filesystem
 {
-	template <class Archive>
-	void CEREAL_LOAD_MINIMAL_FUNCTION_NAME(const Archive&, path& out, const std::string& in)
-	{
-		out = in;
-	}
 
-	template <class Archive>
-	std::string CEREAL_SAVE_MINIMAL_FUNCTION_NAME(const Archive& ar, const path& p)
-	{
-		return p.generic_string();
-	}
+template <class Archive>
+void CEREAL_LOAD_MINIMAL_FUNCTION_NAME(const Archive&, path& out, const std::string& in)
+{
+	out = in;
+}
+
+template <class Archive>
+std::string CEREAL_SAVE_MINIMAL_FUNCTION_NAME(const Archive& ar, const path& p)
+{
+	return p.generic_string();
+}
 
 } // namespace filesystem
+
 } // namespace std
 
 CEREAL_SPECIALIZE_FOR_ALL_ARCHIVES(

@@ -857,7 +857,7 @@ VkRenderPass createRenderPass(
     dependency.srcAccessMask = {};
     dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-    return createRenderPass(device, attachments, make_vector(subpass), make_vector(dependency));
+    return createRenderPass(device, attachments, std::make_vector(subpass), std::make_vector(dependency));
 }
 
 VkPipelineLayout createPipelineLayout(

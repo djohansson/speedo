@@ -7,13 +7,14 @@ int volcano_create(
 	void* windowHandle,
 	int width,
 	int height,
+	const char* rootPath,
 	const char* resourcePath,
 	const char* userProfilePath)
 {
 	assert(windowHandle != nullptr);
 
 	theApplication = std::make_unique<Application<Vk>>(
-		windowHandle, width, height, resourcePath, userProfilePath);
+		windowHandle, width, height, rootPath, resourcePath, userProfilePath);
 
 	return EXIT_SUCCESS;
 }

@@ -1,18 +1,3 @@
-
-namespace pipeline
-{
-
-template <typename... Ts>
-struct overloaded : Ts... { using Ts::operator()...; };
-
-template <typename... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
-
-template <typename>
-inline constexpr bool always_false_v = false;
-
-}
-
 template <>
 template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
