@@ -30,7 +30,7 @@ void Application<Vk>::initIMGUI(
     IMGUI_CHECKVERSION();
     CreateContext();
     auto& io = GetIO();
-    static auto iniFilePath = std::filesystem::absolute(userProfilePath / "imgui.ini").generic_string();
+    static auto iniFilePath = (userProfilePath / "imgui.ini").generic_string();
     io.IniFilename = iniFilePath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.FontGlobalScale = 1.0f;
@@ -62,7 +62,6 @@ void Application<Vk>::initIMGUI(
     io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
     std::filesystem::path fontPath(myResourcePath);
-    fontPath = std::filesystem::absolute(fontPath);
     fontPath /= "fonts";
     fontPath /= "foo";
 
@@ -205,13 +204,13 @@ Application<Vk>::Application(
 {
     auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
     assert(std::filesystem::is_directory(path));
-    return path;
+    return std::filesystem::absolute(path);
 }(resourcePath, "./"))
 , myResourcePath([](const char* pathStr, const char* defaultPathStr)
 {
     auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
     assert(std::filesystem::is_directory(path));
-    return path;
+    return std::filesystem::absolute(path);
 }(resourcePath, "./resources/"))
 , myUserProfilePath([](const char* pathStr, const char* defaultPathStr)
 {
@@ -219,7 +218,7 @@ Application<Vk>::Application(
      if (!std::filesystem::exists(path))
         std::filesystem::create_directory(path);
     assert(std::filesystem::is_directory(path));
-    return path;
+    return std::filesystem::absolute(path);
 }(userProfilePath, "./.profile/"))
 , myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph") // temp - this should be stored in the resource path
 {
@@ -332,7 +331,7 @@ Application<Vk>::Application(
         const nfdchar_t* filterList,
         std::function<uint32_t(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePathStr = std::filesystem::absolute(resourcePath).u8string();
+        std::string resourcePathStr = resourcePath.u8string();
         nfdchar_t* openFilePath;
         return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));
@@ -442,7 +441,7 @@ Application<Vk>::Application(
             std::filesystem::path path(openFilePath);
 
             if (path.is_relative())
-                path = std::filesystem::absolute(path);
+                throw std::runtime_error("Command line argument path is not absolute");
 
             if (!path.has_filename())
                 throw std::runtime_error("Command line argument path has no filename");
