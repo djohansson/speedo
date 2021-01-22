@@ -1400,20 +1400,20 @@ void buildSimpleVarLayout(
     if (!builder->usesResourceKind(LayoutResourceKind::RegisterSpace))
     {
         // Sum up contributions from all parents.
+        UInt offset = 0;
         UInt space = 0;
         for (auto vv = varChain; vv; vv = vv->next)
         {
             if (auto parentResInfo = vv->varLayout->findOffsetAttr(LayoutResourceKind::RegisterSpace))
             {
-                space += parentResInfo->getOffset();
+                offset += parentResInfo->getOffset();
+                space += parentResInfo->getSpace();
             }
         }
 
-        // If there were non-zero contributions, then add an entry to represent them.
-        if (space)
-        {
-            builder->findOrAddResourceInfo(LayoutResourceKind::RegisterSpace)->offset = space;
-        }
+        auto resInfo = builder->findOrAddResourceInfo(LayoutResourceKind::RegisterSpace);
+        resInfo->offset = offset;
+        resInfo->space = space;
     }
 }
 
