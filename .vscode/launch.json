@@ -18,7 +18,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) release/slangc",
@@ -34,7 +34,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) profile/slangc",
@@ -50,7 +50,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) debug/hello-world",
@@ -66,7 +66,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) release/hello-world",
@@ -82,7 +82,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) profile/hello-world",
@@ -98,7 +98,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) debug/model-viewer",
@@ -114,7 +114,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) release/model-viewer",
@@ -130,7 +130,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) profile/model-viewer",
@@ -146,7 +146,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": true
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) debug/volcano",
@@ -164,7 +164,7 @@
             //         "value": "1"
             //     }
             // ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) release/volcano",
@@ -181,7 +181,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) profile/volcano",
@@ -198,7 +198,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) debug/mio-test",
@@ -214,7 +214,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) release/mio-test",
@@ -230,7 +230,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) profile/mio-test",
@@ -246,7 +246,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) debug/picosha2-test",
@@ -262,7 +262,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) release/picosha2-test",
@@ -278,7 +278,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(Windows) profile/picosha2-test",
@@ -294,7 +294,7 @@
                     "value": "1"
                 }
             ],
-            "externalConsole": false
+            "console": false
         },
         {
             "name": "(lldb) debug/slangc",
@@ -305,7 +305,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"}],
-            "externalConsole": false,
+            "console": false,
             "MIMode": "lldb",
         },
         {
@@ -317,7 +317,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"}],
-            "externalConsole": false,
+            "console": false,
             "MIMode": "lldb",
         },
         {
@@ -329,7 +329,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"}],
-            "externalConsole": false,
+            "console": false,
             "MIMode": "lldb",
         },
         {
@@ -341,7 +341,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"}],
-            "externalConsole": false,
+            "console": false,
             "MIMode": "lldb",
         },
         {
@@ -353,7 +353,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"}],
-            "externalConsole": false,
+            "console": false,
             "MIMode": "lldb",
         },
         {
@@ -365,7 +365,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"}],
-            "externalConsole": false,
+            "console": false,
             "MIMode": "lldb",
         },
     ]
