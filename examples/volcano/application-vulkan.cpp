@@ -215,7 +215,7 @@ Application<Vk>::Application(
 , myUserProfilePath([](const char* pathStr, const char* defaultPathStr)
 {
     auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-     if (!std::filesystem::exists(path))
+    if (!std::filesystem::exists(path))
         std::filesystem::create_directory(path);
     assert(std::filesystem::is_directory(path));
     return std::filesystem::absolute(path);
@@ -284,7 +284,8 @@ Application<Vk>::Application(
         auto shaders = shader::loadSlangShaders<Vk>(
             myResourcePath / "shaders" / "shaders.slang",
             { myResourcePath / "shaders" },
-            std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin");
+            std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
+            myUserProfilePath / ".slang.intermediate");
 
         auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
         assert(insertResult);
@@ -293,11 +294,11 @@ Application<Vk>::Application(
 
     // set global descriptor set data
     {
-        std::vector<DescriptorBufferInfo<Vk>> bufferInfos;
-        bufferInfos.emplace_back(DescriptorBufferInfo<Vk>{myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE});
-
         myGraphicsPipeline->setDescriptorData(
-            std::move(bufferInfos),
+            DescriptorBufferInfo<Vk>{
+                myWindow->getViewBuffer(),
+                0,
+                VK_WHOLE_SIZE},
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             DescriptorSetCategory_Global,
             0);
@@ -389,6 +390,17 @@ Application<Vk>::Application(
             cmd,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
+        static glm::vec4 materialColor(1.0, 0.0, 0.0, 1.0);
+        myGraphicsPipeline->setDescriptorData(
+            InlineUniformBlock<Vk>{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
+                nullptr,
+                sizeof(materialColor),
+                &materialColor},
+            VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
+            DescriptorSetCategory_Material,
+            0);
+
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
                 {},
@@ -396,13 +408,24 @@ Application<Vk>::Application(
                 myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             DescriptorSetCategory_Material,
-            0);
+            1);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
             DescriptorSetCategory_Material,
-            1);
+            2);
+
+        static glm::vec4 objectColor(0.0, 0.0, 1.0, 1.0);
+        myGraphicsPipeline->setDescriptorData(
+            InlineUniformBlock<Vk>{
+                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
+                nullptr,
+                sizeof(objectColor),
+                &objectColor},
+            VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
+            DescriptorSetCategory_Object,
+            0);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
@@ -411,13 +434,13 @@ Application<Vk>::Application(
                 myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             DescriptorSetCategory_Object,
-            0);
+            1);
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
             DescriptorSetCategory_Object,
-            1);
+            2);
 
         cmd.end();
 

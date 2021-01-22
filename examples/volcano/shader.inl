@@ -26,7 +26,8 @@ template <GraphicsBackend B>
 std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	const std::filesystem::path& slangFile,
 	const std::vector<std::filesystem::path>& includePaths,
-	const std::optional<std::filesystem::path>& compilerPath)
+	const std::optional<std::filesystem::path>& compilerPath,
+	const std::optional<std::filesystem::path>& intermediatePath)
 {
 	auto slangModule = std::make_shared<ShaderReflectionInfo<B>>();
 
@@ -46,24 +47,50 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		return true;
 	};
 
-	auto loadSlang = [&slangModule, &slangFile, &includePaths, &compilerPath](std::istream& stream)
+	auto loadSlang = [&slangModule, &slangFile, &includePaths, &compilerPath, &intermediatePath](
+		std::istream& stream)
 	{
 		SlangSession* slangSession = spCreateSession(NULL);
 		
 		if (compilerPath.has_value())
-			slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, compilerPath->generic_string().c_str());
+		{
+			auto path = std::filesystem::canonical(compilerPath.value());
+
+			std::cout << "Set downstream compiler path: " << path << std::endl;
+			assert(std::filesystem::is_directory(path));
+			slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, path.generic_string().c_str());
+		}
 
 		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
-		for (const auto& includePath : includePaths)
+		if (intermediatePath.has_value())
 		{
-			spAddSearchPath(slangRequest, includePath.generic_string().c_str());
-			std::cout << "Add search path: " << includePath << std::endl;
+			auto path = std::filesystem::canonical(intermediatePath.value());
+
+			if (!std::filesystem::exists(path))
+        		std::filesystem::create_directory(path);
+
+			std::cout << "Set intermediate path: " << path << std::endl;
+			assert(std::filesystem::is_directory(path));
+			spSetDumpIntermediatePrefix(
+				slangRequest,
+				(path.generic_string() + "/").c_str());
 		}
 
 		spSetDumpIntermediates(slangRequest, true);
+
+		for (const auto& includePath : includePaths)
+		{
+			auto path = std::filesystem::canonical(includePath);
+
+			std::cout << "Add include search path: " << path << std::endl;
+			assert(std::filesystem::is_directory(path));
+			spAddSearchPath(slangRequest, path.generic_string().c_str());
+		}
+
+		//spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_STANDARD); // dxc crashes for me using -Zi ...
 		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
 
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
@@ -94,8 +121,11 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		std::vector<EntryPoint<B>> entryPoints;
 		for (int i = 0; i < sizeof_array(epStrings); i++)
 		{
-			int index =
-				spAddEntryPoint(slangRequest, translationUnitIndex, epStrings[i], epStages[i]);
+			int index = spAddEntryPoint(
+				slangRequest,
+				translationUnitIndex,
+				epStrings[i],
+				epStages[i]);
 
 			if (index != entryPoints.size())
 				throw std::runtime_error("Failed to add entry point.");

@@ -5,11 +5,15 @@ struct ViewParams
     float4x4 viewProj;
 };
 
+[[vk::binding(0, DescriptorSetCategory_Global)]]
 ConstantBuffer<ViewParams> g_view;
+
+//[[vk::binding(0, DescriptorSetCategory_View), vk::push_constant]]
+// ViewParams g_view;
 
 struct MaterialParams
 {
-    //float3 color;
+    float4 color;
 	Texture2D texture;
     SamplerState sampler;
 };
@@ -19,12 +23,11 @@ ParameterBlock<MaterialParams> g_material;
 
 struct ObjectParams
 {
-    //float3 color;
+    float4 color;
 	Texture2D texture;
     SamplerState sampler;
 };
 
-[[vk::push_constant]]
 [[vk::binding(0, DescriptorSetCategory_Object)]]
 ParameterBlock<ObjectParams> g_object;
 
@@ -48,7 +51,6 @@ struct VSOutput
     float4 hPos : SV_Position;
 };
 
-[shader("vertex")]
 VSOutput vertexMain(InputStream input)
 {
     VSOutput output;
@@ -69,18 +71,18 @@ struct FSOutput
     float4 color : SV_Target;
 };
 
-[shader("fragment")]
 FSOutput fragmentMain(Interpolants input : Interpolants)
 {
     FSOutput output;
     
-    float3 color = (float3)0;
-    color += 0.5 * g_material.texture.Sample(g_material.sampler, input.texCoord).rgb;
-    //color += g_material.color;
-    color += 0.5 * g_object.texture.Sample(g_object.sampler, input.texCoord).rgb;
-    //color += g_object.color;
+    float4 color = (float4)0;//float4(input.color, 1.0);
 
-    output.color = float4(color, 1.0);
+    color += 0.25 * g_material.texture.Sample(g_material.sampler, input.texCoord);
+    color += 0.25 * g_material.color;
+    color += 0.25 * g_object.texture.Sample(g_object.sampler, input.texCoord);
+    color += 0.25 * g_object.color;
+
+    output.color = color;
     
     return output;
 }
