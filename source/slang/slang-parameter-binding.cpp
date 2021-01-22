@@ -835,7 +835,7 @@ static void addExplicitParameterBinding(
             // an error if another parameter was already allocated
             // there.
             //
-            overlappedVarLayout = markSpaceUsed(context, parameterInfo->varLayout, semanticInfo.index);
+            overlappedVarLayout = markSpaceUsed(context, parameterInfo->varLayout, semanticInfo.space);
         }
         else
         {
@@ -1010,7 +1010,6 @@ static void addExplicitParameterBindings_GLSL(
         {
             getSink(context)->diagnose(attr, Diagnostics::wholeSpaceParameterRequiresZeroBinding, varDecl.getName(), attr->binding);
         }
-        semanticInfo.index = attr->set;
         semanticInfo.space = attr->set;
     }
     else if( (resInfo = typeLayout->FindResourceInfo(LayoutResourceKind::SpecializationConstant)) != nullptr )
