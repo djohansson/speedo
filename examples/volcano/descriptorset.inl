@@ -3,7 +3,7 @@ namespace descriptorset
 
 template <GraphicsBackend B>
 std::vector<DescriptorSetLayoutHandle<B>> getDescriptorSetLayoutHandles(
-    const DescriptorSetLayoutMap<B>& layouts)
+    const DescriptorSetLayoutMapType<B>& layouts)
 {
     std::vector<DescriptorSetLayoutHandle<Vk>> handles;
     if (!layouts.empty())
@@ -31,7 +31,7 @@ std::vector<DescriptorSetLayoutHandle<B>> getDescriptorSetLayoutHandles(
 
 template <GraphicsBackend B>
 std::vector<PushConstantRange<B>> getPushConstantRanges(
-    const DescriptorSetLayoutMap<B>& layouts)
+    const DescriptorSetLayoutMapType<B>& layouts)
 {
     std::vector<PushConstantRange<Vk>> ranges;
     if (!layouts.empty())

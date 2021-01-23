@@ -17,7 +17,7 @@ template <GraphicsBackend B>
 uint32_t createLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
+	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr,
 	bool parentPushConstant = false);
@@ -218,7 +218,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	};
 
 	loadCachedSourceFile(
-		slangFile, slangFile, "slang", "1.0.0-dev", loadSlang, loadBin, saveBin);
+		slangFile, slangFile, "slang", "0.9.1-dev", loadSlang, loadBin, saveBin);
 
 	if (slangModule->shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");

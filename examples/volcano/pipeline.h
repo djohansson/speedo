@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 
 template <GraphicsBackend B>
 struct PipelineCacheHeader
@@ -42,15 +43,15 @@ private:
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
-        DescriptorSetLayoutMap<B>&& descriptorSetLayouts);
+        DescriptorSetLayoutMapType<B>&& descriptorSetLayouts);
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
-        DescriptorSetLayoutMap<B>&& descriptorSetLayouts,
+        DescriptorSetLayoutMapType<B>&& descriptorSetLayouts,
         PipelineLayoutHandle<B>&& layout);
 
     std::vector<ShaderModule<B>> myShaders;
-	DescriptorSetLayoutMap<B> myDescriptorSetLayouts;
+	DescriptorSetLayoutMapType<B> myDescriptorSetLayouts;
 	PipelineLayoutHandle<B> myLayout = {};
 };
 
@@ -79,6 +80,27 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
 {
+    using BindingVariantVectorType = std::variant<
+        std::vector<DescriptorBufferInfo<B>>,
+        std::vector<DescriptorImageInfo<B>>,
+        std::vector<BufferViewHandle<B>>,
+        std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
+    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantVectorType>;
+    using BindingsMapType = UnorderedMapType<uint32_t, BindingValueType>; // [binding, data], perhaps make this an array?
+    using DescriptorSetArrayListType = std::list<
+        std::tuple<
+            DescriptorSetArray<B>, // descriptor set array
+            uint8_t>>; // current array index
+    using DescriptorMapType = UnorderedMapType<
+        uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
+        std::tuple<
+            std::tuple<BindingsMapType, bool>, // [bindings, isDirty]
+            std::optional<DescriptorSetArrayListType>>>; // optional descriptor sets - if std::nullopt -> uses push descriptors
+    using PipelineMapType = ConcurrentUnorderedMapType<
+        uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
+        CopyableAtomic<PipelineHandle<B>>,
+        PassThroughHash<uint64_t>>;
+
 public:
 
     PipelineContext(PipelineContext<B>&& other);
@@ -112,6 +134,13 @@ public:
         uint32_t set,
         uint32_t binding);
 
+    template <typename T>
+    void setDescriptorData(
+        T&& data,
+        DescriptorType<B> type,
+        uint32_t set,
+        const std::string& shaderVariableName);
+
     // array
     template <typename T>
     void setDescriptorData(
@@ -119,6 +148,13 @@ public:
         DescriptorType<B> type,
         uint32_t set,
         uint32_t binding);
+
+    template <typename T>
+    void setDescriptorData(
+        std::vector<T>&& data,
+        DescriptorType<B> type,
+        uint32_t set,
+        const std::string& shaderVariableName);
 
     // array-element
     template <typename T>
@@ -128,6 +164,14 @@ public:
         uint32_t set,
         uint32_t binding,
         uint32_t index);
+
+    template <typename T>
+    void setDescriptorData(
+        T&& data,
+        DescriptorType<B> type,
+        uint32_t set,
+        const std::string& shaderVariableName,
+        uint32_t index);
     
     // temp
     void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
@@ -135,26 +179,6 @@ public:
     //
 
 private:
-    using BindingVariantVector = std::variant<
-        std::vector<DescriptorBufferInfo<B>>,
-        std::vector<DescriptorImageInfo<B>>,
-        std::vector<BufferViewHandle<B>>,
-        std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
-    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantVector>;
-    using BindingsMap = UnorderedMapType<uint32_t, BindingValueType>; // [binding, data], perhaps make this an array?
-    using DescriptorSetArrayList = std::list<
-        std::tuple<
-            DescriptorSetArray<B>, // descriptor set array
-            uint8_t>>; // current array index
-    using DescriptorMap = UnorderedMapType<
-        uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
-        std::tuple<
-            std::tuple<BindingsMap, bool>, // [bindings, isDirty]
-            std::optional<DescriptorSetArrayList>>>; // optional descriptor sets - if std::nullopt -> uses push descriptors
-    using PipelineMap = ConcurrentUnorderedMapType<
-        uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
-        CopyableAtomic<PipelineHandle<B>>,
-        PassThroughHash<uint64_t>>;
     
     // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
     //       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
@@ -176,8 +200,8 @@ private:
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     DescriptorPoolHandle<B> myDescriptorPool = {};
     PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
-    DescriptorMap myDescriptorMap;
-    PipelineMap myPipelineMap; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
+    DescriptorMapType myDescriptorMap;
+    PipelineMapType myPipelineMap; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
     
     // shared state
     PipelineBindPoint<B> myBindPoint = {};

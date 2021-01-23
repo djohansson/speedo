@@ -1,6 +1,8 @@
 #include "shader.h"
 #include "vk-utils.h"
 
+#include <xxhash.h>
+
 namespace shader
 {
 
@@ -104,8 +106,8 @@ void addBinding(
 	unsigned arrayElementCount,
 	size_t sizeBytes,
 	SlangStage stage,
-	const char* name,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
+	const std::string& name,
+	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
 {
 	auto& layout = layouts[bindingSpace];
 	auto descriptorType = shader::getDescriptorType<Vk>(typeLayout);
@@ -122,6 +124,7 @@ void addBinding(
 
 	layout.bindings.push_back(slot);
 	layout.variableNames.push_back(name);
+	layout.variableNameHashes.push_back(XXH3_64bits(name.c_str(), name.size()));
 	
 	// todo: immutable samplers
 	//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
@@ -149,7 +152,7 @@ template <>
 uint32_t createLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-    std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
+    std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
 	const unsigned* parentSpace,
 	const char* parentName,
 	bool parentPushConstant)
@@ -272,7 +275,7 @@ uint32_t createLayoutBindings<Vk>(
 				arrayElementCount,
 				uniformsTotalSize,
 				stage,
-				fullName.c_str(),
+				fullName,
 				layouts);
 		}
 	}

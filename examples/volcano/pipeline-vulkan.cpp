@@ -5,8 +5,6 @@
 
 #include <stb_sprintf.h>
 
-#include <xxhash.h>
-
 #pragma pack(push, 1)
 template <>
 struct PipelineCacheHeader<Vk>
@@ -157,7 +155,7 @@ template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
-    DescriptorSetLayoutMap<Vk>&& descriptorSetLayouts,
+    DescriptorSetLayoutMapType<Vk>&& descriptorSetLayouts,
     PipelineLayoutHandle<Vk>&& layout)
 : DeviceResource<Vk>(
     deviceContext,
@@ -175,7 +173,7 @@ template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<ShaderModule<Vk>>&& shaderModules,
-    DescriptorSetLayoutMap<Vk>&& descriptorSetLayouts)
+    DescriptorSetLayoutMapType<Vk>&& descriptorSetLayouts)
 : PipelineLayout(
     deviceContext,
     std::move(shaderModules),
@@ -212,7 +210,7 @@ PipelineLayout<Vk>::PipelineLayout(
     }(),
     [&slangModule, &deviceContext]
     {
-        DescriptorSetLayoutMap<Vk> map;
+        DescriptorSetLayoutMapType<Vk> map;
         for (auto layout : slangModule->layouts)
             map.emplace(
                 std::make_pair(
@@ -290,10 +288,10 @@ void PipelineContext<Vk>::internalResetSharedState()
                 setLayout.getKey(),
                 std::make_tuple(
                     std::make_tuple(
-                        BindingsMap{},
+                        BindingsMapType{},
                         false),
                     setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
-                        std::make_optional(DescriptorSetArrayList{}) :
+                        std::make_optional(DescriptorSetArrayListType{}) :
                         std::nullopt)));
 }
 
@@ -640,9 +638,9 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
         auto& setArrays = setArraysOptional.value();
 
         bool setArraysIsEmpty = setArrays.empty();
-        bool frontArrayIsFull = setArraysIsEmpty ?
-            false :
-            std::get<1>(setArrays.front()) == (DescriptorSetArray<Vk>::kDescriptorSetCount - 1);
+        // bool frontArrayIsFull = setArraysIsEmpty ?
+        //     false :
+        //     std::get<1>(setArrays.front()) == (DescriptorSetArray<Vk>::kDescriptorSetCount - 1);
 
         // todo: this recycling strategy will not work
         //       - implement some sort of frame reference counting
@@ -656,7 +654,7 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
         //         });
         // }
 
-        if (setArraysIsEmpty || frontArrayIsFull)
+        if (setArraysIsEmpty/* || frontArrayIsFull*/)
         {
             setArrays.emplace_front(
                 std::make_tuple(

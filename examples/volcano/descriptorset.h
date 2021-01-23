@@ -16,6 +16,7 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 {
     std::vector<DescriptorSetLayoutBinding<B>> bindings;
     std::vector<std::string> variableNames;
+    std::vector<uint64_t> variableNameHashes;
     std::vector<SamplerCreateInfo<B>> immutableSamplers;
     std::optional<PushConstantRange<B>> pushConstantRange;
     DescriptorSetLayoutCreateFlags<B> flags = {};
@@ -24,7 +25,8 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetLayout : public DeviceResource<B>
 {
-    using ValueType = std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>>;
+    using BindingsMapType = UnorderedMapType<uint64_t, uint32_t>;
+    using ValueType = std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>, BindingsMapType>;
 
 public:
 
@@ -42,6 +44,7 @@ public:
     const auto& getDesc() const { return myDesc; }
     auto getKey() const { return myKey; }
     const auto& getImmutableSamplers() const { return std::get<1>(myLayout); }
+    const auto& getBindingsMap() const { return std::get<2>(myLayout); }
 
 private:
 
@@ -56,7 +59,7 @@ private:
 };
 
 template <GraphicsBackend B>
-using DescriptorSetLayoutMap = UnorderedMapType<uint32_t, DescriptorSetLayout<B>>; // [set, layout]
+using DescriptorSetLayoutMapType = UnorderedMapType<uint32_t, DescriptorSetLayout<B>>; // [set, layout]
 
 template <GraphicsBackend B>
 struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
@@ -66,10 +69,11 @@ struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
 
 template <GraphicsBackend B>
 class DescriptorSetArray : public DeviceResource<B>
-{   
-public:
-
+{
     static constexpr size_t kDescriptorSetCount = 256;
+    using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
+
+public:
 
     DescriptorSetArray(DescriptorSetArray&& other);
     DescriptorSetArray( // allocates array of descriptor set handles using single layout
@@ -82,10 +86,9 @@ public:
     const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
 
     const auto& getDesc() const { return myDesc; }
+    constexpr size_t getSize() const { return myDescriptorSets.size(); }
 
 private:
-
-    using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
 
     DescriptorSetArray( // takes ownership of provided descriptor set handles
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,

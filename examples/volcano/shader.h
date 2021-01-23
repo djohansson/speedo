@@ -4,10 +4,11 @@
 #include "device.h"
 #include "sampler.h"
 #include "types.h"
+#include "utils.h"
 
-#include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -25,7 +26,7 @@ struct ShaderReflectionInfo
 {
 	std::vector<Shader<B>> shaders;
 	// todo: use UnorderedMapType, once I can figure out how to make it cereal:ized
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
+	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
 };
 
 namespace shader

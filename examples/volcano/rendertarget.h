@@ -60,6 +60,7 @@ template <GraphicsBackend B>
 class RenderTarget : public IRenderTarget<B>, public DeviceResource<B>
 {
     using ValueType = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
+    using ValueMapType = UnorderedMapType<uint64_t, ValueType>;
 
 public:
 
@@ -115,8 +116,6 @@ protected:
 
 private:
 
-    using ValueMap = UnorderedMapType<uint64_t, ValueType>;
-
     uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;
 
     ValueType internalCreateRenderPassAndFrameBuffer(
@@ -138,7 +137,7 @@ private:
     std::vector<SubpassDescription<B>> mySubPassDescs;
     std::vector<SubpassDependency<B>> mySubPassDependencies;
 
-    ValueMap myMap;
+    ValueMapType myMap;
 
     std::optional<RenderPassBeginInfo<B>> myCurrentPass;
     std::optional<uint32_t> myCurrentSubpass;

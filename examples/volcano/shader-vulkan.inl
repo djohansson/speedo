@@ -1,5 +1,5 @@
 #include <cereal/cereal.hpp>
-#include <cereal/types/map.hpp>
+#include <cereal/types/unordered_map.hpp>
 #include <cereal/types/utility.hpp>
 #include <cereal/types/vector.hpp>
 

@@ -301,7 +301,7 @@ Application<Vk>::Application(
                 VK_WHOLE_SIZE},
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             DescriptorSetCategory_Global,
-            0);
+            "g_view");
     }
     
     // initialize IMGUI
@@ -399,7 +399,7 @@ Application<Vk>::Application(
                 &materialColor},
             VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
             DescriptorSetCategory_Material,
-            0);
+            "g_material");
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
@@ -408,13 +408,13 @@ Application<Vk>::Application(
                 myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             DescriptorSetCategory_Material,
-            1);
+            "g_material.texture");
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
             DescriptorSetCategory_Material,
-            2);
+            "g_material.sampler");
 
         static glm::vec4 objectColor(0.0, 0.0, 1.0, 1.0);
         myGraphicsPipeline->setDescriptorData(
@@ -425,7 +425,7 @@ Application<Vk>::Application(
                 &objectColor},
             VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
             DescriptorSetCategory_Object,
-            0);
+            "g_object");
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{
@@ -434,13 +434,13 @@ Application<Vk>::Application(
                 myGraphicsPipeline->resources().image->getImageLayout()},
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             DescriptorSetCategory_Object,
-            1);
+            "g_object.texture");
 
         myGraphicsPipeline->setDescriptorData(
             DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
             VK_DESCRIPTOR_TYPE_SAMPLER,
             DescriptorSetCategory_Object,
-            2);
+            "g_object.sampler");
 
         cmd.end();
 
@@ -1049,7 +1049,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
             VK_WHOLE_SIZE},
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
         DescriptorSetCategory_Global,
-        0);
+        "g_view");
     
     createWindowDependentObjects(framebufferExtent);
 }

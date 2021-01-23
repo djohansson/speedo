@@ -120,7 +120,12 @@ private:
 template <GraphicsBackend B>
 class CommandContext
 {
-    using CommandBufferList = std::list<std::pair<CommandBufferArray<B>, std::pair<uint64_t, std::reference_wrapper<CommandContext<B>>>>>;
+    using CommandBufferListType = std::list<
+        std::pair<
+            CommandBufferArray<B>,
+            std::pair<
+                uint64_t,
+                std::reference_wrapper<CommandContext<B>>>>>;
 
 public:
 
@@ -151,15 +156,15 @@ private:
     void internalEndCommands(CommandBufferLevel<B> level);
     
     void enqueueOnePending(CommandBufferLevel<B> level);
-    void enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue);
-    void enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue);
+    void enqueueExecuted(CommandBufferListType&& commands, uint64_t timelineValue);
+    void enqueueSubmitted(CommandBufferListType&& commands, uint64_t timelineValue);
 
     std::shared_ptr<DeviceContext<B>> myDevice;
     const CommandContextCreateDesc<B> myDesc = {};
-    std::vector<CommandBufferList> myPendingCommands;
-    CommandBufferList myExecutedCommands;
-    CommandBufferList mySubmittedCommands;
-    std::vector<CommandBufferList> myFreeCommands;
+    std::vector<CommandBufferListType> myPendingCommands;
+    CommandBufferListType myExecutedCommands;
+    CommandBufferListType mySubmittedCommands;
+    std::vector<CommandBufferListType> myFreeCommands;
     std::vector<std::optional<CommandBufferAccessScope<B>>> myRecordingCommands;
     std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
 };

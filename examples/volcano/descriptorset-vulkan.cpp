@@ -24,7 +24,7 @@ uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
         result = XXH3_64bits_update(
             threadXXHState.get(),
             desc.bindings.data(),
-            desc.bindings.size() * sizeof(DescriptorSetLayoutBinding<Vk>));
+            desc.bindings.size() * sizeof(decltype(desc.bindings)::value_type));
         assert(result != XXH_ERROR);
     }
 
@@ -32,8 +32,8 @@ uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
     {
         result = XXH3_64bits_update(
             threadXXHState.get(),
-            desc.variableNames.data(),
-            desc.variableNames.size() * sizeof(std::string::value_type));
+            desc.variableNameHashes.data(),
+            desc.variableNameHashes.size() * sizeof(decltype(desc.variableNameHashes)::value_type));
         assert(result != XXH_ERROR);
     }
 
@@ -42,7 +42,7 @@ uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
         result = XXH3_64bits_update(
             threadXXHState.get(),
             &desc.pushConstantRange.value(),
-            sizeof(PushConstantRange<Vk>));
+            sizeof(decltype(desc.pushConstantRange)::value_type));
         assert(result != XXH_ERROR);
     }
 
@@ -93,10 +93,16 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
     [&deviceContext, &desc]
     {
         auto& bindingVector = desc.bindings;
+        
         auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
+        BindingsMapType bindingsMap;
 
-        for (auto& binding : bindingVector)
+        for (size_t bindingIt = 0; bindingIt < bindingVector.size(); bindingIt++)
+        {
+            auto& binding = bindingVector[bindingIt];
             binding.pImmutableSamplers = samplers.data();
+            bindingsMap.emplace(desc.variableNameHashes.at(bindingIt), binding.binding);
+        }
         
         return std::make_tuple(
             createDescriptorSetLayout(
@@ -104,7 +110,8 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
                 desc.flags,
                 bindingVector.data(),
                 bindingVector.size()),
-            std::move(samplers));
+            std::move(samplers),
+            std::move(bindingsMap));
     }())
 {
 }

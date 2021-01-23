@@ -208,7 +208,7 @@ CommandBufferAccessScope<Vk> CommandContext<Vk>::internalCommands(const CommandB
 }
 
 template <>
-void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t timelineValue)
+void CommandContext<Vk>::enqueueExecuted(CommandBufferListType&& commands, uint64_t timelineValue)
 {
     ZoneScopedN("CommandContext::enqueueExecuted");
 
@@ -221,7 +221,7 @@ void CommandContext<Vk>::enqueueExecuted(CommandBufferList&& commands, uint64_t 
     {
         ZoneScopedN("CommandContext::cmdReset");
 
-        auto onResetCommands = [](CommandBufferList& from, uint64_t timelineValue)
+        auto onResetCommands = [](CommandBufferListType& from, uint64_t timelineValue)
         {
             auto fromBeginIt = from.begin();
             auto fromIt = fromBeginIt;
@@ -247,7 +247,7 @@ void CommandContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t
 }
 
 template <>
-void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t timelineValue)
+void CommandContext<Vk>::enqueueSubmitted(CommandBufferListType&& commands, uint64_t timelineValue)
 {
     ZoneScopedN("CommandContext::enqueueSubmitted");
 
@@ -260,7 +260,7 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferList&& commands, uint64_t
     {
         ZoneScopedN("CommandContext::cmdReset");
 
-        auto onResetCommands = [](CommandBufferList& from, CommandBufferList& to, uint64_t timelineValue)
+        auto onResetCommands = [](CommandBufferListType& from, CommandBufferListType& to, uint64_t timelineValue)
         {
             auto fromBeginIt = from.begin();
             auto fromIt = fromBeginIt;
