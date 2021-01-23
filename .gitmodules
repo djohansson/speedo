@@ -9,7 +9,7 @@
 	url = https://github.com/g-truc/glm.git
 [submodule "external/imgui"]
 	path = external/imgui
-	url = https://github.com/ocornut/imgui.git
+	url = https://github.com/djohansson/imgui.git
 [submodule "external/glfw"]
 	path = external/glfw
 	url = https://github.com/glfw/glfw.git
@@ -75,7 +75,7 @@
 	url = https://github.com/martinus/robin-hood-hashing
 [submodule "external/glTF-SDK"]
 	path = external/glTF-SDK
-	url = https://github.com/microsoft/glTF-SDK.git
+	url = https://github.com/djohansson/glTF-SDK.git
 [submodule "external/rapidjson"]
 	path = external/rapidjson
 	url = https://github.com/Tencent/rapidjson
