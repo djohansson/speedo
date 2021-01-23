@@ -90,7 +90,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
 
-		//spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_STANDARD); // dxc crashes for me using -Zi ...
+		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_STANDARD);
 		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
 
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
