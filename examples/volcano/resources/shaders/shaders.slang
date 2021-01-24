@@ -1,5 +1,9 @@
 #include "shadertypes.h"
 
+// [[vk::constant_id(1)]] const bool  specConstBool  = true;
+// [[vk::constant_id(2)]] const int   specConstInt   = 42;
+// [[vk::constant_id(3)]] const float specConstFloat = 1.5;
+
 struct ViewParams
 {
     float4x4 viewProj;
