@@ -943,7 +943,9 @@ VmaAllocator createAllocator(VkInstance instance, VkDevice device, VkPhysicalDev
 
 VkDescriptorPool createDescriptorPool(VkDevice device)
 {
-    constexpr uint32_t maxDescriptorCount = 1000;
+    constexpr uint32_t maxDescriptorCount = 128;
+	constexpr uint32_t maxInlineBlockSizeBytes = 64;
+	
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
@@ -955,7 +957,8 @@ VkDescriptorPool createDescriptorPool(VkDevice device)
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
-        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount}};
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount},
+		{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, maxInlineBlockSizeBytes}};
 
     VkDescriptorPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     poolInfo.poolSizeCount = static_cast<uint32_t>(sizeof_array(poolSizes));

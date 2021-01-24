@@ -24,19 +24,23 @@ class PipelineLayout : public DeviceResource<B>
 {
 public:
 
-    PipelineLayout(PipelineLayout<B>&& other);
+    PipelineLayout() = default;
+    PipelineLayout(PipelineLayout<B>&& other) noexcept;
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<ShaderReflectionInfo<B>>& shaderModule);
     ~PipelineLayout();
 
-    PipelineLayout& operator=(PipelineLayout&& other);
+    PipelineLayout& operator=(PipelineLayout&& other) noexcept;
     operator auto() const { return myLayout; }
     bool operator==(const PipelineLayout& other) const { return myLayout == other; }
     bool operator<(const PipelineLayout& other) const { return myLayout < other; }
 
+    void swap(PipelineLayout& rhs) noexcept;
+	friend void swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.swap(rhs); }
+
+    const auto& getShaderModules() const { return myShaderModules; }
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
-    const auto& getShaders() const { return myShaders; }
 
 private:
 
@@ -50,7 +54,7 @@ private:
         DescriptorSetLayoutMapType<B>&& descriptorSetLayouts,
         PipelineLayoutHandle<B>&& layout);
 
-    std::vector<ShaderModule<B>> myShaders;
+    std::vector<ShaderModule<B>> myShaderModules;
 	DescriptorSetLayoutMapType<B> myDescriptorSetLayouts;
 	PipelineLayoutHandle<B> myLayout = {};
 };

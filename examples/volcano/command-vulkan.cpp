@@ -12,12 +12,12 @@ static auto createArray(
 {
     ZoneScopedN("commandbufferarray::createArray");
 
-    std::array<CommandBufferHandle<Vk>, CommandBufferArray<Vk>::kCommandBufferCount> outArray;
+    std::array<CommandBufferHandle<Vk>, CommandBufferArray<Vk>::capacity()> outArray;
 
     VkCommandBufferAllocateInfo cmdInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     cmdInfo.commandPool = desc.pool;
     cmdInfo.level = desc.level;
-    cmdInfo.commandBufferCount = CommandBufferArray<Vk>::kCommandBufferCount;
+    cmdInfo.commandBufferCount = CommandBufferArray<Vk>::capacity();
     VK_CHECK(vkAllocateCommandBuffers(
         deviceContext->getDevice(),
         &cmdInfo,
@@ -61,7 +61,7 @@ CommandBufferArray<Vk>::CommandBufferArray(
 }
 
 template <>
-CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray<Vk>&& other)
+CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myArray(std::exchange(other.myArray, {}))
@@ -83,13 +83,22 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 }
 
 template <>
-CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray<Vk>&& other)
+CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray&& other) noexcept
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myArray = std::exchange(other.myArray, {});
     myBits = other.myBits;
     return *this;
+}
+
+template <>
+void CommandBufferArray<Vk>::swap(CommandBufferArray& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myArray, rhs.myArray);
+    std::swap(myBits, rhs.myBits);
 }
 
 template <>
@@ -147,7 +156,7 @@ CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc()
 }
 
 template <>
-CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<Vk>& other)
+CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc& other)
 : CommandBufferBeginInfo<Vk>(other)
 , level(other.level)
 , inheritance(other.inheritance)
@@ -156,7 +165,7 @@ CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(const CommandBuff
 }
 
 template <>
-CommandBufferAccessScopeDesc<Vk>& CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc<Vk>& other)
+CommandBufferAccessScopeDesc<Vk>& CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc& other)
 {
     *static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
     level = other.level;
@@ -291,7 +300,7 @@ QueueSubmitInfo<Vk> CommandContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncIn
         return {};
 
     QueueSubmitInfo<Vk> submitInfo{std::move(syncInfo), {}, 0};
-    submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::kCommandBufferCount);
+    submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
 
     for (auto& cmdSegment : pendingCommands)
     {

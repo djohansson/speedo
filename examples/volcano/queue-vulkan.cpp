@@ -52,7 +52,7 @@ Queue<Vk>::Queue(
 }
 
 template <>
-Queue<Vk>::Queue(Queue<Vk>&& other)
+Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
@@ -73,7 +73,7 @@ Queue<Vk>::~Queue()
 }
 
 template <>
-Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
+Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
@@ -82,6 +82,17 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other)
     myFence = std::exchange(other.myFence, {});
     myUserData = std::exchange(other.myUserData, {});
 	return *this;
+}
+
+template <>
+void Queue<Vk>::swap(Queue& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myPendingSubmits, rhs.myPendingSubmits);
+    std::swap(myScratchMemory, rhs.myScratchMemory);
+    std::swap(myFence, rhs.myFence);
+    std::swap(myUserData, rhs.myUserData);
 }
 
 template <>

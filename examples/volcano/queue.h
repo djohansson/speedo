@@ -58,14 +58,18 @@ class Queue : public DeviceResource<B>
 {
 public:
 
+    Queue() = default;
     Queue(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         QueueCreateDesc<B>&& desc);
-    Queue(Queue<B>&& other);
+    Queue(Queue<B>&& other) noexcept;
     ~Queue();
 
-    Queue& operator=(Queue&& other);
+    Queue& operator=(Queue&& other) noexcept;
     operator auto() const { return myDesc.queue; }
+
+    void swap(Queue& rhs) noexcept;
+	friend void swap(Queue& lhs, Queue& rhs) noexcept { lhs.swap(rhs); }
 
     template <typename... Ts>
     void enqueueSubmit(Ts&&... args);

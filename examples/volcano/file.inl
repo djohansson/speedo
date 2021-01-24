@@ -85,11 +85,20 @@ FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::~FileObject()
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>& FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::operator=(FileObject&& other) noexcept
+FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>& FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::operator=(
+    FileObject&& other) noexcept
 {
     myFilePath = std::exchange(other.myFilePath, {});
     myName = std::exchange(other.myName, {});
 	return *this;
+}
+
+template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
+void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::swap(FileObject& rhs) noexcept
+{
+    std::swap<T>(*this, rhs);
+    std::swap(myFilePath, other.myFilePath);
+    std::swap(myName, other.myName);
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>

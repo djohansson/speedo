@@ -11,7 +11,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -97,8 +96,8 @@ public:
         const std::list<std::function<void(uint64_t)>>& callbacks);
     void processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
 
-    void addOwnedObject(uint32_t ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
-    void clearOwnedObjects(uint32_t ownerId);
+    void addOwnedObjectHandle(uintptr_t ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
+    void clearOwnedObjectHandles(uintptr_t ownerId);
 
     uint32_t getTypeCount(ObjectType<B> type);
 
@@ -125,16 +124,13 @@ private:
     std::recursive_mutex myTimelineCallbacksMutex;
     std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
 
-    struct Object
+    struct ObjectNameInfo : ObjectInfo<B>
     {
-        ObjectType<B> type = {};
-        uint64_t handle = {};
         std::string name;
     };
 
-    std::shared_mutex myObjectsMutex; // todo: replace with asserting mutex
-    UnorderedMapType<uint32_t, std::vector<Object>> myOwnerToDeviceObjectsMap;
-    UnorderedMapType<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
+    ConcurrentUnorderedMapType<uintptr_t, std::vector<ObjectNameInfo>> myOwnerToDeviceObjectInfoMap;
+    ConcurrentUnorderedMapType<ObjectType<B>, CopyableAtomic<uint32_t>> myObjectTypeToCountMap;
 };
 
 template <GraphicsBackend B>
@@ -151,12 +147,13 @@ public:
     virtual ~DeviceResource();
 
     const auto& getName() const { return myName; }
-    const auto& getId() const { return myId; }
-    bool isValid() const { return getId() != 0; }
+    const uintptr_t getId() const { return reinterpret_cast<uintptr_t>(this); }
+    bool isValid() const { return myDevice.get() != nullptr; }
 
 protected:
 
-    DeviceResource(DeviceResource<B>&& other);
+    DeviceResource() = default;
+    DeviceResource(DeviceResource<B>&& other) noexcept;
     DeviceResource( // no object names are set
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const DeviceResourceCreateDesc<B>& desc);
@@ -167,7 +164,9 @@ protected:
         ObjectType<B> objectType,
         const uint64_t* objectHandles);
 
-    DeviceResource& operator=(DeviceResource&& other);
+    DeviceResource& operator=(DeviceResource&& other) noexcept;
+
+    void swap(DeviceResource& rhs) noexcept;
 
     const auto& getDeviceContext() const { return myDevice; }
 
@@ -175,8 +174,6 @@ private:
 
     std::shared_ptr<DeviceContext<B>> myDevice;
     std::string myName;
-    uint32_t myId = 0;
-    static uint32_t sId;
 };
 
 #include "device.inl"

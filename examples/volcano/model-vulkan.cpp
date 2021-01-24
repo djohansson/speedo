@@ -313,3 +313,11 @@ Model<Vk>::Model(
 	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
 {
 }
+
+template <>
+void Model<Vk>::swap(Model& rhs) noexcept
+{
+	Buffer<Vk>::swap(rhs);
+	std::swap(myDesc, rhs.myDesc);
+	std::swap(myBindings, rhs.myBindings);
+}

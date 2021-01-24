@@ -79,3 +79,6 @@ examples/volcano/test-file
 
 # user profile files
 examples/volcano/.profile/*
+
+# temp - gltf sample files
+examples/volcano/resources/glTF-Sample-Models-master/*

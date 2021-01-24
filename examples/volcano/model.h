@@ -24,13 +24,17 @@ class Model : public Buffer<B>
 {
 public:
 
-	Model(Model&& other) = default;
+	Model() = default;
+	Model(Model&& other) noexcept = default;
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
         const std::filesystem::path& modelFile);
 
-	Model& operator=(Model&& other) = default;
+	Model& operator=(Model&& other) noexcept = default;
+	
+	void swap(Model& rhs) noexcept;
+	friend void swap(Model& lhs, Model& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getDesc() const { return myDesc; }
 	const auto& getBindings() const { return myBindings; }
@@ -44,7 +48,7 @@ private:
         const std::shared_ptr<CommandContext<B>>& commandContext,
         std::tuple<ModelCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 
-	const ModelCreateDesc<B> myDesc = {};
+	ModelCreateDesc<B> myDesc = {};
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 };
 

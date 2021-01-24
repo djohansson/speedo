@@ -277,6 +277,7 @@ Application<Vk>::Application(
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
     // load shaders, set pipeline layout
+    // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
     {
         auto shaders = shader::loadSlangShaders<Vk>(
             myResourcePath / "shaders" / "shaders.slang",
@@ -572,9 +573,9 @@ Application<Vk>::Application(
         {
             if (Begin("Statistics", &showStatistics))
             {
-                // Text("Unknowns: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
-                // Text("Instances: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
-                // Text("Physical Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
+                Text("Unknowns: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
+                Text("Instances: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
+                Text("Physical Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
                 Text("Devices: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE));
                 Text("Queues: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_QUEUE));
                 Text("Semaphores: %u", myDevice->getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));

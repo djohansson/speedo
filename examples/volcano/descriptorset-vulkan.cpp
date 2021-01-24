@@ -57,7 +57,7 @@ uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
 }
 
 template <>
-DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout<Vk>&& other)
+DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myKey(std::exchange(other.myKey, 0))
@@ -124,14 +124,24 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 }
 
 template <>
-DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout<Vk>&& other)
+DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&& other) noexcept
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myKey = std::exchange(other.myKey, 0);
     std::get<0>(myLayout) = std::exchange(std::get<0>(other.myLayout), {});
-    std::get<1>(myLayout) = std::move(std::get<1>(other.myLayout));
+    std::get<1>(myLayout) = std::exchange(std::get<1>(other.myLayout), {});
+    std::get<2>(myLayout) = std::exchange(std::get<2>(other.myLayout), {});
 	return *this;
+}
+
+template <>
+void DescriptorSetLayout<Vk>::swap(DescriptorSetLayout& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myKey, rhs.myKey);
+    std::swap(myLayout, rhs.myLayout);
 }
 
 template <>
@@ -151,7 +161,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 }
 
 template <>
-DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray<Vk>&& other)
+DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
@@ -198,10 +208,18 @@ DescriptorSetArray<Vk>::~DescriptorSetArray()
 }
 
 template <>
-DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray<Vk>&& other)
+DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& other) noexcept
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myDescriptorSets = std::exchange(other.myDescriptorSets, {});
     return *this;
+}
+
+template <>
+void DescriptorSetArray<Vk>::swap(DescriptorSetArray& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myDescriptorSets, rhs.myDescriptorSets);
 }

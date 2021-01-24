@@ -46,14 +46,18 @@ class ShaderModule : public DeviceResource<B>
 {
 public:
 
-    ShaderModule(
+	ShaderModule() = default;
+	ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Shader<B>& shader);
-	ShaderModule(ShaderModule&& other);
+	ShaderModule(ShaderModule&& other) noexcept;
     ~ShaderModule();
 
-    ShaderModule& operator=(ShaderModule&& other);
+    ShaderModule& operator=(ShaderModule&& other) noexcept;
 	operator auto() const { return myShaderModule; }
+
+	void swap(ShaderModule& rhs) noexcept;
+    friend void swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getEntryPoint() const { return myEntryPoint; }
 

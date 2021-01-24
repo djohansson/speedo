@@ -14,9 +14,11 @@ protected:
 	RenderTargetImpl(
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
         CreateDescType&& desc);
-    RenderTargetImpl(RenderTargetImpl<CreateDescType, Vk>&& other);
+    RenderTargetImpl(RenderTargetImpl&& other) noexcept;
 
-    RenderTargetImpl<CreateDescType, Vk>& operator=(RenderTargetImpl<CreateDescType, Vk>&& other);
+    RenderTargetImpl<CreateDescType, Vk>& operator=(RenderTargetImpl&& other) noexcept;
+
+    void swap(RenderTargetImpl& rhs) noexcept;
 
 private:
 

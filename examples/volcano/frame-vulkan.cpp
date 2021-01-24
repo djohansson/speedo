@@ -17,7 +17,7 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
 }
 
 template <>
-RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other)
+RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl&& other) noexcept
 : RenderTarget<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 {
@@ -30,11 +30,18 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl()
 
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(
-    RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&& other)
+    RenderTargetImpl&& other) noexcept
 {
     RenderTarget<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     return *this;
+}
+
+template <>
+void RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::swap(RenderTargetImpl& rhs) noexcept
+{
+    RenderTarget<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
 }
 
 template <>
@@ -63,7 +70,11 @@ Frame<Vk>::Frame(
         static_cast<int>(renderCompleteSemaphoreStr.size()),
         renderCompleteSemaphoreStr.data());
 
-    deviceContext->addOwnedObject(getId(), VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myRenderCompleteSemaphore), stringBuffer);
+    deviceContext->addOwnedObjectHandle(
+        getId(),
+        VK_OBJECT_TYPE_SEMAPHORE,
+        reinterpret_cast<uint64_t>(myRenderCompleteSemaphore),
+        stringBuffer);
 
     stbsp_sprintf(
         stringBuffer,
@@ -73,13 +84,17 @@ Frame<Vk>::Frame(
         static_cast<int>(newImageAcquiredSemaphoreStr.size()),
         newImageAcquiredSemaphoreStr.data());
 
-    deviceContext->addOwnedObject(getId(), VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore), stringBuffer);
+    deviceContext->addOwnedObjectHandle(
+        getId(),
+        VK_OBJECT_TYPE_SEMAPHORE,
+        reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
+        stringBuffer);
 
     myImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 template <>
-Frame<Vk>::Frame(Frame<Vk>&& other)
+Frame<Vk>::Frame(Frame<Vk>&& other) noexcept
 : BaseType(std::move(other))
 , myRenderCompleteSemaphore(std::exchange(other.myRenderCompleteSemaphore, {}))
 , myNewImageAcquiredSemaphore(std::exchange(other.myNewImageAcquiredSemaphore, {}))
@@ -101,7 +116,7 @@ Frame<Vk>::~Frame()
 }
 
 template <>
-Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other)
+Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
 {
     BaseType::operator=(std::move(other));
     myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
@@ -109,6 +124,16 @@ Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other)
     myImageLayout = std::exchange(other.myImageLayout, {});
     myLastPresentTimelineValue = std::exchange(other.myLastPresentTimelineValue, {});
     return *this;
+}
+
+template <>
+void Frame<Vk>::swap(Frame& rhs) noexcept
+{
+    BaseType::swap(rhs);
+    std::swap(myRenderCompleteSemaphore, rhs.myRenderCompleteSemaphore);
+    std::swap(myNewImageAcquiredSemaphore, rhs.myNewImageAcquiredSemaphore);
+    std::swap(myImageLayout, rhs.myImageLayout);
+    std::swap(myLastPresentTimelineValue, rhs.myLastPresentTimelineValue);
 }
 
 template <>

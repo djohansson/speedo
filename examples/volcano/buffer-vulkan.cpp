@@ -4,6 +4,14 @@
 #include <stb_sprintf.h>
 
 template <>
+Buffer<Vk>::Buffer(Buffer&& other) noexcept
+: DeviceResource<Vk>(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+, myBuffer(std::exchange(other.myBuffer, {}))
+{
+}
+
+template <>
 Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferCreateDesc<Vk>&& desc,
@@ -91,16 +99,40 @@ Buffer<Vk>::~Buffer()
 }
 
 template <>
+Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+    myDesc = std::exchange(other.myDesc, {});
+    myBuffer = std::exchange(other.myBuffer, {});
+    return *this;
+}
+
+template <>
+void Buffer<Vk>::swap(Buffer& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myBuffer, rhs.myBuffer);
+}
+
+template <>
+BufferView<Vk>::BufferView(BufferView&& other) noexcept
+: DeviceResource<Vk>(std::move(other))
+, myView(std::exchange(other.myView, {}))
+{
+}
+
+template <>
 BufferView<Vk>::BufferView(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    BufferViewHandle<Vk>&& bufferView)
+    BufferViewHandle<Vk>&& view)
 : DeviceResource<Vk>(
     deviceContext,
     {"_View"},
     1,
     VK_OBJECT_TYPE_BUFFER_VIEW,
-    reinterpret_cast<uint64_t*>(&bufferView))
-, myView(std::move(bufferView))
+    reinterpret_cast<uint64_t*>(&view))
+, myView(std::move(view))
 {
 }
 
@@ -126,9 +158,24 @@ BufferView<Vk>::BufferView(
 template <>
 BufferView<Vk>::~BufferView()
 {
-    if (BufferViewHandle<Vk> bufferView = *this; bufferView)
+    if (BufferViewHandle<Vk> view = *this; view)
         getDeviceContext()->addTimelineCallback(
-            [device = getDeviceContext()->getDevice(), bufferView](uint64_t){
-                vkDestroyBufferView(device, bufferView, nullptr);
+            [device = getDeviceContext()->getDevice(), view](uint64_t){
+                vkDestroyBufferView(device, view, nullptr);
         });
+}
+
+template <>
+BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+    myView = std::exchange(other.myView, {});
+    return *this;
+}
+
+template <>
+void BufferView<Vk>::swap(BufferView& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myView, rhs.myView);
 }

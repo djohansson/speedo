@@ -33,7 +33,8 @@ class Image : public DeviceResource<B>
 
 public:
 
-    Image(Image&& other);
+    Image() = default;
+    Image(Image&& other) noexcept;
     Image( // creates uninitialized image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
@@ -49,8 +50,11 @@ public:
         size_t initialDataSize);
     ~Image();
 
-    Image& operator=(Image&& other);
+    Image& operator=(Image&& other) noexcept;
     operator auto() const { return std::get<0>(myImage); }
+
+    void swap(Image& rhs) noexcept;
+    friend void swap(Image& lhs, Image& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
     const auto& getImageMemory() const { return std::get<1>(myImage); }
@@ -77,7 +81,7 @@ private:
     // (which implicitly changes the image layout).
     void setImageLayout(ImageLayout<B> layout) { std::get<2>(myImage) = layout; }
 
-    const ImageCreateDesc<B> myDesc = {};
+    ImageCreateDesc<B> myDesc = {};
     ValueType myImage = {};
 };
 
@@ -86,23 +90,27 @@ class ImageView : public DeviceResource<B>
 {
 public:
     
-    ImageView(ImageView&& other);
+    ImageView() = default;
+    ImageView(ImageView&& other) noexcept;
     ImageView( // creates a view from image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Image<B>& image,
         Flags<Vk> aspectFlags);
     ~ImageView();
 
-    ImageView& operator=(ImageView&& other);
-    operator auto() const { return myImageView; }
+    ImageView& operator=(ImageView&& other) noexcept;
+    operator auto() const { return myView; }
+
+    void swap(ImageView& rhs) noexcept;
+    friend void swap(ImageView& lhs, ImageView& rhs) noexcept { lhs.swap(rhs); }
 
 private:
 
     ImageView( // uses provided image view
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ImageViewHandle<B>&& imageView);
+        ImageViewHandle<B>&& view);
 
-    ImageViewHandle<B> myImageView = {};
+    ImageViewHandle<B> myView = {};
 };
 
 #include "image.inl"

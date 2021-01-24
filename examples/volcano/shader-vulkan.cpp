@@ -316,7 +316,7 @@ ShaderModule<Vk>::ShaderModule(
 }
 
 template <>
-ShaderModule<Vk>::ShaderModule(ShaderModule<Vk>&& other)
+ShaderModule<Vk>::ShaderModule(ShaderModule&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
 , myShaderModule(std::exchange(other.myShaderModule, {}))
 , myEntryPoint(std::exchange(other.myEntryPoint, {}))
@@ -331,10 +331,18 @@ ShaderModule<Vk>::~ShaderModule()
 }
 
 template <>
-ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule<Vk>&& other)
+ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 {
 	DeviceResource<Vk>::operator=(std::move(other));
 	myShaderModule = std::exchange(other.myShaderModule, {});
 	myEntryPoint = std::exchange(other.myEntryPoint, {});
 	return *this;
+}
+
+template <>
+void ShaderModule<Vk>::swap(ShaderModule& rhs) noexcept
+{
+	DeviceResource<Vk>::swap(rhs);
+	std::swap(myShaderModule, rhs.myShaderModule);
+	std::swap(myEntryPoint, rhs.myEntryPoint);
 }

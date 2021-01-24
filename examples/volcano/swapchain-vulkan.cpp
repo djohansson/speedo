@@ -41,7 +41,7 @@ Swapchain<Vk>::Swapchain(
         static_cast<int>(swapchainStr.size()),
         swapchainStr.data());
     
-    deviceContext->addOwnedObject(
+    deviceContext->addOwnedObjectHandle(
         getId(),
         VK_OBJECT_TYPE_SWAPCHAIN_KHR,
         reinterpret_cast<uint64_t>(mySwapchain),
@@ -238,10 +238,44 @@ QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
 }
 
 template <>
+Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
+: DeviceResource<Vk>(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+, mySwapchain(std::exchange(other.mySwapchain, {}))
+, myFrames(std::exchange(other.myFrames, {}))
+, myFrameIndex(std::exchange(other.myFrameIndex, 0))
+, myLastFrameIndex(std::exchange(other.myLastFrameIndex, 0))
+{
+}
+
+template <>
 Swapchain<Vk>::~Swapchain()
 {
     ZoneScopedN("~Swapchain()");
 
     if (mySwapchain)
         vkDestroySwapchainKHR(getDeviceContext()->getDevice(), mySwapchain, nullptr);
+}
+
+template <>
+Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
+{
+	DeviceResource<Vk>::operator=(std::move(other));
+    myDesc = std::exchange(other.myDesc, {});
+    mySwapchain = std::exchange(other.mySwapchain, {});
+    myFrames = std::exchange(other.myFrames, {});
+    myFrameIndex = std::exchange(other.myFrameIndex, 0);
+    myLastFrameIndex = std::exchange(other.myLastFrameIndex, 0);
+	return *this;
+}
+
+template <>
+void Swapchain<Vk>::swap(Swapchain& rhs) noexcept
+{
+	DeviceResource<Vk>::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(mySwapchain, rhs.mySwapchain);
+    std::swap(myFrames, rhs.myFrames);
+    std::swap(myFrameIndex, rhs.myFrameIndex);
+    std::swap(myLastFrameIndex, rhs.myLastFrameIndex);
 }

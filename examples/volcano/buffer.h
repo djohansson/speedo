@@ -22,7 +22,8 @@ class Buffer : public DeviceResource<B>
 
 public:
 
-    Buffer(Buffer&& other);
+    Buffer() = default;
+    Buffer(Buffer&& other) noexcept;
     Buffer( // creates uninitialized buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferCreateDesc<B>&& desc);
@@ -34,8 +35,11 @@ public:
         size_t initialDataSize);
     ~Buffer();
 
-    Buffer& operator=(Buffer&& other);
+    Buffer& operator=(Buffer&& other) noexcept;
     operator auto() const { return std::get<0>(myBuffer); }
+
+    void swap(Buffer& rhs) noexcept;
+    friend void swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
     const auto& getBufferMemory() const { return std::get<1>(myBuffer); }
@@ -54,7 +58,7 @@ private:
         BufferCreateDesc<B>&& desc,
         ValueType&& buffer);
 
-    const BufferCreateDesc<B> myDesc = {};
+    BufferCreateDesc<B> myDesc = {};
     ValueType myBuffer = {};
 };
 
@@ -63,7 +67,8 @@ class BufferView : public DeviceResource<B>
 {
 public:
     
-    BufferView(BufferView&& other);
+    BufferView() = default;
+    BufferView(BufferView&& other) noexcept;
     BufferView( // creates a view from buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Buffer<B>& buffer,
@@ -72,14 +77,17 @@ public:
         DeviceSize<B> range);
     ~BufferView();
 
-    BufferView& operator=(BufferView&& other);
+    BufferView& operator=(BufferView&& other) noexcept;
     operator auto() const { return myView; }
+
+    void swap(BufferView& rhs) noexcept;
+    friend void swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.swap(rhs); }
 
 private:
 
     BufferView( // uses provided image view
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        BufferViewHandle<B>&& bufferView);
+        BufferViewHandle<B>&& view);
 
     BufferViewHandle<B> myView = {};
 };

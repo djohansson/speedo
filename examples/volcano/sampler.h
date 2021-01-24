@@ -10,17 +10,21 @@ class SamplerVector : public DeviceResource<B>
 {
 public:
 
+    SamplerVector() = default;
     SamplerVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::vector<SamplerCreateInfo<B>>& createInfos);
-    SamplerVector(SamplerVector&& other);
+    SamplerVector(SamplerVector&& other) noexcept;
     ~SamplerVector();
 
-    SamplerVector& operator=(SamplerVector&& other);
+    SamplerVector& operator=(SamplerVector&& other) noexcept;
     auto operator[](uint32_t index) const { return mySamplers[index]; };
+
+    void swap(SamplerVector& rhs) noexcept;
+    friend void swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.swap(rhs); }
     
     auto size() const { return mySamplers.size(); }
-    auto data() const { return mySamplers.data(); }
+    auto data() const { return mySamplers.data(); }    
 
 private:
 

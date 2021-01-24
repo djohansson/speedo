@@ -15,6 +15,7 @@ public:
     std::shared_ptr<std::istream> GetInputStream(const std::string& filename) const override;
 
 private:
+
     std::filesystem::path myPathBase;
 };
 

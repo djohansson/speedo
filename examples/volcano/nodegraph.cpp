@@ -11,6 +11,12 @@ InputOutputNode::InputOutputNode(int id, std::string&& name)
 {
 }
 
+void InputOutputNode::swap(InputOutputNode& rhs) noexcept
+{
+    std::swap(myId, rhs.myId);
+    std::swap(myName, rhs.myName);
+}
+
 int& InputOutputNode::id()
 {
     return myId;
@@ -42,7 +48,13 @@ SlangShaderNode::SlangShaderNode(int id, std::string&& name, std::filesystem::pa
 : InputOutputNode(id, std::move(name))
 , myPath(std::move(path))
 {
-};
+}
+
+void SlangShaderNode::swap(SlangShaderNode& rhs) noexcept
+{
+    InputOutputNode::swap(rhs);
+    std::swap(myPath, rhs.myPath);
+}
 
 std::filesystem::path& SlangShaderNode::path()
 {

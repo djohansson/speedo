@@ -109,49 +109,47 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
 }
 
 template <>
-void DeviceContext<Vk>::addOwnedObject(
-    uint32_t ownerId,
+void DeviceContext<Vk>::addOwnedObjectHandle(
+    uintptr_t ownerId,
     ObjectType<Vk> objectType,
     uint64_t objectHandle,
     const char* objectName)
 {
-    ZoneScopedN("DeviceContext::addOwnedObject");
+    ZoneScopedN("DeviceContext::addOwnedObjectHandle");
 
     if (!objectHandle)
         return;
 
-    auto imageNameInfo = VkDebugUtilsObjectNameInfoEXT{
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-        nullptr,
-        objectType,
-        objectHandle,
-        objectName};
+    auto& objectInfo = myOwnerToDeviceObjectInfoMap[ownerId].emplace_back(
+        ObjectNameInfo{{
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+            nullptr,
+            objectType,
+            objectHandle}});
+    objectInfo.name = objectName;
+    objectInfo.pObjectName = objectInfo.name.c_str();
 
-    VK_CHECK(device::vkSetDebugUtilsObjectNameEXT(myDevice, &imageNameInfo));
+    VK_CHECK(device::vkSetDebugUtilsObjectNameEXT(myDevice, &objectInfo));
 
-    {
-        std::unique_lock writelock(myObjectsMutex);
-        myOwnerToDeviceObjectsMap[ownerId].emplace_back(Object{objectType, objectHandle, objectName});
-        myObjectTypeToCountMap[objectType]++;
-    }
+    myObjectTypeToCountMap[objectType]++;
 }
 
 template <>
-void DeviceContext<Vk>::clearOwnedObjects(uint32_t ownerId)
+void DeviceContext<Vk>::clearOwnedObjectHandles(uintptr_t ownerId)
 {
-    ZoneScopedN("DeviceContext::clearOwnedObjects");
+    ZoneScopedN("DeviceContext::clearOwnedObjectHandles");
 
-    std::unique_lock writelock(myObjectsMutex);
-    auto& objects = myOwnerToDeviceObjectsMap[ownerId];
-    for (const auto& object : objects)
-        myObjectTypeToCountMap[object.type]--;
-    objects.clear();
+    auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerId];
+    
+    for (const auto& objectInfo : objectInfos)
+        myObjectTypeToCountMap[objectInfo.objectType]--;
+    
+    objectInfos.clear();
 }
 
 template <>
 uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 {
-    std::shared_lock readlock(myObjectsMutex);
     return myObjectTypeToCountMap[type];
 }
 
@@ -185,14 +183,14 @@ DeviceContext<Vk>::DeviceContext(
 
         // Request several formats, the first found will be used
         // If none of the requested image formats could be found, use the first available
-        for (uint32_t request_i = 0; request_i < sizeof_array(requestSurfaceImageFormat);
-                request_i++)
+        for (uint32_t requestIt = 0; requestIt < sizeof_array(requestSurfaceImageFormat); requestIt++)
         {
             SurfaceFormat<Vk> requestedFormat =
             {
-                requestSurfaceImageFormat[request_i],
+                requestSurfaceImageFormat[requestIt],
                 requestSurfaceColorSpace
             };
+
             auto formatIt = std::find_if(
                 swapchainInfo.formats.begin(),
                 swapchainInfo.formats.end(),
@@ -200,6 +198,7 @@ DeviceContext<Vk>::DeviceContext(
                 {
                     return requestedFormat.format == format.format && requestedFormat.colorSpace == format.colorSpace;
                 });
+
             if (formatIt != swapchainInfo.formats.end())
             {
                 myConfig.swapchainConfig->surfaceFormat = *formatIt;
@@ -209,12 +208,13 @@ DeviceContext<Vk>::DeviceContext(
 
         // Request a certain mode and confirm that it is available. If not use
         // VK_PRESENT_MODE_FIFO_KHR which is mandatory
-        for (uint32_t request_i = 0; request_i < sizeof_array(requestPresentMode);
-                request_i++)
+        for (uint32_t requestIt = 0; requestIt < sizeof_array(requestPresentMode); requestIt++)
         {
             auto modeIt = std::find(
-                swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(),
-                requestPresentMode[request_i]);
+                swapchainInfo.presentModes.begin(),
+                swapchainInfo.presentModes.end(),
+                requestPresentMode[requestIt]);
+
             if (modeIt != swapchainInfo.presentModes.end())
             {
                 myConfig.swapchainConfig->presentMode = *modeIt;
@@ -271,7 +271,8 @@ DeviceContext<Vk>::DeviceContext(
     }
 
     std::sort(
-        deviceExtensions.begin(), deviceExtensions.end(),
+        deviceExtensions.begin(),
+        deviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
     std::vector<const char*> requiredDeviceExtensions = {
@@ -281,7 +282,9 @@ DeviceContext<Vk>::DeviceContext(
         VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
     assert(std::includes(
-        deviceExtensions.begin(), deviceExtensions.end(), requiredDeviceExtensions.begin(),
+        deviceExtensions.begin(),
+        deviceExtensions.end(),
+        requiredDeviceExtensions.begin(),
         requiredDeviceExtensions.end(),
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
@@ -307,14 +310,14 @@ DeviceContext<Vk>::DeviceContext(
             myDevice,
             "vkSetDebugUtilsObjectNameEXT"));
 
-    // addOwnedObject(
-    //     0,
+    // addOwnedObjectHandle(
+    //     reinterpret_cast<uintptr_t>(myInstance.get()),
     //     VK_OBJECT_TYPE_INSTANCE,
     //     reinterpret_cast<uint64_t>(myInstance->getInstance()),
     //     "Instance");
 
-    addOwnedObject(
-        0,
+    addOwnedObjectHandle(
+        reinterpret_cast<uintptr_t>(myInstance.get()),
         VK_OBJECT_TYPE_SURFACE_KHR,
         reinterpret_cast<uint64_t>(myInstance->getSurface()),
         "Instance_Surface");
@@ -323,7 +326,7 @@ DeviceContext<Vk>::DeviceContext(
 
     // for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < myInstance->getPhysicalDevices().size(); physicalDeviceIt++)
     // {
-    //     const auto& physicalDevice = myInstance->getPhysicalDevices()[physicalDeviceIt];
+    //     auto physicalDevice = myInstance->getPhysicalDevices()[physicalDeviceIt];
 
     //     static constexpr std::string_view physicalDeviceStr = "Instance_PhysicalDevice";
 
@@ -333,15 +336,15 @@ DeviceContext<Vk>::DeviceContext(
     //         physicalDeviceStr.data(),
     //         physicalDeviceIt);
 
-    //     addOwnedObject(
-    //         0,
+    //     addOwnedObjectHandle(
+    //         reinterpret_cast<uintptr_t>(myInstance.get()),
     //         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
     //         reinterpret_cast<uint64_t>(physicalDevice),
     //         stringBuffer);
     // }
 
-    addOwnedObject(
-        0,
+    addOwnedObjectHandle(
+        reinterpret_cast<uintptr_t>(this),
         VK_OBJECT_TYPE_DEVICE,
         reinterpret_cast<uint64_t>(myDevice),
         "Device");
@@ -376,8 +379,8 @@ DeviceContext<Vk>::DeviceContext(
                 queueStr.data(),
                 queueIt);
 
-            addOwnedObject(
-                0,
+            addOwnedObjectHandle(
+                reinterpret_cast<uintptr_t>(this),
                 VK_OBJECT_TYPE_QUEUE,
                 reinterpret_cast<uint64_t>(queue),
                 stringBuffer);
@@ -406,8 +409,8 @@ DeviceContext<Vk>::DeviceContext(
                     frameIt,
                     queueIt);
 
-                addOwnedObject(
-                    0,
+                addOwnedObjectHandle(
+                    reinterpret_cast<uintptr_t>(this),
                     VK_OBJECT_TYPE_COMMAND_POOL,
                     reinterpret_cast<uint64_t>(commandPool),
                     stringBuffer);
@@ -434,8 +437,8 @@ DeviceContext<Vk>::DeviceContext(
     VK_CHECK(vkCreateSemaphore(
         myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
 
-    addOwnedObject(
-        0,
+    addOwnedObjectHandle(
+        reinterpret_cast<uintptr_t>(this),
         VK_OBJECT_TYPE_SEMAPHORE,
         reinterpret_cast<uint64_t>(myTimelineSemaphore),
         "Device_TimelineSemaphore");
@@ -447,8 +450,6 @@ DeviceContext<Vk>::~DeviceContext()
     ZoneScopedN("~DeviceContext()");
 
     processTimelineCallbacks();
-
-    clearOwnedObjects(0);
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
 
@@ -462,13 +463,9 @@ DeviceContext<Vk>::~DeviceContext()
 }
 
 template <> 
-uint32_t DeviceResource<Vk>::sId(0);
-
-template <> 
-DeviceResource<Vk>::DeviceResource(DeviceResource<Vk>&& other)
+DeviceResource<Vk>::DeviceResource(DeviceResource&& other) noexcept
 : myDevice(std::exchange(other.myDevice, {}))
 , myName(std::exchange(other.myName, {}))
-, myId(std::exchange(other.myId, {}))
 {
 }
 
@@ -478,7 +475,6 @@ DeviceResource<Vk>::DeviceResource(
     const DeviceResourceCreateDesc<Vk>& desc)
 : myDevice(deviceContext)
 , myName(std::move(desc.name))
-, myId(++sId)
 {
 }
 
@@ -502,7 +498,7 @@ DeviceResource<Vk>::DeviceResource(
             2,
             objectIt);
 
-        deviceContext->addOwnedObject(getId(), objectType, objectHandles[objectIt], stringBuffer);
+        deviceContext->addOwnedObjectHandle(getId(), objectType, objectHandles[objectIt], stringBuffer);
     }
 }
 
@@ -510,14 +506,20 @@ template <>
 DeviceResource<Vk>::~DeviceResource()
 {
     if (myDevice)
-        myDevice->clearOwnedObjects(getId());
+        myDevice->clearOwnedObjectHandles(getId());
 }
 
 template <>
-DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other)
+DeviceResource<Vk>& DeviceResource<Vk>::operator=(DeviceResource&& other) noexcept
 {
     myDevice = std::exchange(other.myDevice, {});
     myName = std::exchange(other.myName, {});
-    myId = std::exchange(other.myId, 0);
     return *this;
+}
+
+template <>
+void DeviceResource<Vk>::swap(DeviceResource& rhs) noexcept
+{
+    std::swap(myDevice, rhs.myDevice);
+    std::swap(myName, rhs.myName);
 }
