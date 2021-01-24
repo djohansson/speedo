@@ -11,8 +11,6 @@
 template <typename T, size_t N=3>
 class AABB
 {
-public:
-
 	using ScalarType = T;
 	using VectorType = glm::vec<N, T, glm::defaultp>;
 	using Type = AABB<T, N>;
@@ -22,8 +20,7 @@ public:
 
 	static const size_t CornerCount = 1 << N;
 
-	VectorType myMin;
-	VectorType myMax;
+public:
 
 	AABB()
 		: myMin(std::numeric_limits<ScalarType>::max())
@@ -48,6 +45,15 @@ public:
 	{
 		return (myMax < myMin) != 0;
 	}
+
+	const auto& getMin() const { return myMin; }
+	const auto& getMax() const { return myMax; }
+
+	template <typename U = ScalarType>
+	void setMin(const OtherVectorType<U>& aPoint) { myMin = aPoint; }
+	
+	template <typename U = ScalarType>
+	void setMax(const OtherVectorType<U>& aPoint) { myMax = aPoint; }
 
 	template <typename U = ScalarType>
 	bool contains(const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const
@@ -139,6 +145,11 @@ public:
 		archive(myMin);
 		archive(myMax);
 	}
+
+private:
+
+	VectorType myMin = {};
+	VectorType myMax = {};
 };
 
 using AABB2d = AABB<double, 2>;
