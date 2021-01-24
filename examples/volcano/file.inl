@@ -97,8 +97,8 @@ template <typename T, FileAccessMode Mode, typename InputArchive, typename Outpu
 void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::swap(FileObject& rhs) noexcept
 {
     std::swap<T>(*this, rhs);
-    std::swap(myFilePath, other.myFilePath);
-    std::swap(myName, other.myName);
+    std::swap(myFilePath, rhs.myFilePath);
+    std::swap(myName, rhs.myName);
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
