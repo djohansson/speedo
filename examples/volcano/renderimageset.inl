@@ -56,7 +56,7 @@ RenderImageSet<B>::RenderImageSet(
 }
 
 template <GraphicsBackend B>
-RenderImageSet<B>::RenderImageSet(RenderImageSet<B>&& other)
+RenderImageSet<B>::RenderImageSet(RenderImageSet&& other) noexcept
 : BaseType(std::move(other))
 , myColorImages(std::exchange(other.myColorImages, {}))
 , myDepthStencilImage(std::exchange(other.myDepthStencilImage, {}))
@@ -69,12 +69,20 @@ RenderImageSet<B>::~RenderImageSet()
 }
 
 template <GraphicsBackend B>
-RenderImageSet<B>& RenderImageSet<B>::operator=(RenderImageSet<B>&& other)
+RenderImageSet<B>& RenderImageSet<B>::operator=(RenderImageSet&& other) noexcept
 {
     BaseType::operator=(std::move(other));
 	myColorImages = std::exchange(other.myColorImages, {});
     myDepthStencilImage = std::exchange(other.myDepthStencilImage, {});
     return *this;
+}
+
+template <GraphicsBackend B>
+void RenderImageSet<B>::swap(RenderImageSet& rhs) noexcept
+{
+    BaseType::swap(rhs);
+	std::swap(myColorImages, rhs.myColorImages);
+    std::swap(myDepthStencilImage, rhs.myDepthStencilImage);
 }
 
 template <GraphicsBackend B>

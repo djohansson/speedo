@@ -133,19 +133,19 @@ static PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR = {};
 }
 
 template <>
-PipelineLayout<Vk>& PipelineLayout<Vk>::operator=(PipelineLayout<Vk>&& other)
+PipelineLayout<Vk>& PipelineLayout<Vk>::operator=(PipelineLayout<Vk>&& other) noexcept
 {
     DeviceResource<Vk>::operator=(std::move(other));
-    myShaders = std::move(other.myShaders);
+    myShaderModules = std::move(other.myShaderModules);
     myDescriptorSetLayouts = std::move(other.myDescriptorSetLayouts);
     myLayout = std::exchange(other.myLayout, {});
     return *this;
 }
 
 template <>
-PipelineLayout<Vk>::PipelineLayout(PipelineLayout<Vk>&& other)
+PipelineLayout<Vk>::PipelineLayout(PipelineLayout<Vk>&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
-, myShaders(std::move(other.myShaders))
+, myShaderModules(std::move(other.myShaderModules))
 , myDescriptorSetLayouts(std::move(other.myDescriptorSetLayouts))
 , myLayout(std::exchange(other.myLayout, {}))
 {
@@ -163,7 +163,7 @@ PipelineLayout<Vk>::PipelineLayout(
     1,
     VK_OBJECT_TYPE_PIPELINE_LAYOUT,
     reinterpret_cast<uint64_t*>(&layout))
-, myShaders(std::move(shaderModules))
+, myShaderModules(std::move(shaderModules))
 , myDescriptorSetLayouts(std::move(descriptorSetLayouts))
 , myLayout(std::move(layout))
 {
@@ -230,6 +230,15 @@ PipelineLayout<Vk>::~PipelineLayout()
         vkDestroyPipelineLayout(getDeviceContext()->getDevice(), myLayout, nullptr);
 }
 
+template <>
+void PipelineLayout<Vk>::swap(PipelineLayout& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myShaderModules, rhs.myShaderModules);
+    std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
+    std::swap(myLayout, rhs.myLayout);
+}
+
 template<>
 uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 {
@@ -271,7 +280,7 @@ void PipelineContext<Vk>::internalResetSharedState()
 
     const auto& layout = *getLayout();
 
-    for (const auto& shader : layout.getShaders())
+    for (const auto& shader : layout.getShaderModules())
         myShaderStages.emplace_back(
             PipelineShaderStageCreateInfo<Vk>{
                 VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -460,7 +469,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
         pipelineStr.data(),
         hashKey);
 
-    getDeviceContext()->addOwnedObject(
+    getDeviceContext()->addOwnedObjectHandle(
         getId(),
         VK_OBJECT_TYPE_PIPELINE,
         reinterpret_cast<uint64_t>(pipelineHandle),
@@ -818,7 +827,7 @@ PipelineContext<Vk>::PipelineContext(
         static_cast<int>(pipelineCacheStr.size()),
         pipelineCacheStr.data());
 
-    deviceContext->addOwnedObject(
+    deviceContext->addOwnedObjectHandle(
         getId(),
         VK_OBJECT_TYPE_PIPELINE_CACHE,
         reinterpret_cast<uint64_t>(myCache),
@@ -826,8 +835,8 @@ PipelineContext<Vk>::PipelineContext(
 
     myDescriptorPool = createDescriptorPool(device);
 
-    deviceContext->addOwnedObject(
-        0,
+    deviceContext->addOwnedObjectHandle(
+        getId(),
         VK_OBJECT_TYPE_DESCRIPTOR_POOL,
         reinterpret_cast<uint64_t>(myDescriptorPool),
         "Device_DescriptorPool");

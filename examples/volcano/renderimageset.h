@@ -14,15 +14,19 @@ class RenderImageSet : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>
 
 public:
 
+    RenderImageSet() = default;
     RenderImageSet(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const char* name,
         const std::vector<std::shared_ptr<Image<B>>>& colorImages,
         const std::shared_ptr<Image<B>>& depthStencilImage = {});
-    RenderImageSet(RenderImageSet<B>&& other);
+    RenderImageSet(RenderImageSet<B>&& other) noexcept;
     virtual ~RenderImageSet();
 
-    RenderImageSet& operator=(RenderImageSet<B>&& other);
+    RenderImageSet& operator=(RenderImageSet<B>&& other) noexcept;
+
+    void swap(RenderImageSet& rhs) noexcept;
+	friend void swap(RenderImageSet& lhs, RenderImageSet& rhs) noexcept { lhs.swap(rhs); }
 
     virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;

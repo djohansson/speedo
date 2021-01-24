@@ -19,14 +19,18 @@ class Swapchain : public IRenderTarget<B>, public DeviceResource<B>
 {
 public:
 
-	Swapchain(Swapchain&& other);
+	Swapchain() = default;
+	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		SwapchainCreateDesc<B>&& desc);
     ~Swapchain();
 
-	Swapchain& operator=(Swapchain&& other);
+	Swapchain& operator=(Swapchain&& other) noexcept;
 	operator auto() const { return mySwapchain; }
+
+	void swap(Swapchain& rhs) noexcept;
+    friend void swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.swap(rhs); }
 
 	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const final;
 
@@ -74,7 +78,7 @@ public:
 
 private:
 
-	const SwapchainCreateDesc<B> myDesc = {};
+	SwapchainCreateDesc<B> myDesc = {};
 	SwapchainHandle<B> mySwapchain = {};
 	std::vector<std::unique_ptr<Frame<B>>> myFrames;
 	uint32_t myFrameIndex = 0;

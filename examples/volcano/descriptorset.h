@@ -25,21 +25,25 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetLayout : public DeviceResource<B>
 {
-    using BindingsMapType = UnorderedMapType<uint64_t, uint32_t>;
+    using BindingsMapType = UnorderedMapType<uint64_t, uint32_t, PassThroughHash<uint64_t>>;
     using ValueType = std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>, BindingsMapType>;
 
 public:
 
-    DescriptorSetLayout(DescriptorSetLayout&& other);
+    DescriptorSetLayout() = default;
+    DescriptorSetLayout(DescriptorSetLayout&& other) noexcept;
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         DescriptorSetLayoutCreateDesc<B>&& desc);
     ~DescriptorSetLayout();
 
-    DescriptorSetLayout& operator=(DescriptorSetLayout&& other);
+    DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
     operator auto() const { return std::get<0>(myLayout); }
     bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
     bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
+
+    void swap(DescriptorSetLayout& rhs) noexcept;
+    friend void swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
     auto getKey() const { return myKey; }
@@ -70,20 +74,24 @@ struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetArray : public DeviceResource<B>
 {
-    static constexpr size_t kDescriptorSetCount = 256;
+    static constexpr size_t kDescriptorSetCount = 16;
     using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
 
 public:
 
-    DescriptorSetArray(DescriptorSetArray&& other);
+    DescriptorSetArray() = default;
+    DescriptorSetArray(DescriptorSetArray&& other) noexcept;
     DescriptorSetArray( // allocates array of descriptor set handles using single layout
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
         const DescriptorSetLayout<Vk>& layout,
         DescriptorSetArrayCreateDesc<Vk>&& desc);
     ~DescriptorSetArray();
 
-    DescriptorSetArray& operator=(DescriptorSetArray&& other);
+    DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
     const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
+
+    void swap(DescriptorSetArray& rhs) noexcept;
+    friend void swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
     constexpr size_t getSize() const { return myDescriptorSets.size(); }

@@ -107,12 +107,15 @@ public:
 
 protected:
 
-    RenderTarget(RenderTarget<B>&& other);
+    RenderTarget() = default;
+    RenderTarget(RenderTarget<B>&& other) noexcept;
     RenderTarget(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const RenderTargetCreateDesc<B>& desc);
 
-    RenderTarget& operator=(RenderTarget&& other);
+    RenderTarget& operator=(RenderTarget&& other) noexcept;
+
+    void swap(RenderTarget& rhs) noexcept;
 
 private:
 

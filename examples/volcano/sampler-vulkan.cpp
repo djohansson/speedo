@@ -26,7 +26,7 @@ SamplerVector<Vk>::SamplerVector(
 }
 
 template <>
-SamplerVector<Vk>::SamplerVector(SamplerVector<Vk>&& other)
+SamplerVector<Vk>::SamplerVector(SamplerVector&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
 , mySamplers(std::exchange(other.mySamplers, {}))
 {
@@ -40,9 +40,16 @@ SamplerVector<Vk>::~SamplerVector()
 }
 
 template <>
-SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector<Vk>&& other)
+SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
 {
 	DeviceResource<Vk>::operator=(std::move(other));
 	mySamplers = std::exchange(other.mySamplers, {});
 	return *this;
+}
+
+template <>
+void SamplerVector<Vk>::swap(SamplerVector& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+	std::swap(mySamplers, rhs.mySamplers);
 }

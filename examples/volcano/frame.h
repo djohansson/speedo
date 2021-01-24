@@ -19,11 +19,15 @@ class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
 
 public:
 
+	Frame() = default;
     Frame(const std::shared_ptr<DeviceContext<B>>& deviceContext, FrameCreateDesc<B>&& desc);
-	Frame(Frame<B>&& other);
+	Frame(Frame<B>&& other) noexcept;
 	virtual ~Frame();
 
-	Frame& operator=(Frame&& other);
+	Frame& operator=(Frame&& other) noexcept;
+
+	void swap(Frame& rhs) noexcept;
+    friend void swap(Frame& lhs, Frame& rhs) noexcept { lhs.swap(rhs); }
 
 	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
     virtual ImageLayout<B> getDepthStencilImageLayout() const final;

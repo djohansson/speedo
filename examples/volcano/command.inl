@@ -26,7 +26,7 @@ CommandBufferAccessScope<B>::CommandBufferAccessScope(
 }
 
 template <GraphicsBackend B>
-CommandBufferAccessScope<B>::CommandBufferAccessScope(const CommandBufferAccessScope<B>& other)
+CommandBufferAccessScope<B>::CommandBufferAccessScope(const CommandBufferAccessScope& other)
 : myDesc(other.myDesc)
 , myRefCount(other.myRefCount)
 , myArray(other.myArray)
@@ -36,7 +36,7 @@ CommandBufferAccessScope<B>::CommandBufferAccessScope(const CommandBufferAccessS
 }
 
 template <GraphicsBackend B>
-CommandBufferAccessScope<B>::CommandBufferAccessScope(CommandBufferAccessScope<B>&& other)
+CommandBufferAccessScope<B>::CommandBufferAccessScope(CommandBufferAccessScope&& other) noexcept
 : myDesc(std::exchange(other.myDesc, {}))
 , myRefCount(std::exchange(other.myRefCount, {}))
 , myArray(std::exchange(other.myArray, {}))
@@ -52,21 +52,17 @@ CommandBufferAccessScope<B>::~CommandBufferAccessScope()
 }
 
 template <GraphicsBackend B>
-CommandBufferAccessScope<B>& CommandBufferAccessScope<B>::operator=(CommandBufferAccessScope<B>&& other)
+CommandBufferAccessScope<B>& CommandBufferAccessScope<B>::operator=(CommandBufferAccessScope other)
 {
-    myDesc = std::exchange(other.myDesc, {});
-    myRefCount = std::exchange(other.myRefCount, {});
-    myArray = std::exchange(other.myArray, {});
-    myIndex = std::exchange(other.myIndex, {});
+    swap(other);
     return *this;
 }
 
 template <GraphicsBackend B>
-CommandBufferAccessScope<B>& CommandBufferAccessScope<B>::operator=(const CommandBufferAccessScope<B>& other)
+void CommandBufferAccessScope<B>::swap(CommandBufferAccessScope& rhs) noexcept
 {
-    myDesc = other.myDesc;
-    myRefCount = other.myRefCount;
-    myArray = other.myArray;
-    myIndex = other.myIndex;
-    (*myRefCount)++;
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myRefCount, rhs.myRefCount);
+    std::swap(myArray, rhs.myArray);
+    std::swap(myIndex, rhs.myIndex);
 }

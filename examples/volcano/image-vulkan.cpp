@@ -435,16 +435,24 @@ Image<Vk>::~Image()
 }
 
 template <>
+ImageView<Vk>::ImageView(ImageView&& other) noexcept
+: DeviceResource<Vk>(std::move(other))
+, myView(std::exchange(other.myView, {}))
+{
+}
+
+
+template <>
 ImageView<Vk>::ImageView(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    ImageViewHandle<Vk>&& imageView)
+    ImageViewHandle<Vk>&& view)
 : DeviceResource<Vk>(
     deviceContext,
     {"_View"},
     1,
     VK_OBJECT_TYPE_IMAGE_VIEW,
-    reinterpret_cast<uint64_t*>(&imageView))
-, myImageView(std::move(imageView))
+    reinterpret_cast<uint64_t*>(&view))
+, myView(std::move(view))
 {
 }
 
@@ -468,9 +476,25 @@ ImageView<Vk>::ImageView(
 template <>
 ImageView<Vk>::~ImageView()
 {
-    if (ImageViewHandle<Vk> imageView = *this; imageView)
+    if (ImageViewHandle<Vk> view = *this; view)
         getDeviceContext()->addTimelineCallback(
-            [device = getDeviceContext()->getDevice(), imageView](uint64_t){
-                vkDestroyImageView(device, imageView, nullptr);
+            [device = getDeviceContext()->getDevice(), view](uint64_t){
+                vkDestroyImageView(device, view, nullptr);
         });
+}
+
+template <>
+ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
+{
+    DeviceResource<Vk>::operator=(std::move(other));
+    myView = std::exchange(other.myView, {});
+    return *this;
+}
+
+
+template <>
+void ImageView<Vk>::swap(ImageView& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myView, rhs.myView);
 }

@@ -36,11 +36,14 @@ public:
     InputOutputNode() = default;
     InputOutputNode(int id, std::string&& name);
     InputOutputNode(const InputOutputNode&) = default;
-    InputOutputNode(InputOutputNode&&) = default;
+    InputOutputNode(InputOutputNode&&) noexcept = default;
     ~InputOutputNode() = default;
 
     InputOutputNode& operator=(const InputOutputNode&) = default;
-    InputOutputNode& operator=(InputOutputNode&&) = default;
+    InputOutputNode& operator=(InputOutputNode&&) noexcept = default;
+
+    void swap(InputOutputNode& rhs) noexcept;
+    friend void swap(InputOutputNode& lhs, InputOutputNode& rhs) noexcept { lhs.swap(rhs); }
 
     int& id() final;
     std::optional<int>& selected() final;
@@ -65,11 +68,14 @@ public:
     SlangShaderNode() = default;
     SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path);
     SlangShaderNode(const SlangShaderNode&) = default;
-    SlangShaderNode(SlangShaderNode&&) = default;
+    SlangShaderNode(SlangShaderNode&&) noexcept = default;
     ~SlangShaderNode() = default;
 
     SlangShaderNode& operator=(const SlangShaderNode&) = default;
-    SlangShaderNode& operator=(SlangShaderNode&&) = default;
+    SlangShaderNode& operator=(SlangShaderNode&&) noexcept = default;
+
+    void swap(SlangShaderNode& rhs) noexcept;
+    friend void swap(SlangShaderNode& lhs, SlangShaderNode& rhs) noexcept { lhs.swap(rhs); }
 
     std::filesystem::path& path();
 

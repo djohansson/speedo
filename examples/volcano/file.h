@@ -92,6 +92,7 @@ class FileObject : public Noncopyable, public T
 
 public:
 
+    FileObject() = default;
     FileObject(
         const std::filesystem::path& filePath,
         const std::string& name,
@@ -100,6 +101,9 @@ public:
     ~FileObject();
 
     FileObject& operator=(FileObject&& other) noexcept;
+
+    void swap(FileObject& rhs) noexcept;
+    friend void swap(FileObject& lhs, FileObject& rhs) noexcept { lhs.swap(rhs); }
 
     void reload();
 

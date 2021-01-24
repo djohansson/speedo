@@ -40,7 +40,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             1,
             attachmentIt);
 
-        getDeviceContext()->addOwnedObject(
+        getDeviceContext()->addOwnedObjectHandle(
             getId(),
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
@@ -83,7 +83,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             static_cast<int>(depthImageViewStr.size()),
             depthImageViewStr.data());
 
-        getDeviceContext()->addOwnedObject(
+        getDeviceContext()->addOwnedObjectHandle(
             getId(),
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
@@ -216,7 +216,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         renderPassStr.data(),
         hashKey);
 
-    getDeviceContext()->addOwnedObject(
+    getDeviceContext()->addOwnedObjectHandle(
         getId(),
         VK_OBJECT_TYPE_RENDER_PASS,
         reinterpret_cast<uint64_t>(renderPass),
@@ -242,7 +242,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         framebufferStr.data(),
         hashKey);
 
-    getDeviceContext()->addOwnedObject(
+    getDeviceContext()->addOwnedObjectHandle(
         getId(),
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
@@ -503,8 +503,16 @@ RenderTarget<Vk>::RenderTarget(
 }
 
 template <>
-RenderTarget<Vk>::RenderTarget(RenderTarget<Vk>&& other)
+RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
 : DeviceResource<Vk>(std::move(other))
+, myAttachments(std::exchange(other.myAttachments, {}))
+, myAttachmentDescs(std::exchange(other.myAttachmentDescs, {}))
+, myAttachmentsReferences(std::exchange(other.myAttachmentsReferences, {}))
+, mySubPassDescs(std::exchange(other.mySubPassDescs, {}))
+, mySubPassDependencies(std::exchange(other.mySubPassDependencies, {}))
+, myMap(std::exchange(other.myMap, {}))
+, myCurrentPass(std::exchange(other.myCurrentPass, {}))
+, myCurrentSubpass(std::exchange(other.myCurrentSubpass, {}))
 {
 }
 
@@ -524,7 +532,7 @@ RenderTarget<Vk>::~RenderTarget()
 }
 
 template <>
-RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget<Vk>&& other)
+RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 {
     DeviceResource<Vk>::operator=(std::move(other));
     myAttachments = std::exchange(other.myAttachments, {});
@@ -539,6 +547,20 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget<Vk>&& other)
 }
 
 template <>
+void RenderTarget<Vk>::swap(RenderTarget& rhs) noexcept
+{
+    DeviceResource<Vk>::swap(rhs);
+    std::swap(myAttachments, rhs.myAttachments);
+    std::swap(myAttachmentDescs, rhs.myAttachmentDescs);
+    std::swap(myAttachmentsReferences, rhs.myAttachmentsReferences);
+    std::swap(mySubPassDescs, rhs.mySubPassDescs);
+    std::swap(mySubPassDependencies, rhs.mySubPassDependencies);
+    std::swap(myMap, rhs.myMap);
+    std::swap(myCurrentPass, rhs.myCurrentPass);
+    std::swap(myCurrentSubpass, rhs.myCurrentSubpass);
+}
+
+template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     RenderTargetCreateDesc<Vk>&& desc)
@@ -548,7 +570,7 @@ RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
 }
 
 template <>
-RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other)
+RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl&& other) noexcept
 : RenderTarget<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 {
@@ -561,9 +583,16 @@ RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl()
 
 template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
-    RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&& other)
+    RenderTargetImpl&& other) noexcept
 {
     RenderTarget<Vk>::operator=(std::move(other));
 	myDesc = std::exchange(other.myDesc, {});
     return *this;
+}
+
+template <>
+void RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::swap(RenderTargetImpl& rhs) noexcept
+{
+    RenderTarget<Vk>::swap(rhs);
+	std::swap(myDesc, rhs.myDesc);
 }

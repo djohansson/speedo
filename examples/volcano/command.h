@@ -23,18 +23,22 @@ struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class CommandBufferArray : public DeviceResource<B>
 {
-public:
-
     static constexpr uint32_t kHeadBitCount = 2;
     static constexpr uint32_t kCommandBufferCount = (1 << kHeadBitCount);
 
+public:
+
+    CommandBufferArray() = default;
     CommandBufferArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandBufferArrayCreateDesc<B>&& desc);
-    CommandBufferArray(CommandBufferArray<B>&& other);
+    CommandBufferArray(CommandBufferArray&& other) noexcept;
     ~CommandBufferArray();
 
-    CommandBufferArray& operator=(CommandBufferArray&& other);
+    CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
+
+    void swap(CommandBufferArray& rhs) noexcept;
+    friend void swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
 
@@ -50,7 +54,7 @@ public:
     uint8_t recordingFlags() const { return myBits.recordingFlags; }
     
     bool full() const { return (head() + 1) >= capacity(); }
-    constexpr auto capacity() const { return kCommandBufferCount; }
+    static constexpr auto capacity() { return kCommandBufferCount; }
     
     CommandBufferHandle<B>& operator[](uint8_t index) { return myArray[index]; }
     const CommandBufferHandle<B>& operator[](uint8_t index) const { return myArray[index]; }
@@ -77,7 +81,7 @@ struct CommandContextCreateDesc
 };
 
 template <GraphicsBackend B>
-struct CommandBufferAccessScopeDesc : public CommandBufferBeginInfo<B>
+struct CommandBufferAccessScopeDesc : CommandBufferBeginInfo<B>
 {
     CommandBufferAccessScopeDesc();
     CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<B>& other);
@@ -94,16 +98,19 @@ class CommandBufferAccessScope : Nondynamic
 {
 public:
 
+    CommandBufferAccessScope() = default;
     CommandBufferAccessScope(
         CommandBufferArray<B>* array,
         const CommandBufferAccessScopeDesc<B>& beginInfo);
     CommandBufferAccessScope(const CommandBufferAccessScope& other);
-    CommandBufferAccessScope(CommandBufferAccessScope&& other);
+    CommandBufferAccessScope(CommandBufferAccessScope&& other) noexcept;
     ~CommandBufferAccessScope();
 
-    CommandBufferAccessScope<B>& operator=(const CommandBufferAccessScope<B>& other);
-    CommandBufferAccessScope<B>& operator=(CommandBufferAccessScope<B>&& other);
+    CommandBufferAccessScope<B>& operator=(CommandBufferAccessScope<B> other);
     operator auto() const { return (*myArray)[myIndex]; }
+
+    void swap(CommandBufferAccessScope<B>& rhs) noexcept;
+    friend void swap(CommandBufferAccessScope<B>& lhs, CommandBufferAccessScope<B>& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
 
