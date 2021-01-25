@@ -25,7 +25,7 @@
 #endif
 
 #include <imgui.h>
-#include <examples/imgui_impl_glfw.h>
+#include <backends/imgui_impl_glfw.h>
 
 static MouseState g_mouse = { -1.0, -1.0, 0, 0, 0, false };
 static KeyboardState g_keyboard = { 0, 0, 0, 0 };

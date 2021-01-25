@@ -52,7 +52,7 @@
     .ProjectType = 'obj'
     .CompilerInputUnity = { }
 	.ConfigDependentCompilerOptions = { }
-    .UseConfigDependentInputPath = false
+    .ConfigDependentInputPaths = { }
 ]
 
 .LibraryCommon = 
@@ -168,11 +168,13 @@ function AddObjectList(.ObjectList .CompilerConfig)
             ^CompilerOptions + '$CompilerOption$/$ConfigName$/include'
         }
 
-        If (.UseConfigDependentInputPath)
+        .LocalConfigDependentInputPaths = {}
+        ForEach(.ConfigDependentInputPath in .ConfigDependentInputPaths)
         {
-            ^CompilerInputPath + '/$ConfigName$'
+            ^LocalConfigDependentInputPaths + '$ConfigDependentInputPath$/$ConfigName$'
         }
-
+        .CompilerInputPath + .LocalConfigDependentInputPaths
+        
         .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
     ]
 
@@ -217,11 +219,13 @@ function AddLibrary(.Library .CompilerConfig)
             ^CompilerOptions + '$CompilerOption$/$ConfigName$/include'
         }
 
-        If (.UseConfigDependentInputPath)
+        .LocalConfigDependentInputPaths = {}
+        ForEach(.ConfigDependentInputPath in .ConfigDependentInputPaths)
         {
-            ^CompilerInputPath + '/$ConfigName$'
+            ^LocalConfigDependentInputPaths + '$ConfigDependentInputPath$/$ConfigName$'
         }
-
+        .CompilerInputPath + .LocalConfigDependentInputPaths
+        
         .CompilerOutputPath = '$IntermediateDirectory$/$Name$/$ConfigName$'
 
         .LibrarianOutput = '$OutputDirectory$/$ConfigName$/$OutputFilePrefix$$Name$$OutputFileSuffix$'

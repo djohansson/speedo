@@ -18,7 +18,7 @@
 #include <GLFW/glfw3.h>
 
 #include <imgui.h>
-#include <examples/imgui_impl_vulkan.h>
+#include <backends/imgui_impl_vulkan.h>
 
 template <>
 void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)

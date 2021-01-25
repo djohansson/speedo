@@ -3,7 +3,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#include "external/imgui/examples/imgui_impl_win32.h"
+#include <backends/imgui_impl_win32.h>
 IMGUI_IMPL_API LRESULT  ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 #endif
 
@@ -409,10 +409,3 @@ GUI::~GUI()
 }
 
 } // gfx
-
-#include <imgui.cpp>
-#include <imgui_draw.cpp>
-#include <imgui_widgets.cpp>
-#ifdef _WIN32
-#include <examples/imgui_impl_win32.cpp>
-#endif

@@ -11,8 +11,8 @@
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
-#include <examples/imgui_impl_glfw.h>
-#include <examples/imgui_impl_vulkan.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
 
 #include <imnodes.h>
 

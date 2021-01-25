@@ -277,8 +277,7 @@
 			' -I$IntermediateFilePath$/gl3w-generate',
 		}
 		.CompilerInputPattern = '*.c'
-		.CompilerInputPath = '$IntermediateFilePath$/gl3w-generate'
-		.UseConfigDependentInputPath = true
+		.ConfigDependentInputPaths + '$IntermediateFilePath$/gl3w-generate'
 	]
 
 	.GlTFSDKGenerateTask =
@@ -311,7 +310,6 @@
 			' -I$IntermediateFilePath$/glTF-SDK-generate',
 		}
 		.CompilerInputPath = '$ProjectBasePath$/Source'
-		.UseConfigDependentInputPath = true
 	]
 
 	.TracyClientObjectList =
@@ -896,20 +894,20 @@
 			' -I$IntermediateFilePath$/gl3w-generate',
 		}
 		.CompilerInputFiles = {
-			'$ProjectBasePath$/examples/imgui_impl_opengl3.cpp',
-			'$ProjectBasePath$/examples/imgui_impl_glfw.cpp',
-			'$ProjectBasePath$/examples/imgui_impl_vulkan.cpp'
+			'$ProjectBasePath$/backends/imgui_impl_opengl3.cpp',
+			'$ProjectBasePath$/backends/imgui_impl_glfw.cpp',
+			'$ProjectBasePath$/backends/imgui_impl_vulkan.cpp'
+			'$ProjectBasePath$/backends/imgui_impl_win32.cpp'
 		}
 		.CompilerInputUnity = '$Name$-unity'
-		.UnityInputFiles = {
-			'$ProjectBasePath$/imgui.cpp'
-			'$ProjectBasePath$/imgui_demo.cpp'
-			'$ProjectBasePath$/imgui_draw.cpp'
-			'$ProjectBasePath$/imgui_widgets.cpp'
-			'$ProjectBasePath$/misc/cpp/imgui_stdlib.cpp'
-			'$ProjectBasePath$/misc/freetype/imgui_freetype.cpp'
-			'$BuildRootPath$/external/imnodes/imnodes.cpp'
+		.UnityInputPath = {
+			'$ProjectBasePath$'
+			'$ProjectBasePath$/misc'
+			'$ProjectBasePath$/misc/cpp'
+			'$ProjectBasePath$/misc/freetype'
+			'$BuildRootPath$/external/imnodes'
 		}
+		.UnityInputPathRecurse = false
 
 		.UnityOutputPath = '$IntermediateFilePath$/external/imgui'
 		.UnityOutputPattern = 'imgui-unity*.cpp'
@@ -973,11 +971,19 @@
 		}
 		.DLLLinkerOptions = .LinkerOptionsCpp 
 			+ ' -shared'
+			+ ' -L$VulkanSDKPath$/lib'
 	#if __WINDOWS__
 		.DependencyObjectLists + .GfxObjectList
+		.DependencyLibraries = {
+			.Gl3wLibrary,
+			.GlfwLibrary,
+			.ImguiLibrary,
+			.Freetype2Library,
+		}
 		.DLLLinkerOptions + ' -lshell32'
 			+ ' -lgdi32'
 			+ ' -ladvapi32'
+			+ ' -lvulkan-1'
 		.LinkerType = 'msvc'
 	#endif //__WINDOWS__
 	]
