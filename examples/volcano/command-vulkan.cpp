@@ -288,9 +288,9 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferListType&& commands, uint
 }
 
 template <>
-QueueSubmitInfo<Vk> CommandContext<Vk>::flush(QueueSyncInfo<Vk>&& syncInfo)
+QueueSubmitInfo<Vk> CommandContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncInfo)
 {
-    ZoneScopedN("CommandContext::flush");
+    ZoneScopedN("CommandContext::prepareSubmit");
 
     internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 

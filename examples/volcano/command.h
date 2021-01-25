@@ -146,7 +146,7 @@ public:
     CommandBufferAccessScope<B> commands(const CommandBufferAccessScopeDesc<B>& beginInfo = {});
     
     uint64_t execute(CommandContext<B>& callee);
-    QueueSubmitInfo<B> flush(QueueSyncInfo<B>&& syncInfo);
+    QueueSubmitInfo<B> prepareSubmit(QueueSyncInfo<B>&& syncInfo);
 
     // these will be complete when the timeline value is reached of the command buffer they are submitted in.
     // useful for ensuring that dependencies are respected when releasing resources. do not remove.

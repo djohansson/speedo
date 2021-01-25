@@ -267,17 +267,14 @@ Application<Vk>::Application(
             {"TransferQueue"},
             myDevice->getTransferQueue()});
 
-    // create window and render targets
-    {
-        myWindow = std::make_shared<WindowContext<Vk>>(
-            myDevice,    
-            WindowCreateDesc<Vk>{
-                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-                {3, 2}});
+    myWindow = std::make_shared<WindowContext<Vk>>(
+        myDevice,    
+        WindowCreateDesc<Vk>{
+            {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+            {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+            {3, 2}});
 
-        createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
-    }
+    createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
     // load shaders, set pipeline layout
     // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
@@ -316,7 +313,7 @@ Application<Vk>::Application(
         cmd.end();
 
         myGraphicsQueue->enqueueSubmit(
-            commandContext->flush({
+            commandContext->prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
@@ -348,7 +345,7 @@ Application<Vk>::Application(
                 openFilePath));
 
         myTransferQueue->enqueueSubmit(
-            myTransferCommands->flush({
+            myTransferCommands->prepareSubmit({
                 {},
                 {},
                 {},
@@ -372,7 +369,7 @@ Application<Vk>::Application(
             VK_IMAGE_ASPECT_COLOR_BIT);
 
         myTransferQueue->enqueueSubmit(
-            myTransferCommands->flush({
+            myTransferCommands->prepareSubmit({
                 {},
                 {},
                 {},
@@ -390,6 +387,20 @@ Application<Vk>::Application(
         myGraphicsPipeline->resources().image->transition(
             cmd,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        cmd.end();
+
+        myGraphicsQueue->enqueueSubmit(
+            commandContext->prepareSubmit({
+                {myDevice->getTimelineSemaphore()},
+                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                {myDevice->getTimelineSemaphore()},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastFrameTimelineValue = myGraphicsQueue->submit();
+
+        ///////////
 
         static glm::vec4 materialColor(1.0, 0.0, 0.0, 1.0);
         myGraphicsPipeline->setDescriptorData(
@@ -442,18 +453,6 @@ Application<Vk>::Application(
             VK_DESCRIPTOR_TYPE_SAMPLER,
             DescriptorSetCategory_Object,
             "g_object.sampler");
-
-        cmd.end();
-
-        myGraphicsQueue->enqueueSubmit(
-            commandContext->flush({
-                {myDevice->getTimelineSemaphore()},
-                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
-                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
-                {myDevice->getTimelineSemaphore()},
-                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-        myLastFrameTimelineValue = myGraphicsQueue->submit();
 
         return 1;
     };
@@ -960,7 +959,7 @@ bool Application<Vk>::draw()
         auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();
         
         myGraphicsQueue->enqueueSubmit(
-            commandContext->flush({
+            commandContext->prepareSubmit({
                 {myDevice->getTimelineSemaphore(), imageAquired},
                 {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
@@ -1011,7 +1010,7 @@ bool Application<Vk>::draw()
         if (transferCount)
         {
             myTransferQueue->enqueueSubmit(
-                myTransferCommands->flush({
+                myTransferCommands->prepareSubmit({
                     {myDevice->getTimelineSemaphore()},
                     {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
                     {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
