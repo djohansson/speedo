@@ -94,7 +94,7 @@ public:
     friend void swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
-    constexpr size_t getSize() const { return myDescriptorSets.size(); }
+    static constexpr auto capacity() { return kDescriptorSetCount; }
 
 private:
 

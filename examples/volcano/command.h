@@ -24,7 +24,7 @@ template <GraphicsBackend B>
 class CommandBufferArray : public DeviceResource<B>
 {
     static constexpr uint32_t kHeadBitCount = 2;
-    static constexpr uint32_t kCommandBufferCount = (1 << kHeadBitCount);
+    static constexpr size_t kCommandBufferCount = (1 << kHeadBitCount);
 
 public:
 
@@ -41,6 +41,7 @@ public:
     friend void swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
+    static constexpr auto capacity() { return kCommandBufferCount; }
 
     uint8_t begin(const CommandBufferBeginInfo<B>& beginInfo);
     void end(uint8_t index);
@@ -54,7 +55,6 @@ public:
     uint8_t recordingFlags() const { return myBits.recordingFlags; }
     
     bool full() const { return (head() + 1) >= capacity(); }
-    static constexpr auto capacity() { return kCommandBufferCount; }
     
     CommandBufferHandle<B>& operator[](uint8_t index) { return myArray[index]; }
     const CommandBufferHandle<B>& operator[](uint8_t index) const { return myArray[index]; }

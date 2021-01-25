@@ -61,7 +61,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexce
 : DeviceResource<Vk>(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myKey(std::exchange(other.myKey, 0))
-, myLayout(std::move(other.myLayout))
+, myLayout(std::exchange(other.myLayout, {}))
 {
     std::get<0>(other.myLayout) = {};
 }
@@ -129,9 +129,7 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&
     DeviceResource<Vk>::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myKey = std::exchange(other.myKey, 0);
-    std::get<0>(myLayout) = std::exchange(std::get<0>(other.myLayout), {});
-    std::get<1>(myLayout) = std::exchange(std::get<1>(other.myLayout), {});
-    std::get<2>(myLayout) = std::exchange(std::get<2>(other.myLayout), {});
+    myLayout = std::exchange(other.myLayout, {});
 	return *this;
 }
 

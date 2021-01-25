@@ -540,8 +540,10 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    const auto& [bindingsTuple, setArrays] = myDescriptorMap.at(setLayout.getKey());
+    const auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
     const auto& [bindingsMap, isDirty] = bindingsTuple;
+
+    assert(!setArrayListOptional.has_value());
 
     if (!bindingsMap.empty())
     {
@@ -637,35 +639,32 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsTuple, setArraysOptional] = myDescriptorMap.at(setLayout.getKey());
+    auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
     auto& [bindingsMap, isDirty] = bindingsTuple;
 
-    assert(setArraysOptional.has_value());
+    assert(setArrayListOptional.has_value());
 
     if (!bindingsMap.empty() && isDirty)
     {
-        auto& setArrays = setArraysOptional.value();
+        auto& setArrayList = setArrayListOptional.value();
 
-        bool setArraysIsEmpty = setArrays.empty();
-        // bool frontArrayIsFull = setArraysIsEmpty ?
+        bool setArrayListIsEmpty = setArrayList.empty();
+        // bool frontArrayIsFull = setArrayListIsEmpty ?
         //     false :
-        //     std::get<1>(setArrays.front()) == (DescriptorSetArray<Vk>::kDescriptorSetCount - 1);
-
-        // todo: this recycling strategy will not work
-        //       - implement some sort of frame reference counting
+        //     std::get<1>(setArrayList.front()) == (DescriptorSetArray<Vk>::kDescriptorSetCount - 1);
         // if (frontArrayIsFull)
         // {
         //     getDeviceContext()->addTimelineCallback(
-        //         [this, setLayoutKey = setLayout.getKey(), setArrayIt = setArrays.begin()](uint64_t){
-        //             auto& [bindingsMap, setArraysOptional] = myDescriptorMap.at(setLayoutKey);
-        //             auto& setArrays = setArraysOptional.value();
-        //             setArrays.erase(setArrayIt);
+        //         [this, setLayoutKey = setLayout.getKey(), setArrayIt = setArrayList.begin()](uint64_t){
+        //             auto& [bindingsMap, setArrayListOptional] = myDescriptorMap.at(setLayoutKey);
+        //             auto& setArrayList = setArrayListOptional.value();
+        //             setArrayList.erase(setArrayIt);
         //         });
         // }
 
-        if (setArraysIsEmpty/* || frontArrayIsFull*/)
+        if (setArrayListIsEmpty/* || frontArrayIsFull*/)
         {
-            setArrays.emplace_front(
+            setArrayList.emplace_front(
                 std::make_tuple(
                     DescriptorSetArray<Vk>(
                         getDeviceContext(),
@@ -676,8 +675,9 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                     0));
         }
 
-        const auto& setArray = setArrays.front();
-        const auto& descriptorSetHandle = std::get<0>(setArray)[std::get<1>(setArray)];
+        auto& [setArray, setIndex] = setArrayList.front();
+        setIndex = (setIndex + 1) % setArray.capacity();
+        auto handle = setArray[setIndex];
         
         std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
         descriptorWrites.reserve(bindingsMap.size());
@@ -690,12 +690,12 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
             const auto& variantVector = std::get<1>(binding);
 
             descriptorWrites.emplace_back(std::visit(std::overloaded{
-                [descriptorSetHandle, bindingType, bindingIndex](
+                [handle, bindingType, bindingIndex](
                     const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                         return WriteDescriptorSet<Vk>{
                             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                             nullptr,
-                            descriptorSetHandle,
+                            handle,
                             bindingIndex,
                             0,
                             static_cast<uint32_t>(bufferInfos.size()),
@@ -704,12 +704,12 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                             bufferInfos.data(),
                             nullptr};
                 },
-                [descriptorSetHandle, bindingType, bindingIndex](
+                [handle, bindingType, bindingIndex](
                     const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
                         return WriteDescriptorSet<Vk>{
                             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                             nullptr,
-                            descriptorSetHandle,
+                            handle,
                             bindingIndex,
                             0,
                             static_cast<uint32_t>(imageInfos.size()),
@@ -718,12 +718,12 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                             nullptr,
                             nullptr};
                 },
-                [descriptorSetHandle, bindingType, bindingIndex](
+                [handle, bindingType, bindingIndex](
                     const std::vector<BufferViewHandle<Vk>>& bufferViews){
                         return WriteDescriptorSet<Vk>{
                             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                             nullptr,
-                            descriptorSetHandle,
+                            handle,
                             bindingIndex,
                             0,
                             static_cast<uint32_t>(bufferViews.size()),
@@ -732,13 +732,13 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                             nullptr,
                             bufferViews.data()};
                 },
-                [descriptorSetHandle, bindingType, bindingIndex](
+                [handle, bindingType, bindingIndex](
                     const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
                         assert(parameterBlocks.size() == 1);
                         return WriteDescriptorSet<Vk>{
                             VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                             parameterBlocks.data(),
-                            descriptorSetHandle,
+                            handle,
                             bindingIndex,
                             0,
                             parameterBlocks[0].dataSize,
@@ -749,8 +749,6 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                 },
             }, variantVector));
         }
-
-        // todo: increment active set to avoid writing to in-flight set.
 
         vkUpdateDescriptorSets(
             getDeviceContext()->getDevice(),
@@ -775,14 +773,14 @@ void PipelineContext<Vk>::bindDescriptorSet(
     if (const auto setLayoutIt = setLayouts.find(set); setLayoutIt != setLayouts.cend())
     {
         const auto& [setLayoutKey, setLayout] = *setLayoutIt;
-        const auto& [bindingsTuple, setArraysOptional] = myDescriptorMap.at(setLayout.getKey());
+        const auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
 
-        if (setArraysOptional.has_value())
+        if (setArrayListOptional.has_value())
         {
             internalWriteDescriptorSet(set);
 
-            const auto& setArray = setArraysOptional.value().front();
-            const auto& descriptorSetHandle = std::get<0>(setArray)[std::get<1>(setArray)];
+            const auto& [setArray, setIndex] = setArrayListOptional.value().front();
+            const auto& handle = setArray[setIndex];
 
             vkCmdBindDescriptorSets(
                 cmd,
@@ -790,7 +788,7 @@ void PipelineContext<Vk>::bindDescriptorSet(
                 layout,
                 set,
                 1,
-                &descriptorSetHandle,
+                &handle,
                 bufferOffset ? 1 : 0,
                 bufferOffset ? &bufferOffset.value() : nullptr);
         }
