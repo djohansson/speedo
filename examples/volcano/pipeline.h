@@ -94,7 +94,8 @@ class PipelineContext : public DeviceResource<B>
     using DescriptorSetArrayListType = std::list<
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
-            uint8_t>>; // current array index
+            uint8_t, // current array index
+            CopyableAtomic<uint32_t>>>; // reference count
     using DescriptorMapType = UnorderedMapType<
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
         std::tuple<

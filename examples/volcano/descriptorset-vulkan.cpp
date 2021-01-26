@@ -63,7 +63,6 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexce
 , myKey(std::exchange(other.myKey, 0))
 , myLayout(std::exchange(other.myLayout, {}))
 {
-    std::get<0>(other.myLayout) = {};
 }
 
 template <>

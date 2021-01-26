@@ -644,25 +644,16 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
 
     assert(setArrayListOptional.has_value());
 
+    auto& setArrayList = setArrayListOptional.value();
+
     if (!bindingsMap.empty() && isDirty)
     {
-        auto& setArrayList = setArrayListOptional.value();
-
         bool setArrayListIsEmpty = setArrayList.empty();
-        // bool frontArrayIsFull = setArrayListIsEmpty ?
-        //     false :
-        //     std::get<1>(setArrayList.front()) == (DescriptorSetArray<Vk>::kDescriptorSetCount - 1);
-        // if (frontArrayIsFull)
-        // {
-        //     getDeviceContext()->addTimelineCallback(
-        //         [this, setLayoutKey = setLayout.getKey(), setArrayIt = setArrayList.begin()](uint64_t){
-        //             auto& [bindingsMap, setArrayListOptional] = myDescriptorMap.at(setLayoutKey);
-        //             auto& setArrayList = setArrayListOptional.value();
-        //             setArrayList.erase(setArrayIt);
-        //         });
-        // }
+        bool frontArrayIsFull = setArrayListIsEmpty ?
+            false :
+            std::get<1>(setArrayList.front()) == (std::get<0>(setArrayList.front()).capacity() - 1);
 
-        if (setArrayListIsEmpty/* || frontArrayIsFull*/)
+        if (setArrayListIsEmpty || frontArrayIsFull)
         {
             setArrayList.emplace_front(
                 std::make_tuple(
@@ -672,12 +663,12 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                         DescriptorSetArrayCreateDesc<Vk>{
                             {"DescriptorSetArray"},
                             myDescriptorPool}),
+                    0,
                     0));
         }
 
-        auto& [setArray, setIndex] = setArrayList.front();
-        setIndex = (setIndex + 1) % setArray.capacity();
-        auto handle = setArray[setIndex];
+        auto& [setArray, setIndex, setRefCount] = setArrayList.front();
+        auto handle = setArray[setIndex++];
         
         std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
         descriptorWrites.reserve(bindingsMap.size());
@@ -759,6 +750,18 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
 
         isDirty = false;
     }
+    else
+    {
+        auto setArrayIt = setArrayList.begin();
+        while (setArrayIt != setArrayList.end())
+        {
+            auto& [setArray, setIndex, setRefCount] = *setArrayIt;
+            if (!setRefCount)
+                setArrayIt = setArrayList.erase(setArrayIt);
+            else
+                setArrayIt++;
+        }
+    }
 }
 
 template <>
@@ -773,14 +776,14 @@ void PipelineContext<Vk>::bindDescriptorSet(
     if (const auto setLayoutIt = setLayouts.find(set); setLayoutIt != setLayouts.cend())
     {
         const auto& [setLayoutKey, setLayout] = *setLayoutIt;
-        const auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
+        auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
 
         if (setArrayListOptional.has_value())
         {
             internalWriteDescriptorSet(set);
 
-            const auto& [setArray, setIndex] = setArrayListOptional.value().front();
-            const auto& handle = setArray[setIndex];
+            auto& [setArray, setIndex, setRefCount] = setArrayListOptional.value().front();
+            auto handle = setArray[setIndex];
 
             vkCmdBindDescriptorSets(
                 cmd,
@@ -791,6 +794,10 @@ void PipelineContext<Vk>::bindDescriptorSet(
                 &handle,
                 bufferOffset ? 1 : 0,
                 bufferOffset ? &bufferOffset.value() : nullptr);
+
+            setRefCount++;
+
+            getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) { (*refCountPtr)--; });
         }
         else
         {

@@ -355,33 +355,33 @@
 			' -I$IntermediateFilePath$/gl3w-generate',
 		}
 		.CompilerInputFiles = {
-			'$ProjectBasePath$/server/TracyMicroArchitecture.cpp'
+			'$ProjectBasePath$/server/TracyMicroArchitecture.cpp',
 		}
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputFiles = {
-			'$ProjectBasePath$/common/TracySocket.cpp'
-			'$ProjectBasePath$/common/TracySystem.cpp'
-			'$ProjectBasePath$/common/tracy_lz4.cpp'
-			'$ProjectBasePath$/common/tracy_lz4hc.cpp'
-			'$ProjectBasePath$/server/TracyBadVersion.cpp'
-			'$ProjectBasePath$/server/TracyColor.cpp'
-			'$ProjectBasePath$/server/TracyFilesystem.cpp'
-			'$ProjectBasePath$/server/TracyMemory.cpp'
-			'$ProjectBasePath$/server/TracyMmap.cpp'
-			'$ProjectBasePath$/server/TracyPrint.cpp'
-			'$ProjectBasePath$/server/TracyStorage.cpp'
-			'$ProjectBasePath$/server/TracySourceView.cpp'
-			'$ProjectBasePath$/server/TracyTexture.cpp'
-			'$ProjectBasePath$/server/TracyTextureCompression.cpp'
-			'$ProjectBasePath$/server/TracyTaskDispatch.cpp'
-			'$ProjectBasePath$/server/TracyThreadCompress.cpp'
-			'$ProjectBasePath$/server/TracyUserData.cpp'
-			'$ProjectBasePath$/server/TracyView.cpp'
-			'$ProjectBasePath$/server/TracyWorker.cpp'
-			'$ProjectBasePath$/profiler/src/main.cpp'
-			'$ProjectBasePath$/profiler/src/ResolvService.cpp'
-			'$ProjectBasePath$/profiler/src/winmain.cpp'
-			'$ProjectBasePath$/profiler/src/winmainarchdiscovery.cpp'
+			'$ProjectBasePath$/common/TracySocket.cpp',
+			'$ProjectBasePath$/common/TracySystem.cpp',
+			'$ProjectBasePath$/common/tracy_lz4.cpp',
+			'$ProjectBasePath$/common/tracy_lz4hc.cpp',
+			'$ProjectBasePath$/server/TracyBadVersion.cpp',
+			'$ProjectBasePath$/server/TracyColor.cpp',
+			'$ProjectBasePath$/server/TracyFilesystem.cpp',
+			'$ProjectBasePath$/server/TracyMemory.cpp',
+			'$ProjectBasePath$/server/TracyMmap.cpp',
+			'$ProjectBasePath$/server/TracyPrint.cpp',
+			'$ProjectBasePath$/server/TracyStorage.cpp',
+			'$ProjectBasePath$/server/TracySourceView.cpp',
+			'$ProjectBasePath$/server/TracyTexture.cpp',
+			'$ProjectBasePath$/server/TracyTextureCompression.cpp',
+			'$ProjectBasePath$/server/TracyTaskDispatch.cpp',
+			'$ProjectBasePath$/server/TracyThreadCompress.cpp',
+			'$ProjectBasePath$/server/TracyUserData.cpp',
+			'$ProjectBasePath$/server/TracyView.cpp',
+			'$ProjectBasePath$/server/TracyWorker.cpp',
+			'$ProjectBasePath$/profiler/src/main.cpp',
+			'$ProjectBasePath$/profiler/src/ResolvService.cpp',
+			'$ProjectBasePath$/profiler/src/winmain.cpp',
+			'$ProjectBasePath$/profiler/src/winmainarchdiscovery.cpp',
 		}
 		.UnityOutputPath + '/external/tracy'
 		.UnityOutputPattern = 'tracy-unity*.cpp'
@@ -896,16 +896,18 @@
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/backends/imgui_impl_opengl3.cpp',
 			'$ProjectBasePath$/backends/imgui_impl_glfw.cpp',
-			'$ProjectBasePath$/backends/imgui_impl_vulkan.cpp'
-			'$ProjectBasePath$/backends/imgui_impl_win32.cpp'
+			'$ProjectBasePath$/backends/imgui_impl_vulkan.cpp',
+		#if __WINDOWS__
+			'$ProjectBasePath$/backends/imgui_impl_win32.cpp',
+		#endif
 		}
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputPath = {
-			'$ProjectBasePath$'
-			'$ProjectBasePath$/misc'
-			'$ProjectBasePath$/misc/cpp'
-			'$ProjectBasePath$/misc/freetype'
-			'$BuildRootPath$/external/imnodes'
+			'$ProjectBasePath$',
+			'$ProjectBasePath$/misc',
+			'$ProjectBasePath$/misc/cpp',
+			'$ProjectBasePath$/misc/freetype',
+			'$BuildRootPath$/external/imnodes',
 		}
 		.UnityInputPathRecurse = false
 
@@ -954,8 +956,8 @@
 			+ ' -I$ProjectBasePath$/include'
 		.CompilerInputPathRecurse = false
 		.CompilerInputPath = {
-			'$ProjectBasePath$'
-			'$ProjectBasePath$/arch'
+			'$ProjectBasePath$',
+			'$ProjectBasePath$/arch',
 		}
 		.CompilerInputPattern = '*.c'
 	]
