@@ -897,10 +897,12 @@
 			'$ProjectBasePath$/backends/imgui_impl_opengl3.cpp',
 			'$ProjectBasePath$/backends/imgui_impl_glfw.cpp',
 			'$ProjectBasePath$/backends/imgui_impl_vulkan.cpp',
-		#if __WINDOWS__
-			'$ProjectBasePath$/backends/imgui_impl_win32.cpp',
-		#endif
 		}
+	#if __WINDOWS__
+		.CompilerInputFiles + {
+			'$ProjectBasePath$/backends/imgui_impl_win32.cpp',
+		}
+	#endif
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputPath = {
 			'$ProjectBasePath$',
