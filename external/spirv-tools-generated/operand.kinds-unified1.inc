@@ -110,6 +110,7 @@ static const SpvCapability pygen_variable_caps_VariablePointersStorageBuffer[] =
 static const SpvCapability pygen_variable_caps_VectorAnyINTEL[] = {SpvCapabilityVectorAnyINTEL};
 static const SpvCapability pygen_variable_caps_VectorComputeINTEL[] = {SpvCapabilityVectorComputeINTEL};
 static const SpvCapability pygen_variable_caps_VulkanMemoryModel[] = {SpvCapabilityVulkanMemoryModel};
+static const SpvCapability pygen_variable_caps_WorkgroupMemoryExplicitLayoutKHR[] = {SpvCapabilityWorkgroupMemoryExplicitLayoutKHR};
 
 static const spvtools::Extension pygen_variable_exts_SPV_AMD_gpu_shader_half_float_fetch[] = {spvtools::Extension::kSPV_AMD_gpu_shader_half_float_fetch};
 static const spvtools::Extension pygen_variable_exts_SPV_AMD_shader_ballot[] = {spvtools::Extension::kSPV_AMD_shader_ballot};
@@ -174,6 +175,7 @@ static const spvtools::Extension pygen_variable_exts_SPV_KHR_storage_buffer_stor
 static const spvtools::Extension pygen_variable_exts_SPV_KHR_subgroup_vote[] = {spvtools::Extension::kSPV_KHR_subgroup_vote};
 static const spvtools::Extension pygen_variable_exts_SPV_KHR_variable_pointers[] = {spvtools::Extension::kSPV_KHR_variable_pointers};
 static const spvtools::Extension pygen_variable_exts_SPV_KHR_vulkan_memory_model[] = {spvtools::Extension::kSPV_KHR_vulkan_memory_model};
+static const spvtools::Extension pygen_variable_exts_SPV_KHR_workgroup_memory_explicit_layout[] = {spvtools::Extension::kSPV_KHR_workgroup_memory_explicit_layout};
 static const spvtools::Extension pygen_variable_exts_SPV_NVX_multiview_per_view_attributes[] = {spvtools::Extension::kSPV_NVX_multiview_per_view_attributes};
 static const spvtools::Extension pygen_variable_exts_SPV_NVX_multiview_per_view_attributesSPV_NV_mesh_shader[] = {spvtools::Extension::kSPV_NVX_multiview_per_view_attributes, spvtools::Extension::kSPV_NV_mesh_shader};
 static const spvtools::Extension pygen_variable_exts_SPV_NV_compute_shader_derivatives[] = {spvtools::Extension::kSPV_NV_compute_shader_derivatives};
@@ -947,6 +949,9 @@ static const spv_operand_desc_t pygen_variable_CapabilityEntries[] = {
   {"FragmentShadingRateKHR", 4422, 1, pygen_variable_caps_Shader, 1, pygen_variable_exts_SPV_KHR_fragment_shading_rate, {}, 0xffffffffu, 0xffffffffu},
   {"SubgroupBallotKHR", 4423, 0, nullptr, 1, pygen_variable_exts_SPV_KHR_shader_ballot, {}, 0xffffffffu, 0xffffffffu},
   {"DrawParameters", 4427, 1, pygen_variable_caps_Shader, 1, pygen_variable_exts_SPV_KHR_shader_draw_parameters, {}, SPV_SPIRV_VERSION_WORD(1,3), 0xffffffffu},
+  {"WorkgroupMemoryExplicitLayoutKHR", 4428, 1, pygen_variable_caps_Shader, 1, pygen_variable_exts_SPV_KHR_workgroup_memory_explicit_layout, {}, 0xffffffffu, 0xffffffffu},
+  {"WorkgroupMemoryExplicitLayout8BitAccessKHR", 4429, 1, pygen_variable_caps_WorkgroupMemoryExplicitLayoutKHR, 1, pygen_variable_exts_SPV_KHR_workgroup_memory_explicit_layout, {}, 0xffffffffu, 0xffffffffu},
+  {"WorkgroupMemoryExplicitLayout16BitAccessKHR", 4430, 1, pygen_variable_caps_Shader, 1, pygen_variable_exts_SPV_KHR_workgroup_memory_explicit_layout, {}, 0xffffffffu, 0xffffffffu},
   {"SubgroupVoteKHR", 4431, 0, nullptr, 1, pygen_variable_exts_SPV_KHR_subgroup_vote, {}, 0xffffffffu, 0xffffffffu},
   {"StorageBuffer16BitAccess", 4433, 0, nullptr, 1, pygen_variable_exts_SPV_KHR_16bit_storage, {}, SPV_SPIRV_VERSION_WORD(1,3), 0xffffffffu},
   {"StorageUniformBufferBlock16", 4433, 0, nullptr, 1, pygen_variable_exts_SPV_KHR_16bit_storage, {}, SPV_SPIRV_VERSION_WORD(1,3), 0xffffffffu},
