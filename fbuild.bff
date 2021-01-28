@@ -179,6 +179,11 @@
 			+ ' -Wno-unused-function'
 			+ ' -Wno-invalid-offsetof'
 			+ ' -Wno-unknown-escape-sequence'
+			+ ' -Wno-logical-op-parentheses'
+			+ ' -Wno-tautological-constant-out-of-range-compare'
+			+ ' -Wno-deprecated-enum-enum-conversion'
+			+ ' -Wno-microsoft-exception-spec'
+			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -DSLANG_DYNAMIC_EXPORT'
 		.ConfigDependentCompilerOptions = {
 			' -I$IntermediateFilePath$/slang-generate',
@@ -206,6 +211,7 @@
 			+ ' -I$BuildRootPath$/tools'
 			+ ' -I$BuildRootPath$/external/imgui'
 			+ ' -I$VulkanSDKPath$/include'
+			+ ' -Wno-unused-variable'
 			+ ' -Wno-unused-local-typedef'
 			+ ' -Wno-int-to-pointer-cast'
 			+ ' -Wno-macro-redefined'
@@ -345,6 +351,14 @@
 			+ ' -I$BuildRootPath$/external/stb'
 			+ ' -I$BuildRootPath$/external/xxhash'
 			+ ' -I$BuildRootPath$/external/zstd/lib'
+			+ ' -Wno-logical-op-parentheses'
+			+ ' -Wno-deprecated-anon-enum-enum-conversion'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-deprecated-enum-float-conversion'
+			+ ' -Wno-unused-private-field'
+			+ ' -Wno-missing-braces'
+			+ ' -Wno-reorder-ctor'
+			+ ' -Wno-parentheses'
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
@@ -567,6 +581,7 @@
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$BuildRootPath$/external/glslang'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
+				+ ' -Wno-unused-local-typedef'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -637,6 +652,7 @@
 			+ ' -I$BuildRootPath$/external/tracy'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
+			+ ' -Wno-ambiguous-reversed-operator'
 			//+ ' -DLZ4_DEBUG=5'
 		.CompilerInputPath = '$ProjectBasePath$'
 	//	.CompilerInputUnity = '$Name$-unity'
@@ -772,6 +788,7 @@
 
 		.Name = 'xxhash'
 		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -Wno-unused-function'
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/xxhash.c',
 		}

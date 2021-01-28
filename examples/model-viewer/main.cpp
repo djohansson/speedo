@@ -1174,7 +1174,7 @@ public:
         Effect* inEffect)
     {
         // Bail out if nothing is changing.
-        if( inEffect == effect )
+        if( inEffect == effect.Ptr() )
             return;
 
         effect = inEffect;
@@ -1192,7 +1192,7 @@ public:
         ParameterBlock* parameterBlock)
     {
         // Bail out if nothing is changing.
-        if(parameterBlock == parameterBlocks[index])
+        if(parameterBlock == parameterBlocks[index].Ptr())
             return;
 
         parameterBlocks[index] = parameterBlock;

@@ -45,7 +45,7 @@ void IRTypeSet::_clearTypes()
     for (auto type : types)
     {
         // We need to destroy references to instructions in other modules
-        if (type->getModule() == m_module)
+        if (type->getModule() == m_module.Ptr())
         {
             // We want to remove arguments because an argument *could* be an instruction in another module,
             // and we don't want to those modules insts to have uses, in this module which is being destroyed
@@ -72,7 +72,7 @@ IRInst* IRTypeSet::cloneInst(IRInst* inst)
     SLANG_ASSERT(module);
 
     // If it's in this module then we don't need to clone
-    if (module == m_module)
+    if (module == m_module.Ptr())
     {
         return inst;
     }
@@ -192,7 +192,7 @@ IRInst* IRTypeSet::cloneInst(IRInst* inst)
 
 IRType* IRTypeSet::add(IRType* irType)
 {
-    if (irType->getModule() == m_module)
+    if (irType->getModule() == m_module.Ptr())
     {
         return irType;
     }

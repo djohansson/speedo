@@ -164,7 +164,7 @@ void PrintInfo(const std::filesystem::path& path)
     // If the file has a '.gltf' extension then create a GLTFResourceReader
     if (pathFileExt == MakePathExt(GLTF_EXTENSION))
     {
-        auto gltfStream = streamReader->GetInputStream(pathFile.u8string()); // Pass a UTF-8 encoded filename to GetInputString
+        auto gltfStream = streamReader->GetInputStream(pathFile.string()); // Pass a UTF-8 encoded filename to GetInputString
         auto gltfResourceReader = std::make_unique<GLTFResourceReader>(std::move(streamReader));
 
         std::stringstream manifestStream;
@@ -181,7 +181,7 @@ void PrintInfo(const std::filesystem::path& path)
     // JSON chunk and resource data from the binary chunk.
     if (pathFileExt == MakePathExt(GLB_EXTENSION))
     {
-        auto glbStream = streamReader->GetInputStream(pathFile.u8string()); // Pass a UTF-8 encoded filename to GetInputString
+        auto glbStream = streamReader->GetInputStream(pathFile.string()); // Pass a UTF-8 encoded filename to GetInputString
         auto glbResourceReader = std::make_unique<GLBResourceReader>(std::move(streamReader), std::move(glbStream));
 
         manifest = glbResourceReader->GetJson(); // Get the manifest from the JSON chunk
@@ -228,7 +228,7 @@ GlTFStreamReader::GlTFStreamReader(std::filesystem::path pathBase)
 
 std::shared_ptr<std::istream> GlTFStreamReader::GetInputStream(const std::string& filename) const
 {
-    auto streamPath = myPathBase / std::filesystem::u8path(filename);
+    auto streamPath = myPathBase / std::filesystem::path(filename);
     auto stream = std::make_shared<mio::mmap_istream>(streamPath.string());
 
     if (!stream || !(*stream))

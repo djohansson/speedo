@@ -66,7 +66,7 @@ public:
     IRInst* cloneInst(IRInst* inst);
 
         /// Returns true if the type belongs and is created on the module owned by the set
-    bool isOwned(IRType* type) { return type->getModule() == m_module; }
+    bool isOwned(IRType* type) { return type->getModule() == m_module.Ptr(); }
 
     IRBuilder& getBuilder() { return m_builder; }
     IRModule* getModule() const { return m_module; }

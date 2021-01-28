@@ -1717,7 +1717,7 @@ SlangResult CPPExtractor::parse(SourceFile* sourceFile, const Options* options)
             case TokenType::EndOfFile:
             {
                 // Okay we need to confirm that we are in the root node, and with no open braces
-                if (m_currentNode != m_rootNode)
+                if (m_currentNode != m_rootNode.Ptr())
                 {
                     m_sink->diagnose(m_reader.peekToken(), CPPDiagnostics::braceOpenAtEndOfFile);
                     return SLANG_FAIL;
@@ -1848,7 +1848,7 @@ SlangResult CPPExtractor::calcDerivedTypes()
         out.append(c);
     }
 
-    return out;
+    return out.ToString();
 }
 
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! CPPExtractorApp !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

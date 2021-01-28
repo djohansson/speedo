@@ -330,7 +330,7 @@ Application<Vk>::Application(
         const nfdchar_t* filterList,
         std::function<uint32_t(nfdchar_t*)>&& onCompletionCallback)
     {
-        std::string resourcePathStr = resourcePath.u8string();
+        auto resourcePathStr = resourcePath.string();
         nfdchar_t* openFilePath;
         return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
             openFilePath, std::move(onCompletionCallback));

@@ -20,7 +20,7 @@
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
-	.LLVMVersion = '11.0.0'
+	.LLVMVersion = '11.0.1'
 #endif // exists(LLVM_VERSION)
 #if exists(CLANG_PATH)
 #import CLANG_PATH
@@ -74,8 +74,8 @@
 		+ ' -D__linux__'
 		+ ' -fPIC'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c11'
-	.CompilerOptionsCpp = ' -std=c++17'
+	.CompilerOptionsC = ' -std=c2x'
+	.CompilerOptionsCpp = ' -std=c++20'
 #if !__WINDOWS__
 		+ ' -stdlib=libc++'
 #endif
