@@ -10,8 +10,7 @@ void PipelineContext<Vk>::setDescriptorData(
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsTuple, setArrays] = myDescriptorMap.at(setLayout.getKey());
-    auto& [bindingsMap, isDirty] = bindingsTuple;
+    auto& [bindingsMap, isDirty, setArrays] = myDescriptorMap.at(setLayout.getKey());
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
@@ -50,8 +49,7 @@ void PipelineContext<Vk>::setDescriptorData(
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsTuple, setArrays] = myDescriptorMap.at(setLayout.getKey());
-    auto& [bindingsMap, isDirty] = bindingsTuple;
+    auto& [bindingsMap, isDirty, setArrays] = myDescriptorMap.at(setLayout.getKey());
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
@@ -89,8 +87,7 @@ void PipelineContext<Vk>::setDescriptorData(
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsTuple, setArrays] = myDescriptorMap.at(setLayout.getKey());
-    auto& [bindingsMap, isDirty] = bindingsTuple;
+    auto& [bindingsMap, isDirty, setArrays] = myDescriptorMap.at(setLayout.getKey());
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);

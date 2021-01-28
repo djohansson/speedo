@@ -275,12 +275,12 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 template <>
 void PipelineContext<Vk>::internalResetSharedState()
 {
-    myShaderStages.clear();
-    myDescriptorMap.clear(); // perhaps not clear this?
-
     const auto& layout = *getLayout();
-
-    for (const auto& shader : layout.getShaderModules())
+    const auto& shaderModules = layout.getShaderModules();
+    
+    myShaderStages.clear();
+    myShaderStages.reserve(shaderModules.size());
+    for (const auto& shader : shaderModules)
         myShaderStages.emplace_back(
             PipelineShaderStageCreateInfo<Vk>{
                 VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -292,16 +292,14 @@ void PipelineContext<Vk>::internalResetSharedState()
                 nullptr});
 
     for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
-        myDescriptorMap.emplace(
-            std::make_pair(
-                setLayout.getKey(),
-                std::make_tuple(
-                    std::make_tuple(
-                        BindingsMapType{},
-                        false),
-                    setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
-                        std::make_optional(DescriptorSetArrayListType{}) :
-                        std::nullopt)));
+        myDescriptorMap.try_emplace(
+            setLayout.getKey(),
+            std::make_tuple(
+                BindingsMapType{},
+                false,
+                setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
+                    std::make_optional(DescriptorSetArrayListType{}) :
+                    std::nullopt));
 }
 
 template <>
@@ -492,15 +490,21 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 
     auto& pipelineHandle = insertResult.first->second;
 
-    while (!pipelineHandle.load(std::memory_order_relaxed)); //pipelineHandle.wait(nullptr); todo: c++20
+    while (!pipelineHandle.load(std::memory_order_relaxed)); // todo: c++20: pipelineHandle.wait(nullptr); 
     
     return pipelineHandle;
 }
 
 template <>
-void PipelineContext<Vk>::bindPipeline(CommandBufferHandle<Vk> cmd)
+void PipelineContext<Vk>::bindPipeline(CommandBufferHandle<Vk> cmd, PipelineHandle<Vk> handle)
 {
-    vkCmdBindPipeline(cmd, myBindPoint, internalGetPipeline());
+    vkCmdBindPipeline(cmd, myBindPoint, handle);
+}
+
+template <>
+void PipelineContext<Vk>::bindPipelineAuto(CommandBufferHandle<Vk> cmd)
+{
+    bindPipeline(cmd, internalGetPipeline());
 }
 
 template<>
@@ -536,34 +540,152 @@ void PipelineContext<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>
 }
 
 template <>
-void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd, uint32_t set) const
+void PipelineContext<Vk>::internalPushDescriptorSet(
+    CommandBufferHandle<Vk> cmd,
+    uint32_t set,
+    const BindingsMapType& bindingsMap) const
 {
-    const auto& layout = *getLayout();
-    const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    const auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
-    const auto& [bindingsMap, isDirty] = bindingsTuple;
+    if (bindingsMap.empty())
+        return;
 
-    assert(!setArrayListOptional.has_value());
+    std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
+    descriptorWrites.reserve(bindingsMap.size());
 
-    if (!bindingsMap.empty())
+    for (const auto& bindingPair : bindingsMap)
     {
-        std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-        descriptorWrites.reserve(bindingsMap.size());
+        auto bindingIndex = bindingPair.first;
+        const auto& binding = bindingPair.second;
+        auto bindingType = std::get<0>(binding);
+        const auto& variantVector = std::get<1>(binding);
 
-        for (const auto& bindingPair : bindingsMap)
-        {
-            auto bindingIndex = bindingPair.first;
-            const auto& binding = bindingPair.second;
-            auto bindingType = std::get<0>(binding);
-            const auto& variantVector = std::get<1>(binding);
+        descriptorWrites.emplace_back(std::visit(std::overloaded{
+            [bindingType, bindingIndex](
+            const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
+                return WriteDescriptorSet<Vk>{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    0,
+                    bindingIndex,
+                    0,
+                    static_cast<uint32_t>(bufferInfos.size()),
+                    bindingType,
+                    nullptr,
+                    bufferInfos.data(),
+                    nullptr};
+            },
+            [bindingType, bindingIndex](
+            const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
+                return WriteDescriptorSet<Vk>{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    0,
+                    bindingIndex,
+                    0,
+                    static_cast<uint32_t>(imageInfos.size()),
+                    bindingType,
+                    imageInfos.data(),
+                    nullptr,
+                    nullptr};
+            },
+            [bindingType, bindingIndex](
+            const std::vector<BufferViewHandle<Vk>>& bufferViews){
+                return WriteDescriptorSet<Vk>{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    0,
+                    bindingIndex,
+                    0,
+                    static_cast<uint32_t>(bufferViews.size()),
+                    bindingType,
+                    nullptr,
+                    nullptr,
+                    bufferViews.data()};
+            },
+            [bindingType, bindingIndex](
+            const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
+                assert(parameterBlocks.size() == 1);
+                return WriteDescriptorSet<Vk>{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    parameterBlocks.data(),
+                    0,
+                    bindingIndex,
+                    0,
+                    parameterBlocks[0].dataSize,
+                    bindingType,
+                    nullptr,
+                    nullptr,
+                    nullptr};
+            },
+        }, variantVector));
+    }
 
-            descriptorWrites.emplace_back(std::visit(std::overloaded{
-                [bindingType, bindingIndex](
+    if (!pipeline::vkCmdPushDescriptorSetKHR)
+        pipeline::vkCmdPushDescriptorSetKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
+            vkGetDeviceProcAddr(
+                getDeviceContext()->getDevice(),
+                "vkCmdPushDescriptorSetKHR"));
+
+    pipeline::vkCmdPushDescriptorSetKHR(
+        cmd,
+        myBindPoint,
+        *getLayout(),
+        set,
+        static_cast<uint32_t>(descriptorWrites.size()),
+        descriptorWrites.data());
+}
+
+template <>
+void PipelineContext<Vk>::internalWriteDescriptorSet(
+    DescriptorSetLayoutMapType<Vk>::const_iterator setLayoutIt,
+    typename DescriptorMapType::iterator descriptorMapIt)
+{
+    const auto& [set, setLayout] = *setLayoutIt;
+    auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
+    auto& [bindingsMap, isDirty, setArrayListOptional] = descriptorMapTuple;
+
+    assert(setArrayListOptional.has_value());
+
+    auto& setArrayList = setArrayListOptional.value();
+
+    bool setArrayListIsEmpty = setArrayList.empty();
+    bool frontArrayIsFull = setArrayListIsEmpty ?
+        false :
+        std::get<1>(setArrayList.front()) == (std::get<0>(setArrayList.front()).capacity() - 1);
+
+    if (setArrayListIsEmpty || frontArrayIsFull)
+    {
+        setArrayList.emplace_front(
+            std::make_tuple(
+                DescriptorSetArray<Vk>(
+                    getDeviceContext(),
+                    setLayout,
+                    DescriptorSetArrayCreateDesc<Vk>{
+                        {"DescriptorSetArray"},
+                        myDescriptorPool}),
+                ~0,
+                0));
+    }
+
+    auto& [setArray, setIndex, setRefCount] = setArrayList.front();
+    auto handle = setArray[++setIndex];
+
+    std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
+    descriptorWrites.reserve(bindingsMap.size());
+
+    for (const auto& bindingPair : bindingsMap)
+    {
+        auto bindingIndex = bindingPair.first;
+        const auto& binding = bindingPair.second;
+        auto bindingType = std::get<0>(binding);
+        const auto& variantVector = std::get<1>(binding);
+
+        descriptorWrites.emplace_back(std::visit(std::overloaded{
+            [handle, bindingType, bindingIndex](
                 const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
-                        0,
+                        handle,
                         bindingIndex,
                         0,
                         static_cast<uint32_t>(bufferInfos.size()),
@@ -571,13 +693,13 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
                         nullptr,
                         bufferInfos.data(),
                         nullptr};
-                },
-                [bindingType, bindingIndex](
+            },
+            [handle, bindingType, bindingIndex](
                 const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
-                        0,
+                        handle,
                         bindingIndex,
                         0,
                         static_cast<uint32_t>(imageInfos.size()),
@@ -585,13 +707,13 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
                         imageInfos.data(),
                         nullptr,
                         nullptr};
-                },
-                [bindingType, bindingIndex](
+            },
+            [handle, bindingType, bindingIndex](
                 const std::vector<BufferViewHandle<Vk>>& bufferViews){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
-                        0,
+                        handle,
                         bindingIndex,
                         0,
                         static_cast<uint32_t>(bufferViews.size()),
@@ -599,14 +721,14 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
                         nullptr,
                         nullptr,
                         bufferViews.data()};
-                },
-                [bindingType, bindingIndex](
+            },
+            [handle, bindingType, bindingIndex](
                 const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
                     assert(parameterBlocks.size() == 1);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         parameterBlocks.data(),
-                        0,
+                        handle,
                         bindingIndex,
                         0,
                         parameterBlocks[0].dataSize,
@@ -614,145 +736,80 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
                         nullptr,
                         nullptr,
                         nullptr};
-                },
-            }, variantVector));
-        }
+            },
+        }, variantVector));
+    }
 
-        if (!pipeline::vkCmdPushDescriptorSetKHR)
-            pipeline::vkCmdPushDescriptorSetKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
-                vkGetDeviceProcAddr(
-                    getDeviceContext()->getDevice(),
-                    "vkCmdPushDescriptorSetKHR"));
+    vkUpdateDescriptorSets(
+        getDeviceContext()->getDevice(),
+        static_cast<uint32_t>(descriptorWrites.size()),
+        descriptorWrites.data(),
+        0,
+        nullptr);
 
-        pipeline::vkCmdPushDescriptorSetKHR(
+    isDirty = false;
+}
+
+template <>
+void PipelineContext<Vk>::bindDescriptorSet(
+    CommandBufferHandle<Vk> cmd,
+    DescriptorSetHandle<Vk> handle,
+    uint32_t set,
+    std::optional<uint32_t> bufferOffset)
+{
+    vkCmdBindDescriptorSets(
+        cmd,
+        myBindPoint,
+        *getLayout(),
+        set,
+        1,
+        &handle,
+        bufferOffset ? 1 : 0,
+        bufferOffset ? &bufferOffset.value() : nullptr);
+}
+
+template <>
+void PipelineContext<Vk>::bindDescriptorSetAuto(
+    CommandBufferHandle<Vk> cmd,
+    uint32_t set,
+    std::optional<uint32_t> bufferOffset) 
+{
+    const auto& layout = *getLayout();
+    const auto& setLayouts = layout.getDescriptorSetLayouts();
+    const auto setLayoutIt = setLayouts.find(set);
+    assert(setLayoutIt != setLayouts.cend());
+    const auto& [_set, setLayout] = *setLayoutIt;
+    assert(set == _set);
+    auto descriptorMapIt = myDescriptorMap.find(setLayout.getKey());
+    assert(descriptorMapIt != myDescriptorMap.end());
+    auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
+    auto& [bindingsMap, isDirty, setArrayListOptional] = descriptorMapTuple;
+
+    if (setArrayListOptional.has_value())
+    {
+        if (isDirty)
+            internalWriteDescriptorSet(setLayoutIt, descriptorMapIt);
+
+        auto& setArrayList = setArrayListOptional.value();
+        auto setArrayIt = setArrayList.begin();
+        auto& [setArray, setIndex, setRefCount] = *setArrayIt;
+        auto handle = setArray[setIndex];
+
+        vkCmdBindDescriptorSets(
             cmd,
             myBindPoint,
             layout,
             set,
-            static_cast<uint32_t>(descriptorWrites.size()),
-            descriptorWrites.data());
-    }
-}
+            1,
+            &handle,
+            bufferOffset ? 1 : 0,
+            bufferOffset ? &bufferOffset.value() : nullptr);
 
-template <>
-void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
-{
-    const auto& layout = *getLayout();
-    const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
-    auto& [bindingsMap, isDirty] = bindingsTuple;
+        setRefCount++;
 
-    assert(setArrayListOptional.has_value());
+        getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) { (*refCountPtr)--; });
 
-    auto& setArrayList = setArrayListOptional.value();
-
-    if (!bindingsMap.empty() && isDirty)
-    {
-        bool setArrayListIsEmpty = setArrayList.empty();
-        bool frontArrayIsFull = setArrayListIsEmpty ?
-            false :
-            std::get<1>(setArrayList.front()) == (std::get<0>(setArrayList.front()).capacity() - 1);
-
-        if (setArrayListIsEmpty || frontArrayIsFull)
-        {
-            setArrayList.emplace_front(
-                std::make_tuple(
-                    DescriptorSetArray<Vk>(
-                        getDeviceContext(),
-                        setLayout,
-                        DescriptorSetArrayCreateDesc<Vk>{
-                            {"DescriptorSetArray"},
-                            myDescriptorPool}),
-                    0,
-                    0));
-        }
-
-        auto& [setArray, setIndex, setRefCount] = setArrayList.front();
-        auto handle = setArray[setIndex++];
-        
-        std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-        descriptorWrites.reserve(bindingsMap.size());
-
-        for (const auto& bindingPair : bindingsMap)
-        {
-            auto bindingIndex = bindingPair.first;
-            const auto& binding = bindingPair.second;
-            auto bindingType = std::get<0>(binding);
-            const auto& variantVector = std::get<1>(binding);
-
-            descriptorWrites.emplace_back(std::visit(std::overloaded{
-                [handle, bindingType, bindingIndex](
-                    const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            nullptr,
-                            handle,
-                            bindingIndex,
-                            0,
-                            static_cast<uint32_t>(bufferInfos.size()),
-                            bindingType,
-                            nullptr,
-                            bufferInfos.data(),
-                            nullptr};
-                },
-                [handle, bindingType, bindingIndex](
-                    const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            nullptr,
-                            handle,
-                            bindingIndex,
-                            0,
-                            static_cast<uint32_t>(imageInfos.size()),
-                            bindingType,
-                            imageInfos.data(),
-                            nullptr,
-                            nullptr};
-                },
-                [handle, bindingType, bindingIndex](
-                    const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            nullptr,
-                            handle,
-                            bindingIndex,
-                            0,
-                            static_cast<uint32_t>(bufferViews.size()),
-                            bindingType,
-                            nullptr,
-                            nullptr,
-                            bufferViews.data()};
-                },
-                [handle, bindingType, bindingIndex](
-                    const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
-                        assert(parameterBlocks.size() == 1);
-                        return WriteDescriptorSet<Vk>{
-                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            parameterBlocks.data(),
-                            handle,
-                            bindingIndex,
-                            0,
-                            parameterBlocks[0].dataSize,
-                            bindingType,
-                            nullptr,
-                            nullptr,
-                            nullptr};
-                },
-            }, variantVector));
-        }
-
-        vkUpdateDescriptorSets(
-            getDeviceContext()->getDevice(),
-            static_cast<uint32_t>(descriptorWrites.size()),
-            descriptorWrites.data(),
-            0,
-            nullptr);
-
-        isDirty = false;
-    }
-    else
-    {
-        auto setArrayIt = setArrayList.begin();
+        // clean up
         while (setArrayIt != setArrayList.end())
         {
             auto& [setArray, setIndex, setRefCount] = *setArrayIt;
@@ -762,47 +819,9 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(uint32_t set)
                 setArrayIt++;
         }
     }
-}
-
-template <>
-void PipelineContext<Vk>::bindDescriptorSet(
-    CommandBufferHandle<Vk> cmd,
-    uint32_t set,
-    std::optional<uint32_t> bufferOffset) 
-{
-    const auto& layout = *getLayout();
-    const auto& setLayouts = layout.getDescriptorSetLayouts();
-
-    if (const auto setLayoutIt = setLayouts.find(set); setLayoutIt != setLayouts.cend())
+    else
     {
-        const auto& [setLayoutKey, setLayout] = *setLayoutIt;
-        auto& [bindingsTuple, setArrayListOptional] = myDescriptorMap.at(setLayout.getKey());
-
-        if (setArrayListOptional.has_value())
-        {
-            internalWriteDescriptorSet(set);
-
-            auto& [setArray, setIndex, setRefCount] = setArrayListOptional.value().front();
-            auto handle = setArray[setIndex];
-
-            vkCmdBindDescriptorSets(
-                cmd,
-                myBindPoint,
-                layout,
-                set,
-                1,
-                &handle,
-                bufferOffset ? 1 : 0,
-                bufferOffset ? &bufferOffset.value() : nullptr);
-
-            setRefCount++;
-
-            getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) { (*refCountPtr)--; });
-        }
-        else
-        {
-            internalPushDescriptorSet(cmd, set);
-        }
+        internalPushDescriptorSet(cmd, set, bindingsMap);
     }
 }
 

@@ -95,15 +95,13 @@ class PipelineContext : public DeviceResource<B>
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
             uint8_t, // current array index
-            CopyableAtomic<uint32_t>>>; // reference count
+            CopyableAtomic<uint32_t>>>; // reference count. // todo: c++20: std::atomic_ref
     using DescriptorMapType = UnorderedMapType<
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
-        std::tuple<
-            std::tuple<BindingsMapType, bool>, // [bindings, isDirty]
-            std::optional<DescriptorSetArrayListType>>>; // optional descriptor sets - if std::nullopt -> uses push descriptors
+        std::tuple<BindingsMapType, bool, std::optional<DescriptorSetArrayListType>>>; // [bindings, isDirty, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
     using PipelineMapType = ConcurrentUnorderedMapType<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
-        CopyableAtomic<PipelineHandle<B>>,
+        CopyableAtomic<PipelineHandle<B>>, // todo: c++20: std::atomic_ref
         PassThroughHash<uint64_t>>;
 
 public:
@@ -125,8 +123,19 @@ public:
     void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
 
-    void bindPipeline(CommandBufferHandle<B> cmd);
+    void bindPipeline(CommandBufferHandle<B> cmd, PipelineHandle<B> handle);
+
     void bindDescriptorSet(
+        CommandBufferHandle<B> cmd,
+        DescriptorSetHandle<B> handle,
+        uint32_t set,
+        std::optional<uint32_t> bufferOffset = std::nullopt);
+
+    // "auto" api begin
+
+    void bindPipelineAuto(CommandBufferHandle<B> cmd);
+
+    void bindDescriptorSetAuto(
         CommandBufferHandle<B> cmd,
         uint32_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt);
@@ -177,6 +186,8 @@ public:
         uint32_t set,
         const std::string& shaderVariableName,
         uint32_t index);
+
+    // "auto" api end
     
     // temp
     void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
@@ -195,18 +206,25 @@ private:
     void internalResetGraphicsDynamicState();
     //
 
-    void internalPushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set) const;
-    void internalWriteDescriptorSet(uint32_t set);
+    void internalPushDescriptorSet(
+        CommandBufferHandle<B> cmd,
+        uint32_t set,
+        const BindingsMapType& bindingsMap) const;
+    void internalWriteDescriptorSet(
+        DescriptorSetLayoutMapType<Vk>::const_iterator setLayoutIt,
+        typename DescriptorMapType::iterator descriptorMapIt);
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
     PipelineHandle<B> internalGetPipeline();
 
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
-    DescriptorPoolHandle<B> myDescriptorPool = {};
-    PipelineCacheHandle<B> myCache = {}; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
+    
+    DescriptorPoolHandle<B> myDescriptorPool = {}; // todo: should be handled differently to cater for multithread and explicit binds.
+    
     DescriptorMapType myDescriptorMap;
-    PipelineMapType myPipelineMap; // todo:: move pipeline map & cache to its own class, and pass in reference to it.
+    PipelineMapType myPipelineMap; // todo: move pipeline map & cache to its own class, and pass in reference to it.
+    PipelineCacheHandle<B> myCache = {}; // todo: move pipeline map & cache to its own class, and pass in reference to it.
     
     // shared state
     PipelineBindPoint<B> myBindPoint = {};

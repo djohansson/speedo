@@ -136,7 +136,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     ZoneScopedN("WindowContext::drawViews::bind");
 
                     // bind pipeline and vertex/index buffers
-                    pipeline->bindPipeline(cmd);
+                    pipeline->bindPipelineAuto(cmd);
 
                     VkBuffer vertexBuffers[] = { *pipeline->resources().model };
                     VkDeviceSize vertexOffsets[] = { pipeline->resources().model->getVertexOffset() };
@@ -158,9 +158,9 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                         uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
 
-                        pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_Global, std::make_optional(viewBufferOffset));
+                        pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Global, viewBufferOffset);
 
-                        pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_View);
+                        //pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
 
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height)
                         {
@@ -185,13 +185,13 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
-                        pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_Material);
+                        pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
 
                         auto drawModel = [&pipeline](VkCommandBuffer cmd)
                         {
                             ZoneScopedN("WindowContext::drawViews::draw");
 
-                            pipeline->bindDescriptorSet(cmd, DescriptorSetCategory_Object);
+                            pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Object);
 
                             vkCmdDrawIndexed(cmd, pipeline->resources().model->getDesc().indexCount, 1, 0, 0, 0);
                         };

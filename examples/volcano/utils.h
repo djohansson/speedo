@@ -113,6 +113,7 @@ private:
     void *operator new[](size_t);
 };
 
+// todo: c++20: std::atomic_ref
 template <typename T>
 class CopyableAtomic : public std::atomic<T>
 {
