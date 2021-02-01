@@ -156,9 +156,6 @@ struct overloaded : Ts... { using Ts::operator()...; };
 template <typename... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
 
-template <typename>
-inline constexpr bool always_false_v = false;
-
 namespace filesystem
 {
 
