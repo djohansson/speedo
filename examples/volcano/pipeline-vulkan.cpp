@@ -569,67 +569,64 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
     std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
     descriptorWrites.reserve(bindingsMap.size());
 
-    for (const auto& bindingPair : bindingsMap)
+    for (const auto& [bindingIndex, binding] : bindingsMap)
     {
-        auto bindingIndex = bindingPair.first;
-        const auto& binding = bindingPair.second;
-        auto bindingType = std::get<0>(binding);
-        const auto& variantVector = std::get<1>(binding);
+        const auto& [bindingType, variantVector] = binding;
 
         descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [bindingType, bindingIndex](
+            [type = bindingType, index = bindingIndex](
             const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                 return WriteDescriptorSet<Vk>{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
                     0,
-                    bindingIndex,
+                    index,
                     0,
                     static_cast<uint32_t>(bufferInfos.size()),
-                    bindingType,
+                    type,
                     nullptr,
                     bufferInfos.data(),
                     nullptr};
             },
-            [bindingType, bindingIndex](
+            [type = bindingType, index = bindingIndex](
             const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
                 return WriteDescriptorSet<Vk>{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
                     0,
-                    bindingIndex,
+                    index,
                     0,
                     static_cast<uint32_t>(imageInfos.size()),
-                    bindingType,
+                    type,
                     imageInfos.data(),
                     nullptr,
                     nullptr};
             },
-            [bindingType, bindingIndex](
+            [type = bindingType, index = bindingIndex](
             const std::vector<BufferViewHandle<Vk>>& bufferViews){
                 return WriteDescriptorSet<Vk>{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
                     0,
-                    bindingIndex,
+                    index,
                     0,
                     static_cast<uint32_t>(bufferViews.size()),
-                    bindingType,
+                    type,
                     nullptr,
                     nullptr,
                     bufferViews.data()};
             },
-            [bindingType, bindingIndex](
+            [type = bindingType, index = bindingIndex](
             const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
                 assert(parameterBlocks.size() == 1);
                 return WriteDescriptorSet<Vk>{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     parameterBlocks.data(),
                     0,
-                    bindingIndex,
+                    index,
                     0,
                     parameterBlocks[0].dataSize,
-                    bindingType,
+                    type,
                     nullptr,
                     nullptr,
                     nullptr};
@@ -690,67 +687,64 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
     std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
     descriptorWrites.reserve(bindingsMap.size());
 
-    for (const auto& bindingPair : bindingsMap)
+    for (const auto& [bindingIndex, binding] : bindingsMap)
     {
-        auto bindingIndex = bindingPair.first;
-        const auto& binding = bindingPair.second;
-        auto bindingType = std::get<0>(binding);
-        const auto& variantVector = std::get<1>(binding);
+        const auto& [bindingType, variantVector] = binding;
 
         descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [handle, bindingType, bindingIndex](
+            [handle, type = bindingType, index = bindingIndex](
                 const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        bindingIndex,
+                        index,
                         0,
                         static_cast<uint32_t>(bufferInfos.size()),
-                        bindingType,
+                        type,
                         nullptr,
                         bufferInfos.data(),
                         nullptr};
             },
-            [handle, bindingType, bindingIndex](
+            [handle, type = bindingType, index = bindingIndex](
                 const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        bindingIndex,
+                        index,
                         0,
                         static_cast<uint32_t>(imageInfos.size()),
-                        bindingType,
+                        type,
                         imageInfos.data(),
                         nullptr,
                         nullptr};
             },
-            [handle, bindingType, bindingIndex](
+            [handle, type = bindingType, index = bindingIndex](
                 const std::vector<BufferViewHandle<Vk>>& bufferViews){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        bindingIndex,
+                        index,
                         0,
                         static_cast<uint32_t>(bufferViews.size()),
-                        bindingType,
+                        type,
                         nullptr,
                         nullptr,
                         bufferViews.data()};
             },
-            [handle, bindingType, bindingIndex](
+            [handle, type = bindingType, index = bindingIndex](
                 const std::vector<InlineUniformBlock<Vk>>& parameterBlocks){
                     assert(parameterBlocks.size() == 1);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         parameterBlocks.data(),
                         handle,
-                        bindingIndex,
+                        index,
                         0,
                         parameterBlocks[0].dataSize,
-                        bindingType,
+                        type,
                         nullptr,
                         nullptr,
                         nullptr};
