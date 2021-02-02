@@ -152,7 +152,7 @@ public:
 
 protected:
 
-    DeviceResource() = default;
+    constexpr DeviceResource() = default;
     DeviceResource(DeviceResource<B>&& other) noexcept;
     DeviceResource( // no object names are set
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

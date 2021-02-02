@@ -14,7 +14,7 @@ class RenderImageSet : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>
 
 public:
 
-    RenderImageSet() = default;
+    constexpr RenderImageSet() = default;
     RenderImageSet(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const char* name,

@@ -24,7 +24,7 @@ class Model : public Buffer<B>
 {
 public:
 
-	Model() = default;
+	constexpr Model() = default;
 	Model(Model&& other) noexcept = default;
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

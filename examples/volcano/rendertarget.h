@@ -107,7 +107,7 @@ public:
 
 protected:
 
-    RenderTarget() = default;
+    constexpr RenderTarget() = default;
     RenderTarget(RenderTarget<B>&& other) noexcept;
     RenderTarget(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

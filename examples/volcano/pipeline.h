@@ -24,7 +24,7 @@ class PipelineLayout : public DeviceResource<B>
 {
 public:
 
-    PipelineLayout() = default;
+    constexpr PipelineLayout() = default;
     PipelineLayout(PipelineLayout<B>&& other) noexcept;
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

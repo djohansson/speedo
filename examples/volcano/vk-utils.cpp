@@ -672,14 +672,13 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride, VkFormat format, VkImageTiling tiling, 
 	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
-    VkImage outImage;
-    VmaAllocation outImageMemory;
+    assert(stagingBuffer);
 
-	assert(stagingBuffer);
-
-	std::tie(outImage, outImageMemory) = createImage2D(
+	auto result = createImage2D(
 		allocator, width, height, mipLevels, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		memoryFlags, debugName);
+
+	const auto& [outImage, outImageMemory] = result;
 
 	transitionImageLayout(
 		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -687,7 +686,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height, mipLevels, mipOffsets, mipOffsetsStride);
 
-    return std::make_tuple(outImage, outImageMemory);
+    return result;
 }
 
 VkImageView createImageView2D(

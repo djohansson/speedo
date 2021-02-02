@@ -459,13 +459,13 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
 
     assert(myCurrentPass == std::nullopt);
 
-    auto rpf = internalGetValues();
+    const auto& [renderPass, frameBuffer] = internalGetValues();
 
     myCurrentPass = std::make_optional(RenderPassBeginInfo<Vk>{
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         nullptr, 
-        std::get<0>(rpf),
-        std::get<1>(rpf),
+        renderPass,
+        frameBuffer,
         {{0, 0}, {getRenderTargetDesc().extent.width, getRenderTargetDesc().extent.height}}});
 
     vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);

@@ -30,7 +30,7 @@ class DescriptorSetLayout : public DeviceResource<B>
 
 public:
 
-    DescriptorSetLayout() = default;
+    constexpr DescriptorSetLayout() = default;
     DescriptorSetLayout(DescriptorSetLayout&& other) noexcept;
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -79,7 +79,7 @@ class DescriptorSetArray : public DeviceResource<B>
 
 public:
 
-    DescriptorSetArray() = default;
+    constexpr DescriptorSetArray() = default;
     DescriptorSetArray(DescriptorSetArray&& other) noexcept;
     DescriptorSetArray( // allocates array of descriptor set handles using single layout
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,

@@ -19,7 +19,7 @@ class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
 
 public:
 
-	Frame() = default;
+	constexpr Frame() = default;
     Frame(const std::shared_ptr<DeviceContext<B>>& deviceContext, FrameCreateDesc<B>&& desc);
 	Frame(Frame<B>&& other) noexcept;
 	virtual ~Frame();

@@ -10,7 +10,7 @@ class SamplerVector : public DeviceResource<B>
 {
 public:
 
-    SamplerVector() = default;
+    constexpr SamplerVector() = default;
     SamplerVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::vector<SamplerCreateInfo<B>>& createInfos);

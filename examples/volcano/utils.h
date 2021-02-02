@@ -62,14 +62,36 @@ inline uint32_t roundUp(uint32_t numToRound, uint32_t multiple)
 	return numToRound + multiple - remainder;
 }
 
+class Noncopyable
+{
+public:
+	constexpr Noncopyable() = default;
+	~Noncopyable() = default;
+
+private:
+	Noncopyable(const Noncopyable&) = delete;
+	Noncopyable& operator=(const Noncopyable&) = delete;
+};
+
+class Nondynamic
+{
+public:
+	constexpr Nondynamic() = default;
+	~Nondynamic() = default;
+
+private:
+	void *operator new(size_t);
+    void *operator new[](size_t);
+};
+
 template <typename T>
-class ArrayDeleter
+class ArrayDeleter : Noncopyable
 {
 	using DeleteFcn = std::function<void(T*, size_t)>;
 
 public:
 
-	ArrayDeleter() = default;
+	constexpr ArrayDeleter() = default;
 	ArrayDeleter(DeleteFcn&& deleter)
 		: myDeleter(std::move(deleter))
 	{}
@@ -89,28 +111,6 @@ private:
 
 	DeleteFcn myDeleter = [](T* data, size_t){ delete [] data; };
 	size_t mySize = 0;
-};
-
-class Noncopyable
-{
-public:
-	Noncopyable() = default;
-	~Noncopyable() = default;
-
-private:
-	Noncopyable(const Noncopyable&) = delete;
-	Noncopyable& operator=(const Noncopyable&) = delete;
-};
-
-class Nondynamic
-{
-public:
-	Nondynamic() = default;
-	~Nondynamic() = default;
-
-private:
-	void *operator new(size_t);
-    void *operator new[](size_t);
 };
 
 namespace std

@@ -28,7 +28,7 @@ class CommandBufferArray : public DeviceResource<B>
 
 public:
 
-    CommandBufferArray() = default;
+    constexpr CommandBufferArray() = default;
     CommandBufferArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandBufferArrayCreateDesc<B>&& desc);
@@ -98,7 +98,7 @@ class CommandBufferAccessScope : Nondynamic
 {
 public:
 
-    CommandBufferAccessScope() = default;
+    constexpr CommandBufferAccessScope() = default;
     CommandBufferAccessScope(
         CommandBufferArray<B>* array,
         const CommandBufferAccessScopeDesc<B>& beginInfo);

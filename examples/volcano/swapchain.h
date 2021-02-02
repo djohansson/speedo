@@ -19,7 +19,7 @@ class Swapchain : public IRenderTarget<B>, public DeviceResource<B>
 {
 public:
 
-	Swapchain() = default;
+	constexpr Swapchain() = default;
 	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,

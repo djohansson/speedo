@@ -315,7 +315,7 @@ Application<Vk>::Application(
         myGraphicsQueue->enqueueSubmit(
             commandContext->prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
-                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
@@ -393,7 +393,7 @@ Application<Vk>::Application(
         myGraphicsQueue->enqueueSubmit(
             commandContext->prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
-                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
@@ -932,8 +932,9 @@ bool Application<Vk>::draw()
             myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
         }
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, transitionColor);
+            GPU_SCOPE(cmd, myGraphicsQueue, transition);
             myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+            myRenderImageSet->transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueue, draw);
@@ -961,7 +962,7 @@ bool Application<Vk>::draw()
         myGraphicsQueue->enqueueSubmit(
             commandContext->prepareSubmit({
                 {myDevice->getTimelineSemaphore(), imageAquired},
-                {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+                {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
                 {myDevice->getTimelineSemaphore(), renderComplete},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
@@ -1012,7 +1013,7 @@ bool Application<Vk>::draw()
             myTransferQueue->enqueueSubmit(
                 myTransferCommands->prepareSubmit({
                     {myDevice->getTimelineSemaphore()},
-                    {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+                    {VK_PIPELINE_STAGE_TRANSFER_BIT},
                     {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
                     {myDevice->getTimelineSemaphore()},
                     {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));

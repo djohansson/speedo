@@ -22,7 +22,7 @@ class Buffer : public DeviceResource<B>
 
 public:
 
-    Buffer() = default;
+    constexpr Buffer() = default;
     Buffer(Buffer&& other) noexcept;
     Buffer( // creates uninitialized buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -67,7 +67,7 @@ class BufferView : public DeviceResource<B>
 {
 public:
     
-    BufferView() = default;
+    constexpr BufferView() = default;
     BufferView(BufferView&& other) noexcept;
     BufferView( // creates a view from buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

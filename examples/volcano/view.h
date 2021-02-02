@@ -29,7 +29,7 @@ class View
 {
 public:
 
-	View() = default;
+	constexpr View() = default;
 	View(ViewCreateDesc&& data)
 		: myDesc(std::move(data))
 	{

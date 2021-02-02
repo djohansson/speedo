@@ -58,7 +58,7 @@ class Queue : public DeviceResource<B>
 {
 public:
 
-    Queue() = default;
+    constexpr Queue() = default;
     Queue(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         QueueCreateDesc<B>&& desc);

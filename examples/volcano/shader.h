@@ -46,7 +46,7 @@ class ShaderModule : public DeviceResource<B>
 {
 public:
 
-	ShaderModule() = default;
+	constexpr ShaderModule() = default;
 	ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Shader<B>& shader);
