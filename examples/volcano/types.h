@@ -11,6 +11,8 @@ enum /*class*/ GraphicsBackend : uint8_t
 	Vk
 };
 
+//using enum GraphicsBackend;
+
 template <GraphicsBackend B>
 using ApplicationInfo = std::conditional_t<B == Vk, VkApplicationInfo, std::nullptr_t>;
 

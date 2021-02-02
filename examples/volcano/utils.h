@@ -113,30 +113,6 @@ private:
     void *operator new[](size_t);
 };
 
-// todo: c++20: std::atomic_ref
-template <typename T>
-class CopyableAtomic : public std::atomic<T>
-{
-public:
-    
-    CopyableAtomic() = default;
-    constexpr CopyableAtomic(T val)
-     : std::atomic<T>(val) 
-    {
-        this->store(val);
-    }
-    constexpr CopyableAtomic(const CopyableAtomic<T>& other)
-    {
-        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
-    }
-
-    CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other)
-    {
-        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
-        return *this;
-    }
-};
-
 namespace std
 {
 
@@ -262,3 +238,181 @@ using ConcurrentUnorderedMapType = UnorderedMapType<Key, Value, KeyHash, KeyEqua
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using ConcurrentUnorderedSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
 #endif
+
+class SpinMutex : public Noncopyable
+{
+	using value_t = uint8_t;
+	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1 };
+
+public:
+
+	constexpr SpinMutex() = default;
+	SpinMutex(SpinMutex&& other) : myBits(std::exchange(other.myBits, 0)) {}
+	~SpinMutex() { unlock(); }
+
+	SpinMutex& operator=(SpinMutex&& other) { myBits = std::exchange(other.myBits, 0); return *this; }
+
+	// Lockable Concept
+	void lock()
+	{
+		uint_fast32_t count = 0;
+
+		while (!try_lock())
+		{
+			_mm_pause();
+			if (++count > 1000)
+				std::this_thread::yield();
+		}
+	}
+
+	// Writer is responsible for clearing up both the Upgraded and Writer bits.
+	void unlock()
+	{
+		static_assert(Reader > Writer + Upgraded, "wrong bits!");
+
+		auto bits = std::atomic_ref(myBits);
+		
+		bits.fetch_and(~(Writer | Upgraded), std::memory_order_release);
+	}
+
+	// SharedLockable Concept
+	void lock_shared()
+	{
+		uint_fast32_t count = 0;
+
+		while (!try_lock_shared())
+		{
+			_mm_pause();
+			if (++count > 1000)
+				std::this_thread::yield();
+		}
+	}
+
+	void unlock_shared()
+	{
+		auto bits = std::atomic_ref(myBits);
+
+		bits.fetch_add(-Reader, std::memory_order_release);
+	}
+
+	// Downgrade the lock from writer status to reader status.
+	void unlock_and_lock_shared()
+	{
+		auto bits = std::atomic_ref(myBits);
+
+		bits.fetch_add(Reader, std::memory_order_acquire);
+		
+		unlock();
+	}
+
+	// UpgradeLockable Concept
+	void lock_upgrade()
+	{
+		uint_fast32_t count = 0;
+
+		while (!try_lock_upgrade())
+		{
+			_mm_pause();
+			if (++count > 1000)
+				std::this_thread::yield();
+		}
+	}
+
+	void unlock_upgrade()
+	{
+		auto bits = std::atomic_ref(myBits);
+
+		bits.fetch_add(-Upgraded, std::memory_order_acq_rel);
+	}
+
+	// unlock upgrade and try to acquire write lock
+	void unlock_upgrade_and_lock()
+	{
+		uint_fast32_t count = 0;
+
+		while (!try_unlock_upgrade_and_lock())
+		{
+			_mm_pause();
+			if (++count > 1000)
+				std::this_thread::yield();
+		}
+	}
+
+	// unlock upgrade and read lock atomically
+	void unlock_upgrade_and_lock_shared()
+	{
+		auto bits = std::atomic_ref(myBits);
+
+		bits.fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
+	}
+
+	// write unlock and upgrade lock atomically
+	void unlock_and_lock_upgrade()
+	{
+		// need to do it in two steps here -- as the Upgraded bit might be OR-ed at
+		// the same time when other threads are trying do try_lock_upgrade().
+
+		auto bits = std::atomic_ref(myBits);
+
+		bits.fetch_or(Upgraded, std::memory_order_acquire);
+		bits.fetch_add(-Writer, std::memory_order_release);
+	}
+
+	// Attempt to acquire writer permission. Return false if we didn't get it.
+	bool try_lock()
+	{
+		auto bits = std::atomic_ref(myBits);
+		
+		value_t expect = 0;
+		return bits.compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
+	}
+
+	// Try to get reader permission on the lock. This can fail if we
+	// find out someone is a writer or upgrader.
+	// Setting the Upgraded bit would allow a writer-to-be to indicate
+	// its intention to write and block any new readers while waiting
+	// for existing readers to finish and release their read locks. This
+	// helps avoid starving writers (promoted from upgraders).
+	bool try_lock_shared()
+	{
+		// fetch_add is considerably (100%) faster than compare_exchange,
+		// so here we are optimizing for the common (lock success) case.
+
+		auto bits = std::atomic_ref(myBits);
+		
+		value_t value = bits.fetch_add(Reader, std::memory_order_acquire);
+		if (value & (Writer | Upgraded))
+		{
+			bits.fetch_add(-Reader, std::memory_order_release);
+			return false;
+		}
+		return true;
+	}
+
+	// try to unlock upgrade and write lock atomically
+	bool try_unlock_upgrade_and_lock()
+	{
+		auto bits = std::atomic_ref(myBits);
+
+		value_t expect = Upgraded;
+		return bits.compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
+	}
+
+	// try to acquire an upgradable lock.
+	bool try_lock_upgrade()
+	{
+		auto bits = std::atomic_ref(myBits);
+		
+		value_t value = bits.fetch_or(Upgraded, std::memory_order_acquire);
+
+		// Note: when failed, we cannot flip the Upgraded bit back,
+		// as in this case there is either another upgrade lock or a write lock.
+		// If it's a write lock, the bit will get cleared up when that lock's done
+		// with unlock().
+		return ((value & (Upgraded | Writer)) == 0);
+	}
+
+private:
+
+	alignas(std::hardware_destructive_interference_size) value_t myBits = 0;
+};

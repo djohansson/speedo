@@ -1,3 +1,5 @@
+#include <mutex>
+
 #include <xxhash.h>
 
 template <>
@@ -10,7 +12,10 @@ void PipelineContext<Vk>::setDescriptorData(
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsMap, isDirty, setArrays] = myDescriptorMap.at(setLayout.getKey());
+    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
+
+    std::unique_lock<decltype(spinMutex)> lock(spinMutex);
+    
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
@@ -19,7 +24,7 @@ void PipelineContext<Vk>::setDescriptorData(
     bindingVector.clear();
     bindingVector.emplace_back(std::move(data));
 
-    isDirty = true;
+    setState = DescriptorSetState::Dirty;
 }
 
 template <>
@@ -49,14 +54,17 @@ void PipelineContext<Vk>::setDescriptorData(
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsMap, isDirty, setArrays] = myDescriptorMap.at(setLayout.getKey());
+    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
+
+    std::unique_lock<decltype(spinMutex)> lock(spinMutex);
+
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
     
     bindingVector = std::move(data);
 
-    isDirty = true;
+    setState = DescriptorSetState::Dirty;
 }
 
 template <>
@@ -87,7 +95,10 @@ void PipelineContext<Vk>::setDescriptorData(
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
-    auto& [bindingsMap, isDirty, setArrays] = myDescriptorMap.at(setLayout.getKey());
+    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
+
+    std::unique_lock<decltype(spinMutex)> lock(spinMutex);
+
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
@@ -97,7 +108,7 @@ void PipelineContext<Vk>::setDescriptorData(
     
     bindingVector[index] = std::move(data);
 
-    isDirty = true;
+    setState = DescriptorSetState::Dirty;
 }
 
 template <>

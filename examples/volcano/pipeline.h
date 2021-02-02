@@ -94,14 +94,20 @@ class PipelineContext : public DeviceResource<B>
     using DescriptorSetArrayListType = std::list<
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
-            uint8_t, // current array index
-            CopyableAtomic<uint32_t>>>; // reference count. // todo: c++20: std::atomic_ref
-    using DescriptorMapType = UnorderedMapType<
+            uint8_t, // current array index. move out from here perhaps?
+            uint32_t>>; // reference count.
+
+    enum class DescriptorSetState : uint8_t { Dirty, Ready };
+    using DescriptorMapType = ConcurrentUnorderedMapType<
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
-        std::tuple<BindingsMapType, bool, std::optional<DescriptorSetArrayListType>>>; // [bindings, isDirty, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
+        std::tuple<
+            BindingsMapType,
+            SpinMutex,
+            DescriptorSetState,
+            std::optional<DescriptorSetArrayListType>>>; // [bindings, mutex, state, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
     using PipelineMapType = ConcurrentUnorderedMapType<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
-        CopyableAtomic<PipelineHandle<B>>, // todo: c++20: std::atomic_ref
+        PipelineHandle<B>,
         PassThroughHash<uint64_t>>;
 
 public:
@@ -117,19 +123,19 @@ public:
     const auto& getConfig() const { return myConfig; }
     auto getCache() const { return myCache; }
     auto getDescriptorPool() const { return myDescriptorPool; }
-    const auto& getLayout() const { return myLayout; }
-    const auto& getRenderTarget() const { return myRenderTarget; }
 
-    void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
-    void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
-
-    void bindPipeline(CommandBufferHandle<B> cmd, PipelineHandle<B> handle);
+    void bindPipeline(
+        CommandBufferHandle<B> cmd,
+        PipelineBindPoint<B> bindPoint,
+        PipelineHandle<B> handle) const;
 
     void bindDescriptorSet(
         CommandBufferHandle<B> cmd,
         DescriptorSetHandle<B> handle,
+        PipelineBindPoint<B> bindPoint,
+        PipelineLayoutHandle<B> layoutHandle,
         uint32_t set,
-        std::optional<uint32_t> bufferOffset = std::nullopt);
+        std::optional<uint32_t> bufferOffset = std::nullopt) const;
 
     // "auto" api begin
 
@@ -186,13 +192,19 @@ public:
         uint32_t set,
         const std::string& shaderVariableName,
         uint32_t index);
-
-    // "auto" api end
     
     // temp
+    const auto& getLayout() const { return myLayout; }
+    const auto& getRenderTarget() const { return myRenderTarget; }
+    
+    void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
+    void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
     void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
+
     auto& resources() { return myGraphicsState.resources; }
     //
+
+    // "auto" api end
 
 private:
     
@@ -210,9 +222,9 @@ private:
         CommandBufferHandle<B> cmd,
         uint32_t set,
         const BindingsMapType& bindingsMap) const;
-    void internalWriteDescriptorSet(
+    void internalUpdateDescriptorSet(
         DescriptorSetLayoutMapType<Vk>::const_iterator setLayoutIt,
-        typename DescriptorMapType::iterator descriptorMapIt);
+        typename DescriptorMapType::iterator descriptorMapIt) const;
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);

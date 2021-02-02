@@ -52,7 +52,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	{
 		SlangSession* slangSession = spCreateSession(NULL);
 		
-		if (compilerPath.has_value())
+		if (compilerPath)
 		{
 			auto path = std::filesystem::canonical(compilerPath.value());
 
@@ -65,7 +65,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
-		if (intermediatePath.has_value())
+		if (intermediatePath)
 		{
 			auto path = std::filesystem::canonical(intermediatePath.value());
 

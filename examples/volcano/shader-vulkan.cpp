@@ -138,7 +138,7 @@ void addBinding(
 
 	if (usePushConstant)
 	{
-		assert(!layout.pushConstantRange.has_value());
+		assert(!layout.pushConstantRange);
 		assert(sizeBytes > 0);
 		assert(!isUniformDynamic);
 		assert(!isInlineUniformBlock);

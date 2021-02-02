@@ -39,7 +39,7 @@ std::vector<PushConstantRange<B>> getPushConstantRanges(
         auto layoutIt = layouts.begin();
         while (layoutIt != layouts.end())
         {
-            if (auto pcr = layoutIt->second.getDesc().pushConstantRange; pcr.has_value())
+            if (auto pcr = layoutIt->second.getDesc().pushConstantRange; pcr)
                 ranges.push_back(*pcr);
 
             ++layoutIt;

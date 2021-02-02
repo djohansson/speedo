@@ -292,14 +292,14 @@ void PipelineContext<Vk>::internalResetSharedState()
                 nullptr});
 
     for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
-        myDescriptorMap.try_emplace(
-            setLayout.getKey(),
+        myDescriptorMap[setLayout.getKey()] = 
             std::make_tuple(
                 BindingsMapType{},
-                false,
+                SpinMutex{},
+                DescriptorSetState::Ready,
                 setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
                     std::make_optional(DescriptorSetArrayListType{}) :
-                    std::nullopt));
+                    std::nullopt);
 }
 
 template <>
@@ -428,6 +428,8 @@ void PipelineContext<Vk>::internalResetGraphicsDynamicState()
 template <>
 PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
+    ZoneScopedN("Pipeline::internalCreateGraphicsPipeline");
+
     VkGraphicsPipelineCreateInfo pipelineInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
     pipelineInfo.stageCount = static_cast<uint32_t>(myShaderStages.size());
     pipelineInfo.pStages = myShaderStages.data();
@@ -479,32 +481,46 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 template<>
 PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 {
+    ZoneScopedN("Pipeline::internalGetPipeline");
+
     auto hashKey = internalCalculateHashKey();
     
     auto insertResult = myPipelineMap.insert({hashKey, nullptr});
-
+    auto pipelineHandleAtomic = std::atomic_ref(insertResult.first->second);
     if (insertResult.second)
-        insertResult.first->second.store(
+    {
+        ZoneScopedN("Pipeline::internalGetPipeline::store");
+
+        pipelineHandleAtomic.store(
             internalCreateGraphicsPipeline(hashKey),
             std::memory_order_relaxed);
+        pipelineHandleAtomic.notify_all();
+    }
+    else
+    {
+        ZoneScopedN("Pipeline::internalGetPipeline::wait");
 
-    auto& pipelineHandle = insertResult.first->second;
-
-    while (!pipelineHandle.load(std::memory_order_relaxed)); // todo: c++20: pipelineHandle.wait(nullptr); 
+        pipelineHandleAtomic.wait(nullptr);
+    }
     
-    return pipelineHandle;
+    return pipelineHandleAtomic;
 }
 
 template <>
-void PipelineContext<Vk>::bindPipeline(CommandBufferHandle<Vk> cmd, PipelineHandle<Vk> handle)
+void PipelineContext<Vk>::bindPipeline(
+    CommandBufferHandle<Vk> cmd,
+    PipelineBindPoint<Vk> bindPoint,
+    PipelineHandle<Vk> handle) const
 {
-    vkCmdBindPipeline(cmd, myBindPoint, handle);
+    ZoneScopedN("Pipeline::bindPipeline");
+
+    vkCmdBindPipeline(cmd, bindPoint, handle);
 }
 
 template <>
 void PipelineContext<Vk>::bindPipelineAuto(CommandBufferHandle<Vk> cmd)
 {
-    bindPipeline(cmd, internalGetPipeline());
+    bindPipeline(cmd, myBindPoint, internalGetPipeline());
 }
 
 template<>
@@ -545,6 +561,8 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
     uint32_t set,
     const BindingsMapType& bindingsMap) const
 {
+    ZoneScopedN("Pipeline::internalPushDescriptorSet");
+
     if (bindingsMap.empty())
         return;
 
@@ -635,17 +653,17 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
 }
 
 template <>
-void PipelineContext<Vk>::internalWriteDescriptorSet(
+void PipelineContext<Vk>::internalUpdateDescriptorSet(
     DescriptorSetLayoutMapType<Vk>::const_iterator setLayoutIt,
-    typename DescriptorMapType::iterator descriptorMapIt)
+    typename DescriptorMapType::iterator descriptorMapIt) const
 {
+    ZoneScopedN("Pipeline::internalUpdateDescriptorSet");
+
     const auto& [set, setLayout] = *setLayoutIt;
     auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
-    auto& [bindingsMap, isDirty, setArrayListOptional] = descriptorMapTuple;
-
-    assert(setArrayListOptional.has_value());
-
-    auto& setArrayList = setArrayListOptional.value();
+    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = descriptorMapTuple;
+    assert(setOptionalArrayList);
+    auto& setArrayList = setOptionalArrayList.value();
 
     bool setArrayListIsEmpty = setArrayList.empty();
     bool frontArrayIsFull = setArrayListIsEmpty ?
@@ -746,21 +764,23 @@ void PipelineContext<Vk>::internalWriteDescriptorSet(
         descriptorWrites.data(),
         0,
         nullptr);
-
-    isDirty = false;
 }
 
 template <>
 void PipelineContext<Vk>::bindDescriptorSet(
     CommandBufferHandle<Vk> cmd,
     DescriptorSetHandle<Vk> handle,
+    PipelineBindPoint<Vk> bindPoint,
+    PipelineLayoutHandle<Vk> layoutHandle,
     uint32_t set,
-    std::optional<uint32_t> bufferOffset)
+    std::optional<uint32_t> bufferOffset) const
 {
+    ZoneScopedN("Pipeline::bindDescriptorSet");
+
     vkCmdBindDescriptorSets(
         cmd,
-        myBindPoint,
-        *getLayout(),
+        bindPoint,
+        layoutHandle,
         set,
         1,
         &handle,
@@ -774,6 +794,8 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     uint32_t set,
     std::optional<uint32_t> bufferOffset) 
 {
+    ZoneScopedN("PipelineContext::bindDescriptorSetAuto");
+
     const auto& layout = *getLayout();
     const auto& setLayouts = layout.getDescriptorSetLayouts();
     const auto setLayoutIt = setLayouts.find(set);
@@ -783,46 +805,77 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     auto descriptorMapIt = myDescriptorMap.find(setLayout.getKey());
     assert(descriptorMapIt != myDescriptorMap.end());
     auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
-    auto& [bindingsMap, isDirty, setArrayListOptional] = descriptorMapTuple;
-
-    if (setArrayListOptional.has_value())
+    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = descriptorMapTuple;
+    
+    //std::upgrade_lock<decltype(spinMutex)> lock(spinMutex); // on my wishlist for c++23
+    spinMutex.lock_upgrade();
+    
+    if (setState == DescriptorSetState::Dirty)
     {
-        if (isDirty)
-            internalWriteDescriptorSet(setLayoutIt, descriptorMapIt);
+        ZoneScopedN("PipelineContext::bindDescriptorSetAuto::update");
 
-        auto& setArrayList = setArrayListOptional.value();
-        auto setArrayIt = setArrayList.begin();
-        auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-        auto handle = setArray[setIndex];
+        spinMutex.unlock_upgrade_and_lock();
 
-        vkCmdBindDescriptorSets(
-            cmd,
-            myBindPoint,
-            layout,
-            set,
-            1,
-            &handle,
-            bufferOffset ? 1 : 0,
-            bufferOffset ? &bufferOffset.value() : nullptr);
-
-        setRefCount++;
-
-        getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) { (*refCountPtr)--; });
+        internalUpdateDescriptorSet(setLayoutIt, descriptorMapIt);
 
         // clean up
-        while (setArrayIt != setArrayList.end())
+        auto& setArrayList = setOptionalArrayList.value();
+        if (auto setArrayIt = setArrayList.begin(); setArrayIt != setArrayList.end())
         {
-            auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-            if (!setRefCount)
-                setArrayIt = setArrayList.erase(setArrayIt);
-            else
-                setArrayIt++;
+            setArrayIt++;
+            while (setArrayIt != setArrayList.end())
+            {
+                auto& [setArray, setIndex, setRefCount] = *setArrayIt;
+                if (!setRefCount)
+                    setArrayIt = setArrayList.erase(setArrayIt);
+                else
+                    setArrayIt++;
+            }
         }
+
+        setState = DescriptorSetState::Ready;
+
+        spinMutex.unlock_and_lock_shared();
     }
     else
     {
+        ZoneScopedN("PipelineContext::bindDescriptorSetAuto::wait");
+
+        spinMutex.unlock_upgrade_and_lock_shared();
+    }
+    
+    if (setOptionalArrayList)
+    {
+        ZoneScopedN("PipelineContext::bindDescriptorSetAuto::bind");
+
+        auto& setArrayList = setOptionalArrayList.value();
+        auto setArrayIt = setArrayList.begin();
+
+        auto& [setArray, setIndex, setRefCount] = *setArrayIt;
+        auto handle = setArray[setIndex];
+
+        bindDescriptorSet(
+            cmd,
+            handle,
+            myBindPoint,
+            static_cast<PipelineLayoutHandle<Vk>>(layout),
+            set,
+            bufferOffset);
+
+        std::atomic_ref(setRefCount)++;
+
+        getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) {
+            std::atomic_ref(*refCountPtr)--;
+        });
+    }
+    else
+    {
+        ZoneScopedN("PipelineContext::bindDescriptorSetAuto::push");
+
         internalPushDescriptorSet(cmd, set, bindingsMap);
     }
+
+    spinMutex.unlock_shared();
 }
 
 template<>

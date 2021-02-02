@@ -37,7 +37,7 @@ uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
         assert(result != XXH_ERROR);
     }
 
-    if (desc.pushConstantRange.has_value())
+    if (desc.pushConstantRange)
     {
         result = XXH3_64bits_update(
             threadXXHState.get(),

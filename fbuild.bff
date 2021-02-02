@@ -103,6 +103,12 @@
 			+ ' -Wno-macro-redefined'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-invalid-offsetof'
+			+ ' -Wno-unknown-escape-sequence'
+			+ ' -Wno-logical-op-parentheses'
+			+ ' -Wno-tautological-constant-out-of-range-compare'
+			+ ' -Wno-deprecated-enum-enum-conversion'
+			+ ' -Wno-microsoft-exception-spec'
+			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -DSLANG_STATIC'
 		.CompilerInputPath = '$ProjectBasePath$'
 		.CompilerInputFiles = {
