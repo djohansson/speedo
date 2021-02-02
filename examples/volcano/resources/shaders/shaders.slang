@@ -38,34 +38,33 @@ ParameterBlock<ObjectParams> g_object;
 struct InputStream
 {
     float3 position : POSITION;
-    float3 color : COLOR;
+    float3 normal : NORMAL;
     float2 texCoord : TEXCOORD0;
+    float3 color : COLOR;
     uint vertexId : SV_VertexID;
 };
 
 struct Interpolants
 {
+    float3 normal;
     float3 color;
     float2 texCoord;
 };
 
 struct VSOutput
 {
-    Interpolants data : Interpolants;
     float4 hPos : SV_Position;
+    Interpolants data : Interpolants;
 };
 
 VSOutput vertexMain(InputStream input)
 {
     VSOutput output;
 
-    float3 position = input.position;
-    float3 color = input.color;
-    float2 texCoord = input.texCoord;
-
-    output.data.color = color;
-    output.data.texCoord = texCoord;
-    output.hPos = mul(g_view.viewProj, float4(position, 1.0));
+    output.hPos = mul(g_view.viewProj, float4(input.position, 1.0));
+    output.data.normal = input.normal;
+    output.data.texCoord = input.texCoord;
+    output.data.color = input.color;
 
     return output;
 }
@@ -79,12 +78,12 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 {
     FSOutput output;
     
-    float4 color = (float4)0;//float4(input.color, 1.0);
+    float4 color = 0.1 * float4(input.color, 1.0);
 
-    color += 0.25 * g_material.texture.Sample(g_material.sampler, input.texCoord);
-    color += 0.25 * g_material.color;
-    color += 0.25 * g_object.texture.Sample(g_object.sampler, input.texCoord);
-    color += 0.25 * g_object.color;
+    color += 0.1 * g_material.texture.Sample(g_material.sampler, input.texCoord);
+    color += 0.2 * g_material.color;
+    color += 0.2 * g_object.texture.Sample(g_object.sampler, input.texCoord);
+    color += 0.4 * g_object.color;
 
     output.color = color;
     

@@ -168,9 +168,10 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &stream))
 			throw std::runtime_error(err);
 #endif
-
+		
 		uint32_t indexCount = 0;
 		for (const auto& shape : shapes)
+		{
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			for (uint32_t faceOffset = shape.face_offset;
 					faceOffset < (shape.face_offset + shape.length);
@@ -179,29 +180,80 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 #else
 			indexCount += shape.mesh.indices.size();
 #endif
+		}
 
-		// todo: read this from file
-		desc.attributes.emplace_back(
-			VertexInputAttributeDescription<Vk>{0u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 0u});
-		desc.attributes.emplace_back(
-			VertexInputAttributeDescription<Vk>{1u, 0u, VK_FORMAT_R32G32B32_SFLOAT, 12u});
-		desc.attributes.emplace_back(
-			VertexInputAttributeDescription<Vk>{2u, 0u, VK_FORMAT_R32G32_SFLOAT, 24u});
+		uint32_t location = 0;
+		uint32_t binding = 0;
+		VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
+		uint32_t offset = 0;
+		
+		uint32_t posOffset = offset;
+		
+		if (!attrib.vertices.empty())
+			desc.attributes.emplace_back(VertexInputAttributeDescription<Vk>{
+				location,
+				binding,
+				format,
+				offset});
+
+		location++;
+		offset += getFormatSize(format);
+		
+		size_t normalOffset = offset;
+
+		format = VK_FORMAT_R32G32B32_SFLOAT;
+		
+		if (!attrib.normals.empty())
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{
+					location,
+					binding,
+					format,
+					offset});
+
+		location++;
+		offset += getFormatSize(format);
+
+		size_t texCoordOffset = offset;
+
+		format = VK_FORMAT_R32G32_SFLOAT;
+
+		if (!attrib.texcoords.empty())
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{
+					location,
+					binding,
+					format,
+					offset});
+
+		location++;
+		offset += getFormatSize(format);
+
+		size_t colorOffset = offset;
+
+		format = VK_FORMAT_R32G32B32_SFLOAT;
+
+		if (!attrib.colors.empty())
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{
+					location,
+					binding,
+					format,
+					offset});
+
+		location++;
+		offset += getFormatSize(format);
 
 		UnorderedMapType<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
-		vertices.setStride(32);
+		vertices.setStride(offset);
 
 		std::vector<uint32_t> indices;
 
 		ScopedVertexAllocation vertexScope(vertices);
 		vertices.reserve(indexCount / 3); // guesstimate
 		indices.reserve(indexCount);
-
-		size_t posOffset = desc.attributes[0].offset;
-		size_t colorOffset = desc.attributes[1].offset;
-		size_t texCoordOffset = desc.attributes[2].offset;
 
 		for (const auto& shape : shapes)
 		{
@@ -222,26 +274,31 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 						attrib.vertices[3 * index.vertex_index + 1],
 						attrib.vertices[3 * index.vertex_index + 2]};
 
-				glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
-				*color = {1.0f, 1.0f, 1.0f};
+				glm::vec3* normal = vertex.dataAs<glm::vec3>(normalOffset);
+				*normal = {attrib.normals[3 * index.normal_index + 0],
+						  attrib.normals[3 * index.normal_index + 1],
+						  attrib.normals[3 * index.normal_index + 2]};
 
 				glm::vec2* texCoord = vertex.dataAs<glm::vec2>(texCoordOffset);
 				*texCoord = {attrib.texcoords[2 * index.texcoord_index + 0],
-								1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+					  1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
 
-				uint64_t vertexHash = vertex.hash();
+				glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
+				*color = {attrib.colors[3 * index.vertex_index + 0],
+						  attrib.colors[3 * index.vertex_index + 1],
+						  attrib.colors[3 * index.vertex_index + 2]};
 
-				if (uniqueVertices.count(vertexHash) == 0)
+				uint64_t vertexIndex = vertex.hash();
+				if (uniqueVertices.count(vertexIndex) == 0)
 				{
-					uniqueVertices[vertexHash] = static_cast<uint32_t>(vertices.size() - 1);
+					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.size() - 1);
 					desc.aabb.merge(*pos);
 				}
 				else
 				{
 					vertexScope.freeVertices(&vertex);
 				}
-
-				indices.push_back(uniqueVertices[vertexHash]);
+				indices.push_back(uniqueVertices[vertexIndex]);
 			}
 		}
 
