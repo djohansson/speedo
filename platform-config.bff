@@ -78,8 +78,14 @@ Settings
 {
 	.CachePath = "/tmp/.fbuild.cache"
 }
-.PlatformIncludePaths = ' -I/usr/include'
-.PlatformLibPaths = ' -L/usr/lib'
+#if exists(SDK_PATH)
+#import SDK_PATH
+.SDKPath = '$SDK_PATH$'
+#else
+.SDKPath = ''
+#endif
+.PlatformIncludePaths = ' -isysroot $SDKPath$'
+.PlatformLibPaths = ''
 #endif //__OSX__
 #if __LINUX__
 .LibPrefix = 'lib'
@@ -91,6 +97,6 @@ Settings
 {
 	.CachePath = "/tmp/.fbuild.cache"
 }
-.PlatformIncludePaths = ' -I/usr/include'
-.PlatformLibPaths = ' -L/usr/lib'
+.PlatformIncludePaths = ''
+.PlatformLibPaths = ''
 #endif //__LINUX__
