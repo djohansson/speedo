@@ -95,19 +95,19 @@ class PipelineContext : public DeviceResource<B>
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
             uint8_t, // current array index. move out from here perhaps?
-            uint32_t>>; // reference count.
+            CopyableAtomic<uint32_t>>>; // reference count.
 
     enum class DescriptorSetState : uint8_t { Dirty, Ready };
     using DescriptorMapType = ConcurrentUnorderedMapType<
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
         std::tuple<
             BindingsMapType,
-            SpinMutex,
+            SpinMutex<>,
             DescriptorSetState,
             std::optional<DescriptorSetArrayListType>>>; // [bindings, mutex, state, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
     using PipelineMapType = ConcurrentUnorderedMapType<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
-        PipelineHandle<B>,
+        CopyableAtomic<PipelineHandle<B>>,
         PassThroughHash<uint64_t>>;
 
 public:

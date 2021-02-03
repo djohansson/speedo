@@ -295,7 +295,7 @@ void PipelineContext<Vk>::internalResetSharedState()
         myDescriptorMap[setLayout.getKey()] = 
             std::make_tuple(
                 BindingsMapType{},
-                SpinMutex{},
+                SpinMutex<>{},
                 DescriptorSetState::Ready,
                 setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
                     std::make_optional(DescriptorSetArrayListType{}) :
@@ -486,7 +486,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
     auto hashKey = internalCalculateHashKey();
     
     auto insertResult = myPipelineMap.insert({hashKey, nullptr});
-    auto pipelineHandleAtomic = std::atomic_ref(insertResult.first->second);
+    auto& pipelineHandleAtomic = insertResult.first->second;
     if (insertResult.second)
     {
         ZoneScopedN("Pipeline::internalGetPipeline::store");
@@ -856,10 +856,10 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
             set,
             bufferOffset);
 
-        std::atomic_ref(setRefCount)++;
+        setRefCount++;
 
         getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) {
-            std::atomic_ref(*refCountPtr)--;
+            (*refCountPtr)--;
         });
     }
     else

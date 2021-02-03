@@ -8,10 +8,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <emmintrin.h>
 #include <filesystem>
 #include <functional>
 #include <future>
 #include <memory>
+#include <new>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -236,18 +238,63 @@ template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEq
 using ConcurrentUnorderedSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
 #endif
 
-class SpinMutex : public Noncopyable
+template <typename T>
+class CopyableAtomic : public std::atomic<T>
 {
-	using value_t = uint8_t;
+public:
+    
+    constexpr CopyableAtomic() noexcept = default;
+    constexpr CopyableAtomic(T val) noexcept : std::atomic<T>(val) {}
+    constexpr CopyableAtomic(const CopyableAtomic<T>& other) noexcept
+    {
+        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
+    }
+
+    constexpr CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other) noexcept
+    {
+        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
+
+        return *this;
+    }
+};
+
+template <typename T = uint8_t>
+class SpinMutex
+#if !defined(USE_ATOMIC_REF)
+ : public CopyableAtomic<T>
+#endif
+{
+	// todo: use internalAtomicRef().wait(...) instead of std::this_thread::yield() ?
+	using value_t = T;
 	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1 };
+
+#if defined(USE_ATOMIC_REF)
+#if __cpp_lib_hardware_interference_size >= 201603
+	alignas(std::hardware_destructive_interference_size) value_t myBits = 0;
+#else
+	alignas(64) value_t myBits = 0;
+#endif
+	inline auto internalAtomicRef() { return std::atomic_ref(myBits); }
+#else
+	inline auto& internalAtomicRef() { return *this; }
+#endif
 
 public:
 
-	constexpr SpinMutex() = default;
-	SpinMutex(SpinMutex&& other) : myBits(std::exchange(other.myBits, 0)) {}
-	~SpinMutex() { unlock(); }
+	constexpr SpinMutex() noexcept = default;
+	~SpinMutex() noexcept { unlock(); }
 
-	SpinMutex& operator=(SpinMutex&& other) { myBits = std::exchange(other.myBits, 0); return *this; }
+#if defined(USE_ATOMIC_REF)
+	SpinMutex(const SpinMutex& other)
+	{
+		internalAtomicRef()->store(other.internalAtomicRef().load(std::memory_order_acquire), std::memory_order_release);
+	}
+	SpinMutex& operator=(const SpinMutex& other)
+	{
+		internalAtomicRef()->store(other.internalAtomicRef().load(std::memory_order_acquire), std::memory_order_release);
+		return *this;
+	}
+#endif
 
 	// Lockable Concept
 	void lock()
@@ -257,19 +304,18 @@ public:
 		while (!try_lock())
 		{
 			_mm_pause();
+
 			if (++count > 1000)
 				std::this_thread::yield();
 		}
 	}
 
 	// Writer is responsible for clearing up both the Upgraded and Writer bits.
-	void unlock()
+	void unlock() noexcept
 	{
 		static_assert(Reader > Writer + Upgraded, "wrong bits!");
 
-		auto bits = std::atomic_ref(myBits);
-		
-		bits.fetch_and(~(Writer | Upgraded), std::memory_order_release);
+		internalAtomicRef().fetch_and(~(Writer | Upgraded), std::memory_order_release);
 	}
 
 	// SharedLockable Concept
@@ -280,6 +326,7 @@ public:
 		while (!try_lock_shared())
 		{
 			_mm_pause();
+
 			if (++count > 1000)
 				std::this_thread::yield();
 		}
@@ -287,17 +334,13 @@ public:
 
 	void unlock_shared()
 	{
-		auto bits = std::atomic_ref(myBits);
-
-		bits.fetch_add(-Reader, std::memory_order_release);
+		internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
 	}
 
 	// Downgrade the lock from writer status to reader status.
 	void unlock_and_lock_shared()
 	{
-		auto bits = std::atomic_ref(myBits);
-
-		bits.fetch_add(Reader, std::memory_order_acquire);
+		internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
 		
 		unlock();
 	}
@@ -310,6 +353,7 @@ public:
 		while (!try_lock_upgrade())
 		{
 			_mm_pause();
+
 			if (++count > 1000)
 				std::this_thread::yield();
 		}
@@ -317,9 +361,7 @@ public:
 
 	void unlock_upgrade()
 	{
-		auto bits = std::atomic_ref(myBits);
-
-		bits.fetch_add(-Upgraded, std::memory_order_acq_rel);
+		internalAtomicRef().fetch_add(-Upgraded, std::memory_order_acq_rel);
 	}
 
 	// unlock upgrade and try to acquire write lock
@@ -330,6 +372,7 @@ public:
 		while (!try_unlock_upgrade_and_lock())
 		{
 			_mm_pause();
+
 			if (++count > 1000)
 				std::this_thread::yield();
 		}
@@ -338,9 +381,7 @@ public:
 	// unlock upgrade and read lock atomically
 	void unlock_upgrade_and_lock_shared()
 	{
-		auto bits = std::atomic_ref(myBits);
-
-		bits.fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
+		internalAtomicRef().fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
 	}
 
 	// write unlock and upgrade lock atomically
@@ -349,19 +390,15 @@ public:
 		// need to do it in two steps here -- as the Upgraded bit might be OR-ed at
 		// the same time when other threads are trying do try_lock_upgrade().
 
-		auto bits = std::atomic_ref(myBits);
-
-		bits.fetch_or(Upgraded, std::memory_order_acquire);
-		bits.fetch_add(-Writer, std::memory_order_release);
+		internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
+		internalAtomicRef().fetch_add(-Writer, std::memory_order_release);
 	}
 
 	// Attempt to acquire writer permission. Return false if we didn't get it.
 	bool try_lock()
 	{
-		auto bits = std::atomic_ref(myBits);
-		
 		value_t expect = 0;
-		return bits.compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
+		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
 	}
 
 	// Try to get reader permission on the lock. This can fail if we
@@ -375,12 +412,10 @@ public:
 		// fetch_add is considerably (100%) faster than compare_exchange,
 		// so here we are optimizing for the common (lock success) case.
 
-		auto bits = std::atomic_ref(myBits);
-		
-		value_t value = bits.fetch_add(Reader, std::memory_order_acquire);
+		value_t value = internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
 		if (value & (Writer | Upgraded))
 		{
-			bits.fetch_add(-Reader, std::memory_order_release);
+			internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
 			return false;
 		}
 		return true;
@@ -389,18 +424,14 @@ public:
 	// try to unlock upgrade and write lock atomically
 	bool try_unlock_upgrade_and_lock()
 	{
-		auto bits = std::atomic_ref(myBits);
-
 		value_t expect = Upgraded;
-		return bits.compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
+		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
 	}
 
 	// try to acquire an upgradable lock.
 	bool try_lock_upgrade()
 	{
-		auto bits = std::atomic_ref(myBits);
-		
-		value_t value = bits.fetch_or(Upgraded, std::memory_order_acquire);
+		value_t value = internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
 
 		// Note: when failed, we cannot flip the Upgraded bit back,
 		// as in this case there is either another upgrade lock or a write lock.
@@ -408,8 +439,4 @@ public:
 		// with unlock().
 		return ((value & (Upgraded | Writer)) == 0);
 	}
-
-private:
-
-	alignas(std::hardware_destructive_interference_size) value_t myBits = 0;
 };

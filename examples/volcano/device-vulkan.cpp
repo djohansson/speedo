@@ -131,7 +131,7 @@ void DeviceContext<Vk>::addOwnedObjectHandle(
 
     VK_CHECK(device::vkSetDebugUtilsObjectNameEXT(myDevice, &objectInfo));
 
-    std::atomic_ref(myObjectTypeToCountMap[objectType])++;
+    myObjectTypeToCountMap[objectType]++;
 }
 
 template <>
@@ -142,7 +142,7 @@ void DeviceContext<Vk>::clearOwnedObjectHandles(uintptr_t ownerId)
     auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerId];
     
     for (const auto& objectInfo : objectInfos)
-        std::atomic_ref(myObjectTypeToCountMap[objectInfo.objectType])--;
+        myObjectTypeToCountMap[objectInfo.objectType]--;
     
     objectInfos.clear();
 }
@@ -150,7 +150,7 @@ void DeviceContext<Vk>::clearOwnedObjectHandles(uintptr_t ownerId)
 template <>
 uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 {
-    return std::atomic_ref(myObjectTypeToCountMap[type]);
+    return myObjectTypeToCountMap[type];
 }
 
 template <>
