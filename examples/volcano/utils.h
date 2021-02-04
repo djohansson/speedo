@@ -245,12 +245,11 @@ public:
     
     constexpr CopyableAtomic() noexcept = default;
     constexpr CopyableAtomic(T val) noexcept : std::atomic<T>(val) {}
-    constexpr CopyableAtomic(const CopyableAtomic<T>& other) noexcept
+    CopyableAtomic(const CopyableAtomic<T>& other) noexcept
     {
         this->store(other.load(std::memory_order_acquire), std::memory_order_release);
     }
-
-    constexpr CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other) noexcept
+    CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other) noexcept
     {
         this->store(other.load(std::memory_order_acquire), std::memory_order_release);
 
@@ -259,45 +258,29 @@ public:
 };
 
 template <typename T = uint8_t>
-class SpinMutex
-#if !defined(USE_ATOMIC_REF)
+class UpgradableRWSpinMutex
+#if __cpp_lib_atomic_ref < 201806
  : public CopyableAtomic<T>
 #endif
 {
-	// todo: use internalAtomicRef().wait(...) instead of std::this_thread::yield() ?
 	using value_t = T;
 	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1 };
 
-#if defined(USE_ATOMIC_REF)
+#if __cpp_lib_atomic_ref >= 201806
 #if __cpp_lib_hardware_interference_size >= 201603
 	alignas(std::hardware_destructive_interference_size) value_t myBits = 0;
 #else
 	alignas(64) value_t myBits = 0;
 #endif
-	inline auto internalAtomicRef() { return std::atomic_ref(myBits); }
+	inline auto internalAtomicRef() noexcept { return std::atomic_ref(myBits); }
 #else
-	inline auto& internalAtomicRef() { return *this; }
+	inline auto& internalAtomicRef() noexcept { return *this; }
 #endif
 
 public:
 
-	constexpr SpinMutex() noexcept = default;
-	~SpinMutex() noexcept { unlock(); }
-
-#if defined(USE_ATOMIC_REF)
-	SpinMutex(const SpinMutex& other)
-	{
-		internalAtomicRef()->store(other.internalAtomicRef().load(std::memory_order_acquire), std::memory_order_release);
-	}
-	SpinMutex& operator=(const SpinMutex& other)
-	{
-		internalAtomicRef()->store(other.internalAtomicRef().load(std::memory_order_acquire), std::memory_order_release);
-		return *this;
-	}
-#endif
-
 	// Lockable Concept
-	void lock()
+	void lock() noexcept
 	{
 		uint_fast32_t count = 0;
 
@@ -306,7 +289,7 @@ public:
 			_mm_pause();
 
 			if (++count > 1000)
-				std::this_thread::yield();
+				internalAtomicRef().wait(0);
 		}
 	}
 
@@ -316,10 +299,11 @@ public:
 		static_assert(Reader > Writer + Upgraded, "wrong bits!");
 
 		internalAtomicRef().fetch_and(~(Writer | Upgraded), std::memory_order_release);
+		internalAtomicRef().notify_all();
 	}
 
 	// SharedLockable Concept
-	void lock_shared()
+	void lock_shared() noexcept
 	{
 		uint_fast32_t count = 0;
 
@@ -328,17 +312,18 @@ public:
 			_mm_pause();
 
 			if (++count > 1000)
-				std::this_thread::yield();
+				internalAtomicRef().wait(0);
 		}
 	}
 
-	void unlock_shared()
+	void unlock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
+		internalAtomicRef().notify_all();
 	}
 
 	// Downgrade the lock from writer status to reader status.
-	void unlock_and_lock_shared()
+	void unlock_and_lock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
 		
@@ -346,7 +331,7 @@ public:
 	}
 
 	// UpgradeLockable Concept
-	void lock_upgrade()
+	void lock_upgrade() noexcept
 	{
 		uint_fast32_t count = 0;
 
@@ -355,17 +340,18 @@ public:
 			_mm_pause();
 
 			if (++count > 1000)
-				std::this_thread::yield();
+				internalAtomicRef().wait(0);
 		}
 	}
 
-	void unlock_upgrade()
+	void unlock_upgrade() noexcept
 	{
 		internalAtomicRef().fetch_add(-Upgraded, std::memory_order_acq_rel);
+		internalAtomicRef().notify_all();
 	}
 
 	// unlock upgrade and try to acquire write lock
-	void unlock_upgrade_and_lock()
+	void unlock_upgrade_and_lock() noexcept
 	{
 		uint_fast32_t count = 0;
 
@@ -374,28 +360,30 @@ public:
 			_mm_pause();
 
 			if (++count > 1000)
-				std::this_thread::yield();
+				internalAtomicRef().wait(Upgraded);
 		}
 	}
 
 	// unlock upgrade and read lock atomically
-	void unlock_upgrade_and_lock_shared()
+	void unlock_upgrade_and_lock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
+		internalAtomicRef().notify_all();
 	}
 
 	// write unlock and upgrade lock atomically
-	void unlock_and_lock_upgrade()
+	void unlock_and_lock_upgrade() noexcept
 	{
 		// need to do it in two steps here -- as the Upgraded bit might be OR-ed at
 		// the same time when other threads are trying do try_lock_upgrade().
 
 		internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
 		internalAtomicRef().fetch_add(-Writer, std::memory_order_release);
+		internalAtomicRef().notify_all();
 	}
 
 	// Attempt to acquire writer permission. Return false if we didn't get it.
-	bool try_lock()
+	bool try_lock() noexcept
 	{
 		value_t expect = 0;
 		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
@@ -407,7 +395,7 @@ public:
 	// its intention to write and block any new readers while waiting
 	// for existing readers to finish and release their read locks. This
 	// helps avoid starving writers (promoted from upgraders).
-	bool try_lock_shared()
+	bool try_lock_shared() noexcept
 	{
 		// fetch_add is considerably (100%) faster than compare_exchange,
 		// so here we are optimizing for the common (lock success) case.
@@ -422,14 +410,14 @@ public:
 	}
 
 	// try to unlock upgrade and write lock atomically
-	bool try_unlock_upgrade_and_lock()
+	bool try_unlock_upgrade_and_lock() noexcept
 	{
 		value_t expect = Upgraded;
 		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
 	}
 
 	// try to acquire an upgradable lock.
-	bool try_lock_upgrade()
+	bool try_lock_upgrade() noexcept
 	{
 		value_t value = internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
 

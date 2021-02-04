@@ -295,7 +295,7 @@ void PipelineContext<Vk>::internalResetSharedState()
         myDescriptorMap[setLayout.getKey()] = 
             std::make_tuple(
                 BindingsMapType{},
-                SpinMutex<>{},
+                UpgradableRWSpinMutex<>{},
                 DescriptorSetState::Ready,
                 setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
                     std::make_optional(DescriptorSetArrayListType{}) :
@@ -801,14 +801,21 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
     auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = descriptorMapTuple;
     
-    //std::upgrade_lock<decltype(spinMutex)> lock(spinMutex); // on my wishlist for c++23
-    spinMutex.lock_upgrade();
+    {
+		ZoneScopedN("PipelineContext::bindDescriptorSetAuto::wait_lock_upgrade");
+
+		spinMutex.lock_upgrade();
+	}
     
     if (setState == DescriptorSetState::Dirty)
     {
         ZoneScopedN("PipelineContext::bindDescriptorSetAuto::update");
 
-        spinMutex.unlock_upgrade_and_lock();
+        {
+			ZoneScopedN("PipelineContext::bindDescriptorSetAuto::wait_unlock_upgrade_and_lock");
+
+			spinMutex.unlock_upgrade_and_lock();
+		}
 
         internalUpdateDescriptorSet(setLayoutIt, descriptorMapIt);
 
@@ -833,8 +840,6 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     }
     else
     {
-        ZoneScopedN("PipelineContext::bindDescriptorSetAuto::wait");
-
         spinMutex.unlock_upgrade_and_lock_shared();
     }
     
