@@ -27,7 +27,7 @@
 	.ClangPath = '$CLANG_PATH$'
 #else
 #if __WINDOWS__
-	.ClangPath = '$LLVMPath$/lib/clang/$LLVMVersion$'
+	.ClangPath = '"$LLVMPath$"/lib/clang/$LLVMVersion$'
 #else
 	.ClangPath = '$LLVMPath$'
 #endif
