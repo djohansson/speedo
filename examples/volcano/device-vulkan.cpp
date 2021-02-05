@@ -52,7 +52,7 @@ void DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& call
 {
     ZoneScopedN("DeviceContext::addTimelineCallback");
 
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    auto writeLock = std::lock_guard(myTimelineCallbacksMutex);
 
     myTimelineCallbacks.emplace_back(
         std::make_pair(
@@ -65,7 +65,7 @@ void DeviceContext<Vk>::addTimelineCallback(uint64_t timelineValue, std::functio
 {
     ZoneScopedN("DeviceContext::addTimelineCallback");
 
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    auto writeLock = std::lock_guard(myTimelineCallbacksMutex);
     
     myTimelineCallbacks.emplace_back(
         std::make_pair(
@@ -80,7 +80,7 @@ void DeviceContext<Vk>::addTimelineCallbacks(
 {
     ZoneScopedN("DeviceContext::addTimelineCallbacks");
 
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    auto writeLock = std::lock_guard(myTimelineCallbacksMutex);
     
     for (const auto& callback : callbacks)
         myTimelineCallbacks.emplace_back(
@@ -94,7 +94,7 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
 {
     ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
-    std::unique_lock<decltype(myTimelineCallbacksMutex)> writeLock(myTimelineCallbacksMutex);
+    auto writeLock = std::lock_guard(myTimelineCallbacksMutex);
 
     while (!myTimelineCallbacks.empty())
     {

@@ -14,7 +14,7 @@ void PipelineContext<Vk>::setDescriptorData(
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     auto& [bindingsMap, mutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
 
-    std::unique_lock<decltype(mutex)> lock(mutex);
+    auto lock = std::lock_guard(mutex);
     
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
@@ -56,7 +56,7 @@ void PipelineContext<Vk>::setDescriptorData(
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     auto& [bindingsMap, mutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
 
-    std::unique_lock<decltype(mutex)> lock(mutex);
+    auto lock = std::lock_guard(mutex);
 
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
@@ -97,7 +97,7 @@ void PipelineContext<Vk>::setDescriptorData(
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     auto& [bindingsMap, mutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
 
-    std::unique_lock<decltype(mutex)> lock(mutex);
+    auto lock = std::lock_guard(mutex);
 
     auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
