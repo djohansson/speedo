@@ -23,6 +23,10 @@
 			+ ' -Wno-inconsistent-missing-override'
 			+ ' -Wno-missing-braces'
 			+ ' -Wno-macro-redefined'
+			+ ' -Wno-microsoft-exception-spec'
+			+ ' -Wno-unused-local-typedef'
+			+ ' -Wno-implicit-const-int-float-conversion'
+			+ ' -Wno-#pragma-messages'
 			+ ' -DSLANG_DYNAMIC_EXPORT'
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputPath = '$ProjectBasePath$'
@@ -225,6 +229,7 @@
 			+ ' -Wno-unused-function'
 			+ ' -Wno-missing-braces'
 			+ ' -Wno-inconsistent-missing-override'
+			+ ' -Wno-#pragma-messages'
 			+ ' -DSLANG_DYNAMIC_EXPORT'
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputPath = '$ProjectBasePath$'
@@ -333,6 +338,10 @@
 		.Name = 'tracy-client'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/tracy'
+			+ ' -Wno-deprecated-anon-enum-enum-conversion'
+			+ ' -Wno-format'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-unused-function'
 			+ ' -DTRACY_ENABLE'
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/TracyClient.cpp',
@@ -359,12 +368,15 @@
 			+ ' -I$BuildRootPath$/external/zstd/lib'
 			+ ' -Wno-logical-op-parentheses'
 			+ ' -Wno-deprecated-anon-enum-enum-conversion'
-			+ ' -Wno-unused-variable'
 			+ ' -Wno-deprecated-enum-float-conversion'
 			+ ' -Wno-unused-private-field'
 			+ ' -Wno-missing-braces'
 			+ ' -Wno-reorder-ctor'
 			+ ' -Wno-parentheses'
+			+ ' -Wno-format'
+			+ ' -Wno-unused-variable'
+			+ ' -Wno-unused-function'
+			+ ' -Wno-#pragma-messages'
 			+ ' -DTRACY_FILESELECTOR'
 			+ ' -DTRACY_EXTENDED_FONT'
 			+ ' -DTRACY_ROOT_WINDOW'
@@ -447,6 +459,8 @@
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$BuildRootPath$/external/glslang'
 				+ ' -I$BuildRootPath$/external/glslang/OGLCompilersDLL'
+				+ ' -Wno-deprecated-enum-enum-conversion'
+				+ ' -Wno-#pragma-messages'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -495,6 +509,7 @@
 		.DependencyTasks = { .GlslangGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$ProjectBasePath$'
+				+ ' -Wno-#pragma-messages'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -520,6 +535,7 @@
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$ProjectBasePath$'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
+				+ ' -Wno-#pragma-messages'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -547,6 +563,9 @@
 				+ ' -I$ProjectBasePath$/include'
 				+ ' -I$BuildRootPath$/external/spirv-headers/include'
 				+ ' -I$BuildRootPath$/external/spirv-tools-generated' // todo: - add code generation step
+				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-unused-const-variable'
+				+ ' -Wno-infinite-recursion'
 				+ ' -D_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING'
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputPath = '$ProjectBasePath$/source'
@@ -588,6 +607,7 @@
 				+ ' -I$BuildRootPath$/external/glslang'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
 				+ ' -Wno-unused-local-typedef'
+				+ ' -Wno-#pragma-messages'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -659,7 +679,6 @@
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-ambiguous-reversed-operator'
-			//+ ' -DLZ4_DEBUG=5'
 		.CompilerInputPath = '$ProjectBasePath$'
 	//	.CompilerInputUnity = '$Name$-unity'
 	// 	.UnityInputPath = '$ProjectBasePath$'
@@ -678,6 +697,7 @@
 		.Name = 'mio'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/mio/include'
+			+ ' -Wno-unused-variable'
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/test/test.cpp',
 		}
@@ -706,6 +726,7 @@
 
 		.Name = 'glfw'
 		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -Wno-#pragma-messages'
 	#if __WINDOWS__
 			+ ' -D_GLFW_WIN32=1'
 	#endif
@@ -842,6 +863,7 @@
 		.Name = 'freetype2'
 		.LibraryCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$/include'
+			+ ' -Wno-#pragma-messages'
 			+ ' -DFT2_BUILD_LIBRARY'
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputFiles = {
@@ -913,6 +935,8 @@
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/freetype2/include'
 			+ ' -I$VulkanSDKPath$/include'
+			+ ' -Wno-#pragma-messages'
+			+ ' -Wno-unused-variable'
 		.ConfigDependentCompilerOptions = {
 			' -I$IntermediateFilePath$/gl3w-generate',
 		}
