@@ -14,6 +14,7 @@
 #include <future>
 #include <memory>
 #include <new>
+#include <queue>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -29,6 +30,7 @@
 #include <cereal/types/string.hpp>
 
 #if defined(__WINDOWS__)
+#include <concurrent_queue.h>
 #include <concurrent_unordered_map.h>
 #include <concurrent_unordered_set.h>
 #endif
@@ -227,11 +229,15 @@ template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEq
 using UnorderedSetType = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
 #if defined(__WINDOWS__)
+template <typename T>
+using ConcurrentQueueType = Concurrency::concurrent_queue<T>;
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using ConcurrentUnorderedMapType = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using ConcurrentUnorderedSetType = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEqualTo>;
 #else
+template <typename T>
+using ConcurrentQueueType = std::queue<T>;
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using ConcurrentUnorderedMapType = UnorderedMapType<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
