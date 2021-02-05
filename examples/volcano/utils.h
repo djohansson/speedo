@@ -257,13 +257,12 @@ public:
     }
 };
 
-template <typename T = uint8_t>
-class UpgradableRWSpinMutex
+class UpgradableSharedMutex
 #if __cpp_lib_atomic_ref < 201806
- : public CopyableAtomic<T>
+ : public CopyableAtomic<uint8_t>
 #endif
 {
-	using value_t = T;
+	using value_t = uint8_t;
 	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1 };
 
 #if __cpp_lib_atomic_ref >= 201806
@@ -282,19 +281,12 @@ public:
 	// Lockable Concept
 	void lock() noexcept
 	{
-		uint_fast32_t count = 0;
-
 		while (!try_lock())
-		{
-			_mm_pause();
-
-			if (++count > 1000)
-				internalAtomicRef().wait(0);
-		}
+			internalAtomicRef().wait(0);
 	}
 
 	// Writer is responsible for clearing up both the Upgraded and Writer bits.
-	void unlock() noexcept
+	inline void unlock() noexcept
 	{
 		static_assert(Reader > Writer + Upgraded, "wrong bits!");
 
@@ -305,25 +297,23 @@ public:
 	// SharedLockable Concept
 	void lock_shared() noexcept
 	{
-		uint_fast32_t count = 0;
-
-		while (!try_lock_shared())
+		auto result = try_lock_shared();
+		auto& [success, value] = result;
+		while (!success)
 		{
-			_mm_pause();
-
-			if (++count > 1000)
-				internalAtomicRef().wait(0);
+			internalAtomicRef().wait(value);
+			result = try_lock_shared();
 		}
 	}
 
-	void unlock_shared() noexcept
+	inline void unlock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
 		internalAtomicRef().notify_all();
 	}
 
 	// Downgrade the lock from writer status to reader status.
-	void unlock_and_lock_shared() noexcept
+	inline void unlock_and_lock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
 		
@@ -333,18 +323,16 @@ public:
 	// UpgradeLockable Concept
 	void lock_upgrade() noexcept
 	{
-		uint_fast32_t count = 0;
-
-		while (!try_lock_upgrade())
+		auto result = try_lock_upgrade();
+		auto& [success, value] = result;
+		while (!success)
 		{
-			_mm_pause();
-
-			if (++count > 1000)
-				internalAtomicRef().wait(0);
+			internalAtomicRef().wait(value);
+			result = try_lock_upgrade();
 		}
 	}
 
-	void unlock_upgrade() noexcept
+	inline void unlock_upgrade() noexcept
 	{
 		internalAtomicRef().fetch_add(-Upgraded, std::memory_order_acq_rel);
 		internalAtomicRef().notify_all();
@@ -353,26 +341,19 @@ public:
 	// unlock upgrade and try to acquire write lock
 	void unlock_upgrade_and_lock() noexcept
 	{
-		uint_fast32_t count = 0;
-
 		while (!try_unlock_upgrade_and_lock())
-		{
-			_mm_pause();
-
-			if (++count > 1000)
-				internalAtomicRef().wait(Upgraded);
-		}
+			internalAtomicRef().wait(Upgraded);
 	}
 
 	// unlock upgrade and read lock atomically
-	void unlock_upgrade_and_lock_shared() noexcept
+	inline void unlock_upgrade_and_lock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
 		internalAtomicRef().notify_all();
 	}
 
 	// write unlock and upgrade lock atomically
-	void unlock_and_lock_upgrade() noexcept
+	inline void unlock_and_lock_upgrade() noexcept
 	{
 		// need to do it in two steps here -- as the Upgraded bit might be OR-ed at
 		// the same time when other threads are trying do try_lock_upgrade().
@@ -383,7 +364,7 @@ public:
 	}
 
 	// Attempt to acquire writer permission. Return false if we didn't get it.
-	bool try_lock() noexcept
+	inline bool try_lock() noexcept
 	{
 		value_t expect = 0;
 		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
@@ -395,7 +376,7 @@ public:
 	// its intention to write and block any new readers while waiting
 	// for existing readers to finish and release their read locks. This
 	// helps avoid starving writers (promoted from upgraders).
-	bool try_lock_shared() noexcept
+	inline std::tuple<bool, value_t> try_lock_shared() noexcept
 	{
 		// fetch_add is considerably (100%) faster than compare_exchange,
 		// so here we are optimizing for the common (lock success) case.
@@ -404,20 +385,20 @@ public:
 		if (value & (Writer | Upgraded))
 		{
 			internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
-			return false;
+			return std::make_tuple(false, value);
 		}
-		return true;
+		return std::make_tuple(true, value);
 	}
 
 	// try to unlock upgrade and write lock atomically
-	bool try_unlock_upgrade_and_lock() noexcept
+	inline bool try_unlock_upgrade_and_lock() noexcept
 	{
 		value_t expect = Upgraded;
 		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
 	}
 
 	// try to acquire an upgradable lock.
-	bool try_lock_upgrade() noexcept
+	inline std::tuple<bool, value_t> try_lock_upgrade() noexcept
 	{
 		value_t value = internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
 
@@ -425,6 +406,6 @@ public:
 		// as in this case there is either another upgrade lock or a write lock.
 		// If it's a write lock, the bit will get cleared up when that lock's done
 		// with unlock().
-		return ((value & (Upgraded | Writer)) == 0);
+		return std::make_tuple(((value & (Upgraded | Writer)) == 0), value);
 	}
 };

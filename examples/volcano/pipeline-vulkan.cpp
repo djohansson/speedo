@@ -295,7 +295,7 @@ void PipelineContext<Vk>::internalResetSharedState()
         myDescriptorMap[setLayout.getKey()] = 
             std::make_tuple(
                 BindingsMapType{},
-                UpgradableRWSpinMutex<>{},
+                UpgradableSharedMutex{},
                 DescriptorSetState::Ready,
                 setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
                     std::make_optional(DescriptorSetArrayListType{}) :
@@ -658,7 +658,7 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
 
     const auto& [set, setLayout] = *setLayoutIt;
     auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
-    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = descriptorMapTuple;
+    auto& [bindingsMap, mutex, setState, setOptionalArrayList] = descriptorMapTuple;
     assert(setOptionalArrayList);
     auto& setArrayList = setOptionalArrayList.value();
 
@@ -799,12 +799,12 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     auto descriptorMapIt = myDescriptorMap.find(setLayout.getKey());
     assert(descriptorMapIt != myDescriptorMap.end());
     auto& [setLayoutKey, descriptorMapTuple] = *descriptorMapIt;
-    auto& [bindingsMap, spinMutex, setState, setOptionalArrayList] = descriptorMapTuple;
+    auto& [bindingsMap, mutex, setState, setOptionalArrayList] = descriptorMapTuple;
     
     {
 		ZoneScopedN("PipelineContext::bindDescriptorSetAuto::wait_lock_upgrade");
 
-		spinMutex.lock_upgrade();
+		mutex.lock_upgrade();
 	}
     
     if (setState == DescriptorSetState::Dirty)
@@ -814,7 +814,7 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
         {
 			ZoneScopedN("PipelineContext::bindDescriptorSetAuto::wait_unlock_upgrade_and_lock");
 
-			spinMutex.unlock_upgrade_and_lock();
+			mutex.unlock_upgrade_and_lock();
 		}
 
         internalUpdateDescriptorSet(setLayoutIt, descriptorMapIt);
@@ -836,11 +836,11 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
 
         setState = DescriptorSetState::Ready;
 
-        spinMutex.unlock_and_lock_shared();
+        mutex.unlock_and_lock_shared();
     }
     else
     {
-        spinMutex.unlock_upgrade_and_lock_shared();
+        mutex.unlock_upgrade_and_lock_shared();
     }
     
     if (setOptionalArrayList)
@@ -874,7 +874,7 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
         internalPushDescriptorSet(cmd, set, bindingsMap);
     }
 
-    spinMutex.unlock_shared();
+    mutex.unlock_shared();
 }
 
 template<>
