@@ -269,7 +269,7 @@ class UpgradableSharedMutex
 #endif
 {
 	using value_t = uint8_t;
-	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1 };
+	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1, None = 0 };
 
 #if __cpp_lib_atomic_ref >= 201806
 #if __cpp_lib_hardware_interference_size >= 201603
@@ -282,13 +282,24 @@ class UpgradableSharedMutex
 	inline auto& internalAtomicRef() noexcept { return *this; }
 #endif
 
+	template <typename Func>
+	inline void internalSpinWait(Func lockFn) noexcept
+	{
+		auto result = lockFn();
+		auto& [success, value] = result;
+		while (!success)
+		{
+			internalAtomicRef().wait(value);
+			result = lockFn();
+		}
+	}
+
 public:
 
 	// Lockable Concept
 	void lock() noexcept
 	{
-		while (!try_lock())
-			internalAtomicRef().wait(0);
+		internalSpinWait([this](){ return try_lock(); });
 	}
 
 	// Writer is responsible for clearing up both the Upgraded and Writer bits.
@@ -303,13 +314,7 @@ public:
 	// SharedLockable Concept
 	void lock_shared() noexcept
 	{
-		auto result = try_lock_shared();
-		auto& [success, value] = result;
-		while (!success)
-		{
-			internalAtomicRef().wait(value);
-			result = try_lock_shared();
-		}
+		internalSpinWait([this](){ return try_lock_shared(); });
 	}
 
 	inline void unlock_shared() noexcept
@@ -329,13 +334,7 @@ public:
 	// UpgradeLockable Concept
 	void lock_upgrade() noexcept
 	{
-		auto result = try_lock_upgrade();
-		auto& [success, value] = result;
-		while (!success)
-		{
-			internalAtomicRef().wait(value);
-			result = try_lock_upgrade();
-		}
+		internalSpinWait([this](){ return try_lock_upgrade(); });
 	}
 
 	inline void unlock_upgrade() noexcept
@@ -347,8 +346,8 @@ public:
 	// unlock upgrade and try to acquire write lock
 	void unlock_upgrade_and_lock() noexcept
 	{
-		while (!try_unlock_upgrade_and_lock())
-			internalAtomicRef().wait(Upgraded);
+		// try to unlock upgrade and write lock atomically
+		internalSpinWait([this](){ return try_lock<Upgraded>(); });
 	}
 
 	// unlock upgrade and read lock atomically
@@ -370,10 +369,13 @@ public:
 	}
 
 	// Attempt to acquire writer permission. Return false if we didn't get it.
-	inline bool try_lock() noexcept
+	template <value_t Expected = None>
+	inline std::tuple<bool, value_t> try_lock() noexcept
 	{
-		value_t expect = 0;
-		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
+		auto result = std::make_tuple(false, Expected);
+		auto& [success, value] = result;
+		success = internalAtomicRef().compare_exchange_strong(value, Writer, std::memory_order_acq_rel);
+		return result;
 	}
 
 	// Try to get reader permission on the lock. This can fail if we
@@ -394,13 +396,6 @@ public:
 			return std::make_tuple(false, value);
 		}
 		return std::make_tuple(true, value);
-	}
-
-	// try to unlock upgrade and write lock atomically
-	inline bool try_unlock_upgrade_and_lock() noexcept
-	{
-		value_t expect = Upgraded;
-		return internalAtomicRef().compare_exchange_strong(expect, Writer, std::memory_order_acq_rel);
 	}
 
 	// try to acquire an upgradable lock.
