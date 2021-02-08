@@ -289,6 +289,8 @@ class UpgradableSharedMutex
 		auto& [success, value] = result;
 		while (!success)
 		{
+			ZoneScopedN("wait");
+
 			internalAtomicRef().wait(value);
 			result = lockFn();
 		}
@@ -392,7 +394,7 @@ public:
 		value_t value = internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
 		if (value & (Writer | Upgraded))
 		{
-			internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
+			value = internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
 			return std::make_tuple(false, value);
 		}
 		return std::make_tuple(true, value);

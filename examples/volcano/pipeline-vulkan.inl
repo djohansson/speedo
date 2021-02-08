@@ -16,13 +16,11 @@ void PipelineContext<Vk>::setDescriptorData(
 
     auto lock = std::lock_guard(mutex);
     
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
-    auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
-    auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
+    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, T{}));
+    auto& bindingVariant = std::get<1>(bindingDataPairIt->second);
+    auto& bindingData = std::get<T>(bindingVariant);
     
-    assert(bindingVector.size() <= 1);
-    bindingVector.clear();
-    bindingVector.emplace_back(std::move(data));
+    bindingData = std::move(data);
 
     setState = DescriptorSetState::Dirty;
 }
@@ -58,7 +56,9 @@ void PipelineContext<Vk>::setDescriptorData(
 
     auto lock = std::lock_guard(mutex);
 
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
+    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(
+        (static_cast<uint64_t>(BindingTypeFlags::Array) << 32) | binding,
+        std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
     
@@ -99,7 +99,9 @@ void PipelineContext<Vk>::setDescriptorData(
 
     auto lock = std::lock_guard(mutex);
 
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, std::vector<T>{}));
+    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(
+        (static_cast<uint64_t>(BindingTypeFlags::Array) << 32) | binding,
+        std::make_tuple(type, std::vector<T>{}));
     auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
     

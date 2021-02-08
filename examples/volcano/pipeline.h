@@ -84,20 +84,24 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
 {
-    using BindingVariantVectorType = std::variant<
+    enum class BindingTypeFlags : uint64_t { Array = 1 << 0 };
+    enum class DescriptorSetState : uint8_t { Dirty, Ready };
+
+    using BindingVariantType = std::variant<
+        DescriptorBufferInfo<B>,
         std::vector<DescriptorBufferInfo<B>>,
+        DescriptorImageInfo<B>,
         std::vector<DescriptorImageInfo<B>>,
+        BufferViewHandle<B>,
         std::vector<BufferViewHandle<B>>,
-        std::vector<InlineUniformBlock<Vk>>>; // InlineUniformBlock can only have one array element per binding
-    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantVectorType>;
-    using BindingsMapType = UnorderedMapType<uint32_t, BindingValueType>; // [binding, data], perhaps make this an array?
+        InlineUniformBlock<Vk>>; // InlineUniformBlock can only have one array element per binding
+    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantType>;
+    using BindingsMapType = UnorderedMapType<uint64_t, BindingValueType>; // [(flags<<32)|binding, data]
     using DescriptorSetArrayListType = std::list<
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
             uint8_t, // current array index. move out from here perhaps?
             CopyableAtomic<uint32_t>>>; // reference count.
-
-    enum class DescriptorSetState : uint8_t { Dirty, Ready };
     using DescriptorMapType = ConcurrentUnorderedMapType<
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
         std::tuple<
