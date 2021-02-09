@@ -162,6 +162,9 @@ void HLSLSourceEmitter::_emitHLSLRegisterSemantics(EmitVarChain* chain, char con
     for (auto rr : layout->getOffsetAttrs())
     {
         auto kind = rr->getResourceKind();
+        if (!layout->usesResourceKind(kind))
+            continue;
+
         UInt index = getBindingOffset(chain, kind);
         UInt space = getBindingSpace(chain, kind);
         _emitHLSLRegisterSemantic(kind, index, space, uniformSemanticSpelling);
@@ -175,27 +178,6 @@ void HLSLSourceEmitter::_emitHLSLRegisterSemantics(IRVarLayout* varLayout, char 
 
     EmitVarChain chain(varLayout);
     _emitHLSLRegisterSemantics(&chain, uniformSemanticSpelling);
-}
-
-void HLSLSourceEmitter::_emitHLSLParameterGroupFieldLayoutSemantics(EmitVarChain* chain)
-{
-    if (!chain)
-        return;
-
-    auto layout = chain->varLayout;
-    for (auto rr : layout->getOffsetAttrs())
-    {
-        auto kind = rr->getResourceKind();
-        UInt index = getBindingOffset(chain, kind);
-        UInt space = getBindingSpace(chain, kind);
-        _emitHLSLRegisterSemantic(kind, index, space, "packoffset");
-    }
-}
-
-void HLSLSourceEmitter::_emitHLSLParameterGroupFieldLayoutSemantics(IRVarLayout* fieldLayout, EmitVarChain* inChain)
-{
-    EmitVarChain chain(fieldLayout, inChain);
-    _emitHLSLParameterGroupFieldLayoutSemantics(&chain);
 }
 
 void HLSLSourceEmitter::_emitHLSLParameterGroup(IRGlobalParam* varDecl, IRUniformParameterGroupType* type)
@@ -292,40 +274,46 @@ void HLSLSourceEmitter::emitLayoutSemanticsImpl(IRInst* inst, char const* unifor
         auto emitRegisterSemantic = [this](auto varType, auto varLayout, auto uniformSemanticSpelling)
         {
             EmitVarChain blockChain(varLayout);
-            //EmitVarChain containerChain = blockChain;
-
-            // auto typeLayout = varLayout->getTypeLayout()->unwrapArray();
+            EmitVarChain containerChain = blockChain;
             
-            // if (auto parameterGroupTypeLayout = as<IRParameterGroupTypeLayout>(typeLayout))
-            //     containerChain = EmitVarChain(parameterGroupTypeLayout->getContainerVarLayout(), &blockChain);
+            auto typeLayout = varLayout->getTypeLayout()->unwrapArray();
+            
+            if (auto parameterGroupTypeLayout = as<IRParameterGroupTypeLayout>(typeLayout))
+                containerChain = EmitVarChain(parameterGroupTypeLayout->getContainerVarLayout(), &blockChain);
 
-            if (auto bufferType = as<IRConstantBufferType>(varType))
+            UInt index = 0;
+            UInt space = 0;
+            
+            if (varLayout->usesResourceKind(LayoutResourceKind::ConstantBuffer))
             {
-                UInt index = getBindingOffset(&blockChain, LayoutResourceKind::DescriptorTableSlot);
-                UInt space = getBindingSpace(&blockChain, LayoutResourceKind::RegisterSpace);
-                _emitHLSLRegisterSemantic(LayoutResourceKind::ConstantBuffer, index, space, uniformSemanticSpelling);
-            }
-            else if (auto parameterBlockType = as<IRParameterBlockType>(varType))
-            {
-                UInt index = getBindingOffset(&blockChain, LayoutResourceKind::DescriptorTableSlot);
-                UInt space = getBindingSpace(&blockChain, LayoutResourceKind::RegisterSpace);
-                _emitHLSLRegisterSemantic(LayoutResourceKind::ConstantBuffer, index, space, uniformSemanticSpelling);
-            }
-            else if (auto texType = as<IRTextureType>(varType))
-            {
-                UInt index = getBindingOffset(&blockChain, LayoutResourceKind::DescriptorTableSlot);
-                UInt space = getBindingSpace(&blockChain, LayoutResourceKind::RegisterSpace);
-                _emitHLSLRegisterSemantic(LayoutResourceKind::ShaderResource, index, space, uniformSemanticSpelling);
-            }
-            else if (auto samplerType = as<IRSamplerStateTypeBase>(varType))
-            {
-                UInt index = getBindingOffset(&blockChain, LayoutResourceKind::DescriptorTableSlot);
-                UInt space = getBindingSpace(&blockChain, LayoutResourceKind::RegisterSpace);
-                _emitHLSLRegisterSemantic(LayoutResourceKind::SamplerState, index, space, uniformSemanticSpelling);
+                index = getBindingOffset(&containerChain, LayoutResourceKind::ConstantBuffer);
+                space = getBindingSpace(&containerChain, LayoutResourceKind::ConstantBuffer);
             }
             else
             {
-                _emitHLSLRegisterSemantics(&blockChain, uniformSemanticSpelling);
+                index = getBindingOffset(&containerChain, LayoutResourceKind::DescriptorTableSlot);
+                space = getBindingSpace(&containerChain, LayoutResourceKind::RegisterSpace);
+            }
+
+            if (auto bufferType = as<IRConstantBufferType>(varType))
+            {
+                _emitHLSLRegisterSemantic(LayoutResourceKind::ConstantBuffer, index, space);
+            }
+            else if (auto parameterBlockType = as<IRParameterBlockType>(varType))
+            {
+                _emitHLSLRegisterSemantic(LayoutResourceKind::ConstantBuffer, index, space);
+            }
+            else if (auto texType = as<IRTextureType>(varType))
+            {
+                _emitHLSLRegisterSemantic(LayoutResourceKind::ShaderResource, index, space);
+            }
+            else if (auto samplerType = as<IRSamplerStateTypeBase>(varType))
+            {
+                _emitHLSLRegisterSemantic(LayoutResourceKind::SamplerState, index, space);
+            }
+            else
+            {
+                _emitHLSLRegisterSemantics(&containerChain, uniformSemanticSpelling);
             }
         };
 

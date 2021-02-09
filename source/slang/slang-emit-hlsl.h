@@ -47,9 +47,6 @@ protected:
     void _emitHLSLRegisterSemantics(EmitVarChain* chain, char const* uniformSemanticSpelling = "register");
     void _emitHLSLRegisterSemantics(IRVarLayout* varLayout, char const* uniformSemanticSpelling = "register");
 
-    void _emitHLSLParameterGroupFieldLayoutSemantics(EmitVarChain* chain);
-    void _emitHLSLParameterGroupFieldLayoutSemantics(IRVarLayout* fieldLayout, EmitVarChain* inChain);
-
     void _emitHLSLParameterGroup(IRGlobalParam* varDecl, IRUniformParameterGroupType* type);
 
     void _emitHLSLTextureType(IRTextureTypeBase* texType);
