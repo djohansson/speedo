@@ -269,24 +269,34 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 #endif
 				auto& vertex = *vertexScope.createVertices();
 
+				assert(!attrib.vertices.empty());
 				glm::vec3* pos = vertex.dataAs<glm::vec3>(posOffset);
 				*pos = {attrib.vertices[3 * index.vertex_index + 0],
 						attrib.vertices[3 * index.vertex_index + 1],
 						attrib.vertices[3 * index.vertex_index + 2]};
 
-				glm::vec3* normal = vertex.dataAs<glm::vec3>(normalOffset);
-				*normal = {attrib.normals[3 * index.normal_index + 0],
-						  attrib.normals[3 * index.normal_index + 1],
-						  attrib.normals[3 * index.normal_index + 2]};
+				if (!attrib.normals.empty())
+				{
+					glm::vec3* normal = vertex.dataAs<glm::vec3>(normalOffset);
+					*normal = {attrib.normals[3 * index.normal_index + 0],
+							attrib.normals[3 * index.normal_index + 1],
+							attrib.normals[3 * index.normal_index + 2]};
+				}
 
-				glm::vec2* texCoord = vertex.dataAs<glm::vec2>(texCoordOffset);
-				*texCoord = {attrib.texcoords[2 * index.texcoord_index + 0],
-					  1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+				if (!attrib.texcoords.empty())
+				{
+					glm::vec2* texCoord = vertex.dataAs<glm::vec2>(texCoordOffset);
+					*texCoord = {attrib.texcoords[2 * index.texcoord_index + 0],
+						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+				}
 
-				glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
-				*color = {attrib.colors[3 * index.vertex_index + 0],
-						  attrib.colors[3 * index.vertex_index + 1],
-						  attrib.colors[3 * index.vertex_index + 2]};
+				if (!attrib.colors.empty())
+				{
+					glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
+					*color = {attrib.colors[3 * index.vertex_index + 0],
+							attrib.colors[3 * index.vertex_index + 1],
+							attrib.colors[3 * index.vertex_index + 2]};
+				}
 
 				uint64_t vertexIndex = vertex.hash();
 				if (uniqueVertices.count(vertexIndex) == 0)
