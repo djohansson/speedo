@@ -632,7 +632,7 @@ void copyBufferToImage(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VmaAllocator allocator, uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling,
-	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
+	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName, VkImageLayout initialLayout)
 {
 	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -644,7 +644,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	imageInfo.format = format;
 	imageInfo.tiling = tiling;
 	imageInfo.usage = usage;
-	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.initialLayout = initialLayout;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.flags = {};
@@ -670,18 +670,18 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
 	uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride, VkFormat format, VkImageTiling tiling, 
-	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName)
+	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName, VkImageLayout initialLayout)
 {
     assert(stagingBuffer);
 
 	auto result = createImage2D(
 		allocator, width, height, mipLevels, format, tiling, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		memoryFlags, debugName);
+		memoryFlags, debugName, initialLayout);
 
 	const auto& [outImage, outImageMemory] = result;
 
 	transitionImageLayout(
-		commandBuffer, outImage, format, VK_IMAGE_LAYOUT_UNDEFINED,
+		commandBuffer, outImage, format, initialLayout,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
 
 	copyBufferToImage(commandBuffer, stagingBuffer, outImage, width, height, mipLevels, mipOffsets, mipOffsetsStride);

@@ -74,12 +74,12 @@ void copyBufferToImage(
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VmaAllocator allocator, uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, 
-	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
+	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
 std::tuple<VkImage, VmaAllocation> createImage2D(
 	VkCommandBuffer commandBuffer, VmaAllocator allocator, VkBuffer stagingBuffer, 
 	uint32_t width, uint32_t height, uint32_t mipLevels, const uint32_t* mipOffsets, uint32_t mipOffsetsStride, VkFormat format, VkImageTiling tiling,
-	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName);
+	VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags, const char* debugName, VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
 VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkImage image, VkFormat format,
 	VkImageAspectFlags aspectFlags, uint32_t mipLevels);

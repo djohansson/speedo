@@ -360,8 +360,9 @@ Image<Vk>::Image(
             desc.tiling,
             desc.usageFlags,
             desc.memoryFlags,
-            desc.name.c_str()),
-        std::make_tuple(VK_IMAGE_LAYOUT_UNDEFINED)))
+            desc.name.c_str(),
+            desc.initialLayout),
+        std::make_tuple(desc.initialLayout)))
 {
 }
 
@@ -387,8 +388,9 @@ Image<Vk>::Image(
             std::get<0>(descAndInitialData).tiling,
             std::get<0>(descAndInitialData).usageFlags,
             std::get<0>(descAndInitialData).memoryFlags,
-            std::get<0>(descAndInitialData).name.c_str()),
-        std::make_tuple(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)))
+            std::get<0>(descAndInitialData).name.c_str(),
+            std::get<0>(descAndInitialData).initialLayout),
+        std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {   
     commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));

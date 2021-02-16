@@ -24,6 +24,7 @@ struct ImageCreateDesc : DeviceResourceCreateDesc<B>
     ImageTiling<B> tiling = {};
     Flags<B> usageFlags = {};
     Flags<B> memoryFlags = {};
+    ImageLayout<B> initialLayout = {};
 };
 
 template <GraphicsBackend B>
