@@ -276,34 +276,6 @@ Application<Vk>::Application(
             {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
             {3, 2}});
 
-    auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaxMaterials);
-    materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
-    materialData[0].textureId = 1;
-    materialData[0].samplerId = 0;
-    myMaterials = std::make_unique<Buffer<Vk>>(
-        myDevice,
-        myTransferCommands,
-        BufferCreateDesc<Vk>{
-            {"myMaterials"},
-            sizeof(MaterialData),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-        materialData.get(),
-        ShaderTypes_MaxMaterials * sizeof(MaterialData));
-
-    auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_MaxObjectBufferInstances);
-    objectData[0].localTransform = glm::mat4x4(1.0f);
-    myObjects = std::make_unique<Buffer<Vk>>(
-        myDevice,
-        myTransferCommands,
-        BufferCreateDesc<Vk>{
-            {"myObjects"},
-            sizeof(ObjectData),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-        objectData.get(),
-        ShaderTypes_MaxObjectBufferInstances * sizeof(ObjectData));
-
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
     // load shaders, set pipeline layout
@@ -359,10 +331,45 @@ Application<Vk>::Application(
         myLastFrameTimelineValue = myGraphicsQueue->submit();
     }
 
-    auto globalTextures = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_MaxTextures);
-    auto globalSamplers = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_MaxSamplers);
+    constexpr uint32_t textureId = 1;
+    constexpr uint32_t samplerId = 1;
+    assert(textureId < ShaderTypes_TextureCount);
+    assert(samplerId < ShaderTypes_SamplerCount);
+    auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
+    materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
+    materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
+    myMaterials = std::make_unique<Buffer<Vk>>(
+        myDevice,
+        myTransferCommands,
+        BufferCreateDesc<Vk>{
+            {"myMaterials"},
+            sizeof(MaterialData),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+        materialData.get(),
+        ShaderTypes_MaterialCount * sizeof(MaterialData));
+
+    auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
+    objectData[0].localTransform = glm::mat4x4(1.0f);
+    myObjects = std::make_unique<Buffer<Vk>>(
+        myDevice,
+        myTransferCommands,
+        BufferCreateDesc<Vk>{
+            {"myObjects"},
+            sizeof(ObjectData),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+        objectData.get(),
+        ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData));
+
+    auto globalObjects = std::make_vector<DescriptorBufferInfo<Vk>>(ShaderTypes_ObjectBufferCount);
+    auto globalTextures = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_TextureCount);
+    auto globalSamplers = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_SamplerCount);
     
-    std::fill(globalSamplers.begin(), globalSamplers.end(), DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler});
+    std::fill(globalObjects.begin(), globalObjects.end(), DescriptorBufferInfo<Vk>{
+        *myObjects, 0, VK_WHOLE_SIZE});
+    std::fill(globalSamplers.begin(), globalSamplers.end(), DescriptorImageInfo<Vk>{
+        myGraphicsPipeline->resources().sampler});
     std::fill(globalTextures.begin(), globalTextures.end(), DescriptorImageInfo<Vk>{
         nullptr,
         *myGraphicsPipeline->resources().blackImageView,
@@ -388,10 +395,7 @@ Application<Vk>::Application(
 
     myGraphicsPipeline->setDescriptorData(
         "g_objectData",
-        DescriptorBufferInfo<Vk>{
-            *myObjects,
-            0,
-            VK_WHOLE_SIZE},
+        std::move(globalObjects),
         DescriptorSetCategory_Global);
 
     myGraphicsPipeline->setDescriptorData(

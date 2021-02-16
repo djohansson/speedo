@@ -11,13 +11,13 @@ StructuredBuffer<ViewData> g_viewData;
 StructuredBuffer<MaterialData> g_materialData;
 
 [[vk::binding(3, DescriptorSetCategory_Global)]]
-StructuredBuffer<ObjectData> g_objectData;
+StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectBufferCount];
 
 [[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
-Texture2D g_textures[ShaderTypes_MaxTextures];
+Texture2D g_textures[ShaderTypes_TextureCount];
 
 [[vk::binding(0, DescriptorSetCategory_GlobalSamplers)]]
-SamplerState g_samplers[ShaderTypes_MaxSamplers];
+SamplerState g_samplers[ShaderTypes_SamplerCount];
 
 struct InputStream
 {
@@ -50,11 +50,18 @@ VSOutput vertexMain(InputStream input)
 {
     VSOutput output = (VSOutput)0;
 
-    uint viewId = g_pushConstants.viewId;
-    uint objectId = g_pushConstants.objectId;
+    uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
 
+    uint viewId = viewAndMaterialId >> ShaderTypes_MaterialIndexBits;
+    
     ViewData view = g_viewData[viewId];
-    ObjectData object = g_objectData[objectId];
+
+    uint objectBufferAndInstanceId = g_pushConstants.objectBufferAndInstanceId;
+
+    uint objectBufferIndex = objectBufferAndInstanceId >> ShaderTypes_ObjectBufferInstanceIndexBits;
+    uint objectInstanceIndex = objectBufferAndInstanceId & (ShaderTypes_ObjectBufferInstanceCount - 1);
+
+    ObjectData object = g_objectData[objectInstanceIndex][objectBufferIndex];
 
     output.hPos = mul(mul(view.viewProjectionMatrix, object.localTransform), float4(input.position, 1.0));
     output.data.normal = input.normal;
@@ -68,12 +75,16 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 {
     FSOutput output = (FSOutput)0;
 
-    uint materialId = g_pushConstants.materialId;
+    uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
+
+    uint materialId = viewAndMaterialId & (ShaderTypes_MaterialCount - 1);
     
     MaterialData material = g_materialData[materialId];
+
+    uint textureAndSamplerId = material.textureAndSamplerId;
     
-    uint textureId = material.textureId;
-    uint samplerId = material.samplerId;
+    uint textureId = textureAndSamplerId >> ShaderTypes_TextureIndexBits;
+    uint samplerId = textureAndSamplerId & (ShaderTypes_SamplerCount - 1);
 
     Texture2D texture = g_textures[textureId];
     SamplerState sampler = g_samplers[samplerId];

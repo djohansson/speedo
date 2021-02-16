@@ -23,7 +23,7 @@ struct WindowCreateDesc
 {
 	Extent2d<B> windowExtent = {};
 	Extent2d<B> framebufferExtent = {};
-	Extent2d<B> splitScreenGrid = {};
+	uint8_t splitScreenGrid[2] = {};
 	uint8_t maxCommandContextPerFrameCount = 4;
 };
 
@@ -59,7 +59,7 @@ public:
 	}
 
 	// todo: move out from window
-	auto& commandContext(uint32_t frameIndex, uint32_t contextIndex = 0) { return myCommands[frameIndex][contextIndex]; }
+	auto& commandContext(uint8_t frameIndex, uint8_t contextIndex = 0) { return myCommands[frameIndex][contextIndex]; }
 	//
 	
 	void updateInput(const InputState& input);
@@ -68,14 +68,14 @@ public:
 
 private:
 
-	void updateViewBuffer(uint32_t frameIndex) const;
+	void updateViewBuffer(uint8_t frameIndex) const;
 	void createFrameObjects(Extent2d<B> frameBufferExtent);
 	void destroyFrameObjects();
 
 	uint32_t internalDrawViews(
 		const std::shared_ptr<PipelineContext<Vk>>& pipeline,
 		const RenderPassBeginInfo<Vk>& renderPassInfo,
-		uint32_t frameIndex);
+		uint8_t frameIndex);
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;

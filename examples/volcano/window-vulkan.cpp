@@ -33,25 +33,25 @@ void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
         myDevice,
         BufferCreateDesc<Vk>{
             {"myViewBuffer"},
-            myDevice->getDesc().swapchainConfig->imageCount * ShaderTypes_MaxViews * sizeof(ViewData),
+            myDevice->getDesc().swapchainConfig->imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
-    myViews.resize(myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
+    myViews.resize(myDesc.splitScreenGrid[0] * myDesc.splitScreenGrid[1]);
     for (auto& view : myViews)
     {
         if (!view.desc().viewport.width)
-            view.desc().viewport.width =  frameBufferExtent.width / myDesc.splitScreenGrid.width;
+            view.desc().viewport.width =  frameBufferExtent.width / myDesc.splitScreenGrid[0];
 
         if (!view.desc().viewport.height)
-            view.desc().viewport.height = frameBufferExtent.height / myDesc.splitScreenGrid.height;
+            view.desc().viewport.height = frameBufferExtent.height / myDesc.splitScreenGrid[1];
 
         view.updateAll();
     }
 }
 
 template <>
-void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
+void WindowContext<Vk>::updateViewBuffer(uint8_t frameIndex) const
 {
     ZoneScopedN("WindowContext::updateViewBuffer");
 
@@ -60,9 +60,9 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
     void* data;
     VK_CHECK(vmaMapMemory(myDevice->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[frameIndex * ShaderTypes_MaxViews];
-    auto viewCount = (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
-    assert(viewCount <= ShaderTypes_MaxViews);
+    ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[frameIndex * ShaderTypes_ViewCount];
+    auto viewCount = (myDesc.splitScreenGrid[0] * myDesc.splitScreenGrid[1]);
+    assert(viewCount <= ShaderTypes_ViewCount);
     for (uint32_t viewIt = 0; viewIt < viewCount; viewIt++)
     {
         viewDataPtr->viewProjectionMatrix = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
@@ -72,7 +72,7 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
     vmaFlushAllocation(
         myDevice->getAllocator(),
         myViewBuffer->getBufferMemory(),
-        frameIndex * ShaderTypes_MaxViews * sizeof(ViewData),
+        frameIndex * ShaderTypes_ViewCount * sizeof(ViewData),
         viewCount * sizeof(ViewData));
 
     vmaUnmapMemory(myDevice->getAllocator(), myViewBuffer->getBufferMemory());
@@ -82,10 +82,10 @@ template <>
 uint32_t WindowContext<Vk>::internalDrawViews(
     const std::shared_ptr<PipelineContext<Vk>>& pipeline,
     const RenderPassBeginInfo<Vk>& renderPassInfo,
-    uint32_t frameIndex)
+    uint8_t frameIndex)
 {
     // setup draw parameters
-    uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
+    uint32_t drawCount = myDesc.splitScreenGrid[0] * myDesc.splitScreenGrid[1];
     uint32_t drawCommandContextCount = static_cast<uint32_t>(myCommands[frameIndex].size());
     uint32_t drawThreadCount = std::min<uint32_t>(drawCount, drawCommandContextCount);
 
@@ -100,9 +100,9 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
         std::for_each_n(
-    #if defined(__WINDOWS__)
-        std::execution::par,
-    #endif
+    // #if defined(__WINDOWS__)
+    //     std::execution::par,
+    // #endif
             seq.begin(), drawThreadCount,
             [this, &pipeline, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
@@ -155,21 +155,19 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                 bindGlobalDescriptors(cmd);
 
-                uint32_t dx = renderPassInfo.renderArea.extent.width / myDesc.splitScreenGrid.width;
-                uint32_t dy = renderPassInfo.renderArea.extent.height / myDesc.splitScreenGrid.height;
+                uint32_t dx = renderPassInfo.renderArea.extent.width / myDesc.splitScreenGrid[0];
+                uint32_t dy = renderPassInfo.renderArea.extent.height / myDesc.splitScreenGrid[1];
 
                 while (drawIt < drawCount)
                 {
-                    auto drawView = [this, &frameIndex, &pipeline, &cmd, &dx, &dy](uint32_t viewIt)
+                    auto drawView = [this, &frameIndex, &pipeline, &cmd, &dx, &dy](uint16_t viewIt)
                     {
                         ZoneScopedN("drawView");
 
-                        assert(viewIt < ShaderTypes_MaxViews);
+                        uint32_t i = viewIt % myDesc.splitScreenGrid[0];
+                        uint32_t j = viewIt / myDesc.splitScreenGrid[0];
 
-                        uint32_t i = viewIt % myDesc.splitScreenGrid.width;
-                        uint32_t j = viewIt / myDesc.splitScreenGrid.width;
-
-                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height)
+                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, uint32_t width, uint32_t height)
                         {
                             ZoneScopedN("setViewportAndScissor");
 
@@ -183,8 +181,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                             VkRect2D scissor = {};
                             scissor.offset = {x, y};
-                            scissor.extent = {static_cast<uint32_t>(width),
-                                            static_cast<uint32_t>(height)};
+                            scissor.extent = {width, height};
 
                             vkCmdSetViewport(cmd, 0, 1, &viewport);
                             vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -199,13 +196,19 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                             {
                                 ZoneScopedN("drawModel::vkCmdPushConstants");
 
-                                PushConstants pushConstants = {0u, 0u, 0u};
-                                pushConstants.viewId = frameIndex * ShaderTypes_MaxViews + viewIt;
+                                uint16_t viewId = frameIndex * ShaderTypes_ViewCount + viewIt;
+                                uint16_t materialId = 0;
+                                uint16_t objectBufferIndex = 0;
+                                uint16_t objectArrayIndex = 0;
+
+                                PushConstants pushConstants = {
+                                    (static_cast<uint32_t>(viewId) << 16) | materialId,
+                                    (static_cast<uint32_t>(objectBufferIndex) << 16) | objectArrayIndex};
                                 
                                 vkCmdPushConstants(
                                     cmd,
                                     *pipeline->getLayout(),
-                                    VK_SHADER_STAGE_ALL,
+                                    VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
                                     0,
                                     sizeof(PushConstants),
                                     &pushConstants);
@@ -291,9 +294,9 @@ void WindowContext<Vk>::updateInput(const InputState& input)
     if (input.mouseButtonsPressed[2])
     {
         // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myDesc.windowExtent.width / myDesc.splitScreenGrid.width);
-        size_t viewIdy = input.mousePosition[0].y / (myDesc.windowExtent.height / myDesc.splitScreenGrid.height);
-        myActiveView = std::min((viewIdy * myDesc.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+        size_t viewIdx = input.mousePosition[0].x / (myDesc.windowExtent.width / myDesc.splitScreenGrid[0]);
+        size_t viewIdy = input.mousePosition[0].y / (myDesc.windowExtent.height / myDesc.splitScreenGrid[1]);
+        myActiveView = std::min((viewIdy * myDesc.splitScreenGrid[0]) + viewIdx, myViews.size() - 1);
 
         //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
     }
