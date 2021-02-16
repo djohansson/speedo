@@ -24,7 +24,7 @@ public:
     friend void swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.swap(rhs); }
     
     auto size() const { return mySamplers.size(); }
-    auto data() const { return mySamplers.data(); }    
+    auto data() const { return mySamplers.data(); }
 
 private:
 

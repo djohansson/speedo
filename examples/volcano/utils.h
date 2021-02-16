@@ -130,6 +130,12 @@ auto make_vector(T0&& first, Ts&&... args)
     };
 }
 
+template <class T>
+auto make_vector(size_t size)
+{
+    return std::vector<std::decay_t<T>>(size);
+}
+
 template <typename... Ts>
 struct overloaded : Ts... { using Ts::operator()...; };
 
