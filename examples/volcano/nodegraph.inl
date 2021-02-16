@@ -4,40 +4,6 @@
 #include <cereal/types/vector.hpp>
 
 template <class Archive>
-void serialize(Archive& archive, Attribute& attribute)
-{
-    archive(
-        cereal::make_nvp("id", attribute.id),
-        cereal::make_nvp("name", attribute.name));
-}
-
-template <class Archive>
-void serialize(Archive& archive, InputOutputNode& node)
-{
-    archive(
-        cereal::make_nvp("name", node.name()),
-        cereal::make_nvp("id", node.id()),
-        cereal::make_nvp("inputAttributes", node.inputAttributes()),
-        cereal::make_nvp("outputAttributes", node.outputAttributes()));
-}
-
-template <class Archive>
-void serialize(Archive& archive, Link& link)
-{
-    archive(
-        cereal::make_nvp("fromId", link.fromId),
-        cereal::make_nvp("toId", link.toId));
-}
-
-template <class Archive>
-void serialize(Archive& archive, SlangShaderNode& node)
-{
-    archive(
-        cereal::virtual_base_class<InputOutputNode>(&node),
-        cereal::make_nvp("path", node.path()));
-}
-
-template <class Archive>
 void serialize(Archive& archive, NodeGraph& nodeGraph)
 {
     archive(

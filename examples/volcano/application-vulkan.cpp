@@ -1,5 +1,7 @@
 #include "application.h"
 #include "gltfstream.h"
+#include "nodes/inputoutputnode.h"
+#include "nodes/slangshadernode.h"
 #include "resources/shaders/shadertypes.h"
 #include "vk-utils.h"
 
@@ -192,6 +194,23 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
     }
 }
 
+namespace application
+{
+
+std::filesystem::path getAbsolutePath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
+{
+    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+    
+    if (createIfMissing && !std::filesystem::exists(path))
+        std::filesystem::create_directory(path);
+    
+    assert(std::filesystem::is_directory(path));
+    
+    return std::filesystem::absolute(path);
+}
+
+}
+
 template <>
 Application<Vk>::Application(
     void* windowHandle,
@@ -200,26 +219,9 @@ Application<Vk>::Application(
     const char* rootPath,
     const char* resourcePath,
     const char* userProfilePath)
-: myRootPath([](const char* pathStr, const char* defaultPathStr)
-{
-    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-    assert(std::filesystem::is_directory(path));
-    return std::filesystem::absolute(path);
-}(resourcePath, "./"))
-, myResourcePath([](const char* pathStr, const char* defaultPathStr)
-{
-    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-    assert(std::filesystem::is_directory(path));
-    return std::filesystem::absolute(path);
-}(resourcePath, "./resources/"))
-, myUserProfilePath([](const char* pathStr, const char* defaultPathStr)
-{
-    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-    if (!std::filesystem::exists(path))
-        std::filesystem::create_directory(path);
-    assert(std::filesystem::is_directory(path));
-    return std::filesystem::absolute(path);
-}(userProfilePath, "./.profile/"))
+: myRootPath(application::getAbsolutePath(resourcePath, "./"))
+, myResourcePath(application::getAbsolutePath(resourcePath, "./resources/"))
+, myUserProfilePath(application::getAbsolutePath(userProfilePath, "./.profile/", true))
 , myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph") // temp - this should be stored in the resource path
 {
     ZoneScopedN("Application()");
