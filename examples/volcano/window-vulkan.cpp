@@ -33,8 +33,8 @@ void WindowContext<Vk>::createFrameObjects(Extent2d<Vk> frameBufferExtent)
         myDevice,
         BufferCreateDesc<Vk>{
             {"myViewBuffer"},
-            myDevice->getDesc().swapchainConfig->imageCount * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) * sizeof(WindowContext::ViewBufferData),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            myDevice->getDesc().swapchainConfig->imageCount * ShaderTypes_MaxViews * sizeof(ViewData),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
     myViews.resize(myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
@@ -60,18 +60,20 @@ void WindowContext<Vk>::updateViewBuffer(uint32_t frameIndex) const
     void* data;
     VK_CHECK(vmaMapMemory(myDevice->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    for (uint32_t n = 0; n < (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height); n++)
+    ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[frameIndex * ShaderTypes_MaxViews];
+    auto viewCount = (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
+    assert(viewCount <= ShaderTypes_MaxViews);
+    for (uint32_t viewIt = 0; viewIt < viewCount; viewIt++)
     {
-        ViewBufferData& ubo = reinterpret_cast<ViewBufferData*>(data)[frameIndex * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height) + n];
-
-        ubo.viewProj = myViews[n].getProjectionMatrix() * glm::mat4(myViews[n].getViewMatrix());
+        viewDataPtr->viewProjectionMatrix = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
+        viewDataPtr++;
     }
 
     vmaFlushAllocation(
         myDevice->getAllocator(),
         myViewBuffer->getBufferMemory(),
-        sizeof(ViewBufferData) * frameIndex * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height),
-        sizeof(ViewBufferData) * (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height));
+        frameIndex * ShaderTypes_MaxViews * sizeof(ViewData),
+        viewCount * sizeof(ViewData));
 
     vmaUnmapMemory(myDevice->getAllocator(), myViewBuffer->getBufferMemory());
 }
@@ -98,9 +100,9 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         std::array<uint32_t, 128> seq;
         std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
         std::for_each_n(
-    #if defined(__WINDOWS__)
-            std::execution::par,
-    #endif
+    //#if defined(__WINDOWS__)
+    //     std::execution::par,
+    //#endif
             seq.begin(), drawThreadCount,
             [this, &pipeline, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount](uint32_t threadIt)
             {
@@ -131,9 +133,14 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                 auto& commandContext = myCommands[frameIndex][threadIt];
                 auto cmd = commandContext->commands(beginInfo);
 
-                // bind pipeline and inputs
+                auto bindGlobalDescriptors = [&pipeline](VkCommandBuffer cmd)
                 {
-                    ZoneScopedN("WindowContext::drawViews::bind");
+                    ZoneScopedN("bindGlobalDescriptors");
+
+                    // bind global descriptor sets
+                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Global);
+                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
+                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
 
                     // bind pipeline and vertex/index buffers
                     pipeline->bindPipelineAuto(cmd);
@@ -144,27 +151,27 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                     vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
                     vkCmdBindIndexBuffer(cmd, *pipeline->resources().model,
                         pipeline->resources().model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
-                }
+                };
+
+                bindGlobalDescriptors(cmd);
 
                 uint32_t dx = renderPassInfo.renderArea.extent.width / myDesc.splitScreenGrid.width;
                 uint32_t dy = renderPassInfo.renderArea.extent.height / myDesc.splitScreenGrid.height;
 
                 while (drawIt < drawCount)
                 {
-                    auto drawView = [this, &drawCount, &frameIndex, &pipeline, &cmd, &dx, &dy](uint32_t viewIt)
+                    auto drawView = [this, &frameIndex, &pipeline, &cmd, &dx, &dy](uint32_t viewIt)
                     {
+                        ZoneScopedN("drawView");
+
+                        assert(viewIt < ShaderTypes_MaxViews);
+
                         uint32_t i = viewIt % myDesc.splitScreenGrid.width;
                         uint32_t j = viewIt / myDesc.splitScreenGrid.width;
 
-                        uint32_t viewBufferOffset = (frameIndex * drawCount + viewIt) * sizeof(WindowContext::ViewBufferData);
-
-                        pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Global, viewBufferOffset);
-
-                        //pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
-
                         auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, int32_t width, int32_t height)
                         {
-                            ZoneScopedN("WindowContext::drawViews::set");
+                            ZoneScopedN("setViewportAndScissor");
 
                             VkViewport viewport = {};
                             viewport.x = static_cast<float>(x);
@@ -185,15 +192,30 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                         setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
-                        pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
-
-                        auto drawModel = [&pipeline](VkCommandBuffer cmd)
+                        auto drawModel = [&pipeline, &frameIndex, &viewIt](VkCommandBuffer cmd)
                         {
-                            ZoneScopedN("WindowContext::drawViews::draw");
+                            ZoneScopedN("drawModel");
 
-                            pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Object);
+                            {
+                                ZoneScopedN("drawModel::vkCmdPushConstants");
 
-                            vkCmdDrawIndexed(cmd, pipeline->resources().model->getDesc().indexCount, 1, 0, 0, 0);
+                                PushConstants pushConstants = {0u, 0u, 0u};
+                                pushConstants.viewId = frameIndex * ShaderTypes_MaxViews + viewIt;
+                                
+                                vkCmdPushConstants(
+                                    cmd,
+                                    *pipeline->getLayout(),
+                                    VK_SHADER_STAGE_ALL,
+                                    0,
+                                    sizeof(PushConstants),
+                                    &pushConstants);
+                            }
+
+                            {
+                                ZoneScopedN("drawModel::vkCmdDrawIndexed");
+
+                                vkCmdDrawIndexed(cmd, pipeline->resources().model->getDesc().indexCount, 1, 0, 0, 0);
+                            }
                         };
 
                         drawModel(cmd);

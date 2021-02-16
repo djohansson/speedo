@@ -45,46 +45,52 @@ ShaderStageFlagBits<Vk> getStageFlags<Vk>(SlangStage stage)
 }
 
 template <>
-DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeLayoutReflection* typeLayout)
+DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeReflection::Kind kind, SlangResourceShape shape)
 {
-	auto kind = typeLayout->getKind();
+	auto type = DescriptorType<Vk>{};
+
 	switch (kind)
 	{
 	case slang::TypeReflection::Kind::ConstantBuffer:
-		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+		type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		break;
+	case slang::TypeReflection::Kind::TextureBuffer:
+		type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER; //?
+		break;
+	case slang::TypeReflection::Kind::ShaderStorageBuffer:
+		type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		break;
 	case slang::TypeReflection::Kind::Resource:
 	{
-		auto type = typeLayout->getType();
-		auto shape = type->getResourceShape();
-
 		switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK)
 		{
 			case SLANG_TEXTURE_2D:
 			case SLANG_TEXTURE_1D:
 			case SLANG_TEXTURE_3D:
 			case SLANG_TEXTURE_CUBE:
-				return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-			//case SLANG_TEXTURE_BUFFER:
-				//return VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER?
+				type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+				break;
+			case SLANG_STRUCTURED_BUFFER:
+				type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+				break;
 			default:
 				assert(false); // please implement me!
 				break;
 		}
-		return DescriptorType<Vk>{};
+		break;
 	}
 	case slang::TypeReflection::Kind::SamplerState:
-		return VK_DESCRIPTOR_TYPE_SAMPLER;
+		type = VK_DESCRIPTOR_TYPE_SAMPLER;
+		break;
 	case slang::TypeReflection::Kind::ParameterBlock:
-		return VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
-		//return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		type = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
+		break;
 	case slang::TypeReflection::Kind::Array:
 	case slang::TypeReflection::Kind::Matrix:
 	case slang::TypeReflection::Kind::Vector:
 	case slang::TypeReflection::Kind::Scalar:
 	case slang::TypeReflection::Kind::None:
 	case slang::TypeReflection::Kind::Struct:
-	case slang::TypeReflection::Kind::TextureBuffer:
-	case slang::TypeReflection::Kind::ShaderStorageBuffer:
 	case slang::TypeReflection::Kind::GenericTypeParameter:
 	case slang::TypeReflection::Kind::Interface:
 	case slang::TypeReflection::Kind::OutputStream:
@@ -94,7 +100,7 @@ DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeLayoutReflection* typeLayout
 		break;
 	}
 
-	return DescriptorType<Vk>{};
+	return type;
 }
 
 void addBinding(
@@ -102,15 +108,26 @@ void addBinding(
 	unsigned bindingSpace,
 	slang::TypeLayoutReflection* typeLayout,
 	bool usePushConstant,
-	bool usePushDescriptor,
-	unsigned arrayElementCount,
 	size_t sizeBytes,
 	SlangStage stage,
-	const std::string& name,
+	std::string_view name,
 	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
 {
 	auto& layout = layouts[bindingSpace];
-	auto descriptorType = shader::getDescriptorType<Vk>(typeLayout);
+
+	bool isArray = typeLayout->isArray();
+	auto descriptorCount = isArray ? typeLayout->getElementCount() : 1;
+	auto kind = typeLayout->getKind();
+	auto shape = typeLayout->getType()->getResourceShape();
+
+	if (kind == slang::TypeReflection::Kind::Array)
+	{
+		auto* elementTypeLayout = typeLayout->getElementTypeLayout();
+		kind = elementTypeLayout->getKind();
+		shape = elementTypeLayout->getType()->getResourceShape();
+	}
+
+	auto descriptorType = shader::getDescriptorType<Vk>(kind, shape);
 
 	auto isUniformDynamic = descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	auto isInlineUniformBlock = descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
@@ -118,23 +135,24 @@ void addBinding(
 	DescriptorSetLayoutBinding<Vk> slot;
 	slot.binding = bindingIndex;
 	slot.descriptorType = descriptorType;
-	slot.descriptorCount = isInlineUniformBlock ? sizeBytes : arrayElementCount ? arrayElementCount : 1;
+	slot.descriptorCount = isInlineUniformBlock ? sizeBytes : descriptorCount;
 	slot.stageFlags = shader::getStageFlags<Vk>(stage);
 	slot.pImmutableSamplers = nullptr;
 
 	layout.bindings.push_back(slot);
-	layout.variableNames.push_back(name);
-	layout.variableNameHashes.push_back(XXH3_64bits(name.c_str(), name.size()));
+	layout.variableNames.push_back(name.data());
+	layout.variableNameHashes.push_back(XXH3_64bits(name.data(), name.size()));
 	
 	// todo: immutable samplers
 	//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
 
-	if (usePushDescriptor)
-	{
-		assert(!isUniformDynamic);
-		assert(!isInlineUniformBlock);
-		layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-	}
+	// todo: push descriptors
+	// if (usePushDescriptor)
+	// {
+	// 	assert(!isUniformDynamic);
+	// 	assert(!isInlineUniformBlock);
+	// 	layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+	// }
 
 	if (usePushConstant)
 	{
@@ -142,10 +160,14 @@ void addBinding(
 		assert(sizeBytes > 0);
 		assert(!isUniformDynamic);
 		assert(!isInlineUniformBlock);
-		layout.pushConstantRange = PushConstantRange<Vk>{slot.stageFlags, 0, roundUp(sizeBytes, 4)};
+		layout.pushConstantRange = PushConstantRange<Vk>{slot.stageFlags, 0, static_cast<uint32_t>(sizeBytes)};
 	}
 
-	std::cout << "ADD BINDING: Set: " << bindingSpace << ", Binding: " << slot.binding << " : " << name << std::endl;
+	std::cout << "ADD BINDING \"" << name <<
+		"\": Set: " << bindingSpace <<
+		", Binding: " << slot.binding <<
+		", Count: " << descriptorCount <<
+		", Size: " << sizeBytes << std::endl;
 };
 
 template <>
@@ -154,32 +176,26 @@ uint32_t createLayoutBindings<Vk>(
 	const std::vector<uint32_t>& genericParameterIndices,
     std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
 	const unsigned* parentSpace,
-	const char* parentName,
-	bool parentPushConstant)
+	const char* parentName)
 {
-	auto category = parameter->getCategory();
 	auto space = parameter->getBindingSpace();
 	auto index = parameter->getBindingIndex();
 	auto name = std::string(parameter->getName());
 	auto stage = parameter->getStage();
-	bool pushConstant = (parameter->findModifier(slang::Modifier::ID::PushConstant) ? true : false);
 	auto categoryCount = parameter->getCategoryCount();
 	auto* typeLayout = parameter->getTypeLayout();
-	auto type = typeLayout->getType();
-	auto userAttributeCount = type->getUserAttributeCount();
-	auto kind = typeLayout->getKind();
-	auto typeName = typeLayout->getName();
-	auto arrayElementCount = typeLayout->isArray() ? typeLayout->getElementCount() : 0;
+	auto arrayElementCount = typeLayout->getElementCount();
 	auto fieldCount = typeLayout->getFieldCount();
 	auto* elementTypeLayout = typeLayout->getElementTypeLayout();
-	auto elementKind = elementTypeLayout->getKind();
 	auto elementFieldCount = elementTypeLayout->getFieldCount();
+	
+	auto category = parameter->getCategory();
+	auto typeName = typeLayout->getName();
+	auto kind = typeLayout->getKind();
+	auto type = typeLayout->getType();
+	auto userAttributeCount = type->getUserAttributeCount();
+	auto elementKind = elementTypeLayout->getKind();
 	auto genericParamIndex = elementTypeLayout->getGenericParamIndex();
-
-	// auto* elementVarLayout = typeLayout->getElementVarLayout();
-	// if (auto elementVarName = elementVarLayout->getName())
-	// 	std::cout << "elementVarLayout name: " << elementVarName << std::endl;
-	// std::cout << "elementVarLayout space: " << elementVarLayout->getBindingSpace() << std::endl;
 
 	std::string fullName;
 	if (parentName)
@@ -190,28 +206,20 @@ uint32_t createLayoutBindings<Vk>(
 	fullName.append(name);
 
 	auto bindingSpace = (parentSpace ? *parentSpace : space);
-	bool usePushConstant = parentPushConstant || pushConstant;
-
-	// uint32_t fieldsTotalSize = 0;
-	// for (auto fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
-	// 	fieldsTotalSize += createLayoutBindings<Vk>(
-	// 		typeLayout->getFieldByIndex(fieldIndex),
-	// 		genericParameterIndices,
-	// 		layouts,
-	// 		&bindingSpace,
-	// 		fullName.c_str(),
-	// 		usePushConstant);
 
 	uint32_t uniformsTotalSize = 0;
 
 	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
 	{
 		auto subCategory = parameter->getCategoryByIndex(categoryIndex);
-		auto offsetForCategory = parameter->getOffset(subCategory);
 		auto spaceForCategory = parameter->getBindingSpace(subCategory);
-		auto elementStride = elementTypeLayout->getElementStride(subCategory);
 		auto elementSize = elementTypeLayout->getSize(subCategory);
-		auto sizeInBytes = typeLayout->getSize(subCategory);
+		auto elementAlignment = elementTypeLayout->getAlignment(subCategory);
+		auto size = typeLayout->getSize(subCategory);
+		auto alignment = typeLayout->getAlignment(subCategory);
+
+		auto offsetForCategory = parameter->getOffset(subCategory);
+		auto elementStride = elementTypeLayout->getElementStride(subCategory);		
 
 		std::cout << "DEBUG: name: " << name
 			<< ", fullName: " << fullName
@@ -220,7 +228,7 @@ uint32_t createLayoutBindings<Vk>(
 			<< ", index: " << index
 			<< ", stage: " << stage
 			<< ", kind: " << (int)kind
-			<< ", typeName: " << typeName
+			<< ", typeName: " << (typeName ? typeName : "(nullptr)")
 			<< ", userAttributeCount: " << userAttributeCount;
 	
 		std::cout << ", arrayElementCount: " << arrayElementCount
@@ -232,12 +240,12 @@ uint32_t createLayoutBindings<Vk>(
 			<< ", offsetForCategory: " << offsetForCategory
 			<< ", elementStride: " << elementStride
 			<< ", elementSize: " << elementSize
+			<< ", elementAlignment: " << elementAlignment
 			<< ", elementKind: " << (int)elementKind
 			<< ", elementFieldCount: " << elementFieldCount
-			<< ", sizeInBytes: " << sizeInBytes
-			<< ", genericParamIndex: " << genericParamIndex
-			<< ", pushConstant: " << pushConstant
-			<< ", parent pushConstant: " << parentPushConstant;
+			<< ", size: " << size
+			<< ", alignment: " << alignment
+			<< ", genericParamIndex: " << genericParamIndex;
 
 		std::cout << std::endl;
 
@@ -247,32 +255,34 @@ uint32_t createLayoutBindings<Vk>(
 		}
 		else if (subCategory == slang::ParameterCategory::Uniform)
 		{
-			uniformsTotalSize += sizeInBytes;
+			uniformsTotalSize += size;
 		}
 	}
 
 	for (auto elementFieldIndex = 0; elementFieldIndex < elementFieldCount; elementFieldIndex++)
-		uniformsTotalSize += createLayoutBindings<Vk>(
-			elementTypeLayout->getFieldByIndex(elementFieldIndex),
+	{
+		auto elementField = elementTypeLayout->getFieldByIndex(elementFieldIndex);
+		auto elementFieldType = elementField->getTypeLayout();
+		auto count = elementFieldType->isArray() ? elementFieldType->getFieldCount() : 1;
+		uniformsTotalSize += count * createLayoutBindings<Vk>(
+			elementField,
 			genericParameterIndices,
 			layouts,
 			&bindingSpace,
-			fullName.c_str(),
-			usePushConstant);
+			fullName.c_str());
+	}
 
 	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
 	{
 		auto subCategory = parameter->getCategoryByIndex(categoryIndex);
 		
-		if (subCategory == slang::ParameterCategory::DescriptorTableSlot)
+		if (subCategory == slang::ParameterCategory::DescriptorTableSlot || subCategory == slang::ParameterCategory::PushConstantBuffer)
 		{
 			addBinding(
 				index,
 				bindingSpace,
 				typeLayout,
-				usePushConstant,
-				false, // todo: use custom attribute
-				arrayElementCount,
+				subCategory == slang::ParameterCategory::PushConstantBuffer,
 				uniformsTotalSize,
 				stage,
 				fullName,
@@ -292,7 +302,7 @@ ShaderModule<Vk>::ShaderModule(
 	const EntryPoint<Vk>& entryPoint)
 : DeviceResource<Vk>(
     deviceContext,
-    { entryPoint.first.c_str() },
+    { std::get<0>(entryPoint).c_str() },
     1,
     VK_OBJECT_TYPE_SHADER_MODULE,
     reinterpret_cast<uint64_t*>(&shaderModule))

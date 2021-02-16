@@ -1,6 +1,7 @@
 #include "file.h"
 
 #include <cereal/archives/binary.hpp>
+//#include <cereal/archives/json.hpp>
 
 #include <slang.h>
 
@@ -11,7 +12,7 @@ template <GraphicsBackend B>
 ShaderStageFlagBits<B> getStageFlags(SlangStage stage);
 
 template <GraphicsBackend B>
-DescriptorType<B> getDescriptorType(slang::TypeLayoutReflection* type);
+DescriptorType<Vk> getDescriptorType(slang::TypeReflection::Kind kind, SlangResourceShape shape);
 
 template <GraphicsBackend B>
 uint32_t createLayoutBindings(
@@ -19,8 +20,7 @@ uint32_t createLayoutBindings(
 	const std::vector<uint32_t>& genericParameterIndices,
 	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
 	const unsigned* parentSpace = nullptr,
-	const char* parentName = nullptr,
-	bool parentPushConstant = false);
+	const char* parentName = nullptr);
 
 template <GraphicsBackend B>
 std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
@@ -34,6 +34,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	auto loadBin = [&slangModule](std::istream& stream)
 	{
 		cereal::BinaryInputArchive bin(stream);
+		//cereal::JSONInputArchive bin(stream);
 		bin(*slangModule);
 
 		return true;
@@ -42,6 +43,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	auto saveBin = [&slangModule](std::ostream& stream)
 	{
 		cereal::BinaryOutputArchive bin(stream);
+		//cereal::JSONOutputArchive bin(stream);
 		bin(*slangModule);
 
 		return true;
@@ -50,14 +52,18 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 	auto loadSlang = [&slangModule, &slangFile, &includePaths, &compilerPath, &intermediatePath](
 		std::istream& stream)
 	{
+		constexpr bool useGLSL = true;
+
 		SlangSession* slangSession = spCreateSession(NULL);
 		
+		// todo: support all compilers properly.
 		if (compilerPath)
 		{
 			auto path = std::filesystem::canonical(compilerPath.value());
 
 			std::cout << "Set downstream compiler path: " << path << std::endl;
 			assert(std::filesystem::is_directory(path));
+			
 			slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, path.generic_string().c_str());
 		}
 
@@ -90,13 +96,18 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
 
-		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_STANDARD);
+		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_MAXIMAL);
 		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
 
+		spAddPreprocessorDefine(slangRequest, "GPU", "true");
+
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
-		
-		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
-		//spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "GLSL_460"));
+
+		if (useGLSL)
+			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "GLSL_460"));
+		else
+			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
+
 		spSetTargetFlags(slangRequest, targetIndex, SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
 		
 		int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
@@ -130,7 +141,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			if (index != entryPoints.size())
 				throw std::runtime_error("Failed to add entry point.");
 
-			entryPoints.push_back(std::make_pair(epStrings[i], shader::getStageFlags<B>(epStages[i])));
+			entryPoints.push_back(std::make_pair(useGLSL ? "main" : epStrings[i], shader::getStageFlags<B>(epStages[i])));
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);

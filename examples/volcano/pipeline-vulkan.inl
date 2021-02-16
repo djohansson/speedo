@@ -10,34 +10,40 @@ void PipelineContext<Vk>::setDescriptorData(
     uint32_t set,
     uint32_t binding)
 {
+    assert(binding < 0x80000000);
+
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     auto& [bindingsMap, mutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
 
     auto lock = std::lock_guard(mutex);
-    
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(type, T{}));
-    auto& bindingVariant = std::get<1>(bindingDataPairIt->second);
-    auto& bindingData = std::get<T>(bindingVariant);
-    
-    bindingData = std::move(data);
 
-    setState = DescriptorSetState::Dirty;
+    uint32_t key = (binding & 0x7FFFFFFF);
+    
+    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(key, std::make_tuple(type, T{}));
+    auto& [descriptorType, bindingVariant] = bindingDataPairIt->second;
+    auto& bindingData = std::get<T>(bindingVariant);
+
+    if (memcmp(&data, &bindingData, sizeof(data)))
+    {
+        bindingData = std::move(data);
+
+        setState = DescriptorSetState::Dirty;
+    }
 }
 
 template <>
 template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
+    std::string_view shaderVariableName,
     T&& data,
-    DescriptorType<Vk> type,
-    uint32_t set,
-    const std::string& shaderVariableName)
+    uint32_t set)
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     const auto& setLayoutBindingsMap = setLayout.getBindingsMap();
-    uint64_t shaderVariableNameHash = XXH3_64bits(shaderVariableName.c_str(), shaderVariableName.size());
-    uint32_t binding = setLayoutBindingsMap.at(shaderVariableNameHash);
+    uint64_t shaderVariableNameHash = XXH3_64bits(shaderVariableName.data(), shaderVariableName.size());
+    auto& [type, binding] = setLayoutBindingsMap.at(shaderVariableNameHash);
 
     setDescriptorData(std::move(data), type, set, binding);
 }
@@ -50,36 +56,40 @@ void PipelineContext<Vk>::setDescriptorData(
     uint32_t set,
     uint32_t binding)
 {
+    assert(binding < 0x80000000);
+
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     auto& [bindingsMap, mutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
 
     auto lock = std::lock_guard(mutex);
 
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(
-        (static_cast<uint64_t>(BindingTypeFlags::Array) << 32) | binding,
-        std::make_tuple(type, std::vector<T>{}));
-    auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
-    auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
-    
-    bindingVector = std::move(data);
+    uint32_t key = (binding & 0x7FFFFFFF) | static_cast<uint32_t>(BindingTypeFlags::IsArray);
 
-    setState = DescriptorSetState::Dirty;
+    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(key, std::make_tuple(type, std::vector<T>{}));
+    auto& [descriptorType, bindingVariantVector] = bindingDataPairIt->second;
+    auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
+
+    if (data.size() != bindingVector.size() || memcmp(data.data(), bindingVector.data(), data.size() * sizeof(T)))
+    {
+        bindingVector = std::move(data);
+
+        setState = DescriptorSetState::Dirty;
+    }
 }
 
 template <>
 template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
+    std::string_view shaderVariableName,
     std::vector<T>&& data,
-    DescriptorType<Vk> type,
-    uint32_t set,
-    const std::string& shaderVariableName)
+    uint32_t set)
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     const auto& setLayoutBindingsMap = setLayout.getBindingsMap();
-    uint64_t shaderVariableNameHash = XXH3_64bits(shaderVariableName.c_str(), shaderVariableName.size());
-    uint32_t binding = setLayoutBindingsMap.at(shaderVariableNameHash);
+    uint64_t shaderVariableNameHash = XXH3_64bits(shaderVariableName.data(), shaderVariableName.size());
+    auto& [type, binding] = setLayoutBindingsMap.at(shaderVariableNameHash);
 
     setDescriptorData(std::move(data), type, set, binding);
 }
@@ -93,40 +103,44 @@ void PipelineContext<Vk>::setDescriptorData(
     uint32_t binding,
     uint32_t index)
 {
+    assert(binding < 0x80000000);
+
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     auto& [bindingsMap, mutex, setState, setOptionalArrayList] = myDescriptorMap.at(setLayout.getKey());
 
     auto lock = std::lock_guard(mutex);
 
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(
-        (static_cast<uint64_t>(BindingTypeFlags::Array) << 32) | binding,
-        std::make_tuple(type, std::vector<T>{}));
-    auto& bindingVariantVector = std::get<1>(bindingDataPairIt->second);
+    uint32_t key = (binding & 0x7FFFFFFF) | static_cast<uint32_t>(BindingTypeFlags::IsArray);
+
+    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(key, std::make_tuple(type, std::vector<T>{}));
+    auto& [descriptorType, bindingVariantVector] = bindingDataPairIt->second;
     auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
     
     if (bindingVector.size() <= index)
         bindingVector.resize(index + 1);
-    
-    bindingVector[index] = std::move(data);
 
-    setState = DescriptorSetState::Dirty;
+    if (memcmp(&data, &bindingVector[index], sizeof(data)))
+    {
+        bindingVector[index] = std::move(data);
+
+        setState = DescriptorSetState::Dirty;
+    }
 }
 
 template <>
 template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
+    std::string_view shaderVariableName,
     T&& data,
-    DescriptorType<Vk> type,
     uint32_t set,
-    const std::string& shaderVariableName,
     uint32_t index)
 {
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayouts().at(set);
     const auto& setLayoutBindingsMap = setLayout.getBindingsMap();
-    uint64_t shaderVariableNameHash = XXH3_64bits(shaderVariableName.c_str(), shaderVariableName.size());
-    uint32_t binding = setLayoutBindingsMap.at(shaderVariableNameHash);
+    uint64_t shaderVariableNameHash = XXH3_64bits(shaderVariableName.data(), shaderVariableName.size());
+    auto& [type, binding] = setLayoutBindingsMap.at(shaderVariableNameHash);
 
     setDescriptorData(std::move(data), type, set, binding, index);
 }

@@ -94,6 +94,8 @@ private:
 	std::shared_ptr<Queue<B>> myGraphicsQueue;
 	std::shared_ptr<Queue<B>> myTransferQueue;
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
+	std::unique_ptr<Buffer<B>> myMaterials;
+	std::unique_ptr<Buffer<B>> myObjects;
 
 	template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
 	using HandleSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;

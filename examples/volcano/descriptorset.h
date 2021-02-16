@@ -25,7 +25,7 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class DescriptorSetLayout : public DeviceResource<B>
 {
-    using BindingsMapType = UnorderedMapType<uint64_t, uint32_t, PassThroughHash<uint64_t>>;
+    using BindingsMapType = UnorderedMapType<uint64_t, std::tuple<DescriptorType<B>, uint32_t>, PassThroughHash<uint64_t>>;
     using ValueType = std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>, BindingsMapType>;
 
 public:

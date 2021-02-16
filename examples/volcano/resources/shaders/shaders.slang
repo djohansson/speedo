@@ -1,39 +1,23 @@
 #include "shadertypes.h"
 
-// [[vk::constant_id(1)]] const bool  specConstBool  = true;
-// [[vk::constant_id(2)]] const int   specConstInt   = 42;
-// [[vk::constant_id(3)]] const float specConstFloat = 1.5;
-
-struct ViewParams
-{
-    float4x4 viewProj;
-};
-
 [[vk::binding(0, DescriptorSetCategory_Global)]]
-ConstantBuffer<ViewParams> g_view;
+[[vk::push_constant]]
+ConstantBuffer<PushConstants> g_pushConstants;
 
-//[[vk::binding(0, DescriptorSetCategory_View), vk::push_constant]]
-// ViewParams g_view;
+[[vk::binding(1, DescriptorSetCategory_Global)]]
+StructuredBuffer<ViewData> g_viewData;
 
-struct MaterialParams
-{
-    float4 color;
-	Texture2D texture;
-    SamplerState sampler;
-};
+[[vk::binding(2, DescriptorSetCategory_Global)]]
+StructuredBuffer<MaterialData> g_materialData;
 
-[[vk::binding(0, DescriptorSetCategory_Material)]]
-ParameterBlock<MaterialParams> g_material;
+[[vk::binding(3, DescriptorSetCategory_Global)]]
+StructuredBuffer<ObjectData> g_objectData;
 
-struct ObjectParams
-{
-    float4 color;
-	Texture2D texture;
-    SamplerState sampler;
-};
+[[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
+Texture2D g_textures[ShaderTypes_MaxTextures];
 
-[[vk::binding(0, DescriptorSetCategory_Object)]]
-ParameterBlock<ObjectParams> g_object;
+[[vk::binding(0, DescriptorSetCategory_GlobalSamplers)]]
+SamplerState g_samplers[ShaderTypes_MaxSamplers];
 
 struct InputStream
 {
@@ -57,11 +41,22 @@ struct VSOutput
     Interpolants data : Interpolants;
 };
 
+struct FSOutput
+{
+    float4 color : SV_Target;
+};
+
 VSOutput vertexMain(InputStream input)
 {
-    VSOutput output;
+    VSOutput output = (VSOutput)0;
 
-    output.hPos = mul(g_view.viewProj, float4(input.position, 1.0));
+    uint viewId = g_pushConstants.viewId;
+    uint objectId = g_pushConstants.objectId;
+
+    ViewData view = g_viewData[viewId];
+    ObjectData object = g_objectData[objectId];
+
+    output.hPos = mul(mul(view.viewProjectionMatrix, object.localTransform), float4(input.position, 1.0));
     output.data.normal = input.normal;
     output.data.texCoord = input.texCoord;
     output.data.color = input.color;
@@ -69,23 +64,23 @@ VSOutput vertexMain(InputStream input)
     return output;
 }
 
-struct FSOutput
-{
-    float4 color : SV_Target;
-};
-
 FSOutput fragmentMain(Interpolants input : Interpolants)
 {
-    FSOutput output;
+    FSOutput output = (FSOutput)0;
+
+    uint materialId = g_pushConstants.materialId;
     
-    float4 color = 0.1 * float4(input.color, 1.0);
+    MaterialData material = g_materialData[materialId];
+    
+    uint textureId = material.textureId;
+    uint samplerId = material.samplerId;
 
-    color += 0.1 * g_material.texture.Sample(g_material.sampler, input.texCoord);
-    color += 0.2 * g_material.color;
-    color += 0.2 * g_object.texture.Sample(g_object.sampler, input.texCoord);
-    color += 0.4 * g_object.color;
-
-    output.color = color;
+    Texture2D texture = g_textures[textureId];
+    SamplerState sampler = g_samplers[samplerId];
+    
+    output.color += 0.25 * float4(input.color, 1.0);
+    output.color += 0.5 * texture.Sample(sampler, input.texCoord);
+    output.color += 0.25 * material.color;
     
     return output;
 }

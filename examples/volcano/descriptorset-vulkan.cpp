@@ -100,7 +100,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
         {
             auto& binding = bindingVector[bindingIt];
             binding.pImmutableSamplers = samplers.data();
-            bindingsMap.emplace(desc.variableNameHashes.at(bindingIt), binding.binding);
+            bindingsMap.emplace(desc.variableNameHashes.at(bindingIt), std::make_tuple(binding.descriptorType, binding.binding));
         }
         
         return std::make_tuple(

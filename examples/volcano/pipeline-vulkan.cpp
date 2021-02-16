@@ -286,9 +286,9 @@ void PipelineContext<Vk>::internalResetSharedState()
                 VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 nullptr,
                 0,
-                shader.getEntryPoint().second,
+                std::get<1>(shader.getEntryPoint()),
                 shader,
-                shader.getEntryPoint().first.c_str(),
+                std::get<0>(shader.getEntryPoint()).c_str(),
                 nullptr});
 
     for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
@@ -573,14 +573,17 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
     {
         const auto& [bindingType, variantVector] = binding;
 
+        auto isArray = key & static_cast<uint32_t>(BindingTypeFlags::IsArray);
+        auto bindingIndex = static_cast<uint32_t>(key & 0x7FFFFFFF);
+
         descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex](
                 const DescriptorBufferInfo<Vk>& bufferInfo){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         1,
                         type,
@@ -588,13 +591,14 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
                         &bufferInfo,
                         nullptr};
             },
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex, isArray](
                 const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
+                    assert(isArray);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         static_cast<uint32_t>(bufferInfos.size()),
                         type,
@@ -602,13 +606,13 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
                         bufferInfos.data(),
                         nullptr};
             },
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex](
                 const DescriptorImageInfo<Vk>& imageInfo){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         1,
                         type,
@@ -616,13 +620,14 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
                         nullptr,
                         nullptr};
             },
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex, isArray](
                 const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
+                    assert(isArray);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         static_cast<uint32_t>(imageInfos.size()),
                         type,
@@ -630,13 +635,13 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
                         nullptr,
                         nullptr};
             },
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex](
                 const BufferViewHandle<Vk>& bufferView){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         1,
                         type,
@@ -644,13 +649,14 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
                         nullptr,
                         &bufferView};
             },
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex, isArray](
                 const std::vector<BufferViewHandle<Vk>>& bufferViews){
+                    assert(isArray);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         static_cast<uint32_t>(bufferViews.size()),
                         type,
@@ -658,13 +664,13 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
                         nullptr,
                         bufferViews.data()};
             },
-            [type = bindingType, index = static_cast<uint32_t>(key)](
+            [type = bindingType, bindingIndex](
                 const InlineUniformBlock<Vk>& parameterBlock){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         &parameterBlock,
                         VK_NULL_HANDLE,
-                        index,
+                        bindingIndex,
                         0,
                         parameterBlock.dataSize,
                         type,
@@ -732,14 +738,17 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
     {
         const auto& [bindingType, variantVector] = binding;
 
+        auto isArray = key & static_cast<uint32_t>(BindingTypeFlags::IsArray);
+        auto bindingIndex = static_cast<uint32_t>(key & 0x7FFFFFFF);
+
         descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex](
                 const DescriptorBufferInfo<Vk>& bufferInfo){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         1,
                         type,
@@ -747,13 +756,14 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
                         &bufferInfo,
                         nullptr};
             },
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex, isArray](
                 const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
+                    assert(isArray);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         static_cast<uint32_t>(bufferInfos.size()),
                         type,
@@ -761,13 +771,13 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
                         bufferInfos.data(),
                         nullptr};
             },
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex](
                 const DescriptorImageInfo<Vk>& imageInfo){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         1,
                         type,
@@ -775,13 +785,14 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
                         nullptr,
                         nullptr};
             },
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex, isArray](
                 const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
+                    assert(isArray);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         static_cast<uint32_t>(imageInfos.size()),
                         type,
@@ -789,13 +800,13 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
                         nullptr,
                         nullptr};
             },
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex](
                 const BufferViewHandle<Vk>& bufferView){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         1,
                         type,
@@ -803,13 +814,14 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
                         nullptr,
                         &bufferView};
             },
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex, isArray](
                 const std::vector<BufferViewHandle<Vk>>& bufferViews){
+                    assert(isArray);
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         nullptr,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         static_cast<uint32_t>(bufferViews.size()),
                         type,
@@ -817,13 +829,13 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
                         nullptr,
                         bufferViews.data()};
             },
-            [handle, type = bindingType, index = static_cast<uint32_t>(key)](
+            [handle, type = bindingType, bindingIndex](
                 const InlineUniformBlock<Vk>& parameterBlock){
                     return WriteDescriptorSet<Vk>{
                         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         &parameterBlock,
                         handle,
-                        index,
+                        bindingIndex,
                         0,
                         parameterBlock.dataSize,
                         type,
@@ -921,23 +933,25 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     {
         auto& setArrayList = setOptionalArrayList.value();
         auto setArrayIt = setArrayList.begin();
+        if (setArrayIt != setArrayList.end())
+        {
+            auto& [setArray, setIndex, setRefCount] = *setArrayIt;
+            auto handle = setArray[setIndex];
 
-        auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-        auto handle = setArray[setIndex];
+            bindDescriptorSet(
+                cmd,
+                handle,
+                myBindPoint,
+                static_cast<PipelineLayoutHandle<Vk>>(layout),
+                set,
+                bufferOffset);
 
-        bindDescriptorSet(
-            cmd,
-            handle,
-            myBindPoint,
-            static_cast<PipelineLayoutHandle<Vk>>(layout),
-            set,
-            bufferOffset);
+            setRefCount++;
 
-        setRefCount++;
-
-        getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) {
-            (*refCountPtr)--;
-        });
+            getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) {
+                (*refCountPtr)--;
+            });
+        }
     }
     else
     {

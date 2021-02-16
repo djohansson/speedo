@@ -276,39 +276,73 @@ Application<Vk>::Application(
             {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
             {3, 2}});
 
+    auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaxMaterials);
+    materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
+    materialData[0].textureId = 1;
+    materialData[0].samplerId = 0;
+    myMaterials = std::make_unique<Buffer<Vk>>(
+        myDevice,
+        myTransferCommands,
+        BufferCreateDesc<Vk>{
+            {"myMaterials"},
+            sizeof(MaterialData),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+        materialData.get(),
+        ShaderTypes_MaxMaterials * sizeof(MaterialData));
+
+    auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_MaxObjectBufferInstances);
+    objectData[0].localTransform = glm::mat4x4(1.0f);
+    myObjects = std::make_unique<Buffer<Vk>>(
+        myDevice,
+        myTransferCommands,
+        BufferCreateDesc<Vk>{
+            {"myObjects"},
+            sizeof(ObjectData),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+        objectData.get(),
+        ShaderTypes_MaxObjectBufferInstances * sizeof(ObjectData));
+
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
     // load shaders, set pipeline layout
     // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
-    {
-        auto shaders = shader::loadSlangShaders<Vk>(
-            myResourcePath / "shaders" / "shaders.slang",
-            { myResourcePath / "shaders" },
-            std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
-            myUserProfilePath / ".slang.intermediate");
+    auto shaders = shader::loadSlangShaders<Vk>(
+        myResourcePath / "shaders" / "shaders.slang",
+        { myResourcePath / "shaders" },
+        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
+        myUserProfilePath / ".slang.intermediate");
 
-        auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
-        assert(insertResult);
-        myGraphicsPipeline->setLayout(*layoutIt);
-    }
+    auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
+    assert(insertResult);
+    myGraphicsPipeline->setLayout(*layoutIt);
 
-    // set global descriptor set data
-    {
-        myGraphicsPipeline->setDescriptorData(
-            DescriptorBufferInfo<Vk>{
-                myWindow->getViewBuffer(),
-                0,
-                VK_WHOLE_SIZE},
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-            DescriptorSetCategory_Global,
-            "g_view");
-    }
+    // todo: create some texture global storage 
+    myGraphicsPipeline->resources().black = std::make_shared<Image<Vk>>(
+        myDevice,
+        ImageCreateDesc<Vk>{
+            {"black"},
+            std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_IMAGE_TILING_LINEAR,
+            VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+
+    myGraphicsPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
+        myDevice,
+        *myGraphicsPipeline->resources().black,
+        VK_IMAGE_ASPECT_COLOR_BIT);
     
-    // initialize IMGUI
+    // initialize stuff on gfx queue
     {
         auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
+
+        myGraphicsPipeline->resources().black->transition(
+            cmd,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
         initIMGUI(myDevice, cmd, frame, myUserProfilePath);
 
@@ -324,6 +358,51 @@ Application<Vk>::Application(
 
         myLastFrameTimelineValue = myGraphicsQueue->submit();
     }
+
+    auto globalTextures = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_MaxTextures);
+    auto globalSamplers = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_MaxSamplers);
+    
+    std::fill(globalSamplers.begin(), globalSamplers.end(), DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler});
+    std::fill(globalTextures.begin(), globalTextures.end(), DescriptorImageInfo<Vk>{
+        nullptr,
+        *myGraphicsPipeline->resources().blackImageView,
+        myGraphicsPipeline->resources().black->getImageLayout()});
+
+    // set global descriptor set data
+
+    myGraphicsPipeline->setDescriptorData(
+        "g_viewData",
+        DescriptorBufferInfo<Vk>{
+            myWindow->getViewBuffer(),
+            0,
+            VK_WHOLE_SIZE},
+        DescriptorSetCategory_Global);
+
+    myGraphicsPipeline->setDescriptorData(
+        "g_materialData",
+        DescriptorBufferInfo<Vk>{
+            *myMaterials,
+            0,
+            VK_WHOLE_SIZE},
+        DescriptorSetCategory_Global);
+
+    myGraphicsPipeline->setDescriptorData(
+        "g_objectData",
+        DescriptorBufferInfo<Vk>{
+            *myObjects,
+            0,
+            VK_WHOLE_SIZE},
+        DescriptorSetCategory_Global);
+
+    myGraphicsPipeline->setDescriptorData(
+        "g_textures",
+        std::move(globalTextures),
+        DescriptorSetCategory_GlobalTextures);
+        
+    myGraphicsPipeline->setDescriptorData(
+        "g_samplers",
+        std::move(globalSamplers),
+        DescriptorSetCategory_GlobalSamplers);
 
     // GUI + misc callbacks
 
@@ -404,57 +483,14 @@ Application<Vk>::Application(
 
         ///////////
 
-        static glm::vec4 materialColor(1.0, 0.0, 0.0, 1.0);
         myGraphicsPipeline->setDescriptorData(
-            InlineUniformBlock<Vk>{
-                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
-                nullptr,
-                sizeof(materialColor),
-                &materialColor},
-            VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
-            DescriptorSetCategory_Material,
-            "g_material");
-
-        myGraphicsPipeline->setDescriptorData(
+            "g_textures",
             DescriptorImageInfo<Vk>{
                 {},
                 *myGraphicsPipeline->resources().imageView,
                 myGraphicsPipeline->resources().image->getImageLayout()},
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            DescriptorSetCategory_Material,
-            "g_material.texture");
-
-        myGraphicsPipeline->setDescriptorData(
-            DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
-            VK_DESCRIPTOR_TYPE_SAMPLER,
-            DescriptorSetCategory_Material,
-            "g_material.sampler");
-
-        static glm::vec4 objectColor(0.0, 0.0, 1.0, 1.0);
-        myGraphicsPipeline->setDescriptorData(
-            InlineUniformBlock<Vk>{
-                VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT,
-                nullptr,
-                sizeof(objectColor),
-                &objectColor},
-            VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT,
-            DescriptorSetCategory_Object,
-            "g_object");
-
-        myGraphicsPipeline->setDescriptorData(
-            DescriptorImageInfo<Vk>{
-                {},
-                *myGraphicsPipeline->resources().imageView,
-                myGraphicsPipeline->resources().image->getImageLayout()},
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            DescriptorSetCategory_Object,
-            "g_object.texture");
-
-        myGraphicsPipeline->setDescriptorData(
-            DescriptorImageInfo<Vk>{myGraphicsPipeline->resources().sampler},
-            VK_DESCRIPTOR_TYPE_SAMPLER,
-            DescriptorSetCategory_Object,
-            "g_object.sampler");
+            DescriptorSetCategory_GlobalTextures,
+            1);
 
         return 1;
     };
@@ -1046,13 +1082,12 @@ void Application<Vk>::resizeFramebuffer(int, int)
     myWindow->onResizeFramebuffer(framebufferExtent);
 
     myGraphicsPipeline->setDescriptorData(
+        "g_viewData",
         DescriptorBufferInfo<Vk>{
             myWindow->getViewBuffer(),
             0,
             VK_WHOLE_SIZE},
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        DescriptorSetCategory_Global,
-        "g_view");
+        DescriptorSetCategory_Global);
     
     createWindowDependentObjects(framebufferExtent);
 }

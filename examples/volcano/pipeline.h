@@ -64,6 +64,8 @@ struct PipelineResourceView
 {	
 	// begin temp
     std::shared_ptr<Model<B>> model;
+    std::shared_ptr<Image<B>> black;
+    std::shared_ptr<ImageView<B>> blackImageView;
 	std::shared_ptr<Image<B>> image;
 	std::shared_ptr<ImageView<B>> imageView;
 	SamplerHandle<B> sampler = {};
@@ -84,7 +86,7 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
 {
-    enum class BindingTypeFlags : uint64_t { Array = 1 << 0 };
+    enum class BindingTypeFlags : uint32_t { IsArray = 1u << 31 };
     enum class DescriptorSetState : uint8_t { Dirty, Ready };
 
     using BindingVariantType = std::variant<
@@ -96,7 +98,7 @@ class PipelineContext : public DeviceResource<B>
         std::vector<BufferViewHandle<B>>,
         InlineUniformBlock<Vk>>; // InlineUniformBlock can only have one array element per binding
     using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantType>;
-    using BindingsMapType = UnorderedMapType<uint64_t, BindingValueType>; // [(flags<<32)|binding, data]
+    using BindingsMapType = UnorderedMapType<uint32_t, BindingValueType>;
     using DescriptorSetArrayListType = std::list<
         std::tuple<
             DescriptorSetArray<B>, // descriptor set array
@@ -160,10 +162,9 @@ public:
 
     template <typename T>
     void setDescriptorData(
+        std::string_view shaderVariableName,
         T&& data,
-        DescriptorType<B> type,
-        uint32_t set,
-        const std::string& shaderVariableName);
+        uint32_t set);
 
     // array
     template <typename T>
@@ -175,10 +176,9 @@ public:
 
     template <typename T>
     void setDescriptorData(
+        std::string_view shaderVariableName,
         std::vector<T>&& data,
-        DescriptorType<B> type,
-        uint32_t set,
-        const std::string& shaderVariableName);
+        uint32_t set);
 
     // array-element
     template <typename T>
@@ -191,10 +191,9 @@ public:
 
     template <typename T>
     void setDescriptorData(
+        std::string_view shaderVariableName,
         T&& data,
-        DescriptorType<B> type,
         uint32_t set,
-        const std::string& shaderVariableName,
         uint32_t index);
     
     // temp

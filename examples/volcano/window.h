@@ -66,14 +66,6 @@ public:
 
 	void draw(const std::shared_ptr<PipelineContext<B>>& pipeline);
 
-	struct ViewBufferData // todo: needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment. right now uses manual padding.
-	{
-		glm::mat4 viewProj = glm::mat4(1.0f);
-		glm::mat4 pad0;
-		glm::mat4 pad1;
-		glm::mat4 pad2;
-	};
-
 private:
 
 	void updateViewBuffer(uint32_t frameIndex) const;
