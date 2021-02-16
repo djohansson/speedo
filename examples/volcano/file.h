@@ -40,7 +40,7 @@ std::tuple<FileState, FileInfo> getFileInfo(
     const std::filesystem::path &filePath,
     bool sha2Enable);
 
-using LoadFileInfoFromJSONFn = std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)>;
+using LoadFileInfoFromJSONFn = std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, std::string_view)>;
 
 std::tuple<FileState, FileInfo> getFileInfo(
     const std::filesystem::path &filePath,
@@ -67,23 +67,23 @@ std::tuple<FileState, FileInfo> saveBinaryFile(
 void loadCachedSourceFile(
     const std::filesystem::path &sourceFilePath,
     const std::filesystem::path &cacheFilePath,
-    const std::string& loaderType,
-	const std::string& loaderVersion,
+    std::string_view loaderType,
+	std::string_view loaderVersion,
     LoadFileFn loadSourceFileFn,
     LoadFileFn loadBinaryCacheFn,
     SaveFileFn saveBinaryCacheFn);
 
 template <typename T, typename Archive>
-T loadObject(std::istream& stream, const std::string& name);
+T loadObject(std::istream& stream, std::string_view name);
 
 template <typename T, typename Archive>
-void saveObject(const T& object, std::ostream& stream, const std::string& name);
+void saveObject(const T& object, std::ostream& stream, std::string_view name);
 
 template <typename T, typename Archive>
-std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name);
+std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, std::string_view name);
 
 template <typename T, typename Archive>
-void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name);
+void saveObject(const T& object, const std::filesystem::path& filePath, std::string_view name);
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose = false>
 class FileObject : public Noncopyable, public T
@@ -95,7 +95,7 @@ public:
     constexpr FileObject() = default;
     FileObject(
         const std::filesystem::path& filePath,
-        const std::string& name,
+        std::string_view name,
         T&& defaultObject = T{});
     FileObject(FileObject&& other) noexcept;
     ~FileObject();

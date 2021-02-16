@@ -39,11 +39,11 @@ std::tuple<FileState, FileInfo> getFileInfo(const std::filesystem::path& filePat
 
 std::tuple<FileState, FileInfo> getFileInfo(
 	const std::filesystem::path& filePath,
-	const std::string& id,
-	const std::string& loaderType,
-	const std::string& loaderVersion,
+	std::string_view id,
+	std::string_view loaderType,
+	std::string_view loaderVersion,
 	std::istream& jsonStream,
-	std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, const std::string&)> loadJSON,
+	std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, std::string_view)> loadJSON,
 	bool sha2Enable)
 {
 	ZoneScoped;
@@ -157,8 +157,8 @@ std::tuple<FileState, FileInfo> saveBinaryFile(
 void loadCachedSourceFile(
 	const std::filesystem::path& sourceFilePath,
 	const std::filesystem::path& cacheFilePath,
-	const std::string& loaderType,
-	const std::string& loaderVersion,
+	std::string_view loaderType,
+	std::string_view loaderVersion,
 	LoadFileFn loadSourceFileFn,
 	LoadFileFn loadBinaryCacheFn,
 	SaveFileFn saveBinaryCacheFn)
@@ -191,7 +191,7 @@ void loadCachedSourceFile(
 	{
 		ZoneScopedN("loadCachedSourceFile::readJsonAndFileState");
 
-		auto loadJSONFn = [](std::istream& stream, const std::string& id) {
+		auto loadJSONFn = [](std::istream& stream, std::string_view id) {
 			cereal::JSONInputArchive json(stream);
 
 			std::string outLoaderType;
@@ -200,7 +200,7 @@ void loadCachedSourceFile(
 
 			json(cereal::make_nvp("loaderType", outLoaderType));
 			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
-			json(cereal::make_nvp(id, outFileInfo));
+			json(cereal::make_nvp(id.data(), outFileInfo));
 
 			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
 		};
@@ -245,8 +245,11 @@ void loadCachedSourceFile(
 		auto fileStream = mio::mmap_ostream(jsonFilePath.string());
 		cereal::JSONOutputArchive json(fileStream);
 
-		json(cereal::make_nvp("loaderType", loaderType));
-		json(cereal::make_nvp("loaderVersion", loaderVersion));
+		std::string _loaderType(loaderType);
+		std::string _loaderVersion(loaderVersion);
+
+		json(cereal::make_nvp("loaderType", _loaderType));
+		json(cereal::make_nvp("loaderVersion", _loaderVersion));
 
 		auto [sourceFileState, sourceFileInfo] = loadBinaryFile(sourceFilePath, loadSourceFileFn, true);
 		json(CEREAL_NVP(sourceFileInfo));

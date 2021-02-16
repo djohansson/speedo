@@ -23,23 +23,23 @@ void save(Archive& archive, const FileInfo& info)
 }
 
 template <typename T, typename Archive>
-T loadObject(std::istream& stream, const std::string& name)
+T loadObject(std::istream& stream, std::string_view name)
 {
     Archive archive(stream);
     T outValue = {};
-    archive(cereal::make_nvp(name, outValue));
+    archive(cereal::make_nvp(name.data(), outValue));
     return outValue;
 };
 
 template <typename T, typename Archive>
-void saveObject(const T& object, std::ostream& stream, const std::string& name)
+void saveObject(const T& object, std::ostream& stream, std::string_view name)
 {
     Archive json(stream);
-    json(cereal::make_nvp(name, object));
+    json(cereal::make_nvp(name.data(), object));
 };
 
 template <typename T, typename Archive>
-std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, const std::string& name)
+std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& filePath, std::string_view name)
 {
     auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
@@ -51,7 +51,7 @@ std::tuple<std::optional<T>, FileState> loadObject(const std::filesystem::path& 
 }
 
 template <typename T, typename Archive>
-void saveObject(const T& object, const std::filesystem::path& filePath, const std::string& name)
+void saveObject(const T& object, const std::filesystem::path& filePath, std::string_view name)
 {
     auto fileStream = mio::mmap_ostream(filePath.string());
 	saveObject<T, Archive>(object, fileStream, name);
@@ -60,7 +60,7 @@ void saveObject(const T& object, const std::filesystem::path& filePath, const st
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
 	const std::filesystem::path& filePath,
-	const std::string& name,
+	std::string_view name,
 	T&& defaultObject)
 : T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
 , myFilePath(filePath)
