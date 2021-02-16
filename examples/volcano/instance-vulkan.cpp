@@ -212,7 +212,7 @@ InstanceContext<Vk>::InstanceContext(
         [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
     std::vector<const char*> requiredLayers = {};
-    if constexpr (PROFILING_ENABLED)
+    if constexpr (GRAPHICS_VALIDATION_ENABLED)
         requiredLayers.emplace_back("VK_LAYER_KHRONOS_validation");
 
     std::vector<const char*> requiredExtensions = {
@@ -220,7 +220,6 @@ InstanceContext<Vk>::InstanceContext(
 #if defined(__APPLE__)
         "VK_EXT_metal_surface",
 #endif
-        "VK_KHR_get_physical_device_properties2",
         "VK_KHR_surface",
 #if defined(__WINDOWS__)
         "VK_KHR_win32_surface",
@@ -237,7 +236,7 @@ InstanceContext<Vk>::InstanceContext(
 #endif
     };
 
-    if constexpr (PROFILING_ENABLED)
+    if constexpr (GRAPHICS_VALIDATION_ENABLED)
         requiredExtensions.emplace_back("VK_EXT_debug_utils");
 
     // must be sorted lexicographically for std::includes to work!
@@ -313,7 +312,7 @@ InstanceContext<Vk>::InstanceContext(
 
     myUserData = instance::UserData();
 
-    if constexpr (PROFILING_ENABLED)
+    if constexpr (GRAPHICS_VALIDATION_ENABLED)
     {
         std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger =
             instance::createDebugUtilsMessenger(myInstance);
@@ -325,7 +324,7 @@ InstanceContext<Vk>::~InstanceContext()
 {
     ZoneScopedN("~Instance()");
 
-    if constexpr (PROFILING_ENABLED)
+    if constexpr (GRAPHICS_VALIDATION_ENABLED)
     {
         auto vkDestroyDebugUtilsMessengerEXT =
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(myInstance, "vkDestroyDebugUtilsMessengerEXT");

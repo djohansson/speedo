@@ -110,6 +110,7 @@
 		+ ' -flto=thin'
 #endif
 	.ProfilingEnabled = '0'
+	.GraphicsValidationEnabled = '0'
 ]
 
 .Clang_Native_BaseConfig =
@@ -125,6 +126,7 @@
 
 	.ConfigName = 'debug'
 	.ProfilingEnabled = '1'
+	.GraphicsValidationEnabled = '1'
 	.CompilerOptions + ' -D_DEBUG'
 		+ .CompilerDebugOptimizations
 #if __WINDOWS__

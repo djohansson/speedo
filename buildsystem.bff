@@ -162,6 +162,9 @@ function AddObjectList(.ObjectList .CompilerConfig)
         .CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
             + .ObjectListCompilerOptions
 
+        .CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
+            + .ObjectListCompilerOptions
+
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
             ^CompilerOptions + '$CompilerOption$/$ConfigName$'
