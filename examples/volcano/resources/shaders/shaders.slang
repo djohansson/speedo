@@ -59,7 +59,7 @@ VSOutput vertexMain(InputStream input)
     uint objectBufferAndInstanceId = g_pushConstants.objectBufferAndInstanceId;
 
     uint objectBufferIndex = objectBufferAndInstanceId >> ShaderTypes_ObjectBufferInstanceIndexBits;
-    uint objectInstanceIndex = objectBufferAndInstanceId & (ShaderTypes_ObjectBufferInstanceCount - 1);
+    uint objectInstanceIndex = objectBufferAndInstanceId & (ShaderTypes_ObjectBufferInstanceCount - 1u);
 
     ObjectData object = g_objectData[objectInstanceIndex][objectBufferIndex];
 
@@ -77,14 +77,14 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 
     uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
 
-    uint materialId = viewAndMaterialId & (ShaderTypes_MaterialCount - 1);
+    uint materialId = viewAndMaterialId & (ShaderTypes_MaterialCount - 1u);
     
     MaterialData material = g_materialData[materialId];
 
     uint textureAndSamplerId = material.textureAndSamplerId;
     
     uint textureId = textureAndSamplerId >> ShaderTypes_TextureIndexBits;
-    uint samplerId = textureAndSamplerId & (ShaderTypes_SamplerCount - 1);
+    uint samplerId = textureAndSamplerId & (ShaderTypes_SamplerCount - 1u);
 
     Texture2D texture = g_textures[textureId];
     SamplerState sampler = g_samplers[samplerId];
