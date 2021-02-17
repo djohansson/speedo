@@ -225,6 +225,14 @@ Application<Vk>::Application(
 , myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph") // temp - this should be stored in the resource path
 {
     ZoneScopedN("Application()");
+
+    // load shaders, set pipeline layout
+    // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
+    auto shaders = shader::loadSlangShaders<Vk>(
+        myResourcePath / "shaders" / "shaders.slang",
+        { myResourcePath / "shaders" },
+        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
+        myUserProfilePath / ".slang.intermediate");
     
     myInstance = std::make_shared<InstanceContext<Vk>>(
         AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
@@ -278,14 +286,6 @@ Application<Vk>::Application(
 
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
-    // load shaders, set pipeline layout
-    // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
-    auto shaders = shader::loadSlangShaders<Vk>(
-        myResourcePath / "shaders" / "shaders.slang",
-        { myResourcePath / "shaders" },
-        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
-        myUserProfilePath / ".slang.intermediate");
-
     auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
     assert(insertResult);
     myGraphicsPipeline->setLayout(*layoutIt);
@@ -312,9 +312,8 @@ Application<Vk>::Application(
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
 
-        myGraphicsPipeline->resources().black->transition(
-            cmd,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        myGraphicsPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
+        myGraphicsPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
         initIMGUI(myDevice, cmd, frame, myUserProfilePath);
 

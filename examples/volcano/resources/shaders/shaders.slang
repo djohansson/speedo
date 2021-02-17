@@ -30,9 +30,10 @@ struct InputStream
 
 struct Interpolants
 {
+    float3 position;
     float3 normal;
-    float3 color;
     float2 texCoord;
+    float3 color;
 };
 
 struct VSOutput
@@ -64,6 +65,7 @@ VSOutput vertexMain(InputStream input)
     ObjectData object = g_objectData[objectInstanceIndex][objectBufferIndex];
 
     output.hPos = mul(mul(view.viewProjectionMatrix, object.localTransform), float4(input.position, 1.0));
+    output.data.position = input.position;
     output.data.normal = input.normal;
     output.data.texCoord = input.texCoord;
     output.data.color = input.color;
