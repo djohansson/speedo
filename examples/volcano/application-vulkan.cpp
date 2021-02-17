@@ -382,7 +382,7 @@ Application<Vk>::Application(
             myWindow->getViewBuffer(),
             0,
             VK_WHOLE_SIZE},
-        DescriptorSetCategory_Global);
+        DescriptorSetCategory_View);
 
     myGraphicsPipeline->setDescriptorData(
         "g_materialData",
@@ -390,12 +390,12 @@ Application<Vk>::Application(
             *myMaterials,
             0,
             VK_WHOLE_SIZE},
-        DescriptorSetCategory_Global);
+        DescriptorSetCategory_Material);
 
     myGraphicsPipeline->setDescriptorData(
         "g_objectData",
         std::move(globalObjects),
-        DescriptorSetCategory_Global);
+        DescriptorSetCategory_Object);
 
     myGraphicsPipeline->setDescriptorData(
         "g_textures",
@@ -1090,7 +1090,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
             myWindow->getViewBuffer(),
             0,
             VK_WHOLE_SIZE},
-        DescriptorSetCategory_Global);
+        DescriptorSetCategory_View);
     
     createWindowDependentObjects(framebufferExtent);
 }

@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <functional>
 #include <future>
+#include <map>
 #include <memory>
 #include <new>
 #include <queue>
@@ -249,6 +250,45 @@ using ConcurrentUnorderedMapType = UnorderedMapType<Key, Value, KeyHash, KeyEqua
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using ConcurrentUnorderedSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
 #endif
+
+template <typename T>
+class RangeSet : public std::map<T, T>
+{
+	using BaseType = std::map<T, T>;
+
+public:
+
+	auto insert(std::pair<T, T>&& range)
+	{
+		assert(range.first <= range.second);
+
+		auto [low, high] = range;
+
+		typename BaseType::iterator afterIt = this->upper_bound(low), insertRangeIt;
+
+		if (afterIt == this->begin() || std::prev(afterIt)->second < low)
+		{
+			insertRangeIt = BaseType::insert(afterIt, std::move(range));
+		}
+		else
+		{
+			insertRangeIt = std::prev(afterIt);
+
+			if (insertRangeIt->second >= range.second)
+				return std::pair<typename BaseType::iterator, bool>(insertRangeIt, false);
+			else
+				insertRangeIt->second = range.second;
+		}
+
+		while (afterIt != this->end() && high >= afterIt->first)
+		{
+			insertRangeIt->second = std::max(afterIt->second, insertRangeIt->second);
+			afterIt = this->erase(afterIt);
+		}
+
+		return std::pair<typename BaseType::iterator, bool>(insertRangeIt, true);
+	}
+};
 
 template <typename T>
 class CopyableAtomic : public std::atomic<T>

@@ -559,7 +559,7 @@ template <>
 void PipelineContext<Vk>::internalPushDescriptorSet(
     CommandBufferHandle<Vk> cmd,
     uint32_t set,
-    const BindingsMapType& bindingsMap) const
+    BindingsMapType& bindingsMap) const
 {
     ZoneScopedN("PipelineContext::internalPushDescriptorSet");
 
@@ -569,116 +569,123 @@ void PipelineContext<Vk>::internalPushDescriptorSet(
     std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
     descriptorWrites.reserve(bindingsMap.size());
 
-    for (const auto& [key, binding] : bindingsMap)
+    for (auto& [key, binding] : bindingsMap)
     {
-        const auto& [bindingType, variantVector] = binding;
+        auto& [bindingType, variantVector, dirtyRanges] = binding;
 
-        auto isArray = key & static_cast<uint32_t>(BindingTypeFlags::IsArray);
         auto bindingIndex = static_cast<uint32_t>(key & 0x7FFFFFFF);
 
-        descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [type = bindingType, bindingIndex](
-                const DescriptorBufferInfo<Vk>& bufferInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        nullptr,
-                        &bufferInfo,
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex, isArray](
-                const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                    assert(isArray);
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(bufferInfos.size()),
-                        type,
-                        nullptr,
-                        bufferInfos.data(),
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex](
-                const DescriptorImageInfo<Vk>& imageInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        &imageInfo,
-                        nullptr,
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex, isArray](
-                const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                    assert(isArray);
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(imageInfos.size()),
-                        type,
-                        imageInfos.data(),
-                        nullptr,
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex](
-                const BufferViewHandle<Vk>& bufferView){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        nullptr,
-                        nullptr,
-                        &bufferView};
-            },
-            [type = bindingType, bindingIndex, isArray](
-                const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                    assert(isArray);
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(bufferViews.size()),
-                        type,
-                        nullptr,
-                        nullptr,
-                        bufferViews.data()};
-            },
-            [type = bindingType, bindingIndex](
-                const InlineUniformBlock<Vk>& parameterBlock){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        &parameterBlock,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        parameterBlock.dataSize,
-                        type,
-                        nullptr,
-                        nullptr,
-                        nullptr};
-            },
-        }, variantVector));
+        for (const auto& range : dirtyRanges)
+        {
+            if (range.first == range.second)
+                continue;
+
+            uint32_t dstArrayElement = range.first;
+            uint32_t descriptorCount = range.second - range.first;
+
+            descriptorWrites.emplace_back(std::visit(std::overloaded{
+                [type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const DescriptorBufferInfo<Vk>& bufferInfo){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            &bufferInfo,
+                            nullptr};
+                },
+                [type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            bufferInfos.data(),
+                            nullptr};
+                },
+                [type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const DescriptorImageInfo<Vk>& imageInfo){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            &imageInfo,
+                            nullptr,
+                            nullptr};
+                },
+                [type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            imageInfos.data(),
+                            nullptr,
+                            nullptr};
+                },
+                [type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const BufferViewHandle<Vk>& bufferView){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            nullptr,
+                            &bufferView};
+                },
+                [type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const std::vector<BufferViewHandle<Vk>>& bufferViews){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            nullptr,
+                            bufferViews.data()};
+                },
+                [type = bindingType, bindingIndex](
+                    const InlineUniformBlock<Vk>& parameterBlock){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            &parameterBlock,
+                            VK_NULL_HANDLE,
+                            bindingIndex,
+                            0,
+                            parameterBlock.dataSize,
+                            type,
+                            nullptr,
+                            nullptr,
+                            nullptr};
+                },
+            }, variantVector));
+        }
+        
+        dirtyRanges.clear();
     }
 
     if (!pipeline::vkCmdPushDescriptorSetKHR)
@@ -734,116 +741,123 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(
     std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
     descriptorWrites.reserve(bindingsMap.size());
 
-    for (const auto& [key, binding] : bindingsMap)
+    for (auto& [key, binding] : bindingsMap)
     {
-        const auto& [bindingType, variantVector] = binding;
+        auto& [bindingType, variantVector, dirtyRanges] = binding;
 
-        auto isArray = key & static_cast<uint32_t>(BindingTypeFlags::IsArray);
         auto bindingIndex = static_cast<uint32_t>(key & 0x7FFFFFFF);
 
-        descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [handle, type = bindingType, bindingIndex](
-                const DescriptorBufferInfo<Vk>& bufferInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        nullptr,
-                        &bufferInfo,
-                        nullptr};
-            },
-            [handle, type = bindingType, bindingIndex, isArray](
-                const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                    assert(isArray);
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(bufferInfos.size()),
-                        type,
-                        nullptr,
-                        bufferInfos.data(),
-                        nullptr};
-            },
-            [handle, type = bindingType, bindingIndex](
-                const DescriptorImageInfo<Vk>& imageInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        &imageInfo,
-                        nullptr,
-                        nullptr};
-            },
-            [handle, type = bindingType, bindingIndex, isArray](
-                const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                    assert(isArray);
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(imageInfos.size()),
-                        type,
-                        imageInfos.data(),
-                        nullptr,
-                        nullptr};
-            },
-            [handle, type = bindingType, bindingIndex](
-                const BufferViewHandle<Vk>& bufferView){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        nullptr,
-                        nullptr,
-                        &bufferView};
-            },
-            [handle, type = bindingType, bindingIndex, isArray](
-                const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                    assert(isArray);
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(bufferViews.size()),
-                        type,
-                        nullptr,
-                        nullptr,
-                        bufferViews.data()};
-            },
-            [handle, type = bindingType, bindingIndex](
-                const InlineUniformBlock<Vk>& parameterBlock){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        &parameterBlock,
-                        handle,
-                        bindingIndex,
-                        0,
-                        parameterBlock.dataSize,
-                        type,
-                        nullptr,
-                        nullptr,
-                        nullptr};
-            },
-        }, variantVector));
+        for (const auto& range : dirtyRanges)
+        {
+            if (range.first == range.second)
+                continue;
+
+            uint32_t dstArrayElement = range.first;
+            uint32_t descriptorCount = range.second - range.first;
+
+            descriptorWrites.emplace_back(std::visit(std::overloaded{
+                [handle, type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const DescriptorBufferInfo<Vk>& bufferInfo){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            handle,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            &bufferInfo,
+                            nullptr};
+                },
+                [handle, type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            handle,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            bufferInfos.data(),
+                            nullptr};
+                },
+                [handle, type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const DescriptorImageInfo<Vk>& imageInfo){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            handle,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            &imageInfo,
+                            nullptr,
+                            nullptr};
+                },
+                [handle, type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            handle,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            imageInfos.data(),
+                            nullptr,
+                            nullptr};
+                },
+                [handle, type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const BufferViewHandle<Vk>& bufferView){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            handle,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            nullptr,
+                            &bufferView};
+                },
+                [handle, type = bindingType, bindingIndex, dstArrayElement, descriptorCount](
+                    const std::vector<BufferViewHandle<Vk>>& bufferViews){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            nullptr,
+                            handle,
+                            bindingIndex,
+                            dstArrayElement,
+                            descriptorCount,
+                            type,
+                            nullptr,
+                            nullptr,
+                            bufferViews.data()};
+                },
+                [handle, type = bindingType, bindingIndex](
+                    const InlineUniformBlock<Vk>& parameterBlock){
+                        return WriteDescriptorSet<Vk>{
+                            VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            &parameterBlock,
+                            handle,
+                            bindingIndex,
+                            0,
+                            parameterBlock.dataSize,
+                            type,
+                            nullptr,
+                            nullptr,
+                            nullptr};
+                },
+            }, variantVector));
+        }
+
+        dirtyRanges.clear();
     }
 
     vkUpdateDescriptorSets(

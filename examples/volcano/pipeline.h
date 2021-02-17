@@ -97,7 +97,7 @@ class PipelineContext : public DeviceResource<B>
         BufferViewHandle<B>,
         std::vector<BufferViewHandle<B>>,
         InlineUniformBlock<Vk>>; // InlineUniformBlock can only have one array element per binding
-    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantType>;
+    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantType, RangeSet<uint32_t>>;
     using BindingsMapType = UnorderedMapType<uint32_t, BindingValueType>;
     using DescriptorSetArrayListType = std::list<
         std::tuple<
@@ -224,7 +224,7 @@ private:
     void internalPushDescriptorSet(
         CommandBufferHandle<B> cmd,
         uint32_t set,
-        const BindingsMapType& bindingsMap) const;
+        BindingsMapType& bindingsMap) const;
     void internalUpdateDescriptorSet(
         DescriptorSetLayoutMapType<Vk>::const_iterator setLayoutIt,
         typename DescriptorMapType::iterator descriptorMapIt) const;

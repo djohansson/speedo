@@ -13,6 +13,9 @@
 #define DescriptorSetCategory_Global                0
 #define DescriptorSetCategory_GlobalTextures        1
 #define DescriptorSetCategory_GlobalSamplers        2
+#define DescriptorSetCategory_View                  3
+#define DescriptorSetCategory_Material              4
+#define DescriptorSetCategory_Object                5
 
 #define ShaderTypes_ViewIndexBits 16u
 #define ShaderTypes_ViewBufferCount (1u << ShaderTypes_ViewIndexBits)

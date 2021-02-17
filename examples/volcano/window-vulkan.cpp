@@ -133,14 +133,16 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                 auto& commandContext = myCommands[frameIndex][threadIt];
                 auto cmd = commandContext->commands(beginInfo);
 
-                auto bindGlobalDescriptors = [&pipeline](VkCommandBuffer cmd)
+                auto bindState = [&pipeline](VkCommandBuffer cmd)
                 {
-                    ZoneScopedN("bindGlobalDescriptors");
+                    ZoneScopedN("bindState");
 
-                    // bind global descriptor sets
-                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Global);
+                    // bind descriptor sets
                     pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
                     pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
+                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
+                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
+                    pipeline->bindDescriptorSetAuto(cmd, DescriptorSetCategory_Object);
 
                     // bind pipeline and vertex/index buffers
                     pipeline->bindPipelineAuto(cmd);
@@ -153,7 +155,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                         pipeline->resources().model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
                 };
 
-                bindGlobalDescriptors(cmd);
+                bindState(cmd);
 
                 uint32_t dx = renderPassInfo.renderArea.extent.width / myDesc.splitScreenGrid[0];
                 uint32_t dy = renderPassInfo.renderArea.extent.height / myDesc.splitScreenGrid[1];

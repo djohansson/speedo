@@ -1,23 +1,22 @@
 #include "shadertypes.h"
 
-[[vk::binding(0, DescriptorSetCategory_Global)]]
-[[vk::push_constant]]
-ConstantBuffer<PushConstants> g_pushConstants;
-
-[[vk::binding(1, DescriptorSetCategory_Global)]]
-StructuredBuffer<ViewData> g_viewData;
-
-[[vk::binding(2, DescriptorSetCategory_Global)]]
-StructuredBuffer<MaterialData> g_materialData;
-
-[[vk::binding(3, DescriptorSetCategory_Global)]]
-StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectBufferCount];
-
 [[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
 Texture2D g_textures[ShaderTypes_TextureCount];
 
 [[vk::binding(0, DescriptorSetCategory_GlobalSamplers)]]
 SamplerState g_samplers[ShaderTypes_SamplerCount];
+
+[[vk::binding(0, DescriptorSetCategory_View)]]
+StructuredBuffer<ViewData> g_viewData;
+
+[[vk::binding(0, DescriptorSetCategory_Material)]]
+StructuredBuffer<MaterialData> g_materialData;
+
+[[vk::binding(0, DescriptorSetCategory_Object)]]
+StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectBufferCount];
+
+[[vk::push_constant]]
+ConstantBuffer<PushConstants> g_pushConstants;
 
 struct InputStream
 {
