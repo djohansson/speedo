@@ -61,6 +61,7 @@ public:
     const auto& getImageMemory() const { return std::get<1>(myImage); }
     const auto& getImageLayout() const { return std::get<2>(myImage); }
 
+    void clear(CommandBufferHandle<B> cmd, const ClearValue<B>& value);
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
     
 private:
@@ -74,7 +75,7 @@ private:
         ImageCreateDesc<B>&& desc,
         ValueType&& data);
 
-    template <GraphicsBackend _B>
+    template <GraphicsBackend GB>
     friend class RenderImageSet;
 
     // this method is not meant to be used except in very special cases

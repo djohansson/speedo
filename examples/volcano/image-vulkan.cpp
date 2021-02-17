@@ -323,8 +323,34 @@ void Image<Vk>::transition(
     if (getImageLayout() != layout)
     {
         transitionImageLayout(cmd, *this, myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
-        std::get<2>(myImage) = layout;
+        setImageLayout(layout);
     }
+}
+
+template <>
+void Image<Vk>::clear(CommandBufferHandle<Vk> cmd, const ClearValue<Vk>& value)
+{
+    ZoneScopedN("Image::clear");
+
+    auto layout = getImageLayout();
+
+    if (layout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR | layout != VK_IMAGE_LAYOUT_GENERAL | layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+        transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+    
+    VkImageSubresourceRange colorRange = {
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        0,
+        VK_REMAINING_MIP_LEVELS,
+        0,
+        VK_REMAINING_ARRAY_LAYERS};
+
+    vkCmdClearColorImage(
+        cmd,
+        static_cast<VkImage>(*this),
+        getImageLayout(),
+        &value.color,
+        1,
+        &colorRange);
 }
 
 template <>
