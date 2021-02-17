@@ -298,7 +298,7 @@ Application<Vk>::Application(
             std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
             VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_TILING_LINEAR,
-            VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
     myGraphicsPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
@@ -367,12 +367,12 @@ Application<Vk>::Application(
     
     std::fill(globalObjects.begin(), globalObjects.end(), DescriptorBufferInfo<Vk>{
         *myObjects, 0, VK_WHOLE_SIZE});
-    std::fill(globalSamplers.begin(), globalSamplers.end(), DescriptorImageInfo<Vk>{
-        myGraphicsPipeline->resources().sampler});
     std::fill(globalTextures.begin(), globalTextures.end(), DescriptorImageInfo<Vk>{
         nullptr,
         *myGraphicsPipeline->resources().blackImageView,
         myGraphicsPipeline->resources().black->getImageLayout()});
+    std::fill(globalSamplers.begin(), globalSamplers.end(), DescriptorImageInfo<Vk>{
+        myGraphicsPipeline->resources().sampler});
 
     // set global descriptor set data
 

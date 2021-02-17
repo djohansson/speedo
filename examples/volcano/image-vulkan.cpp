@@ -335,7 +335,7 @@ void Image<Vk>::clear(CommandBufferHandle<Vk> cmd, const ClearValue<Vk>& value)
     auto layout = getImageLayout();
 
     if (layout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR | layout != VK_IMAGE_LAYOUT_GENERAL | layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-        transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+        transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     
     VkImageSubresourceRange colorRange = {
         VK_IMAGE_ASPECT_COLOR_BIT,
