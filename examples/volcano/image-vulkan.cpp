@@ -412,7 +412,7 @@ Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ImageCreateDesc<Vk>&& desc,
     ValueType&& data)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     desc,
     1,
@@ -498,7 +498,7 @@ Image<Vk>::~Image()
 
 template <>
 ImageView<Vk>::ImageView(ImageView&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myView(std::exchange(other.myView, {}))
 {
 }
@@ -508,7 +508,7 @@ template <>
 ImageView<Vk>::ImageView(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ImageViewHandle<Vk>&& view)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     {"_View"},
     1,
@@ -548,7 +548,7 @@ ImageView<Vk>::~ImageView()
 template <>
 ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myView = std::exchange(other.myView, {});
     return *this;
 }
@@ -557,6 +557,6 @@ ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 template <>
 void ImageView<Vk>::swap(ImageView& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myView, rhs.myView);
 }

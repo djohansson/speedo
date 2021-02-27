@@ -62,7 +62,7 @@ CommandBufferArray<Vk>::CommandBufferArray(
 
 template <>
 CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myArray(std::exchange(other.myArray, {}))
 , myBits(other.myBits)
@@ -85,7 +85,7 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 template <>
 CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myArray = std::exchange(other.myArray, {});
     myBits = other.myBits;
@@ -95,7 +95,7 @@ CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray&& o
 template <>
 void CommandBufferArray<Vk>::swap(CommandBufferArray& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myArray, rhs.myArray);
     std::swap(myBits, rhs.myBits);

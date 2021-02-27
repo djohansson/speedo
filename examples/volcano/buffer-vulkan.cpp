@@ -5,7 +5,7 @@
 
 template <>
 Buffer<Vk>::Buffer(Buffer&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myBuffer(std::exchange(other.myBuffer, {}))
 {
@@ -16,7 +16,7 @@ Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferCreateDesc<Vk>&& desc,
     ValueType&& buffer)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     desc,
     1,
@@ -101,7 +101,7 @@ Buffer<Vk>::~Buffer()
 template <>
 Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myBuffer = std::exchange(other.myBuffer, {});
     return *this;
@@ -110,14 +110,14 @@ Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 template <>
 void Buffer<Vk>::swap(Buffer& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myBuffer, rhs.myBuffer);
 }
 
 template <>
 BufferView<Vk>::BufferView(BufferView&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myView(std::exchange(other.myView, {}))
 {
 }
@@ -126,7 +126,7 @@ template <>
 BufferView<Vk>::BufferView(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferViewHandle<Vk>&& view)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     {"_View"},
     1,
@@ -168,7 +168,7 @@ BufferView<Vk>::~BufferView()
 template <>
 BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myView = std::exchange(other.myView, {});
     return *this;
 }
@@ -176,6 +176,6 @@ BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 template <>
 void BufferView<Vk>::swap(BufferView& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myView, rhs.myView);
 }

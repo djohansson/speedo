@@ -11,14 +11,14 @@ template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     FrameCreateDesc<Vk>&& desc)
-: RenderTarget<Vk>(deviceContext, desc)
+: RenderTarget(deviceContext, desc)
 , myDesc(std::move(desc))
 {
 }
 
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl&& other) noexcept
-: RenderTarget<Vk>(std::move(other))
+: RenderTarget(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 {
 }
@@ -32,7 +32,7 @@ template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(
     RenderTargetImpl&& other) noexcept
 {
-    RenderTarget<Vk>::operator=(std::move(other));
+    RenderTarget::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     return *this;
 }
@@ -40,7 +40,7 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>,
 template <>
 void RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::swap(RenderTargetImpl& rhs) noexcept
 {
-    RenderTarget<Vk>::swap(rhs);
+    RenderTarget::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
 }
 
@@ -155,7 +155,7 @@ ImageLayout<Vk> Frame<Vk>::getDepthStencilImageLayout() const
 template <>
 void Frame<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
-    RenderTarget<Vk>::end(cmd);
+    RenderTarget::end(cmd);
 
     myImageLayout = this->getAttachmentDesc(0).finalLayout;
 }

@@ -239,7 +239,7 @@ QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
 
 template <>
 Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , mySwapchain(std::exchange(other.mySwapchain, {}))
 , myFrames(std::exchange(other.myFrames, {}))
@@ -260,7 +260,7 @@ Swapchain<Vk>::~Swapchain()
 template <>
 Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 {
-	DeviceResource<Vk>::operator=(std::move(other));
+	DeviceResource::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     mySwapchain = std::exchange(other.mySwapchain, {});
     myFrames = std::exchange(other.myFrames, {});
@@ -272,7 +272,7 @@ Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 template <>
 void Swapchain<Vk>::swap(Swapchain& rhs) noexcept
 {
-	DeviceResource<Vk>::swap(rhs);
+	DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(mySwapchain, rhs.mySwapchain);
     std::swap(myFrames, rhs.myFrames);

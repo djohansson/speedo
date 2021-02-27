@@ -18,7 +18,7 @@ template <>
 Queue<Vk>::Queue(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     QueueCreateDesc<Vk>&& desc)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     {"_Queue"},
     1,
@@ -53,7 +53,7 @@ Queue<Vk>::Queue(
 
 template <>
 Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 , myScratchMemory(std::exchange(other.myScratchMemory, {}))
@@ -75,7 +75,7 @@ Queue<Vk>::~Queue()
 template <>
 Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myPendingSubmits = std::exchange(other.myPendingSubmits, {});
     myScratchMemory = std::exchange(other.myScratchMemory, {});
@@ -87,7 +87,7 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 template <>
 void Queue<Vk>::swap(Queue& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myPendingSubmits, rhs.myPendingSubmits);
     std::swap(myScratchMemory, rhs.myScratchMemory);

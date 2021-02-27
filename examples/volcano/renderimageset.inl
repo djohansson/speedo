@@ -100,7 +100,7 @@ ImageLayout<B> RenderImageSet<B>::getDepthStencilImageLayout() const
 template <GraphicsBackend B>
 void RenderImageSet<B>::end(CommandBufferHandle<B> cmd)
 {
-    RenderTarget<Vk>::end(cmd);
+    RenderTarget<B>::end(cmd);
     
     uint32_t imageIt = 0;
     for (; imageIt < myColorImages.size(); imageIt++)
