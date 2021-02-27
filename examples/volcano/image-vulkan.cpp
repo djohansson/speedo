@@ -50,6 +50,40 @@ int eof(void* user)
 namespace image
 {
 
+std::tuple<VkImage, VmaAllocation> createImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
+{
+    return createImage2D(
+        allocator,
+        desc.mipLevels[0].extent.width,
+        desc.mipLevels[0].extent.height,
+        desc.mipLevels.size(),
+        desc.format, 
+        desc.tiling,
+        desc.usageFlags,
+        desc.memoryFlags,
+        desc.name.c_str(),
+        desc.initialLayout);
+}
+
+std::tuple<VkImage, VmaAllocation> createImage2D(VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<Vk>& desc)
+{
+    return createImage2D(
+        cmd,
+        allocator,
+        buffer,
+        desc.mipLevels[0].extent.width,
+        desc.mipLevels[0].extent.height,
+        desc.mipLevels.size(),
+        &desc.mipLevels[0].offset,
+        sizeof(desc.mipLevels[0]) / sizeof(uint32_t),
+        desc.format, 
+        desc.tiling,
+        desc.usageFlags,
+        desc.memoryFlags,
+        desc.name.c_str(),
+        desc.initialLayout);
+}
+
 std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
     const std::filesystem::path& imageFile,
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
@@ -328,29 +362,49 @@ void Image<Vk>::transition(
 }
 
 template <>
-void Image<Vk>::clear(CommandBufferHandle<Vk> cmd, const ClearValue<Vk>& value)
+void Image<Vk>::clear(
+    CommandBufferHandle<Vk> cmd,
+    const ClearValue<Vk>& value,
+    ClearType type,
+    const std::optional<ImageSubresourceRange<Vk>>& range)
 {
     ZoneScopedN("Image::clear");
 
     auto layout = getImageLayout();
 
-    if (layout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR | layout != VK_IMAGE_LAYOUT_GENERAL | layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    if (layout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR && layout != VK_IMAGE_LAYOUT_GENERAL && layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
         transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    
-    VkImageSubresourceRange colorRange = {
-        VK_IMAGE_ASPECT_COLOR_BIT,
-        0,
-        VK_REMAINING_MIP_LEVELS,
-        0,
-        VK_REMAINING_ARRAY_LAYERS};
 
-    vkCmdClearColorImage(
-        cmd,
-        static_cast<VkImage>(*this),
-        getImageLayout(),
-        &value.color,
-        1,
-        &colorRange);
+    static const VkImageSubresourceRange defaultColorRange = {
+        VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+	static const VkImageSubresourceRange defaultDepthStencilRange = {
+		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+		VK_REMAINING_ARRAY_LAYERS};
+
+	switch (type)
+	{
+	case ClearType::Color:
+		vkCmdClearColorImage(
+			cmd,
+			static_cast<VkImage>(*this),
+			layout,
+			&value.color,
+			1,
+			range ? &range.value() : &defaultColorRange);        
+        break;
+    case ClearType::DepthStencil:
+        vkCmdClearDepthStencilImage(
+            cmd,
+            static_cast<VkImage>(*this),
+            layout,
+            &value.depthStencil,
+            1,
+            range ? &range.value() : &defaultDepthStencilRange);
+        break;
+	default:
+		assert(false);
+		break;
+	}
 }
 
 template <>
@@ -377,17 +431,7 @@ Image<Vk>::Image(
     deviceContext,
     std::move(desc),
     std::tuple_cat(
-        createImage2D(
-            deviceContext->getAllocator(),
-            desc.mipLevels[0].extent.width,
-            desc.mipLevels[0].extent.height,
-            desc.mipLevels.size(),
-            desc.format, 
-            desc.tiling,
-            desc.usageFlags,
-            desc.memoryFlags,
-            desc.name.c_str(),
-            desc.initialLayout),
+        image::createImage2D( deviceContext->getAllocator(), desc),
         std::make_tuple(desc.initialLayout)))
 {
 }
@@ -401,21 +445,11 @@ Image<Vk>::Image(
     deviceContext,
     std::move(std::get<0>(descAndInitialData)),
     std::tuple_cat(
-        createImage2D(
+        image::createImage2D(
             commandContext->commands(),
             deviceContext->getAllocator(),
             std::get<1>(descAndInitialData),
-            std::get<0>(descAndInitialData).mipLevels[0].extent.width,
-            std::get<0>(descAndInitialData).mipLevels[0].extent.height,
-            std::get<0>(descAndInitialData).mipLevels.size(),
-            &std::get<0>(descAndInitialData).mipLevels[0].offset,
-            sizeof(ImageMipLevelDesc<Vk>) / sizeof(uint32_t),
-            std::get<0>(descAndInitialData).format, 
-            std::get<0>(descAndInitialData).tiling,
-            std::get<0>(descAndInitialData).usageFlags,
-            std::get<0>(descAndInitialData).memoryFlags,
-            std::get<0>(descAndInitialData).name.c_str(),
-            std::get<0>(descAndInitialData).initialLayout),
+            std::get<0>(descAndInitialData)),
         std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {   
     commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){

@@ -254,6 +254,9 @@ template <GraphicsBackend B>
 using ClearAttachment = std::conditional_t<B == Vk, VkClearAttachment, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using ImageSubresourceRange = std::conditional_t<B == Vk, VkImageSubresourceRange, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using CommandBufferBeginInfo = std::conditional_t<B == Vk, VkCommandBufferBeginInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>

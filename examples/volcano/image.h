@@ -61,7 +61,12 @@ public:
     const auto& getImageMemory() const { return std::get<1>(myImage); }
     const auto& getImageLayout() const { return std::get<2>(myImage); }
 
-    void clear(CommandBufferHandle<B> cmd, const ClearValue<B>& value);
+    enum class ClearType : uint8_t { Color, DepthStencil };
+    void clear(
+        CommandBufferHandle<B> cmd,
+        const ClearValue<B>& value = {},
+        ClearType type = ClearType::Color, 
+        const std::optional<ImageSubresourceRange<B>>& range = std::nullopt);
     void transition(CommandBufferHandle<B> cmd, ImageLayout<B> layout);
     
 private:

@@ -388,7 +388,7 @@ void RenderTarget<Vk>::clearColor(
 
     transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
         
-    VkImageSubresourceRange colorRange = {
+    static const VkImageSubresourceRange colorRange = {
         VK_IMAGE_ASPECT_COLOR_BIT,
         0,
         VK_REMAINING_MIP_LEVELS,
@@ -413,7 +413,7 @@ void RenderTarget<Vk>::clearDepthStencil(
 
     transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    VkImageSubresourceRange depthStencilRange = {
+    static const VkImageSubresourceRange depthStencilRange = {
         VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,
         0,
         VK_REMAINING_MIP_LEVELS,
