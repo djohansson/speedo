@@ -309,12 +309,13 @@ public:
     }
 };
 
+template <typename T = uint32_t>
 class UpgradableSharedMutex
 #if __cpp_lib_atomic_ref < 201806
- : public CopyableAtomic<uint8_t>
+ : public CopyableAtomic<T>
 #endif
 {
-	using value_t = uint8_t;
+	using value_t = T;
 	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1, None = 0 };
 
 #if __cpp_lib_atomic_ref >= 201806

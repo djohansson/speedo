@@ -295,7 +295,7 @@ void PipelineContext<Vk>::internalResetSharedState()
         myDescriptorMap[setLayout.getKey()] = 
             std::make_tuple(
                 BindingsMapType{},
-                UpgradableSharedMutex{},
+                UpgradableSharedMutex<uint8_t>{},
                 DescriptorSetState::Ready,
                 setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
                     std::make_optional(DescriptorSetArrayListType{}) :
@@ -483,16 +483,15 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalGetPipeline()
 {
     ZoneScopedN("PipelineContext::internalGetPipeline");
 
-    auto hashKey = internalCalculateHashKey();
+    auto [keyValIt, insertResult] = myPipelineMap.insert({internalCalculateHashKey(), nullptr});
+    auto& [key, pipelineHandleAtomic] = *keyValIt;
     
-    auto insertResult = myPipelineMap.insert({hashKey, nullptr});
-    auto& pipelineHandleAtomic = insertResult.first->second;
-    if (insertResult.second)
+    if (insertResult)
     {
         ZoneScopedN("PipelineContext::internalGetPipeline::store");
 
         pipelineHandleAtomic.store(
-            internalCreateGraphicsPipeline(hashKey),
+            internalCreateGraphicsPipeline(key),
             std::memory_order_relaxed);
         pipelineHandleAtomic.notify_all();
     }
@@ -911,7 +910,7 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     
     mutex.lock_upgrade();
     
-    if (setState == DescriptorSetState::Dirty) // need to check again, since another thread might have been promoted to writer before us
+    if (setState == DescriptorSetState::Dirty) [[unlikely]]
     {
         mutex.unlock_upgrade_and_lock();
         
@@ -934,14 +933,12 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
 
         setState = DescriptorSetState::Ready;
 
-        mutex.unlock();
+        mutex.unlock_and_lock_shared();
     }
-    else
+    else [[likely]]
     {
-        mutex.unlock_upgrade();
+        mutex.unlock_upgrade_and_lock_shared();
     }
-
-    auto lock = std::shared_lock(mutex);
 
     if (setOptionalArrayList)
     {
@@ -971,6 +968,8 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     {
         internalPushDescriptorSet(cmd, set, bindingsMap);
     }
+
+    mutex.unlock_shared();
 }
 
 template<>

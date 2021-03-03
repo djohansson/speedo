@@ -108,7 +108,7 @@ class PipelineContext : public DeviceResource<B>
         uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
         std::tuple<
             BindingsMapType,
-            UpgradableSharedMutex,
+            UpgradableSharedMutex<uint8_t>,
             DescriptorSetState,
             std::optional<DescriptorSetArrayListType>>>; // [bindings, mutex, state, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
     using PipelineMapType = ConcurrentUnorderedMapType<

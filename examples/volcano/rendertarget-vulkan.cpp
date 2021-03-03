@@ -257,17 +257,17 @@ const std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>>& RenderTarget<Vk>:
 {
     ZoneScopedN("RenderTarget::internalUpdateMap");
 
-    auto hashKey = internalCalculateHashKey(desc);
-    auto insertResult = myMap.emplace(
-        hashKey,
+    auto [keyValIt, insertResult] = myMap.emplace(
+        internalCalculateHashKey(desc),
         std::make_tuple(
             RenderPassHandle<Vk>{},
             FramebufferHandle<Vk>{}));
+    auto& [key, renderPassAndFramebuffer] = *keyValIt;
 
-    if (insertResult.second)
-        insertResult.first->second = internalCreateRenderPassAndFrameBuffer(hashKey, desc);
+    if (insertResult)
+        renderPassAndFramebuffer = internalCreateRenderPassAndFrameBuffer(key, desc);
 
-    return insertResult.first->second;
+    return renderPassAndFramebuffer;
 }
 
 template <>
