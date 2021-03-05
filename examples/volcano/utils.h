@@ -443,7 +443,7 @@ public:
 	{
 		auto result = std::make_tuple(false, Expected);
 		auto& [success, value] = result;
-		success = internalAtomicRef().compare_exchange_strong(value, Writer, std::memory_order_acq_rel);
+		success = internalAtomicRef().compare_exchange_weak(value, Writer, std::memory_order_acq_rel);
 		return result;
 	}
 
