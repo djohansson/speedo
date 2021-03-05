@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cerrno>
@@ -18,7 +19,9 @@
 #include <queue>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <vector>
+#include <version>
 
 #if PROFILING_ENABLED
 #ifndef TRACY_ENABLE
@@ -225,9 +228,9 @@ struct SharedPtrEqualTo<void> : std::equal_to<void>
 };
 
 template <typename T>
-struct PassThroughHash
+struct IdentityHash
 {
-	inline size_t operator()(const T& key) const { return static_cast<size_t>(key); }
+	constexpr size_t operator()(const T& key) const noexcept { return static_cast<size_t>(key); }
 };
 
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
@@ -251,33 +254,50 @@ template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEq
 using ConcurrentUnorderedSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
 #endif
 
-template <typename T>
-class RangeSet : public std::map<T, T>
-{
-	using BaseType = std::map<T, T>;
+template <typename Key, typename Value>
+using FlatMap = std::vector<std::pair<Key, Value>>;
 
+template <typename T, typename MapType = FlatMap<T, T>>
+class RangeSet : public MapType
+{
 public:
 
 	auto insert(std::pair<T, T>&& range)
 	{
-		assert(range.first <= range.second);
+		assert(range.first < range.second);
+
+		if constexpr (std::is_same_v<MapType, FlatMap<T, T>>)
+		{
+			auto currentCapacity = this->capacity();
+			if (currentCapacity == this->size())
+				this->reserve(currentCapacity + 1);
+		}
 
 		auto [low, high] = range;
 
-		typename BaseType::iterator afterIt = this->upper_bound(low), insertRangeIt;
-
-		if (afterIt == this->begin() || std::prev(afterIt)->second < low)
+		auto afterIt = std::upper_bound(
+			this->begin(),
+			this->end(),
+			low,
+			[](const T& a, const typename MapType::value_type& b){ return a < b.first; });
+		auto prevIt = std::prev(afterIt);
+		
+		typename MapType::iterator insertRangeIt;
+		
+		if (afterIt == this->begin() || prevIt->second < low)
 		{
-			insertRangeIt = BaseType::insert(afterIt, std::move(range));
+			insertRangeIt = MapType::insert(afterIt, std::move(range));
+			if constexpr (std::is_same_v<MapType, FlatMap<T, T>>)
+				afterIt = std::next(insertRangeIt); // since insert will have invalidated afterIt
 		}
 		else
 		{
-			insertRangeIt = std::prev(afterIt);
+			insertRangeIt = prevIt;
 
-			if (insertRangeIt->second >= range.second)
-				return std::pair<typename BaseType::iterator, bool>(insertRangeIt, false);
+			if (insertRangeIt->second >= high)
+				return std::pair<typename MapType::iterator, bool>(insertRangeIt, false);
 			else
-				insertRangeIt->second = range.second;
+				insertRangeIt->second = high;
 		}
 
 		while (afterIt != this->end() && high >= afterIt->first)
@@ -286,7 +306,7 @@ public:
 			afterIt = this->erase(afterIt);
 		}
 
-		return std::pair<typename BaseType::iterator, bool>(insertRangeIt, true);
+		return std::pair<typename MapType::iterator, bool>(insertRangeIt, true);
 	}
 };
 

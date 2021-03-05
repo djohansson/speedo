@@ -114,7 +114,7 @@ class PipelineContext : public DeviceResource<B>
     using PipelineMapType = ConcurrentUnorderedMapType<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
         CopyableAtomic<PipelineHandle<B>>,
-        PassThroughHash<uint64_t>>;
+        IdentityHash<uint64_t>>;
 
 public:
 
