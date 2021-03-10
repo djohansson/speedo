@@ -30,7 +30,7 @@ namespace model
 std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
 {
-	using AttributeMap = UnorderedMapType<uint32_t, std::pair<VkFormat, uint32_t>>;
+	using AttributeMap = UnorderedMap<uint32_t, std::pair<VkFormat, uint32_t>>;
 
 	AttributeMap attributeMap;
 
@@ -244,7 +244,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		location++;
 		offset += getFormatSize(format);
 
-		UnorderedMapType<uint64_t, uint32_t> uniqueVertices;
+		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
 		vertices.setStride(offset);

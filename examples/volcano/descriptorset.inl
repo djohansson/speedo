@@ -3,27 +3,15 @@ namespace descriptorset
 
 template <GraphicsBackend B>
 std::vector<DescriptorSetLayoutHandle<B>> getDescriptorSetLayoutHandles(
-    const DescriptorSetLayoutMapType<B>& layouts)
+    const DescriptorSetLayoutFlatMap<B>& layouts)
 {
     std::vector<DescriptorSetLayoutHandle<Vk>> handles;
     if (!layouts.empty())
     {
-        auto layoutIt = layouts.begin();
-        while (layoutIt != layouts.end())
-        {
-            if ((layoutIt->first + 1) > handles.size())
-                handles.resize(layoutIt->first + 1);
+        handles.reserve(layouts.size());
 
-            handles[layoutIt->first] = static_cast<DescriptorSetLayoutHandle<Vk>>(layoutIt->second);
-
-            ++layoutIt;
-        }
-
-        // barf @ validation layer that requires this...
-        for (auto& handle : handles)
-            if (!handle)
-                handle = handles[0];
-        //
+        for (const auto& [set, layout] : layouts)
+            handles.push_back(static_cast<DescriptorSetLayoutHandle<Vk>>(layout));
     }
     
     return handles;
@@ -31,19 +19,16 @@ std::vector<DescriptorSetLayoutHandle<B>> getDescriptorSetLayoutHandles(
 
 template <GraphicsBackend B>
 std::vector<PushConstantRange<B>> getPushConstantRanges(
-    const DescriptorSetLayoutMapType<B>& layouts)
+    const DescriptorSetLayoutFlatMap<B>& layouts)
 {
     std::vector<PushConstantRange<Vk>> ranges;
     if (!layouts.empty())
     {
-        auto layoutIt = layouts.begin();
-        while (layoutIt != layouts.end())
-        {
-            if (auto pcr = layoutIt->second.getDesc().pushConstantRange; pcr)
-                ranges.push_back(*pcr);
+        ranges.reserve(layouts.size());
 
-            ++layoutIt;
-        }
+        for (const auto& [set, layout] : layouts)
+            if (auto pcr = layout.getDesc().pushConstantRange; pcr)
+                ranges.push_back(*pcr);
     }
     
     return ranges;

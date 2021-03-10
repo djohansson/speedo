@@ -18,7 +18,7 @@ template <GraphicsBackend B>
 uint32_t createLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr);
 

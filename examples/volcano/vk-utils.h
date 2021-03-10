@@ -44,6 +44,8 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	const VkDescriptorSetLayoutBinding* bindings,
 	uint32_t bindingCount);
 
+VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice device, const VkDescriptorUpdateTemplateCreateInfo& createInfo);
+
 VkDescriptorSet allocateDescriptorSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout);
 
 std::vector<VkDescriptorSet> allocateDescriptorSets(VkDevice device, VkDescriptorPool pool,

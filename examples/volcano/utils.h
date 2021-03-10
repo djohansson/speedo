@@ -234,25 +234,24 @@ struct IdentityHash
 };
 
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using UnorderedMapType = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
+using UnorderedMap = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using UnorderedSetType = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
+using UnorderedSet = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
 #if defined(__WINDOWS__)
-template <typename T>
-using ConcurrentQueueType = Concurrency::concurrent_queue<T>;
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedMapType = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedMap = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedSetType = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedSet = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEqualTo>;
 #else
-template <typename T>
-using ConcurrentQueueType = std::queue<T>;
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedMapType = UnorderedMapType<Key, Value, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedMap = UnorderedMap<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
+using ConcurrentUnorderedSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 #endif
+
+template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
+using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 
 template <typename Key, typename Value>
 using FlatMap = std::vector<std::pair<Key, Value>>;
@@ -280,11 +279,12 @@ public:
 			this->end(),
 			low,
 			[](const T& a, const typename MapType::value_type& b){ return a < b.first; });
-		auto prevIt = std::prev(afterIt);
+		auto isBegin = afterIt == this->begin();
+		auto prevIt = isBegin ? afterIt : std::prev(afterIt);
 		
 		typename MapType::iterator insertRangeIt;
 		
-		if (afterIt == this->begin() || prevIt->second < low)
+		if (isBegin || prevIt->second < low)
 		{
 			insertRangeIt = MapType::insert(afterIt, std::move(range));
 			if constexpr (std::is_same_v<MapType, FlatMap<T, T>>)

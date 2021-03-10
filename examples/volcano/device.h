@@ -129,8 +129,8 @@ private:
         std::string name;
     };
 
-    ConcurrentUnorderedMapType<uintptr_t, std::vector<ObjectNameInfo>> myOwnerToDeviceObjectInfoMap;
-    ConcurrentUnorderedMapType<ObjectType<B>, CopyableAtomic<uint32_t>> myObjectTypeToCountMap;
+    ConcurrentUnorderedMap<uintptr_t, std::vector<ObjectNameInfo>> myOwnerToDeviceObjectInfoMap;
+    ConcurrentUnorderedMap<ObjectType<B>, CopyableAtomic<uint32_t>> myObjectTypeToCountMap;
 };
 
 template <GraphicsBackend B>

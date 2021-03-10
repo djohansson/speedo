@@ -60,7 +60,7 @@ template <GraphicsBackend B>
 class RenderTarget : public IRenderTarget<B>, public DeviceResource<B>
 {
     using ValueType = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
-    using ValueMapType = UnorderedMapType<uint64_t, ValueType>;
+    using ValueMapType = UnorderedMap<uint64_t, ValueType>;
 
 public:
 

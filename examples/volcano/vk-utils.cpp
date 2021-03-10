@@ -199,6 +199,15 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	return layout;
 }
 
+VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(
+	VkDevice device, const VkDescriptorUpdateTemplateCreateInfo& createInfo)
+{
+	VkDescriptorUpdateTemplate descriptorTemplate;
+	vkCreateDescriptorUpdateTemplate(device, &createInfo, nullptr, &descriptorTemplate);
+
+	return descriptorTemplate;
+}
+
 void copyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	VkBufferCopy copyRegion = {};

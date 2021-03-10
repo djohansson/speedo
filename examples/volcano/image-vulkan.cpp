@@ -370,11 +370,6 @@ void Image<Vk>::clear(
 {
     ZoneScopedN("Image::clear");
 
-    auto layout = getImageLayout();
-
-    if (layout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR && layout != VK_IMAGE_LAYOUT_GENERAL && layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-        transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
     static const VkImageSubresourceRange defaultColorRange = {
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 	static const VkImageSubresourceRange defaultDepthStencilRange = {
@@ -387,7 +382,7 @@ void Image<Vk>::clear(
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			layout,
+			getImageLayout(),
 			&value.color,
 			1,
 			range ? &range.value() : &defaultColorRange);        
@@ -396,7 +391,7 @@ void Image<Vk>::clear(
         vkCmdClearDepthStencilImage(
             cmd,
             static_cast<VkImage>(*this),
-            layout,
+            getImageLayout(),
             &value.depthStencil,
             1,
             range ? &range.value() : &defaultDepthStencilRange);

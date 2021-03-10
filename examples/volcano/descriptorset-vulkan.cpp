@@ -5,62 +5,10 @@
 
 #include <xxhash.h>
 
-namespace descriptorsetlayout
-{
-
-uint64_t hash(const DescriptorSetLayoutCreateDesc<Vk>& desc)
-{
-    thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode(*)(XXH3_state_t*)> threadXXHState =
-    {
-        XXH3_createState(),
-        XXH3_freeState
-    };
-
-    auto result = XXH3_64bits_reset(threadXXHState.get());
-    assert(result != XXH_ERROR);
-
-    if (!desc.bindings.empty())
-    {
-        result = XXH3_64bits_update(
-            threadXXHState.get(),
-            desc.bindings.data(),
-            desc.bindings.size() * sizeof(decltype(desc.bindings)::value_type));
-        assert(result != XXH_ERROR);
-    }
-
-    if (!desc.variableNames.empty())
-    {
-        result = XXH3_64bits_update(
-            threadXXHState.get(),
-            desc.variableNameHashes.data(),
-            desc.variableNameHashes.size() * sizeof(decltype(desc.variableNameHashes)::value_type));
-        assert(result != XXH_ERROR);
-    }
-
-    if (desc.pushConstantRange)
-    {
-        result = XXH3_64bits_update(
-            threadXXHState.get(),
-            &desc.pushConstantRange.value(),
-            sizeof(decltype(desc.pushConstantRange)::value_type));
-        assert(result != XXH_ERROR);
-    }
-
-    result = XXH3_64bits_update(
-        threadXXHState.get(),
-        &desc.flags,
-        sizeof(desc.flags));
-
-    return XXH3_64bits_digest(threadXXHState.get());
-}
-
-}
-
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
-, myKey(std::exchange(other.myKey, 0))
 , myLayout(std::exchange(other.myLayout, {}))
 {
 }
@@ -70,14 +18,13 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetLayoutCreateDesc<Vk>&& desc,
     ValueType&& layout)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     {"_DescriptorSetLayout"},
     1,
     VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
     reinterpret_cast<uint64_t*>(&std::get<0>(layout)))
 , myDesc(std::move(desc))
-, myKey(descriptorsetlayout::hash(myDesc))
 , myLayout(std::move(layout))
 {
 }
@@ -86,31 +33,60 @@ template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetLayoutCreateDesc<Vk>&& desc)
-: DescriptorSetLayout<Vk>(
+: DescriptorSetLayout(
     deviceContext,
     std::move(desc),
     [&deviceContext, &desc]
     {
-        auto& bindingVector = desc.bindings;
-        
-        auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
-        BindingsMapType bindingsMap;
+        ZoneScopedN("DescriptorSetLayout::createDescriptorSetLayout");
 
+        auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
+        
+        ShaderVariableBindingsMap<Vk> bindingsMap;
+        auto& bindingVector = desc.bindings;
         for (size_t bindingIt = 0; bindingIt < bindingVector.size(); bindingIt++)
         {
             auto& binding = bindingVector[bindingIt];
             binding.pImmutableSamplers = samplers.data();
             bindingsMap.emplace(desc.variableNameHashes.at(bindingIt), std::make_tuple(binding.descriptorType, binding.binding));
         }
+
+        auto layout = createDescriptorSetLayout(
+            deviceContext->getDevice(),
+            desc.flags,
+            bindingVector.data(),
+            bindingVector.size());
+
+        // typedef struct VkDescriptorUpdateTemplateCreateInfo {
+        //     VkStructureType                           sType;
+        //     const void*                               pNext;
+        //     VkDescriptorUpdateTemplateCreateFlags     flags;
+        //     uint32_t                                  descriptorUpdateEntryCount;
+        //     const VkDescriptorUpdateTemplateEntry*    pDescriptorUpdateEntries;
+        //     VkDescriptorUpdateTemplateType            templateType;
+        //     VkDescriptorSetLayout                     descriptorSetLayout;
+        //     VkPipelineBindPoint                       pipelineBindPoint;
+        //     VkPipelineLayout                          pipelineLayout;
+        //     uint32_t                                  set;
+        // } VkDescriptorUpdateTemplateCreateInfo;
         
-        return std::make_tuple(
-            createDescriptorSetLayout(
-                deviceContext->getDevice(),
-                desc.flags,
-                bindingVector.data(),
-                bindingVector.size()),
-            std::move(samplers),
-            std::move(bindingsMap));
+        // auto descriptorTemplate = createDescriptorUpdateTemplate(
+        //     deviceContext->getDevice(),
+        //     VkDescriptorUpdateTemplateCreateInfo
+        //     {
+        //         VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
+        //         nullptr,
+        //         0, // reserved for future use
+        //         0,
+        //         nullptr,
+        //         VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET/* | VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR*/,
+        //         layout,
+        //         VkPipelineBindPoint{},
+        //         VkPipelineLayout{},
+        //         desc.set
+        //     });
+        
+        return std::make_tuple(layout, std::move(samplers), std::move(bindingsMap));
     }())
 {
 }
@@ -119,15 +95,25 @@ template <>
 DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 {
     if (auto layout = std::get<0>(myLayout); layout)
+    {
+        ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorSetLayout");
+        
         vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), layout, nullptr);
+    }
+
+    // if (auto descriptorTemplate = std::get<1>(myLayout); descriptorTemplate)
+    // {
+    //     ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
+        
+    //     vkDestroyDescriptorUpdateTemplate(getDeviceContext()->getDevice(), descriptorTemplate, nullptr);
+    // }
 }
 
 template <>
 DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
-    myKey = std::exchange(other.myKey, 0);
     myLayout = std::exchange(other.myLayout, {});
 	return *this;
 }
@@ -135,9 +121,8 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&
 template <>
 void DescriptorSetLayout<Vk>::swap(DescriptorSetLayout& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
-    std::swap(myKey, rhs.myKey);
     std::swap(myLayout, rhs.myLayout);
 }
 
@@ -146,7 +131,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetArrayCreateDesc<Vk>&& desc,
     ArrayType&& descriptorSetHandles)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     {"_DescriptorSet"},
     descriptorSetHandles.size(),
@@ -159,7 +144,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 
 template <>
 DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
 {
@@ -170,11 +155,13 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const DescriptorSetLayout<Vk>& layout,
     DescriptorSetArrayCreateDesc<Vk>&& desc)
-: DescriptorSetArray<Vk>(
+: DescriptorSetArray(
     deviceContext,
     std::move(desc),
     [device = deviceContext->getDevice(), &layout, &desc]
     {
+        ZoneScopedN("DescriptorSetArray::vkAllocateDescriptorSets");
+
         std::array<VkDescriptorSetLayout, kDescriptorSetCount> layouts;
         layouts.fill(layout);
 
@@ -195,19 +182,22 @@ DescriptorSetArray<Vk>::~DescriptorSetArray()
 {
     if (isValid())
         getDeviceContext()->addTimelineCallback(
-            [device = getDeviceContext()->getDevice(), pool = myDesc.pool, descriptorSetHandles = std::move(myDescriptorSets)](uint64_t){
+            [device = getDeviceContext()->getDevice(), pool = myDesc.pool, descriptorSetHandles = std::move(myDescriptorSets)](uint64_t)
+            {
+                ZoneScopedN("DescriptorSetArray::vkFreeDescriptorSets");
+                
                 vkFreeDescriptorSets(
                     device,
                     pool,
                     descriptorSetHandles.size(),
                     descriptorSetHandles.data());
-        });
+            });
 }
 
 template <>
 DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& other) noexcept
 {
-    DeviceResource<Vk>::operator=(std::move(other));
+    DeviceResource::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myDescriptorSets = std::exchange(other.myDescriptorSets, {});
     return *this;
@@ -216,7 +206,7 @@ DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& o
 template <>
 void DescriptorSetArray<Vk>::swap(DescriptorSetArray& rhs) noexcept
 {
-    DeviceResource<Vk>::swap(rhs);
+    DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myDescriptorSets, rhs.myDescriptorSets);
 }

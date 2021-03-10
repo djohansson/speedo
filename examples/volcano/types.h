@@ -152,6 +152,9 @@ template <GraphicsBackend B>
 using DescriptorSetLayoutHandle = std::conditional_t<B == Vk, VkDescriptorSetLayout, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using DescriptorUpdateTemplateHandle = std::conditional_t<B == Vk, VkDescriptorUpdateTemplate, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using PipelineLayoutHandle = std::conditional_t<B == Vk, VkPipelineLayout, std::nullptr_t>;
 
 template <GraphicsBackend B>

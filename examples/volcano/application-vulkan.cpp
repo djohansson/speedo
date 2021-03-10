@@ -312,6 +312,7 @@ Application<Vk>::Application(
         auto& commandContext = myWindow->commandContext(frame.getDesc().index);
         auto cmd = commandContext->commands();
 
+        myGraphicsPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         myGraphicsPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
         myGraphicsPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
@@ -895,12 +896,8 @@ Application<Vk>::~Application()
 {
     ZoneScopedN("~Application()");
 
-    {
-        ZoneScopedN("Application::deviceWaitIdle");
-
-        // todo: replace with frame & transfer sync
-        VK_CHECK(vkDeviceWaitIdle(myDevice->getDevice()));
-    }
+    // todo: replace with frame & transfer sync
+    myDevice->waitIdle();
     
     shutdownIMGUI();
 

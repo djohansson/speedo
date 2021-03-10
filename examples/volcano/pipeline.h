@@ -41,21 +41,34 @@ public:
 
     const auto& getShaderModules() const { return myShaderModules; }
     const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
+    const auto& getDescriptorSetLayout(uint32_t set) const
+    {
+        const auto& setLayouts = getDescriptorSetLayouts();
+        auto setLayoutIt = std::lower_bound(
+            setLayouts.begin(),
+            setLayouts.end(),
+            set,
+            [](const auto& setLayout, uint32_t set){ return setLayout.first < set; });
+        const auto& [_set, setLayout] = *setLayoutIt;
+        assert(_set == set);
+
+        return setLayout;
+    };
 
 private:
 
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
-        DescriptorSetLayoutMapType<B>&& descriptorSetLayouts);
+        DescriptorSetLayoutFlatMap<B>&& descriptorSetLayouts);
     PipelineLayout( // takes ownership over provided handles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         std::vector<ShaderModule<B>>&& shaderModules,
-        DescriptorSetLayoutMapType<B>&& descriptorSetLayouts,
+        DescriptorSetLayoutFlatMap<B>&& descriptorSetLayouts,
         PipelineLayoutHandle<B>&& layout);
 
     std::vector<ShaderModule<B>> myShaderModules;
-	DescriptorSetLayoutMapType<B> myDescriptorSetLayouts;
+    DescriptorSetLayoutFlatMap<B> myDescriptorSetLayouts;
 	PipelineLayoutHandle<B> myLayout = {};
 };
 
@@ -86,35 +99,14 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
 template <GraphicsBackend B>
 class PipelineContext : public DeviceResource<B>
 {
-    enum class BindingTypeFlags : uint32_t { IsArray = 1u << 31 };
-    enum class DescriptorSetState : uint8_t { Dirty, Ready };
-
-    using BindingVariantType = std::variant<
-        DescriptorBufferInfo<B>,
-        std::vector<DescriptorBufferInfo<B>>,
-        DescriptorImageInfo<B>,
-        std::vector<DescriptorImageInfo<B>>,
-        BufferViewHandle<B>,
-        std::vector<BufferViewHandle<B>>,
-        InlineUniformBlock<Vk>>; // InlineUniformBlock can only have one array element per binding
-    using BindingValueType = std::tuple<DescriptorType<B>, BindingVariantType, RangeSet<uint32_t>>;
-    using BindingsMapType = UnorderedMapType<uint32_t, BindingValueType>;
-    using DescriptorSetArrayListType = std::list<
-        std::tuple<
-            DescriptorSetArray<B>, // descriptor set array
-            uint8_t, // current array index. move out from here perhaps?
-            CopyableAtomic<uint32_t>>>; // reference count.
-    using DescriptorMapType = ConcurrentUnorderedMapType<
-        uint64_t, // set layout key. (todo: investigate if descriptor state should be part of this?)
-        std::tuple<
-            BindingsMapType,
-            UpgradableSharedMutex<uint8_t>,
-            DescriptorSetState,
-            std::optional<DescriptorSetArrayListType>>>; // [bindings, mutex, state, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
-    using PipelineMapType = ConcurrentUnorderedMapType<
+    using PipelineMapType = ConcurrentUnorderedMap<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
         CopyableAtomic<PipelineHandle<B>>,
         IdentityHash<uint64_t>>;
+
+    using DescriptorMapType = ConcurrentUnorderedMap<
+        DescriptorSetLayoutHandle<B>, // todo: hash DescriptorSetState into this key
+        DescriptorSetState<B>>;
 
 public:
 
@@ -155,10 +147,9 @@ public:
     // object
     template <typename T>
     void setDescriptorData(
-        T&& data,
-        DescriptorType<B> type,
-        uint32_t set,
-        uint32_t binding);
+        uint64_t shaderVariableNameHash,
+        const DescriptorSetLayout<B>& layout,
+        T&& data);
 
     template <typename T>
     void setDescriptorData(
@@ -169,10 +160,9 @@ public:
     // array
     template <typename T>
     void setDescriptorData(
-        std::vector<T>&& data,
-        DescriptorType<B> type,
-        uint32_t set,
-        uint32_t binding);
+        uint64_t shaderVariableNameHash,
+        const DescriptorSetLayout<B>& layout,
+        std::vector<T>&& data);
 
     template <typename T>
     void setDescriptorData(
@@ -183,10 +173,9 @@ public:
     // array-element
     template <typename T>
     void setDescriptorData(
+        uint64_t shaderVariableNameHash,
+        const DescriptorSetLayout<B>& layout,
         T&& data,
-        DescriptorType<B> type,
-        uint32_t set,
-        uint32_t binding,
         uint32_t index);
 
     template <typename T>
@@ -221,13 +210,8 @@ private:
     void internalResetGraphicsDynamicState();
     //
 
-    void internalPushDescriptorSet(
-        CommandBufferHandle<B> cmd,
-        uint32_t set,
-        BindingsMapType& bindingsMap) const;
-    void internalUpdateDescriptorSet(
-        DescriptorSetLayoutMapType<Vk>::const_iterator setLayoutIt,
-        typename DescriptorMapType::iterator descriptorMapIt) const;
+    void internalPushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set, const DescriptorSetLayout<Vk>& setLayout) const;
+    void internalUpdateDescriptorSet(const DescriptorSetLayout<B>& setLayout);
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
@@ -235,9 +219,9 @@ private:
 
     AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
     
+    DescriptorMapType myDescriptorMap;
     DescriptorPoolHandle<B> myDescriptorPool = {}; // todo: should be handled differently to cater for multithread and explicit binds.
     
-    DescriptorMapType myDescriptorMap;
     PipelineMapType myPipelineMap; // todo: move pipeline map & cache to its own class, and pass in reference to it.
     PipelineCacheHandle<B> myCache = {}; // todo: move pipeline map & cache to its own class, and pass in reference to it.
     

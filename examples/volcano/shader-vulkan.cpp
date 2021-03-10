@@ -111,7 +111,7 @@ void addBinding(
 	size_t sizeBytes,
 	SlangStage stage,
 	std::string_view name,
-	std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
 {
 	auto& layout = layouts[bindingSpace];
 
@@ -174,7 +174,7 @@ template <>
 uint32_t createLayoutBindings<Vk>(
     slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-    std::unordered_map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
+    std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
 	const unsigned* parentSpace,
 	const char* parentName)
 {
@@ -300,7 +300,7 @@ ShaderModule<Vk>::ShaderModule(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ShaderModuleHandle<Vk>&& shaderModule,
 	const EntryPoint<Vk>& entryPoint)
-: DeviceResource<Vk>(
+: DeviceResource(
     deviceContext,
     { std::get<0>(entryPoint).c_str() },
     1,
@@ -327,7 +327,7 @@ ShaderModule<Vk>::ShaderModule(
 
 template <>
 ShaderModule<Vk>::ShaderModule(ShaderModule&& other) noexcept
-: DeviceResource<Vk>(std::move(other))
+: DeviceResource(std::move(other))
 , myShaderModule(std::exchange(other.myShaderModule, {}))
 , myEntryPoint(std::exchange(other.myEntryPoint, {}))
 {
@@ -343,7 +343,7 @@ ShaderModule<Vk>::~ShaderModule()
 template <>
 ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 {
-	DeviceResource<Vk>::operator=(std::move(other));
+	DeviceResource::operator=(std::move(other));
 	myShaderModule = std::exchange(other.myShaderModule, {});
 	myEntryPoint = std::exchange(other.myEntryPoint, {});
 	return *this;
@@ -352,7 +352,7 @@ ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 template <>
 void ShaderModule<Vk>::swap(ShaderModule& rhs) noexcept
 {
-	DeviceResource<Vk>::swap(rhs);
+	DeviceResource::swap(rhs);
 	std::swap(myShaderModule, rhs.myShaderModule);
 	std::swap(myEntryPoint, rhs.myEntryPoint);
 }

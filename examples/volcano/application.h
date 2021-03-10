@@ -97,9 +97,7 @@ private:
 	std::unique_ptr<Buffer<B>> myMaterials;
 	std::unique_ptr<Buffer<B>> myObjects;
 
-	template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
-	using HandleSetType = UnorderedSetType<Key, KeyHash, KeyEqualTo>;
-	HandleSetType<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
+	HandleSet<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
 	std::function<void()> myIMGUIPrepareDrawFunction;
