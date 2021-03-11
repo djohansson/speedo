@@ -73,8 +73,7 @@ Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const std::shared_ptr<CommandContext<Vk>>& commandContext,
     BufferCreateDesc<Vk>&& desc,
-    const void* initialData,
-    size_t initialDataSize)
+    const void* initialData)
 : Buffer(
     deviceContext,
     commandContext, 
@@ -83,7 +82,7 @@ Buffer<Vk>::Buffer(
         createStagingBuffer(
             deviceContext->getAllocator(),
             initialData,
-            initialDataSize,
+            desc.size,
             desc.name.append("_staging").c_str())))
 {
 }

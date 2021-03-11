@@ -42,6 +42,7 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	VkDevice device,
 	VkDescriptorSetLayoutCreateFlags flags,
 	const VkDescriptorSetLayoutBinding* bindings,
+	const VkDescriptorBindingFlags* bindingFlags,
 	uint32_t bindingCount);
 
 VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(VkDevice device, const VkDescriptorUpdateTemplateCreateInfo& createInfo);

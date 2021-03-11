@@ -43,19 +43,24 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
         auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
         
         ShaderVariableBindingsMap<Vk> bindingsMap;
-        auto& bindingVector = desc.bindings;
-        for (size_t bindingIt = 0; bindingIt < bindingVector.size(); bindingIt++)
+        auto& bindings = desc.bindings;
+        for (size_t bindingIt = 0; bindingIt < bindings.size(); bindingIt++)
         {
-            auto& binding = bindingVector[bindingIt];
+            auto& binding = bindings[bindingIt];
             binding.pImmutableSamplers = samplers.data();
             bindingsMap.emplace(desc.variableNameHashes.at(bindingIt), std::make_tuple(binding.descriptorType, binding.binding));
         }
 
+        auto& bindingFlags = desc.bindingFlags;
+
+        assert(bindings.size() == bindingFlags.size());
+
         auto layout = createDescriptorSetLayout(
             deviceContext->getDevice(),
             desc.flags,
-            bindingVector.data(),
-            bindingVector.size());
+            bindings.data(),
+            bindingFlags.data(),
+            bindings.size());
 
         // typedef struct VkDescriptorUpdateTemplateCreateInfo {
         //     VkStructureType                           sType;

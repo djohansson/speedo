@@ -122,7 +122,10 @@ void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
 
     if (!myFreeCommands[level].empty())
     {
-        myPendingCommands[level].splice(myPendingCommands[level].end(), std::move(myFreeCommands[level]), myFreeCommands[level].begin());
+        myPendingCommands[level].splice(
+            myPendingCommands[level].end(),
+            myFreeCommands[level],
+            myFreeCommands[level].begin());
     }
     else
     {
@@ -134,12 +137,16 @@ void CommandContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
             level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
             "CommandBufferArray");
             
-        myPendingCommands[level].emplace_back(std::make_pair(CommandBufferArray<Vk>(
-            myDevice,
-            CommandBufferArrayCreateDesc<Vk>{
-                {stringBuffer},
-                myDesc.pool,
-                level}), std::make_pair(0, std::reference_wrapper(*this))));
+        myPendingCommands[level].emplace_back(
+            std::make_tuple(
+                CommandBufferArray<Vk>(
+                    myDevice,
+                    CommandBufferArrayCreateDesc<Vk>{
+                        {stringBuffer},
+                        myDesc.pool,
+                        level}),
+                0,
+                std::reference_wrapper(*this)));
     }
 }
 
@@ -202,10 +209,13 @@ template <>
 CommandBufferAccessScope<Vk> CommandContext<Vk>::internalBeginScope(
     const CommandBufferAccessScopeDesc<Vk>& beginInfo)
 {
-    if (myPendingCommands[beginInfo.level].empty() || myPendingCommands[beginInfo.level].back().first.full())
+    if (myPendingCommands[beginInfo.level].empty() || std::get<0>(myPendingCommands[beginInfo.level].back()).full())
         enqueueOnePending(beginInfo.level);
 
-    myRecordingCommands[beginInfo.level].emplace(CommandBufferAccessScope(&myPendingCommands[beginInfo.level].back().first, beginInfo));
+    myRecordingCommands[beginInfo.level].emplace(
+        CommandBufferAccessScope(
+            &std::get<0>(myPendingCommands[beginInfo.level].back()),
+            beginInfo));
 
     return myRecordingCommands[beginInfo.level].value();
 }
@@ -221,8 +231,8 @@ void CommandContext<Vk>::enqueueExecuted(CommandBufferListType&& commands, uint6
 {
     ZoneScopedN("CommandContext::enqueueExecuted");
 
-    for (auto& cmd : commands)
-        cmd.second.first = timelineValue;
+    for (auto& [cmdArray, cmdTimelineValue, cmdContext] : commands)
+        cmdTimelineValue = timelineValue;
 
     myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
 
@@ -235,13 +245,19 @@ void CommandContext<Vk>::enqueueExecuted(CommandBufferListType&& commands, uint6
             auto fromBeginIt = from.begin();
             auto fromIt = fromBeginIt;
 
-            while (fromIt != from.end() && fromIt->second.first < timelineValue)
+            while (fromIt != from.end())
             {
-                fromIt->first.resetAll();
-                auto& toContext = fromIt->second.second.get();
-                auto& to = toContext.myFreeCommands[fromIt->first.getDesc().level];                
-                auto toIt = fromIt++;
-                to.splice(to.end(), std::move(from), toIt);
+                auto& [fromArray, fromTimelineValue, contextRef] = *fromIt;
+
+                if (fromTimelineValue >= timelineValue)
+                    break;
+                
+                fromArray.resetAll();
+
+                auto& context = contextRef.get();
+                auto& to = context.myFreeCommands[fromArray.getDesc().level];           
+                
+                to.splice(to.end(), from, fromIt++);
             }
         };
 
@@ -260,8 +276,8 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferListType&& commands, uint
 {
     ZoneScopedN("CommandContext::enqueueSubmitted");
 
-    for (auto& cmd : commands)
-        cmd.second.first = timelineValue;
+    for (auto& [cmdArray, cmdTimelineValue, cmdContext] : commands)
+        cmdTimelineValue = timelineValue;
 
     mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(commands));
 
@@ -274,8 +290,17 @@ void CommandContext<Vk>::enqueueSubmitted(CommandBufferListType&& commands, uint
             auto fromBeginIt = from.begin();
             auto fromIt = fromBeginIt;
 
-            while (fromIt != from.end() && fromIt->second.first < timelineValue)
-                (fromIt++)->first.resetAll();
+            while (fromIt != from.end())
+            {
+                auto& [fromArray, fromTimelineValue, contextRef] = *fromIt;
+
+                if (fromTimelineValue >= timelineValue)
+                    break;
+
+                fromArray.resetAll();
+
+                fromIt++;
+            }
 
             to.splice(to.end(), std::move(from), fromBeginIt, fromIt);
         };
@@ -302,11 +327,11 @@ QueueSubmitInfo<Vk> CommandContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncIn
     QueueSubmitInfo<Vk> submitInfo{std::move(syncInfo), {}, 0};
     submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
 
-    for (auto& cmdSegment : pendingCommands)
+    for (const auto& [cmdArray, cmdTimelineValue, cmdContextRef] : pendingCommands)
     {
-        assert(!cmdSegment.first.recordingFlags());
-        auto cmdCount = cmdSegment.first.head();
-        std::copy_n(cmdSegment.first.data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
+        assert(!cmdArray.recordingFlags());
+        auto cmdCount = cmdArray.head();
+        std::copy_n(cmdArray.data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
     }
 
     const auto [minSignalValue, maxSignalValue] = std::minmax_element(
@@ -327,8 +352,8 @@ uint64_t CommandContext<Vk>::execute(CommandContext<Vk>& callee)
 
     callee.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 
-    for (const auto& secPendingCommands : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
-        vkCmdExecuteCommands(commands(), secPendingCommands.first.head(), secPendingCommands.first.data());
+    for (const auto& [cmdArray, cmdTimelineValue, cmdContextRef] : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
+        vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
 
     auto timelineValue = myDevice->timelineValue().load(std::memory_order_relaxed);
 
@@ -385,7 +410,9 @@ CommandContext<Vk>::~CommandContext()
 
     if (!mySubmittedCommands.empty())
     {
-        myDevice->wait(mySubmittedCommands.back().second.first);
-        myDevice->processTimelineCallbacks(mySubmittedCommands.back().second.first);
+        const auto& [cmdArray, cmdTimelineValue, cmdContextRef] = mySubmittedCommands.back();
+
+        myDevice->wait(cmdTimelineValue);
+        myDevice->processTimelineCallbacks(cmdTimelineValue);
     }
 }

@@ -98,12 +98,13 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
 
     while (!myTimelineCallbacks.empty())
     {
-        uint64_t commandBufferTimelineValue = myTimelineCallbacks.begin()->first;
+        const auto& [commandBufferTimelineValue, callback] = myTimelineCallbacks.front();
 
         if (timelineValue && commandBufferTimelineValue > timelineValue.value())
             return;
 
-        myTimelineCallbacks.begin()->second(commandBufferTimelineValue);
+        callback(commandBufferTimelineValue);
+
         myTimelineCallbacks.pop_front();
     }
 }

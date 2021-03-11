@@ -31,8 +31,7 @@ public:
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::shared_ptr<CommandContext<B>>& commandContext,
         BufferCreateDesc<B>&& desc,
-        const void* initialData,
-        size_t initialDataSize);
+        const void* initialData);
     ~Buffer();
 
     Buffer& operator=(Buffer&& other) noexcept;

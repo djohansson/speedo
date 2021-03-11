@@ -29,6 +29,7 @@ void serialize(Archive& archive, DescriptorSetLayoutCreateDesc<Vk>& desc)
 {
     archive(
         cereal::make_nvp("bindings", desc.bindings),
+        cereal::make_nvp("bindingFlags", desc.bindingFlags),
         cereal::make_nvp("variableNames", desc.variableNames),
         cereal::make_nvp("variableNameHashes", desc.variableNameHashes),
         cereal::make_nvp("immutableSamplers", desc.immutableSamplers),

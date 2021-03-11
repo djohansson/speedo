@@ -200,8 +200,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
                                 uint16_t viewId = frameIndex * ShaderTypes_ViewCount + viewIt;
                                 uint16_t materialId = 0;
-                                uint16_t objectBufferIndex = 0;
-                                uint16_t objectArrayIndex = 0;
+                                uint16_t objectBufferIndex = 42;
+                                uint16_t objectArrayIndex = 666;
 
                                 PushConstants pushConstants = {
                                     (static_cast<uint32_t>(viewId) << 16) | materialId,

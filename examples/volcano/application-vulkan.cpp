@@ -332,9 +332,9 @@ Application<Vk>::Application(
     }
 
     constexpr uint32_t textureId = 1;
-    constexpr uint32_t samplerId = 1;
-    assert(textureId < ShaderTypes_TextureCount);
-    assert(samplerId < ShaderTypes_SamplerCount);
+    constexpr uint32_t samplerId = 2;
+    static_assert(textureId < ShaderTypes_TextureCount);
+    static_assert(samplerId < ShaderTypes_SamplerCount);
     auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
     materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
     materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
@@ -343,70 +343,46 @@ Application<Vk>::Application(
         myTransferCommands,
         BufferCreateDesc<Vk>{
             {"myMaterials"},
-            sizeof(MaterialData),
+            ShaderTypes_MaterialCount * sizeof(MaterialData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-        materialData.get(),
-        ShaderTypes_MaterialCount * sizeof(MaterialData));
+        materialData.get());
 
     auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
-    objectData[0].localTransform = glm::mat4x4(1.0f);
+    objectData[666].localTransform = glm::mat4x4(1.0f);
     myObjects = std::make_unique<Buffer<Vk>>(
         myDevice,
         myTransferCommands,
         BufferCreateDesc<Vk>{
             {"myObjects"},
-            sizeof(ObjectData),
+            ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-        objectData.get(),
-        ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData));
-
-    auto globalObjects = std::make_vector<DescriptorBufferInfo<Vk>>(ShaderTypes_ObjectBufferCount);
-    auto globalTextures = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_TextureCount);
-    auto globalSamplers = std::make_vector<DescriptorImageInfo<Vk>>(ShaderTypes_SamplerCount);
-    
-    std::fill(globalObjects.begin(), globalObjects.end(), DescriptorBufferInfo<Vk>{
-        *myObjects, 0, VK_WHOLE_SIZE});
-    std::fill(globalTextures.begin(), globalTextures.end(), DescriptorImageInfo<Vk>{
-        nullptr,
-        *myGraphicsPipeline->resources().blackImageView,
-        myGraphicsPipeline->resources().black->getImageLayout()});
-    std::fill(globalSamplers.begin(), globalSamplers.end(), DescriptorImageInfo<Vk>{
-        myGraphicsPipeline->resources().sampler});
+        objectData.get());
 
     // set global descriptor set data
 
     myGraphicsPipeline->setDescriptorData(
         "g_viewData",
-        DescriptorBufferInfo<Vk>{
-            myWindow->getViewBuffer(),
-            0,
-            VK_WHOLE_SIZE},
+        DescriptorBufferInfo<Vk>{ myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
         DescriptorSetCategory_View);
 
     myGraphicsPipeline->setDescriptorData(
         "g_materialData",
-        DescriptorBufferInfo<Vk>{
-            *myMaterials,
-            0,
-            VK_WHOLE_SIZE},
+        DescriptorBufferInfo<Vk>{ *myMaterials, 0, VK_WHOLE_SIZE },
         DescriptorSetCategory_Material);
 
     myGraphicsPipeline->setDescriptorData(
         "g_objectData",
-        std::move(globalObjects),
-        DescriptorSetCategory_Object);
-
-    myGraphicsPipeline->setDescriptorData(
-        "g_textures",
-        std::move(globalTextures),
-        DescriptorSetCategory_GlobalTextures);
+        DescriptorBufferInfo<Vk>{ *myObjects, 0, VK_WHOLE_SIZE },
+        DescriptorSetCategory_Object,
+        42);
         
     myGraphicsPipeline->setDescriptorData(
         "g_samplers",
-        std::move(globalSamplers),
-        DescriptorSetCategory_GlobalSamplers);
+        DescriptorImageInfo<Vk>{ myGraphicsPipeline->resources().sampler },
+        DescriptorSetCategory_GlobalSamplers,
+        samplerId);
 
     // GUI + misc callbacks
 

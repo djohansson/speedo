@@ -16,6 +16,7 @@ template <GraphicsBackend B>
 struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 {
     std::vector<DescriptorSetLayoutBinding<B>> bindings;
+    std::vector<DescriptorBindingFlags<B>> bindingFlags;
     std::vector<std::string> variableNames;
     std::vector<uint64_t> variableNameHashes;
     std::vector<SamplerCreateInfo<B>> immutableSamplers;

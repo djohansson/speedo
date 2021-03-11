@@ -34,6 +34,7 @@ struct PhysicalDeviceInfo
     PhysicalDevicePropertiesEx<B> devicePropertiesEx = {};
     PhysicalDeviceFeatures<B> deviceFeatures = {};
     PhysicalDeviceFeaturesEx<B> deviceFeaturesEx = {};
+    PhysicalDeviceRobustnessFeatures<B> deviceRobustnessFeatures = {};
     std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
     std::vector<uint32_t> queueFamilyPresentSupport;
 };

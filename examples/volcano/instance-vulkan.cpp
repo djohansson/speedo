@@ -25,13 +25,15 @@ PhysicalDeviceInfo<Vk> getPhysicalDeviceInfo(
     InstanceHandle<Vk> instance,
 	PhysicalDeviceHandle<Vk> device)
 {
-    PhysicalDeviceInfo<Vk> deviceInfo = {};
-
     instance::vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
         vkGetInstanceProcAddr(
             instance,
             "vkGetPhysicalDeviceFeatures2"));
+    
+    PhysicalDeviceInfo<Vk> deviceInfo = {};
+    deviceInfo.deviceRobustnessFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
     deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.deviceRobustnessFeatures;
     deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeaturesEx;
     instance::vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
@@ -40,6 +42,7 @@ PhysicalDeviceInfo<Vk> getPhysicalDeviceInfo(
         vkGetInstanceProcAddr(
             instance,
             "vkGetPhysicalDeviceProperties2"));
+            
     deviceInfo.devicePropertiesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
     deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     deviceInfo.deviceProperties.pNext = &deviceInfo.devicePropertiesEx;
@@ -283,6 +286,7 @@ InstanceContext<Vk>::InstanceContext(
         auto& physicalDeviceInfo = infoInsertNode.first->second;
         // pointers set up in instance::getPhysicalDeviceInfo will be invalid (pointing to the stack), so patch these up here
         physicalDeviceInfo.deviceProperties.pNext = &physicalDeviceInfo.devicePropertiesEx;
+        physicalDeviceInfo.deviceFeaturesEx.pNext = &physicalDeviceInfo.deviceRobustnessFeatures;
         physicalDeviceInfo.deviceFeatures.pNext = &physicalDeviceInfo.deviceFeaturesEx;
         //
 

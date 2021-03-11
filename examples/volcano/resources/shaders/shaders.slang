@@ -61,7 +61,7 @@ VSOutput vertexMain(InputStream input)
     uint objectBufferIndex = objectBufferAndInstanceId >> ShaderTypes_ObjectBufferInstanceIndexBits;
     uint objectInstanceIndex = objectBufferAndInstanceId & (ShaderTypes_ObjectBufferInstanceCount - 1u);
 
-    ObjectData object = g_objectData[objectInstanceIndex][objectBufferIndex];
+    ObjectData object = g_objectData[objectBufferIndex][objectInstanceIndex];
 
     output.hPos = mul(mul(view.viewProjectionMatrix, object.localTransform), float4(input.position, 1.0));
     output.data.position = input.position;

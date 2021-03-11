@@ -874,7 +874,7 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
                         descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(bufferInfos.size()) - arrayElement,
                         type,
                         nullptr,
-                        bufferInfos.data(),
+                        &bufferInfos[arrayElement],
                         nullptr};
             },
             [handle, type, binding, arrayElement](
@@ -901,7 +901,7 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
                         arrayElement,
                         descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(imageInfos.size()) - arrayElement,
                         type,
-                        imageInfos.data(),
+                        &imageInfos[arrayElement],
                         nullptr,
                         nullptr};
             },
@@ -931,7 +931,7 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
                         type,
                         nullptr,
                         nullptr,
-                        bufferViews.data()};
+                        &bufferViews[arrayElement]};
             },
             [handle, type, binding](
                 const InlineUniformBlock<Vk>& parameterBlock){

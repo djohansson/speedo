@@ -140,6 +140,9 @@ template <GraphicsBackend B>
 using PhysicalDeviceFeaturesEx = std::conditional_t<B == Vk, VkPhysicalDeviceVulkan12Features, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using PhysicalDeviceRobustnessFeatures = std::conditional_t<B == Vk, VkPhysicalDeviceRobustness2FeaturesEXT, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using QueueHandle = std::conditional_t<B == Vk, VkQueue, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -309,3 +312,6 @@ using InlineUniformBlock = std::conditional_t<B == Vk, VkWriteDescriptorSetInlin
 
 template <GraphicsBackend B>
 using PushConstantRange = std::conditional_t<B == Vk, VkPushConstantRange, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DescriptorBindingFlags = std::conditional_t<B == Vk, VkDescriptorBindingFlags, std::nullptr_t>;

@@ -128,11 +128,10 @@ template <GraphicsBackend B>
 class CommandContext
 {
     using CommandBufferListType = std::list<
-        std::pair<
+        std::tuple<
             CommandBufferArray<B>,
-            std::pair<
-                uint64_t,
-                std::reference_wrapper<CommandContext<B>>>>>;
+            uint64_t,
+            std::reference_wrapper<CommandContext<B>>>>;
 
 public:
 

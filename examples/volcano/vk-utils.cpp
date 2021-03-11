@@ -186,9 +186,18 @@ VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32
 };
 
 VkDescriptorSetLayout createDescriptorSetLayout(
-	VkDevice device, VkDescriptorSetLayoutCreateFlags flags, const VkDescriptorSetLayoutBinding* bindings, uint32_t bindingCount)
+	VkDevice device,
+	VkDescriptorSetLayoutCreateFlags flags,
+	const VkDescriptorSetLayoutBinding* bindings,
+	const VkDescriptorBindingFlags* bindingFlags,
+	uint32_t bindingCount)
 {
+	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+	bindingFlagsInfo.bindingCount = bindingCount;
+	bindingFlagsInfo.pBindingFlags = bindingFlags;
+
 	VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+	layoutInfo.pNext = &bindingFlagsInfo;
 	layoutInfo.flags = flags;
 	layoutInfo.bindingCount = bindingCount;
 	layoutInfo.pBindings = bindings;
