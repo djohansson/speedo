@@ -7,6 +7,7 @@
 #include <any>
 #include <vector>
 #include <string>
+#include <tuple>
 
 template <GraphicsBackend B>
 struct InstanceConfiguration
@@ -63,7 +64,7 @@ private:
     SurfaceHandle<B> mySurface;
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
     UnorderedMap<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
-    std::vector<std::pair<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
+    std::vector<std::tuple<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
     std::any myUserData;
 };
 

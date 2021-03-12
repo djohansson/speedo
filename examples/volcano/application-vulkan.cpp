@@ -249,7 +249,7 @@ Application<Vk>::Application(
         AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
             myUserProfilePath / "device.json",
             "deviceConfiguration",
-            { graphicsDeviceCandidates.front().first }));
+            { std::get<0>(graphicsDeviceCandidates.front()) }));
 
     myGraphicsPipeline = std::make_shared<PipelineContext<Vk>>(
         myDevice,
@@ -768,20 +768,24 @@ Application<Vk>::Application(
                 ImVec2 clickPos = GetMousePosOnOpeningCurrentPopup();
 
                 enum class NodeType { SlangShaderNode };
-                static constexpr std::pair<NodeType, std::string_view> menuItems[] = { { NodeType::SlangShaderNode, "Slang Shader"} };
+                static constexpr std::tuple<NodeType, std::string_view> menuItems[] = { { NodeType::SlangShaderNode, "Slang Shader"} };
 
                 for (const auto& menuItem : menuItems)
                 {
-                    if (Selectable(menuItem.second.data()))
+                    const auto& [itemType, itemName] = menuItem;
+
+                    if (Selectable(itemName.data()))
                     {
                         int id = ++myNodeGraph.uniqueId;
                         imnodes::SetNodeScreenSpacePos(id, clickPos);
                         myNodeGraph.nodes.emplace_back([&menuItem, &id]() -> std::shared_ptr<INode> 
                         {
-                            switch (menuItem.first)
+                            const auto& [itemType, itemName] = menuItem;
+
+                            switch (itemType)
                             {
                                 case NodeType::SlangShaderNode:
-                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(id, std::string(menuItem.second.data()), {}));
+                                    return std::make_shared<SlangShaderNode>(SlangShaderNode(id, std::string(itemName.data()), {}));
                                 default:
                                     assert(false);
                                     break;

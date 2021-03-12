@@ -9,16 +9,17 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 using ShaderBinary = std::vector<char>;
 
 template <GraphicsBackend B>
-using EntryPoint = std::pair<std::string, ShaderStageFlagBits<B>>;
+using EntryPoint = std::tuple<std::string, ShaderStageFlagBits<B>>;
 
 template <GraphicsBackend B>
-using Shader = std::pair<ShaderBinary, EntryPoint<B>>;
+using Shader = std::tuple<ShaderBinary, EntryPoint<B>>;
 
 // this is intended to be a temporary object only used during loading.
 template <GraphicsBackend B>

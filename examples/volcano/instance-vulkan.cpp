@@ -273,9 +273,9 @@ InstanceContext<Vk>::InstanceContext(
 
     myGraphicsDeviceCandidates.reserve(myPhysicalDevices.size());
     
-    for (uint32_t deviceIt = 0; deviceIt < myPhysicalDevices.size(); deviceIt++)
+    for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < myPhysicalDevices.size(); physicalDeviceIt++)
     {
-        auto physicalDevice = myPhysicalDevices[deviceIt];
+        auto physicalDevice = myPhysicalDevices[physicalDeviceIt];
         auto infoInsertNode = myPhysicalDeviceInfos.emplace(
             physicalDevice,
             instance::getPhysicalDeviceInfo(
@@ -296,7 +296,7 @@ InstanceContext<Vk>::InstanceContext(
             const auto& queueFamilyPresentSupport = physicalDeviceInfo.queueFamilyPresentSupport[queueFamilyIt];
 
             if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
-                myGraphicsDeviceCandidates.emplace_back(std::make_pair(deviceIt, queueFamilyIt));
+                myGraphicsDeviceCandidates.emplace_back(std::make_tuple(physicalDeviceIt, queueFamilyIt));
         }
     }
 
@@ -310,8 +310,11 @@ InstanceContext<Vk>::InstanceContext(
             3,//VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
             0x7FFFFFFF//VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
         };
-        return deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[lhs.first]].deviceProperties.properties.deviceType] < 
-            deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[rhs.first]].deviceProperties.properties.deviceType];
+        const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
+        const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
+
+        return deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[lhsPhysicalDeviceIndex]].deviceProperties.properties.deviceType] < 
+            deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[rhsPhysicalDeviceIndex]].deviceProperties.properties.deviceType];
     });
 
     myUserData = instance::UserData();

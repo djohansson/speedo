@@ -122,7 +122,7 @@ private:
 
     // todo: make to an atomic queue to avoid excessive locking
     std::recursive_mutex myTimelineCallbacksMutex;
-    std::list<std::pair<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
+    std::list<std::tuple<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
 
     struct ObjectNameInfo : ObjectInfo<B>
     {

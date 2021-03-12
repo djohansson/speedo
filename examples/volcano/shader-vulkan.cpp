@@ -323,9 +323,9 @@ ShaderModule<Vk>::ShaderModule(
     deviceContext,
 	createShaderModule(
 		deviceContext->getDevice(),
-		shader.first.size(),
-		reinterpret_cast<const uint32_t *>(shader.first.data())),
-	shader.second)
+		std::get<0>(shader).size(),
+		reinterpret_cast<const uint32_t *>(std::get<0>(shader).data())),
+	std::get<1>(shader))
 {
 }
 

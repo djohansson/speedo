@@ -9,8 +9,8 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 //#define TINYOBJLOADER_USE_EXPERIMENTAL
@@ -30,7 +30,7 @@ namespace model
 std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
 {
-	using AttributeMap = UnorderedMap<uint32_t, std::pair<VkFormat, uint32_t>>;
+	using AttributeMap = std::map<uint32_t, std::tuple<VkFormat, uint32_t>>;
 
 	AttributeMap attributeMap;
 
@@ -38,7 +38,7 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	{
 		assert(attribute.binding == 0); // todo: please implement me
 
-		attributeMap[attribute.location] = std::make_pair(attribute.format, attribute.offset);
+		attributeMap[attribute.location] = std::make_tuple(attribute.format, attribute.offset);
 	}
 
 	//int32_t lastBinding = -1;
@@ -50,16 +50,18 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 
 	for (const auto& [location, formatAndOffset] : attributeMap)
 	{
+		const auto& [format, offset] = formatAndOffset;
+		
 		if (location != (lastLocation + 1))
 			return {};
 
 		lastLocation = location;
 
-		if (formatAndOffset.second < (lastOffset + lastSize))
+		if (offset < (lastOffset + lastSize))
 			return {};
 
-		lastSize = getFormatSize(formatAndOffset.first);
-		lastOffset = formatAndOffset.second;
+		lastSize = getFormatSize(format);
+		lastOffset = offset;
 
 		stride = lastOffset + lastSize;
 	}
@@ -115,7 +117,6 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			bufferHandle = locBufferHandle;
 			memoryHandle = locMemoryHandle;
 		}
-
 		
 		return true;
 	};
@@ -190,11 +191,12 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		uint32_t posOffset = offset;
 		
 		if (!attrib.vertices.empty())
-			desc.attributes.emplace_back(VertexInputAttributeDescription<Vk>{
-				location,
-				binding,
-				format,
-				offset});
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{
+					location,
+					binding,
+					format,
+					offset});
 
 		location++;
 		offset += getFormatSize(format);
@@ -342,7 +344,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	};
 
 	loadCachedSourceFile(
-		modelFile, modelFile, "tinyobjloader", "1.4.0", loadOBJ, loadBin, saveBin);
+		modelFile, modelFile, "tinyobjloader", "2.0.0", loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");

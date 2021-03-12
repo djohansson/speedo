@@ -176,11 +176,11 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 				throw std::runtime_error("Failed to get slang blob.");
 			}
 
-			slangModule->shaders.emplace_back(std::make_pair(blob->getBufferSize(), ep));
+			slangModule->shaders.emplace_back(std::make_tuple(blob->getBufferSize(), ep));
 			std::copy(
 				static_cast<const char*>(blob->getBufferPointer()),
 				static_cast<const char*>(blob->getBufferPointer()) + blob->getBufferSize(),
-				slangModule->shaders.back().first.data());
+				std::get<0>(slangModule->shaders.back()).data());
 			blob->release();
 		}
 

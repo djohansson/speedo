@@ -25,7 +25,7 @@
 #define ShaderTypes_ObjectBufferIndexBits 16u
 #define ShaderTypes_ObjectBufferCount (1u << ShaderTypes_ObjectBufferIndexBits)
 #define ShaderTypes_ObjectBufferInstanceIndexBits 16u
-#define ShaderTypes_ObjectBufferInstanceCount (1u << ShaderTypes_ObjectBufferInstanceIndexBits) // 64 * 65536 = 4MB. goal is for whole buffer to fit in one large page.
+#define ShaderTypes_ObjectBufferInstanceCount (1u << ShaderTypes_ObjectBufferInstanceIndexBits) // 64 * 65536 = 4MB
 #define ShaderTypes_TextureIndexBits 20u
 #define ShaderTypes_TextureCount (1u << ShaderTypes_TextureIndexBits)
 #define ShaderTypes_SamplerIndexBits 12u
