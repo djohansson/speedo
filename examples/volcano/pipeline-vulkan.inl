@@ -9,8 +9,8 @@ void PipelineContext<Vk>::setDescriptorData(
     const DescriptorSetLayout<Vk>& layout,
     T&& data)
 {
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
     const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
 
     auto lock = std::lock_guard(mutex);
     
@@ -48,7 +48,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
     setState = DescriptorSetStatus::Dirty;
 
-    internalUpdateDescriptorSetTemplate(layout);
+    internalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
 
 template <>
@@ -73,8 +73,8 @@ void PipelineContext<Vk>::setDescriptorData(
     const DescriptorSetLayout<Vk>& layout,
     const std::vector<T>& data)
 {
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
     const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
 
     assert(data.size() <= descriptorCount);
 
@@ -136,7 +136,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
     setState = DescriptorSetStatus::Dirty;
 
-    internalUpdateDescriptorSetTemplate(layout);
+    internalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
 
 template <>
@@ -162,8 +162,8 @@ void PipelineContext<Vk>::setDescriptorData(
     T&& data,
     uint32_t index)
 {
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
     const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
 
     auto lock = std::lock_guard(mutex);
     
@@ -230,7 +230,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
     setState = DescriptorSetStatus::Dirty;
 
-    internalUpdateDescriptorSetTemplate(layout);
+    internalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
 
 template <>

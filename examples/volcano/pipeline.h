@@ -211,9 +211,19 @@ private:
     void internalResetGraphicsDynamicState();
     //
 
-    void internalPushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set, const DescriptorSetLayout<Vk>& setLayout) const;
-    void internalUpdateDescriptorSet(const DescriptorSetLayout<B>& setLayout);
-    void internalUpdateDescriptorSetTemplate(const DescriptorSetLayout<Vk>& layout);
+    void internalUpdateDescriptorSet(
+        const DescriptorSetLayout<B>& setLayout,
+        const BindingsData<B>& bindingsData,
+        const DescriptorUpdateTemplate<B>& setTemplate,
+        DescriptorSetArrayList<B>& setArrayList);
+    void internalPushDescriptorSet(
+        CommandBufferHandle<B> cmd,
+        const BindingsData<B>& bindingsData,
+        const DescriptorUpdateTemplate<B>& setTemplate) const;
+        
+    static void internalUpdateDescriptorSetTemplate(
+        const BindingsMap<B>& bindingsMap,
+        DescriptorUpdateTemplate<B>& setTemplate);
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);

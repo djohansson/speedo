@@ -594,38 +594,13 @@ void PipelineContext<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>
 }
 
 template <>
-void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd, uint32_t set, const DescriptorSetLayout<Vk>& setLayout) const
-{
-    ZoneScopedN("PipelineContext::internalPushDescriptorSet");
-
-    const auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
-
-    {
-        ZoneScopedN("PipelineContext::internalPushDescriptorSet::vkCmdPushDescriptorSetWithTemplateKHR");
-
-        if (!pipeline::vkCmdPushDescriptorSetWithTemplateKHR)
-            pipeline::vkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
-                vkGetDeviceProcAddr(
-                    getDeviceContext()->getDevice(),
-                    "vkCmdPushDescriptorSetWithTemplateKHR"));
-
-        pipeline::vkCmdPushDescriptorSetWithTemplateKHR(
-            cmd,
-            setTemplate,
-            *getLayout(),
-            set,
-            bindingsData.data());
-    }
-}
-
-template <>
-void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<Vk>& setLayout)
+void PipelineContext<Vk>::internalUpdateDescriptorSet(
+    const DescriptorSetLayout<Vk>& setLayout,
+    const BindingsData<Vk>& bindingsData,
+    const DescriptorUpdateTemplate<Vk>& setTemplate,
+    DescriptorSetArrayList<Vk>& setArrayList)
 {
     ZoneScopedN("PipelineContext::internalUpdateDescriptorSet");
-
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
-    assert(setOptionalArrayList);
-    auto& setArrayList = setOptionalArrayList.value();
 
     bool setArrayListIsEmpty = setArrayList.empty();
     bool frontArrayIsFull = setArrayListIsEmpty ?
@@ -647,7 +622,6 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
     }
 
     auto& [setArray, setIndex, setRefCount] = setArrayList.front();
-    
     auto setHandle = setArray[++setIndex];
 
     {
@@ -659,14 +633,54 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
             setTemplate,
             bindingsData.data());
     }
+
+    // clean up
+    if (auto setArrayIt = setArrayList.begin(); setArrayIt != setArrayList.end())
+    {
+        setArrayIt++;
+        while (setArrayIt != setArrayList.end())
+        {
+            auto& [setArray, setIndex, setRefCount] = *setArrayIt;
+            if (!setRefCount)
+                setArrayIt = setArrayList.erase(setArrayIt);
+            else
+                setArrayIt++;
+        }
+    }
 }
 
 template <>
-void PipelineContext<Vk>::internalUpdateDescriptorSetTemplate(const DescriptorSetLayout<Vk>& setLayout)
+void PipelineContext<Vk>::internalPushDescriptorSet(
+    CommandBufferHandle<Vk> cmd,
+    const BindingsData<Vk>& bindingsData,
+    const DescriptorUpdateTemplate<Vk>& setTemplate) const
+{
+    ZoneScopedN("PipelineContext::internalPushDescriptorSet");
+
+    {
+        ZoneScopedN("PipelineContext::internalPushDescriptorSet::vkCmdPushDescriptorSetWithTemplateKHR");
+
+        if (!pipeline::vkCmdPushDescriptorSetWithTemplateKHR)
+            pipeline::vkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
+                vkGetDeviceProcAddr(
+                    getDeviceContext()->getDevice(),
+                    "vkCmdPushDescriptorSetWithTemplateKHR"));
+
+        pipeline::vkCmdPushDescriptorSetWithTemplateKHR(
+            cmd,
+            setTemplate,
+            *getLayout(),
+            setTemplate.getDesc().set,
+            bindingsData.data());
+    }
+}
+
+template <>
+void PipelineContext<Vk>::internalUpdateDescriptorSetTemplate(
+    const BindingsMap<Vk>& bindingsMap,
+    DescriptorUpdateTemplate<Vk>& setTemplate)
 {
     ZoneScopedN("PipelineContext::internalUpdateDescriptorSetTemplate");
-
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
 
     std::vector<DescriptorUpdateTemplateEntry<Vk>> entries;
     entries.reserve(bindingsMap.size());
@@ -730,30 +744,19 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
 
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayout(set);
-    auto& [bindingsMap, bindingsData, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
     
     mutex.lock_upgrade();
     
-    if (setState == DescriptorSetStatus::Dirty)
+    if (setState == DescriptorSetStatus::Dirty && setOptionalArrayList)
     {
         mutex.unlock_upgrade_and_lock();
-        
-        internalUpdateDescriptorSet(setLayout);
 
-        // clean up
-        auto& setArrayList = setOptionalArrayList.value();
-        if (auto setArrayIt = setArrayList.begin(); setArrayIt != setArrayList.end())
-        {
-            setArrayIt++;
-            while (setArrayIt != setArrayList.end())
-            {
-                auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-                if (!setRefCount)
-                    setArrayIt = setArrayList.erase(setArrayIt);
-                else
-                    setArrayIt++;
-            }
-        }
+        internalUpdateDescriptorSet(
+            setLayout,
+            bindingsData,
+            setTemplate,
+            setOptionalArrayList.value());
 
         setState = DescriptorSetStatus::Ready;
 
@@ -763,34 +766,31 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
     {
         mutex.unlock_upgrade_and_lock_shared();
     }
-
+    
     if (setOptionalArrayList)
     {
         auto& setArrayList = setOptionalArrayList.value();
-        auto setArrayIt = setArrayList.begin();
-        if (setArrayIt != setArrayList.end())
-        {
-            auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-            auto handle = setArray[setIndex];
+        assert(!setArrayList.empty());
+        auto& [setArray, setIndex, setRefCount] = setArrayList.front();
+        auto handle = setArray[setIndex];
 
-            bindDescriptorSet(
-                cmd,
-                handle,
-                myBindPoint,
-                static_cast<PipelineLayoutHandle<Vk>>(layout),
-                set,
-                bufferOffset);
+        bindDescriptorSet(
+            cmd,
+            handle,
+            myBindPoint,
+            static_cast<PipelineLayoutHandle<Vk>>(layout),
+            set,
+            bufferOffset);
 
-            setRefCount++;
+        setRefCount++;
 
-            getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) {
-                (*refCountPtr)--;
-            });
-        }
+        getDeviceContext()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t) {
+            (*refCountPtr)--;
+        });
     }
     else
     {
-        internalPushDescriptorSet(cmd, set, setLayout);
+        internalPushDescriptorSet(cmd, bindingsData, setTemplate);
     }
 
     mutex.unlock_shared();
