@@ -152,6 +152,12 @@ template <GraphicsBackend B>
 using ShaderModuleHandle = std::conditional_t<B == Vk, VkShaderModule, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using DescriptorUpdateTemplateEntry = std::conditional_t<B == Vk, VkDescriptorUpdateTemplateEntry, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using DescriptorUpdateTemplateType = std::conditional_t<B == Vk, VkDescriptorUpdateTemplateType, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using DescriptorSetLayoutHandle = std::conditional_t<B == Vk, VkDescriptorSetLayout, std::nullptr_t>;
 
 template <GraphicsBackend B>
@@ -300,6 +306,9 @@ using DescriptorBufferInfo = std::conditional_t<B == Vk, VkDescriptorBufferInfo,
 
 template <GraphicsBackend B>
 using DescriptorImageInfo = std::conditional_t<B == Vk, VkDescriptorImageInfo, std::nullptr_t>;
+
+template <GraphicsBackend B>
+using AccelerationStructureHandle = std::conditional_t<B == Vk, VkAccelerationStructureKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using CopyDescriptorSet = std::conditional_t<B == Vk, VkCopyDescriptorSet, std::nullptr_t>;

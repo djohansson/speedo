@@ -42,13 +42,18 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 
         auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
         
-        ShaderVariableBindingsMap<Vk> bindingsMap;
+        ShaderVariableBindingsMap bindingsMap;
         auto& bindings = desc.bindings;
         for (size_t bindingIt = 0; bindingIt < bindings.size(); bindingIt++)
         {
             auto& binding = bindings[bindingIt];
             binding.pImmutableSamplers = samplers.data();
-            bindingsMap.emplace(desc.variableNameHashes.at(bindingIt), std::make_tuple(binding.descriptorType, binding.binding));
+            bindingsMap.emplace(
+                desc.variableNameHashes.at(bindingIt),
+                std::make_tuple(
+                    binding.binding,
+                    binding.descriptorType,
+                    binding.descriptorCount));
         }
 
         auto& bindingFlags = desc.bindingFlags;
@@ -61,35 +66,6 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
             bindings.data(),
             bindingFlags.data(),
             bindings.size());
-
-        // typedef struct VkDescriptorUpdateTemplateCreateInfo {
-        //     VkStructureType                           sType;
-        //     const void*                               pNext;
-        //     VkDescriptorUpdateTemplateCreateFlags     flags;
-        //     uint32_t                                  descriptorUpdateEntryCount;
-        //     const VkDescriptorUpdateTemplateEntry*    pDescriptorUpdateEntries;
-        //     VkDescriptorUpdateTemplateType            templateType;
-        //     VkDescriptorSetLayout                     descriptorSetLayout;
-        //     VkPipelineBindPoint                       pipelineBindPoint;
-        //     VkPipelineLayout                          pipelineLayout;
-        //     uint32_t                                  set;
-        // } VkDescriptorUpdateTemplateCreateInfo;
-        
-        // auto descriptorTemplate = createDescriptorUpdateTemplate(
-        //     deviceContext->getDevice(),
-        //     VkDescriptorUpdateTemplateCreateInfo
-        //     {
-        //         VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
-        //         nullptr,
-        //         0, // reserved for future use
-        //         0,
-        //         nullptr,
-        //         VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET/* | VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR*/,
-        //         layout,
-        //         VkPipelineBindPoint{},
-        //         VkPipelineLayout{},
-        //         desc.set
-        //     });
         
         return std::make_tuple(layout, std::move(samplers), std::move(bindingsMap));
     }())
@@ -105,13 +81,6 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
         
         vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), layout, nullptr);
     }
-
-    // if (auto descriptorTemplate = std::get<1>(myLayout); descriptorTemplate)
-    // {
-    //     ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
-        
-    //     vkDestroyDescriptorUpdateTemplate(getDeviceContext()->getDevice(), descriptorTemplate, nullptr);
-    // }
 }
 
 template <>
@@ -214,4 +183,99 @@ void DescriptorSetArray<Vk>::swap(DescriptorSetArray& rhs) noexcept
     DeviceResource::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myDescriptorSets, rhs.myDescriptorSets);
+}
+
+template <>
+DescriptorUpdateTemplateHandle<Vk> DescriptorUpdateTemplate<Vk>::internalCreateTemplate()
+{
+    return createDescriptorUpdateTemplate(
+        getDeviceContext()->getDevice(),
+        VkDescriptorUpdateTemplateCreateInfo
+        {
+            VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
+            nullptr,
+            0, // reserved for future use
+            static_cast<uint32_t>(myEntries.size()),
+            myEntries.data(),
+            getDesc().templateType,
+            getDesc().descriptorSetLayout,
+            getDesc().pipelineBindPoint,
+            getDesc().pipelineLayout,
+            getDesc().set
+        });
+}
+
+template <>
+void DescriptorUpdateTemplate<Vk>::internalDestroyTemplate()
+{
+    ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
+    
+    vkDestroyDescriptorUpdateTemplate(getDeviceContext()->getDevice(), myHandle, nullptr);
+}
+
+template <>
+void DescriptorUpdateTemplate<Vk>::setEntries(std::vector<DescriptorUpdateTemplateEntry<Vk>>&& entries)
+{
+    internalDestroyTemplate();
+    myEntries = std::move(entries);
+    myHandle = internalCreateTemplate();
+}
+
+template <>
+DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept
+: DeviceResource(std::move(other))
+, myDesc(std::exchange(other.myDesc, {}))
+, myHandle(std::exchange(other.myHandle, {}))
+{
+}
+
+template <>
+DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    DescriptorUpdateTemplateCreateDesc<Vk>&& desc,
+    DescriptorUpdateTemplateHandle<Vk>&& handle)
+: DeviceResource(
+    deviceContext,
+    {"_DescriptorUpdateTemplate"},
+    1,
+    VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
+    reinterpret_cast<uint64_t*>(&handle))
+, myDesc(std::move(desc))
+, myHandle(std::move(handle))
+{
+}
+
+template <>
+DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    DescriptorUpdateTemplateCreateDesc<Vk>&& desc)
+: DescriptorUpdateTemplate(
+    deviceContext,
+    std::move(desc),
+    VK_NULL_HANDLE)
+{
+}
+
+template <>
+DescriptorUpdateTemplate<Vk>::~DescriptorUpdateTemplate()
+{
+    if (myHandle)
+        internalDestroyTemplate();
+}
+
+template <>
+DescriptorUpdateTemplate<Vk>& DescriptorUpdateTemplate<Vk>::operator=(DescriptorUpdateTemplate&& other) noexcept
+{
+    DeviceResource::operator=(std::move(other));
+    myDesc = std::exchange(other.myDesc, {});
+    myHandle = std::exchange(other.myHandle, {});
+	return *this;
+}
+
+template <>
+void DescriptorUpdateTemplate<Vk>::swap(DescriptorUpdateTemplate& rhs) noexcept
+{
+    DeviceResource::swap(rhs);
+    std::swap(myDesc, rhs.myDesc);
+    std::swap(myHandle, rhs.myHandle);
 }

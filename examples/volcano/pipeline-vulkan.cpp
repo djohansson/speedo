@@ -128,7 +128,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 	return saveBinaryFile(cacheFilePath, saveCacheOp, false);
 }
 
-static PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR = {};
+static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTemplateKHR = {};
 
 }
 
@@ -293,15 +293,52 @@ void PipelineContext<Vk>::internalResetSharedState()
                 nullptr});
 
     for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
-        myDescriptorMap[static_cast<DescriptorSetLayoutHandle<Vk>>(setLayout)] = 
-            std::make_tuple(
-                BindingsMap<Vk>{},
-                UpgradableSharedMutex<uint8_t>{},
-                DescriptorSetStatus::Ready,
-                DescriptorUpdateTemplateHandle<Vk>{},
-                setLayout.getDesc().flags ^ VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
-                    std::make_optional(DescriptorSetArrayList<Vk>{}) :
-                    std::nullopt);
+    {
+        auto insertResultPair = myDescriptorMap.insert(
+            std::make_pair(
+                static_cast<DescriptorSetLayoutHandle<Vk>>(setLayout),
+                std::make_tuple(
+                    BindingsMap<Vk>{},
+                    BindingsData<Vk>{},
+                    UpgradableSharedMutex<uint8_t>{},
+                    DescriptorSetStatus::Ready,
+                    DescriptorUpdateTemplate<Vk>{
+                        getDeviceContext(),
+                        DescriptorUpdateTemplateCreateDesc<Vk>
+                        {
+                            {"DescriptorUpdateTemplate"},
+                            setLayout.getDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
+                                VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR :
+                                VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
+                            static_cast<VkDescriptorSetLayout>(setLayout),
+                            myBindPoint,
+                            static_cast<VkPipelineLayout>(layout),
+                            set
+                        }},
+                    setLayout.getDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR ?
+                        std::nullopt :
+                        std::make_optional(DescriptorSetArrayList<Vk>{}))));
+
+        auto& [insertIt, insertResult] = insertResultPair;
+        auto& [bindingIndex, bindingTuple] = *insertIt;
+        auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = bindingTuple;
+
+        if (setOptionalArrayList)
+        {
+            auto& setArrayList = setOptionalArrayList.value();
+            
+            setArrayList.emplace_front(
+                std::make_tuple(
+                    DescriptorSetArray<Vk>(
+                        getDeviceContext(),
+                        setLayout,
+                        DescriptorSetArrayCreateDesc<Vk>{
+                            {"DescriptorSetArray"},
+                            myDescriptorPool}),
+                    ~0,
+                    0));
+        }
+    }
 }
 
 template <>
@@ -561,135 +598,24 @@ void PipelineContext<Vk>::internalPushDescriptorSet(CommandBufferHandle<Vk> cmd,
 {
     ZoneScopedN("PipelineContext::internalPushDescriptorSet");
 
-    const auto& [bindingsMap, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+    const auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
 
-    if (bindingsMap.empty())
-        return;
-
-    std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-    descriptorWrites.reserve(bindingsMap.size());
-
-    for (const auto& [key, binding] : bindingsMap)
     {
-        const auto& [bindingType, variant, ranges] = binding;
+        ZoneScopedN("PipelineContext::internalPushDescriptorSet::vkCmdPushDescriptorSetWithTemplateKHR");
 
-        auto bindingIndex = static_cast<uint32_t>(key & 0x7FFFFFFF);
+        if (!pipeline::vkCmdPushDescriptorSetWithTemplateKHR)
+            pipeline::vkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
+                vkGetDeviceProcAddr(
+                    getDeviceContext()->getDevice(),
+                    "vkCmdPushDescriptorSetWithTemplateKHR"));
 
-        descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [type = bindingType, bindingIndex](
-                const DescriptorBufferInfo<Vk>& bufferInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        nullptr,
-                        &bufferInfo,
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex](
-                const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(bufferInfos.size()),
-                        type,
-                        nullptr,
-                        bufferInfos.data(),
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex](
-                const DescriptorImageInfo<Vk>& imageInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        &imageInfo,
-                        nullptr,
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex](
-                const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(imageInfos.size()),
-                        type,
-                        imageInfos.data(),
-                        nullptr,
-                        nullptr};
-            },
-            [type = bindingType, bindingIndex](
-                const BufferViewHandle<Vk>& bufferView){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        1,
-                        type,
-                        nullptr,
-                        nullptr,
-                        &bufferView};
-            },
-            [type = bindingType, bindingIndex](
-                const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        static_cast<uint32_t>(bufferViews.size()),
-                        type,
-                        nullptr,
-                        nullptr,
-                        bufferViews.data()};
-            },
-            [type = bindingType, bindingIndex](
-                const InlineUniformBlock<Vk>& parameterBlock){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        &parameterBlock,
-                        VK_NULL_HANDLE,
-                        bindingIndex,
-                        0,
-                        parameterBlock.dataSize,
-                        type,
-                        nullptr,
-                        nullptr,
-                        nullptr};
-            },
-        }, variant));
+        pipeline::vkCmdPushDescriptorSetWithTemplateKHR(
+            cmd,
+            setTemplate,
+            *getLayout(),
+            set,
+            bindingsData.data());
     }
-
-    if (!pipeline::vkCmdPushDescriptorSetKHR)
-        pipeline::vkCmdPushDescriptorSetKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
-            vkGetDeviceProcAddr(
-                getDeviceContext()->getDevice(),
-                "vkCmdPushDescriptorSetKHR"));
-
-    pipeline::vkCmdPushDescriptorSetKHR(
-        cmd,
-        myBindPoint,
-        *getLayout(),
-        set,
-        static_cast<uint32_t>(descriptorWrites.size()),
-        descriptorWrites.data());
 }
 
 template <>
@@ -697,7 +623,7 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
 {
     ZoneScopedN("PipelineContext::internalUpdateDescriptorSet");
 
-    auto& [bindingsMap, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
     assert(setOptionalArrayList);
     auto& setArrayList = setOptionalArrayList.value();
 
@@ -721,316 +647,55 @@ void PipelineContext<Vk>::internalUpdateDescriptorSet(const DescriptorSetLayout<
     }
 
     auto& [setArray, setIndex, setRefCount] = setArrayList.front();
-    auto oldHandle = setArray[setIndex % setArray.capacity()];
-    auto handle = setArray[++setIndex % setArray.capacity()];
-
-    std::vector<CopyDescriptorSet<Vk>> descriptorCopies;
-    descriptorCopies.reserve(bindingsMap.size());
-    std::vector<WriteDescriptorSet<Vk>> descriptorWrites;
-    descriptorWrites.reserve(bindingsMap.size());
-
-    auto variantSize = [](const BindingVariant<Vk>& variant)
-    {
-        return std::visit(std::overloaded{
-            [](const DescriptorBufferInfo<Vk>& bufferInfo) { return 1u; },
-            [](const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos) { return static_cast<uint32_t>(bufferInfos.size()); },
-            [](const DescriptorImageInfo<Vk>& imageInfo) { return 1u; },
-            [](const std::vector<DescriptorImageInfo<Vk>>& imageInfos) { return static_cast<uint32_t>(imageInfos.size()); },
-            [](const BufferViewHandle<Vk>& bufferView) { return 1u; },
-            [](const std::vector<BufferViewHandle<Vk>>& bufferViews) { return static_cast<uint32_t>(bufferViews.size()); },
-            [](const InlineUniformBlock<Vk>& parameterBlock) { return 1u;},
-        }, variant);
-    };
-
-    auto emplaceDescriptorCopy = [](
-        DescriptorSetHandle<Vk> oldHandle,
-        DescriptorSetHandle<Vk> handle,
-        uint32_t binding,
-        uint32_t arrayElement,
-        std::optional<uint32_t> descriptorCount,
-        const BindingVariant<Vk>& variant,
-        std::vector<CopyDescriptorSet<Vk>>& descriptorCopies)
-    {
-        descriptorCopies.emplace_back(std::visit(std::overloaded{
-            [oldHandle, handle, binding](const DescriptorBufferInfo<Vk>& bufferInfo){  
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    0,
-                    handle,
-                    binding,
-                    0,
-                    1};
-            },
-            [oldHandle, handle, binding, arrayElement, &descriptorCount](const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    arrayElement,
-                    handle,
-                    binding,
-                    arrayElement,
-                    descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(bufferInfos.size()) - arrayElement};
-            },
-            [oldHandle, handle, binding](const DescriptorImageInfo<Vk>& imageInfo){
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    0,
-                    handle,
-                    binding,
-                    0,
-                    1};
-            },
-            [oldHandle, handle, binding, arrayElement, &descriptorCount](const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    arrayElement,
-                    handle,
-                    binding,
-                    arrayElement,
-                    descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(imageInfos.size()) - arrayElement};
-            },
-            [oldHandle, handle, binding](const BufferViewHandle<Vk>& bufferView){
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    0,
-                    handle,
-                    binding,
-                    0,
-                    1};
-            },
-            [oldHandle, handle, binding, arrayElement, &descriptorCount](const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    arrayElement,
-                    handle,
-                    binding,
-                    arrayElement,
-                    descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(bufferViews.size()) - arrayElement};
-            },
-            [oldHandle, handle, binding](const InlineUniformBlock<Vk>& parameterBlock){
-                return CopyDescriptorSet<Vk>{
-                    VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET,
-                    nullptr,
-                    oldHandle,
-                    binding,
-                    0,
-                    handle,
-                    binding,
-                    0,
-                    parameterBlock.dataSize};
-            },
-        }, variant));
-    };
-
-    auto emplaceDescriptorWrite = [](
-        DescriptorSetHandle<Vk> handle,
-        DescriptorType<Vk> type,
-        uint32_t binding,
-        uint32_t arrayElement,
-        std::optional<uint32_t> descriptorCount,
-        const BindingVariant<Vk>& variant,
-        std::vector<WriteDescriptorSet<Vk>>& descriptorWrites)
-    {
-        descriptorWrites.emplace_back(std::visit(std::overloaded{
-            [handle, type, binding, arrayElement](
-                const DescriptorBufferInfo<Vk>& bufferInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        binding,
-                        arrayElement,
-                        1,
-                        type,
-                        nullptr,
-                        &bufferInfo,
-                        nullptr};
-            },
-            [handle, type, binding, arrayElement, &descriptorCount](
-                const std::vector<DescriptorBufferInfo<Vk>>& bufferInfos){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        binding,
-                        arrayElement,
-                        descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(bufferInfos.size()) - arrayElement,
-                        type,
-                        nullptr,
-                        &bufferInfos[arrayElement],
-                        nullptr};
-            },
-            [handle, type, binding, arrayElement](
-                const DescriptorImageInfo<Vk>& imageInfo){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        binding,
-                        arrayElement,
-                        1,
-                        type,
-                        &imageInfo,
-                        nullptr,
-                        nullptr};
-            },
-            [handle, type, binding, arrayElement, &descriptorCount](
-                const std::vector<DescriptorImageInfo<Vk>>& imageInfos){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        binding,
-                        arrayElement,
-                        descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(imageInfos.size()) - arrayElement,
-                        type,
-                        &imageInfos[arrayElement],
-                        nullptr,
-                        nullptr};
-            },
-            [handle, type, binding, arrayElement](
-                const BufferViewHandle<Vk>& bufferView){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        binding,
-                        arrayElement,
-                        1,
-                        type,
-                        nullptr,
-                        nullptr,
-                        &bufferView};
-            },
-            [handle, type, binding, arrayElement, &descriptorCount](
-                const std::vector<BufferViewHandle<Vk>>& bufferViews){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        nullptr,
-                        handle,
-                        binding,
-                        arrayElement,
-                        descriptorCount ? descriptorCount.value() : static_cast<uint32_t>(bufferViews.size()) - arrayElement,
-                        type,
-                        nullptr,
-                        nullptr,
-                        &bufferViews[arrayElement]};
-            },
-            [handle, type, binding](
-                const InlineUniformBlock<Vk>& parameterBlock){
-                    return WriteDescriptorSet<Vk>{
-                        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        &parameterBlock,
-                        handle,
-                        binding,
-                        0,
-                        parameterBlock.dataSize,
-                        type,
-                        nullptr,
-                        nullptr,
-                        nullptr};
-            },
-        }, variant));
-    };
-
-    for (const auto& [key, binding] : bindingsMap)
-    {
-        const auto& [type, variant, ranges] = binding;
-        
-        auto bindingIndex = static_cast<uint32_t>(key & 0x7FFFFFFF);
-
-        if (ranges.empty())
-        {
-            emplaceDescriptorCopy(
-                oldHandle,
-                handle,
-                bindingIndex,
-                0,
-                std::nullopt,
-                variant,
-                descriptorCopies);
-        }
-        else
-        {
-            auto rangeIt = ranges.begin();
-            auto prevRangeIt = ranges.end();
-
-            for (; rangeIt != ranges.end(); prevRangeIt = rangeIt++)
-            {
-                const auto& range = *rangeIt;
-                assert(range.first != range.second);
-
-                auto copyRange = std::make_pair(prevRangeIt == ranges.end() ? 0 : prevRangeIt->second, range.first);
-
-                uint32_t copyArrayElement = copyRange.first;
-                uint32_t copyDescriptorCount = copyRange.second - copyRange.first;
-
-                if (copyDescriptorCount)
-                {
-                    emplaceDescriptorCopy(
-                        oldHandle,
-                        handle,
-                        bindingIndex,
-                        copyArrayElement,
-                        std::make_optional(copyDescriptorCount),
-                        variant,
-                        descriptorCopies);
-                }
-
-                uint32_t writeArrayElement = range.first;
-                uint32_t writeDescriptorCount = range.second - range.first;
-
-                emplaceDescriptorWrite(
-                    handle,
-                    type,
-                    bindingIndex,
-                    writeArrayElement,
-                    std::make_optional(writeDescriptorCount),
-                    variant,
-                    descriptorWrites);
-            }
-
-            if (auto lastCopySize = variantSize(variant) - prevRangeIt->second)
-            {
-                emplaceDescriptorCopy(
-                    oldHandle,
-                    handle,
-                    bindingIndex,
-                    prevRangeIt->second,
-                    std::make_optional(lastCopySize),
-                    variant,
-                    descriptorCopies);
-            }
-        }
-    }
+    
+    auto setHandle = setArray[++setIndex];
 
     {
-        ZoneScopedN("PipelineContext::internalUpdateDescriptorSet::vkUpdateDescriptorSets");
+        ZoneScopedN("PipelineContext::internalUpdateDescriptorSet::vkUpdateDescriptorSetWithTemplate");
 
-        vkUpdateDescriptorSets(
+        vkUpdateDescriptorSetWithTemplate(
             getDeviceContext()->getDevice(),
-            static_cast<uint32_t>(descriptorWrites.size()),
-            descriptorWrites.data(),
-            static_cast<uint32_t>(descriptorCopies.size()),
-            descriptorCopies.data());
+            setHandle,
+            setTemplate,
+            bindingsData.data());
     }
+}
+
+template <>
+void PipelineContext<Vk>::internalUpdateDescriptorSetTemplate(const DescriptorSetLayout<Vk>& setLayout)
+{
+    ZoneScopedN("PipelineContext::internalUpdateDescriptorSetTemplate");
+
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+
+    std::vector<DescriptorUpdateTemplateEntry<Vk>> entries;
+    entries.reserve(bindingsMap.size());
+
+    for (const auto& [index, binding] : bindingsMap)
+    {
+        const auto& [offset, count, type, ranges] = binding;
+
+        uint32_t rangeOffset = 0u;
+
+        for (const auto& [low, high] : ranges)
+        {
+            auto rangeCount = high - low;
+
+            entries.emplace_back(DescriptorUpdateTemplateEntry<Vk>
+            {
+                index,
+                low,
+                rangeCount,
+                type,
+                (offset + rangeOffset) * sizeof(BindingVariant<Vk>),
+                sizeof(BindingVariant<Vk>)
+            });
+
+            rangeOffset += rangeCount;
+        }
+    }
+    
+    setTemplate.setEntries(std::move(entries));
 }
 
 template <>
@@ -1065,7 +730,7 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
 
     const auto& layout = *getLayout();
     const auto& setLayout = layout.getDescriptorSetLayout(set);
-    auto& [bindingsMap, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+    auto& [bindingsMap, bindingsData, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(setLayout);
     
     mutex.lock_upgrade();
     

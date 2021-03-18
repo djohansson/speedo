@@ -9,28 +9,46 @@ void PipelineContext<Vk>::setDescriptorData(
     const DescriptorSetLayout<Vk>& layout,
     T&& data)
 {
-    auto& [bindingsMap, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(layout);
-    const auto& shaderVariableBindingsMap = layout.getShaderVariableBindingsMap();
-    const auto& [type, binding] = shaderVariableBindingsMap.at(shaderVariableNameHash);
-    
-    assert(binding < 0x80000000);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
+    const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
 
     auto lock = std::lock_guard(mutex);
-
-    uint32_t key = (binding & 0x7FFFFFFF);
     
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(key, std::make_tuple(type, T{}, RangeSet<uint32_t>{}));
-    auto& [descriptorType, bindingVariant, ranges] = bindingDataPairIt->second;
-    auto& bindingData = std::get<T>(bindingVariant);
+    auto [bindingIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
+
+    assert(bindingIt != bindingsMap.end());
+
+    auto& [offset, count, type, ranges] = bindingIt->second;
 
     if (emplaceResult)
+    {
+        assert(count == 0);
+        assert(ranges.empty());
+
+        count = 1;
         ranges.insert({0u, 1u});
 
-    if (memcmp(&data, &bindingData, sizeof(data)))
-    {
-        bindingData = std::move(data);
-        setState = DescriptorSetStatus::Dirty;
+        if (bindingIt == bindingsMap.begin())
+            offset = 0;
+        else
+            offset = std::get<0>(std::prev(bindingIt)->second) + std::get<1>(std::prev(bindingIt)->second);
+
+        bindingsData.emplace(bindingsData.begin() + offset, std::move(data));
+
+        // prefix sum offset
+        for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
+            std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
     }
+    else
+    {
+        assert(count == 1);
+
+        std::get<T>(bindingsData[offset]) = std::move(data);
+    }
+
+    setState = DescriptorSetStatus::Dirty;
+
+    internalUpdateDescriptorSetTemplate(layout);
 }
 
 template <>
@@ -53,36 +71,79 @@ template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
     uint64_t shaderVariableNameHash,
     const DescriptorSetLayout<Vk>& layout,
-    std::vector<T>&& data)
+    const std::vector<T>& data)
 {
-    auto& [bindingsMap, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(layout);
-    const auto& shaderVariableBindingsMap = layout.getShaderVariableBindingsMap();
-    const auto& [type, binding] = shaderVariableBindingsMap.at(shaderVariableNameHash);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
+    const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
 
-    assert(binding < 0x80000000);
+    assert(data.size() <= descriptorCount);
 
     auto lock = std::lock_guard(mutex);
+    
+    auto [bindingIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-    uint32_t key = (binding & 0x7FFFFFFF) | static_cast<uint32_t>(BindingFlags::IsArray);
+    assert(bindingIt != bindingsMap.end());
 
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(key, std::make_tuple(type, std::vector<T>{}, RangeSet<uint32_t>{}));
-    auto& [descriptorType, bindingVariantVector, ranges] = bindingDataPairIt->second;
-    auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
+    auto& [offset, count, type, ranges] = bindingIt->second;
 
-    if (data.size() != bindingVector.size() || memcmp(data.data(), bindingVector.data(), data.size() * sizeof(T)))
+    if (emplaceResult)
     {
-        bindingVector = std::move(data);
-        ranges.clear();
-        ranges.insert({0u, static_cast<uint32_t>(bindingVector.size())});
-        setState = DescriptorSetStatus::Dirty;
+        assert(count == 0);
+        assert(ranges.empty());
+
+        count = data.size();
+        ranges.insert({0u, count});
+
+        if (bindingIt == bindingsMap.begin())
+            offset = 0;
+        else
+            offset = std::get<0>(std::prev(bindingIt)->second) + std::get<1>(std::prev(bindingIt)->second);
+
+        bindingsData.insert(bindingsData.begin() + offset, data.begin(), data.end());
+
+        // prefix sum offset
+        for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
+            std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
     }
+    else
+    {
+        assert(count > 0);
+
+        if (count == data.size())
+        {
+            std::copy(data.begin(), data.end(), bindingsData.begin() + offset);
+        }
+        else
+        {
+            auto minCount = std::min(static_cast<uint32_t>(data.size()), count);
+
+            std::copy(data.begin(), data.begin() + minCount, bindingsData.begin() + offset);
+
+            if (count < data.size())
+                bindingsData.insert(bindingsData.begin() + offset + minCount, data.begin() + minCount, data.end());
+            else // todo: should we bother with erase?
+                bindingsData.erase(bindingsData.begin() + offset + minCount, bindingsData.begin() + offset + count);
+
+            count = data.size();
+            ranges.clear();
+            ranges.insert({0u, count});
+
+            // prefix sum offset
+            for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
+                std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+        }
+    }
+
+    setState = DescriptorSetStatus::Dirty;
+
+    internalUpdateDescriptorSetTemplate(layout);
 }
 
 template <>
 template <typename T>
 void PipelineContext<Vk>::setDescriptorData(
     std::string_view shaderVariableName,
-    std::vector<T>&& data,
+    const std::vector<T>& data,
     uint32_t set)
 {
     setDescriptorData(
@@ -90,7 +151,7 @@ void PipelineContext<Vk>::setDescriptorData(
             shaderVariableName.data(),
             shaderVariableName.size()),
         getLayout()->getDescriptorSetLayout(set),
-        std::move(data));
+        data);
 }
 
 template <>
@@ -101,29 +162,75 @@ void PipelineContext<Vk>::setDescriptorData(
     T&& data,
     uint32_t index)
 {
-    auto& [bindingsMap, mutex, setState, templateHandle, setOptionalArrayList] = myDescriptorMap.at(layout);
-    const auto& shaderVariableBindingsMap = layout.getShaderVariableBindingsMap();
-    const auto& [type, binding] = shaderVariableBindingsMap.at(shaderVariableNameHash);
-
-    assert(binding < 0x80000000);
+    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
+    const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
 
     auto lock = std::lock_guard(mutex);
-
-    uint32_t key = (binding & 0x7FFFFFFF) | static_cast<uint32_t>(BindingFlags::IsArray);
-
-    auto [bindingDataPairIt, emplaceResult] = bindingsMap.emplace(key, std::make_tuple(type, std::vector<T>{}, RangeSet<uint32_t>{}));
-    auto& [descriptorType, bindingVariantVector, ranges] = bindingDataPairIt->second;
-    auto& bindingVector = std::get<std::vector<T>>(bindingVariantVector);
     
-    if (bindingVector.size() <= index)
-        bindingVector.resize(index + 1);
+    auto [bindingIt, emplaceResult] = bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-    if (memcmp(&data, &bindingVector[index], sizeof(data)))
+    assert(bindingIt != bindingsMap.end());
+
+    auto& [offset, count, type, ranges] = bindingIt->second;
+
+    if (emplaceResult)
     {
-        bindingVector[index] = std::move(data);
+        assert(count == 0);
+        assert(ranges.empty());
+
+        count = 1;
         ranges.insert({index, index + 1});
-        setState = DescriptorSetStatus::Dirty;
+
+        if (bindingIt == bindingsMap.begin())
+            offset = 0;
+        else
+            offset = std::get<0>(std::prev(bindingIt)->second) + std::get<1>(std::prev(bindingIt)->second);
+
+        bindingsData.emplace(bindingsData.begin() + offset, std::move(data));
+
+        // prefix sum offset
+        for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
+            std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
     }
+    else
+    {
+        assert(count > 0);
+
+        auto rangeIt = ranges.begin();
+        uint32_t indexOffset = 0;
+        for (; rangeIt != ranges.end(); rangeIt++)
+        {
+            const auto& [low, high] = *rangeIt;
+
+            if (index >= low && index < high)
+            {
+                indexOffset += index - low;
+                break;
+            }
+
+            indexOffset += high - low;
+        }
+
+        if (rangeIt != ranges.end())
+        {
+            std::get<T>(bindingsData[offset + indexOffset]) = std::move(data);
+        }
+        else
+        {
+            bindingsData.emplace(bindingsData.begin() + offset + indexOffset, std::move(data));
+            
+            count++;
+            ranges.insert({index, index + 1});
+
+            // prefix sum offset
+            for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
+                std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+        }
+    }
+
+    setState = DescriptorSetStatus::Dirty;
+
+    internalUpdateDescriptorSetTemplate(layout);
 }
 
 template <>

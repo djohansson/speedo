@@ -253,19 +253,59 @@ using ConcurrentUnorderedSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
 using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 
-template <typename Key, typename Value>
-using FlatMap = std::vector<std::pair<Key, Value>>;
-
-template <typename T, typename MapType = FlatMap<T, T>>
-class RangeSet : public MapType
+template <typename Key, typename T, typename VectorT = std::vector<std::pair<Key, T>>>
+class FlatMap : public VectorT
 {
 public:
 
-	auto insert(std::pair<T, T>&& range)
+	using vector_type = VectorT;
+	using key_type = Key;
+	using mapped_type = T;
+	using value_type = typename vector_type::value_type;
+	using iterator = typename vector_type::iterator; 
+	using vector_type::begin;
+	using vector_type::end;
+	using vector_type::emplace;
+	using vector_type::insert;
+
+	template <typename... Args>
+	std::pair<iterator, bool> emplace(const Key& key, Args&&... args)
+	{
+		auto elementIt = std::lower_bound(begin(), end(), key, [](const value_type& a, const key_type& b){ return a.first < b; });
+
+		std::pair<iterator, bool> result(elementIt, false);
+		if (elementIt == end() || key != elementIt->first)
+			result = std::make_pair(vector_type::emplace(elementIt, key, std::forward<Args>(args)...), true);
+
+		return result;
+	}
+
+	std::pair<iterator, bool> insert(const value_type& value)
+	{
+		return std::apply(emplace, value);
+	}
+};
+
+template <typename T, typename MapT = FlatMap<T, T>>
+class RangeSet : public MapT
+{
+public:
+
+	using map_type = MapT;
+	using key_type = T;
+	using mapped_type = T;
+	using value_type = typename map_type::value_type;
+	using iterator = typename map_type::iterator; 
+	using map_type::begin;
+	using map_type::end;
+	using map_type::insert;
+	using map_type::erase;
+
+	auto insert(value_type&& range)
 	{
 		assert(range.first < range.second);
 
-		if constexpr (std::is_same_v<MapType, FlatMap<T, T>>)
+		if constexpr (std::is_same_v<map_type, FlatMap<T, T>>)
 		{
 			auto currentCapacity = this->capacity();
 			if (currentCapacity == this->size())
@@ -275,19 +315,19 @@ public:
 		auto [low, high] = range;
 
 		auto afterIt = std::upper_bound(
-			this->begin(),
-			this->end(),
+			begin(),
+			end(),
 			low,
-			[](const T& a, const typename MapType::value_type& b){ return a < b.first; });
-		auto isBegin = afterIt == this->begin();
+			[](const T& a, const value_type& b){ return a < b.first; });
+		auto isBegin = afterIt == begin();
 		auto prevIt = isBegin ? afterIt : std::prev(afterIt);
 		
-		typename MapType::iterator insertRangeIt;
+		iterator insertRangeIt;
 		
 		if (isBegin || prevIt->second < low)
 		{
-			insertRangeIt = MapType::insert(afterIt, std::move(range));
-			if constexpr (std::is_same_v<MapType, FlatMap<T, T>>)
+			insertRangeIt = insert(afterIt, std::move(range));
+			if constexpr (std::is_same_v<map_type, FlatMap<T, T>>)
 				afterIt = std::next(insertRangeIt); // since insert will have invalidated afterIt
 		}
 		else
@@ -295,18 +335,18 @@ public:
 			insertRangeIt = prevIt;
 
 			if (insertRangeIt->second >= high)
-				return std::pair<typename MapType::iterator, bool>(insertRangeIt, false);
+				return std::make_pair(insertRangeIt, false);
 			else
 				insertRangeIt->second = high;
 		}
 
-		while (afterIt != this->end() && high >= afterIt->first)
+		while (afterIt != end() && high >= afterIt->first)
 		{
 			insertRangeIt->second = std::max(afterIt->second, insertRangeIt->second);
-			afterIt = this->erase(afterIt);
+			afterIt = erase(afterIt);
 		}
 
-		return std::pair<typename MapType::iterator, bool>(insertRangeIt, true);
+		return std::make_pair(insertRangeIt, true);
 	}
 };
 

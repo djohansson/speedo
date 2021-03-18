@@ -151,12 +151,13 @@ void addBinding(
 	//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
 
 	// todo: push descriptors
-	// if (usePushDescriptor)
-	// {
-	// 	assert(!isUniformDynamic);
-	// 	assert(!isInlineUniformBlock);
-	// 	layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-	// }
+	static constexpr bool usePushDescriptor = false;
+	if (usePushDescriptor)
+	{
+		assert(!isUniformDynamic);
+		assert(!isInlineUniformBlock);
+		layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+	}
 
 	if (usePushConstant)
 	{

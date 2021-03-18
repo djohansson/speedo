@@ -49,6 +49,7 @@ public:
             setLayouts.end(),
             set,
             [](const auto& setLayout, uint32_t set){ return setLayout.first < set; });
+        assert(setLayoutIt != setLayouts.end());
         const auto& [_set, setLayout] = *setLayoutIt;
         assert(_set == set);
 
@@ -105,7 +106,7 @@ class PipelineContext : public DeviceResource<B>
         IdentityHash<uint64_t>>;
 
     using DescriptorMapType = ConcurrentUnorderedMap<
-        DescriptorSetLayoutHandle<B>, // todo: hash DescriptorSetState into this key
+        DescriptorSetLayoutHandle<B>, // todo: hash DescriptorSetData into this key? monitor mem useage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
         DescriptorSetState<B>>;
 
 public:
@@ -162,12 +163,12 @@ public:
     void setDescriptorData(
         uint64_t shaderVariableNameHash,
         const DescriptorSetLayout<B>& layout,
-        std::vector<T>&& data);
+        const std::vector<T>& data);
 
     template <typename T>
     void setDescriptorData(
         std::string_view shaderVariableName,
-        std::vector<T>&& data,
+        const std::vector<T>& data,
         uint32_t set);
 
     // array-element
@@ -212,6 +213,7 @@ private:
 
     void internalPushDescriptorSet(CommandBufferHandle<B> cmd, uint32_t set, const DescriptorSetLayout<Vk>& setLayout) const;
     void internalUpdateDescriptorSet(const DescriptorSetLayout<B>& setLayout);
+    void internalUpdateDescriptorSetTemplate(const DescriptorSetLayout<Vk>& layout);
 
     uint64_t internalCalculateHashKey() const;
     PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);

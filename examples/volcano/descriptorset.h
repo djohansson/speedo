@@ -25,15 +25,14 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-using ShaderVariableBindingsMap = UnorderedMap<
-    uint64_t,
-    std::tuple<DescriptorType<B>, uint32_t>,
-    IdentityHash<uint64_t>>;
-
-template <GraphicsBackend B>
 class DescriptorSetLayout : public DeviceResource<B>
 {
 public:
+
+    using ShaderVariableBindingsMap = UnorderedMap<
+        uint64_t,
+        std::tuple<uint32_t, DescriptorType<B>, uint32_t>,
+        IdentityHash<uint64_t>>;
 
     constexpr DescriptorSetLayout() = default;
     DescriptorSetLayout(DescriptorSetLayout&& other) noexcept;
@@ -52,14 +51,15 @@ public:
 
     const auto& getDesc() const { return myDesc; }
     const auto& getImmutableSamplers() const { return std::get<1>(myLayout); }
-    const auto& getShaderVariableBindingsMap() const { return std::get<2>(myLayout); }
+    const auto& getShaderVariableBindings() const { return std::get<2>(myLayout); }
+    const auto& getShaderVariableBinding(uint64_t shaderVariableNameHash) const { return std::get<2>(myLayout).at(shaderVariableNameHash); }
 
 private:
 
     using ValueType = std::tuple<
         DescriptorSetLayoutHandle<B>,
         SamplerVector<B>,
-        ShaderVariableBindingsMap<B>>;
+        ShaderVariableBindingsMap>;
 
     DescriptorSetLayout( // takes ownership of provided handle
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -122,33 +122,90 @@ using DescriptorSetArrayList = std::list<
         uint8_t, // current array index. move out from here perhaps?
         CopyableAtomic<uint32_t>>>; // reference count.
 
-enum class BindingFlags : uint32_t { IsArray = 1u << 31 };
+template <GraphicsBackend B>
+struct DescriptorUpdateTemplateCreateDesc : DeviceResourceCreateDesc<B>
+{
+    DescriptorUpdateTemplateType<B> templateType = {};
+    DescriptorSetLayoutHandle<B> descriptorSetLayout = {};
+    PipelineBindPoint<B> pipelineBindPoint = {};
+    PipelineLayoutHandle<B> pipelineLayout = {};
+    uint32_t set = 0u;
+};
+
+template <GraphicsBackend B>
+class DescriptorUpdateTemplate : public DeviceResource<B>
+{
+public:
+
+    constexpr DescriptorUpdateTemplate() = default;
+    DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept;
+    DescriptorUpdateTemplate(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        DescriptorUpdateTemplateCreateDesc<B>&& desc);
+    ~DescriptorUpdateTemplate();
+
+    DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
+    operator auto() const { return myHandle; }
+    bool operator==(const DescriptorUpdateTemplate& other) const { return myHandle == other.myHandle; }
+
+    void swap(DescriptorUpdateTemplate& rhs) noexcept;
+    friend void swap(DescriptorUpdateTemplate& lhs, DescriptorUpdateTemplate& rhs) noexcept { lhs.swap(rhs); }
+
+    const auto& getDesc() const { return myDesc; }
+    const auto& getEntries() const { return myEntries; }
+
+    void setEntries(std::vector<DescriptorUpdateTemplateEntry<B>>&& entries);
+
+private:
+
+    DescriptorUpdateTemplateHandle<B> internalCreateTemplate();
+    void internalDestroyTemplate();
+
+    DescriptorUpdateTemplate( // takes ownership of provided handle
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        DescriptorUpdateTemplateCreateDesc<B>&& desc,
+        DescriptorUpdateTemplateHandle<B>&& handle);
+
+    DescriptorUpdateTemplateCreateDesc<B> myDesc = {};
+    std::vector<DescriptorUpdateTemplateEntry<B>> myEntries;
+    DescriptorUpdateTemplateHandle<B> myHandle = {};
+};
+
+enum BindingFlags : uint32_t { IsArray = 1u << 31 };
 
 template <GraphicsBackend B>
 using BindingVariant = std::variant<
     DescriptorBufferInfo<B>,
-    std::vector<DescriptorBufferInfo<B>>,
     DescriptorImageInfo<B>,
-    std::vector<DescriptorImageInfo<B>>,
     BufferViewHandle<B>,
-    std::vector<BufferViewHandle<B>>,
-    InlineUniformBlock<B>>; // InlineUniformBlock can only have one array element per binding
+    AccelerationStructureHandle<B>,
+    std::tuple<uint32_t, const void*>>; // InlineUniformBlock 
+
+//char (*__kaboom)[sizeof(BindingVariant)] = 1;
 
 template <GraphicsBackend B>
-using BindingValue = std::tuple<DescriptorType<B>, BindingVariant<B>, RangeSet<uint32_t>>;
+using BindingValue = std::tuple<
+    uint32_t, // offset
+    uint32_t, // count
+    DescriptorType<B>, // type
+    RangeSet<uint32_t>>; // array ranges
 
 template <GraphicsBackend B>
-using BindingsMap = UnorderedMap<uint32_t, BindingValue<B>>;
+using BindingsMap = FlatMap<uint32_t, BindingValue<B>>;
+
+template <GraphicsBackend B>
+using BindingsData = std::vector<BindingVariant<B>>;
 
 enum class DescriptorSetStatus : uint8_t { Dirty, Ready };
 
 template <GraphicsBackend B>
 using DescriptorSetState = std::tuple<
     BindingsMap<B>,
+    BindingsData<B>,
     UpgradableSharedMutex<uint8_t>,
     DescriptorSetStatus,
-    DescriptorUpdateTemplateHandle<B>,
-    std::optional<DescriptorSetArrayList<B>>>; // [bindings, mutex, set state, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
+    DescriptorUpdateTemplate<B>,
+    std::optional<DescriptorSetArrayList<B>>>; // [bindings, bindingsData, mutex, status, template, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
 
 #include "descriptorset.inl"
 #include "descriptorset-vulkan.inl"
