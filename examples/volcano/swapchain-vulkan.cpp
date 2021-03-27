@@ -4,89 +4,17 @@
 #include <stb_sprintf.h>
 
 template <>
-Swapchain<Vk>::Swapchain(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    SwapchainCreateDesc<Vk>&& desc)
-: DeviceResource(deviceContext, desc)
-, myDesc(std::move(desc))
-{
-    ZoneScopedN("Swapchain()");
-
-    const auto& config = deviceContext->getDesc().swapchainConfig;
-
-    VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-    info.surface = deviceContext->getSurface();
-    info.minImageCount = config->imageCount;
-    info.imageFormat = config->surfaceFormat.format;
-    info.imageColorSpace = config->surfaceFormat.colorSpace;
-    info.imageExtent = myDesc.extent;
-    info.imageArrayLayers = 1;
-    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    info.presentMode = deviceContext->getDesc().swapchainConfig->presentMode;
-    info.clipped = VK_TRUE;
-    info.oldSwapchain = myDesc.previous;
-
-    VK_CHECK(vkCreateSwapchainKHR(deviceContext->getDevice(), &info, nullptr, &mySwapchain));
-
-    char stringBuffer[32];
-    static constexpr std::string_view swapchainStr = "_Swapchain";
-    stbsp_sprintf(
-        stringBuffer,
-        "%.*s%.*s",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(swapchainStr.size()),
-        swapchainStr.data());
-    
-    deviceContext->addOwnedObjectHandle(
-        getId(),
-        VK_OBJECT_TYPE_SWAPCHAIN_KHR,
-        reinterpret_cast<uint64_t>(mySwapchain),
-        stringBuffer);
-
-    uint32_t frameCount = config->imageCount;
-    
-    assert(frameCount);
-
-    uint32_t imageCount;
-    VK_CHECK(vkGetSwapchainImagesKHR(deviceContext->getDevice(), mySwapchain, &imageCount, nullptr));
-
-    assert(imageCount == frameCount);
-    
-    std::vector<ImageHandle<Vk>> colorImages(imageCount);
-    VK_CHECK(vkGetSwapchainImagesKHR(deviceContext->getDevice(), mySwapchain, &imageCount, colorImages.data()));
-    
-    myFrames.reserve(frameCount);
-    
-    for (uint32_t frameIt = 0; frameIt < frameCount; frameIt++)
-        myFrames.emplace_back(std::make_unique<Frame<Vk>>(
-            deviceContext,
-            FrameCreateDesc<Vk>{
-                {{"Frame"},
-                myDesc.extent,
-                std::make_vector(config->surfaceFormat.format),
-                std::make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
-                std::make_vector(colorImages[frameIt])},
-                frameIt}));
-
-    myLastFrameIndex = frameCount - 1;
-}
-
-template <>
 const std::optional<RenderPassBeginInfo<Vk>>& Swapchain<Vk>::begin(
     CommandBufferHandle<Vk> cmd,
     SubpassContents<Vk> contents)
 {
-    return myFrames[myFrameIndex]->begin(cmd, contents);
+    return myFrames[myFrameIndex].begin(cmd, contents);
 }
 
 template <>
 void Swapchain<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
-    return myFrames[myFrameIndex]->end(cmd);
+    return myFrames[myFrameIndex].end(cmd);
 }
 
 template <>
@@ -98,26 +26,26 @@ const RenderTargetCreateDesc<Vk>& Swapchain<Vk>::getRenderTargetDesc() const
 template <>
 ImageLayout<Vk> Swapchain<Vk>::getColorImageLayout(uint32_t index) const
 {
-    return myFrames[myFrameIndex]->getColorImageLayout(index);
+    return myFrames[myFrameIndex].getColorImageLayout(index);
 }
 
 template <>
 ImageLayout<Vk> Swapchain<Vk>::getDepthStencilImageLayout() const
 {
-    return myFrames[myFrameIndex]->getDepthStencilImageLayout();
+    return myFrames[myFrameIndex].getDepthStencilImageLayout();
 }
 
 template <>
 void Swapchain<Vk>::blit(
     CommandBufferHandle<Vk> cmd,
-    const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
+    const IRenderTarget<Vk>& srcRenderTarget,
     const ImageSubresourceLayers<Vk>& srcSubresource,
     uint32_t srcIndex,
     const ImageSubresourceLayers<Vk>& dstSubresource,
     uint32_t dstIndex,
     Filter<Vk> filter)
 {
-    myFrames[myFrameIndex]->blit(cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex, filter);
+    myFrames[myFrameIndex].blit(cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex, filter);
 }
 
 template <>
@@ -125,7 +53,7 @@ void Swapchain<Vk>::clearSingleAttachment(
     CommandBufferHandle<Vk> cmd,
     const ClearAttachment<Vk>& clearAttachment) const
 {
-    myFrames[myFrameIndex]->clearSingleAttachment(cmd, clearAttachment);
+    myFrames[myFrameIndex].clearSingleAttachment(cmd, clearAttachment);
 }
 
 template <>
@@ -134,38 +62,38 @@ void Swapchain<Vk>::clearAllAttachments(
     const ClearColorValue<Vk>& color,
     const ClearDepthStencilValue<Vk>& depthStencil) const
 {
-    myFrames[myFrameIndex]->clearAllAttachments(cmd, color, depthStencil);
+    myFrames[myFrameIndex].clearAllAttachments(cmd, color, depthStencil);
 }
 
 template <>
 void Swapchain<Vk>::clearColor(CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
 {
-    myFrames[myFrameIndex]->clearColor(cmd, color, index);
+    myFrames[myFrameIndex].clearColor(cmd, color, index);
 }
 
 template <>
 void Swapchain<Vk>::clearDepthStencil(CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
 {
-    myFrames[myFrameIndex]->clearDepthStencil(cmd, depthStencil);
+    myFrames[myFrameIndex].clearDepthStencil(cmd, depthStencil);
 }
 
 template <>
 void Swapchain<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
 {
-    myFrames[myFrameIndex]->transitionColor(cmd, layout, index);
+    myFrames[myFrameIndex].transitionColor(cmd, layout, index);
 }
 
 template <>
 void Swapchain<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
-    myFrames[myFrameIndex]->transitionDepthStencil(cmd, layout);
+    myFrames[myFrameIndex].transitionDepthStencil(cmd, layout);
 }
 
 template <>
 std::tuple<SemaphoreHandle<Vk>, SemaphoreHandle<Vk>> Swapchain<Vk>::getFrameSyncSemaphores() const
 {
-    const auto& lastFrame = *myFrames[myLastFrameIndex];
-    const auto& frame = *myFrames[myFrameIndex];
+    const auto& lastFrame = myFrames[myLastFrameIndex];
+    const auto& frame = myFrames[myFrameIndex];
 
     return std::make_tuple(lastFrame.getNewImageAcquiredSemaphore(), frame.getRenderCompleteSemaphore());
 }
@@ -177,7 +105,7 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 
     static constexpr std::string_view flipFrameStr = "Swapchain::flip";
 
-    const auto& lastFrame = *myFrames[myLastFrameIndex];
+    const auto& lastFrame = myFrames[myLastFrameIndex];
 
     auto flipResult = checkFlipOrPresentResult(
         vkAcquireNextImageKHR(
@@ -221,7 +149,7 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 
     ZoneName(flipFrameWithNumberStr, sizeof_array(flipFrameWithNumberStr));
 
-    const auto& frame = *myFrames[myFrameIndex];
+    const auto& frame = myFrames[myFrameIndex];
     
     return std::make_tuple(true, frame.getLastPresentTimelineValue());
 }
@@ -231,21 +159,112 @@ QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
 {
     myLastFrameIndex = myFrameIndex;
 
-    auto presentInfo = myFrames[myFrameIndex]->preparePresent(timelineValue);
+    auto presentInfo = myFrames[myFrameIndex].preparePresent(timelineValue);
     presentInfo.swapchains.push_back(mySwapchain);
     
     return presentInfo;
 }
 
 template <>
+void Swapchain<Vk>::internalCreateSwapchain(
+    RenderTargetCreateDesc<Vk>&& desc,
+    SwapchainHandle<Vk> previous)
+{
+    ZoneScopedN("internalCreateSwapchain()");
+
+    myDesc = std::move(desc);
+
+    const auto& config = getDeviceContext()->getDesc().swapchainConfig;
+
+    VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+    info.surface = getDeviceContext()->getSurface();
+    info.minImageCount = config->imageCount;
+    info.imageFormat = config->surfaceFormat.format;
+    info.imageColorSpace = config->surfaceFormat.colorSpace;
+    info.imageExtent = myDesc.extent;
+    info.imageArrayLayers = 1;
+    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    info.presentMode = config->presentMode;
+    info.clipped = VK_TRUE;
+    info.oldSwapchain = previous;
+
+    VK_CHECK(vkCreateSwapchainKHR(getDeviceContext()->getDevice(), &info, nullptr, &mySwapchain));
+
+    if (previous)
+    {
+        getDeviceContext()->eraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous)); 
+        vkDestroySwapchainKHR(getDeviceContext()->getDevice(), previous, nullptr);
+    }
+
+    char stringBuffer[32];
+    static constexpr std::string_view swapchainStr = "_Swapchain";
+    stbsp_sprintf(
+        stringBuffer,
+        "%.*s%.*s",
+        getName().size(),
+        getName().c_str(),
+        static_cast<int>(swapchainStr.size()),
+        swapchainStr.data());
+    
+    getDeviceContext()->addOwnedObjectHandle(
+        getUid(),
+        VK_OBJECT_TYPE_SWAPCHAIN_KHR,
+        reinterpret_cast<uint64_t>(mySwapchain),
+        stringBuffer);
+
+    uint32_t frameCount = config->imageCount;
+    
+    assert(frameCount);
+
+    uint32_t imageCount;
+    VK_CHECK(vkGetSwapchainImagesKHR(getDeviceContext()->getDevice(), mySwapchain, &imageCount, nullptr));
+
+    assert(imageCount == frameCount);
+    
+    std::vector<ImageHandle<Vk>> colorImages(imageCount);
+    VK_CHECK(vkGetSwapchainImagesKHR(getDeviceContext()->getDevice(), mySwapchain, &imageCount, colorImages.data()));
+    
+    myFrames.clear();
+    myFrames.reserve(frameCount);
+    
+    for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
+        myFrames.emplace_back(
+            Frame<Vk>(
+                getDeviceContext(),
+                FrameCreateDesc<Vk>{
+                    {myDesc.extent,
+                    std::make_vector(config->surfaceFormat.format),
+                    std::make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
+                    std::make_vector(colorImages[frameIt])},
+                    frameIt}));
+
+    myLastFrameIndex = frameCount - 1;
+}
+
+template <>
 Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , mySwapchain(std::exchange(other.mySwapchain, {}))
 , myFrames(std::exchange(other.myFrames, {}))
 , myFrameIndex(std::exchange(other.myFrameIndex, 0))
 , myLastFrameIndex(std::exchange(other.myLastFrameIndex, 0))
 {
+}
+
+template <>
+Swapchain<Vk>::Swapchain(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    RenderTargetCreateDesc<Vk>&& desc,
+    SwapchainHandle<Vk> previous)
+: DeviceObject(deviceContext, {})
+{
+    ZoneScopedN("Swapchain()");
+
+    internalCreateSwapchain(std::move(desc), previous);
 }
 
 template <>
@@ -260,7 +279,7 @@ Swapchain<Vk>::~Swapchain()
 template <>
 Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 {
-	DeviceResource::operator=(std::move(other));
+	DeviceObject::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     mySwapchain = std::exchange(other.mySwapchain, {});
     myFrames = std::exchange(other.myFrames, {});
@@ -272,7 +291,7 @@ Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 template <>
 void Swapchain<Vk>::swap(Swapchain& rhs) noexcept
 {
-	DeviceResource::swap(rhs);
+	DeviceObject::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(mySwapchain, rhs.mySwapchain);
     std::swap(myFrames, rhs.myFrames);

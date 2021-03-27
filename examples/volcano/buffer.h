@@ -8,7 +8,7 @@
 #include <tuple>
 
 template <GraphicsBackend B>
-struct BufferCreateDesc : DeviceResourceCreateDesc<B>
+struct BufferCreateDesc
 {
     DeviceSize<B> size = {};
     Flags<B> usageFlags = {};
@@ -16,20 +16,20 @@ struct BufferCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class Buffer : public DeviceResource<B>
+class Buffer : public DeviceObject<B>
 {
     using ValueType = std::tuple<BufferHandle<B>, AllocationHandle<B>>;
 
 public:
 
-    constexpr Buffer() = default;
+    constexpr Buffer() noexcept = default;
     Buffer(Buffer&& other) noexcept;
     Buffer( // creates uninitialized buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         BufferCreateDesc<B>&& desc);
     Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<CommandContext<B>>& commandContext,
+        CommandPoolContext<B>& commandContext,
         BufferCreateDesc<B>&& desc,
         const void* initialData);
     ~Buffer();
@@ -47,7 +47,7 @@ protected:
 
     Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<CommandContext<B>>& commandContext,
+        CommandPoolContext<B>& commandContext,
         std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 
 private:
@@ -62,11 +62,11 @@ private:
 };
 
 template <GraphicsBackend B>
-class BufferView : public DeviceResource<B>
+class BufferView : public DeviceObject<B>
 {
 public:
     
-    constexpr BufferView() = default;
+    constexpr BufferView() noexcept = default;
     BufferView(BufferView&& other) noexcept;
     BufferView( // creates a view from buffer
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

@@ -79,3 +79,6 @@
 [submodule "external/rapidjson"]
 	path = external/rapidjson
 	url = https://github.com/Tencent/rapidjson
+[submodule "external/stduuid"]
+	path = external/stduuid
+	url = https://github.com/mariusbancila/stduuid.git

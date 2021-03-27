@@ -128,7 +128,8 @@
 			"compare": "cpp",
 			"hash_map": "cpp",
 			"hash_set": "cpp",
-			"coroutine": "cpp"
+			"coroutine": "cpp",
+			"stop_token": "cpp"
 		}
 	}
 }

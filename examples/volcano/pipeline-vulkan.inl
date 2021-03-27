@@ -10,7 +10,7 @@ void PipelineContext<Vk>::setDescriptorData(
     T&& data)
 {
     const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
+    auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
 
     auto lock = std::lock_guard(mutex);
     
@@ -62,7 +62,7 @@ void PipelineContext<Vk>::setDescriptorData(
         XXH3_64bits(
             shaderVariableName.data(),
             shaderVariableName.size()),
-        getLayout()->getDescriptorSetLayout(set),
+        getLayout().getDescriptorSetLayout(set),
         std::move(data));
 }
 
@@ -74,7 +74,7 @@ void PipelineContext<Vk>::setDescriptorData(
     const std::vector<T>& data)
 {
     const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
+    auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
 
     assert(data.size() <= descriptorCount);
 
@@ -150,7 +150,7 @@ void PipelineContext<Vk>::setDescriptorData(
         XXH3_64bits(
             shaderVariableName.data(),
             shaderVariableName.size()),
-        getLayout()->getDescriptorSetLayout(set),
+        getLayout().getDescriptorSetLayout(set),
         data);
 }
 
@@ -163,7 +163,7 @@ void PipelineContext<Vk>::setDescriptorData(
     uint32_t index)
 {
     const auto& [binding, descriptorType, descriptorCount] = layout.getShaderVariableBinding(shaderVariableNameHash);
-    auto& [bindingsMap, bindingsData, mutex, setState, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
+    auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = myDescriptorMap.at(layout);
 
     auto lock = std::lock_guard(mutex);
     
@@ -245,7 +245,7 @@ void PipelineContext<Vk>::setDescriptorData(
         XXH3_64bits(
             shaderVariableName.data(),
             shaderVariableName.size()),
-        getLayout()->getDescriptorSetLayout(set),
+        getLayout().getDescriptorSetLayout(set),
         std::move(data),
         index);
 }

@@ -15,7 +15,7 @@
 class VertexAllocator
 {
 public:
-	VertexAllocator() = default;
+	VertexAllocator() noexcept = default;
 
 	inline void lock()
 	{

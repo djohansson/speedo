@@ -8,7 +8,7 @@ class SlangShaderNode : public InputOutputNode
 {
 public:
 
-    SlangShaderNode() = default;
+    SlangShaderNode() noexcept = default;
     SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path);
     SlangShaderNode(const SlangShaderNode&) = default;
     SlangShaderNode(SlangShaderNode&&) noexcept = default;

@@ -1,13 +1,13 @@
 template <>
 template <typename... Args>
-void Queue<Vk>::enqueueSubmit(Args&&... args)
+void QueueContext<Vk>::enqueueSubmit(Args&&... args)
 {
     myPendingSubmits.emplace_back(std::move(args)...);
 }
 
 template <>
 template <typename T, typename... Ts>
-void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
+void QueueContext<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 {
     myPendingPresent ^= std::move(first);
 
@@ -17,11 +17,11 @@ void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 
 template <>
 template <typename T, uint32_t Line>
-std::shared_ptr<void> Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* function, const char* file)
+std::shared_ptr<void> QueueContext<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* function, const char* file)
 {
     if constexpr (PROFILING_ENABLED)
     {
-        if (!myDesc.tracingEnabled)
+        if (!myDesc.tracingEnableInitCmd)
             return {};
 
         static const auto srcLoc = SourceLocationData{T::getTypeName(), function, file, Line};

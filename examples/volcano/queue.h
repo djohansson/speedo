@@ -22,7 +22,7 @@ template <GraphicsBackend B>
 struct QueueSubmitInfo : QueueSyncInfo<B>
 {
     std::vector<CommandBufferHandle<B>> commandBuffers;
-    uint64_t timelineValue = 0;
+    uint64_t timelineValue = 0ull;
 };
 
 template <GraphicsBackend B>
@@ -32,16 +32,17 @@ struct QueuePresentInfo
     std::vector<SwapchainHandle<B>> swapchains;
     std::vector<uint32_t> imageIndices;
     std::vector<Result<B>> results;
-    uint64_t timelineValue = 0;
+    uint64_t timelineValue = 0ull;
 
     QueuePresentInfo<B>& operator^=(QueuePresentInfo<B>&& other);
 };
 
 template <GraphicsBackend B>
-struct QueueCreateDesc : DeviceResourceCreateDesc<B>
+struct QueueContextCreateDesc
 {
-    QueueHandle<B> queue = {};
-    bool tracingEnabled = false;
+    uint32_t queueIndex = 0ul;
+    uint32_t queueFamilyIndex = 0ul;
+    std::optional<CommandBufferHandle<B>> tracingEnableInitCmd;
 };
 
 struct SourceLocationData
@@ -49,27 +50,29 @@ struct SourceLocationData
     const char* name = nullptr;
     const char* function = nullptr;
     const char* file = nullptr;
-    uint32_t line = 0;
-    uint32_t color = 0;
+    uint32_t line = 0ul;
+    uint32_t color = 0ul;
 };
 
 template <GraphicsBackend B>
-class Queue : public DeviceResource<B>
+class QueueContext : public DeviceObject<B>
 {
 public:
 
-    constexpr Queue() = default;
-    Queue(
+    constexpr QueueContext() noexcept = default;
+    QueueContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        QueueCreateDesc<B>&& desc);
-    Queue(Queue<B>&& other) noexcept;
-    ~Queue();
+        QueueContextCreateDesc<B>&& desc);
+    QueueContext(QueueContext<B>&& other) noexcept;
+    ~QueueContext();
 
-    Queue& operator=(Queue&& other) noexcept;
-    operator auto() const { return myDesc.queue; }
+    QueueContext& operator=(QueueContext&& other) noexcept;
+    operator auto() const { return myQueue; }
 
-    void swap(Queue& rhs) noexcept;
-	friend void swap(Queue& lhs, Queue& rhs) noexcept { lhs.swap(rhs); }
+    const auto& getDesc() const { return myDesc; }
+
+    void swap(QueueContext& rhs) noexcept;
+	friend void swap(QueueContext& lhs, QueueContext& rhs) noexcept { lhs.swap(rhs); }
 
     template <typename... Ts>
     void enqueueSubmit(Ts&&... args);
@@ -88,9 +91,14 @@ public:
 
 private:
 
+    QueueContext(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<QueueContextCreateDesc<B>, QueueHandle<B>>&& descAndHandle);
+
     std::shared_ptr<void> internalTrace(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
 
-    QueueCreateDesc<B> myDesc = {};
+    QueueContextCreateDesc<B> myDesc = {};
+    QueueHandle<B> myQueue = {};
     std::vector<QueueSubmitInfo<B>> myPendingSubmits;
     QueuePresentInfo<B> myPendingPresent = {};
     std::vector<char> myScratchMemory;
@@ -101,7 +109,7 @@ private:
 #if PROFILING_ENABLED
 #define GPU_SCOPE(cmd, queue, name) \
 	struct name##__struct { static constexpr const char* getTypeName() { return #name; } }; \
-	auto name##__scope = queue->trace<name##__struct, __LINE__>(cmd, __PRETTY_FUNCTION__, __FILE__);
+	auto name##__scope = queue.trace<name##__struct, __LINE__>(cmd, __PRETTY_FUNCTION__, __FILE__);
 #else
 #define GPU_SCOPE(cmd, queue, name) {}
 #endif

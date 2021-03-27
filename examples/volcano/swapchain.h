@@ -9,21 +9,16 @@
 #include <memory>
 
 template <GraphicsBackend B>
-struct SwapchainCreateDesc : RenderTargetCreateDesc<B>
-{
-	SwapchainHandle<B> previous = {};
-};
-
-template <GraphicsBackend B>
-class Swapchain : public IRenderTarget<B>, public DeviceResource<B>
+class Swapchain : public IRenderTarget<B>, public DeviceObject<B>
 {
 public:
 
-	constexpr Swapchain() = default;
+	constexpr Swapchain() noexcept = default;
 	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
-		SwapchainCreateDesc<B>&& desc);
+		RenderTargetCreateDesc<B>&& desc,
+		SwapchainHandle<B> previous);
     ~Swapchain();
 
 	Swapchain& operator=(Swapchain&& other) noexcept;
@@ -39,7 +34,7 @@ public:
 
 	virtual void blit(
         CommandBufferHandle<B> cmd,
-        const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
+        const IRenderTarget<Vk>& srcRenderTarget,
         const ImageSubresourceLayers<B>& srcSubresource,
         uint32_t srcIndex,
         const ImageSubresourceLayers<B>& dstSubresource,
@@ -63,9 +58,8 @@ public:
 	virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) final;
 
-    const auto& getDesc() const { return myDesc; }
-	const auto& getSwapchain() const { return mySwapchain; }
 	const auto& getFrames() const { return myFrames; }
+	auto getRenderPass() { return static_cast<RenderPassHandle<B>>(myFrames[myFrameIndex]); }
 	auto getFrameIndex() const { return myFrameIndex; }
 	auto getLastFrameIndex() const { return myLastFrameIndex; }
 
@@ -76,11 +70,17 @@ public:
 	std::tuple<bool, uint64_t> flip();
 	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
 
+protected:
+
+	void internalCreateSwapchain(
+		RenderTargetCreateDesc<B>&& desc,
+		SwapchainHandle<B> previous);
+
 private:
 
-	SwapchainCreateDesc<B> myDesc = {};
+	RenderTargetCreateDesc<B> myDesc = {};
 	SwapchainHandle<B> mySwapchain = {};
-	std::vector<std::unique_ptr<Frame<B>>> myFrames;
+	std::vector<Frame<B>> myFrames;
 	uint32_t myFrameIndex = 0;
 	uint32_t myLastFrameIndex = 0;
 };

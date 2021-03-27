@@ -90,10 +90,10 @@ void Application<Vk>::initIMGUI(
     initInfo.Instance = myInstance->getInstance();
     initInfo.PhysicalDevice = myDevice->getPhysicalDevice();
     initInfo.Device = myDevice->getDevice();
-    initInfo.QueueFamily = myDevice->getGraphicsQueueFamilyIndex();
-    initInfo.Queue = myDevice->getGraphicsQueue();
-    initInfo.PipelineCache = myGraphicsPipeline->getCache();
-    initInfo.DescriptorPool = myGraphicsPipeline->getDescriptorPool();
+    initInfo.QueueFamily = myGraphicsQueues.front().getDesc().queueFamilyIndex;
+    initInfo.Queue = myGraphicsQueues.front();
+    initInfo.PipelineCache = myPipeline->getCache();
+    initInfo.DescriptorPool = myPipeline->getDescriptorPool();
     initInfo.MinImageCount = myDevice->getDesc().swapchainConfig->imageCount;
     initInfo.ImageCount = myDevice->getDesc().swapchainConfig->imageCount;
     initInfo.Allocator = nullptr;
@@ -117,8 +117,9 @@ void Application<Vk>::initIMGUI(
     ImGui_ImplVulkan_CreateFontsTexture(commands);
     
     deviceContext->addTimelineCallback(
-        1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
-        [](uint64_t){ ImGui_ImplVulkan_DestroyFontUploadObjects(); });
+        std::make_tuple(
+            1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
+            [](uint64_t){ ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
 
     imnodes::Initialize();
     imnodes::LoadCurrentEditorStateFromIniString(myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
@@ -144,7 +145,6 @@ void Application<Vk>::createWindowDependentObjects(
     auto colorImage = std::make_shared<Image<Vk>>(
         myDevice,
         ImageCreateDesc<Vk>{
-            {"rtColorImage"},
             { { frameBufferExtent } },
             myDevice->getDesc().swapchainConfig->surfaceFormat.format,
             VK_IMAGE_TILING_OPTIMAL,
@@ -154,7 +154,6 @@ void Application<Vk>::createWindowDependentObjects(
     auto depthStencilImage = std::make_shared<Image<Vk>>(
         myDevice,
         ImageCreateDesc<Vk>{
-            {"rtDepthImage"},
             { { frameBufferExtent } },
             findSupportedFormat(
                 myDevice->getPhysicalDevice(),
@@ -166,11 +165,10 @@ void Application<Vk>::createWindowDependentObjects(
     
     myRenderImageSet = std::make_shared<RenderImageSet<Vk>>(
         myDevice,
-        "RenderImageSet", 
         make_vector(colorImage),
         depthStencilImage);
 
-    myGraphicsPipeline->setRenderTarget(myRenderImageSet);
+    myPipeline->setRenderTarget(myRenderImageSet);
 }
 
 template <>
@@ -186,7 +184,7 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
 
         myDevice->processTimelineCallbacks(std::min(timelineValue, myLastTransferTimelineValue));
         
-        myLastTransferTimelineValue = 0;
+        myLastTransferTimelineValue = 0ul;
     }
     else
     {
@@ -222,6 +220,7 @@ Application<Vk>::Application(
 : myRootPath(application::getAbsolutePath(resourcePath, "./"))
 , myResourcePath(application::getAbsolutePath(resourcePath, "./resources/"))
 , myUserProfilePath(application::getAbsolutePath(userProfilePath, "./.profile/", true))
+, myConfig(myUserProfilePath / "application.json", "application")
 , myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph") // temp - this should be stored in the resource path
 {
     ZoneScopedN("Application()");
@@ -237,8 +236,8 @@ Application<Vk>::Application(
     myInstance = std::make_shared<InstanceContext<Vk>>(
         AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
             myUserProfilePath / "instance.json",
-            "instanceConfiguration"),
-        windowHandle);
+            "instance"),
+        windowHandle); // todo: pass on to window / swapchain instead?
 
     const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
     if (graphicsDeviceCandidates.empty())
@@ -248,87 +247,139 @@ Application<Vk>::Application(
         myInstance,
         AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
             myUserProfilePath / "device.json",
-            "deviceConfiguration",
+            "device",
             { std::get<0>(graphicsDeviceCandidates.front()) }));
 
-    myGraphicsPipeline = std::make_shared<PipelineContext<Vk>>(
+    myPipeline = std::make_shared<PipelineContext<Vk>>(
         myDevice,
         AutoSaveJSONFileObject<PipelineConfiguration<Vk>>{
-            myUserProfilePath / "graphicspipeline.json",
-            "graphicsPipelineConfiguration",
-            { { "GraphicsPipeline" }, myUserProfilePath / "pipeline.cache" }});
+            myUserProfilePath / "pipeline.json",
+            "pipeline",
+            { myUserProfilePath / "pipeline.cache" }});
+    
+    {
+        uint32_t frameCount = myDevice->getDesc().swapchainConfig->imageCount;
 
-    myGraphicsQueue = std::make_shared<Queue<Vk>>(
-        myDevice,
-        QueueCreateDesc<Vk>{
-            {"GraphicsQueue"},
-            myDevice->getGraphicsQueue(),
-            true});
+        auto& primaryContexts = myCommands[CommandContextType::GeneralPrimary];
+        auto& secondaryContexts = myCommands[CommandContextType::GeneralSecondary];
+        auto& dedicatedComputeCommands = myCommands[CommandContextType::DedicatedCompute];
+        auto& dedicatedTransferCommands = myCommands[CommandContextType::DedicatedTransfer];
 
-    myTransferCommands = std::make_shared<CommandContext<Vk>>(
-        myDevice,
-        CommandContextCreateDesc<Vk>{
-            myDevice->getQueueFamilies(
-                myDevice->getTransferQueueFamilyIndex()).commandPools[0]});
+        VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-    myTransferQueue = std::make_shared<Queue<Vk>>(
-        myDevice,
-        QueueCreateDesc<Vk>{
-            {"TransferQueue"},
-            myDevice->getTransferQueue()});
+        static constexpr bool useCommandBufferReset = true;
+        if (useCommandBufferReset)
+            cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+        const auto& queueFamilies = myDevice->getQueueFamilies();
+        for (auto queueFamilyIt = queueFamilies.begin(); queueFamilyIt != queueFamilies.end(); queueFamilyIt++)
+        {
+            const auto& queueFamily = *queueFamilyIt;
+            auto queueFamilyIndex = static_cast<uint32_t>(std::distance(queueFamilies.begin(), queueFamilyIt));
+
+            if (queueFamily.flags & QueueFamilyFlagBits_Graphics && queueFamily.flags & QueueFamilyFlagBits_Present)
+            {
+                for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
+                {
+                    primaryContexts.emplace_back(
+                        CommandPoolContext<Vk>(
+                            myDevice,
+                            CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
+                    for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4; secondaryContextIt++)
+                    {
+                        secondaryContexts.emplace_back(
+                            CommandPoolContext<Vk>(
+                                myDevice,
+                                CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+                    }
+                }
+
+                // only need one for now..
+                myGraphicsQueues.emplace_back(
+                    QueueContext<Vk>(
+                        myDevice,
+                        QueueContextCreateDesc<Vk>{
+                            0,
+                            queueFamilyIndex,
+                            primaryContexts.front().commands(
+                                CommandBufferAccessScopeDesc<Vk>(false))}));
+            }
+            else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
+            {
+                dedicatedComputeCommands.emplace_back(
+                    CommandPoolContext<Vk>(
+                        myDevice,
+                        CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
+                // only need one for now..
+                myComputeQueues.emplace_back(
+                    QueueContext<Vk>(
+                        myDevice,
+                        QueueContextCreateDesc<Vk>{0, queueFamilyIndex, std::nullopt}));
+            }
+            else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
+            {
+                dedicatedTransferCommands.emplace_back(
+                    CommandPoolContext<Vk>(
+                        myDevice,
+                        CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+                
+                // only need one for now..
+                myTransferQueues.emplace_back(
+                    QueueContext<Vk>(
+                        myDevice,
+                        QueueContextCreateDesc<Vk>{0, queueFamilyIndex, std::nullopt}));
+            }
+        }
+    }
 
     myWindow = std::make_shared<WindowContext<Vk>>(
         myDevice,    
         WindowCreateDesc<Vk>{
             {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
             {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-            {3, 2}});
+            myConfig.mainWindowSplitScreenGrid});
 
     createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 
-    auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
-    assert(insertResult);
-    myGraphicsPipeline->setLayout(*layoutIt);
-
-    // todo: create some texture global storage 
-    myGraphicsPipeline->resources().black = std::make_shared<Image<Vk>>(
+    // todo: create some resource global storage 
+    myPipeline->resources().black = std::make_shared<Image<Vk>>(
         myDevice,
         ImageCreateDesc<Vk>{
-            {"black"},
             std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
             VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_TILING_LINEAR,
             VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-    myGraphicsPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
+    myPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
         myDevice,
-        *myGraphicsPipeline->resources().black,
+        *myPipeline->resources().black,
         VK_IMAGE_ASPECT_COLOR_BIT);
     
     // initialize stuff on gfx queue
     {
-        auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrames().size() - 1];
-        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
-        auto cmd = commandContext->commands();
+        auto& commandContext = myCommands[CommandContextType::GeneralPrimary].front();
+        auto cmd = commandContext.commands();
 
-        myGraphicsPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        myGraphicsPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
-        myGraphicsPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
+        myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
-        initIMGUI(myDevice, cmd, frame, myUserProfilePath);
+        initIMGUI(myDevice, cmd, myWindow->getRenderPass(), myUserProfilePath);
 
         cmd.end();
 
-        myGraphicsQueue->enqueueSubmit(
-            commandContext->prepareSubmit({
+        myGraphicsQueues.front().enqueueSubmit(
+            commandContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastFrameTimelineValue = myGraphicsQueue->submit();
+        myLastFrameTimelineValue = myGraphicsQueues.front().submit();
     }
 
     constexpr uint32_t textureId = 1;
@@ -340,9 +391,8 @@ Application<Vk>::Application(
     materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
     myMaterials = std::make_unique<Buffer<Vk>>(
         myDevice,
-        myTransferCommands,
+        myCommands[CommandContextType::DedicatedTransfer].front(),
         BufferCreateDesc<Vk>{
-            {"myMaterials"},
             ShaderTypes_MaterialCount * sizeof(MaterialData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
@@ -352,9 +402,8 @@ Application<Vk>::Application(
     objectData[666].localTransform = glm::mat4x4(1.0f);
     myObjects = std::make_unique<Buffer<Vk>>(
         myDevice,
-        myTransferCommands,
+        myCommands[CommandContextType::DedicatedTransfer].front(),
         BufferCreateDesc<Vk>{
-            {"myObjects"},
             ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
@@ -362,25 +411,29 @@ Application<Vk>::Application(
 
     // set global descriptor set data
 
-    myGraphicsPipeline->setDescriptorData(
+    auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
+    assert(insertResult);
+    myPipeline->setLayout(*layoutIt);
+
+    myPipeline->setDescriptorData(
         "g_viewData",
         DescriptorBufferInfo<Vk>{ myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
         DescriptorSetCategory_View);
 
-    myGraphicsPipeline->setDescriptorData(
+    myPipeline->setDescriptorData(
         "g_materialData",
         DescriptorBufferInfo<Vk>{ *myMaterials, 0, VK_WHOLE_SIZE },
         DescriptorSetCategory_Material);
 
-    myGraphicsPipeline->setDescriptorData(
+    myPipeline->setDescriptorData(
         "g_objectData",
         DescriptorBufferInfo<Vk>{ *myObjects, 0, VK_WHOLE_SIZE },
         DescriptorSetCategory_Object,
         42);
         
-    myGraphicsPipeline->setDescriptorData(
+    myPipeline->setDescriptorData(
         "g_samplers",
-        DescriptorImageInfo<Vk>{ myGraphicsPipeline->resources().sampler },
+        DescriptorImageInfo<Vk>{ myPipeline->resources().sampler },
         DescriptorSetCategory_GlobalSamplers,
         samplerId);
 
@@ -399,76 +452,75 @@ Application<Vk>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
-        myGraphicsPipeline->setModel(
+        myPipeline->setModel(
             std::make_shared<Model<Vk>>(
                 myDevice,
-                myTransferCommands,
+                myCommands[CommandContextType::DedicatedTransfer].front(),
                 openFilePath));
 
-        myTransferQueue->enqueueSubmit(
-            myTransferCommands->prepareSubmit({
+        myTransferQueues.front().enqueueSubmit(
+            myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
                 {},
                 {},
                 {},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastTransferTimelineValue = myTransferQueue->submit();
+        myLastTransferTimelineValue = myTransferQueues.front().submit();
 
         return 1;
     };
 
     auto loadImage = [this](nfdchar_t* openFilePath)
     {
-        myGraphicsPipeline->resources().image = std::make_shared<Image<Vk>>(
+        myPipeline->resources().image = std::make_shared<Image<Vk>>(
             myDevice,
-            myTransferCommands,
+            myCommands[CommandContextType::DedicatedTransfer].front(),
             openFilePath);
-        myGraphicsPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
+        myPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
             myDevice,
-            *myGraphicsPipeline->resources().image,
+            *myPipeline->resources().image,
             VK_IMAGE_ASPECT_COLOR_BIT);
 
-        myTransferQueue->enqueueSubmit(
-            myTransferCommands->prepareSubmit({
+        myTransferQueues.front().enqueueSubmit(
+            myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
                 {},
                 {},
                 {},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastTransferTimelineValue = myTransferQueue->submit();
+        myLastTransferTimelineValue = myTransferQueues.front().submit();
 
         ///////////
 
-        const auto& frame = *myWindow->getSwapchain()->getFrames()[myWindow->getSwapchain()->getFrameIndex()];
-        auto& commandContext = myWindow->commandContext(frame.getDesc().index);
-        auto cmd = commandContext->commands();
+        auto& commandContext = myCommands[CommandContextType::GeneralPrimary].front();
+        auto cmd = commandContext.commands();
 
-        myGraphicsPipeline->resources().image->transition(
+        myPipeline->resources().image->transition(
             cmd,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         cmd.end();
 
-        myGraphicsQueue->enqueueSubmit(
-            commandContext->prepareSubmit({
+        myGraphicsQueues.front().enqueueSubmit(
+            commandContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastFrameTimelineValue = myGraphicsQueue->submit();
+        myLastFrameTimelineValue = myGraphicsQueues.front().submit();
 
         ///////////
 
-        myGraphicsPipeline->setDescriptorData(
+        myPipeline->setDescriptorData(
             "g_textures",
             DescriptorImageInfo<Vk>{
                 {},
-                *myGraphicsPipeline->resources().imageView,
-                myGraphicsPipeline->resources().image->getImageLayout()},
+                *myPipeline->resources().imageView,
+                myPipeline->resources().image->getImageLayout()},
             DescriptorSetCategory_GlobalTextures,
             1);
 
@@ -673,7 +725,7 @@ Application<Vk>::Application(
                 {
                     auto rowCount = std::max(inOutNode->inputAttributes().size(), inOutNode->outputAttributes().size());
 
-                    for (uint32_t rowIt = 0; rowIt < rowCount; rowIt++)
+                    for (uint32_t rowIt = 0ul; rowIt < rowCount; rowIt++)
                     {
                         float inputTextWidth = 0.0f;
                         bool hasInputPin = rowIt < inOutNode->inputAttributes().size();
@@ -921,12 +973,16 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("Application::draw");
 
-    auto& swapchain = myWindow->getSwapchain();
-
-    auto [flipSuccess, frameLastPresentTimelineValue] = swapchain->flip();
+    auto [flipSuccess, frameLastPresentTimelineValue] = myWindow->flip();
 
     if (flipSuccess)
     {
+        auto& primaryContexts = myCommands[CommandContextType::GeneralPrimary];
+        auto& secondaryContexts = myCommands[CommandContextType::GeneralSecondary];
+
+        std::rotate(primaryContexts.begin(), primaryContexts.begin() + 1, primaryContexts.end());
+        std::rotate(secondaryContexts.begin(), secondaryContexts.begin() + 4, secondaryContexts.end());
+        
         std::future<void> imguiPrepareDrawFuture(std::async(std::launch::async, [this]
         {
             myIMGUIPrepareDrawFunction();
@@ -939,55 +995,56 @@ bool Application<Vk>::draw()
             myDevice->wait(frameLastPresentTimelineValue);
         }
 
-        auto& commandContext = myWindow->commandContext(swapchain->getFrameIndex());
-        auto cmd = commandContext->commands();
+        auto cmd = primaryContexts.front().commands();
+
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, collect);
-            myGraphicsQueue->traceCollect(cmd);
+            GPU_SCOPE(cmd, myGraphicsQueues.front(), collect);
+            myGraphicsQueues.front().traceCollect(cmd);
         }
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, clear);
+            GPU_SCOPE(cmd, myGraphicsQueues.front(), clear);
             myRenderImageSet->clearDepthStencil(cmd, { 1.0f, 0 });
         }
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, transition);
+            GPU_SCOPE(cmd, myGraphicsQueues.front(), transition);
             myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
             myRenderImageSet->transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         }
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, draw);
+            GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
             myWindow->updateInput(myInput);
-            myWindow->draw(myGraphicsPipeline);
+            myWindow->draw(*myPipeline, primaryContexts.front(), secondaryContexts);
         }
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, imgui);
-            swapchain->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+            GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
+            myWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
             {
                 ZoneScopedN("Application::waitImguiPrepareDraw");
                 imguiPrepareDrawFuture.get();
             }
             myIMGUIDrawFunction(cmd);
-            swapchain->end(cmd);
+            myWindow->end(cmd);
         }
         {
-            GPU_SCOPE(cmd, myGraphicsQueue, transitionColor);
-            swapchain->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+            GPU_SCOPE(cmd, myGraphicsQueues.front(), transitionColor);
+            myWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
         }
+
         cmd.end();
         
-        auto [imageAquired, renderComplete] = swapchain->getFrameSyncSemaphores();
+        auto [imageAquired, renderComplete] = myWindow->getFrameSyncSemaphores();
         
-        myGraphicsQueue->enqueueSubmit(
-            commandContext->prepareSubmit({
+        myGraphicsQueues.front().enqueueSubmit(
+            primaryContexts.front().prepareSubmit({
                 {myDevice->getTimelineSemaphore(), imageAquired},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
                 {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
                 {myDevice->getTimelineSemaphore(), renderComplete},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
-        myLastFrameTimelineValue = myGraphicsQueue->submit();
+        myLastFrameTimelineValue = myGraphicsQueues.front().submit();
         
-        myGraphicsQueue->enqueuePresent(swapchain->preparePresent(myLastFrameTimelineValue));
+        myGraphicsQueues.front().enqueuePresent(myWindow->preparePresent(myLastFrameTimelineValue));
     }
 
     auto processTimelineCallbacksFuture(
@@ -998,7 +1055,7 @@ bool Application<Vk>::draw()
             frameLastPresentTimelineValue));
 
     if (flipSuccess)
-        myGraphicsQueue->present();
+        myGraphicsQueues.front().present();
 
     // wait for timeline callbacks
     {
@@ -1011,7 +1068,7 @@ bool Application<Vk>::draw()
     {
         ZoneScopedN("Application::transfers");
 
-        uint32_t transferCount = 0;
+        uint32_t transferCount = 0ul;
 
         if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
         {
@@ -1028,15 +1085,15 @@ bool Application<Vk>::draw()
 
         if (transferCount)
         {
-            myTransferQueue->enqueueSubmit(
-                myTransferCommands->prepareSubmit({
+            myTransferQueues.front().enqueueSubmit(
+                myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
                     {myDevice->getTimelineSemaphore()},
                     {VK_PIPELINE_STAGE_TRANSFER_BIT},
                     {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
                     {myDevice->getTimelineSemaphore()},
                     {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
             
-            myLastTransferTimelineValue = myTransferQueue->submit();
+            myLastTransferTimelineValue = myTransferQueues.front().submit();
         }
     }
 
@@ -1061,7 +1118,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
     
     myWindow->onResizeFramebuffer(framebufferExtent);
 
-    myGraphicsPipeline->setDescriptorData(
+    myPipeline->setDescriptorData(
         "g_viewData",
         DescriptorBufferInfo<Vk>{
             myWindow->getViewBuffer(),

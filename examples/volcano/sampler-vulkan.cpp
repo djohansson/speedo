@@ -5,7 +5,7 @@ template <>
 SamplerVector<Vk>::SamplerVector(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     std::vector<SamplerHandle<Vk>>&& samplers)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     {"_Sampler"},
     samplers.size(),
@@ -27,7 +27,7 @@ SamplerVector<Vk>::SamplerVector(
 
 template <>
 SamplerVector<Vk>::SamplerVector(SamplerVector&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , mySamplers(std::exchange(other.mySamplers, {}))
 {
 }
@@ -42,7 +42,7 @@ SamplerVector<Vk>::~SamplerVector()
 template <>
 SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
 {
-	DeviceResource::operator=(std::move(other));
+	DeviceObject::operator=(std::move(other));
 	mySamplers = std::exchange(other.mySamplers, {});
 	return *this;
 }
@@ -50,6 +50,6 @@ SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
 template <>
 void SamplerVector<Vk>::swap(SamplerVector& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
 	std::swap(mySamplers, rhs.mySamplers);
 }

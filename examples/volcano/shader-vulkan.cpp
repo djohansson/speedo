@@ -305,7 +305,7 @@ ShaderModule<Vk>::ShaderModule(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ShaderModuleHandle<Vk>&& shaderModule,
 	const EntryPoint<Vk>& entryPoint)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     { std::get<0>(entryPoint).c_str() },
     1,
@@ -332,7 +332,7 @@ ShaderModule<Vk>::ShaderModule(
 
 template <>
 ShaderModule<Vk>::ShaderModule(ShaderModule&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myShaderModule(std::exchange(other.myShaderModule, {}))
 , myEntryPoint(std::exchange(other.myEntryPoint, {}))
 {
@@ -348,7 +348,7 @@ ShaderModule<Vk>::~ShaderModule()
 template <>
 ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 {
-	DeviceResource::operator=(std::move(other));
+	DeviceObject::operator=(std::move(other));
 	myShaderModule = std::exchange(other.myShaderModule, {});
 	myEntryPoint = std::exchange(other.myEntryPoint, {});
 	return *this;
@@ -357,7 +357,7 @@ ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 template <>
 void ShaderModule<Vk>::swap(ShaderModule& rhs) noexcept
 {
-	DeviceResource::swap(rhs);
+	DeviceObject::swap(rhs);
 	std::swap(myShaderModule, rhs.myShaderModule);
 	std::swap(myEntryPoint, rhs.myEntryPoint);
 }

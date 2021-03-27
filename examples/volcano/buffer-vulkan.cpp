@@ -5,7 +5,7 @@
 
 template <>
 Buffer<Vk>::Buffer(Buffer&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myBuffer(std::exchange(other.myBuffer, {}))
 {
@@ -16,9 +16,9 @@ Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferCreateDesc<Vk>&& desc,
     ValueType&& buffer)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
-    desc,
+    {"_Buffer"},
     1,
     VK_OBJECT_TYPE_BUFFER,
     reinterpret_cast<uint64_t*>(&std::get<0>(buffer)))
@@ -39,14 +39,14 @@ Buffer<Vk>::Buffer(
         desc.size,
         desc.usageFlags,
         desc.memoryFlags,
-        desc.name.c_str()))
+        "todo_insert_proper_name"))
 {
 }
 
 template <>
 Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    CommandPoolContext<Vk>& commandContext,
     std::tuple<
         BufferCreateDesc<Vk>,
         BufferHandle<Vk>,
@@ -55,15 +55,15 @@ Buffer<Vk>::Buffer(
     deviceContext,
     std::move(std::get<0>(descAndInitialData)),
     createBuffer(
-        commandContext->commands(),
+        commandContext.commands(),
         deviceContext->getAllocator(),
         std::get<1>(descAndInitialData),
         std::get<0>(descAndInitialData).size,
         std::get<0>(descAndInitialData).usageFlags,
         std::get<0>(descAndInitialData).memoryFlags,
-        std::get<0>(descAndInitialData).name.c_str()))
+        "todo_insert_proper_name"))
 {
-    commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
+    commandContext.addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
 }
@@ -71,7 +71,7 @@ Buffer<Vk>::Buffer(
 template <>
 Buffer<Vk>::Buffer(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    CommandPoolContext<Vk>& commandContext,
     BufferCreateDesc<Vk>&& desc,
     const void* initialData)
 : Buffer(
@@ -83,7 +83,7 @@ Buffer<Vk>::Buffer(
             deviceContext->getAllocator(),
             initialData,
             desc.size,
-            desc.name.append("_staging").c_str())))
+            "todo_insert_proper_name")))
 {
 }
 
@@ -100,7 +100,7 @@ Buffer<Vk>::~Buffer()
 template <>
 Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myBuffer = std::exchange(other.myBuffer, {});
     return *this;
@@ -109,14 +109,14 @@ Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 template <>
 void Buffer<Vk>::swap(Buffer& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myBuffer, rhs.myBuffer);
 }
 
 template <>
 BufferView<Vk>::BufferView(BufferView&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myView(std::exchange(other.myView, {}))
 {
 }
@@ -125,7 +125,7 @@ template <>
 BufferView<Vk>::BufferView(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     BufferViewHandle<Vk>&& view)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     {"_View"},
     1,
@@ -167,7 +167,7 @@ BufferView<Vk>::~BufferView()
 template <>
 BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myView = std::exchange(other.myView, {});
     return *this;
 }
@@ -175,6 +175,6 @@ BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 template <>
 void BufferView<Vk>::swap(BufferView& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myView, rhs.myView);
 }

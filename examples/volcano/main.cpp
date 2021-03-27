@@ -1,3 +1,4 @@
+#include "profiling.h"
 #include "utils.h"
 #include "volcano.h"
 

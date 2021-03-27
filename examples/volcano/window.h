@@ -23,67 +23,57 @@ struct WindowCreateDesc
 {
 	Extent2d<B> windowExtent = {};
 	Extent2d<B> framebufferExtent = {};
-	uint8_t splitScreenGrid[2] = {};
-	uint8_t maxCommandContextPerFrameCount = 4;
+	Extent2d<B> splitScreenGrid = { 1, 1 };
 };
 
 template <GraphicsBackend B>
-struct DrawContext
-{
-};
-
-template <GraphicsBackend B>
-class WindowContext : public Noncopyable
+class WindowContext : public Swapchain<B>
 {
 public:
 
+	constexpr WindowContext() noexcept = default;
 	WindowContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		WindowCreateDesc<B>&& desc);
+	WindowContext(WindowContext&& other) noexcept;
 	~WindowContext();
 
+	WindowContext& operator=(WindowContext&& other) noexcept;
+
+    void swap(WindowContext& rhs) noexcept;
+    friend void swap(WindowContext& lhs, WindowContext& rhs) noexcept { lhs.swap(rhs); }
+
 	const auto& getDesc() const { return myDesc; }
-	const auto& getSwapchain() const { return mySwapchain; }
 	const auto& getViews() const { return myViews; }
 	const auto& getActiveView() const { return myActiveView; }
 	const auto& getViewBuffer() const { return *myViewBuffer; }
 
-	void onResizeWindow(Extent2d<B> windowExtent)
-	{
-		myDesc.windowExtent = windowExtent;
-	}
-	void onResizeFramebuffer(Extent2d<B> framebufferExtent)
-	{
-		myDesc.framebufferExtent = framebufferExtent;
-		createFrameObjects(framebufferExtent);
-	}
+	void onResizeWindow(Extent2d<B> windowExtent) { myDesc.windowExtent = windowExtent;	}
+	void onResizeFramebuffer(Extent2d<B> framebufferExtent);
 
-	// todo: move out from window
-	auto& commandContext(uint8_t frameIndex, uint8_t contextIndex = 0) { return myCommands[frameIndex][contextIndex]; }
-	//
-	
 	void updateInput(const InputState& input);
 
-	void draw(const std::shared_ptr<PipelineContext<B>>& pipeline);
+	// todo: generalize, move out of window. use sorted draw call lists.
+	void draw(
+		PipelineContext<B>& pipeline,
+		CommandPoolContext<B>& primaryContext,
+		std::vector<CommandPoolContext<B>>& secondaryContexts);
+	//
 
 private:
 
-	void updateViewBuffer(uint8_t frameIndex) const;
-	void createFrameObjects(Extent2d<B> frameBufferExtent);
-	void destroyFrameObjects();
+	void internalUpdateViewBuffer(uint8_t frameIndex) const;
+	void internalCreateFrameObjects(Extent2d<B> frameBufferExtent);
 
 	uint32_t internalDrawViews(
-		const std::shared_ptr<PipelineContext<Vk>>& pipeline,
+		PipelineContext<B>& pipeline,
+		std::vector<CommandPoolContext<B>>& secondaryContexts,
 		const RenderPassBeginInfo<Vk>& renderPassInfo,
 		uint8_t frameIndex);
 
-	std::shared_ptr<InstanceContext<B>> myInstance;
-	std::shared_ptr<DeviceContext<B>> myDevice;
 	WindowCreateDesc<B> myDesc = {};
-	std::shared_ptr<Swapchain<B>> mySwapchain;
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
-	std::vector<std::vector<std::shared_ptr<CommandContext<B>>>> myCommands; // todo: move out from window
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "concurrency-utils.h"
 #include "file.h"
 #include "instance.h"
 #include "types.h"
@@ -7,25 +8,26 @@
 
 #include <atomic>
 #include <functional>
-#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include <uuid.h>
+
 template <GraphicsBackend B>
 struct SwapchainConfiguration
 {
     SurfaceFormat<B> surfaceFormat = {};
-	PresentMode<B> presentMode;
+	PresentMode<B> presentMode = static_cast<PresentMode<B>>(0);
 	uint8_t imageCount = 0;
 };
 
 template <GraphicsBackend B>
 struct DeviceConfiguration
 {
-    uint32_t physicalDeviceIndex = 0;
+    uint32_t physicalDeviceIndex = 0ul;
     std::optional<SwapchainConfiguration<B>> swapchainConfig = {};
     // std::optional<bool> useShaderFloat16;
     // std::optional<bool> useDescriptorIndexing;
@@ -35,22 +37,26 @@ struct DeviceConfiguration
     // std::optional<bool> useBufferDeviceAddress;
 };
 
-enum QueueFamilyFlags : uint8_t
+enum QueueFamilyFlagBits
 {
-    Graphics = 1 << 0,
-    Compute = 1 << 1,
-    Transfer = 1 << 2,
-    Sparse = 1 << 3,
-    Present = 1 << 7,
+    QueueFamilyFlagBits_Graphics = 1 << 0,
+    QueueFamilyFlagBits_Compute = 1 << 1,
+    QueueFamilyFlagBits_Transfer = 1 << 2,
+    QueueFamilyFlagBits_Sparse = 1 << 3,
+    QueueFamilyFlagBits_AllExceptPresent = (1 << 4) - 1,
+    QueueFamilyFlagBits_Present = 1 << 4,
+    QueueFamilyFlagBits_All = (1 << 5) - 1,
 };
 
 template <GraphicsBackend B>
 struct QueueFamilyDesc
 {
-    std::vector<QueueHandle<B>> queues;
-    std::vector<CommandPoolHandle<B>> commandPools; // (frameCount:1) * queueCount
-    uint8_t flags = {};
+    uint32_t queueCount = 0ul;
+    uint32_t flags = 0ul;
 };
+
+using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
+using TimelineCallbackQueue = ConcurrentQueue<TimelineCallback>;
 
 template <GraphicsBackend B>
 class DeviceContext : public Noncopyable
@@ -68,17 +74,7 @@ public:
     const auto& getPhysicalDeviceInfo() const { return myInstance->getPhysicalDeviceInfo(getPhysicalDevice()); }
     auto getSurface() const { return myInstance->getSurface(); }
 
-    const auto& getQueueFamilies(uint32_t index) const { return myQueueFamilyDescs[index]; }
-
-    uint32_t getGraphicsQueueFamilyIndex() const { return myGraphicsQueueFamilyIndex; }
-    uint32_t getTransferQueueFamilyIndex() const { return myTransferQueueFamilyIndex; }
-    uint32_t getComputeQueueFamilyIndex() const { return myComputeQueueFamilyIndex; }
-
-    // temp
-    auto getGraphicsQueue() const { return getQueueFamilies(getGraphicsQueueFamilyIndex()).queues[myCurrentGraphicsQueue]; }
-    auto getTransferQueue() const { return getQueueFamilies(getTransferQueueFamilyIndex()).queues[myCurrentTransferQueue]; }
-    auto getComputeQueue() const { return getQueueFamilies(getComputeQueueFamilyIndex()).queues[myCurrentComputeQueue]; }
-    //
+    const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
 
     auto getAllocator() const { return myAllocator; }
 
@@ -89,15 +85,14 @@ public:
     bool hasReached(uint64_t timelineValue) const { return timelineValue <= getTimelineSemaphoreValue(); }
     void wait(uint64_t timelineValue) const;
     void waitIdle() const;
-    void addTimelineCallback(std::function<void(uint64_t)>&& callback);
-    void addTimelineCallback(uint64_t timelineValue, std::function<void(uint64_t)>&& callback);
-    void addTimelineCallbacks(
-        uint64_t timelineValue,
-        const std::list<std::function<void(uint64_t)>>& callbacks);
+    uint64_t addTimelineCallback(std::function<void(uint64_t)>&& callback);
+    uint64_t addTimelineCallback(TimelineCallback&& callback);
+    void addTimelineCallbacks(const std::vector<TimelineCallback>& callbacks);
     void processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
 
-    void addOwnedObjectHandle(uintptr_t ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
-    void clearOwnedObjectHandles(uintptr_t ownerId);
+    void addOwnedObjectHandle(const uuids::uuid& ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
+    void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
+    void clearOwnedObjectHandles(const uuids::uuid& ownerId);
 
     uint32_t getTypeCount(ObjectType<B> type);
 
@@ -108,72 +103,66 @@ private:
     DeviceHandle<B> myDevice = {};
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
-    uint32_t myGraphicsQueueFamilyIndex = 0; // todo: configure
-    uint32_t myTransferQueueFamilyIndex = 1; // todo: configure
-    uint32_t myComputeQueueFamilyIndex = 2; // todo: configure
-    uint32_t myCurrentGraphicsQueue = 0; // todo:
-    uint32_t myCurrentTransferQueue = 0; // todo:
-    uint32_t myCurrentComputeQueue = 0; // todo:
     
     AllocatorHandle<B> myAllocator = {};
 
     SemaphoreHandle<B> myTimelineSemaphore = {};
     std::atomic_uint64_t myTimelineValue = {};
 
-    // todo: make to an atomic queue to avoid excessive locking
-    std::recursive_mutex myTimelineCallbacksMutex;
-    std::list<std::tuple<uint64_t, std::function<void(uint64_t)>>> myTimelineCallbacks;
+    TimelineCallbackQueue myTimelineCallbacks;
 
     struct ObjectNameInfo : ObjectInfo<B>
     {
         std::string name;
     };
 
-    ConcurrentUnorderedMap<uintptr_t, std::vector<ObjectNameInfo>> myOwnerToDeviceObjectInfoMap;
-    ConcurrentUnorderedMap<ObjectType<B>, CopyableAtomic<uint32_t>> myObjectTypeToCountMap;
+    using ObjectInfos = std::vector<ObjectNameInfo>;
+    UpgradableSharedMutex<> myObjectMutex; // protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
+    UnorderedMap<uint64_t, ObjectInfos, IdentityHash<uint64_t>> myOwnerToDeviceObjectInfoMap;
+    UnorderedMap<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
 };
 
-template <GraphicsBackend B>
-struct DeviceResourceCreateDesc
+struct DeviceObjectCreateDesc
 {
     std::string name;
 };
 
 template <GraphicsBackend B>
-class DeviceResource : Noncopyable
+class DeviceObject : public Noncopyable
 {
 public:
 
-    virtual ~DeviceResource();
+    virtual ~DeviceObject();
 
-    const auto& getName() const { return myName; }
-    const uintptr_t getId() const { return reinterpret_cast<uintptr_t>(this); }
-    bool isValid() const { return myDevice.get() != nullptr; }
+    const auto& getName() const { return myDesc.name; }
+    const uuids::uuid& getUid() const { return myUid; }
+    bool isValid() const { return !myUid.is_nil(); }
 
 protected:
 
-    constexpr DeviceResource() = default;
-    DeviceResource(DeviceResource<B>&& other) noexcept;
-    DeviceResource( // no object names are set
+    constexpr DeviceObject() noexcept = default;
+    DeviceObject(DeviceObject<B>&& other) noexcept;
+    DeviceObject( // no object names are set
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const DeviceResourceCreateDesc<B>& desc);
-    DeviceResource( // uses desc.name and one objectType for all objectHandles
+        DeviceObjectCreateDesc&& desc);
+    DeviceObject( // uses desc.name and one objectType for all objectHandles
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const DeviceResourceCreateDesc<B>& desc,
+        DeviceObjectCreateDesc&& desc,
         uint32_t objectCount,
         ObjectType<B> objectType,
         const uint64_t* objectHandles);
 
-    DeviceResource& operator=(DeviceResource&& other) noexcept;
+    DeviceObject& operator=(DeviceObject&& other) noexcept;
 
-    void swap(DeviceResource& rhs) noexcept;
+    void swap(DeviceObject& rhs) noexcept;
 
     const auto& getDeviceContext() const { return myDevice; }
 
 private:
 
     std::shared_ptr<DeviceContext<B>> myDevice;
-    std::string myName;
+    DeviceObjectCreateDesc myDesc = {};
+    uuids::uuid myUid = {};
 };
 
 #include "device.inl"

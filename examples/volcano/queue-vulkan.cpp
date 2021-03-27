@@ -14,47 +14,61 @@ struct UserData
 
 }
 
+//
+
 template <>
-Queue<Vk>::Queue(
+QueueContext<Vk>::QueueContext(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    QueueCreateDesc<Vk>&& desc)
-: DeviceResource(
+    std::tuple<QueueContextCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
+: DeviceObject(
     deviceContext,
     {"_Queue"},
     1,
     VK_OBJECT_TYPE_QUEUE,
-    reinterpret_cast<uint64_t*>(&desc.queue))
-, myDesc(std::move(desc))
+    reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
+, myDesc(std::move(std::get<0>(descAndHandle)))
+, myQueue(std::move(std::get<1>(descAndHandle)))
 {
+    //if constexpr (PROFILING_ENABLED)
 #if PROFILING_ENABLED
     {
-        if (myDesc.tracingEnabled)
+        if (auto cmd = myDesc.tracingEnableInitCmd.value_or(CommandBufferHandle<Vk>{VK_NULL_HANDLE}))
         {
-            auto physicalDevice = deviceContext->getPhysicalDevice();
-            auto device = deviceContext->getDevice();
-            auto pool = deviceContext->getQueueFamilies(deviceContext->getGraphicsQueueFamilyIndex()).commandPools.front();
-
-            VkCommandBuffer cmd;
-            VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-            cmdInfo.commandPool = pool;
-            cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            cmdInfo.commandBufferCount = 1;
-            VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, &cmd));
-
-            auto tracyContext = TracyVkContext(physicalDevice, device, myDesc.queue, cmd);
-
-            vkFreeCommandBuffers(device, pool, 1, &cmd);
-
-            myUserData = queue::UserData{tracyContext};
+            myUserData = queue::UserData{
+                tracy::CreateVkContext(
+                    deviceContext->getPhysicalDevice(),
+                    deviceContext->getDevice(),
+                    myQueue,
+                    cmd,
+                    nullptr,
+                    nullptr)};
         }
     }
 #endif
 }
 
 template <>
-Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
-: DeviceResource(std::move(other))
+QueueContext<Vk>::QueueContext(
+    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+    QueueContextCreateDesc<Vk>&& desc)
+: QueueContext(
+    deviceContext,
+    std::make_tuple(
+        std::move(desc),
+        [device = deviceContext->getDevice(), &desc]()
+        {
+            QueueHandle<Vk> queue;
+            vkGetDeviceQueue(device, desc.queueFamilyIndex, desc.queueIndex, &queue);
+            return queue;
+        }()))
+{
+}
+
+template <>
+QueueContext<Vk>::QueueContext(QueueContext<Vk>&& other) noexcept
+: DeviceObject(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
+, myQueue(std::exchange(other.myQueue, {}))
 , myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 , myScratchMemory(std::exchange(other.myScratchMemory, {}))
 , myFence(std::exchange(other.myFence, {}))
@@ -63,20 +77,23 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 }
 
 template <>
-Queue<Vk>::~Queue()
+QueueContext<Vk>::~QueueContext()
 {
-    if constexpr (PROFILING_ENABLED)
+    //if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
     {
-        if (myDesc.tracingEnabled)
-            TracyVkDestroy(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
+        if (myDesc.tracingEnableInitCmd)
+            tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
     }
+#endif
 }
 
 template <>
-Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
+QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext<Vk>&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
+    myQueue = std::exchange(other.myQueue, {});
     myPendingSubmits = std::exchange(other.myPendingSubmits, {});
     myScratchMemory = std::exchange(other.myScratchMemory, {});
     myFence = std::exchange(other.myFence, {});
@@ -85,10 +102,11 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 }
 
 template <>
-void Queue<Vk>::swap(Queue& rhs) noexcept
+void QueueContext<Vk>::swap(QueueContext& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
+    std::swap(myQueue, rhs.myQueue);
     std::swap(myPendingSubmits, rhs.myPendingSubmits);
     std::swap(myScratchMemory, rhs.myScratchMemory);
     std::swap(myFence, rhs.myFence);
@@ -96,15 +114,21 @@ void Queue<Vk>::swap(Queue& rhs) noexcept
 }
 
 template <>
-void Queue<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
+void QueueContext<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
 {
-    if constexpr (PROFILING_ENABLED)
-        TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
+    //if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
+    {
+        if (myDesc.tracingEnableInitCmd)
+            TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
+    }
+#endif
 }
 
 template <>
-std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
+std::shared_ptr<void> QueueContext<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
+    //if constexpr (PROFILING_ENABLED)
 #if PROFILING_ENABLED
     {
         static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
@@ -114,12 +138,15 @@ std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, cons
         // static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
         // static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-        return std::make_shared<tracy::VkCtxScope>(
-            tracy::VkCtxScope(
-                std::any_cast<queue::UserData>(&myUserData)->tracyContext,
-                reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-                cmd,
-                true));
+        if (myDesc.tracingEnableInitCmd)
+        {
+            return std::make_shared<tracy::VkCtxScope>(
+                tracy::VkCtxScope(
+                    std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+                    reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+                    cmd,
+                    true));
+        }
     }
 #endif
 
@@ -127,9 +154,9 @@ std::shared_ptr<void> Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, cons
 }
 
 template <>
-uint64_t Queue<Vk>::submit()
+uint64_t QueueContext<Vk>::submit()
 {
-    ZoneScopedN("Queue::submit");
+    ZoneScopedN("QueueContext::submit");
 
     if (myPendingSubmits.empty())
         return 0;
@@ -140,7 +167,7 @@ uint64_t Queue<Vk>::submit()
     auto timelineBegin = reinterpret_cast<TimelineSemaphoreSubmitInfo<Vk>*>(myScratchMemory.data());
     auto timelinePtr = timelineBegin;
 
-    uint64_t maxTimelineValue = 0;
+    uint64_t maxTimelineValue = 0ull;
 
     for (const auto& pendingSubmit : myPendingSubmits)
     {
@@ -175,7 +202,7 @@ uint64_t Queue<Vk>::submit()
         submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
     }
 
-    VK_CHECK(vkQueueSubmit(myDesc.queue, myPendingSubmits.size(), submitBegin, myFence));
+    VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, myFence));
 
     myPendingSubmits.clear();
 
@@ -183,17 +210,17 @@ uint64_t Queue<Vk>::submit()
 }
 
 template <>
-void Queue<Vk>::waitIdle() const
+void QueueContext<Vk>::waitIdle() const
 {
-    ZoneScopedN("Queue::waitIdle");
+    ZoneScopedN("QueueContext::waitIdle");
 
-    VK_CHECK(vkQueueWaitIdle(myDesc.queue));
+    VK_CHECK(vkQueueWaitIdle(myQueue));
 }
 
 template <>
-void Queue<Vk>::present()
+void QueueContext<Vk>::present()
 {
-    ZoneScopedN("Queue::present");
+    ZoneScopedN("QueueContext::present");
 
     if (myPendingPresent.swapchains.empty())
         return;
@@ -206,7 +233,7 @@ void Queue<Vk>::present()
     presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
     presentInfo.pResults = myPendingPresent.results.data();
     
-    checkFlipOrPresentResult(vkQueuePresentKHR(myDesc.queue, &presentInfo));
+    checkFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
     myPendingPresent = {};
 }

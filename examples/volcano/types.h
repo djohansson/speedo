@@ -242,6 +242,9 @@ template <GraphicsBackend B>
 using VertexInputAttributeDescription = std::conditional_t<B == Vk, VkVertexInputAttributeDescription, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using CommandPoolCreateFlags = std::conditional_t<B == Vk, VkCommandPoolCreateFlags, std::nullptr_t>;
+
+template <GraphicsBackend B>
 using CommandPoolHandle = std::conditional_t<B == Vk, VkCommandPool, std::nullptr_t>;
 
 template <GraphicsBackend B>

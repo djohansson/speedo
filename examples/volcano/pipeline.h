@@ -20,11 +20,11 @@ struct PipelineCacheHeader
 };
 
 template <GraphicsBackend B>
-class PipelineLayout : public DeviceResource<B>
+class PipelineLayout : public DeviceObject<B>
 {
 public:
 
-    constexpr PipelineLayout() = default;
+    constexpr PipelineLayout() noexcept = default;
     PipelineLayout(PipelineLayout<B>&& other) noexcept;
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -87,7 +87,7 @@ struct PipelineResourceView
 };
 
 template <GraphicsBackend B>
-struct PipelineConfiguration : DeviceResourceCreateDesc<B>
+struct PipelineConfiguration
 {
     std::filesystem::path cachePath;
 };
@@ -98,14 +98,14 @@ struct PipelineConfiguration : DeviceResourceCreateDesc<B>
 //         * pipeline map/cache shared across thread instances
 //         * descriptor data shared across thread instances (if possible. avoids excessive copying...)
 template <GraphicsBackend B>
-class PipelineContext : public DeviceResource<B>
+class PipelineContext : public DeviceObject<B>
 {
-    using PipelineMapType = ConcurrentUnorderedMap<
+    using PipelineMapType = UnorderedMap<
         uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
         CopyableAtomic<PipelineHandle<B>>,
         IdentityHash<uint64_t>>;
 
-    using DescriptorMapType = ConcurrentUnorderedMap<
+    using DescriptorMapType = UnorderedMap<
         DescriptorSetLayoutHandle<B>, // todo: hash DescriptorSetData into this key? monitor mem useage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
         DescriptorSetState<B>>;
 
@@ -187,8 +187,8 @@ public:
         uint32_t index);
     
     // temp
-    const auto& getLayout() const { return myLayout; }
-    const auto& getRenderTarget() const { return myRenderTarget; }
+    const auto& getLayout() const { return *myLayout; }
+    auto& getRenderTarget() const { return *myRenderTarget; }
     
     void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);

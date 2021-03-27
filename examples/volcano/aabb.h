@@ -22,7 +22,7 @@ class AABB
 
 public:
 
-	AABB()
+	constexpr AABB() noexcept
 		: myMin(std::numeric_limits<ScalarType>::max())
 		, myMax(std::numeric_limits<ScalarType>::lowest()) {}
 

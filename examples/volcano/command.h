@@ -14,21 +14,21 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct CommandBufferArrayCreateDesc : public DeviceResourceCreateDesc<B>
+struct CommandBufferArrayCreateDesc
 {
-    CommandPoolHandle<B> pool = 0;
+    CommandPoolHandle<B> pool = {};
     CommandBufferLevel<B> level = {};
 };
 
 template <GraphicsBackend B>
-class CommandBufferArray : public DeviceResource<B>
+class CommandBufferArray : public DeviceObject<B>
 {
     static constexpr uint32_t kHeadBitCount = 2;
     static constexpr size_t kCommandBufferCount = (1 << kHeadBitCount);
 
 public:
 
-    constexpr CommandBufferArray() = default;
+    constexpr CommandBufferArray() noexcept = default;
     CommandBufferArray(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         CommandBufferArrayCreateDesc<B>&& desc);
@@ -36,17 +36,19 @@ public:
     ~CommandBufferArray();
 
     CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
+    CommandBufferHandle<B> operator[](uint8_t index) const { return myArray[index]; }
 
     void swap(CommandBufferArray& rhs) noexcept;
     friend void swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
+
     static constexpr auto capacity() { return kCommandBufferCount; }
 
     uint8_t begin(const CommandBufferBeginInfo<B>& beginInfo);
     void end(uint8_t index);
 
-    void resetAll();
+    void reset();
 
     uint8_t head() const { return myBits.head; }
     const CommandBufferHandle<B>* data() const { assert(!recordingFlags()); return myArray.data(); }
@@ -55,9 +57,6 @@ public:
     uint8_t recordingFlags() const { return myBits.recordingFlags; }
     
     bool full() const { return (head() + 1) >= capacity(); }
-    
-    CommandBufferHandle<B>& operator[](uint8_t index) { return myArray[index]; }
-    const CommandBufferHandle<B>& operator[](uint8_t index) const { return myArray[index]; }
 
 private:
 
@@ -75,15 +74,9 @@ private:
 };
 
 template <GraphicsBackend B>
-struct CommandContextCreateDesc
-{
-    CommandPoolHandle<B> pool = 0;
-};
-
-template <GraphicsBackend B>
 struct CommandBufferAccessScopeDesc : CommandBufferBeginInfo<B>
 {
-    CommandBufferAccessScopeDesc();
+    CommandBufferAccessScopeDesc(bool scopedBeginEnd = true);
     CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<B>& other);
 
     CommandBufferAccessScopeDesc<B>& operator=(const CommandBufferAccessScopeDesc<B>& other);
@@ -91,6 +84,7 @@ struct CommandBufferAccessScopeDesc : CommandBufferBeginInfo<B>
 
     CommandBufferLevel<B> level = {};
     CommandBufferInheritanceInfo<Vk> inheritance = {};
+    bool scopedBeginEnd = true;
 };
 
 template <GraphicsBackend B>
@@ -98,7 +92,7 @@ class CommandBufferAccessScope : Nondynamic
 {
 public:
 
-    constexpr CommandBufferAccessScope() = default;
+    constexpr CommandBufferAccessScope() noexcept = default;
     CommandBufferAccessScope(
         CommandBufferArray<B>* array,
         const CommandBufferAccessScopeDesc<B>& beginInfo);
@@ -114,7 +108,8 @@ public:
 
     const auto& getDesc() const { return myDesc; }
 
-    void end() { myArray->end(myIndex); }
+    void begin() { myIndex = myArray->begin(myDesc); }
+    void end() const { myArray->end(myIndex); }
 
 private:
 
@@ -125,35 +120,75 @@ private:
 };
 
 template <GraphicsBackend B>
-class CommandContext
+struct CommandPoolCreateDesc
+{
+    CommandPoolCreateFlags<B> flags = {};
+	uint32_t queueFamilyIndex = 0ul;
+};
+
+template <GraphicsBackend B>
+class CommandPool : public DeviceObject<B>
+{
+public:
+
+    constexpr CommandPool() noexcept = default;
+    CommandPool(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        CommandPoolCreateDesc<B>&& desc);
+    CommandPool(CommandPool&& other) noexcept;
+    ~CommandPool();
+
+    CommandPool& operator=(CommandPool&& other) noexcept;
+    operator auto() const { return myPool; }
+
+    void swap(CommandPool& rhs) noexcept;
+    friend void swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.swap(rhs); }
+
+    const auto& getDesc() const { return myDesc; }
+    
+    void reset();
+    
+private:
+
+    CommandPool(
+        const std::shared_ptr<DeviceContext<B>>& deviceContext,
+        std::tuple<CommandPoolCreateDesc<B>, CommandPoolHandle<B>>&& descAndData);
+        
+    CommandPoolCreateDesc<B> myDesc = {};
+    CommandPoolHandle<B> myPool = {};
+};
+
+template <GraphicsBackend B>
+class CommandPoolContext : public CommandPool<B>
 {
     using CommandBufferListType = std::list<
         std::tuple<
             CommandBufferArray<B>,
             uint64_t,
-            std::reference_wrapper<CommandContext<B>>>>;
+            std::reference_wrapper<CommandPoolContext<B>>>>;
 
 public:
 
-    CommandContext(
+    constexpr CommandPoolContext() noexcept = default;
+    CommandPoolContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        CommandContextCreateDesc<B>&& desc);
-    ~CommandContext();
+        CommandPoolCreateDesc<B>&& poolDesc);
+    CommandPoolContext(CommandPoolContext&& other) noexcept;
+    ~CommandPoolContext();
 
-    const auto& getDesc() const { return myDesc; }
+    CommandPoolContext& operator=(CommandPoolContext&& other) noexcept;
 
+    void swap(CommandPoolContext& other) noexcept;
+    friend void swap(CommandPoolContext& lhs, CommandPoolContext& rhs) noexcept { lhs.swap(rhs); }
+    
     CommandBufferAccessScope<B> commands(const CommandBufferAccessScopeDesc<B>& beginInfo = {});
     
-    uint64_t execute(CommandContext<B>& callee);
+    uint64_t execute(CommandPoolContext<B>& callee);
     QueueSubmitInfo<B> prepareSubmit(QueueSyncInfo<B>&& syncInfo);
 
     // these will be complete when the timeline value is reached of the command buffer they are submitted in.
     // useful for ensuring that dependencies are respected when releasing resources. do not remove.
     void addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback);
-
-protected:
-
-    const auto& getDeviceContext() const { return myDevice; }
 
 private:    
 
@@ -165,14 +200,12 @@ private:
     void enqueueExecuted(CommandBufferListType&& commands, uint64_t timelineValue);
     void enqueueSubmitted(CommandBufferListType&& commands, uint64_t timelineValue);
 
-    std::shared_ptr<DeviceContext<B>> myDevice;
-    const CommandContextCreateDesc<B> myDesc = {};
     std::vector<CommandBufferListType> myPendingCommands;
     CommandBufferListType myExecutedCommands;
     CommandBufferListType mySubmittedCommands;
     std::vector<CommandBufferListType> myFreeCommands;
     std::vector<std::optional<CommandBufferAccessScope<B>>> myRecordingCommands;
-    std::list<std::function<void(uint64_t)>> mySubmitFinishedCallbacks;
+    std::vector<TimelineCallback> mySubmitFinishedCallbacks;
 };
 
 #include "command.inl"

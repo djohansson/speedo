@@ -3,7 +3,6 @@ namespace renderimageset
 
 template <GraphicsBackend B>
 RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
-    const char* name,
     const std::vector<std::shared_ptr<Image<B>>>& colorImages,
     const std::shared_ptr<Image<B>>& depthStencilImage)
 {
@@ -13,7 +12,6 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 
     auto firstColorImageExtent = colorImages.front()->getDesc().mipLevels[0].extent;
 
-    outDesc.name = name;
     outDesc.extent = {firstColorImageExtent.width, firstColorImageExtent.height };
     outDesc.colorImageFormats.reserve(colorImages.size());
     outDesc.colorImageLayouts.reserve(colorImages.size());
@@ -46,10 +44,9 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 template <GraphicsBackend B>
 RenderImageSet<B>::RenderImageSet(
     const std::shared_ptr<DeviceContext<B>>& deviceContext,
-    const char* name,
     const std::vector<std::shared_ptr<Image<B>>>& colorImages,
     const std::shared_ptr<Image<B>>& depthStencilImage)
-: BaseType(deviceContext, renderimageset::createRenderTargetCreateDesc(name, colorImages, depthStencilImage))
+: BaseType(deviceContext, renderimageset::createRenderTargetCreateDesc(colorImages, depthStencilImage))
 , myColorImages(colorImages)
 , myDepthStencilImage(depthStencilImage)
 {
@@ -102,7 +99,7 @@ void RenderImageSet<B>::end(CommandBufferHandle<B> cmd)
 {
     RenderTarget<B>::end(cmd);
     
-    uint32_t imageIt = 0;
+    uint32_t imageIt = 0ul;
     for (; imageIt < myColorImages.size(); imageIt++)
         myColorImages[imageIt]->setImageLayout(this->getAttachmentDesc(imageIt).finalLayout);
 

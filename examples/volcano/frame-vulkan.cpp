@@ -71,7 +71,7 @@ Frame<Vk>::Frame(
         renderCompleteSemaphoreStr.data());
 
     deviceContext->addOwnedObjectHandle(
-        getId(),
+        getUid(),
         VK_OBJECT_TYPE_SEMAPHORE,
         reinterpret_cast<uint64_t>(myRenderCompleteSemaphore),
         stringBuffer);
@@ -85,7 +85,7 @@ Frame<Vk>::Frame(
         newImageAcquiredSemaphoreStr.data());
 
     deviceContext->addOwnedObjectHandle(
-        getId(),
+        getUid(),
         VK_OBJECT_TYPE_SEMAPHORE,
         reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
         stringBuffer);

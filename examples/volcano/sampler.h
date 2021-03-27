@@ -6,11 +6,11 @@
 #include <memory>
 
 template <GraphicsBackend B>
-class SamplerVector : public DeviceResource<B>
+class SamplerVector : public DeviceObject<B>
 {
 public:
 
-    constexpr SamplerVector() = default;
+    constexpr SamplerVector() noexcept = default;
     SamplerVector(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const std::vector<SamplerCreateInfo<B>>& createInfos);
@@ -22,7 +22,7 @@ public:
 
     void swap(SamplerVector& rhs) noexcept;
     friend void swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.swap(rhs); }
-    
+
     auto size() const { return mySamplers.size(); }
     auto data() const { return mySamplers.data(); }
 

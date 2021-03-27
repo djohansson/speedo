@@ -92,7 +92,7 @@ class FileObject : public Noncopyable, public T
 
 public:
 
-    constexpr FileObject() = default;
+    constexpr FileObject() noexcept = default;
     FileObject(
         const std::filesystem::path& filePath,
         std::string_view name,

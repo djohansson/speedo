@@ -13,7 +13,7 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
+struct DescriptorSetLayoutCreateDesc
 {
     std::vector<DescriptorSetLayoutBinding<B>> bindings;
     std::vector<DescriptorBindingFlags<B>> bindingFlags;
@@ -25,7 +25,7 @@ struct DescriptorSetLayoutCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class DescriptorSetLayout : public DeviceResource<B>
+class DescriptorSetLayout : public DeviceObject<B>
 {
 public:
 
@@ -34,7 +34,7 @@ public:
         std::tuple<uint32_t, DescriptorType<B>, uint32_t>,
         IdentityHash<uint64_t>>;
 
-    constexpr DescriptorSetLayout() = default;
+    constexpr DescriptorSetLayout() noexcept = default;
     DescriptorSetLayout(DescriptorSetLayout&& other) noexcept;
     DescriptorSetLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -74,20 +74,20 @@ template <GraphicsBackend B>
 using DescriptorSetLayoutFlatMap = FlatMap<uint32_t, DescriptorSetLayout<B>>;
 
 template <GraphicsBackend B>
-struct DescriptorSetArrayCreateDesc : DeviceResourceCreateDesc<B>
+struct DescriptorSetArrayCreateDesc
 {
     DescriptorPoolHandle<B> pool = {};
 };
 
 template <GraphicsBackend B>
-class DescriptorSetArray : public DeviceResource<B>
+class DescriptorSetArray : public DeviceObject<B>
 {
     static constexpr size_t kDescriptorSetCount = 16;
     using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
 
 public:
 
-    constexpr DescriptorSetArray() = default;
+    constexpr DescriptorSetArray() noexcept = default;
     DescriptorSetArray(DescriptorSetArray&& other) noexcept;
     DescriptorSetArray( // allocates array of descriptor set handles using single layout
         const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
@@ -102,6 +102,7 @@ public:
     friend void swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.swap(rhs); }
 
     const auto& getDesc() const { return myDesc; }
+
     static constexpr auto capacity() { return kDescriptorSetCount; }
 
 private:
@@ -123,21 +124,21 @@ using DescriptorSetArrayList = std::list<
         CopyableAtomic<uint32_t>>>; // reference count.
 
 template <GraphicsBackend B>
-struct DescriptorUpdateTemplateCreateDesc : DeviceResourceCreateDesc<B>
+struct DescriptorUpdateTemplateCreateDesc
 {
     DescriptorUpdateTemplateType<B> templateType = {};
     DescriptorSetLayoutHandle<B> descriptorSetLayout = {};
     PipelineBindPoint<B> pipelineBindPoint = {};
     PipelineLayoutHandle<B> pipelineLayout = {};
-    uint32_t set = 0u;
+    uint32_t set = 0ul;
 };
 
 template <GraphicsBackend B>
-class DescriptorUpdateTemplate : public DeviceResource<B>
+class DescriptorUpdateTemplate : public DeviceObject<B>
 {
 public:
 
-    constexpr DescriptorUpdateTemplate() = default;
+    constexpr DescriptorUpdateTemplate() noexcept = default;
     DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept;
     DescriptorUpdateTemplate(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -171,17 +172,13 @@ private:
     DescriptorUpdateTemplateHandle<B> myHandle = {};
 };
 
-enum BindingFlags : uint32_t { IsArray = 1u << 31 };
-
 template <GraphicsBackend B>
 using BindingVariant = std::variant<
     DescriptorBufferInfo<B>,
     DescriptorImageInfo<B>,
     BufferViewHandle<B>,
     AccelerationStructureHandle<B>,
-    std::tuple<uint32_t, const void*>>; // InlineUniformBlock 
-
-//char (*__kaboom)[sizeof(BindingVariant)] = 1;
+    std::tuple<const void*, uint32_t>>; // InlineUniformBlock 
 
 template <GraphicsBackend B>
 using BindingValue = std::tuple<
@@ -200,12 +197,12 @@ enum class DescriptorSetStatus : uint8_t { Dirty, Ready };
 
 template <GraphicsBackend B>
 using DescriptorSetState = std::tuple<
+    UpgradableSharedMutex<>,
+    DescriptorSetStatus,
     BindingsMap<B>,
     BindingsData<B>,
-    UpgradableSharedMutex<uint8_t>,
-    DescriptorSetStatus,
     DescriptorUpdateTemplate<B>,
-    std::optional<DescriptorSetArrayList<B>>>; // [bindings, bindingsData, mutex, status, template, descriptorSets (optional - if std::nullopt -> uses push descriptors)]
+    std::optional<DescriptorSetArrayList<B>>>; // if std::nullopt -> uses push descriptors
 
 #include "descriptorset.inl"
 #include "descriptorset-vulkan.inl"

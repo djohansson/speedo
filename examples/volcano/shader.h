@@ -42,11 +42,11 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 }
 
 template <GraphicsBackend B>
-class ShaderModule : public DeviceResource<B>
+class ShaderModule : public DeviceObject<B>
 {
 public:
 
-	constexpr ShaderModule() = default;
+	constexpr ShaderModule() noexcept = default;
 	ShaderModule(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         const Shader<B>& shader);

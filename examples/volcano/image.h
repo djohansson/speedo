@@ -17,7 +17,7 @@ struct ImageMipLevelDesc
 };
 
 template <GraphicsBackend B>
-struct ImageCreateDesc : DeviceResourceCreateDesc<B>
+struct ImageCreateDesc
 {
     std::vector<ImageMipLevelDesc<B>> mipLevels;
     Format<B> format = {};
@@ -28,24 +28,24 @@ struct ImageCreateDesc : DeviceResourceCreateDesc<B>
 };
 
 template <GraphicsBackend B>
-class Image : public DeviceResource<B>
+class Image : public DeviceObject<B>
 {
     using ValueType = std::tuple<ImageHandle<B>, AllocationHandle<B>, ImageLayout<B>>;
 
 public:
 
-    constexpr Image() = default;
+    constexpr Image() noexcept = default;
     Image(Image&& other) noexcept;
     Image( // creates uninitialized image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
         ImageCreateDesc<B>&& desc);
     Image( // loads a file into a buffer and creates a new image from it.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<CommandContext<B>>& commandContext,
+        CommandPoolContext<B>& commandContext,
         const std::filesystem::path& imageFile);
     Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<CommandContext<B>>& commandContext,
+        CommandPoolContext<B>& commandContext,
         ImageCreateDesc<B>&& desc,
         const void* initialData,
         size_t initialDataSize);
@@ -73,7 +73,7 @@ private:
 
     Image( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<CommandContext<B>>& commandContext,
+        CommandPoolContext<B>& commandContext,
         std::tuple<ImageCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
     Image( // takes ownership of provided image handle & allocation
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -93,11 +93,11 @@ private:
 };
 
 template <GraphicsBackend B>
-class ImageView : public DeviceResource<B>
+class ImageView : public DeviceObject<B>
 {
 public:
     
-    constexpr ImageView() = default;
+    constexpr ImageView() noexcept = default;
     ImageView(ImageView&& other) noexcept;
     ImageView( // creates a view from image
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

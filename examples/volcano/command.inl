@@ -1,5 +1,5 @@
 template <GraphicsBackend B>
-CommandBufferAccessScope<B> CommandContext<B>::commands(const CommandBufferAccessScopeDesc<B>& beginInfo)
+CommandBufferAccessScope<B> CommandPoolContext<B>::commands(const CommandBufferAccessScopeDesc<B>& beginInfo)
 {
     if (myRecordingCommands[beginInfo.level] && myRecordingCommands[beginInfo.level].value().getDesc() == beginInfo)
         return internalCommands(beginInfo);
@@ -8,7 +8,7 @@ CommandBufferAccessScope<B> CommandContext<B>::commands(const CommandBufferAcces
 }
 
 template <GraphicsBackend B>
-void CommandContext<B>::internalEndCommands(CommandBufferLevel<B> level)
+void CommandPoolContext<B>::internalEndCommands(CommandBufferLevel<B> level)
 {
     if (myRecordingCommands[level])
         myRecordingCommands[level] = std::nullopt;
@@ -21,7 +21,7 @@ CommandBufferAccessScope<B>::CommandBufferAccessScope(
 : myDesc(beginInfo)
 , myRefCount(std::make_shared<uint32_t>(1))
 , myArray(array)
-, myIndex(myArray->begin(beginInfo))
+, myIndex(myDesc.scopedBeginEnd ? myArray->begin(beginInfo) : 0)
 {
 }
 
@@ -47,7 +47,7 @@ CommandBufferAccessScope<B>::CommandBufferAccessScope(CommandBufferAccessScope&&
 template <GraphicsBackend B>
 CommandBufferAccessScope<B>::~CommandBufferAccessScope()
 {
-    if (myRefCount && (--(*myRefCount) == 0) && myArray->recording(myIndex))
+    if (myDesc.scopedBeginEnd && myRefCount && (--(*myRefCount) == 0) && myArray->recording(myIndex))
         myArray->end(myIndex);
 }
 

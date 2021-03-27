@@ -6,7 +6,7 @@ class InputOutputNode : public INode
 {
 public:
 
-    InputOutputNode() = default;
+    InputOutputNode() noexcept = default;
     InputOutputNode(int id, std::string&& name);
     InputOutputNode(const InputOutputNode&) = default;
     InputOutputNode(InputOutputNode&&) noexcept = default;

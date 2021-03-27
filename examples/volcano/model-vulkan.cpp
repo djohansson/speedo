@@ -83,7 +83,6 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		AllocationHandle<Vk>> descAndInitialData = {};
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = modelFile.filename().generic_string();
 	
 	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
 	{
@@ -95,16 +94,12 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
-		std::string debugString;
-		debugString.append(desc.name);
-		debugString.append("_staging");
-		
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
 			deviceContext->getAllocator(),
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			debugString.c_str());
+			"todo_insert_proper_name");
 
 		{
 			ZoneScopedN("model::loadBin::buffers");
@@ -318,14 +313,10 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		desc.vertexBufferSize = vertices.sizeBytes();
 		desc.indexCount = indices.size();
 
-		std::string debugString;
-		debugString.append(desc.name);
-		debugString.append("_staging");
-		
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
 			deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			debugString.c_str());
+			"todo_insert_proper_name");
 
 		{
 			ZoneScopedN("model::loadObj::buffers");
@@ -357,13 +348,13 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 template <>
 Model<Vk>::Model(
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-	const std::shared_ptr<CommandContext<Vk>>& commandContext,
+	CommandPoolContext<Vk>& commandContext,
 	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 : Buffer(
 	deviceContext,
 	commandContext,
 	std::make_tuple(
-		BufferCreateDesc<Vk>{ { std::get<0>(descAndInitialData).name },
+		BufferCreateDesc<Vk>{
 			std::get<0>(descAndInitialData).indexBufferSize + std::get<0>(descAndInitialData).vertexBufferSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT },
@@ -377,7 +368,7 @@ Model<Vk>::Model(
 template <>
 Model<Vk>::Model(
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-	const std::shared_ptr<CommandContext<Vk>>& commandContext,
+	CommandPoolContext<Vk>& commandContext,
 	const std::filesystem::path& modelFile)
 	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
 {

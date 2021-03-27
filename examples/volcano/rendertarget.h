@@ -8,7 +8,7 @@
 #include <tuple>
 
 template <GraphicsBackend B>
-struct RenderTargetCreateDesc : DeviceResourceCreateDesc<B>
+struct RenderTargetCreateDesc
 {
     Extent2d<B> extent = {};
 	std::vector<Format<B>> colorImageFormats;
@@ -34,7 +34,7 @@ struct IRenderTarget
 
     virtual void blit(
         CommandBufferHandle<B> cmd,
-        const std::shared_ptr<IRenderTarget<B>>& srcRenderTarget,
+        const IRenderTarget<B>& srcRenderTarget,
         const ImageSubresourceLayers<B>& srcSubresource,
         uint32_t srcIndex,
         const ImageSubresourceLayers<B>& dstSubresource,
@@ -57,7 +57,7 @@ struct IRenderTarget
 };
 
 template <GraphicsBackend B>
-class RenderTarget : public IRenderTarget<B>, public DeviceResource<B>
+class RenderTarget : public IRenderTarget<B>, public DeviceObject<B>
 {
     using ValueType = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
     using ValueMapType = UnorderedMap<uint64_t, ValueType>;
@@ -73,7 +73,7 @@ public:
 
     virtual void blit(
         CommandBufferHandle<B> cmd,
-        const std::shared_ptr<IRenderTarget<B>>& srcRenderTarget,
+        const IRenderTarget<B>& srcRenderTarget,
         const ImageSubresourceLayers<B>& srcSubresource,
         uint32_t srcIndex,
         const ImageSubresourceLayers<B>& dstSubresource,
@@ -107,7 +107,7 @@ public:
 
 protected:
 
-    constexpr RenderTarget() = default;
+    constexpr RenderTarget() noexcept = default;
     RenderTarget(RenderTarget<B>&& other) noexcept;
     RenderTarget(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,

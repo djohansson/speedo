@@ -14,10 +14,9 @@ class RenderImageSet : public RenderTargetImpl<RenderTargetCreateDesc<B>, B>
 
 public:
 
-    constexpr RenderImageSet() = default;
+    constexpr RenderImageSet() noexcept = default;
     RenderImageSet(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const char* name,
         const std::vector<std::shared_ptr<Image<B>>>& colorImages,
         const std::shared_ptr<Image<B>>& depthStencilImage = {});
     RenderImageSet(RenderImageSet<B>&& other) noexcept;

@@ -6,13 +6,13 @@
 // todo: compute pipeline
 // todo: clustered forward shading
 // todo: shader graph
-// todo: remove "gfx" and specialize
 
 // done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
 // done: instrumentation and timing information
 // done: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 // done: move stuff from headers into compilation units
+// done: remove "gfx" and specialize
 // cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 
 #pragma once
@@ -25,6 +25,7 @@
 #include "pipeline.h"
 #include "renderimageset.h"
 #include "types.h"
+#include "utils.h"
 #include "window.h"
 
 #include "state.h" // temp - remove & clean up
@@ -40,6 +41,13 @@
 #include <tuple>
 
 #include <nfd.h>
+
+template <GraphicsBackend B>
+struct ApplicationConfiguration
+{
+	Extent2d<B> mainWindowSplitScreenGrid = { 1, 1 };
+	uint8_t maxCommandContextPerFrameCount = 4;
+};
 
 template <GraphicsBackend B>
 class Application
@@ -82,6 +90,7 @@ private:
 	std::filesystem::path myResourcePath;
 	std::filesystem::path myUserProfilePath;
 
+	AutoSaveJSONFileObject<ApplicationConfiguration<B>> myConfig;
 	AutoSaveJSONFileObject<NodeGraph> myNodeGraph;
 
 	InputState myInput = {};
@@ -89,22 +98,30 @@ private:
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
 	std::shared_ptr<WindowContext<B>> myWindow;
-	std::shared_ptr<CommandContext<B>> myTransferCommands;
-	std::shared_ptr<PipelineContext<B>> myGraphicsPipeline;
-	std::shared_ptr<Queue<B>> myGraphicsQueue;
-	std::shared_ptr<Queue<B>> myTransferQueue;
+	std::shared_ptr<PipelineContext<B>> myPipeline;
+	//std::shared_ptr<ResourceContext<B>> myResources;
+
+	std::vector<QueueContext<B>> myGraphicsQueues;
+	std::vector<QueueContext<B>> myComputeQueues;
+	std::vector<QueueContext<B>> myTransferQueues;
+	
+	enum class CommandContextType : uint8_t { GeneralPrimary, GeneralSecondary, DedicatedCompute, DedicatedTransfer };
+	UnorderedMap<CommandContextType, std::vector<CommandPoolContext<B>>> myCommands;
+
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
+	
 	std::unique_ptr<Buffer<B>> myMaterials;
 	std::unique_ptr<Buffer<B>> myObjects;
 
 	HandleSet<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
+	
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 
-	uint64_t myLastFrameTimelineValue = 0;
-	uint64_t myLastTransferTimelineValue = 0;
+	uint64_t myLastFrameTimelineValue = 0ull;
+	uint64_t myLastTransferTimelineValue = 0ull;
 
 	bool myRequestExit = false;
 };

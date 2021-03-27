@@ -1,4 +1,5 @@
 #include "file.h"
+#include "profiling.h"
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath)
 {

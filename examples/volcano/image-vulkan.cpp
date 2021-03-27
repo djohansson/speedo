@@ -61,7 +61,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(VmaAllocator allocator, const I
         desc.tiling,
         desc.usageFlags,
         desc.memoryFlags,
-        desc.name.c_str(),
+        "todo_insert_proper_name",
         desc.initialLayout);
 }
 
@@ -80,7 +80,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(VkCommandBuffer cmd, VmaAllocat
         desc.tiling,
         desc.usageFlags,
         desc.memoryFlags,
-        desc.name.c_str(),
+        "todo_insert_proper_name",
         desc.initialLayout);
 }
 
@@ -96,7 +96,6 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         AllocationHandle<Vk>> descAndInitialData = {};
 
     auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-    desc.name = imageFile.filename().generic_string();
 
     auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
     {
@@ -109,15 +108,11 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         size_t size = 0;
         for (const auto& mipLevel : desc.mipLevels)
             size += mipLevel.size;
-
-        std::string debugString;
-        debugString.append(desc.name);
-        debugString.append("_staging");
         
         auto [locBufferHandle, locMemoryHandle] = createBuffer(
             deviceContext->getAllocator(), size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            debugString.c_str());
+            "todo_insert_proper_name");
 
         void* data;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
@@ -189,14 +184,10 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
             mipOffset += mipSize;
         }
         
-        std::string debugString;
-        debugString.append(desc.name);
-        debugString.append("_staging");
-        
         auto [locBufferHandle, locMemoryHandle] = createBuffer(
             deviceContext->getAllocator(), mipOffset, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            debugString.c_str());
+            "todo_insert_proper_name");
 
         void* stagingBuffer;
         VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &stagingBuffer));
@@ -407,9 +398,9 @@ Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ImageCreateDesc<Vk>&& desc,
     ValueType&& data)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
-    desc,
+    {"_Image"},
     1,
     VK_OBJECT_TYPE_IMAGE,
     reinterpret_cast<uint64_t*>(&std::get<0>(data)))
@@ -434,20 +425,20 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    CommandPoolContext<Vk>& commandContext,
     std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 : Image(
     deviceContext,
     std::move(std::get<0>(descAndInitialData)),
     std::tuple_cat(
         image::createImage2D(
-            commandContext->commands(),
+            commandContext.commands(),
             deviceContext->getAllocator(),
             std::get<1>(descAndInitialData),
             std::get<0>(descAndInitialData)),
         std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {   
-    commandContext->addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
+    commandContext.addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
         vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
     });
 }
@@ -455,7 +446,7 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    CommandPoolContext<Vk>& commandContext,
     ImageCreateDesc<Vk>&& desc,
     const void* initialData,
     size_t initialDataSize)
@@ -468,14 +459,14 @@ Image<Vk>::Image(
             deviceContext->getAllocator(),
             initialData,
             initialDataSize,
-            desc.name.append("_staging").c_str())))
+            "todo_insert_proper_name")))
 {   
 }
 
 template <>
 Image<Vk>::Image(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<CommandContext<Vk>>& commandContext,
+    CommandPoolContext<Vk>& commandContext,
     const std::filesystem::path& imageFile)
 : Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
 {
@@ -493,7 +484,7 @@ Image<Vk>::~Image()
 
 template <>
 ImageView<Vk>::ImageView(ImageView&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myView(std::exchange(other.myView, {}))
 {
 }
@@ -503,7 +494,7 @@ template <>
 ImageView<Vk>::ImageView(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     ImageViewHandle<Vk>&& view)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     {"_View"},
     1,
@@ -543,7 +534,7 @@ ImageView<Vk>::~ImageView()
 template <>
 ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myView = std::exchange(other.myView, {});
     return *this;
 }
@@ -552,6 +543,6 @@ ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 template <>
 void ImageView<Vk>::swap(ImageView& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myView, rhs.myView);
 }

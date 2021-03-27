@@ -1,4 +1,5 @@
 #include "instance.h"
+#include "profiling.h"
 #include "vk-utils.h"
 
 #include <algorithm>

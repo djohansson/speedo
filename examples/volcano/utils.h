@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <chrono>
@@ -9,35 +8,18 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <emmintrin.h>
 #include <filesystem>
 #include <functional>
 #include <future>
-#include <map>
 #include <memory>
 #include <new>
-#include <queue>
 #include <string>
-#include <tuple>
 #include <type_traits>
 #include <vector>
 #include <version>
 
-#if PROFILING_ENABLED
-#ifndef TRACY_ENABLE
-#define TRACY_ENABLE
-#endif
-#endif
-#include <Tracy.hpp>
-
 #include <cereal/cereal.hpp>
 #include <cereal/types/string.hpp>
-
-#if defined(__WINDOWS__)
-#include <concurrent_queue.h>
-#include <concurrent_unordered_map.h>
-#include <concurrent_unordered_set.h>
-#endif
 
 #include <robin_hood.h>
 
@@ -238,18 +220,6 @@ using UnorderedMap = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedSet = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
-#if defined(__WINDOWS__)
-template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedMap = Concurrency::concurrent_unordered_map<Key, Value, KeyHash, KeyEqualTo>;
-template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedSet = Concurrency::concurrent_unordered_set<Key, KeyHash, KeyEqualTo>;
-#else
-template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedMap = UnorderedMap<Key, Value, KeyHash, KeyEqualTo>;
-template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
-using ConcurrentUnorderedSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
-#endif
-
 template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
 using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 
@@ -347,175 +317,5 @@ public:
 		}
 
 		return std::make_pair(insertRangeIt, true);
-	}
-};
-
-template <typename T>
-class CopyableAtomic : public std::atomic<T>
-{
-public:
-    
-    constexpr CopyableAtomic() noexcept = default;
-    constexpr CopyableAtomic(T val) noexcept : std::atomic<T>(val) {}
-    CopyableAtomic(const CopyableAtomic<T>& other) noexcept
-    {
-        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
-    }
-    CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other) noexcept
-    {
-        this->store(other.load(std::memory_order_acquire), std::memory_order_release);
-
-        return *this;
-    }
-};
-
-template <typename T = uint32_t>
-class UpgradableSharedMutex
-#if __cpp_lib_atomic_ref < 201806
- : public CopyableAtomic<T>
-#endif
-{
-	using value_t = T;
-	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1, None = 0 };
-
-#if __cpp_lib_atomic_ref >= 201806
-#if __cpp_lib_hardware_interference_size >= 201603
-	alignas(std::hardware_destructive_interference_size) value_t myBits = 0;
-#else
-	alignas(64) value_t myBits = 0;
-#endif
-	inline auto internalAtomicRef() noexcept { return std::atomic_ref(myBits); }
-#else
-	inline auto& internalAtomicRef() noexcept { return *this; }
-#endif
-
-	template <typename Func>
-	inline void internalSpinWait(Func lockFn) noexcept
-	{
-		auto result = lockFn();
-		auto& [success, value] = result;
-		while (!success)
-		{
-			ZoneScopedN("wait");
-
-			internalAtomicRef().wait(value);
-			result = lockFn();
-		}
-	}
-
-public:
-
-	// Lockable Concept
-	void lock() noexcept
-	{
-		internalSpinWait([this](){ return try_lock(); });
-	}
-
-	// Writer is responsible for clearing up both the Upgraded and Writer bits.
-	inline void unlock() noexcept
-	{
-		static_assert(Reader > Writer + Upgraded, "wrong bits!");
-
-		internalAtomicRef().fetch_and(~(Writer | Upgraded), std::memory_order_release);
-		internalAtomicRef().notify_all();
-	}
-
-	// SharedLockable Concept
-	void lock_shared() noexcept
-	{
-		internalSpinWait([this](){ return try_lock_shared(); });
-	}
-
-	inline void unlock_shared() noexcept
-	{
-		internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
-		internalAtomicRef().notify_all();
-	}
-
-	// Downgrade the lock from writer status to reader status.
-	inline void unlock_and_lock_shared() noexcept
-	{
-		internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
-		
-		unlock();
-	}
-
-	// UpgradeLockable Concept
-	void lock_upgrade() noexcept
-	{
-		internalSpinWait([this](){ return try_lock_upgrade(); });
-	}
-
-	inline void unlock_upgrade() noexcept
-	{
-		internalAtomicRef().fetch_add(-Upgraded, std::memory_order_acq_rel);
-		internalAtomicRef().notify_all();
-	}
-
-	// unlock upgrade and try to acquire write lock
-	void unlock_upgrade_and_lock() noexcept
-	{
-		// try to unlock upgrade and write lock atomically
-		internalSpinWait([this](){ return try_lock<Upgraded>(); });
-	}
-
-	// unlock upgrade and read lock atomically
-	inline void unlock_upgrade_and_lock_shared() noexcept
-	{
-		internalAtomicRef().fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
-		internalAtomicRef().notify_all();
-	}
-
-	// write unlock and upgrade lock atomically
-	inline void unlock_and_lock_upgrade() noexcept
-	{
-		// need to do it in two steps here -- as the Upgraded bit might be OR-ed at
-		// the same time when other threads are trying do try_lock_upgrade().
-
-		internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
-		internalAtomicRef().fetch_add(-Writer, std::memory_order_release);
-		internalAtomicRef().notify_all();
-	}
-
-	// Attempt to acquire writer permission. Return false if we didn't get it.
-	template <value_t Expected = None>
-	inline std::tuple<bool, value_t> try_lock() noexcept
-	{
-		auto result = std::make_tuple(false, Expected);
-		auto& [success, value] = result;
-		success = internalAtomicRef().compare_exchange_weak(value, Writer, std::memory_order_acq_rel);
-		return result;
-	}
-
-	// Try to get reader permission on the lock. This can fail if we
-	// find out someone is a writer or upgrader.
-	// Setting the Upgraded bit would allow a writer-to-be to indicate
-	// its intention to write and block any new readers while waiting
-	// for existing readers to finish and release their read locks. This
-	// helps avoid starving writers (promoted from upgraders).
-	inline std::tuple<bool, value_t> try_lock_shared() noexcept
-	{
-		// fetch_add is considerably (100%) faster than compare_exchange,
-		// so here we are optimizing for the common (lock success) case.
-
-		value_t value = internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
-		if (value & (Writer | Upgraded))
-		{
-			value = internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
-			return std::make_tuple(false, value);
-		}
-		return std::make_tuple(true, value);
-	}
-
-	// try to acquire an upgradable lock.
-	inline std::tuple<bool, value_t> try_lock_upgrade() noexcept
-	{
-		value_t value = internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
-
-		// Note: when failed, we cannot flip the Upgraded bit back,
-		// as in this case there is either another upgrade lock or a write lock.
-		// If it's a write lock, the bit will get cleared up when that lock's done
-		// with unlock().
-		return std::make_tuple(((value & (Upgraded | Writer)) == 0), value);
 	}
 };

@@ -5,9 +5,11 @@
 
 #include <xxhash.h>
 
+//char (*__kaboom)[sizeof(BindingVariant<Vk>)] = 1;
+
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myLayout(std::exchange(other.myLayout, {}))
 {
@@ -18,7 +20,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetLayoutCreateDesc<Vk>&& desc,
     ValueType&& layout)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     {"_DescriptorSetLayout"},
     1,
@@ -86,7 +88,7 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 template <>
 DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myLayout = std::exchange(other.myLayout, {});
 	return *this;
@@ -95,7 +97,7 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&
 template <>
 void DescriptorSetLayout<Vk>::swap(DescriptorSetLayout& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myLayout, rhs.myLayout);
 }
@@ -105,7 +107,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorSetArrayCreateDesc<Vk>&& desc,
     ArrayType&& descriptorSetHandles)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     {"_DescriptorSet"},
     descriptorSetHandles.size(),
@@ -118,7 +120,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 
 template <>
 DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
 {
@@ -171,7 +173,7 @@ DescriptorSetArray<Vk>::~DescriptorSetArray()
 template <>
 DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myDescriptorSets = std::exchange(other.myDescriptorSets, {});
     return *this;
@@ -180,7 +182,7 @@ DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& o
 template <>
 void DescriptorSetArray<Vk>::swap(DescriptorSetArray& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myDescriptorSets, rhs.myDescriptorSets);
 }
@@ -223,7 +225,7 @@ void DescriptorUpdateTemplate<Vk>::setEntries(std::vector<DescriptorUpdateTempla
 
 template <>
 DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myHandle(std::exchange(other.myHandle, {}))
 {
@@ -234,7 +236,7 @@ DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DescriptorUpdateTemplateCreateDesc<Vk>&& desc,
     DescriptorUpdateTemplateHandle<Vk>&& handle)
-: DeviceResource(
+: DeviceObject(
     deviceContext,
     {"_DescriptorUpdateTemplate"},
     1,
@@ -266,7 +268,7 @@ DescriptorUpdateTemplate<Vk>::~DescriptorUpdateTemplate()
 template <>
 DescriptorUpdateTemplate<Vk>& DescriptorUpdateTemplate<Vk>::operator=(DescriptorUpdateTemplate&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myDesc = std::exchange(other.myDesc, {});
     myHandle = std::exchange(other.myHandle, {});
 	return *this;
@@ -275,7 +277,7 @@ DescriptorUpdateTemplate<Vk>& DescriptorUpdateTemplate<Vk>::operator=(Descriptor
 template <>
 void DescriptorUpdateTemplate<Vk>::swap(DescriptorUpdateTemplate& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myDesc, rhs.myDesc);
     std::swap(myHandle, rhs.myHandle);
 }

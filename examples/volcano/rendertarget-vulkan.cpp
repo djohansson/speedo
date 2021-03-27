@@ -19,7 +19,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
     
     myAttachments.clear();
     
-    uint32_t attachmentIt = 0;
+    uint32_t attachmentIt = 0ul;
     for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
     {
         myAttachments.emplace_back(createImageView2D(
@@ -41,7 +41,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             attachmentIt);
 
         getDeviceContext()->addOwnedObjectHandle(
-            getId(),
+            getUid(),
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -57,7 +57,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
         colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         auto& colorAttachmentRef = myAttachmentsReferences.emplace_back();
-        colorAttachmentRef.attachment = 0;
+        colorAttachmentRef.attachment = 0ul;
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     }
 
@@ -84,7 +84,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             depthImageViewStr.data());
 
         getDeviceContext()->addOwnedObjectHandle(
-            getId(),
+            getUid(),
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
@@ -114,7 +114,7 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCre
 {
     ZoneScopedN("RenderTarget::internalInitializeDefaultRenderPass");
 
-    uint32_t subPassIt = 0;
+    uint32_t subPassIt = 0ul;
 
     if (desc.depthStencilImage)
     {
@@ -149,9 +149,9 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCre
         dep0.dstSubpass = subPassIt;
         dep0.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         dep0.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dep0.srcAccessMask = 0;
+        dep0.srcAccessMask = 0ul;
         dep0.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        dep0.dependencyFlags = 0;
+        dep0.dependencyFlags = 0ul;
         addSubpassDependency(std::move(dep0));
     }
 }
@@ -217,7 +217,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         hashKey);
 
     getDeviceContext()->addOwnedObjectHandle(
-        getId(),
+        getUid(),
         VK_OBJECT_TYPE_RENDER_PASS,
         reinterpret_cast<uint64_t>(renderPass),
         stringBuffer);
@@ -243,7 +243,7 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         hashKey);
 
     getDeviceContext()->addOwnedObjectHandle(
-        getId(),
+        getUid(),
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
         stringBuffer);
@@ -281,7 +281,7 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
 {
     ZoneScopedN("RenderTarget::internalUpdateAttachments");
 
-    uint32_t attachmentIt = 0;
+    uint32_t attachmentIt = 0ul;
     for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
     {
         auto& colorAttachment = myAttachmentDescs[attachmentIt];
@@ -302,7 +302,7 @@ void RenderTarget<Vk>::internalUpdateAttachments(const RenderTargetCreateDesc<Vk
 template <>
 void RenderTarget<Vk>::blit(
     CommandBufferHandle<Vk> cmd,
-    const std::shared_ptr<IRenderTarget<Vk>>& srcRenderTarget,
+    const IRenderTarget<Vk>& srcRenderTarget,
     const ImageSubresourceLayers<Vk>& srcSubresource,
     uint32_t srcIndex,
     const ImageSubresourceLayers<Vk>& dstSubresource,
@@ -311,7 +311,7 @@ void RenderTarget<Vk>::blit(
 {
     ZoneScopedN("RenderTarget::blit");
 
-    const auto& srcDesc = srcRenderTarget->getRenderTargetDesc();
+    const auto& srcDesc = srcRenderTarget.getRenderTargetDesc();
 
     VkOffset3D blitSize;
     blitSize.x = srcDesc.extent.width;
@@ -324,14 +324,13 @@ void RenderTarget<Vk>::blit(
     imageBlitRegion.dstSubresource = dstSubresource;
     imageBlitRegion.dstOffsets[1] = blitSize;
 
-    srcRenderTarget->transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-    transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0);
+    transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
 
     vkCmdBlitImage(
         cmd,
-        srcDesc.colorImages[0],
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        getRenderTargetDesc().colorImages[0],
+        srcDesc.colorImages[srcIndex],
+        srcRenderTarget.getColorImageLayout(srcIndex),
+        getRenderTargetDesc().colorImages[dstIndex],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1,
         &imageBlitRegion,
@@ -357,7 +356,7 @@ void RenderTarget<Vk>::clearAllAttachments(
 {
     ZoneScopedN("RenderTarget::clearAllAttachments");
 
-    uint32_t attachmentIt = 0;
+    uint32_t attachmentIt = 0ul;
     VkClearRect rect = { { { 0, 0 }, getRenderTargetDesc().extent }, 0, getRenderTargetDesc().layerCount };
     std::vector<VkClearAttachment> clearAttachments(
         myAttachments.size(), {
@@ -468,7 +467,11 @@ const std::optional<RenderPassBeginInfo<Vk>>& RenderTarget<Vk>::begin(
         frameBuffer,
         {{0, 0}, {getRenderTargetDesc().extent.width, getRenderTargetDesc().extent.height}}});
 
-    vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);
+    {
+        ZoneScopedN("RenderTarget::begin::vkCmdBeginRenderPass");
+
+        vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);
+    }
     
     return myCurrentPass;
 }
@@ -489,7 +492,7 @@ template <>
 RenderTarget<Vk>::RenderTarget(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     const RenderTargetCreateDesc<Vk>& desc)
-: DeviceResource(deviceContext, desc)
+: DeviceObject(deviceContext, {})
 {
     ZoneScopedN("RenderTarget()");
 
@@ -504,7 +507,7 @@ RenderTarget<Vk>::RenderTarget(
 
 template <>
 RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
-: DeviceResource(std::move(other))
+: DeviceObject(std::move(other))
 , myAttachments(std::exchange(other.myAttachments, {}))
 , myAttachmentDescs(std::exchange(other.myAttachmentDescs, {}))
 , myAttachmentsReferences(std::exchange(other.myAttachmentsReferences, {}))
@@ -534,7 +537,7 @@ RenderTarget<Vk>::~RenderTarget()
 template <>
 RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 {
-    DeviceResource::operator=(std::move(other));
+    DeviceObject::operator=(std::move(other));
     myAttachments = std::exchange(other.myAttachments, {});
     myAttachmentDescs = std::exchange(other.myAttachmentDescs, {});
     myAttachmentsReferences = std::exchange(other.myAttachmentsReferences, {});
@@ -549,7 +552,7 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 template <>
 void RenderTarget<Vk>::swap(RenderTarget& rhs) noexcept
 {
-    DeviceResource::swap(rhs);
+    DeviceObject::swap(rhs);
     std::swap(myAttachments, rhs.myAttachments);
     std::swap(myAttachmentDescs, rhs.myAttachmentDescs);
     std::swap(myAttachmentsReferences, rhs.myAttachmentsReferences);
