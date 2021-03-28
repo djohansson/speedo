@@ -32,16 +32,16 @@ public:
     ~PipelineLayout();
 
     PipelineLayout& operator=(PipelineLayout&& other) noexcept;
-    operator auto() const { return myLayout; }
-    bool operator==(const PipelineLayout& other) const { return myLayout == other; }
-    bool operator<(const PipelineLayout& other) const { return myLayout < other; }
+    operator auto() const noexcept { return myLayout; }
+    bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
+    bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
 
     void swap(PipelineLayout& rhs) noexcept;
 	friend void swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.swap(rhs); }
 
-    const auto& getShaderModules() const { return myShaderModules; }
-    const auto& getDescriptorSetLayouts() const { return myDescriptorSetLayouts; }
-    const auto& getDescriptorSetLayout(uint32_t set) const
+    const auto& getShaderModules() const noexcept { return myShaderModules; }
+    const auto& getDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
+    const auto& getDescriptorSetLayout(uint32_t set) const noexcept
     {
         const auto& setLayouts = getDescriptorSetLayouts();
         auto setLayoutIt = std::lower_bound(
@@ -82,7 +82,7 @@ struct PipelineResourceView
     std::shared_ptr<ImageView<B>> blackImageView;
 	std::shared_ptr<Image<B>> image;
 	std::shared_ptr<ImageView<B>> imageView;
-	SamplerHandle<B> sampler = {};
+	std::shared_ptr<SamplerVector<B>> samplers = {};
 	// end temp
 };
 
@@ -117,11 +117,9 @@ public:
         AutoSaveJSONFileObject<PipelineConfiguration<B>>&& config);
     ~PipelineContext();
 
-    PipelineContext& operator=(PipelineContext&& other);
-    
-    const auto& getConfig() const { return myConfig; }
-    auto getCache() const { return myCache; }
-    auto getDescriptorPool() const { return myDescriptorPool; }
+    const auto& getConfig() const noexcept { return myConfig; }
+    auto getCache() const noexcept { return myCache; }
+    auto getDescriptorPool() const noexcept { return myDescriptorPool; }
 
     void bindPipeline(
         CommandBufferHandle<B> cmd,
@@ -187,14 +185,14 @@ public:
         uint32_t index);
     
     // temp
-    const auto& getLayout() const { return *myLayout; }
-    auto& getRenderTarget() const { return *myRenderTarget; }
+    const auto& getLayout() const noexcept { return *myLayout; }
+    auto& getRenderTarget() const noexcept { return *myRenderTarget; }
     
     void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
     void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
 
-    auto& resources() { return myGraphicsState.resources; }
+    auto& resources() noexcept { return myGraphicsState.resources; }
     //
 
     // "auto" api end

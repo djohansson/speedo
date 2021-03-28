@@ -56,7 +56,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& 
 
     auto timelineValue = myTimelineValue.load(std::memory_order_relaxed);
 
-    myTimelineCallbacks.push(std::make_tuple(timelineValue, std::move(callback)));
+    myTimelineCallbacks.emplace_back(std::make_tuple(timelineValue, std::move(callback)));
 
     return timelineValue;
 }
@@ -68,7 +68,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 
     auto timelineValue = std::get<0>(callback);
 
-    myTimelineCallbacks.push(std::move(callback));
+    myTimelineCallbacks.emplace_back(std::move(callback));
 
     return timelineValue;
 }
@@ -79,7 +79,7 @@ void DeviceContext<Vk>::addTimelineCallbacks(const std::vector<TimelineCallback>
     ZoneScopedN("DeviceContext::addTimelineCallbacks");
 
     for (const auto& callback : callbacks)
-        myTimelineCallbacks.push(callback);
+        myTimelineCallbacks.push_back(callback);
 }
 
 template <>
@@ -88,13 +88,12 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
     ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
     TimelineCallback callbackTuple;
-    while (myTimelineCallbacks.try_pop(callbackTuple))
+    while (myTimelineCallbacks.try_pop_front(callbackTuple))
     {
         const auto& [commandBufferTimelineValue, callback] = callbackTuple;
 
         if (timelineValue && commandBufferTimelineValue > timelineValue.value())
         {
-            //myTimelineCallbacks.push(std::move(callbackTuple));
             myTimelineCallbacks.emplace_front(std::move(callbackTuple));
             return;
         }
@@ -212,6 +211,8 @@ void DeviceContext<Vk>::clearOwnedObjectHandles(const uuids::uuid& ownerId)
 template <>
 uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 {
+    auto lock = std::shared_lock(myObjectMutex);
+
     return myObjectTypeToCountMap[type];
 }
 

@@ -54,12 +54,12 @@ public:
     ~ShaderModule();
 
     ShaderModule& operator=(ShaderModule&& other) noexcept;
-	operator auto() const { return myShaderModule; }
+	operator auto() const noexcept { return myShaderModule; }
 
 	void swap(ShaderModule& rhs) noexcept;
     friend void swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getEntryPoint() const { return myEntryPoint; }
+	const auto& getEntryPoint() const noexcept { return myEntryPoint; }
 
 private:
 

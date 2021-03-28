@@ -36,10 +36,10 @@ public:
 	void swap(Model& rhs) noexcept;
 	friend void swap(Model& lhs, Model& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const { return myDesc; }
-	const auto& getBindings() const { return myBindings; }
-	constexpr auto getIndexOffset() const { return 0; }
-	const auto& getVertexOffset() const { return myDesc.indexBufferSize; }
+	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& getBindings() const noexcept { return myBindings; }
+	constexpr auto getIndexOffset() const noexcept { return 0; }
+	const auto& getVertexOffset() const noexcept { return myDesc.indexBufferSize; }
 
 private:
 

@@ -56,7 +56,7 @@ struct QueueFamilyDesc
 };
 
 using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
-using TimelineCallbackQueue = ConcurrentQueue<TimelineCallback>;
+using TimelineCallbackQueue = ConcurrentDeque<TimelineCallback>;
 
 template <GraphicsBackend B>
 class DeviceContext : public Noncopyable
@@ -68,17 +68,17 @@ public:
         AutoSaveJSONFileObject<DeviceConfiguration<B>>&& config);
     ~DeviceContext();
 
-    const auto& getDesc() const { return myConfig; }
-    auto getDevice() const { return myDevice; }
-    auto getPhysicalDevice() const { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
-    const auto& getPhysicalDeviceInfo() const { return myInstance->getPhysicalDeviceInfo(getPhysicalDevice()); }
-    auto getSurface() const { return myInstance->getSurface(); }
+    const auto& getDesc() const noexcept { return myConfig; }
+    auto getDevice() const noexcept { return myDevice; }
+    auto getPhysicalDevice() const noexcept { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
+    const auto& getPhysicalDeviceInfo() const noexcept { return myInstance->getPhysicalDeviceInfo(getPhysicalDevice()); }
+    auto getSurface() const noexcept { return myInstance->getSurface(); } // todo: remove
 
-    const auto& getQueueFamilies() const { return myQueueFamilyDescs; }
+    const auto& getQueueFamilies() const noexcept { return myQueueFamilyDescs; }
 
-    auto getAllocator() const { return myAllocator; }
+    auto getAllocator() const noexcept { return myAllocator; }
 
-    const auto& getTimelineSemaphore() const { return myTimelineSemaphore; }
+    const auto& getTimelineSemaphore() const noexcept { return myTimelineSemaphore; }
     uint64_t getTimelineSemaphoreValue() const;
 
     auto& timelineValue() { return myTimelineValue; }
@@ -134,9 +134,9 @@ public:
 
     virtual ~DeviceObject();
 
-    const auto& getName() const { return myDesc.name; }
-    const uuids::uuid& getUid() const { return myUid; }
-    bool isValid() const { return !myUid.is_nil(); }
+    const auto& getName() const noexcept { return myDesc.name; }
+    const uuids::uuid& getUid() const noexcept { return myUid; }
+    bool isValid() const noexcept { return !myUid.is_nil(); }
 
 protected:
 
@@ -156,7 +156,7 @@ protected:
 
     void swap(DeviceObject& rhs) noexcept;
 
-    const auto& getDeviceContext() const { return myDevice; }
+    const auto& getDeviceContext() const noexcept { return myDevice; }
 
 private:
 

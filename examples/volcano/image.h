@@ -52,14 +52,14 @@ public:
     ~Image();
 
     Image& operator=(Image&& other) noexcept;
-    operator auto() const { return std::get<0>(myImage); }
+    operator auto() const noexcept { return std::get<0>(myImage); }
 
     void swap(Image& rhs) noexcept;
     friend void swap(Image& lhs, Image& rhs) noexcept { lhs.swap(rhs); }
 
-    const auto& getDesc() const { return myDesc; }
-    const auto& getImageMemory() const { return std::get<1>(myImage); }
-    const auto& getImageLayout() const { return std::get<2>(myImage); }
+    const auto& getDesc() const noexcept { return myDesc; }
+    const auto& getImageMemory() const noexcept { return std::get<1>(myImage); }
+    const auto& getImageLayout() const noexcept { return std::get<2>(myImage); }
 
     enum class ClearType : uint8_t { Color, DepthStencil };
     void clear(
@@ -86,7 +86,7 @@ private:
     // this method is not meant to be used except in very special cases
     // such as for instance to update the image layout after a render pass
     // (which implicitly changes the image layout).
-    void setImageLayout(ImageLayout<B> layout) { std::get<2>(myImage) = layout; }
+    void setImageLayout(ImageLayout<B> layout) noexcept { std::get<2>(myImage) = layout; }
 
     ImageCreateDesc<B> myDesc = {};
     ValueType myImage = {};
@@ -106,7 +106,7 @@ public:
     ~ImageView();
 
     ImageView& operator=(ImageView&& other) noexcept;
-    operator auto() const { return myView; }
+    operator auto() const noexcept { return myView; }
 
     void swap(ImageView& rhs) noexcept;
     friend void swap(ImageView& lhs, ImageView& rhs) noexcept { lhs.swap(rhs); }

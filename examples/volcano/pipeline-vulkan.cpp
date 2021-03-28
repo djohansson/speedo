@@ -830,10 +830,6 @@ PipelineContext<Vk>::PipelineContext(
         reinterpret_cast<uint64_t>(myDescriptorPool),
         "Device_DescriptorPool");
 
-    // temp
-    myGraphicsState.resources.sampler = createDefaultSampler(device);
-    //
-
     internalResetGraphicsInputState();
     internalResetGraphicsRasterizationState();
     internalResetGraphicsOutputState();
@@ -853,7 +849,6 @@ PipelineContext<Vk>::~PipelineContext()
         vkDestroyPipeline(getDeviceContext()->getDevice(), pipelineIt.second, nullptr);
     
     vkDestroyPipelineCache(getDeviceContext()->getDevice(), myCache, nullptr);
-    vkDestroySampler(getDeviceContext()->getDevice(), myGraphicsState.resources.sampler, nullptr);
 
     myGraphicsState.resources = {};
     myDescriptorMap.clear();

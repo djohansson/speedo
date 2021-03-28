@@ -35,13 +35,13 @@ public:
     ~Buffer();
 
     Buffer& operator=(Buffer&& other) noexcept;
-    operator auto() const { return std::get<0>(myBuffer); }
+    operator auto() const noexcept { return std::get<0>(myBuffer); }
 
     void swap(Buffer& rhs) noexcept;
     friend void swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.swap(rhs); }
 
-    const auto& getDesc() const { return myDesc; }
-    const auto& getBufferMemory() const { return std::get<1>(myBuffer); }
+    const auto& getDesc() const noexcept { return myDesc; }
+    const auto& getBufferMemory() const noexcept { return std::get<1>(myBuffer); }
 
 protected:
 
@@ -77,7 +77,7 @@ public:
     ~BufferView();
 
     BufferView& operator=(BufferView&& other) noexcept;
-    operator auto() const { return myView; }
+    operator auto() const noexcept { return myView; }
 
     void swap(BufferView& rhs) noexcept;
     friend void swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.swap(rhs); }

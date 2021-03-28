@@ -146,14 +146,14 @@ public:
     ~DescriptorUpdateTemplate();
 
     DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
-    operator auto() const { return myHandle; }
-    bool operator==(const DescriptorUpdateTemplate& other) const { return myHandle == other.myHandle; }
+    operator auto() const noexcept { return myHandle; }
+    bool operator==(const DescriptorUpdateTemplate& other) const noexcept { return myHandle == other.myHandle; }
 
     void swap(DescriptorUpdateTemplate& rhs) noexcept;
     friend void swap(DescriptorUpdateTemplate& lhs, DescriptorUpdateTemplate& rhs) noexcept { lhs.swap(rhs); }
 
-    const auto& getDesc() const { return myDesc; }
-    const auto& getEntries() const { return myEntries; }
+    const auto& getDesc() const noexcept { return myDesc; }
+    const auto& getEntries() const noexcept { return myEntries; }
 
     void setEntries(std::vector<DescriptorUpdateTemplateEntry<B>>&& entries);
 

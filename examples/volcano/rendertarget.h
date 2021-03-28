@@ -91,9 +91,9 @@ public:
     virtual void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
     virtual void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
 
-    auto getAttachment(uint32_t index) const { return myAttachments[index]; }
-    const auto& getAttachmentDesc(uint32_t index) const { return myAttachmentDescs[index]; }
-    const auto& getSubpass() const { return myCurrentSubpass; }
+    auto getAttachment(uint32_t index) const noexcept { return myAttachments[index]; }
+    const auto& getAttachmentDesc(uint32_t index) const noexcept { return myAttachmentDescs[index]; }
+    const auto& getSubpass() const noexcept { return myCurrentSubpass; }
     
     void addSubpassDescription(SubpassDescription<B>&& description);
     void addSubpassDependency(SubpassDependency<B>&& dependency);

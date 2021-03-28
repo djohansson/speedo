@@ -139,12 +139,12 @@ public:
     ~CommandPool();
 
     CommandPool& operator=(CommandPool&& other) noexcept;
-    operator auto() const { return myPool; }
+    operator auto() const noexcept { return myPool; }
 
     void swap(CommandPool& rhs) noexcept;
     friend void swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.swap(rhs); }
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getDesc() const noexcept { return myDesc; }
     
     void reset();
     
@@ -186,7 +186,7 @@ public:
     uint64_t execute(CommandPoolContext<B>& callee);
     QueueSubmitInfo<B> prepareSubmit(QueueSyncInfo<B>&& syncInfo);
 
-    // these will be complete when the timeline value is reached of the command buffer they are submitted in.
+    // these will be called when the GPU has reached the timeline value of the submission (prepareSubmit).
     // useful for ensuring that dependencies are respected when releasing resources. do not remove.
     void addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback);
 

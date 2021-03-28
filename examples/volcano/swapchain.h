@@ -22,7 +22,7 @@ public:
     ~Swapchain();
 
 	Swapchain& operator=(Swapchain&& other) noexcept;
-	operator auto() const { return mySwapchain; }
+	operator auto() const noexcept { return mySwapchain; }
 
 	void swap(Swapchain& rhs) noexcept;
     friend void swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.swap(rhs); }
@@ -58,13 +58,19 @@ public:
 	virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) final;
 
-	const auto& getFrames() const { return myFrames; }
+	const auto& getFrames() const noexcept { return myFrames; }
 	auto getRenderPass() { return static_cast<RenderPassHandle<B>>(myFrames[myFrameIndex]); }
-	auto getFrameIndex() const { return myFrameIndex; }
-	auto getLastFrameIndex() const { return myLastFrameIndex; }
+	auto getFrameIndex() const noexcept { return myFrameIndex; }
+	auto getLastFrameIndex() const noexcept { return myLastFrameIndex; }
 
 	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
-	std::tuple<SemaphoreHandle<B>, SemaphoreHandle<B>> getFrameSyncSemaphores() const;
+	std::tuple<SemaphoreHandle<B>, SemaphoreHandle<B>> getFrameSyncSemaphores() const noexcept
+	{
+		const auto& lastFrame = myFrames[myLastFrameIndex];
+		const auto& frame = myFrames[myFrameIndex];
+
+		return std::make_tuple(lastFrame.getNewImageAcquiredSemaphore(), frame.getRenderCompleteSemaphore());
+	}
 	//
 
 	std::tuple<bool, uint64_t> flip();

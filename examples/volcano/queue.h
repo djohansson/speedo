@@ -67,9 +67,9 @@ public:
     ~QueueContext();
 
     QueueContext& operator=(QueueContext&& other) noexcept;
-    operator auto() const { return myQueue; }
+    operator auto() const noexcept { return myQueue; }
 
-    const auto& getDesc() const { return myDesc; }
+    const auto& getDesc() const noexcept { return myDesc; }
 
     void swap(QueueContext& rhs) noexcept;
 	friend void swap(QueueContext& lhs, QueueContext& rhs) noexcept { lhs.swap(rhs); }

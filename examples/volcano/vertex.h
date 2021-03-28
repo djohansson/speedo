@@ -10,8 +10,7 @@
 
 #include <xxhash.h>
 
-// todo: make sure that it will work between multiple ScopedVertexAllocation scopes
-// 		 create some sort of nested data structure holding both stride and byte vector, and make sure that the scope refers to the correct one.
+// todo: delete this whole file - use gltf instead
 class VertexAllocator
 {
 public:
@@ -24,7 +23,7 @@ public:
 		myIsLocked = true;
 	}
 
-	inline void unlock()
+	inline void unlock() 
 	{
 		assert(myIsLocked);
 

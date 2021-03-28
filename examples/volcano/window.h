@@ -43,10 +43,10 @@ public:
     void swap(WindowContext& rhs) noexcept;
     friend void swap(WindowContext& lhs, WindowContext& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const { return myDesc; }
-	const auto& getViews() const { return myViews; }
-	const auto& getActiveView() const { return myActiveView; }
-	const auto& getViewBuffer() const { return *myViewBuffer; }
+	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& getViews() const noexcept { return myViews; }
+	const auto& getActiveView() const noexcept { return myActiveView; }
+	const auto& getViewBuffer() const noexcept { return *myViewBuffer; }
 
 	void onResizeWindow(Extent2d<B> windowExtent) { myDesc.windowExtent = windowExtent;	}
 	void onResizeFramebuffer(Extent2d<B> framebufferExtent);

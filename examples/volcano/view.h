@@ -36,8 +36,8 @@ public:
 		updateAll();
 	}
 
-	const auto& getViewMatrix() const { return myViewMatrix; }
-	const auto& getProjectionMatrix() const { return myProjectionMatrix; }
+	const auto& getViewMatrix() const noexcept { return myViewMatrix; }
+	const auto& getProjectionMatrix() const noexcept { return myProjectionMatrix; }
 
 	auto& desc() { return myDesc; }
 

@@ -18,13 +18,13 @@ public:
     ~SamplerVector();
 
     SamplerVector& operator=(SamplerVector&& other) noexcept;
-    auto operator[](uint32_t index) const { return mySamplers[index]; };
+    auto operator[](uint32_t index) const noexcept { return mySamplers[index]; };
 
     void swap(SamplerVector& rhs) noexcept;
     friend void swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.swap(rhs); }
 
-    auto size() const { return mySamplers.size(); }
-    auto data() const { return mySamplers.data(); }
+    auto size() const noexcept { return mySamplers.size(); }
+    auto data() const noexcept { return mySamplers.data(); }
 
 private:
 

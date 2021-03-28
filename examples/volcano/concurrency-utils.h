@@ -180,43 +180,64 @@ public:
 	}
 };
 
-template <typename T, typename QueueT = std::deque<T>>
-class ConcurrentQueue : public QueueT
+template <typename T, typename DequeT = std::deque<T>>
+class ConcurrentDeque : private DequeT
 {
 public:
 
-	using queue_type = QueueT;
-	using value_type = typename queue_type::value_type;
-	using iterator = typename queue_type::iterator; 
-	using queue_type::push_back;
-	using queue_type::emplace_back;
-	using queue_type::front;
-	using queue_type::pop_front;
-	using queue_type::empty;
+	using deque_type = DequeT;
+	using value_type = typename deque_type::value_type;
 
-	void push(const value_type& src)
+	void push_front(const value_type& src)
 	{
 		auto lock = std::unique_lock(myMutex);
 		
-		push_back(src);
+		deque_type::push_front(src);
 	}
 
-	void push(value_type&& src)
+	void emplace_front(value_type&& src)
 	{
 		auto lock = std::unique_lock(myMutex);
 
-		emplace_back(src);
+		deque_type::emplace_front(src);
 	}
 
-	bool try_pop(value_type& dst)
+	void push_back(const value_type& src)
 	{
 		auto lock = std::unique_lock(myMutex);
 		
-		if (empty())
+		deque_type::push_back(src);
+	}
+
+	void emplace_back(value_type&& src)
+	{
+		auto lock = std::unique_lock(myMutex);
+
+		deque_type::emplace_back(src);
+	}
+
+	bool try_pop_front(value_type& dst)
+	{
+		auto lock = std::unique_lock(myMutex);
+		
+		if (deque_type::empty())
 			return false;
 			
-		dst = front();
-		pop_front();
+		dst = deque_type::front();
+		deque_type::pop_front();
+
+		return true;
+	}
+
+	bool try_pop_back(value_type& dst)
+	{
+		auto lock = std::unique_lock(myMutex);
+		
+		if (deque_type::empty())
+			return false;
+			
+		dst = deque_type::back();
+		deque_type::pop_back();
 
 		return true;
 	}

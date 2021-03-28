@@ -179,12 +179,12 @@ void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
         {
             ZoneScopedN("Application::waitTransfer");
 
-            myDevice->wait(myLastTransferTimelineValue);
+            myDevice->wait(*myLastTransferTimelineValue);
         }
 
-        myDevice->processTimelineCallbacks(std::min(timelineValue, myLastTransferTimelineValue));
+        myDevice->processTimelineCallbacks(std::min(timelineValue, myLastTransferTimelineValue.value()));
         
-        myLastTransferTimelineValue = 0ul;
+        myLastTransferTimelineValue.reset();
     }
     else
     {
@@ -357,6 +357,32 @@ Application<Vk>::Application(
         myDevice,
         *myPipeline->resources().black,
         VK_IMAGE_ASPECT_COLOR_BIT);
+
+    std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
+    samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
+        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        nullptr,
+        0,
+        VK_FILTER_LINEAR,
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        0.0f,
+        VK_TRUE,
+        16,
+        VK_FALSE,
+        VK_COMPARE_OP_ALWAYS,
+        0.0f,
+        1000.0f,
+        VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        VK_FALSE
+    });
+    myPipeline->resources().samplers = std::make_shared<SamplerVector<Vk>>(
+        myDevice, 
+        std::move(samplerCreateInfos));
+    //
     
     // initialize stuff on gfx queue
     {
@@ -375,7 +401,7 @@ Application<Vk>::Application(
             commandContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
@@ -386,28 +412,40 @@ Application<Vk>::Application(
     constexpr uint32_t samplerId = 2;
     static_assert(textureId < ShaderTypes_TextureCount);
     static_assert(samplerId < ShaderTypes_SamplerCount);
-    auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
-    materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
-    materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
-    myMaterials = std::make_unique<Buffer<Vk>>(
-        myDevice,
-        myCommands[CommandContextType::DedicatedTransfer].front(),
-        BufferCreateDesc<Vk>{
-            ShaderTypes_MaterialCount * sizeof(MaterialData),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-        materialData.get());
+    {
+        auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
+        materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
+        materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
+        myMaterials = std::make_unique<Buffer<Vk>>(
+            myDevice,
+            myCommands[CommandContextType::DedicatedTransfer].front(),
+            BufferCreateDesc<Vk>{
+                ShaderTypes_MaterialCount * sizeof(MaterialData),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+            materialData.get());
 
-    auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
-    objectData[666].localTransform = glm::mat4x4(1.0f);
-    myObjects = std::make_unique<Buffer<Vk>>(
-        myDevice,
-        myCommands[CommandContextType::DedicatedTransfer].front(),
-        BufferCreateDesc<Vk>{
-            ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-        objectData.get());
+        auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
+        objectData[666].localTransform = glm::mat4x4(1.0f);
+        myObjects = std::make_unique<Buffer<Vk>>(
+            myDevice,
+            myCommands[CommandContextType::DedicatedTransfer].front(),
+            BufferCreateDesc<Vk>{
+                ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+            objectData.get());
+
+        myTransferQueues.front().enqueueSubmit(
+            myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
+                {},
+                {},
+                {},
+                {myDevice->getTimelineSemaphore()},
+                {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+        myLastTransferTimelineValue = myTransferQueues.front().submit();
+    }
 
     // set global descriptor set data
 
@@ -433,7 +471,7 @@ Application<Vk>::Application(
         
     myPipeline->setDescriptorData(
         "g_samplers",
-        DescriptorImageInfo<Vk>{ myPipeline->resources().sampler },
+        DescriptorImageInfo<Vk>{ (*myPipeline->resources().samplers)[0] },
         DescriptorSetCategory_GlobalSamplers,
         samplerId);
 
@@ -507,7 +545,7 @@ Application<Vk>::Application(
             commandContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
@@ -928,8 +966,11 @@ Application<Vk>::~Application()
 {
     ZoneScopedN("~Application()");
 
-    // todo: replace with frame & transfer sync
-    myDevice->waitIdle();
+    {
+        ZoneScopedN("Application::waitGPU");
+
+        myDevice->wait(std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue));
+    }
     
     shutdownIMGUI();
 
@@ -1038,7 +1079,7 @@ bool Application<Vk>::draw()
             primaryContexts.front().prepareSubmit({
                 {myDevice->getTimelineSemaphore(), imageAquired},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-                {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue), 1},
+                {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue), 1},
                 {myDevice->getTimelineSemaphore(), renderComplete},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
@@ -1089,7 +1130,7 @@ bool Application<Vk>::draw()
                 myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
                     {myDevice->getTimelineSemaphore()},
                     {VK_PIPELINE_STAGE_TRANSFER_BIT},
-                    {std::max(myLastTransferTimelineValue, myLastFrameTimelineValue)},
+                    {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue)},
                     {myDevice->getTimelineSemaphore()},
                     {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
             
@@ -1108,7 +1149,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
     {
         ZoneScopedN("Application::waitGPU");
 
-        myDevice->wait(std::max(myLastTransferTimelineValue, myLastFrameTimelineValue));
+        myDevice->wait(std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue));
     }
 
     auto physicalDevice = myDevice->getPhysicalDevice();

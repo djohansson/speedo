@@ -89,7 +89,6 @@ VkImageView createImageView2D(VkDevice device, VkImageViewCreateFlags flags, VkI
 
 VkSampler createSampler(VkDevice device, const VkSamplerCreateInfo& createInfo);
 std::vector<VkSampler> createSamplers(VkDevice device, const std::vector<VkSamplerCreateInfo>& createInfos);
-VkSampler createDefaultSampler(VkDevice device);
 
 VkFramebuffer createFramebuffer(
 	VkDevice device, VkRenderPass renderPass,

@@ -1,6 +1,7 @@
 // wip: specialize on graphics backend
 // wip: graph based GUI
 // wip: extract descriptor sets
+// todo: multi window/swapchain capability
 // todo: resource loading / manager
 // todo: frame graph
 // todo: compute pipeline
@@ -121,7 +122,7 @@ private:
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 
 	uint64_t myLastFrameTimelineValue = 0ull;
-	uint64_t myLastTransferTimelineValue = 0ull;
+	std::optional<uint64_t> myLastTransferTimelineValue;
 
 	bool myRequestExit = false;
 };

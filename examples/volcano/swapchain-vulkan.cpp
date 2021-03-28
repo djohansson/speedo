@@ -90,15 +90,6 @@ void Swapchain<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLay
 }
 
 template <>
-std::tuple<SemaphoreHandle<Vk>, SemaphoreHandle<Vk>> Swapchain<Vk>::getFrameSyncSemaphores() const
-{
-    const auto& lastFrame = myFrames[myLastFrameIndex];
-    const auto& frame = myFrames[myFrameIndex];
-
-    return std::make_tuple(lastFrame.getNewImageAcquiredSemaphore(), frame.getRenderCompleteSemaphore());
-}
-
-template <>
 std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 {
     ZoneScoped;
