@@ -9,7 +9,7 @@ template <>
 template <typename T, typename... Ts>
 void QueueContext<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 {
-    myPendingPresent ^= std::move(first);
+    myPendingPresent |= std::move(first);
 
     if constexpr (sizeof...(rest) > 0)
         enqueuePresent(std::forward<Ts>(rest)...);
