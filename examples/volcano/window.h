@@ -57,7 +57,8 @@ public:
 	void draw(
 		PipelineContext<B>& pipeline,
 		CommandPoolContext<B>& primaryContext,
-		std::vector<CommandPoolContext<B>>& secondaryContexts);
+		CommandPoolContext<Vk>* secondaryContexts,
+		uint32_t secondaryContextCount);
 	//
 
 private:
@@ -67,8 +68,9 @@ private:
 
 	uint32_t internalDrawViews(
 		PipelineContext<B>& pipeline,
-		std::vector<CommandPoolContext<B>>& secondaryContexts,
-		const RenderPassBeginInfo<Vk>& renderPassInfo,
+		CommandPoolContext<Vk>* secondaryContexts,
+		uint32_t secondaryContextCount,
+		const RenderPassBeginInfo<B>& renderPassInfo,
 		uint8_t frameIndex);
 
 	WindowCreateDesc<B> myDesc = {};

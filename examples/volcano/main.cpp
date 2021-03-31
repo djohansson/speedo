@@ -282,11 +282,15 @@ int main(int argc, char** argv)
 		}
 
 	#if defined(_DEBUG) && defined(__WINDOWS__)
-		_CrtMemState drawLoopMemState, diffMemState;
-		_CrtMemCheckpoint(&drawLoopMemState);
+		{
+			ZoneScopedN("main::memorycheck");
 
-		if ((++frameIndex % 10000 == 0) && _CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
-   			_CrtMemDumpStatistics(&diffMemState);
+			_CrtMemState drawLoopMemState, diffMemState;
+			_CrtMemCheckpoint(&drawLoopMemState);
+
+			if ((++frameIndex % 10000 == 0) && _CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
+				_CrtMemDumpStatistics(&diffMemState);
+		}
 	#endif
 
 	} while (!glfwWindowShouldClose(window) && !volcano_draw());

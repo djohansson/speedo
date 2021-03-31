@@ -1,10 +1,10 @@
-// wip: specialize on graphics backend
 // wip: graph based GUI
-// wip: extract descriptor sets
+// todo: compute pipeline
+// todo: generalize drawcall submission & move out of window class. use sorted draw call lists.
 // todo: multi window/swapchain capability
 // todo: resource loading / manager
+// todo: proper GLTF support
 // todo: frame graph
-// todo: compute pipeline
 // todo: clustered forward shading
 // todo: shader graph
 
@@ -14,6 +14,7 @@
 // done: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 // done: move stuff from headers into compilation units
 // done: remove "gfx" and specialize
+// done: extract descriptor sets
 // cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 
 #pragma once
@@ -85,8 +86,6 @@ private:
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 
-	void processTimelineCallbacks(uint64_t frameLastSubmitTimelineValue);
-
 	std::filesystem::path myRootPath;
 	std::filesystem::path myResourcePath;
 	std::filesystem::path myUserProfilePath;
@@ -102,12 +101,21 @@ private:
 	std::shared_ptr<PipelineContext<B>> myPipeline;
 	//std::shared_ptr<ResourceContext<B>> myResources;
 
-	std::vector<QueueContext<B>> myGraphicsQueues;
-	std::vector<QueueContext<B>> myComputeQueues;
-	std::vector<QueueContext<B>> myTransferQueues;
+	std::list<QueueContext<B>> myGraphicsQueues;
+	std::list<QueueContext<B>> myComputeQueues;
+	std::list<QueueContext<B>> myTransferQueues;
 	
-	enum class CommandContextType : uint8_t { GeneralPrimary, GeneralSecondary, DedicatedCompute, DedicatedTransfer };
-	UnorderedMap<CommandContextType, std::vector<CommandPoolContext<B>>> myCommands;
+	enum CommandContextType : uint8_t
+	{
+		CommandContextType_GeneralPrimary,
+		CommandContextType_GeneralSecondary,
+		CommandContextType_GeneralTransfer,
+		CommandContextType_DedicatedCompute,
+		CommandContextType_DedicatedTransfer,
+		CommandContextType_Count
+	};
+	
+	std::array<WrapContainer<CommandPoolContext<B>>, CommandContextType_Count> myCommands;
 
 	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
 	
@@ -121,8 +129,8 @@ private:
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 
-	uint64_t myLastFrameTimelineValue = 0ull;
-	std::optional<uint64_t> myLastTransferTimelineValue;
+	std::future<void> myPresentFuture;
+	std::future<void> myProcessTimelineCallbacksFuture;
 
 	bool myRequestExit = false;
 };

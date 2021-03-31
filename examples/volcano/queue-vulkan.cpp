@@ -206,6 +206,8 @@ uint64_t QueueContext<Vk>::submit()
 
     myPendingSubmits.clear();
 
+    myLastSubmitTimelineValue = maxTimelineValue;
+
     return maxTimelineValue;
 }
 

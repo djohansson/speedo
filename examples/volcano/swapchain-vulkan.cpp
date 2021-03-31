@@ -148,6 +148,8 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 template <>
 QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
 {
+    ZoneScopedN("Swapchain::preparePresent");
+
     myLastFrameIndex = myFrameIndex;
 
     auto presentInfo = myFrames[myFrameIndex].preparePresent(timelineValue);
@@ -161,7 +163,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
     RenderTargetCreateDesc<Vk>&& desc,
     SwapchainHandle<Vk> previous)
 {
-    ZoneScopedN("internalCreateSwapchain()");
+    ZoneScopedN("Swapchain::internalCreateSwapchain");
 
     myDesc = std::move(desc);
 

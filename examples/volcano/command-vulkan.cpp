@@ -115,15 +115,46 @@ void CommandBufferArray<Vk>::reset()
 
     assert(!recordingFlags());
     assert(head() < kCommandBufferCount);
-    
-    for (uint32_t i = 0ul; i < myBits.head; i++)
+
+    if (getDesc().useBufferReset)
     {
-        ZoneScopedN("CommandBufferArray::reset::vkResetCommandBuffer");
-        
-        VK_CHECK(vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
+        for (uint32_t i = 0ul; i < head(); i++)
+        {
+            ZoneScopedN("CommandBufferArray::reset::vkResetCommandBuffer");
+            
+            VK_CHECK(vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
+        }
     }
 
     myBits = {0, 0};
+}
+
+template <>
+uint8_t CommandBufferArray<Vk>::begin(
+    const CommandBufferBeginInfo<Vk>& beginInfo)
+{
+    ZoneScopedN("CommandBufferArray::begin");
+
+    assert(!recording(myBits.head));
+    assert(!full());
+    
+    VK_CHECK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
+
+    myBits.recordingFlags |= (1 << myBits.head);
+
+    return static_cast<uint8_t>(myBits.head++);
+}
+
+template <>
+void CommandBufferArray<Vk>::end(uint8_t index)
+{
+    ZoneScopedN("CommandBufferArray::end");
+
+    assert(recording(index));
+
+    myBits.recordingFlags &= ~(1 << index);
+
+    VK_CHECK(vkEndCommandBuffer(myArray[index]));
 }
 
 template <>
@@ -191,13 +222,20 @@ void CommandPool<Vk>::swap(CommandPool& rhs) noexcept
 template <>
 void CommandPool<Vk>::reset()
 {
-    VK_CHECK(vkResetCommandPool(getDeviceContext()->getDevice(), myPool, 0));
+    ZoneScopedN("CommandPool::reset");
+
+    if (getDesc().usePoolReset)
+    {
+        ZoneScopedN("CommandPool::reset::vkResetCommandPool");
+
+        VK_CHECK(vkResetCommandPool(getDeviceContext()->getDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
+    }
 }
 
 template <>
-void CommandPoolContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
+void CommandPoolContext<Vk>::internalEnqueueOnePending(CommandBufferLevel<Vk> level)
 {
-    ZoneScopedN("CommandPoolContext::enqueueOnePending");
+    ZoneScopedN("CommandPoolContext::internalEnqueueOnePending");
 
     if (!myFreeCommands[level].empty())
     {
@@ -221,8 +259,7 @@ void CommandPoolContext<Vk>::enqueueOnePending(CommandBufferLevel<Vk> level)
                 CommandBufferArray<Vk>(
                     getDeviceContext(),
                     CommandBufferArrayCreateDesc<Vk>{*this, level}),
-                0,
-                std::reference_wrapper(*this)));
+                0));
     }
 }
 
@@ -289,7 +326,7 @@ CommandBufferAccessScope<Vk> CommandPoolContext<Vk>::internalBeginScope(
     const CommandBufferAccessScopeDesc<Vk>& beginInfo)
 {
     if (myPendingCommands[beginInfo.level].empty() || std::get<0>(myPendingCommands[beginInfo.level].back()).full())
-        enqueueOnePending(beginInfo.level);
+        internalEnqueueOnePending(beginInfo.level);
 
     myRecordingCommands[beginInfo.level].emplace(
         CommandBufferAccessScope(
@@ -306,99 +343,48 @@ CommandBufferAccessScope<Vk> CommandPoolContext<Vk>::internalCommands(const Comm
 }
 
 template <>
-void CommandPoolContext<Vk>::enqueueExecuted(CommandBufferListType&& commands, uint64_t timelineValue)
-{
-    ZoneScopedN("CommandPoolContext::enqueueExecuted");
-
-    for (auto& [cmdArray, cmdTimelineValue, cmdContextRef] : commands)
-        cmdTimelineValue = timelineValue;
-
-    myExecutedCommands.splice(myExecutedCommands.end(), std::move(commands));
-
-    getDeviceContext()->addTimelineCallback(
-        std::make_tuple(timelineValue, [this](uint64_t timelineValue)
-        {
-            ZoneScopedN("CommandPoolContext::cmdReset");
-
-            auto onResetCommands = [](CommandBufferListType& from, uint64_t timelineValue)
-            {
-                auto fromBeginIt = from.begin();
-                auto fromIt = fromBeginIt;
-
-                while (fromIt != from.end())
-                {
-                    auto& [fromArray, fromTimelineValue, contextRef] = *fromIt;
-
-                    if (fromTimelineValue >= timelineValue)
-                        break;
-                    
-                    fromArray.reset();
-                    
-                    // fromIt++;
-                    // from.pop_front();
-
-                    auto& context = contextRef.get();
-                    auto& to = context.myFreeCommands[fromArray.getDesc().level];
-                    
-                    to.splice(to.end(), from, fromIt++);
-                }
-            };
-
-            onResetCommands(myExecutedCommands, timelineValue);
-        }));
-}
-
-template <>
 void CommandPoolContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback)
 {
-    mySubmitFinishedCallbacks.emplace_back(std::make_tuple(0, std::move(callback)));
+    myCommandsFinishedCallbacks.emplace_back(std::make_tuple(0, std::move(callback)));
 }
 
 template <>
-void CommandPoolContext<Vk>::enqueueSubmitted(CommandBufferListType&& commands, uint64_t timelineValue)
+void CommandPoolContext<Vk>::internalEnqueueSubmitted(CommandBufferListType&& commands, CommandBufferLevel<Vk> level, uint64_t timelineValue)
 {
-    ZoneScopedN("CommandPoolContext::enqueueSubmitted");
+    ZoneScopedN("CommandPoolContext::internalEnqueueSubmitted");
 
-    for (auto& [cmdArray, cmdTimelineValue, cmdContextRef] : commands)
+    for (auto& [cmdArray, cmdTimelineValue] : commands)
         cmdTimelineValue = timelineValue;
 
-    mySubmittedCommands.splice(mySubmittedCommands.end(), std::move(commands));
+    mySubmittedCommands[level].splice(mySubmittedCommands[level].end(), std::move(commands));
 
-    addCommandsFinishedCallback([this](uint64_t timelineValue)
+    while (!myCommandsFinishedCallbacks.empty())
     {
-        ZoneScopedN("CommandPoolContext::cmdReset");
-
-        auto onResetCommands = [](CommandBufferListType& from, CommandBufferListType& to, uint64_t timelineValue)
-        {
-            auto fromBeginIt = from.begin();
-            auto fromIt = fromBeginIt;
-
-            while (fromIt != from.end())
-            {
-                auto& [fromArray, fromTimelineValue, contextRef] = *fromIt;
-
-                if (fromTimelineValue >= timelineValue)
-                    break;
-
-                fromArray.reset();
-                fromIt++;
-                // from.pop_front();
-            }
-
-            to.splice(to.end(), std::move(from), fromBeginIt, fromIt);
-        };
-
-        onResetCommands(
-            mySubmittedCommands,
-            myFreeCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY],
-            timelineValue);
-    });
-
-    for (auto& callback : mySubmitFinishedCallbacks)
+        auto& callback = myCommandsFinishedCallbacks.front();
         std::get<0>(callback) = timelineValue;
+        getDeviceContext()->addTimelineCallback(std::move(callback));
+        myCommandsFinishedCallbacks.pop_front();
+    }
+}
 
-    getDeviceContext()->addTimelineCallbacks(mySubmitFinishedCallbacks);
-    mySubmitFinishedCallbacks.clear();
+template <>
+void CommandPoolContext<Vk>::reset()
+{
+    ZoneScopedN("CommandPoolContext::reset");
+
+    CommandPool<Vk>::reset();
+
+    for (uint32_t levelIt = 0ul; levelIt < kCommandBufferLevelCount; levelIt++)
+    {
+        auto& submittedCommandList = mySubmittedCommands[levelIt];
+
+        for (auto& commands : submittedCommandList)
+            std::get<0>(commands).reset();
+
+        auto& freeCommandList = myFreeCommands[levelIt];
+
+        freeCommandList.splice(freeCommandList.end(), std::move(submittedCommandList));
+    }
 }
 
 template <>
@@ -416,7 +402,7 @@ QueueSubmitInfo<Vk> CommandPoolContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& sy
     QueueSubmitInfo<Vk> submitInfo{std::move(syncInfo), {}, 0};
     submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
 
-    for (const auto& [cmdArray, cmdTimelineValue, cmdContextRef] : pendingCommands)
+    for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
     {
         assert(!cmdArray.recordingFlags());
         auto cmdCount = cmdArray.head();
@@ -429,7 +415,7 @@ QueueSubmitInfo<Vk> CommandPoolContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& sy
 
     submitInfo.timelineValue = *maxSignalValue;
 
-    enqueueSubmitted(std::move(pendingCommands), *maxSignalValue);
+    internalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
     
     return submitInfo;
 }
@@ -441,42 +427,17 @@ uint64_t CommandPoolContext<Vk>::execute(CommandPoolContext<Vk>& callee)
 
     callee.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 
-    for (const auto& [cmdArray, cmdTimelineValue, cmdContextRef] : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
+    for (const auto& [cmdArray, cmdTimelineValue] : callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
         vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
 
     auto timelineValue = getDeviceContext()->timelineValue().load(std::memory_order_relaxed);
 
-	enqueueExecuted(std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]), timelineValue);
+	callee.internalEnqueueSubmitted(
+        std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]),
+        VK_COMMAND_BUFFER_LEVEL_SECONDARY,
+        timelineValue);
 
     return timelineValue;
-}
-
-template <>
-uint8_t CommandBufferArray<Vk>::begin(
-    const CommandBufferBeginInfo<Vk>& beginInfo)
-{
-    ZoneScopedN("CommandBufferArray::begin");
-
-    assert(!recording(myBits.head));
-    assert(!full());
-    
-    VK_CHECK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
-
-    myBits.recordingFlags |= (1 << myBits.head);
-
-    return static_cast<uint8_t>(myBits.head++);
-}
-
-template <>
-void CommandBufferArray<Vk>::end(uint8_t index)
-{
-    ZoneScopedN("CommandBufferArray::end");
-
-    assert(recording(index));
-
-    myBits.recordingFlags &= ~(1 << index);
-
-    VK_CHECK(vkEndCommandBuffer(myArray[index]));
 }
 
 template <>
@@ -484,9 +445,6 @@ CommandPoolContext<Vk>::CommandPoolContext(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CommandPoolCreateDesc<Vk>&& poolDesc)
 : CommandPool(deviceContext, std::move(poolDesc))
-, myPendingCommands(2)
-, myFreeCommands(2)
-, myRecordingCommands(2)
 {
     ZoneScopedN("CommandPoolContext()");
 }
@@ -495,11 +453,10 @@ template <>
 CommandPoolContext<Vk>::CommandPoolContext(CommandPoolContext&& other) noexcept
 : CommandPool(std::move(other))
 , myPendingCommands(std::exchange(other.myPendingCommands, {}))
-, myExecutedCommands(std::exchange(other.myExecutedCommands, {}))
 , mySubmittedCommands(std::exchange(other.mySubmittedCommands, {}))
 , myFreeCommands(std::exchange(other.myFreeCommands, {}))
 , myRecordingCommands(std::exchange(other.myRecordingCommands, {}))
-, mySubmitFinishedCallbacks(std::exchange(other.mySubmitFinishedCallbacks, {}))
+, myCommandsFinishedCallbacks(std::exchange(other.myCommandsFinishedCallbacks, {}))
 {
 }
 
@@ -508,12 +465,15 @@ CommandPoolContext<Vk>::~CommandPoolContext()
 {
     ZoneScopedN("~CommandPoolContext()");
 
-    if (!mySubmittedCommands.empty())
+    for (auto& submittedCommandList : mySubmittedCommands)
     {
-        const auto& [cmdArray, cmdTimelineValue, cmdContextRef] = mySubmittedCommands.back();
+        if (!submittedCommandList.empty())
+        {
+            const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
 
-        getDeviceContext()->wait(cmdTimelineValue);
-        getDeviceContext()->processTimelineCallbacks(cmdTimelineValue);
+            getDeviceContext()->wait(cmdTimelineValue);
+            getDeviceContext()->processTimelineCallbacks(cmdTimelineValue);
+        }
     }
 }
 
@@ -522,11 +482,10 @@ CommandPoolContext<Vk>& CommandPoolContext<Vk>::operator=(CommandPoolContext&& o
 {
     CommandPool::operator=(std::move(other));
     myPendingCommands = std::exchange(other.myPendingCommands, {});
-    myExecutedCommands = std::exchange(other.myExecutedCommands, {});
     mySubmittedCommands = std::exchange(other.mySubmittedCommands, {});
     myFreeCommands = std::exchange(other.myFreeCommands, {});
     myRecordingCommands = std::exchange(other.myRecordingCommands, {});
-    mySubmitFinishedCallbacks = std::exchange(other.mySubmitFinishedCallbacks, {});
+    myCommandsFinishedCallbacks = std::exchange(other.myCommandsFinishedCallbacks, {});
     return *this;
 }
 
@@ -535,9 +494,8 @@ void CommandPoolContext<Vk>::swap(CommandPoolContext& other) noexcept
 {
     CommandPool::swap(other);
     std::swap(myPendingCommands, other.myPendingCommands);
-    std::swap(myExecutedCommands, other.myExecutedCommands);
     std::swap(mySubmittedCommands, other.mySubmittedCommands);
     std::swap(myFreeCommands, other.myFreeCommands);
     std::swap(myRecordingCommands, other.myRecordingCommands);
-    std::swap(mySubmitFinishedCallbacks, other.mySubmitFinishedCallbacks);
+    std::swap(myCommandsFinishedCallbacks, other.myCommandsFinishedCallbacks);
 }

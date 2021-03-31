@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <shared_mutex>
 
 #include <stb_sprintf.h>
 
@@ -74,16 +75,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 }
 
 template <>
-void DeviceContext<Vk>::addTimelineCallbacks(const std::vector<TimelineCallback>& callbacks)
-{
-    ZoneScopedN("DeviceContext::addTimelineCallbacks");
-
-    for (const auto& callback : callbacks)
-        myTimelineCallbacks.push_back(callback);
-}
-
-template <>
-void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
+bool DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
 {
     ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
@@ -95,11 +87,13 @@ void DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelin
         if (timelineValue && commandBufferTimelineValue > timelineValue.value())
         {
             myTimelineCallbacks.emplace_front(std::move(callbackTuple));
-            return;
+            return false;
         }
 
         callback(commandBufferTimelineValue);
     }
+
+    return true;
 }
 
 template <>

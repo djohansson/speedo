@@ -171,26 +171,6 @@ void Application<Vk>::createWindowDependentObjects(
     myPipeline->setRenderTarget(myRenderImageSet);
 }
 
-template <>
-void Application<Vk>::processTimelineCallbacks(uint64_t timelineValue)
-{
-    if (myLastTransferTimelineValue)
-    {
-        {
-            ZoneScopedN("Application::waitTransfer");
-
-            myDevice->wait(*myLastTransferTimelineValue);
-        }
-
-        myDevice->processTimelineCallbacks(std::min(timelineValue, myLastTransferTimelineValue.value()));
-        
-        myLastTransferTimelineValue.reset();
-    }
-    else
-    {
-        myDevice->processTimelineCallbacks(timelineValue);
-    }
-}
 
 namespace application
 {
@@ -260,14 +240,15 @@ Application<Vk>::Application(
     {
         uint32_t frameCount = myDevice->getDesc().swapchainConfig->imageCount;
 
-        auto& primaryContexts = myCommands[CommandContextType::GeneralPrimary];
-        auto& secondaryContexts = myCommands[CommandContextType::GeneralSecondary];
-        auto& dedicatedComputeCommands = myCommands[CommandContextType::DedicatedCompute];
-        auto& dedicatedTransferCommands = myCommands[CommandContextType::DedicatedTransfer];
+        auto& primaryContexts = myCommands[CommandContextType_GeneralPrimary];
+        auto& secondaryContexts = myCommands[CommandContextType_GeneralSecondary];
+        auto& generalTransferContexts = myCommands[CommandContextType_GeneralTransfer];
+        auto& dedicatedComputeContexts = myCommands[CommandContextType_DedicatedCompute];
+        auto& dedicatedTransferContexts = myCommands[CommandContextType_DedicatedTransfer];
 
         VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-        static constexpr bool useCommandBufferReset = true;
+        static constexpr bool useCommandBufferReset = false;
         if (useCommandBufferReset)
             cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
@@ -295,7 +276,11 @@ Application<Vk>::Application(
                     }
                 }
 
-                // only need one for now..
+                generalTransferContexts.emplace_back(
+                    CommandPoolContext<Vk>(
+                        myDevice,
+                        CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
                 myGraphicsQueues.emplace_back(
                     QueueContext<Vk>(
                         myDevice,
@@ -307,25 +292,31 @@ Application<Vk>::Application(
             }
             else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
             {
-                dedicatedComputeCommands.emplace_back(
+                // only need one for now..
+
+                dedicatedComputeContexts.emplace_back(
                     CommandPoolContext<Vk>(
                         myDevice,
                         CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-                // only need one for now..
                 myComputeQueues.emplace_back(
                     QueueContext<Vk>(
                         myDevice,
-                        QueueContextCreateDesc<Vk>{0, queueFamilyIndex, std::nullopt}));
+                        QueueContextCreateDesc<Vk>{
+                            0,
+                            queueFamilyIndex,
+                            dedicatedComputeContexts.front().commands(
+                                CommandBufferAccessScopeDesc<Vk>(false))}));
             }
             else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
             {
-                dedicatedTransferCommands.emplace_back(
+                // only need one for now..
+                
+                dedicatedTransferContexts.emplace_back(
                     CommandPoolContext<Vk>(
                         myDevice,
                         CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
                 
-                // only need one for now..
                 myTransferQueues.emplace_back(
                     QueueContext<Vk>(
                         myDevice,
@@ -362,7 +353,7 @@ Application<Vk>::Application(
     samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
         VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         nullptr,
-        0,
+        0u,
         VK_FILTER_LINEAR,
         VK_FILTER_LINEAR,
         VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -371,7 +362,7 @@ Application<Vk>::Application(
         VK_SAMPLER_ADDRESS_MODE_REPEAT,
         0.0f,
         VK_TRUE,
-        16,
+        16.f,
         VK_FALSE,
         VK_COMPARE_OP_ALWAYS,
         0.0f,
@@ -384,10 +375,10 @@ Application<Vk>::Application(
         std::move(samplerCreateInfos));
     //
     
-    // initialize stuff on gfx queue
+    // initialize stuff on general transfer queue
     {
-        auto& commandContext = myCommands[CommandContextType::GeneralPrimary].front();
-        auto cmd = commandContext.commands();
+        auto& generalTransferContext = myCommands[CommandContextType_GeneralTransfer].front();
+        auto cmd = generalTransferContext.commands();
 
         myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
@@ -398,14 +389,14 @@ Application<Vk>::Application(
         cmd.end();
 
         myGraphicsQueues.front().enqueueSubmit(
-            commandContext.prepareSubmit({
+            generalTransferContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-                {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue)},
+                {myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastFrameTimelineValue = myGraphicsQueues.front().submit();
+        myGraphicsQueues.front().submit();
     }
 
     constexpr uint32_t textureId = 1;
@@ -413,12 +404,14 @@ Application<Vk>::Application(
     static_assert(textureId < ShaderTypes_TextureCount);
     static_assert(samplerId < ShaderTypes_SamplerCount);
     {
+        auto& dedicatedTransferContext = myCommands[CommandContextType_DedicatedTransfer].front();
+
         auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
         materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
         materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
         myMaterials = std::make_unique<Buffer<Vk>>(
             myDevice,
-            myCommands[CommandContextType::DedicatedTransfer].front(),
+            dedicatedTransferContext,
             BufferCreateDesc<Vk>{
                 ShaderTypes_MaterialCount * sizeof(MaterialData),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -429,7 +422,7 @@ Application<Vk>::Application(
         objectData[666].localTransform = glm::mat4x4(1.0f);
         myObjects = std::make_unique<Buffer<Vk>>(
             myDevice,
-            myCommands[CommandContextType::DedicatedTransfer].front(),
+            dedicatedTransferContext,
             BufferCreateDesc<Vk>{
                 ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -437,14 +430,14 @@ Application<Vk>::Application(
             objectData.get());
 
         myTransferQueues.front().enqueueSubmit(
-            myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
+            dedicatedTransferContext.prepareSubmit({
                 {},
                 {},
                 {},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastTransferTimelineValue = myTransferQueues.front().submit();
+        myTransferQueues.front().submit();
     }
 
     // set global descriptor set data
@@ -490,30 +483,46 @@ Application<Vk>::Application(
 
     auto loadModel = [this](nfdchar_t* openFilePath)
     {
+        auto& dedicatedTransferContext = myCommands[CommandContextType_DedicatedTransfer].fetchAdd();
+
+        std::rotate(myTransferQueues.begin(), std::next(myTransferQueues.begin()), myTransferQueues.end());
+
+        myDevice->wait(myTransferQueues.front().getLastSubmitTimelineValue().value_or(0));
+
+        dedicatedTransferContext.reset();
+
         myPipeline->setModel(
             std::make_shared<Model<Vk>>(
                 myDevice,
-                myCommands[CommandContextType::DedicatedTransfer].front(),
+                dedicatedTransferContext,
                 openFilePath));
 
         myTransferQueues.front().enqueueSubmit(
-            myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
+            dedicatedTransferContext.prepareSubmit({
                 {},
                 {},
                 {},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastTransferTimelineValue = myTransferQueues.front().submit();
+        myTransferQueues.front().submit();
 
         return 1;
     };
 
     auto loadImage = [this](nfdchar_t* openFilePath)
     {
+        auto& dedicatedTransferContext = myCommands[CommandContextType_DedicatedTransfer].fetchAdd();
+
+        std::rotate(myTransferQueues.begin(), std::next(myTransferQueues.begin()), myTransferQueues.end());
+
+        myDevice->wait(myTransferQueues.front().getLastSubmitTimelineValue().value_or(0));
+
+        dedicatedTransferContext.reset();
+
         myPipeline->resources().image = std::make_shared<Image<Vk>>(
             myDevice,
-            myCommands[CommandContextType::DedicatedTransfer].front(),
+            dedicatedTransferContext,
             openFilePath);
         myPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
             myDevice,
@@ -521,19 +530,19 @@ Application<Vk>::Application(
             VK_IMAGE_ASPECT_COLOR_BIT);
 
         myTransferQueues.front().enqueueSubmit(
-            myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
+            dedicatedTransferContext.prepareSubmit({
                 {},
                 {},
                 {},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastTransferTimelineValue = myTransferQueues.front().submit();
+        myTransferQueues.front().submit();
 
         ///////////
 
-        auto& commandContext = myCommands[CommandContextType::GeneralPrimary].front();
-        auto cmd = commandContext.commands();
+        auto& generalTransferContext = myCommands[CommandContextType_GeneralTransfer].front();
+        auto cmd = generalTransferContext.commands();
 
         myPipeline->resources().image->transition(
             cmd,
@@ -542,14 +551,14 @@ Application<Vk>::Application(
         cmd.end();
 
         myGraphicsQueues.front().enqueueSubmit(
-            commandContext.prepareSubmit({
+            generalTransferContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore()},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-                {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue)},
+                {myTransferQueues.front().getLastSubmitTimelineValue().value_or(0)},
                 {myDevice->getTimelineSemaphore()},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-        myLastFrameTimelineValue = myGraphicsQueues.front().submit();
+        myGraphicsQueues.front().submit();
 
         ///////////
 
@@ -969,7 +978,19 @@ Application<Vk>::~Application()
     {
         ZoneScopedN("Application::waitGPU");
 
-        myDevice->wait(std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue));
+        // wait in on all queues
+        uint64_t timelineValue = 0ull;
+
+        for (const auto& queue : myGraphicsQueues)
+            timelineValue = std::max(timelineValue, queue.getLastSubmitTimelineValue().value_or(0));
+
+        for (const auto& queue : myComputeQueues)
+            timelineValue = std::max(timelineValue, queue.getLastSubmitTimelineValue().value_or(0));
+
+        for (const auto& queue : myTransferQueues)
+            timelineValue = std::max(timelineValue, queue.getLastSubmitTimelineValue().value_or(0));
+
+        myDevice->wait(timelineValue);
     }
     
     shutdownIMGUI();
@@ -1014,29 +1035,53 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("Application::draw");
 
-    auto [flipSuccess, frameLastPresentTimelineValue] = myWindow->flip();
+    if (myPresentFuture.valid() && !is_ready(myPresentFuture))
+    {
+        ZoneScopedN("Application::draw::waitPresent");
+
+        myPresentFuture.get();
+    }
+
+    if (myProcessTimelineCallbacksFuture.valid() && !is_ready(myProcessTimelineCallbacksFuture))
+    {
+        ZoneScopedN("Application::draw::waitProcessTimelineCallbacks");
+
+        myProcessTimelineCallbacksFuture.get();
+    }
+
+    auto [flipSuccess, lastPresentTimelineValue] = myWindow->flip();
 
     if (flipSuccess)
     {
-        auto& primaryContexts = myCommands[CommandContextType::GeneralPrimary];
-        auto& secondaryContexts = myCommands[CommandContextType::GeneralSecondary];
+        auto& primaryContext = myCommands[CommandContextType_GeneralPrimary].fetchAdd();
+        auto secondaryContextCount = 4;
+        auto secondaryContexts = &myCommands[CommandContextType_GeneralSecondary].fetchAdd(secondaryContextCount);
 
-        std::rotate(primaryContexts.begin(), primaryContexts.begin() + 1, primaryContexts.end());
-        std::rotate(secondaryContexts.begin(), secondaryContexts.begin() + 4, secondaryContexts.end());
+        std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
         
         std::future<void> imguiPrepareDrawFuture(std::async(std::launch::async, [this]
         {
             myIMGUIPrepareDrawFunction();
         }));
 
-        if (frameLastPresentTimelineValue)
+        if (lastPresentTimelineValue)
         {
-            ZoneScopedN("Application::waitFrameGPUCommands");
+            ZoneScopedN("Application::draw::waitFrame");
 
-            myDevice->wait(frameLastPresentTimelineValue);
+            // todo: don't wait on transfer here - use callback to publish updated resources instead
+
+            myDevice->wait(
+                std::max(
+                    lastPresentTimelineValue,
+                    myTransferQueues.front().getLastSubmitTimelineValue().value_or(0)));
+            
+            primaryContext.reset();
+
+            for (uint secIt = 0; secIt < secondaryContextCount; secIt++)
+                secondaryContexts[secIt].reset();
         }
 
-        auto cmd = primaryContexts.front().commands();
+        auto cmd = primaryContext.commands();
 
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), collect);
@@ -1054,16 +1099,21 @@ bool Application<Vk>::draw()
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
             myWindow->updateInput(myInput);
-            myWindow->draw(*myPipeline, primaryContexts.front(), secondaryContexts);
+            myWindow->draw(*myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
             myWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+            
+            if (imguiPrepareDrawFuture.valid() && !is_ready(imguiPrepareDrawFuture))
             {
-                ZoneScopedN("Application::waitImguiPrepareDraw");
+                ZoneScopedN("Application::draw::waitImguiPrepareDraw");
+
                 imguiPrepareDrawFuture.get();
             }
+            
             myIMGUIDrawFunction(cmd);
+
             myWindow->end(cmd);
         }
         {
@@ -1076,65 +1126,44 @@ bool Application<Vk>::draw()
         auto [imageAquired, renderComplete] = myWindow->getFrameSyncSemaphores();
         
         myGraphicsQueues.front().enqueueSubmit(
-            primaryContexts.front().prepareSubmit({
+            primaryContext.prepareSubmit({
                 {myDevice->getTimelineSemaphore(), imageAquired},
                 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-                {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue), 1},
+                {myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0), 1},
                 {myDevice->getTimelineSemaphore(), renderComplete},
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
-        myLastFrameTimelineValue = myGraphicsQueues.front().submit();
-        
-        myGraphicsQueues.front().enqueuePresent(myWindow->preparePresent(myLastFrameTimelineValue));
+        myGraphicsQueues.front().enqueuePresent(
+            myWindow->preparePresent(
+                myGraphicsQueues.front().submit()));
     }
 
-    auto processTimelineCallbacksFuture(
-        std::async(
+    {
+        ZoneScopedN("Application::draw::launchAsync");
+
+        myPresentFuture = std::async(
             std::launch::async,
-            &Application<Vk>::processTimelineCallbacks,
-            this,
-            frameLastPresentTimelineValue));
+            [_flipSuccess = flipSuccess, &queue = myGraphicsQueues.front()]{ if (_flipSuccess) queue.present(); });
 
-    if (flipSuccess)
-        myGraphicsQueues.front().present();
-
-    // wait for timeline callbacks
-    {
-        ZoneScopedN("Application::waitProcessTimelineCallbacks");
-
-        processTimelineCallbacksFuture.get();
+        myProcessTimelineCallbacksFuture = std::async(
+            std::launch::async,
+            [_lastPresentTimelineValue = lastPresentTimelineValue, &deviceContext = myDevice]{
+                deviceContext->processTimelineCallbacks(_lastPresentTimelineValue); });
     }
 
-    // record and submit transfers
     {
-        ZoneScopedN("Application::transfers");
-
-        uint32_t transferCount = 0ul;
+        ZoneScopedN("Application::draw::handleAsync");
 
         if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
         {
-            ZoneScopedN("Application::openFileCallback");
+            ZoneScopedN("Application::draw::openFileCallback");
 
             const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
             if (openFileResult == NFD_OKAY)
             {
-                transferCount += onCompletionCallback(openFilePath);
-                free(openFilePath);
-                ++transferCount;
+                onCompletionCallback(openFilePath);
+                std::free(openFilePath);
             }
-        }
-
-        if (transferCount)
-        {
-            myTransferQueues.front().enqueueSubmit(
-                myCommands[CommandContextType::DedicatedTransfer].front().prepareSubmit({
-                    {myDevice->getTimelineSemaphore()},
-                    {VK_PIPELINE_STAGE_TRANSFER_BIT},
-                    {std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue)},
-                    {myDevice->getTimelineSemaphore()},
-                    {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-            
-            myLastTransferTimelineValue = myTransferQueues.front().submit();
         }
     }
 
@@ -1147,9 +1176,9 @@ void Application<Vk>::resizeFramebuffer(int, int)
     ZoneScopedN("Application::resizeFramebuffer");
 
     {
-        ZoneScopedN("Application::waitGPU");
+        ZoneScopedN("Application::resizeFramebuffer::waitGPU");
 
-        myDevice->wait(std::max(myLastTransferTimelineValue.value_or(0), myLastFrameTimelineValue));
+        myDevice->wait(myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0));
     }
 
     auto physicalDevice = myDevice->getPhysicalDevice();

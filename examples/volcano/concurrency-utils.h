@@ -242,6 +242,20 @@ public:
 		return true;
 	}
 
+	void insert_front(typename deque_type::iterator beginIt, typename deque_type::iterator endIt)
+	{
+		auto lock = std::unique_lock(myMutex);
+
+		deque_type::insert(deque_type::begin(), beginIt, endIt);
+	}
+
+	void insert_back(typename deque_type::iterator beginIt, typename deque_type::iterator endIt)
+	{
+		auto lock = std::unique_lock(myMutex);
+
+		deque_type::insert(deque_type::end(), beginIt, endIt);
+	}
+
 private:
 
 	UpgradableSharedMutex<> myMutex;

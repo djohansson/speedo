@@ -319,3 +319,20 @@ public:
 		return std::make_pair(insertRangeIt, true);
 	}
 };
+
+template <typename T, typename ContainerT = std::vector<T>, typename IndexT = uint32_t>
+class WrapContainer : public ContainerT
+{
+public:
+
+	T& fetchAdd(IndexT offset = 1u)
+	{
+		auto index = myIndex;
+		myIndex = (myIndex + offset) % ContainerT::size();
+		return ContainerT::at(index);
+	}
+
+private:
+
+	IndexT myIndex = {};
+};

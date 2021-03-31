@@ -69,10 +69,11 @@ public:
     QueueContext& operator=(QueueContext&& other) noexcept;
     operator auto() const noexcept { return myQueue; }
 
-    const auto& getDesc() const noexcept { return myDesc; }
-
     void swap(QueueContext& rhs) noexcept;
 	friend void swap(QueueContext& lhs, QueueContext& rhs) noexcept { lhs.swap(rhs); }
+
+    const auto& getDesc() const noexcept { return myDesc; }
+    const auto& getLastSubmitTimelineValue() const noexcept { return myLastSubmitTimelineValue; }
 
     template <typename... Ts>
     void enqueueSubmit(Ts&&... args);
@@ -103,6 +104,7 @@ private:
     QueuePresentInfo<B> myPendingPresent = {};
     std::vector<char> myScratchMemory;
     FenceHandle<B> myFence = {};
+    std::optional<uint64_t> myLastSubmitTimelineValue;
     std::any myUserData;
 };
 

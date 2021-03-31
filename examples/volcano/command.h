@@ -9,15 +9,14 @@
 #include <list>
 #include <memory>
 #include <optional>
-#include <shared_mutex>
 #include <utility>
-#include <vector>
 
 template <GraphicsBackend B>
 struct CommandBufferArrayCreateDesc
 {
     CommandPoolHandle<B> pool = {};
     CommandBufferLevel<B> level = {};
+    bool useBufferReset = false;
 };
 
 template <GraphicsBackend B>
@@ -124,6 +123,7 @@ struct CommandPoolCreateDesc
 {
     CommandPoolCreateFlags<B> flags = {};
 	uint32_t queueFamilyIndex = 0ul;
+    bool usePoolReset = true;
 };
 
 template <GraphicsBackend B>
@@ -146,7 +146,7 @@ public:
 
     const auto& getDesc() const noexcept { return myDesc; }
     
-    void reset();
+    virtual void reset();
     
 private:
 
@@ -161,11 +161,9 @@ private:
 template <GraphicsBackend B>
 class CommandPoolContext : public CommandPool<B>
 {
-    using CommandBufferListType = std::list<
-        std::tuple<
-            CommandBufferArray<B>,
-            uint64_t,
-            std::reference_wrapper<CommandPoolContext<B>>>>;
+    static constexpr uint32_t kCommandBufferLevelCount = 2;
+    
+    using CommandBufferListType = std::list<std::tuple<CommandBufferArray<B>, uint64_t>>;
 
 public:
 
@@ -178,12 +176,15 @@ public:
 
     CommandPoolContext& operator=(CommandPoolContext&& other) noexcept;
 
+    virtual void reset() final;
+
     void swap(CommandPoolContext& other) noexcept;
     friend void swap(CommandPoolContext& lhs, CommandPoolContext& rhs) noexcept { lhs.swap(rhs); }
     
     CommandBufferAccessScope<B> commands(const CommandBufferAccessScopeDesc<B>& beginInfo = {});
     
     uint64_t execute(CommandPoolContext<B>& callee);
+    
     QueueSubmitInfo<B> prepareSubmit(QueueSyncInfo<B>&& syncInfo);
 
     // these will be called when the GPU has reached the timeline value of the submission (prepareSubmit).
@@ -195,17 +196,14 @@ private:
     CommandBufferAccessScope<B> internalBeginScope(const CommandBufferAccessScopeDesc<B>& beginInfo);
     CommandBufferAccessScope<B> internalCommands(const CommandBufferAccessScopeDesc<B>& beginInfo) const;
     void internalEndCommands(CommandBufferLevel<B> level);
-    
-    void enqueueOnePending(CommandBufferLevel<B> level);
-    void enqueueExecuted(CommandBufferListType&& commands, uint64_t timelineValue);
-    void enqueueSubmitted(CommandBufferListType&& commands, uint64_t timelineValue);
+    void internalEnqueueOnePending(CommandBufferLevel<B> level);
+    void internalEnqueueSubmitted(CommandBufferListType&& commands, CommandBufferLevel<B> level, uint64_t timelineValue);
 
-    std::vector<CommandBufferListType> myPendingCommands;
-    CommandBufferListType myExecutedCommands;
-    CommandBufferListType mySubmittedCommands;
-    std::vector<CommandBufferListType> myFreeCommands;
-    std::vector<std::optional<CommandBufferAccessScope<B>>> myRecordingCommands;
-    std::vector<TimelineCallback> mySubmitFinishedCallbacks;
+    std::array<CommandBufferListType, kCommandBufferLevelCount> myPendingCommands;
+    std::array<CommandBufferListType, kCommandBufferLevelCount> mySubmittedCommands;
+    std::array<CommandBufferListType, kCommandBufferLevelCount> myFreeCommands;
+    std::array<std::optional<CommandBufferAccessScope<B>>, kCommandBufferLevelCount> myRecordingCommands;
+    std::list<TimelineCallback> myCommandsFinishedCallbacks;
 };
 
 #include "command.inl"
