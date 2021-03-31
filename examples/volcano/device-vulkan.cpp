@@ -2,6 +2,7 @@
 #include "vk-utils.h"
 
 #include <algorithm>
+#include <list>
 #include <utility>
 #include <shared_mutex>
 

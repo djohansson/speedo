@@ -1,5 +1,5 @@
 template <GraphicsBackend B>
-QueuePresentInfo<B>& QueuePresentInfo<B>::operator^=(QueuePresentInfo<B>&& other)
+QueuePresentInfo<B>& QueuePresentInfo<B>::operator|=(QueuePresentInfo<B>&& other)
 {
     waitSemaphores.insert(
         waitSemaphores.end(),
