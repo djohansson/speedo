@@ -248,8 +248,8 @@ Application<Vk>::Application(
 
         VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-        static constexpr bool useCommandBufferReset = false;
-        if (useCommandBufferReset)
+        static constexpr bool useCommandBufferCreateReset = true;
+        if (useCommandBufferCreateReset)
             cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
         const auto& queueFamilies = myDevice->getQueueFamilies();
