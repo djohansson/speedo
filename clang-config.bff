@@ -80,12 +80,6 @@
 		+ ' -stdlib=libc++'
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
-		+ ' -L$ClangPath$/lib'
-#if __WINDOWS__
-		+ '/windows'
-#else
-		+ ' -Wl,-rpath,$ClangPath$/lib'
-#endif
 		//+ ' --wrap=malloc'
 		+ .PlatformLibPaths
 #if __WINDOWS__
