@@ -267,7 +267,7 @@ Application<Vk>::Application(
                             myDevice,
                             CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-                    for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4; secondaryContextIt++)
+                    for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < myConfig.maxCommandContextPerFrameCount; secondaryContextIt++)
                     {
                         secondaryContexts.emplace_back(
                             CommandPoolContext<Vk>(
@@ -1054,7 +1054,7 @@ bool Application<Vk>::draw()
     if (flipSuccess)
     {
         auto& primaryContext = myCommands[CommandContextType_GeneralPrimary].fetchAdd();
-        auto secondaryContextCount = 4;
+        auto secondaryContextCount = myConfig.maxCommandContextPerFrameCount;
         auto secondaryContexts = &myCommands[CommandContextType_GeneralSecondary].fetchAdd(secondaryContextCount);
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());

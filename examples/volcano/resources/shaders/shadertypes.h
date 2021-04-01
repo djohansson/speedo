@@ -17,19 +17,19 @@
 #define DescriptorSetCategory_Material              4
 #define DescriptorSetCategory_Object                5
 
-#define ShaderTypes_ViewIndexBits 16u
-#define ShaderTypes_ViewBufferCount (1u << ShaderTypes_ViewIndexBits)
-#define ShaderTypes_ViewCount (1u << (ShaderTypes_ViewIndexBits - 2u)) // frame buffered - needs at least three times as big buffer
-#define ShaderTypes_MaterialIndexBits 16u
-#define ShaderTypes_MaterialCount (1u << ShaderTypes_MaterialIndexBits)
-#define ShaderTypes_ObjectBufferIndexBits 16u
-#define ShaderTypes_ObjectBufferCount (1u << ShaderTypes_ObjectBufferIndexBits)
-#define ShaderTypes_ObjectBufferInstanceIndexBits 16u
-#define ShaderTypes_ObjectBufferInstanceCount (1u << ShaderTypes_ObjectBufferInstanceIndexBits) // 64 * 65536 = 4MB
-#define ShaderTypes_TextureIndexBits 20u
-#define ShaderTypes_TextureCount (1u << ShaderTypes_TextureIndexBits)
-#define ShaderTypes_SamplerIndexBits 12u
-#define ShaderTypes_SamplerCount (1u << ShaderTypes_SamplerIndexBits)
+#define ShaderTypes_ViewIndexBits                   16u
+#define ShaderTypes_ViewBufferCount                 (1u << ShaderTypes_ViewIndexBits)
+#define ShaderTypes_ViewCount                       (1u << (ShaderTypes_ViewIndexBits - 2u)) // frame buffered - needs at least three times as big buffer
+#define ShaderTypes_MaterialIndexBits               16u
+#define ShaderTypes_MaterialCount                   (1u << ShaderTypes_MaterialIndexBits)
+#define ShaderTypes_ObjectBufferIndexBits           16u
+#define ShaderTypes_ObjectBufferCount               (1u << ShaderTypes_ObjectBufferIndexBits)
+#define ShaderTypes_ObjectBufferInstanceIndexBits   16u
+#define ShaderTypes_ObjectBufferInstanceCount       (1u << ShaderTypes_ObjectBufferInstanceIndexBits) // 64 * 65536 = 4MB
+#define ShaderTypes_TextureIndexBits                20u
+#define ShaderTypes_TextureCount                    (1u << ShaderTypes_TextureIndexBits)
+#define ShaderTypes_SamplerIndexBits                12u
+#define ShaderTypes_SamplerCount                    (1u << ShaderTypes_SamplerIndexBits)
 
 // todo: all structs needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment.
 
