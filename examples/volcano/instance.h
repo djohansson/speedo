@@ -14,8 +14,8 @@ struct InstanceConfiguration
 {
     InstanceConfiguration();
     
-    std::string applicationName = "volcano";
-    std::string engineName = "magma";
+    std::string applicationName = "";
+    std::string engineName = "";
     ApplicationInfo<B> appInfo = {};
 };
 
@@ -25,19 +25,18 @@ struct SwapchainInfo
 	SurfaceCapabilities<B> capabilities = {};
 	std::vector<SurfaceFormat<B>> formats;
 	std::vector<PresentMode<B>> presentModes;
+    std::vector<uint32_t> queueFamilyPresentSupport;
 };
 
 template <GraphicsBackend B>
 struct PhysicalDeviceInfo
 {
-    SwapchainInfo<B> swapchainInfo = {}; // todo: remove
     PhysicalDeviceProperties<B> deviceProperties = {};
     PhysicalDevicePropertiesEx<B> devicePropertiesEx = {};
     PhysicalDeviceFeatures<B> deviceFeatures = {};
     PhysicalDeviceFeaturesEx<B> deviceFeaturesEx = {};
     PhysicalDeviceRobustnessFeatures<B> deviceRobustnessFeatures = {};
     std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
-    std::vector<uint32_t> queueFamilyPresentSupport;
 };
 
 template <GraphicsBackend B>
@@ -45,26 +44,24 @@ class InstanceContext : public Noncopyable
 {
 public:
 
-    InstanceContext(AutoSaveJSONFileObject<InstanceConfiguration<B>>&& config, void* windowHandle);
+    InstanceContext(InstanceConfiguration<B>&& defaultConfig = {});
     ~InstanceContext();
 
     const auto& getConfig() const noexcept { return myConfig; }
     auto getInstance() const noexcept { return myInstance; }
-    auto getSurface() const noexcept { return mySurface; } // todo: remove
     const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
     const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<B> device) const noexcept { return myPhysicalDeviceInfos.at(device); }
-    const auto& getGraphicsDeviceCandidates() const noexcept { return myGraphicsDeviceCandidates; }
-
-    void updateSurfaceCapabilities(PhysicalDeviceHandle<B> device);
+    const SwapchainInfo<B>& getSwapchainInfo(PhysicalDeviceHandle<B> device, SurfaceHandle<B> surface);
+    
+    void updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface);
 
 private:
 
     AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
     InstanceHandle<B> myInstance;
-    SurfaceHandle<B> mySurface; // todo: remove
     std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
     UnorderedMap<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
-    std::vector<std::tuple<uint32_t, uint32_t>> myGraphicsDeviceCandidates;
+    UnorderedMap<std::tuple<PhysicalDeviceHandle<B>, SurfaceHandle<B>>, SwapchainInfo<B>, TupleHash> myPhysicalDeviceSwapchainInfos;
     std::any myUserData;
 };
 

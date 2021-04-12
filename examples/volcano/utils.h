@@ -215,13 +215,36 @@ struct IdentityHash
 	constexpr size_t operator()(const T& key) const noexcept { return static_cast<size_t>(key); }
 };
 
+class TupleHash
+{
+	template <typename T>
+	struct Component
+	{
+		Component(const T& value) : value(value) {}
+		
+		uintmax_t operator,(uintmax_t n) const
+		{
+			n ^= std::hash<T>()(value);
+			n ^= n << (sizeof(uintmax_t) * 4 - 1);
+			return n ^ std::hash<uintmax_t>()(n);
+		}
+		
+		const T& value;
+	};
+
+public:
+
+	template <typename Tuple>
+	size_t operator()(const Tuple& tuple) const
+	{
+		return std::hash<uintmax_t>()(std::apply([](const auto&... xs) { return (Component(xs), ..., 0); }, tuple));
+	}
+};
+
 template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedMap = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedSet = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
-
-template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
-using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 
 template <typename Key, typename T, typename VectorT = std::vector<std::pair<Key, T>>>
 class FlatMap : public VectorT

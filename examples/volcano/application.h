@@ -45,24 +45,11 @@
 #include <nfd.h>
 
 template <GraphicsBackend B>
-struct ApplicationConfiguration
-{
-	Extent2d<B> mainWindowSplitScreenGrid = { 1, 1 };
-	uint8_t maxCommandContextPerFrameCount = 4;
-};
-
-template <GraphicsBackend B>
 class Application
 {
 public:
 
-	Application(
-		void* windowHandle,
-		int width,
-		int height,
-		const char* rootPath = nullptr,
-		const char* resourcePath = nullptr,
-		const char* userProfilePath = nullptr);
+	Application(void* windowHandle, int width, int height);
 	~Application();
 
 	bool draw();
@@ -81,23 +68,19 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		CommandBufferHandle<B> commands,
 		RenderPassHandle<B> renderPass,
+		SurfaceHandle<B> surface,
 		const std::filesystem::path& userProfilePath) const;
 	void shutdownIMGUI();
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 
-	std::filesystem::path myRootPath;
-	std::filesystem::path myResourcePath;
-	std::filesystem::path myUserProfilePath;
-
-	AutoSaveJSONFileObject<ApplicationConfiguration<B>> myConfig;
 	AutoSaveJSONFileObject<NodeGraph> myNodeGraph;
 
 	InputState myInput = {};
 
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
-	std::shared_ptr<WindowContext<B>> myWindow;
+	std::shared_ptr<WindowContext<B>> myMainWindow;
 	std::shared_ptr<PipelineContext<B>> myPipeline;
 	//std::shared_ptr<ResourceContext<B>> myResources;
 
@@ -122,6 +105,8 @@ private:
 	std::unique_ptr<Buffer<B>> myMaterials;
 	std::unique_ptr<Buffer<B>> myObjects;
 
+	template <typename Key, typename Handle, typename KeyHash = HandleHash<Key, Handle>, typename KeyEqualTo = SharedPtrEqualTo<>>
+	using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 	HandleSet<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 
 	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;

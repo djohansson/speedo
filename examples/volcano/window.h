@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "command.h"
 #include "device.h"
+#include "file.h"
 #include "glm.h"
 #include "image.h"
 #include "pipeline.h"
@@ -15,14 +16,14 @@
 #include <chrono>
 #include <optional>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 template <GraphicsBackend B>
-struct WindowCreateDesc
+struct WindowConfiguration : SwapchainConfiguration<B>
 {
 	Extent2d<B> windowExtent = {};
-	Extent2d<B> framebufferExtent = {};
 	Extent2d<B> splitScreenGrid = { 1, 1 };
 };
 
@@ -34,7 +35,8 @@ public:
 	constexpr WindowContext() noexcept = default;
 	WindowContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
-		WindowCreateDesc<B>&& desc);
+		SurfaceHandle<B>&& surface, // swapchain base class takes ownership of surface
+		WindowConfiguration<B>&& defaultConfig = {});
 	WindowContext(WindowContext&& other) noexcept;
 	~WindowContext();
 
@@ -43,12 +45,12 @@ public:
     void swap(WindowContext& rhs) noexcept;
     friend void swap(WindowContext& lhs, WindowContext& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getViews() const noexcept { return myViews; }
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer() const noexcept { return *myViewBuffer; }
 
-	void onResizeWindow(Extent2d<B> windowExtent) { myDesc.windowExtent = windowExtent;	}
+	void onResizeWindow(Extent2d<B> windowExtent) { myConfig.windowExtent = windowExtent;	}
 	void onResizeFramebuffer(Extent2d<B> framebufferExtent);
 
 	void updateInput(const InputState& input);
@@ -73,9 +75,11 @@ private:
 		const RenderPassBeginInfo<B>& renderPassInfo,
 		uint8_t frameIndex);
 
-	WindowCreateDesc<B> myDesc = {};
+	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig = {};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 };
+
+#include "window.inl"

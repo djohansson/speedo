@@ -111,10 +111,9 @@ class PipelineContext : public DeviceObject<B>
 
 public:
 
-    PipelineContext(PipelineContext<B>&& other);
     PipelineContext(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        AutoSaveJSONFileObject<PipelineConfiguration<B>>&& config);
+        PipelineConfiguration<B>&& defaultConfig = {});
     ~PipelineContext();
 
     const auto& getConfig() const noexcept { return myConfig; }

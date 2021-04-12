@@ -1,6 +1,7 @@
 #include "instance.h"
 #include "profiling.h"
 #include "vk-utils.h"
+#include "volcano.h"
 
 #include <algorithm>
 #include <vector>
@@ -12,8 +13,8 @@ static PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2 = {};
 static PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2 = {};
 
 SurfaceCapabilities<Vk> getSurfaceCapabilities(
-    SurfaceHandle<Vk> surface,
-    PhysicalDeviceHandle<Vk> device)
+    PhysicalDeviceHandle<Vk> device,
+    SurfaceHandle<Vk> surface)
 {
     SurfaceCapabilities<Vk> capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
@@ -22,8 +23,7 @@ SurfaceCapabilities<Vk> getSurfaceCapabilities(
 }
 
 PhysicalDeviceInfo<Vk> getPhysicalDeviceInfo(
-	SurfaceHandle<Vk> surface,
-    InstanceHandle<Vk> instance,
+	InstanceHandle<Vk> instance,
 	PhysicalDeviceHandle<Vk> device)
 {
     instance::vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
@@ -48,26 +48,6 @@ PhysicalDeviceInfo<Vk> getPhysicalDeviceInfo(
     deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     deviceInfo.deviceProperties.pNext = &deviceInfo.devicePropertiesEx;
     instance::vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
-    
-	deviceInfo.swapchainInfo.capabilities = getSurfaceCapabilities(surface, device);
-
-	uint32_t formatCount;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-	if (formatCount != 0)
-	{
-		deviceInfo.swapchainInfo.formats.resize(formatCount);
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
-											 deviceInfo.swapchainInfo.formats.data());
-	}
-
-	uint32_t presentModeCount;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-	if (presentModeCount != 0)
-	{
-		deviceInfo.swapchainInfo.presentModes.resize(presentModeCount);
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
-												  deviceInfo.swapchainInfo.presentModes.data());
-	}
 
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
@@ -75,13 +55,44 @@ PhysicalDeviceInfo<Vk> getPhysicalDeviceInfo(
 	{
         deviceInfo.queueFamilyProperties.resize(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, deviceInfo.queueFamilyProperties.data());
-
-        deviceInfo.queueFamilyPresentSupport.resize(queueFamilyCount);
-        for (uint32_t queueFamilyIt = 0; queueFamilyIt < queueFamilyCount; queueFamilyIt++)
-            vkGetPhysicalDeviceSurfaceSupportKHR(device, queueFamilyIt, surface, &deviceInfo.queueFamilyPresentSupport[queueFamilyIt]);
     }
     
 	return deviceInfo;
+}
+
+SwapchainInfo<Vk> getPhysicalDeviceSwapchainInfo(
+    PhysicalDeviceHandle<Vk> device,
+    SurfaceHandle<Vk> surface)
+{
+    SwapchainInfo<Vk> swapchainInfo = {};
+    swapchainInfo.capabilities = getSurfaceCapabilities(device, surface);
+
+	uint32_t formatCount;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+	if (formatCount != 0)
+	{
+		swapchainInfo.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, swapchainInfo.formats.data());
+	}
+
+	uint32_t presentModeCount;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+	if (presentModeCount != 0)
+	{
+		swapchainInfo.presentModes.resize(presentModeCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, swapchainInfo.presentModes.data());
+	}
+
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+    if (queueFamilyCount != 0)
+	{
+        swapchainInfo.queueFamilyPresentSupport.resize(queueFamilyCount);
+        for (uint32_t queueFamilyIt = 0; queueFamilyIt < queueFamilyCount; queueFamilyIt++)
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, queueFamilyIt, surface, &swapchainInfo.queueFamilyPresentSupport[queueFamilyIt]);
+    }
+
+    return swapchainInfo;
 }
 
 struct UserData
@@ -146,7 +157,9 @@ VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
 
 template <>
 InstanceConfiguration<Vk>::InstanceConfiguration()
-: appInfo{
+: applicationName("volcano")
+, engineName("magma")
+, appInfo{
     VK_STRUCTURE_TYPE_APPLICATION_INFO,
     nullptr,
     nullptr,
@@ -158,18 +171,31 @@ InstanceConfiguration<Vk>::InstanceConfiguration()
 }
 
 template <>
-void InstanceContext<Vk>::updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device)
+void InstanceContext<Vk>::updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
-    myPhysicalDeviceInfos[device].swapchainInfo.capabilities = instance::getSurfaceCapabilities(mySurface, device);
+    myPhysicalDeviceSwapchainInfos.at(std::make_tuple(device, surface)).capabilities = instance::getSurfaceCapabilities(device, surface);
 }
 
 template <>
-InstanceContext<Vk>::InstanceContext(
-    AutoSaveJSONFileObject<InstanceConfiguration<Vk>>&& config,
-    void* windowHandle)
-: myConfig(std::move(config))
+const SwapchainInfo<Vk>& InstanceContext<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
-    ZoneScopedN("Instance()");
+    auto infoInsertNode = myPhysicalDeviceSwapchainInfos.emplace(
+        std::make_tuple(device, surface),
+        instance::getPhysicalDeviceSwapchainInfo(device, surface));
+        
+    auto& swapchainInfo = infoInsertNode.first->second;
+
+    return swapchainInfo;
+}
+
+template <>
+InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
+: myConfig(
+    AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
+        std::filesystem::path(volcano_getUserProfilePath()) / "instance.json",
+        std::move(defaultConfig)))
+{
+    ZoneScopedN("InstanceContext()");
 
 #ifdef _DEBUG
 	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
@@ -262,8 +288,6 @@ InstanceContext<Vk>::InstanceContext(
 
     VK_CHECK(vkCreateInstance(&info, nullptr, &myInstance));
 
-    mySurface = createSurface(myInstance, windowHandle);
-
     uint32_t physicalDeviceCount = 0;
     VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
     if (physicalDeviceCount == 0)
@@ -271,8 +295,6 @@ InstanceContext<Vk>::InstanceContext(
 
     myPhysicalDevices.resize(physicalDeviceCount);
     VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
-
-    myGraphicsDeviceCandidates.reserve(myPhysicalDevices.size());
     
     for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < myPhysicalDevices.size(); physicalDeviceIt++)
     {
@@ -280,7 +302,6 @@ InstanceContext<Vk>::InstanceContext(
         auto infoInsertNode = myPhysicalDeviceInfos.emplace(
             physicalDevice,
             instance::getPhysicalDeviceInfo(
-                mySurface,
                 myInstance,
                 physicalDevice));
         
@@ -290,33 +311,7 @@ InstanceContext<Vk>::InstanceContext(
         physicalDeviceInfo.deviceFeaturesEx.pNext = &physicalDeviceInfo.deviceRobustnessFeatures;
         physicalDeviceInfo.deviceFeatures.pNext = &physicalDeviceInfo.deviceFeaturesEx;
         //
-
-        for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
-        {
-            const auto& queueFamilyProperties = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
-            const auto& queueFamilyPresentSupport = physicalDeviceInfo.queueFamilyPresentSupport[queueFamilyIt];
-
-            if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
-                myGraphicsDeviceCandidates.emplace_back(std::make_tuple(physicalDeviceIt, queueFamilyIt));
-        }
     }
-
-    std::sort(myGraphicsDeviceCandidates.begin(), myGraphicsDeviceCandidates.end(), [this](const auto& lhs, const auto& rhs){
-        constexpr uint32_t deviceTypePriority[] =
-        {
-            4,//VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
-            1,//VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
-            0,//VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
-            2,//VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
-            3,//VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
-            0x7FFFFFFF//VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
-        };
-        const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
-        const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
-
-        return deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[lhsPhysicalDeviceIndex]].deviceProperties.properties.deviceType] < 
-            deviceTypePriority[myPhysicalDeviceInfos[myPhysicalDevices[rhsPhysicalDeviceIndex]].deviceProperties.properties.deviceType];
-    });
 
     myUserData = instance::UserData();
 
@@ -330,7 +325,7 @@ InstanceContext<Vk>::InstanceContext(
 template <>
 InstanceContext<Vk>::~InstanceContext()
 {
-    ZoneScopedN("~Instance()");
+    ZoneScopedN("~InstanceContext()");
 
     if constexpr (GRAPHICS_VALIDATION_ENABLED)
     {
@@ -339,6 +334,5 @@ InstanceContext<Vk>::~InstanceContext()
         vkDestroyDebugUtilsMessengerEXT(myInstance, std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger, nullptr);
     }
 
-    vkDestroySurfaceKHR(myInstance, mySurface, nullptr);
     vkDestroyInstance(myInstance, nullptr);
 }

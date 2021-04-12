@@ -160,27 +160,25 @@ QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
 
 template <>
 void Swapchain<Vk>::internalCreateSwapchain(
-    RenderTargetCreateDesc<Vk>&& desc,
+    const SwapchainConfiguration<Vk>& config,
     SwapchainHandle<Vk> previous)
 {
     ZoneScopedN("Swapchain::internalCreateSwapchain");
 
-    myDesc = std::move(desc);
-
-    const auto& config = getDeviceContext()->getDesc().swapchainConfig;
+    myDesc = {config.extent}; // more?
 
     VkSwapchainCreateInfoKHR info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-    info.surface = getDeviceContext()->getSurface();
-    info.minImageCount = config->imageCount;
-    info.imageFormat = config->surfaceFormat.format;
-    info.imageColorSpace = config->surfaceFormat.colorSpace;
-    info.imageExtent = myDesc.extent;
+    info.surface = mySurface;
+    info.minImageCount = config.imageCount;
+    info.imageFormat = config.surfaceFormat.format;
+    info.imageColorSpace = config.surfaceFormat.colorSpace;
+    info.imageExtent = config.extent;
     info.imageArrayLayers = 1;
     info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    info.presentMode = config->presentMode;
+    info.presentMode = config.presentMode;
     info.clipped = VK_TRUE;
     info.oldSwapchain = previous;
 
@@ -208,7 +206,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
         reinterpret_cast<uint64_t>(mySwapchain),
         stringBuffer);
 
-    uint32_t frameCount = config->imageCount;
+    uint32_t frameCount = config.imageCount;
     
     assert(frameCount);
 
@@ -228,8 +226,8 @@ void Swapchain<Vk>::internalCreateSwapchain(
             Frame<Vk>(
                 getDeviceContext(),
                 FrameCreateDesc<Vk>{
-                    {myDesc.extent,
-                    std::make_vector(config->surfaceFormat.format),
+                    {config.extent,
+                    std::make_vector(config.surfaceFormat.format),
                     std::make_vector(VK_IMAGE_LAYOUT_UNDEFINED),
                     std::make_vector(colorImages[frameIt])},
                     frameIt}));
@@ -251,13 +249,15 @@ Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
 template <>
 Swapchain<Vk>::Swapchain(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    RenderTargetCreateDesc<Vk>&& desc,
+    const SwapchainConfiguration<Vk>& config,
+    SurfaceHandle<Vk>&& surface,
     SwapchainHandle<Vk> previous)
 : DeviceObject(deviceContext, {})
+, mySurface(std::move(surface))
 {
     ZoneScopedN("Swapchain()");
 
-    internalCreateSwapchain(std::move(desc), previous);
+    internalCreateSwapchain(config, previous);
 }
 
 template <>
@@ -267,6 +267,9 @@ Swapchain<Vk>::~Swapchain()
 
     if (mySwapchain)
         vkDestroySwapchainKHR(getDeviceContext()->getDevice(), mySwapchain, nullptr);
+
+    if (mySurface)
+        vkDestroySurfaceKHR(getDeviceContext()->getInstanceContext()->getInstance(), mySurface, nullptr);
 }
 
 template <>

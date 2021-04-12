@@ -31,6 +31,12 @@ using DeviceSize = std::conditional_t<B == Vk, VkDeviceSize, std::nullptr_t>;
 template <GraphicsBackend B>
 using Extent2d = std::conditional_t<B == Vk, VkExtent2D, std::nullptr_t>;
 
+template<typename Archive> void serialize(Archive& archive, Extent2d<Vk>& obj)
+{
+	archive(cereal::make_nvp("width", obj.width));
+	archive(cereal::make_nvp("height", obj.height));
+}
+
 template <GraphicsBackend B>
 using Extent3d = std::conditional_t<B == Vk, VkExtent3D, std::nullptr_t>;
 
@@ -75,6 +81,12 @@ using SurfaceHandle = std::conditional_t<B == Vk, VkSurfaceKHR, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using SurfaceFormat = std::conditional_t<B == Vk, VkSurfaceFormatKHR, std::nullptr_t>;
+
+template<typename Archive> void serialize(Archive& archive, SurfaceFormat<Vk>& obj)
+{
+	archive(cereal::make_nvp("format", obj.format));
+	archive(cereal::make_nvp("colorSpace", obj.colorSpace));
+}
 
 template <GraphicsBackend B>
 using Format = std::conditional_t<B == Vk, VkFormat, std::nullptr_t>;
