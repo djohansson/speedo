@@ -23,6 +23,10 @@
 
 #include <robin_hood.h>
 
+#if __cpp_reflection >= 201902
+static_assert(false, "Please let Daniel know that the reflection TS is supported.")
+#include <experimental/reflect>
+#endif
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
 #define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
