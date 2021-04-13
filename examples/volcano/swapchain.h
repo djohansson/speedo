@@ -9,6 +9,15 @@
 #include <memory>
 
 template <GraphicsBackend B>
+struct SwapchainConfiguration
+{
+	Extent2d<B> extent = {};
+	SurfaceFormat<B> surfaceFormat = {};
+	PresentMode<B> presentMode = {};
+	uint8_t imageCount = 0;
+};
+
+template <GraphicsBackend B>
 class Swapchain : public IRenderTarget<B>, public DeviceObject<B>
 {
 public:
@@ -17,15 +26,16 @@ public:
 	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
-		RenderTargetCreateDesc<B>&& desc,
+		const SwapchainConfiguration<B>& config,
+		SurfaceHandle<B>&& surface, // takes ownership
 		SwapchainHandle<B> previous);
-    ~Swapchain();
+	~Swapchain();
 
 	Swapchain& operator=(Swapchain&& other) noexcept;
 	operator auto() const noexcept { return mySwapchain; }
 
 	void swap(Swapchain& rhs) noexcept;
-    friend void swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.swap(rhs); }
+	friend void swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.swap(rhs); }
 
 	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const final;
 
@@ -58,6 +68,7 @@ public:
 	virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
     virtual void end(CommandBufferHandle<B> cmd) final;
 
+	auto getSurface() const noexcept { return mySurface; }
 	const auto& getFrames() const noexcept { return myFrames; }
 	auto getRenderPass() { return static_cast<RenderPassHandle<B>>(myFrames[myFrameIndex]); }
 	auto getFrameIndex() const noexcept { return myFrameIndex; }
@@ -79,14 +90,17 @@ public:
 protected:
 
 	void internalCreateSwapchain(
-		RenderTargetCreateDesc<B>&& desc,
+		const SwapchainConfiguration<B>& config,
 		SwapchainHandle<B> previous);
 
 private:
 
 	RenderTargetCreateDesc<B> myDesc = {};
+	SurfaceHandle<B> mySurface = {};
 	SwapchainHandle<B> mySwapchain = {};
 	std::vector<Frame<B>> myFrames;
 	uint32_t myFrameIndex = 0;
 	uint32_t myLastFrameIndex = 0;
 };
+
+#include "swapchain.inl"

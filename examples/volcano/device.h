@@ -17,18 +17,11 @@
 #include <uuid.h>
 
 template <GraphicsBackend B>
-struct SwapchainConfiguration
-{
-    SurfaceFormat<B> surfaceFormat = {};
-	PresentMode<B> presentMode = static_cast<PresentMode<B>>(0);
-	uint8_t imageCount = 0;
-};
-
-template <GraphicsBackend B>
 struct DeviceConfiguration
 {
-    uint32_t physicalDeviceIndex = 0ul;
-    std::optional<SwapchainConfiguration<B>> swapchainConfig = {};
+    constexpr std::string_view getName() const { return "device"; }
+
+    uint32_t physicalDeviceIndex = 0ul; // todo: replace with deviceID
     // std::optional<bool> useShaderFloat16;
     // std::optional<bool> useDescriptorIndexing;
     // std::optional<bool> useScalarBlockLayout;
@@ -43,9 +36,7 @@ enum QueueFamilyFlagBits
     QueueFamilyFlagBits_Compute = 1 << 1,
     QueueFamilyFlagBits_Transfer = 1 << 2,
     QueueFamilyFlagBits_Sparse = 1 << 3,
-    QueueFamilyFlagBits_AllExceptPresent = (1 << 4) - 1,
-    QueueFamilyFlagBits_Present = 1 << 4,
-    QueueFamilyFlagBits_All = (1 << 5) - 1,
+    QueueFamilyFlagBits_All = (1 << 4) - 1,
 };
 
 template <GraphicsBackend B>
@@ -65,14 +56,14 @@ public:
 
 	DeviceContext(
         const std::shared_ptr<InstanceContext<B>>& instanceContext,
-        AutoSaveJSONFileObject<DeviceConfiguration<B>>&& config);
+        DeviceConfiguration<B>&& defaultConfig = {});
     ~DeviceContext();
 
-    const auto& getDesc() const noexcept { return myConfig; }
+    auto getInstanceContext() const noexcept { return myInstance; } // todo: make global?
+    const auto& getConfig() const noexcept { return myConfig; }
     auto getDevice() const noexcept { return myDevice; }
-    auto getPhysicalDevice() const noexcept { return myInstance->getPhysicalDevices()[myConfig.physicalDeviceIndex]; }
+    auto getPhysicalDevice() const noexcept { return myInstance->getPhysicalDevices()[myPhysicalDeviceIndex]; }
     const auto& getPhysicalDeviceInfo() const noexcept { return myInstance->getPhysicalDeviceInfo(getPhysicalDevice()); }
-    auto getSurface() const noexcept { return myInstance->getSurface(); } // todo: remove
 
     const auto& getQueueFamilies() const noexcept { return myQueueFamilyDescs; }
 
@@ -100,6 +91,7 @@ private:
     std::shared_ptr<InstanceContext<B>> myInstance;
     AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
     DeviceHandle<B> myDevice = {};
+    uint32_t myPhysicalDeviceIndex = 0ul;
 
     std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
     

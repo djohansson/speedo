@@ -95,7 +95,6 @@ public:
     constexpr FileObject() noexcept = default;
     FileObject(
         const std::filesystem::path& filePath,
-        std::string_view name,
         T&& defaultObject = T{});
     FileObject(FileObject&& other) noexcept;
     ~FileObject();
@@ -113,7 +112,6 @@ public:
 private:
 
     std::filesystem::path myFilePath;
-    std::string myName;
 };
 
 template <typename T>

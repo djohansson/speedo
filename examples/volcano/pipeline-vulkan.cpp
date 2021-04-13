@@ -1,5 +1,6 @@
 #include "pipeline.h"
 #include "vk-utils.h"
+#include "volcano.h"
 
 #include <cereal/archives/binary.hpp>
 
@@ -793,9 +794,12 @@ void PipelineContext<Vk>::bindDescriptorSetAuto(
 template<>
 PipelineContext<Vk>::PipelineContext(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    AutoSaveJSONFileObject<PipelineConfiguration<Vk>>&& config)
+    PipelineConfiguration<Vk>&& defaultConfig)
 : DeviceObject(deviceContext, {})
-, myConfig(std::move(config))
+, myConfig(
+    AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
+        std::filesystem::path(volcano_getUserProfilePath()) / "pipeline.json",
+        std::move(defaultConfig)))
 {
     auto device = deviceContext->getDevice();
 

@@ -1,6 +1,8 @@
 #include "window.h"
 #include "resources/shaders/shadertypes.h"
+#include "typeinfo.h"
 #include "vk-utils.h"
+#include "volcano.h"
 
 #include <stb_sprintf.h>
 
@@ -25,24 +27,22 @@ void WindowContext<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExten
 {
     ZoneScopedN("WindowContext::internalCreateFrameObjects");
 
-    myDesc.framebufferExtent = framebufferExtent;
-
     myViewBuffer = std::make_unique<Buffer<Vk>>(
         getDeviceContext(),
         BufferCreateDesc<Vk>{
-            getDeviceContext()->getDesc().swapchainConfig->imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
+            myConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
-    myViews.resize(myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
+    myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
     
     for (auto& view : myViews)
     {
         if (!view.desc().viewport.width)
-            view.desc().viewport.width =  framebufferExtent.width / myDesc.splitScreenGrid.width;
+            view.desc().viewport.width =  framebufferExtent.width / myConfig.splitScreenGrid.width;
 
         if (!view.desc().viewport.height)
-            view.desc().viewport.height = framebufferExtent.height / myDesc.splitScreenGrid.height;
+            view.desc().viewport.height = framebufferExtent.height / myConfig.splitScreenGrid.height;
 
         view.updateAll();
     }
@@ -59,7 +59,7 @@ void WindowContext<Vk>::internalUpdateViewBuffer(uint8_t frameIndex) const
     VK_CHECK(vmaMapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
     ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[frameIndex * ShaderTypes_ViewCount];
-    auto viewCount = (myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height);
+    auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
     assert(viewCount <= ShaderTypes_ViewCount);
     for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
     {
@@ -85,7 +85,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
     uint8_t frameIndex)
 {
     // setup draw parameters
-    uint32_t drawCount = myDesc.splitScreenGrid.width * myDesc.splitScreenGrid.height;
+    uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
     uint32_t drawThreadCount = std::min<uint32_t>(drawCount, secondaryContextCount);
 
     std::atomic_uint32_t drawAtomic = 0ul;
@@ -103,7 +103,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         std::execution::par,
     #endif
             seq.begin(), drawThreadCount,
-            [&pipeline, &secondaryContexts, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount, &desc = myDesc](uint32_t threadIt)
+            [&pipeline, &secondaryContexts, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount, &desc = myConfig](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -284,7 +284,9 @@ void WindowContext<Vk>::draw(
 template <>
 void WindowContext<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 {
-    internalCreateSwapchain(RenderTargetCreateDesc<Vk>{framebufferExtent}, *this);
+    myConfig.extent = framebufferExtent;
+    
+    internalCreateSwapchain(myConfig, *this);
     internalCreateFrameObjects(framebufferExtent);
 }
 
@@ -310,9 +312,9 @@ void WindowContext<Vk>::updateInput(const InputState& input)
     if (input.mouseButtonsPressed[2])
     {
         // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myDesc.windowExtent.width / myDesc.splitScreenGrid.width);
-        size_t viewIdy = input.mousePosition[0].y / (myDesc.windowExtent.height / myDesc.splitScreenGrid.height);
-        myActiveView = std::min((viewIdy * myDesc.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+        size_t viewIdx = input.mousePosition[0].x / (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
+        size_t viewIdy = input.mousePosition[0].y / (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
+        myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
         //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
     }
@@ -400,13 +402,21 @@ void WindowContext<Vk>::updateInput(const InputState& input)
 template <>
 WindowContext<Vk>::WindowContext(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    WindowCreateDesc<Vk>&& desc)
-: Swapchain(deviceContext, RenderTargetCreateDesc<Vk>{desc.framebufferExtent}, VK_NULL_HANDLE)
-, myDesc(std::move(desc))
+    SurfaceHandle<Vk>&& surface,
+    WindowConfiguration<Vk>&& defaultConfig)
+: Swapchain(
+    deviceContext,
+    defaultConfig,
+    std::move(surface),
+    VK_NULL_HANDLE)
+, myConfig(
+    AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
+        std::filesystem::path(volcano_getUserProfilePath()) / "window.json",
+        std::move(defaultConfig)))
 {
     ZoneScopedN("Window()");
 
-    internalCreateFrameObjects(desc.framebufferExtent);
+    internalCreateFrameObjects(myConfig.extent);
 
     myTimestamps[0] = std::chrono::high_resolution_clock::now();
 }
@@ -414,7 +424,7 @@ WindowContext<Vk>::WindowContext(
 template <>
 WindowContext<Vk>::WindowContext(WindowContext&& other) noexcept
 : Swapchain(std::move(other))
-, myDesc(std::exchange(other.myDesc, {}))
+, myConfig(std::exchange(other.myConfig, {}))
 , myTimestamps(std::exchange(other.myTimestamps, {}))
 , myViews(std::exchange(other.myViews, {}))
 , myActiveView(std::exchange(other.myActiveView, {}))
@@ -432,7 +442,7 @@ template <>
 WindowContext<Vk>& WindowContext<Vk>::operator=(WindowContext&& other) noexcept
 {
     Swapchain::operator=(std::move(other));
-    myDesc = std::exchange(other.myDesc, {});
+    myConfig = std::exchange(other.myConfig, {});
     myTimestamps = std::exchange(other.myTimestamps, {});
     myViews = std::exchange(other.myViews, {});
     myActiveView = std::exchange(other.myActiveView, {});
@@ -444,7 +454,7 @@ template <>
 void WindowContext<Vk>::swap(WindowContext& other) noexcept
 {
     Swapchain::swap(other);
-    std::swap(myDesc, other.myDesc);
+    std::swap(myConfig, other.myConfig);
     std::swap(myTimestamps, other.myTimestamps);
     std::swap(myViews, other.myViews);
     std::swap(myActiveView, other.myActiveView);

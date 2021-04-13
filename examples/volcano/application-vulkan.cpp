@@ -4,6 +4,7 @@
 #include "nodes/slangshadernode.h"
 #include "resources/shaders/shadertypes.h"
 #include "vk-utils.h"
+#include "volcano.h"
 
 #include <stb_sprintf.h>
 
@@ -23,6 +24,7 @@ void Application<Vk>::initIMGUI(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CommandBufferHandle<Vk> commands,
     RenderPassHandle<Vk> renderPass,
+    SurfaceHandle<Vk> surface,
     const std::filesystem::path& userProfilePath) const
 {
     ZoneScopedN("Application::initIMGUI");
@@ -47,12 +49,12 @@ void Application<Vk>::initIMGUI(
     platformIo.Platform_CreateVkSurface = (decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(
         myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
 
-    const auto& surfaceCapabilities = myInstance->getPhysicalDeviceInfo(myDevice->getPhysicalDevice()).swapchainInfo.capabilities;
+    const auto& surfaceCapabilities = myInstance->getSwapchainInfo(myDevice->getPhysicalDevice(), surface).capabilities;
 
     float dpiScaleX = 
-        static_cast<float>(surfaceCapabilities.currentExtent.width) / myWindow->getDesc().windowExtent.width;
+        static_cast<float>(surfaceCapabilities.currentExtent.width) / myMainWindow->getConfig().windowExtent.width;
     float dpiScaleY = 
-        static_cast<float>(surfaceCapabilities.currentExtent.height) / myWindow->getDesc().windowExtent.height;
+        static_cast<float>(surfaceCapabilities.currentExtent.height) / myMainWindow->getConfig().windowExtent.height;
 
     io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -63,7 +65,7 @@ void Application<Vk>::initIMGUI(
 
     io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-    std::filesystem::path fontPath(myResourcePath);
+    std::filesystem::path fontPath(volcano_getResourcePath());
     fontPath /= "fonts";
     fontPath /= "foo";
 
@@ -94,8 +96,8 @@ void Application<Vk>::initIMGUI(
     initInfo.Queue = myGraphicsQueues.front();
     initInfo.PipelineCache = myPipeline->getCache();
     initInfo.DescriptorPool = myPipeline->getDescriptorPool();
-    initInfo.MinImageCount = myDevice->getDesc().swapchainConfig->imageCount;
-    initInfo.ImageCount = myDevice->getDesc().swapchainConfig->imageCount;
+    initInfo.MinImageCount = myMainWindow->getConfig().imageCount;
+    initInfo.ImageCount = myMainWindow->getConfig().imageCount;
     initInfo.Allocator = nullptr;
     // initInfo.HostAllocationCallbacks = nullptr;
     initInfo.CheckVkResultFn = checkResult;
@@ -137,8 +139,7 @@ void Application<Vk>::shutdownIMGUI()
 }
 
 template <>
-void Application<Vk>::createWindowDependentObjects(
-    Extent2d<Vk> frameBufferExtent)
+void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExtent)
 {
     ZoneScopedN("Application::createWindowDependentObjects");
 
@@ -146,7 +147,7 @@ void Application<Vk>::createWindowDependentObjects(
         myDevice,
         ImageCreateDesc<Vk>{
             { { frameBufferExtent } },
-            myDevice->getDesc().swapchainConfig->surfaceFormat.format,
+            myMainWindow->getConfig().surfaceFormat.format,
             VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
@@ -171,74 +172,166 @@ void Application<Vk>::createWindowDependentObjects(
     myPipeline->setRenderTarget(myRenderImageSet);
 }
 
-
-namespace application
-{
-
-std::filesystem::path getAbsolutePath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
-{
-    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-    
-    if (createIfMissing && !std::filesystem::exists(path))
-        std::filesystem::create_directory(path);
-    
-    assert(std::filesystem::is_directory(path));
-    
-    return std::filesystem::absolute(path);
-}
-
-}
-
 template <>
-Application<Vk>::Application(
-    void* windowHandle,
-    int width,
-    int height,
-    const char* rootPath,
-    const char* resourcePath,
-    const char* userProfilePath)
-: myRootPath(application::getAbsolutePath(resourcePath, "./"))
-, myResourcePath(application::getAbsolutePath(resourcePath, "./resources/"))
-, myUserProfilePath(application::getAbsolutePath(userProfilePath, "./.profile/", true))
-, myConfig(myUserProfilePath / "application.json", "application")
-, myNodeGraph(myUserProfilePath / "nodegraph.json", "nodeGraph") // temp - this should be stored in the resource path
+Application<Vk>::Application(void* windowHandle, int width, int height)
+: myNodeGraph(std::filesystem::path(volcano_getUserProfilePath()) / "nodegraph.json") // temp - this should be stored in the resource path
 {
     ZoneScopedN("Application()");
 
     // load shaders, set pipeline layout
     // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
+    auto resourcePath = std::filesystem::path(volcano_getResourcePath());
+    auto userProfilePath = std::filesystem::path(volcano_getUserProfilePath());
     auto shaders = shader::loadSlangShaders<Vk>(
-        myResourcePath / "shaders" / "shaders.slang",
-        { myResourcePath / "shaders" },
+        resourcePath / "shaders" / "shaders.slang",
+        { resourcePath / "shaders" },
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
-        myUserProfilePath / ".slang.intermediate");
+        userProfilePath / ".slang.intermediate");
     
-    myInstance = std::make_shared<InstanceContext<Vk>>(
-        AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
-            myUserProfilePath / "instance.json",
-            "instance"),
-        windowHandle); // todo: pass on to window / swapchain instead?
+    myInstance = std::make_shared<InstanceContext<Vk>>();
 
-    const auto& graphicsDeviceCandidates = myInstance->getGraphicsDeviceCandidates();
-    if (graphicsDeviceCandidates.empty())
-        throw std::runtime_error("failed to find a suitable GPU!");
+    auto surface = createSurface(myInstance->getInstance(), windowHandle);
+
+    auto detectSuitableGraphicsDevice = [](auto instance, auto surface)
+    {
+         const auto& physicalDevices = instance->getPhysicalDevices();
+
+        std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
+        graphicsDeviceCandidates.reserve(physicalDevices.size());
+        
+        for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size(); physicalDeviceIt++)
+        {
+            auto physicalDevice = physicalDevices[physicalDeviceIt];
+            
+            const auto& physicalDeviceInfo = instance->getPhysicalDeviceInfo(physicalDevice);
+            const auto& swapchainInfo = instance->getSwapchainInfo(physicalDevice, surface);
+            
+            for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
+            {
+                const auto& queueFamilyProperties = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
+                const auto& queueFamilyPresentSupport = swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
+
+                if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT && queueFamilyPresentSupport)
+                    graphicsDeviceCandidates.emplace_back(std::make_tuple(physicalDeviceIt, queueFamilyIt));
+            }
+        }
+
+        std::sort(graphicsDeviceCandidates.begin(), graphicsDeviceCandidates.end(), [&instance, &physicalDevices](const auto& lhs, const auto& rhs){
+            constexpr uint32_t deviceTypePriority[] =
+            {
+                4,//VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
+                1,//VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
+                0,//VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
+                2,//VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
+                3,//VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
+                0x7FFFFFFF//VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
+            };
+            const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
+            const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
+
+            auto lhsDeviceType = instance->getPhysicalDeviceInfo(physicalDevices[lhsPhysicalDeviceIndex]).deviceProperties.properties.deviceType;
+            auto rhsDeviceType = instance->getPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex]).deviceProperties.properties.deviceType;
+
+            return deviceTypePriority[lhsDeviceType] < deviceTypePriority[rhsDeviceType];
+        });
+
+        if (graphicsDeviceCandidates.empty())
+            throw std::runtime_error("failed to find a suitable GPU!");
+
+        return std::get<0>(graphicsDeviceCandidates.front());
+    };
 
     myDevice = std::make_shared<DeviceContext<Vk>>(
         myInstance,
-        AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
-            myUserProfilePath / "device.json",
-            "device",
-            { std::get<0>(graphicsDeviceCandidates.front()) }));
+        DeviceConfiguration<Vk>{ detectSuitableGraphicsDevice(myInstance, surface) });
+
+    auto detectSuitableSwapchain = [](auto instance, auto device, auto surface)
+    {
+        const auto& swapchainInfo = instance->getSwapchainInfo(device->getPhysicalDevice(), surface);
+        
+        SwapchainConfiguration<Vk> config = { swapchainInfo.capabilities.currentExtent };
+        
+        static constexpr Format<Vk> requestSurfaceImageFormat[] = {
+            VK_FORMAT_B8G8R8A8_UNORM,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_FORMAT_B8G8R8_UNORM,
+            VK_FORMAT_R8G8B8_UNORM };
+        static constexpr ColorSpace<Vk> requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        static constexpr PresentMode<Vk> requestPresentMode[] = {
+            VK_PRESENT_MODE_MAILBOX_KHR,
+            VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+            VK_PRESENT_MODE_FIFO_KHR,
+            VK_PRESENT_MODE_IMMEDIATE_KHR };
+
+        // Request several formats, the first found will be used
+        // If none of the requested image formats could be found, use the first available
+        for (uint32_t requestIt = 0ul; requestIt < sizeof_array(requestSurfaceImageFormat); requestIt++)
+        {
+            SurfaceFormat<Vk> requestedFormat =
+            {
+                requestSurfaceImageFormat[requestIt],
+                requestSurfaceColorSpace
+            };
+
+            auto formatIt = std::find_if(
+                swapchainInfo.formats.begin(),
+                swapchainInfo.formats.end(),
+                [&requestedFormat](VkSurfaceFormatKHR format)
+                {
+                    return requestedFormat.format == format.format && requestedFormat.colorSpace == format.colorSpace;
+                });
+
+            if (formatIt != swapchainInfo.formats.end())
+            {
+                config.surfaceFormat = *formatIt;
+                break;
+            }
+        }
+
+        // Request a certain mode and confirm that it is available. If not use
+        // VK_PRESENT_MODE_FIFO_KHR which is mandatory
+        for (uint32_t requestIt = 0ul; requestIt < sizeof_array(requestPresentMode); requestIt++)
+        {
+            auto modeIt = std::find(
+                swapchainInfo.presentModes.begin(),
+                swapchainInfo.presentModes.end(),
+                requestPresentMode[requestIt]);
+
+            if (modeIt != swapchainInfo.presentModes.end())
+            {
+                config.presentMode = *modeIt;
+
+                switch (config.presentMode)
+                {
+                case VK_PRESENT_MODE_MAILBOX_KHR:
+                    config.imageCount = 3;
+                    break;
+                default:
+                    config.imageCount = 2;
+                    break;
+                }
+
+                break;
+            }
+        }
+
+        return config;
+    };
+
+    myMainWindow = std::make_shared<WindowContext<Vk>>(
+        myDevice,
+        std::move(surface),
+        WindowConfiguration<Vk>{
+            detectSuitableSwapchain(myInstance, myDevice, surface),
+            {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+            { 1ul, 1ul }});
 
     myPipeline = std::make_shared<PipelineContext<Vk>>(
         myDevice,
-        AutoSaveJSONFileObject<PipelineConfiguration<Vk>>{
-            myUserProfilePath / "pipeline.json",
-            "pipeline",
-            { myUserProfilePath / "pipeline.cache" }});
+        PipelineConfiguration<Vk>{ userProfilePath / "pipeline.cache" });
     
     {
-        uint32_t frameCount = myDevice->getDesc().swapchainConfig->imageCount;
+        uint32_t frameCount = myMainWindow->getConfig().imageCount;
 
         auto& primaryContexts = myCommands[CommandContextType_GeneralPrimary];
         auto& secondaryContexts = myCommands[CommandContextType_GeneralSecondary];
@@ -258,7 +351,7 @@ Application<Vk>::Application(
             const auto& queueFamily = *queueFamilyIt;
             auto queueFamilyIndex = static_cast<uint32_t>(std::distance(queueFamilies.begin(), queueFamilyIt));
 
-            if (queueFamily.flags & QueueFamilyFlagBits_Graphics && queueFamily.flags & QueueFamilyFlagBits_Present)
+            if (queueFamily.flags & QueueFamilyFlagBits_Graphics)
             {
                 for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
                 {
@@ -267,7 +360,7 @@ Application<Vk>::Application(
                             myDevice,
                             CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-                    for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < myConfig.maxCommandContextPerFrameCount; secondaryContextIt++)
+                    for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4; secondaryContextIt++)
                     {
                         secondaryContexts.emplace_back(
                             CommandPoolContext<Vk>(
@@ -302,11 +395,7 @@ Application<Vk>::Application(
                 myComputeQueues.emplace_back(
                     QueueContext<Vk>(
                         myDevice,
-                        QueueContextCreateDesc<Vk>{
-                            0,
-                            queueFamilyIndex,
-                            dedicatedComputeContexts.front().commands(
-                                CommandBufferAccessScopeDesc<Vk>(false))}));
+                        QueueContextCreateDesc<Vk>{0, queueFamilyIndex}));
             }
             else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
             {
@@ -320,19 +409,12 @@ Application<Vk>::Application(
                 myTransferQueues.emplace_back(
                     QueueContext<Vk>(
                         myDevice,
-                        QueueContextCreateDesc<Vk>{0, queueFamilyIndex, std::nullopt}));
+                        QueueContextCreateDesc<Vk>{0, queueFamilyIndex}));
             }
         }
     }
 
-    myWindow = std::make_shared<WindowContext<Vk>>(
-        myDevice,    
-        WindowCreateDesc<Vk>{
-            {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-            {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
-            myConfig.mainWindowSplitScreenGrid});
-
-    createWindowDependentObjects({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
+    createWindowDependentObjects(myMainWindow->getConfig().extent);
 
     // todo: create some resource global storage 
     myPipeline->resources().black = std::make_shared<Image<Vk>>(
@@ -377,14 +459,14 @@ Application<Vk>::Application(
     
     // initialize stuff on general transfer queue
     {
-        auto& generalTransferContext = myCommands[CommandContextType_GeneralTransfer].front();
+        auto& generalTransferContext = myCommands[CommandContextType_GeneralTransfer].fetchAdd();
         auto cmd = generalTransferContext.commands();
 
         myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
         myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
-        initIMGUI(myDevice, cmd, myWindow->getRenderPass(), myUserProfilePath);
+        initIMGUI(myDevice, cmd, myMainWindow->getRenderPass(), myMainWindow->getSurface(), userProfilePath);
 
         cmd.end();
 
@@ -404,7 +486,7 @@ Application<Vk>::Application(
     static_assert(textureId < ShaderTypes_TextureCount);
     static_assert(samplerId < ShaderTypes_SamplerCount);
     {
-        auto& dedicatedTransferContext = myCommands[CommandContextType_DedicatedTransfer].front();
+        auto& dedicatedTransferContext = myCommands[CommandContextType_DedicatedTransfer].fetchAdd();
 
         auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
         materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
@@ -448,7 +530,7 @@ Application<Vk>::Application(
 
     myPipeline->setDescriptorData(
         "g_viewData",
-        DescriptorBufferInfo<Vk>{ myWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+        DescriptorBufferInfo<Vk>{ myMainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
         DescriptorSetCategory_View);
 
     myPipeline->setDescriptorData(
@@ -541,7 +623,7 @@ Application<Vk>::Application(
 
         ///////////
 
-        auto& generalTransferContext = myCommands[CommandContextType_GeneralTransfer].front();
+        auto& generalTransferContext = myCommands[CommandContextType_GeneralTransfer].fetchAdd();
         auto cmd = generalTransferContext.commands();
 
         myPipeline->resources().image->transition(
@@ -602,7 +684,7 @@ Application<Vk>::Application(
         return 0;
     };
 
-    myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage, loadGlTF]
+    myIMGUIPrepareDrawFunction = [this, openFileDialogue, loadModel, loadImage, loadGlTF, resourcePath]
     {
         ZoneScopedN("Application::IMGUIPrepareDraw");
 
@@ -923,11 +1005,11 @@ Application<Vk>::Application(
             if (BeginMenu("File"))
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "obj", loadModel);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, resourcePath, "obj", loadModel);
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "jpg,png", loadImage);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, resourcePath, "jpg,png", loadImage);
                 if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, myResourcePath, "gltf,glb", loadGlTF);
+                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, resourcePath, "gltf,glb", loadGlTF);
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -1049,12 +1131,12 @@ bool Application<Vk>::draw()
         myProcessTimelineCallbacksFuture.get();
     }
 
-    auto [flipSuccess, lastPresentTimelineValue] = myWindow->flip();
+    auto [flipSuccess, lastPresentTimelineValue] = myMainWindow->flip();
 
     if (flipSuccess)
     {
         auto& primaryContext = myCommands[CommandContextType_GeneralPrimary].fetchAdd();
-        auto secondaryContextCount = myConfig.maxCommandContextPerFrameCount;
+        auto secondaryContextCount = 4;
         auto secondaryContexts = &myCommands[CommandContextType_GeneralSecondary].fetchAdd(secondaryContextCount);
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
@@ -1098,12 +1180,12 @@ bool Application<Vk>::draw()
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
-            myWindow->updateInput(myInput);
-            myWindow->draw(*myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
+            myMainWindow->updateInput(myInput);
+            myMainWindow->draw(*myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
-            myWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+            myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
             
             if (imguiPrepareDrawFuture.valid() && !is_ready(imguiPrepareDrawFuture))
             {
@@ -1114,16 +1196,16 @@ bool Application<Vk>::draw()
             
             myIMGUIDrawFunction(cmd);
 
-            myWindow->end(cmd);
+            myMainWindow->end(cmd);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), transitionColor);
-            myWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+            myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
         }
 
         cmd.end();
         
-        auto [imageAquired, renderComplete] = myWindow->getFrameSyncSemaphores();
+        auto [imageAquired, renderComplete] = myMainWindow->getFrameSyncSemaphores();
         
         myGraphicsQueues.front().enqueueSubmit(
             primaryContext.prepareSubmit({
@@ -1134,7 +1216,7 @@ bool Application<Vk>::draw()
                 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
         myGraphicsQueues.front().enqueuePresent(
-            myWindow->preparePresent(
+            myMainWindow->preparePresent(
                 myGraphicsQueues.front().submit()));
     }
 
@@ -1182,16 +1264,16 @@ void Application<Vk>::resizeFramebuffer(int, int)
     }
 
     auto physicalDevice = myDevice->getPhysicalDevice();
-    myInstance->updateSurfaceCapabilities(physicalDevice);
+    myInstance->updateSurfaceCapabilities(physicalDevice, myMainWindow->getSurface());
     auto framebufferExtent = 
-        myInstance->getPhysicalDeviceInfo(physicalDevice).swapchainInfo.capabilities.currentExtent;
+        myInstance->getSwapchainInfo(physicalDevice, myMainWindow->getSurface()).capabilities.currentExtent;
     
-    myWindow->onResizeFramebuffer(framebufferExtent);
+    myMainWindow->onResizeFramebuffer(framebufferExtent);
 
     myPipeline->setDescriptorData(
         "g_viewData",
         DescriptorBufferInfo<Vk>{
-            myWindow->getViewBuffer(),
+            myMainWindow->getViewBuffer(),
             0,
             VK_WHOLE_SIZE},
         DescriptorSetCategory_View);

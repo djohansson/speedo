@@ -1,7 +1,31 @@
 #include "volcano.h"
 #include "application.h"
 
-static std::unique_ptr<Application<Vk>> theApplication;
+#include <filesystem>
+#include <memory>
+#include <string>
+
+static std::unique_ptr<Application<Vk>> g_app;
+static std::filesystem::path g_rootPath;
+static std::filesystem::path g_resourcePath;
+static std::filesystem::path g_userProfilePath;
+
+namespace volcano
+{
+
+std::filesystem::path getAbsolutePath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
+{
+    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+    
+    if (createIfMissing && !std::filesystem::exists(path))
+        std::filesystem::create_directory(path);
+    
+    assert(std::filesystem::is_directory(path));
+    
+    return std::filesystem::absolute(path);
+}
+
+}
 
 int volcano_create(
 	void* windowHandle,
@@ -13,60 +37,83 @@ int volcano_create(
 {
 	assert(windowHandle != nullptr);
 
-	theApplication = std::make_unique<Application<Vk>>(
-		windowHandle, width, height, rootPath, resourcePath, userProfilePath);
+	g_rootPath = volcano::getAbsolutePath(resourcePath, "./");
+	g_resourcePath = volcano::getAbsolutePath(resourcePath, "./resources/");
+	g_userProfilePath = volcano::getAbsolutePath(userProfilePath, "./.profile/", true);
+	g_app = std::make_unique<Application<Vk>>(windowHandle, width, height);
 
 	return EXIT_SUCCESS;
 }
 
 bool volcano_draw()
 {
-	assert(theApplication);
+	assert(g_app);
 
-	return theApplication->draw();
+	return g_app->draw();
 }
 
 void volcano_resizeWindow(const WindowState* state)
 {
-	assert(theApplication);
+	assert(g_app);
 	assert(state != nullptr);
 
-	theApplication->resizeWindow(*state);
+	g_app->resizeWindow(*state);
 }
 
 void volcano_resizeFramebuffer(int width, int height)
 {
-	assert(theApplication);
+	assert(g_app);
 
-	theApplication->resizeFramebuffer(width, height);
+	g_app->resizeFramebuffer(width, height);
 }
 
 void volcano_mouse(const MouseState* state)
 {
-	assert(theApplication);
+	assert(g_app);
 	assert(state != nullptr);
 
-	theApplication->onMouse(*state);
+	g_app->onMouse(*state);
 }
 
 void volcano_keyboard(const KeyboardState* state)
 {
-	assert(theApplication);
+	assert(g_app);
 	assert(state != nullptr);
 
-	theApplication->onKeyboard(*state);
+	g_app->onKeyboard(*state);
 }
 
 void volcano_destroy()
 {
-	assert(theApplication);
+	assert(g_app);
 
-	theApplication.reset();
+	g_app.reset();
 }
 
 const char* volcano_getAppName(void)
 {
-	assert(theApplication);
+	assert(g_app);
 
-	return theApplication->getName();
+	return g_app->getName();
+}
+
+const char* volcano_getRootPath(void)
+{
+	static std::string rootPath;
+	rootPath = g_rootPath.string();
+	return rootPath.c_str();
+}
+
+const char* volcano_getResourcePath(void)
+{
+	static std::string resourcePath;
+	resourcePath = g_resourcePath.string();
+	return resourcePath.c_str();
+}
+
+const char* volcano_getUserProfilePath(void)
+{
+	static std::string userProfilePath;
+	userProfilePath = g_userProfilePath.string();
+	return userProfilePath.c_str();
 }

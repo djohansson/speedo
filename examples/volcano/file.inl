@@ -1,3 +1,5 @@
+#include "typeinfo.h"
+
 #include <cereal/cereal.hpp>
 #include <cereal/types/array.hpp>
 #include <cereal/types/string.hpp>
@@ -27,7 +29,7 @@ T loadObject(std::istream& stream, std::string_view name)
 {
     Archive archive(stream);
     T outValue = {};
-    archive(cereal::make_nvp(name.data(), outValue));
+    archive(cereal::make_nvp(std::string(name), outValue));
     return outValue;
 };
 
@@ -35,7 +37,7 @@ template <typename T, typename Archive>
 void saveObject(const T& object, std::ostream& stream, std::string_view name)
 {
     Archive json(stream);
-    json(cereal::make_nvp(name.data(), object));
+    json(cereal::make_nvp(std::string(name), object));
 };
 
 template <typename T, typename Archive>
@@ -60,11 +62,9 @@ void saveObject(const T& object, const std::filesystem::path& filePath, std::str
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
 	const std::filesystem::path& filePath,
-	std::string_view name,
 	T&& defaultObject)
-: T(std::get<0>(loadObject<T, InputArchive>(filePath, name)).value_or(std::move(defaultObject)))
+: T(std::get<0>(loadObject<T, InputArchive>(filePath, getTypeName<std::decay_t<T>>())).value_or(std::move(defaultObject)))
 , myFilePath(filePath)
-, myName(name)
 {
 }
 
@@ -72,7 +72,6 @@ template <typename T, FileAccessMode Mode, typename InputArchive, typename Outpu
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(FileObject&& other) noexcept
 : T(std::move(other))
 , myFilePath(std::exchange(other.myFilePath, {}))
-, myName(std::exchange(other.myName, {}))
 {
 }
 
@@ -89,7 +88,6 @@ FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>& FileObject<T, Mod
     FileObject&& other) noexcept
 {
     myFilePath = std::exchange(other.myFilePath, {});
-    myName = std::exchange(other.myName, {});
 	return *this;
 }
 
@@ -98,19 +96,18 @@ void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::swap(FileObj
 {
     std::swap<T>(*this, rhs);
     std::swap(myFilePath, rhs.myFilePath);
-    std::swap(myName, rhs.myName);
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
 void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::reload()
 {
 	static_cast<T&>(*this) = std::get<0>(
-		loadObject<T, InputArchive>(myFilePath, myName)).value_or(std::move(static_cast<T&>(*this)));
+		loadObject<T, InputArchive>(myFilePath, getTypeName<std::decay_t<T>>())).value_or(std::move(static_cast<T&>(*this)));
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
 template <FileAccessMode M>
 typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::save() const
 {
-    saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, myName);
+    saveObject<T, OutputArchive>(static_cast<const T&>(*this), myFilePath, getTypeName<std::decay_t<T>>());
 }

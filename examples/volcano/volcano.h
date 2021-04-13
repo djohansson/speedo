@@ -21,6 +21,9 @@ void volcano_mouse(const MouseState* state);
 void volcano_keyboard(const KeyboardState* state);
 void volcano_destroy(void);
 const char* volcano_getAppName(void);
+const char* volcano_getRootPath(void);
+const char* volcano_getResourcePath(void);
+const char* volcano_getUserProfilePath(void);
 
 #ifdef __cplusplus
 }
