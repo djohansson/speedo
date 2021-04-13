@@ -85,7 +85,7 @@
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
 #endif
-	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
+	.LinkerOptionsCpp = ' -L "$LLVMPath$"/lib'
 #if !__WINDOWS__
 		+ ' -lc++'
 #endif

@@ -1,5 +1,11 @@
 #once
 
+#include "platform-config.bff"
+#include "clang-config.bff"
+#include "powershell-config.bff"
+#include "python-config.bff"
+#include "vulkan-config.bff"
+
 .BuildRootPath = '$_WORKING_DIR_$' // should be '$_CURRENT_BFF_DIR_$' but that seems broken...
 .IntermediateFilePath = '$BuildRootPath$/build.intermediate'
 .BuildOutputPath = '$BuildRootPath$/build.output'
@@ -43,7 +49,12 @@
     .CompilerInputExcludedFiles = { }
     .OutputFilePrefix = ''
 	.OutputFileSuffix = ''
-]	
+]
+
+.SolutionCommon = 
+[
+    .ProjectType = 'sln'
+]
 
 .ObjectListCommon = 
 [
@@ -106,16 +117,6 @@
     .UseConfigDependentOutputPath = true
 ]
 
-.GlobalContext =
-[
-    .Targets = { }
-    .ReturnValues = { }
-    .ProjectConfigs = { }
-    .ProjectNames = { }
- 	// .SolutionDependencies = { }
-    // .SolutionFolders = { }
-]
-
 function PrintArray(.ArrayName .Array)
 {
     ForEach(.Object in .Array)
@@ -132,11 +133,11 @@ function AddUnities(.UnityObject)
         
     ForEach (.Unity in .CompilerInputUnity)
     {
-        If(.Unity not in .Targets)
+        If(.Unity not in .Unities)
 	    {
             Print('AddUnities:$Unity$')
             Unity('$Unity$') {}
-            ^Targets + .Unity
+            ^Unities + .Unity
         }
 
         ^ReturnValues + '$Unity$'
@@ -183,7 +184,7 @@ function AddObjectList(.ObjectList .CompilerConfig)
 
 	Using(.LocalObjectList)
 
-	If(.ObjectListName not in .Targets)
+	If(.ObjectListName not in .BuildTargets)
 	{
         ^ReturnValues = { }
         AddUnities(.LocalObjectList)
@@ -191,7 +192,7 @@ function AddObjectList(.ObjectList .CompilerConfig)
 		Print('AddObjectList:$ObjectListName$')
         PrintArray('AddObjectList:PrebuildDependencies:' .PreBuildDependencies)
 		ObjectList('$ObjectListName$') {}
-        ^Targets + .ObjectListName
+        ^BuildTargets + .ObjectListName
 	}
 
     ^ReturnValues = { '$ObjectListName$' }
@@ -236,7 +237,7 @@ function AddLibrary(.Library .CompilerConfig)
 
 	Using(.LocalLibrary)
 
-    If(.LibraryName not in .Targets)
+    If(.LibraryName not in .BuildTargets)
 	{
         ^ReturnValues = { }
         AddUnities(.LocalLibrary)
@@ -244,7 +245,7 @@ function AddLibrary(.Library .CompilerConfig)
         Print('AddLibrary:$LibraryName$')
         PrintArray('AddLibrary:PrebuildDependencies:' .PreBuildDependencies)
 		Library('$LibraryName$') {}
-        ^Targets + .LibraryName
+        ^BuildTargets + .LibraryName
 	}
 
     ^ReturnValues = { '$LibraryName$' }
@@ -265,7 +266,7 @@ function AddDLL(.DLL .CompilerConfig)
 
 	Using(.LocalDLL)
 
-    If(.DLLName not in .Targets)
+    If(.DLLName not in .BuildTargets)
 	{
 		ForEach(.ObjectList in .DependencyObjectLists)
 		{
@@ -285,7 +286,7 @@ function AddDLL(.DLL .CompilerConfig)
         PrintArray('AddDLL:Libraries:' .Libraries)
         PrintArray('AddDLL:PrebuildDependencies:' .PreBuildDependencies)
 		DLL('$DLLName$') {}
-        ^Targets + .DLLName
+        ^BuildTargets + .DLLName
 	}
 
     ^ReturnValues = { '$DLLName$' }
@@ -306,7 +307,7 @@ function AddExecutable(.Executable .CompilerConfig)
 
 	Using(.LocalExecutable)
 
-    If(.ExecutableName not in .Targets)
+    If(.ExecutableName not in .BuildTargets)
 	{
 		ForEach(.ObjectList in .DependencyObjectLists)
 		{
@@ -333,7 +334,7 @@ function AddExecutable(.Executable .CompilerConfig)
         PrintArray('AddExecutable:Libraries:' .Libraries)
         PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
 		Executable('$ExecutableName$') {}
-        ^Targets + .ExecutableName
+        ^BuildTargets + .ExecutableName
 	}
 
     ^ReturnValues = { '$ExecutableName$' }
@@ -359,7 +360,7 @@ function AddTest(.Test .CompilerConfig)
 
 	Using(.LocalTest)
 
-    If(.TestName not in .Targets)
+    If(.TestName not in .BuildTargets)
 	{
         ForEach(.Executable in .DependencyExecutables)
         {
@@ -370,7 +371,7 @@ function AddTest(.Test .CompilerConfig)
 		Print('AddTest:$TestName$')
         PrintArray('AddTest:PrebuildDependencies:' .PreBuildDependencies)
 	 	Test('$TestName$') {}
-        ^Targets + .TestName
+        ^BuildTargets + .TestName
 	}
 
     ^ReturnValues = { '$TestName$' }
@@ -420,7 +421,7 @@ function AddTask(.Task .CompilerConfig)
 
 	Using(.LocalTask)
 
-    If(.TaskName not in .Targets)
+    If(.TaskName not in .BuildTargets)
 	{
         ForEach(.Executable in .DependencyExecutables)
         {
@@ -431,7 +432,7 @@ function AddTask(.Task .CompilerConfig)
 		Print('AddTask:$TaskName$')
         PrintArray('AddTask:PrebuildDependencies:' .PreBuildDependencies)
 	 	Exec('$TaskName$') {}
-        ^Targets + .TaskName
+        ^BuildTargets + .TaskName
 	}
 
     ^ReturnValues = { '$TaskName$' }
@@ -450,10 +451,11 @@ function AddProjectConfig(.ArchitectureName .CompilerConfig)
 
     Using(.LocalProjectConfig)
 
-    If(.ProjectConfigName not in .Targets)
+    If(.ProjectConfigName not in .ProjectConfigNames)
 	{
 		Print('AddProjectConfig:$ProjectConfigName$')
         ^ProjectConfigs + .LocalProjectConfig
+        ^ProjectConfigNames + .ProjectConfigName
 	}
 
     ^ReturnValues = { '$ProjectConfigName$' }
@@ -492,7 +494,7 @@ function AddProject(.Project .ProjectConfigs)
     //^SolutionDependencies + .SolutionDependency
     //^SolutionFolders + .SolutionFolder
 
-    If(.ProjectName not in .Targets)
+    If(.ProjectName not in .ProjectNames)
 	{
         ForEach(.ObjectList in .DependencyObjectLists)
 		{
@@ -517,22 +519,19 @@ function AddProject(.Project .ProjectConfigs)
 
 		Print('AddProject:$ProjectName$')
         VCXProject('$ProjectName$') {}
-        ^Targets + .ProjectName
-	}
-
-    If(.ProjectName not in .ProjectNames)
-	{
         ^ProjectNames + .ProjectName
 	}
 
     ^ReturnValues = { '$ProjectName$' }
 }
 
-function AddSolution(.Name .ProjectConfigs .ProjectNames)
+function AddSolution(.Solution .ProjectConfigs .ProjectNames)
 {
     .LocalSolution = 
     [
-        .SolutionName = '$Name$'
+        Using(.Solution)
+
+        .SolutionName = '$Name$-$ProjectType$'
         .SolutionOutput = '$BuildRootPath$/$Name$.sln'
         .SolutionProjects = .ProjectNames
         .SolutionConfigs = .ProjectConfigs
@@ -545,14 +544,14 @@ function AddSolution(.Name .ProjectConfigs .ProjectNames)
     ]
 
     Using(.LocalSolution)
-    
-    If(.SolutionName not in .Targets)
+
+    If(.SolutionName not in .SolutionNames)
 	{
         PrintArray('AddSolution:SolutionProjects:' .SolutionProjects)
         Print('AddSolution:$SolutionName$')
         VSSolution('$SolutionName$') {}
-        ^Targets + .SolutionName
-    }
+        ^SolutionNames + .SolutionName
+	}
 
     ^ReturnValues = { '$SolutionName$' }
 }

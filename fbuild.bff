@@ -1,10 +1,6 @@
-#include "platform-config.bff"
-#include "clang-config.bff"
-#include "powershell-config.bff"
-#include "python-config.bff"
-#include "vulkan-config.bff"
-
 #include "buildsystem.bff"
+
+.FBuildProjectName = "slang"
 
 {
 	Using(.Clang_BaseConfig)
@@ -1269,25 +1265,37 @@
 		.Name = 'none'
 	]
 
+	.AllSolution =
+	[
+		Using(.SolutionCommon)
+		
+		.Name = '$FBuildProjectName$'
+	]
+
 	{
+		.GlobalContext =
+		[
+			.Targets = { }
+			.Unities = { }
+			.BuildTargets = { }
+			.ProjectNames = { }
+			.SolutionNames = { }
+			// .SolutionDependencies = { }
+			// .SolutionFolders = { }
+			.ReturnValues = { }
+		]
+
 		Using(.GlobalContext)
-
-		ForEach(.CompilerConfig in .Clang_Native_Configs)
-		{
-			.LocalContext = []
-
-			Using(.LocalContext)
-
-			AddProjectConfig(.ArchitectureName .CompilerConfig)
-
-			^GlobalContext + .LocalContext
-		}
 		
 		ForEach(.CompilerConfig in .Clang_Native_Configs)
 		{
-			.LocalContext = []
+			.CompilerConfigContext =
+			[
+				.Targets = { }
+				.BuildTargets = { }
+			]
 
-			Using(.LocalContext)
+			Using(.CompilerConfigContext)
 			Using(.CompilerConfig)
 			
 			AddDLL(.SlangDLL .CompilerConfig)
@@ -1302,28 +1310,71 @@
 			AddTest(.MioTest .CompilerConfig)
 			AddTest(.PicoSHA2Test .CompilerConfig)
 
+			.Targets + .Unities
+			.Targets + .BuildTargets
+
+			Print('Alias:$ConfigName$')
+			//PrintArray('Targets' .Targets)
 			Alias('$ConfigName$') {}
 
-			^GlobalContext + .LocalContext
+			^BuildTargets + .BuildTargets
 		}
 
-		AddProject(.AllProject .ProjectConfigs)
-		AddProject(.NoneProject .ProjectConfigs)
+		{
+			.VSContext =
+			[
+				.Targets = { }
+				.ProjectConfigs = { }
+				.ProjectConfigNames = { }
+				.ProjectNames = { }
+				.SolutionNames = { }
+				// .SolutionDependencies = { }
+				// .SolutionFolders = { }
+			]
 
-		AddProject(.SlangDLL .ProjectConfigs)
-		AddProject(.SlangGlslangDLL .ProjectConfigs)
-		AddProject(.SlangCExecutable .ProjectConfigs)
-		AddProject(.TracyExecutable .ProjectConfigs)
-	#if __WINDOWS__
-		AddProject(.HelloWorldExecutable .ProjectConfigs)
-		AddProject(.ModelViewerExecutable .ProjectConfigs)
-	#endif
-		AddProject(.VolcanoExecutable .ProjectConfigs)
-		AddProject(.MioTest .ProjectConfigs)
-		AddProject(.PicoSHA2Test .ProjectConfigs)
+			Using(.VSContext)
 
-		AddSolution('slang' .ProjectConfigs .ProjectNames)
+			ForEach(.CompilerConfig in .Clang_Native_Configs)
+			{
+				AddProjectConfig(.ArchitectureName .CompilerConfig)
+			}
 
+			AddProject(.AllProject .ProjectConfigs)
+			AddProject(.NoneProject .ProjectConfigs)
+
+			AddProject(.SlangDLL .ProjectConfigs)
+			AddProject(.SlangGlslangDLL .ProjectConfigs)
+			AddProject(.SlangCExecutable .ProjectConfigs)
+			AddProject(.TracyExecutable .ProjectConfigs)
+		#if __WINDOWS__
+			AddProject(.HelloWorldExecutable .ProjectConfigs)
+			AddProject(.ModelViewerExecutable .ProjectConfigs)
+		#endif
+			AddProject(.VolcanoExecutable .ProjectConfigs)
+			AddProject(.MioTest .ProjectConfigs)
+			AddProject(.PicoSHA2Test .ProjectConfigs)
+
+			AddSolution(.AllSolution .ProjectConfigs .ProjectNames)
+
+			.Targets + .ProjectNames
+			.Targets + .SolutionNames
+			
+			Print('Alias:sln')
+			//PrintArray('Targets' .Targets)
+			Alias('sln') {}
+
+			^ProjectNames = .ProjectNames
+			^SolutionNames = .SolutionNames
+		}
+
+		.Targets + .Unities
+		.Targets + .BuildTargets
+		.Targets + .ProjectNames
+		.Targets + .SolutionNames
+
+		Print('Alias:all')
+		//PrintArray('Targets' .Targets)
 		Alias('all') {}
 	}
 }
+
