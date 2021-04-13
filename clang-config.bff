@@ -20,7 +20,7 @@
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
-	.LLVMVersion = '11.0.1'
+	.LLVMVersion = '11.1.0'
 #endif // exists(LLVM_VERSION)
 #if exists(CLANG_PATH)
 #import CLANG_PATH
@@ -85,7 +85,7 @@
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
 #endif
-	.LinkerOptionsCpp = ''
+	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 #if !__WINDOWS__
 		+ ' -lc++'
 #endif

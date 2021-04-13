@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <mutex>
 #include <tuple>
 
 #include "profiling.h"
