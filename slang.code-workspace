@@ -129,7 +129,9 @@
 			"hash_map": "cpp",
 			"hash_set": "cpp",
 			"coroutine": "cpp",
-			"stop_token": "cpp"
+			"stop_token": "cpp",
+			"span": "cpp",
+			"gsl_byte": "cpp"
 		}
 	}
 }
