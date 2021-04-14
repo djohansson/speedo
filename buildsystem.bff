@@ -135,7 +135,7 @@ function AddUnities(.UnityObject)
     {
         If(.Unity not in .Unities)
 	    {
-            Print('AddUnities:$Unity$')
+            //Print('AddUnities:$Unity$')
             Unity('$Unity$') {}
             ^Unities + .Unity
         }
@@ -189,8 +189,8 @@ function AddObjectList(.ObjectList .CompilerConfig)
         ^ReturnValues = { }
         AddUnities(.LocalObjectList)
 
-		Print('AddObjectList:$ObjectListName$')
-        PrintArray('AddObjectList:PrebuildDependencies:' .PreBuildDependencies)
+		//Print('AddObjectList:$ObjectListName$')
+        //PrintArray('AddObjectList:PrebuildDependencies:' .PreBuildDependencies)
 		ObjectList('$ObjectListName$') {}
         ^BuildTargets + .ObjectListName
 	}
@@ -242,8 +242,8 @@ function AddLibrary(.Library .CompilerConfig)
         ^ReturnValues = { }
         AddUnities(.LocalLibrary)
 
-        Print('AddLibrary:$LibraryName$')
-        PrintArray('AddLibrary:PrebuildDependencies:' .PreBuildDependencies)
+        //Print('AddLibrary:$LibraryName$')
+        //PrintArray('AddLibrary:PrebuildDependencies:' .PreBuildDependencies)
 		Library('$LibraryName$') {}
         ^BuildTargets + .LibraryName
 	}
@@ -282,9 +282,9 @@ function AddDLL(.DLL .CompilerConfig)
             ^Libraries + .ReturnValues
         }
 
-		Print('AddDLL:$DLLName$')
-        PrintArray('AddDLL:Libraries:' .Libraries)
-        PrintArray('AddDLL:PrebuildDependencies:' .PreBuildDependencies)
+		//Print('AddDLL:$DLLName$')
+        //PrintArray('AddDLL:Libraries:' .Libraries)
+        //PrintArray('AddDLL:PrebuildDependencies:' .PreBuildDependencies)
 		DLL('$DLLName$') {}
         ^BuildTargets + .DLLName
 	}
@@ -330,9 +330,9 @@ function AddExecutable(.Executable .CompilerConfig)
             ^Libraries + .ReturnValues
 		}
 
-		Print('AddExecutable:$ExecutableName$')
-        PrintArray('AddExecutable:Libraries:' .Libraries)
-        PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
+		//Print('AddExecutable:$ExecutableName$')
+        //PrintArray('AddExecutable:Libraries:' .Libraries)
+        //PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
 		Executable('$ExecutableName$') {}
         ^BuildTargets + .ExecutableName
 	}
@@ -368,8 +368,8 @@ function AddTest(.Test .CompilerConfig)
             AddExecutable(.Executable .CompilerConfig)
         }
         
-		Print('AddTest:$TestName$')
-        PrintArray('AddTest:PrebuildDependencies:' .PreBuildDependencies)
+		//Print('AddTest:$TestName$')
+        //PrintArray('AddTest:PrebuildDependencies:' .PreBuildDependencies)
 	 	Test('$TestName$') {}
         ^BuildTargets + .TestName
 	}
@@ -429,8 +429,8 @@ function AddTask(.Task .CompilerConfig)
             AddExecutable(.Executable .CompilerConfig)
         }
 
-		Print('AddTask:$TaskName$')
-        PrintArray('AddTask:PrebuildDependencies:' .PreBuildDependencies)
+		//Print('AddTask:$TaskName$')
+        //PrintArray('AddTask:PrebuildDependencies:' .PreBuildDependencies)
 	 	Exec('$TaskName$') {}
         ^BuildTargets + .TaskName
 	}
@@ -453,7 +453,7 @@ function AddProjectConfig(.ArchitectureName .CompilerConfig)
 
     If(.ProjectConfigName not in .ProjectConfigNames)
 	{
-		Print('AddProjectConfig:$ProjectConfigName$')
+		//Print('AddProjectConfig:$ProjectConfigName$')
         ^ProjectConfigs + .LocalProjectConfig
         ^ProjectConfigNames + .ProjectConfigName
 	}
@@ -517,7 +517,7 @@ function AddProject(.Project .ProjectConfigs)
             //^Dependencies + .ReturnValues
 		}
 
-		Print('AddProject:$ProjectName$')
+		//Print('AddProject:$ProjectName$')
         VCXProject('$ProjectName$') {}
         ^ProjectNames + .ProjectName
 	}
@@ -547,8 +547,8 @@ function AddSolution(.Solution .ProjectConfigs .ProjectNames)
 
     If(.SolutionName not in .SolutionNames)
 	{
-        PrintArray('AddSolution:SolutionProjects:' .SolutionProjects)
-        Print('AddSolution:$SolutionName$')
+        //PrintArray('AddSolution:SolutionProjects:' .SolutionProjects)
+        //Print('AddSolution:$SolutionName$')
         VSSolution('$SolutionName$') {}
         ^SolutionNames + .SolutionName
 	}

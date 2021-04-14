@@ -2,8 +2,11 @@
 
 .FBuildProjectName = "slang"
 
+.CompilerBaseConfig = .Clang_BaseConfig
+.CompilerConfigs = .Clang_Native_Configs
+
 {
-	Using(.Clang_BaseConfig)
+	Using(.CompilerBaseConfig)
 
 	.CoreObjectList = 
 	[
@@ -1287,7 +1290,7 @@
 
 		Using(.GlobalContext)
 		
-		ForEach(.CompilerConfig in .Clang_Native_Configs)
+		ForEach(.CompilerConfig in .CompilerConfigs)
 		{
 			.CompilerConfigContext =
 			[
@@ -1313,7 +1316,7 @@
 			.Targets + .Unities
 			.Targets + .BuildTargets
 
-			Print('Alias:$ConfigName$')
+			//Print('Alias:$ConfigName$')
 			//PrintArray('Targets' .Targets)
 			Alias('$ConfigName$') {}
 
@@ -1334,7 +1337,7 @@
 
 			Using(.VSContext)
 
-			ForEach(.CompilerConfig in .Clang_Native_Configs)
+			ForEach(.CompilerConfig in .CompilerConfigs)
 			{
 				AddProjectConfig(.ArchitectureName .CompilerConfig)
 			}
@@ -1359,7 +1362,7 @@
 			.Targets + .ProjectNames
 			.Targets + .SolutionNames
 			
-			Print('Alias:sln')
+			//Print('Alias:sln')
 			//PrintArray('Targets' .Targets)
 			Alias('sln') {}
 
@@ -1372,7 +1375,7 @@
 		.Targets + .ProjectNames
 		.Targets + .SolutionNames
 
-		Print('Alias:all')
+		//Print('Alias:all')
 		//PrintArray('Targets' .Targets)
 		Alias('all') {}
 	}
