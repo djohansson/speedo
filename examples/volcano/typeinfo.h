@@ -25,7 +25,7 @@ consteval std::string_view getTypeName()
 		case ']':
 			--depth;
 			if (!depth)
-				return {strPtr, strPtr2 - strPtr};
+				return {strPtr, static_cast<size_t>(strPtr2 - strPtr)};
 		}
 	}
 #else
