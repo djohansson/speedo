@@ -1,10 +1,11 @@
 #pragma once
 
-#if !defined(GPU)
-#define GPU false
+#if defined(SHADERTYPES_H_CPU_TARGET)
 #include <glm/glm.hpp>
 #define float4x4 glm::mat4x4
 #define float4 glm::vec4
+#define float3 glm::vec3
+#define float2 glm::vec2
 #define uint uint32_t
 #else
 #define alignas(x)
@@ -35,7 +36,8 @@
 
 struct ViewData
 {
-    alignas(64) float4x4 viewProjectionMatrix;
+    alignas(64) float4x4 viewProjectionTransform;
+    alignas(16) float3 eyePosition;
 };
 
 struct MaterialData
@@ -46,7 +48,8 @@ struct MaterialData
 
 struct ObjectData
 {
-    alignas(64) float4x4 localTransform;
+    alignas(64) float4x4 modelTransform;
+    alignas(64) float4x4 inverseTransposeModelTransform;
 };
 
 struct PushConstants

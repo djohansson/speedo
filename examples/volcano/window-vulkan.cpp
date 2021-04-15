@@ -63,7 +63,7 @@ void WindowContext<Vk>::internalUpdateViewBuffer(uint8_t frameIndex) const
     assert(viewCount <= ShaderTypes_ViewCount);
     for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
     {
-        viewDataPtr->viewProjectionMatrix = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
+        viewDataPtr->viewProjectionTransform = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
         viewDataPtr++;
     }
 

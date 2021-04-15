@@ -63,9 +63,12 @@ VSOutput vertexMain(InputStream input)
 
     ObjectData object = g_objectData[objectBufferIndex][objectInstanceIndex];
 
-    output.hPos = mul(mul(view.viewProjectionMatrix, object.localTransform), float4(input.position, 1.0));
-    output.data.position = input.position;
-    output.data.normal = input.normal;
+    float3 worldPosition = mul(object.modelTransform, float4(input.position, 1.0)).xyz;
+    float3 worldNormal = mul(object.inverseTransposeModelTransform, float4(input.normal, 0.0)).xyz;
+
+    output.hPos = mul(view.viewProjectionTransform, float4(worldPosition, 1.0));
+    output.data.position = worldPosition;
+    output.data.normal = worldNormal;
     output.data.texCoord = input.texCoord;
     output.data.color = input.color;
 

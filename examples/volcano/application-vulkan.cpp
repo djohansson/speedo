@@ -501,7 +501,9 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             materialData.get());
 
         auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
-        objectData[666].localTransform = glm::mat4x4(1.0f);
+        auto identityMatrix = glm::mat4x4(1.0f);
+        objectData[666].modelTransform = identityMatrix;
+        objectData[666].inverseTransposeModelTransform = glm::transpose(glm::inverse(identityMatrix));
         myObjects = std::make_unique<Buffer<Vk>>(
             myDevice,
             dedicatedTransferContext,

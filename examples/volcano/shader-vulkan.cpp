@@ -129,7 +129,7 @@ void addBinding(
 
 	auto descriptorType = shader::getDescriptorType<Vk>(kind, shape);
 
-	auto isUniformDynamic = descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	//auto isUniformDynamic = descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	auto isInlineUniformBlock = descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
 
 	DescriptorSetLayoutBinding<Vk> slot;
@@ -154,7 +154,7 @@ void addBinding(
 	static constexpr bool usePushDescriptor = false;
 	if (usePushDescriptor)
 	{
-		assert(!isUniformDynamic);
+		//assert(!isUniformDynamic);
 		assert(!isInlineUniformBlock);
 		layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
 	}
@@ -163,7 +163,7 @@ void addBinding(
 	{
 		assert(!layout.pushConstantRange);
 		assert(sizeBytes > 0);
-		assert(!isUniformDynamic);
+		//assert(!isUniformDynamic);
 		assert(!isInlineUniformBlock);
 		layout.pushConstantRange = PushConstantRange<Vk>{slot.stageFlags, 0, static_cast<uint32_t>(sizeBytes)};
 	}

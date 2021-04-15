@@ -99,7 +99,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_MAXIMAL);
 		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
 
-		spAddPreprocessorDefine(slangRequest, "GPU", "true");
+		//spAddPreprocessorDefine(slangRequest, "SHADERTYPES_H_CPU_TARGET", "false");
 
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
 
