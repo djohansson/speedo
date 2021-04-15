@@ -680,6 +680,7 @@
 			+ ' -Wno-unused-function'
 			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -DUUID_SYSTEM_GENERATOR'
+			+ ' -DSHADERTYPES_H_CPU_TARGET'
 		.CompilerInputPath = '$ProjectBasePath$'
 	//	.CompilerInputUnity = '$Name$-unity'
 	// 	.UnityInputPath = '$ProjectBasePath$'
