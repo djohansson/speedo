@@ -664,7 +664,7 @@
 			+ ' -I$BuildRootPath$/external/tinyobjloader'
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/glTF-SDK/GLTFSDK/Inc'
-			+ ' -I$BuildRootPath$/external/VulkanMemoryAllocator/src'
+			+ ' -I$BuildRootPath$/external/VulkanMemoryAllocator/include'
 			+ ' -I$BuildRootPath$/external/imgui'
 			+ ' -I$BuildRootPath$/external/imnodes'
 			+ ' -I$BuildRootPath$/external/lz4/lib'
