@@ -49,16 +49,14 @@ void WindowContext<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExten
 }
 
 template <>
-void WindowContext<Vk>::internalUpdateViewBuffer(uint8_t frameIndex) const
+void WindowContext<Vk>::internalUpdateViewBuffer() const
 {
     ZoneScopedN("WindowContext::internalUpdateViewBuffer");
-
-    assert(frameIndex < getFrames().size());
 
     void* data;
     VK_CHECK(vmaMapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[frameIndex * ShaderTypes_ViewCount];
+    ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
     auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
     assert(viewCount <= ShaderTypes_ViewCount);
     for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
@@ -70,7 +68,7 @@ void WindowContext<Vk>::internalUpdateViewBuffer(uint8_t frameIndex) const
     vmaFlushAllocation(
         getDeviceContext()->getAllocator(),
         myViewBuffer->getBufferMemory(),
-        frameIndex * ShaderTypes_ViewCount * sizeof(ViewData),
+        internalGetFrameIndex() * ShaderTypes_ViewCount * sizeof(ViewData),
         viewCount * sizeof(ViewData));
 
     vmaUnmapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory());
@@ -81,8 +79,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
     PipelineContext<Vk>& pipeline,
     CommandPoolContext<Vk>* secondaryContexts,
     uint32_t secondaryContextCount,
-    const RenderPassBeginInfo<Vk>& renderPassInfo,
-    uint8_t frameIndex)
+    const RenderPassBeginInfo<Vk>& renderPassInfo)
 {
     // setup draw parameters
     uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
@@ -103,7 +100,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
         std::execution::par,
     #endif
             seq.begin(), drawThreadCount,
-            [&pipeline, &secondaryContexts, &renderPassInfo, &frameIndex, &drawAtomic, &drawCount, &desc = myConfig](uint32_t threadIt)
+            [&pipeline, &secondaryContexts, &renderPassInfo, frameIndex = internalGetFrameIndex(), &drawAtomic, &drawCount, &desc = myConfig](uint32_t threadIt)
             {
                 ZoneScoped;
 
@@ -239,6 +236,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
 template <>
 void WindowContext<Vk>::draw(
+    TaskThreadPool& threadPool,
     PipelineContext<Vk>& pipeline,
 	CommandPoolContext<Vk>& primaryContext,
 	CommandPoolContext<Vk>* secondaryContexts,
@@ -246,12 +244,7 @@ void WindowContext<Vk>::draw(
 {
     ZoneScopedN("WindowContext::draw");
 
-    auto frameIndex = getFrameIndex();
-
-    std::future<void> updateViewBufferFuture(std::async(std::launch::async, [this, frameIndex]
-    {
-        internalUpdateViewBuffer(frameIndex);
-    }));
+    auto updateViewBufferFuture = threadPool.submit(std::packaged_task<void()>([this]{ internalUpdateViewBuffer(); }));
 
     auto& renderTarget = pipeline.getRenderTarget();
 
@@ -262,8 +255,7 @@ void WindowContext<Vk>::draw(
         pipeline,
         secondaryContexts,
         secondaryContextCount,
-        renderPassInfo.value(),
-        frameIndex);
+        renderPassInfo.value());
     
     for (uint32_t contextIt = 0ul; contextIt < drawThreadCount; contextIt++)
         primaryContext.execute(secondaryContexts[contextIt]);

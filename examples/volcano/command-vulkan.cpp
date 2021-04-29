@@ -212,11 +212,11 @@ CommandPool<Vk>& CommandPool<Vk>::operator=(CommandPool&& other) noexcept
 }
 
 template <>
-void CommandPool<Vk>::swap(CommandPool& rhs) noexcept
+void CommandPool<Vk>::swap(CommandPool& other) noexcept
 {
-    DeviceObject::swap(rhs);
-    std::swap(myDesc, rhs.myDesc);
-    std::swap(myPool, rhs.myPool);
+	DeviceObject::swap(other);
+	std::swap(myDesc, other.myDesc);
+	std::swap(myPool, other.myPool);
 }
 
 template <>

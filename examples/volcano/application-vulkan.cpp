@@ -174,7 +174,8 @@ void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExten
 
 template <>
 Application<Vk>::Application(void* windowHandle, int width, int height)
-: myNodeGraph(std::filesystem::path(volcano_getUserProfilePath()) / "nodegraph.json") // temp - this should be stored in the resource path
+: myThreadPool(std::max(1u, std::thread::hardware_concurrency() - 1))
+, myInstance(std::make_shared<InstanceContext<Vk>>())
 {
     ZoneScopedN("Application()");
 
@@ -187,8 +188,6 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
         { resourcePath / "shaders" },
         std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
         userProfilePath / ".slang.intermediate");
-    
-    myInstance = std::make_shared<InstanceContext<Vk>>();
 
     auto surface = createSurface(myInstance->getInstance(), windowHandle);
 
@@ -1007,11 +1006,17 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             if (BeginMenu("File"))
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, resourcePath, "obj", loadModel);
+                    myOpenFileFuture = myThreadPool.submit(
+                        std::packaged_task<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>()>(
+                            [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); }));
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, resourcePath, "jpg,png", loadImage);
+                    myOpenFileFuture = myThreadPool.submit(
+                        std::packaged_task<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>()>(
+                            [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); }));
                 if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = std::async(std::launch::async, openFileDialogue, resourcePath, "gltf,glb", loadGlTF);
+                    myOpenFileFuture = myThreadPool.submit(
+                        std::packaged_task<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>()>(
+                            [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); }));
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -1052,6 +1057,8 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
         ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
     };
+
+    myNodeGraph = std::filesystem::path(volcano_getUserProfilePath()) / "nodegraph.json"; // temp - this should be stored in the resource path
 }
 
 template <>
@@ -1138,15 +1145,12 @@ bool Application<Vk>::draw()
     if (flipSuccess)
     {
         auto& primaryContext = myCommands[CommandContextType_GeneralPrimary].fetchAdd();
-        auto secondaryContextCount = 4;
+        constexpr uint32_t secondaryContextCount = 4;
         auto secondaryContexts = &myCommands[CommandContextType_GeneralSecondary].fetchAdd(secondaryContextCount);
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
-        
-        std::future<void> imguiPrepareDrawFuture(std::async(std::launch::async, [this]
-        {
-            myIMGUIPrepareDrawFunction();
-        }));
+
+        auto imguiPrepareDrawFuture = myThreadPool.submit(std::packaged_task<void()>([this]{ myIMGUIPrepareDrawFunction(); }));
 
         if (lastPresentTimelineValue)
         {
@@ -1161,7 +1165,7 @@ bool Application<Vk>::draw()
             
             primaryContext.reset();
 
-            for (uint secIt = 0; secIt < secondaryContextCount; secIt++)
+            for (uint32_t secIt = 0; secIt < secondaryContextCount; secIt++)
                 secondaryContexts[secIt].reset();
         }
 
@@ -1183,7 +1187,7 @@ bool Application<Vk>::draw()
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
             myMainWindow->updateInput(myInput);
-            myMainWindow->draw(*myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
+            myMainWindow->draw(myThreadPool, *myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
@@ -1225,14 +1229,20 @@ bool Application<Vk>::draw()
     {
         ZoneScopedN("Application::draw::launchAsync");
 
-        myPresentFuture = std::async(
-            std::launch::async,
-            [_flipSuccess = flipSuccess, &queue = myGraphicsQueues.front()]{ if (_flipSuccess) queue.present(); });
+        myPresentFuture = myThreadPool.submit(
+            std::packaged_task<void()>(
+                [_flipSuccess = flipSuccess, &queue = myGraphicsQueues.front()]
+                {
+                    if (_flipSuccess)
+                        queue.present();
+                }));
 
-        myProcessTimelineCallbacksFuture = std::async(
-            std::launch::async,
-            [_lastPresentTimelineValue = lastPresentTimelineValue, &deviceContext = myDevice]{
-                deviceContext->processTimelineCallbacks(_lastPresentTimelineValue); });
+        myProcessTimelineCallbacksFuture = myThreadPool.submit(
+            std::packaged_task<void()>(
+                [_lastPresentTimelineValue = lastPresentTimelineValue, &deviceContext = myDevice]
+                {
+                    deviceContext->processTimelineCallbacks(_lastPresentTimelineValue);
+                }));
     }
 
     {

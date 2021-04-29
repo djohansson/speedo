@@ -69,10 +69,7 @@ public:
     virtual void end(CommandBufferHandle<B> cmd) final;
 
 	auto getSurface() const noexcept { return mySurface; }
-	const auto& getFrames() const noexcept { return myFrames; }
 	auto getRenderPass() { return static_cast<RenderPassHandle<B>>(myFrames[myFrameIndex]); }
-	auto getFrameIndex() const noexcept { return myFrameIndex; }
-	auto getLastFrameIndex() const noexcept { return myLastFrameIndex; }
 
 	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
 	std::tuple<SemaphoreHandle<B>, SemaphoreHandle<B>> getFrameSyncSemaphores() const noexcept
@@ -88,6 +85,8 @@ public:
 	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
 
 protected:
+
+	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }
 
 	void internalCreateSwapchain(
 		const SwapchainConfiguration<B>& config,

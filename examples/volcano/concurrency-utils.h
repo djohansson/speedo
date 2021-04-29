@@ -1,53 +1,72 @@
 #pragma once
 
+#include "utils.h"
+#include "profiling.h"
+
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <future>
+#include <memory>
 #include <mutex>
 #include <tuple>
-
-#include "profiling.h"
+#include <vector>
 
 template <typename T, typename AtomicT = std::atomic<T>>
 class CopyableAtomic : public AtomicT
 {
 public:
+	using value_t = T;
+	using atomic_t = AtomicT;
+	using atomic_t::store;
 
-	using AtomicT::store;
-    
-    constexpr CopyableAtomic() noexcept = default;
-    constexpr CopyableAtomic(T val) noexcept : std::atomic<T>(val) {}
-    CopyableAtomic(const CopyableAtomic<T>& other) noexcept
-    {
-        store(other.load(std::memory_order_acquire), std::memory_order_release);
-    }
-    CopyableAtomic<T>& operator=(const CopyableAtomic<T>& other) noexcept
-    {
-        store(other.load(std::memory_order_acquire), std::memory_order_release);
+	constexpr CopyableAtomic() noexcept = default;
+	constexpr CopyableAtomic(value_t val) noexcept
+		: atomic_t(val)
+	{}
+	CopyableAtomic(const CopyableAtomic& other) noexcept
+	{
+		store(other.load(std::memory_order_acquire), std::memory_order_release);
+	}
+	CopyableAtomic& operator=(const CopyableAtomic& other) noexcept
+	{
+		store(other.load(std::memory_order_acquire), std::memory_order_release);
 
-        return *this;
-    }
+		return *this;
+	}
 };
 
-template <typename T = uint32_t, uint32_t Aligmnent = 
+template <typename ValueT = uint32_t, uint32_t Aligmnent =
 #if __cpp_lib_hardware_interference_size >= 201603
-std::hardware_destructive_interference_size>
+	std::hardware_destructive_interference_size>
 #else
-64>
+	64>
 #endif
 class alignas(Aligmnent) UpgradableSharedMutex
-#if __cpp_lib_atomic_ref < 201806
- : public CopyableAtomic<T>
-#endif
 {
-	using value_t = T;
-	enum : value_t { Reader = 4, Upgraded = 2, Writer = 1, None = 0 };
+	using value_t = ValueT;
+	enum : value_t
+	{
+		Reader = 4,
+		Upgraded = 2,
+		Writer = 1,
+		None = 0
+	};
 
 #if __cpp_lib_atomic_ref >= 201806
 	value_t myBits = 0;
-	inline auto internalAtomicRef() noexcept { return std::atomic_ref(myBits); }
+	inline auto internalAtomicRef() noexcept
+	{
+		return std::atomic_ref(myBits);
+	}
 #else
-	inline auto& internalAtomicRef() noexcept { return *this; }
+	using atomic_t = CopyableAtomic<value_t>;
+	atomic_t myAtomic;
+	inline auto& internalAtomicRef() noexcept
+	{
+		return myAtomic;
+	}
 #endif
 
 	template <typename Func>
@@ -65,11 +84,10 @@ class alignas(Aligmnent) UpgradableSharedMutex
 	}
 
 public:
-
 	// Lockable Concept
 	void lock() noexcept
 	{
-		internalSpinWait([this](){ return try_lock(); });
+		internalSpinWait([this]() { return try_lock(); });
 	}
 
 	// Writer is responsible for clearing up both the Upgraded and Writer bits.
@@ -84,7 +102,7 @@ public:
 	// SharedLockable Concept
 	void lock_shared() noexcept
 	{
-		internalSpinWait([this](){ return try_lock_shared(); });
+		internalSpinWait([this]() { return try_lock_shared(); });
 	}
 
 	inline void unlock_shared() noexcept
@@ -97,14 +115,14 @@ public:
 	inline void unlock_and_lock_shared() noexcept
 	{
 		internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
-		
+
 		unlock();
 	}
 
 	// UpgradeLockable Concept
 	void lock_upgrade() noexcept
 	{
-		internalSpinWait([this](){ return try_lock_upgrade(); });
+		internalSpinWait([this]() { return try_lock_upgrade(); });
 	}
 
 	inline void unlock_upgrade() noexcept
@@ -117,7 +135,7 @@ public:
 	void unlock_upgrade_and_lock() noexcept
 	{
 		// try to unlock upgrade and write lock atomically
-		internalSpinWait([this](){ return try_lock<Upgraded>(); });
+		internalSpinWait([this]() { return try_lock<Upgraded>(); });
 	}
 
 	// unlock upgrade and read lock atomically
@@ -181,83 +199,209 @@ public:
 	}
 };
 
-template <typename T, typename DequeT = std::deque<T>>
+// todo: a real concurrent queue
+template <typename T, typename DequeT = std::deque<T>, typename MutexT = UpgradableSharedMutex<>>
 class ConcurrentDeque : private DequeT
 {
 public:
+	using deque_t = DequeT;
+	using value_t = typename deque_t::value_type;
+	using mutex_t = MutexT;
 
-	using deque_type = DequeT;
-	using value_type = typename deque_type::value_type;
-
-	void push_front(const value_type& src)
+	void push_front(const value_t& src)
 	{
 		auto lock = std::unique_lock(myMutex);
-		
-		deque_type::push_front(src);
+
+		deque_t::push_front(src);
 	}
 
-	void emplace_front(value_type&& src)
+	void emplace_front(value_t&& src)
 	{
 		auto lock = std::unique_lock(myMutex);
 
-		deque_type::emplace_front(src);
+		deque_t::emplace_front(src);
 	}
 
-	void push_back(const value_type& src)
+	void push_back(const value_t& src)
 	{
 		auto lock = std::unique_lock(myMutex);
-		
-		deque_type::push_back(src);
+
+		deque_t::push_back(src);
 	}
 
-	void emplace_back(value_type&& src)
+	void emplace_back(value_t&& src)
 	{
 		auto lock = std::unique_lock(myMutex);
 
-		deque_type::emplace_back(src);
+		deque_t::emplace_back(src);
 	}
 
-	bool try_pop_front(value_type& dst)
+	bool try_pop_front(value_t& dst)
 	{
 		auto lock = std::unique_lock(myMutex);
-		
-		if (deque_type::empty())
+
+		if (deque_t::empty())
 			return false;
-			
-		dst = deque_type::front();
-		deque_type::pop_front();
+
+		dst = deque_t::front();
+		deque_t::pop_front();
 
 		return true;
 	}
 
-	bool try_pop_back(value_type& dst)
+	bool try_pop_back(value_t& dst)
 	{
 		auto lock = std::unique_lock(myMutex);
-		
-		if (deque_type::empty())
+
+		if (deque_t::empty())
 			return false;
-			
-		dst = deque_type::back();
-		deque_type::pop_back();
+
+		dst = deque_t::back();
+		deque_t::pop_back();
 
 		return true;
 	}
 
-	void insert_front(typename deque_type::iterator beginIt, typename deque_type::iterator endIt)
+	void insert_front(typename deque_t::iterator beginIt, typename deque_t::iterator endIt)
 	{
 		auto lock = std::unique_lock(myMutex);
 
-		deque_type::insert(deque_type::begin(), beginIt, endIt);
+		deque_t::insert(deque_t::begin(), beginIt, endIt);
 	}
 
-	void insert_back(typename deque_type::iterator beginIt, typename deque_type::iterator endIt)
+	void insert_back(typename deque_t::iterator beginIt, typename deque_t::iterator endIt)
 	{
 		auto lock = std::unique_lock(myMutex);
 
-		deque_type::insert(deque_type::end(), beginIt, endIt);
+		deque_t::insert(deque_t::end(), beginIt, endIt);
 	}
 
 private:
 
+	mutex_t myMutex;
+};
+
+class Task : public Noncopyable
+{
+public:
+
+	template <typename F, typename dF = std::decay_t<F>, class = decltype(std::declval<dF&>()())>
+	Task(F&& f)
+		: myCallable(new dF(std::forward<F>(f)), [](void* ptr) { delete static_cast<dF*>(ptr); })
+		, myThunk([](void* ptr) { (*static_cast<dF*>(ptr))(); })
+	{
+		assert(myCallable.get());
+	}
+
+	Task(Task&& other) noexcept
+		: myCallable(other.myCallable.release(), other.myCallable.get_deleter())
+		, myThunk(std::exchange(other.myThunk, nullptr))
+	{ }
+
+	void swap(Task& other) noexcept
+	{
+		myCallable.swap(other.myCallable);
+		std::swap(myThunk, other.myThunk);
+	}
+
+	friend void swap(Task& lhs, Task& rhs) noexcept
+	{
+		lhs.swap(rhs);
+	}
+
+	Task& operator=(Task&& other) noexcept
+	{
+		myCallable.reset(other.myCallable.release());
+		myThunk = std::exchange(other.myThunk, nullptr);
+
+		return *this;
+	}
+
+	void operator()() const
+	{
+		myThunk(myCallable.get());
+	}
+
+	explicit operator bool() const noexcept
+	{
+		return static_cast<bool>(myCallable);
+	}
+
+private:
+
+	std::unique_ptr<void, void (*)(void*)> myCallable;
+	void (*myThunk)(void*) = nullptr;
+};
+
+class TaskThreadPool : public Noncopyable
+{
+public:
+
+	TaskThreadPool(uint32_t threadCount)
+	{
+		assertf(threadCount > 0, "Thread count must be nonzero");
+		
+		myThreads.reserve(threadCount);
+		for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
+			myThreads.emplace_back([this](std::stop_token stopToken) { internalThreadMain(stopToken); });
+	}
+
+	~TaskThreadPool()
+	{
+		// todo: remove destructor TaskThreadPool and let jthread destructor stop automatically.
+		// temp workaround for unfinished c++20 stl features (visual studio). jthread is broken.
+		for (auto& thread : myThreads)
+		{
+			thread.request_stop();
+			thread.join();
+		}
+		// 
+	}
+
+	// todo: Args...
+	template <typename R>
+	std::future<R> submit(std::packaged_task<R()>&& task)
+	{
+		std::future<R> result = task.get_future();
+
+		auto lock = std::unique_lock(myMutex);
+		myQueue.emplace_back(std::move(task));
+		lock.unlock();
+
+		mySignal.notify_one();
+
+		return result;
+	}
+
+private:
+
+	void internalThreadMain(std::stop_token stopToken)
+	{
+		do
+		{
+			auto lock = std::unique_lock(myMutex);
+
+			while (!myQueue.empty())
+			{
+				Task task(std::move(myQueue.front()));
+				myQueue.pop_front();
+
+				lock.unlock();
+				task();
+				lock.lock();
+			}
+
+			mySignal.wait(lock, stopToken, [&queue = myQueue]()
+			{
+				// condition for wake up
+				return !queue.empty();
+			});
+
+		} while (!stopToken.stop_requested());
+	}
+
+	std::vector<std::jthread> myThreads;
+	std::condition_variable_any mySignal;
 	UpgradableSharedMutex<> myMutex;
+	std::deque<Task> myQueue;
 };

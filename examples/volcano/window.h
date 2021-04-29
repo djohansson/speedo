@@ -57,6 +57,7 @@ public:
 
 	// todo: generalize, move out of window. use sorted draw call lists.
 	void draw(
+		TaskThreadPool& threadPool,
 		PipelineContext<B>& pipeline,
 		CommandPoolContext<B>& primaryContext,
 		CommandPoolContext<Vk>* secondaryContexts,
@@ -65,15 +66,14 @@ public:
 
 private:
 
-	void internalUpdateViewBuffer(uint8_t frameIndex) const;
+	void internalUpdateViewBuffer() const;
 	void internalCreateFrameObjects(Extent2d<B> frameBufferExtent);
 
 	uint32_t internalDrawViews(
 		PipelineContext<B>& pipeline,
 		CommandPoolContext<Vk>* secondaryContexts,
 		uint32_t secondaryContextCount,
-		const RenderPassBeginInfo<B>& renderPassInfo,
-		uint8_t frameIndex);
+		const RenderPassBeginInfo<B>& renderPassInfo);
 
 	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig = {};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;

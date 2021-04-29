@@ -20,6 +20,7 @@
 #pragma once
 
 #include "command.h"
+#include "concurrency-utils.h"
 #include "device.h"
 #include "file.h"
 #include "instance.h"
@@ -74,7 +75,7 @@ private:
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 
-	AutoSaveJSONFileObject<NodeGraph> myNodeGraph;
+	TaskThreadPool myThreadPool;
 
 	InputState myInput = {};
 
@@ -118,6 +119,8 @@ private:
 	std::future<void> myProcessTimelineCallbacksFuture;
 
 	bool myRequestExit = false;
+
+	AutoSaveJSONFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
 };
 
 #include "application.inl"
