@@ -335,27 +335,37 @@ private:
 
 class TaskThreadPool : public Noncopyable
 {
+	using mutex_t = UpgradableSharedMutex<>;
+
 public:
 
 	TaskThreadPool(uint32_t threadCount)
 	{
 		assertf(threadCount > 0, "Thread count must be nonzero");
+
+		auto threadMain = [this]{ internalThreadMain(); };
 		
 		myThreads.reserve(threadCount);
 		for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-			myThreads.emplace_back([this](std::stop_token stopToken) { internalThreadMain(stopToken); });
+			myThreads.emplace_back(threadMain);
 	}
 
 	~TaskThreadPool()
 	{
-		// todo: remove destructor TaskThreadPool and let jthread destructor stop automatically.
-		// temp workaround for unfinished c++20 stl features (visual studio). jthread is broken.
+		myStopSource.request_stop();
+		mySignal.notify_all();
+
+		// workaround for the following problem in msvc implementation of jthread in <mutex>:
+		// TRANSITION, ABI: Due to the unsynchronized delivery of notify_all by _Stoken,
+		// this implementation cannot tolerate *this destruction while an interruptible wait
+		// is outstanding. A future ABI should store both the internal CV and internal mutex
+		// in the reference counted block to allow this.
+
 		for (auto& thread : myThreads)
-		{
-			thread.request_stop();
 			thread.join();
-		}
-		// 
+
+		auto lock = std::unique_lock(myMutex);
+		internalProcessTaskQueue(lock);
 	}
 
 	// todo: Args...
@@ -375,33 +385,39 @@ public:
 
 private:
 
-	void internalThreadMain(std::stop_token stopToken)
+	void internalProcessTaskQueue(std::unique_lock<mutex_t>& lock)
 	{
-		do
+		while (!myQueue.empty())
 		{
-			auto lock = std::unique_lock(myMutex);
+			Task task(std::move(myQueue.front()));
+			myQueue.pop_front();
 
-			while (!myQueue.empty())
-			{
-				Task task(std::move(myQueue.front()));
-				myQueue.pop_front();
+			lock.unlock();
+			task();
+			lock.lock();
+		}
+	}
 
-				lock.unlock();
-				task();
-				lock.lock();
-			}
+	void internalThreadMain()
+	{
+		auto lock = std::unique_lock(myMutex);
+		auto stopToken = myStopSource.get_token();
+		
+		while (!stopToken.stop_requested())
+		{
+			internalProcessTaskQueue(lock);
 
 			mySignal.wait(lock, stopToken, [&queue = myQueue]()
 			{
 				// condition for wake up
 				return !queue.empty();
 			});
-
-		} while (!stopToken.stop_requested());
+		}
 	}
 
-	std::vector<std::jthread> myThreads;
+	mutex_t myMutex;
+	std::vector<std::thread> myThreads;
 	std::condition_variable_any mySignal;
-	UpgradableSharedMutex<> myMutex;
+	std::stop_source myStopSource;
 	std::deque<Task> myQueue;
 };
