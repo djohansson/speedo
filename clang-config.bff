@@ -77,15 +77,16 @@
 	.CompilerOptionsC = ' -std=c2x'
 	.CompilerOptionsCpp = ' -std=c++20'
 #if !__WINDOWS__
-		+ ' -stdlib=libc++'
+		+ ' -stdlib=libc++ -nostdinc++'
+		+ ' -I $LLVMPath$/include/c++/v1'
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
-		//+ ' --wrap=malloc'
 		+ .PlatformLibPaths
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
 #endif
-	.LinkerOptionsCpp = ' -L "$LLVMPath$"/lib'
+	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
+		+ ' -Wl,-rpath,$LLVMPath$/lib'
 #if !__WINDOWS__
 		+ ' -lc++'
 #endif
