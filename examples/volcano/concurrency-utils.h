@@ -10,6 +10,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+//#include <stop_token>
 #include <tuple>
 #include <vector>
 
@@ -352,7 +353,8 @@ public:
 
 	~TaskThreadPool()
 	{
-		myStopSource.request_stop();
+		//myStopSource.request_stop();
+		myStopSource.store(true, std::memory_order_relaxed);
 		mySignal.notify_all();
 
 		// workaround for the following problem in msvc implementation of jthread in <mutex>:
@@ -401,13 +403,15 @@ private:
 	void internalThreadMain()
 	{
 		auto lock = std::unique_lock(myMutex);
-		auto stopToken = myStopSource.get_token();
+		//auto stopToken = myStopSource.get_token();
 		
-		while (!stopToken.stop_requested())
+		//while (!stopToken.stop_requested())
+		while (!myStopSource.load(std::memory_order_relaxed))
 		{
 			internalProcessTaskQueue(lock);
 
-			mySignal.wait(lock, stopToken, [&queue = myQueue]()
+			//mySignal.wait(lock, stopToken, [&queue = myQueue]()
+			mySignal.wait(lock, [&queue = myQueue]()
 			{
 				// condition for wake up
 				return !queue.empty();
@@ -418,6 +422,7 @@ private:
 	mutex_t myMutex;
 	std::vector<std::thread> myThreads;
 	std::condition_variable_any mySignal;
-	std::stop_source myStopSource;
+	//std::stop_source myStopSource;
+	std::atomic_bool myStopSource;
 	std::deque<Task> myQueue;
 };
