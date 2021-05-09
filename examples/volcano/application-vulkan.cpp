@@ -186,7 +186,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
     auto shaders = shader::loadSlangShaders<Vk>(
         resourcePath / "shaders" / "shaders.slang",
         { resourcePath / "shaders" },
-        std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin",
+        std::filesystem::canonical(std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin"),
         userProfilePath / ".slang.intermediate");
 
     auto surface = createSurface(myInstance->getInstance(), windowHandle);
@@ -1007,16 +1007,13 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = myThreadPool.submit(
-                        std::packaged_task<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>()>(
-                            [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); }));
+                        [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = myThreadPool.submit(
-                        std::packaged_task<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>()>(
-                            [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); }));
+                        [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); });
                 if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
                     myOpenFileFuture = myThreadPool.submit(
-                        std::packaged_task<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>()>(
-                            [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); }));
+                        [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -1126,19 +1123,8 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("Application::draw");
 
-    if (myPresentFuture.valid() && !is_ready(myPresentFuture))
-    {
-        ZoneScopedN("Application::draw::waitPresent");
-
-        myPresentFuture.get();
-    }
-
-    if (myProcessTimelineCallbacksFuture.valid() && !is_ready(myProcessTimelineCallbacksFuture))
-    {
-        ZoneScopedN("Application::draw::waitProcessTimelineCallbacks");
-
-        myProcessTimelineCallbacksFuture.get();
-    }
+    myThreadPool.processQueueUntil(std::move(myPresentFuture));
+    myThreadPool.processQueueUntil(std::move(myProcessTimelineCallbacksFuture));
 
     auto [flipSuccess, lastPresentTimelineValue] = myMainWindow->flip();
 
@@ -1150,7 +1136,7 @@ bool Application<Vk>::draw()
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
 
-        auto imguiPrepareDrawFuture = myThreadPool.submit(std::packaged_task<void()>([this]{ myIMGUIPrepareDrawFunction(); }));
+        auto imguiPrepareDrawFuture = myThreadPool.submit([this]{ myIMGUIPrepareDrawFunction(); });
 
         if (lastPresentTimelineValue)
         {
@@ -1192,13 +1178,8 @@ bool Application<Vk>::draw()
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
             myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-            
-            if (imguiPrepareDrawFuture.valid() && !is_ready(imguiPrepareDrawFuture))
-            {
-                ZoneScopedN("Application::draw::waitImguiPrepareDraw");
 
-                imguiPrepareDrawFuture.get();
-            }
+            myThreadPool.processQueueUntil(std::move(imguiPrepareDrawFuture));
             
             myIMGUIDrawFunction(cmd);
 
@@ -1230,19 +1211,17 @@ bool Application<Vk>::draw()
         ZoneScopedN("Application::draw::launchAsync");
 
         myPresentFuture = myThreadPool.submit(
-            std::packaged_task<void()>(
-                [_flipSuccess = flipSuccess, &queue = myGraphicsQueues.front()]
-                {
-                    if (_flipSuccess)
-                        queue.present();
-                }));
+            [_flipSuccess = flipSuccess, &queue = myGraphicsQueues.front()]
+            {
+                if (_flipSuccess)
+                    queue.present();
+            });
 
         myProcessTimelineCallbacksFuture = myThreadPool.submit(
-            std::packaged_task<void()>(
-                [_lastPresentTimelineValue = lastPresentTimelineValue, &deviceContext = myDevice]
-                {
-                    deviceContext->processTimelineCallbacks(_lastPresentTimelineValue);
-                }));
+            [_lastPresentTimelineValue = lastPresentTimelineValue, &deviceContext = myDevice]
+            {
+                deviceContext->processTimelineCallbacks(_lastPresentTimelineValue);
+            });
     }
 
     {

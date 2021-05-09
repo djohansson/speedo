@@ -244,7 +244,7 @@ void WindowContext<Vk>::draw(
 {
     ZoneScopedN("WindowContext::draw");
 
-    auto updateViewBufferFuture = threadPool.submit(std::packaged_task<void()>([this]{ internalUpdateViewBuffer(); }));
+    auto updateViewBufferFuture = threadPool.submit([this]{ internalUpdateViewBuffer(); });
 
     auto& renderTarget = pipeline.getRenderTarget();
 
@@ -266,11 +266,7 @@ void WindowContext<Vk>::draw(
 
     blit(cmd, renderTarget, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0);
 
-    {
-        ZoneScopedN("WindowContext::waitViewBuffer");
-
-        updateViewBufferFuture.get();
-    }
+    threadPool.processQueueUntil(std::move(updateViewBufferFuture));
 }
 
 template <>

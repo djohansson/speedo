@@ -3,15 +3,25 @@
 #include "utils.h"
 #include "profiling.h"
 
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <tuple>
+#include <type_traits>
 #include <vector>
+
+template <typename T>
+bool is_ready(std::future<T> const& future)
+{
+	return future.wait_for(std::chrono::nanoseconds(0)) == std::future_status::ready;
+}
 
 template <typename T, typename AtomicT = std::atomic<T>>
 class CopyableAtomic : public AtomicT
@@ -283,67 +293,117 @@ private:
 
 class Task : public Noncopyable
 {
+	static constexpr size_t kMaxCallableSizeBytes = 56;
+
 public:
 
-	template <typename F, typename dF = std::decay_t<F>, class = decltype(std::declval<dF&>()())>
+	constexpr Task() {};
+
+	template <typename F, typename dF = std::decay_t<F>, typename... Args, typename R = std::invoke_result_t<dF, Args...>>
 	Task(F&& f)
-		: myCallable(new dF(std::forward<F>(f)), [](void* ptr) { delete static_cast<dF*>(ptr); })
-		, myThunk([](void* ptr) { (*static_cast<dF*>(ptr))(); })
+		: myPromise(std::make_shared<std::promise<R>>())
+		, myInvokeThunk([](void* callablePtr, void* promisePtr)
+		{
+			auto& callable = *static_cast<dF*>(callablePtr);
+			auto& promise = *static_cast<std::promise<R>*>(promisePtr);
+			if constexpr(std::is_void_v<R>)
+			{
+				callable();
+				promise.set_value();
+			}
+			else
+			{
+				promise.set_value(callable());
+		 	}
+		}) // todo: args
+		, myMoveThunk([](void* callablePtr, void* otherCallablePtr)
+		{
+			auto& otherCallable = *static_cast<dF*>(otherCallablePtr);
+
+			new (callablePtr) dF(std::move(otherCallable));
+			otherCallable.~dF();
+		})
+		, myDeleteThunk([](void* callablePtr)
+		{
+			auto& callable = *static_cast<dF*>(callablePtr);
+			callable.~dF();
+		})
 	{
-		assert(myCallable.get());
+		static_assert(sizeof(dF) <= kMaxCallableSizeBytes);
+
+		new (myCallableMemory.data()) dF(std::forward<F>(f));
 	}
 
-	Task(Task&& other) noexcept
-		: myCallable(other.myCallable.release(), other.myCallable.get_deleter())
-		, myThunk(std::exchange(other.myThunk, nullptr))
-	{ }
+	Task(Task&& other) noexcept	{ *this = std::move(other);	}
 
-	void swap(Task& other) noexcept
+	~Task()
 	{
-		myCallable.swap(other.myCallable);
-		std::swap(myThunk, other.myThunk);
-	}
-
-	friend void swap(Task& lhs, Task& rhs) noexcept
-	{
-		lhs.swap(rhs);
+		if (myDeleteThunk)
+			myDeleteThunk(myCallableMemory.data());
 	}
 
 	Task& operator=(Task&& other) noexcept
 	{
-		myCallable.reset(other.myCallable.release());
-		myThunk = std::exchange(other.myThunk, nullptr);
+		if (myDeleteThunk)
+			myDeleteThunk(myCallableMemory.data());
+		
+		myPromise = std::exchange(other.myPromise, {});
+		myInvokeThunk = std::exchange(other.myInvokeThunk, nullptr);
+		myMoveThunk = std::exchange(other.myMoveThunk, nullptr);
+		myDeleteThunk = std::exchange(other.myDeleteThunk, nullptr);
+
+		if (myMoveThunk)
+			myMoveThunk(myCallableMemory.data(), other.myCallableMemory.data());
 
 		return *this;
 	}
 
-	void operator()() const
+	inline void operator()()
 	{
-		myThunk(myCallable.get());
+		assert(myInvokeThunk);
+		
+		myInvokeThunk(myCallableMemory.data(), myPromise.get());
 	}
 
-	explicit operator bool() const noexcept
+	template <typename R>
+	inline std::future<R> getFuture()
 	{
-		return static_cast<bool>(myCallable);
+		auto& promise = *static_cast<std::promise<R>*>(myPromise.get());
+		return promise.get_future();
 	}
 
 private:
 
-	std::unique_ptr<void, void (*)(void*)> myCallable;
-	void (*myThunk)(void*) = nullptr;
+	template <size_t ArraySize, size_t ElementSize = sizeof(std::byte), size_t Alignment = alignof(uintptr_t)>
+	using AlignedArray = std::array<std::aligned_storage_t<ElementSize, Alignment>, ArraySize>;
+
+	AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
+	std::shared_ptr<void> myPromise; // std::any? seems to be non-trivial tho
+	void (*myInvokeThunk)(void*, void*) = nullptr;
+	void (*myMoveThunk)(void*, void*) = nullptr;
+	void (*myDeleteThunk)(void*) = nullptr;
 };
 
 class TaskThreadPool : public Noncopyable
 {
 	using mutex_t = UpgradableSharedMutex<>;
+	//using mutex_t = std::mutex; // todo: compare performance
 
 public:
 
 	TaskThreadPool(uint32_t threadCount)
 	{
+		ZoneScopedN("TaskThreadPool()");
+
 		assertf(threadCount > 0, "Thread count must be nonzero");
 
-		auto threadMain = [this]{ internalThreadMain(); };
+		auto threadMain = [this]
+		{
+			auto lock = std::unique_lock(myMutex);
+			auto stopToken = myStopSource.get_token();
+
+			internalThreadMain(lock, stopToken);
+		};
 		
 		myThreads.reserve(threadCount);
 		for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
@@ -352,40 +412,62 @@ public:
 
 	~TaskThreadPool()
 	{
+		ZoneScopedN("~TaskThreadPool()");
+
 		myStopSource.request_stop();
-		mySignal.notify_all();
 
 		// workaround for the following problem in msvc implementation of jthread in <mutex>:
 		// TRANSITION, ABI: Due to the unsynchronized delivery of notify_all by _Stoken,
 		// this implementation cannot tolerate *this destruction while an interruptible wait
 		// is outstanding. A future ABI should store both the internal CV and internal mutex
 		// in the reference counted block to allow this.
+		{
+			ZoneScopedN("~TaskThreadPool()::join");
 
-		for (auto& thread : myThreads)
-			thread.join();
+			mySignal.notify_all();
 
-		auto lock = std::unique_lock(myMutex);
-		internalProcessTaskQueue(lock);
+			for (auto& thread : myThreads)
+				thread.join();
+		}
 	}
 
-	// todo: Args...
-	template <typename R>
-	std::future<R> submit(std::packaged_task<R()>&& task)
+	template <typename F, typename... Args, typename R = std::invoke_result_t<F, Args...>>
+	std::future<R> submit(F&& callable)
 	{
-		std::future<R> result = task.get_future();
+		ZoneScopedN("TaskThreadPool::submit");
 
 		auto lock = std::unique_lock(myMutex);
-		myQueue.emplace_back(std::move(task));
+		auto& task = myQueue.emplace_back(std::forward<F>(callable));
+		auto future = task.template getFuture<R>();
 		lock.unlock();
 
 		mySignal.notify_one();
 
-		return result;
+		return future;
+	}
+
+	void processQueue()
+	{
+		ZoneScopedN("TaskThreadPool::processQueue");
+
+		auto lock = std::unique_lock(myMutex);
+
+		internalProcessQueue(lock);
+	}
+
+	template <typename T, typename R = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
+	std::optional<R> processQueueUntil(std::future<T>&& future)
+	{
+		ZoneScopedN("TaskThreadPool::processQueueUntil");
+
+		auto lock = std::unique_lock(myMutex);
+
+		return internalProcessQueue(std::move(future), lock);
 	}
 
 private:
 
-	void internalProcessTaskQueue(std::unique_lock<mutex_t>& lock)
+	void internalProcessQueue(std::unique_lock<mutex_t>& lock)
 	{
 		while (!myQueue.empty())
 		{
@@ -398,25 +480,53 @@ private:
 		}
 	}
 
-	void internalThreadMain()
+	template <typename T, typename R = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
+	std::optional<R> internalProcessQueue(std::future<T>&& future, std::unique_lock<mutex_t>& lock)
 	{
-		auto lock = std::unique_lock(myMutex);
-		auto stopToken = myStopSource.get_token();
-		
+		if (!future.valid())
+			return std::nullopt;
+
+		auto returnFunc = [](auto& future)
+		{
+			if constexpr(std::is_void_v<T>)
+			{
+				future.get();
+				return std::make_optional<R>();
+			}
+			else
+			{
+				return std::make_optional(future.get());
+			}
+		};
+
+		while (!myQueue.empty())
+		{
+			if (is_ready(future))
+				return returnFunc(future);
+
+			Task task(std::move(myQueue.front()));
+			myQueue.pop_front();
+
+			lock.unlock();
+			task();
+			lock.lock();
+		}
+
+		return returnFunc(future);
+	}
+
+	void internalThreadMain(std::unique_lock<mutex_t>& lock, std::stop_token& stopToken)
+	{		
 		while (!stopToken.stop_requested())
 		{
-			internalProcessTaskQueue(lock);
+			internalProcessQueue(lock);
 
-			mySignal.wait(lock, stopToken, [&queue = myQueue]()
-			{
-				// condition for wake up
-				return !queue.empty();
-			});
+			mySignal.wait(lock, stopToken, [&queue = myQueue]() { return !queue.empty(); });
 		}
 	}
 
 	mutex_t myMutex;
-	std::vector<std::thread> myThreads;
+	std::vector<std::jthread> myThreads;
 	std::condition_variable_any mySignal;
 	std::stop_source myStopSource;
 	std::deque<Task> myQueue;

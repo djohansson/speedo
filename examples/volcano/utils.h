@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -36,12 +35,6 @@ template <typename T>
 inline constexpr auto sizeof_array(const T& array)
 {
 	return (sizeof(array) / sizeof(array[0]));
-}
-
-template <typename T>
-bool is_ready(std::future<T> const& f)
-{
-	return f.wait_for(std::chrono::nanoseconds(0)) == std::future_status::ready;
 }
 
 inline uint32_t roundUp(uint32_t numToRound, uint32_t multiple)
