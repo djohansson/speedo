@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+//#include <stop_token>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -400,9 +401,9 @@ public:
 		auto threadMain = [this]
 		{
 			auto lock = std::unique_lock(myMutex);
-			auto stopToken = myStopSource.get_token();
+			//auto stopToken = myStopSource.get_token();
 
-			internalThreadMain(lock, stopToken);
+			internalThreadMain(lock/*, stopToken*/);
 		};
 		
 		myThreads.reserve(threadCount);
@@ -412,9 +413,9 @@ public:
 
 	~TaskThreadPool()
 	{
-		ZoneScopedN("~TaskThreadPool()");
-
-		myStopSource.request_stop();
+		//myStopSource.request_stop();
+		myStopSource.store(true, std::memory_order_relaxed);
+		mySignal.notify_all();
 
 		// workaround for the following problem in msvc implementation of jthread in <mutex>:
 		// TRANSITION, ABI: Due to the unsynchronized delivery of notify_all by _Stoken,
@@ -423,8 +424,6 @@ public:
 		// in the reference counted block to allow this.
 		{
 			ZoneScopedN("~TaskThreadPool()::join");
-
-			mySignal.notify_all();
 
 			for (auto& thread : myThreads)
 				thread.join();
@@ -515,19 +514,22 @@ private:
 		return returnFunc(future);
 	}
 
-	void internalThreadMain(std::unique_lock<mutex_t>& lock, std::stop_token& stopToken)
+	void internalThreadMain(std::unique_lock<mutex_t>& lock/*, std::stop_token& stopToken*/)
 	{		
-		while (!stopToken.stop_requested())
+		//while (!stopToken.stop_requested())
+		while (!myStopSource.load(std::memory_order_relaxed))
 		{
 			internalProcessQueue(lock);
 
-			mySignal.wait(lock, stopToken, [&queue = myQueue]() { return !queue.empty(); });
+			//mySignal.wait(lock, stopToken, [&queue = myQueue](){ return !queue.empty(); });
+			mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource || !queue.empty(); });
 		}
 	}
 
 	mutex_t myMutex;
 	std::vector<std::jthread> myThreads;
 	std::condition_variable_any mySignal;
-	std::stop_source myStopSource;
+	//std::stop_source myStopSource;
+	std::atomic_bool myStopSource;
 	std::deque<Task> myQueue;
 };
