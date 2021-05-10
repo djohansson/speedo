@@ -527,7 +527,8 @@ private:
 	}
 
 	mutex_t myMutex;
-	std::vector<std::jthread> myThreads;
+	//std::vector<std::jthread> myThreads;
+	std::vector<std::thread> myThreads;
 	std::condition_variable_any mySignal;
 	//std::stop_source myStopSource;
 	std::atomic_bool myStopSource;
