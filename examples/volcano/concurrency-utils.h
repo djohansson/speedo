@@ -522,7 +522,7 @@ private:
 			internalProcessQueue(lock);
 
 			//mySignal.wait(lock, stopToken, [&queue = myQueue](){ return !queue.empty(); });
-			mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource || !queue.empty(); });
+			mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource.load(std::memory_order_relaxed) || !queue.empty(); });
 		}
 	}
 
