@@ -6,14 +6,18 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
+#if PROFILING_ENABLED
 #define VK_CHECK(expr) \
     do { \
         VkResult __result = (expr); \
 		assertf(__result == VK_SUCCESS, "'%s' line %i failed with %i\n", \
 				#expr, __LINE__, __result); \
     } while (0)
+#else
+#define VK_CHECK(expr) static_cast<void>(expr);
+#endif
 
-static inline void checkResult(VkResult err)
+static void checkResult(VkResult err)
 {
 	VK_CHECK(err);
 }

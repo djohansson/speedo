@@ -295,44 +295,78 @@ private:
 class Task : public Noncopyable
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
+	static constexpr size_t kMaxArgsSizeBytes = 24;
+	static constexpr size_t kMaxPromiseSizeBytes = 24;
 
 public:
 
 	constexpr Task() {};
 
-	template <typename F, typename dF = std::decay_t<F>, typename... Args, typename R = std::invoke_result_t<dF, Args...>>
-	Task(F&& f)
-		: myPromise(std::make_shared<std::promise<R>>())
-		, myInvokeThunk([](void* callablePtr, void* promisePtr)
+	template <typename F, typename dF = std::decay_t<F>, typename... Args, typename ArgsTuple = std::tuple<Args...>, typename R = std::invoke_result_t<dF, Args...>, typename Promise = std::promise<R>>
+	Task(F&& f, Args&&... args)
+		: myInvokeThunk([](void* callablePtr, void* argsPtr, void* promisePtr)
 		{
 			auto& callable = *static_cast<dF*>(callablePtr);
-			auto& promise = *static_cast<std::promise<R>*>(promisePtr);
+			auto& args = *static_cast<ArgsTuple*>(argsPtr);
+			auto& promise = *static_cast<Promise*>(promisePtr);
 			if constexpr(std::is_void_v<R>)
 			{
-				callable();
+				std::apply(callable, args);
 				promise.set_value();
 			}
 			else
 			{
-				promise.set_value(callable());
+				promise.set_value(std::apply(callable, args));
 		 	}
 		}) // todo: args
-		, myMoveThunk([](void* callablePtr, void* otherCallablePtr)
+		, myMoveThunk([](
+			void* callablePtr, void* otherCallablePtr,
+			void* argsPtr, void* otherArgsPtr,
+			void* promisePtr, void* otherPromisePtr)
 		{
 			auto& otherCallable = *static_cast<dF*>(otherCallablePtr);
 
 			new (callablePtr) dF(std::move(otherCallable));
+			
 			otherCallable.~dF();
+
+			auto& otherArgs = *static_cast<ArgsTuple*>(otherArgsPtr);
+
+			new (argsPtr) ArgsTuple(std::move(otherArgs));
+			
+			otherArgs.~ArgsTuple();
+
+			auto& otherPromise = *static_cast<Promise*>(otherPromisePtr);
+
+			new (promisePtr) Promise(std::move(otherPromise));
+
+			otherPromise.~Promise();
 		})
-		, myDeleteThunk([](void* callablePtr)
+		, myDeleteThunk([](void* callablePtr, void* argsPtr, void* promisePtr)
 		{
 			auto& callable = *static_cast<dF*>(callablePtr);
 			callable.~dF();
+
+			auto& args = *static_cast<ArgsTuple*>(argsPtr);
+			args.~ArgsTuple();
+
+			auto& promise = *static_cast<Promise*>(promisePtr);
+			promise.~Promise();
 		})
-	{
+	{	
 		static_assert(sizeof(dF) <= kMaxCallableSizeBytes);
 
 		new (myCallableMemory.data()) dF(std::forward<F>(f));
+
+		static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
+
+		new (myArgsMemory.data()) ArgsTuple(std::forward<Args>(args)...);
+
+		static_assert(sizeof(Promise) <= kMaxPromiseSizeBytes);
+
+		new (myPromiseMemory.data()) Promise();
+
+		static_assert(sizeof(Task) == 128);
 	}
 
 	Task(Task&& other) noexcept	{ *this = std::move(other);	}
@@ -340,21 +374,23 @@ public:
 	~Task()
 	{
 		if (myDeleteThunk)
-			myDeleteThunk(myCallableMemory.data());
+			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data(), myPromiseMemory.data());
 	}
 
 	Task& operator=(Task&& other) noexcept
 	{
 		if (myDeleteThunk)
-			myDeleteThunk(myCallableMemory.data());
+			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data(), myPromiseMemory.data());
 		
-		myPromise = std::exchange(other.myPromise, {});
 		myInvokeThunk = std::exchange(other.myInvokeThunk, nullptr);
 		myMoveThunk = std::exchange(other.myMoveThunk, nullptr);
 		myDeleteThunk = std::exchange(other.myDeleteThunk, nullptr);
 
 		if (myMoveThunk)
-			myMoveThunk(myCallableMemory.data(), other.myCallableMemory.data());
+			myMoveThunk(
+				myCallableMemory.data(), other.myCallableMemory.data(),
+				myArgsMemory.data(), other.myArgsMemory.data(), 
+				myPromiseMemory.data(), other.myPromiseMemory.data());
 
 		return *this;
 	}
@@ -363,26 +399,31 @@ public:
 	{
 		assert(myInvokeThunk);
 		
-		myInvokeThunk(myCallableMemory.data(), myPromise.get());
+		myInvokeThunk(myCallableMemory.data(), myArgsMemory.data(), myPromiseMemory.data());
 	}
 
-	template <typename R>
+	template <typename R, typename Promise = std::promise<R>>
 	inline std::future<R> getFuture()
 	{
-		auto& promise = *static_cast<std::promise<R>*>(myPromise.get());
+		static_assert(sizeof(Promise) <= kMaxPromiseSizeBytes);
+		// todo: more type checking?
+
+		auto& promise = *static_cast<Promise*>(static_cast<void*>(myPromiseMemory.data()));
+		
 		return promise.get_future();
 	}
 
 private:
 
-	template <size_t ArraySize, size_t ElementSize = sizeof(std::byte), size_t Alignment = alignof(uintptr_t)>
-	using AlignedArray = std::array<std::aligned_storage_t<ElementSize, Alignment>, ArraySize>;
-
-	AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
-	std::shared_ptr<void> myPromise; // std::any? seems to be non-trivial tho
-	void (*myInvokeThunk)(void*, void*) = nullptr;
-	void (*myMoveThunk)(void*, void*) = nullptr;
-	void (*myDeleteThunk)(void*) = nullptr;
+	// cache line 1
+	void (*myInvokeThunk)(void*, void*, void*) = nullptr;
+	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
+	// cache line 2
+	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory;
+	alignas(intptr_t) AlignedArray<kMaxPromiseSizeBytes> myPromiseMemory;
+	void (*myMoveThunk)(void*, void*, void*, void*, void*, void*) = nullptr;
+	void (*myDeleteThunk)(void*, void*, void*) = nullptr;
+	//
 };
 
 class TaskThreadPool : public Noncopyable
@@ -431,12 +472,12 @@ public:
 	}
 
 	template <typename F, typename... Args, typename R = std::invoke_result_t<F, Args...>>
-	std::future<R> submit(F&& callable)
+	std::future<R> submit(F&& callable, Args&&... args)
 	{
 		ZoneScopedN("TaskThreadPool::submit");
 
 		auto lock = std::unique_lock(myMutex);
-		auto& task = myQueue.emplace_back(std::forward<F>(callable));
+		auto& task = myQueue.emplace_back(std::forward<F>(callable), std::forward<Args>(args)...);
 		auto future = task.template getFuture<R>();
 		lock.unlock();
 

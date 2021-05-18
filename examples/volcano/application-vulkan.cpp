@@ -1205,27 +1205,22 @@ bool Application<Vk>::draw()
         myGraphicsQueues.front().enqueuePresent(
             myMainWindow->preparePresent(
                 myGraphicsQueues.front().submit()));
+
+        myPresentFuture = myThreadPool.submit([](QueueContext<Vk>& queue){ queue.present(); }, myGraphicsQueues.front());
     }
 
     {
-        ZoneScopedN("Application::draw::launchAsync");
-
-        myPresentFuture = myThreadPool.submit(
-            [_flipSuccess = flipSuccess, &queue = myGraphicsQueues.front()]
-            {
-                if (_flipSuccess)
-                    queue.present();
-            });
+        ZoneScopedN("Application::draw::submitTimelineCallbacks");
 
         myProcessTimelineCallbacksFuture = myThreadPool.submit(
-            [_lastPresentTimelineValue = lastPresentTimelineValue, &deviceContext = myDevice]
+            [](uint64_t lastPresentTimelineValue, DeviceContext<Vk>& deviceContext)
             {
-                deviceContext->processTimelineCallbacks(_lastPresentTimelineValue);
-            });
+                deviceContext.processTimelineCallbacks(lastPresentTimelineValue);
+            }, lastPresentTimelineValue, *myDevice);
     }
 
     {
-        ZoneScopedN("Application::draw::handleAsync");
+        ZoneScopedN("Application::draw::handleCallbacks");
 
         if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
         {

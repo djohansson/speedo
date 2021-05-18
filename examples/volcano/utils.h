@@ -29,7 +29,14 @@ static_assert(false, "Please let Daniel know that the reflection TS is supported
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
 #define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
+
+#if PROFILING_ENABLED
 #define assertf(A, M, ...) if(!(A)) {log_error(M, ##__VA_ARGS__); assert(A); }
+#else
+#define assertf(A, M, ...)
+#endif
+
+//#define compile_assert() char (*__kaboom)[sizeof( YourTypeHere )] = 1;
 
 template <typename T>
 inline constexpr auto sizeof_array(const T& array)
@@ -70,6 +77,9 @@ private:
 	void *operator new(size_t);
     void *operator new[](size_t);
 };
+
+template <size_t ArraySize, size_t ElementSize = sizeof(std::byte), size_t Alignment = alignof(std::byte)>
+using AlignedArray = std::array<std::aligned_storage_t<ElementSize, Alignment>, ArraySize>;
 
 template <typename T>
 class ArrayDeleter : Noncopyable
