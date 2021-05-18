@@ -311,7 +311,7 @@ ShaderModule<Vk>::ShaderModule(
     1,
     VK_OBJECT_TYPE_SHADER_MODULE,
     reinterpret_cast<uint64_t*>(&shaderModule))
-, myShaderModule(std::move(shaderModule))
+, myShaderModule(std::forward<ShaderModuleHandle<Vk>>(shaderModule))
 , myEntryPoint(entryPoint)
 {
 }
@@ -332,7 +332,7 @@ ShaderModule<Vk>::ShaderModule(
 
 template <>
 ShaderModule<Vk>::ShaderModule(ShaderModule&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<ShaderModule>(other))
 , myShaderModule(std::exchange(other.myShaderModule, {}))
 , myEntryPoint(std::exchange(other.myEntryPoint, {}))
 {
@@ -348,7 +348,7 @@ ShaderModule<Vk>::~ShaderModule()
 template <>
 ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 {
-	DeviceObject::operator=(std::move(other));
+	DeviceObject::operator=(std::forward<ShaderModule>(other));
 	myShaderModule = std::exchange(other.myShaderModule, {});
 	myEntryPoint = std::exchange(other.myEntryPoint, {});
 	return *this;

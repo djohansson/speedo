@@ -237,7 +237,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 template <>
 Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<Swapchain>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , mySwapchain(std::exchange(other.mySwapchain, {}))
 , myFrames(std::exchange(other.myFrames, {}))
@@ -253,7 +253,7 @@ Swapchain<Vk>::Swapchain(
     SurfaceHandle<Vk>&& surface,
     SwapchainHandle<Vk> previous)
 : DeviceObject(deviceContext, {})
-, mySurface(std::move(surface))
+, mySurface(std::forward<SurfaceHandle<Vk>>(surface))
 {
     ZoneScopedN("Swapchain()");
 
@@ -275,7 +275,7 @@ Swapchain<Vk>::~Swapchain()
 template <>
 Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 {
-	DeviceObject::operator=(std::move(other));
+	DeviceObject::operator=(std::forward<Swapchain>(other));
     myDesc = std::exchange(other.myDesc, {});
     mySwapchain = std::exchange(other.mySwapchain, {});
     myFrames = std::exchange(other.myFrames, {});

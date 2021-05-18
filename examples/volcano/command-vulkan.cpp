@@ -44,8 +44,8 @@ CommandBufferArray<Vk>::CommandBufferArray(
     kCommandBufferCount,
     VK_OBJECT_TYPE_COMMAND_BUFFER, 
     reinterpret_cast<uint64_t*>(std::get<1>(descAndData).data()))
-, myDesc(std::move(std::get<0>(descAndData)))
-, myArray(std::move(std::get<1>(descAndData)))
+, myDesc(std::forward<CommandBufferArrayCreateDesc<Vk>>(std::get<0>(descAndData)))
+, myArray(std::forward<std::array<CommandBufferHandle<Vk>, kCommandBufferCount>>(std::get<1>(descAndData)))
 {
 }
 
@@ -56,7 +56,7 @@ CommandBufferArray<Vk>::CommandBufferArray(
 : CommandBufferArray(
     deviceContext,
     std::make_tuple(
-        std::move(desc),
+        std::forward<CommandBufferArrayCreateDesc<Vk>>(desc),
         commandbufferarray::createArray(
             deviceContext,
             desc)))
@@ -65,7 +65,7 @@ CommandBufferArray<Vk>::CommandBufferArray(
 
 template <>
 CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<CommandBufferArray>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myArray(std::exchange(other.myArray, {}))
 , myBits(other.myBits)
@@ -92,7 +92,7 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 template <>
 CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<CommandBufferArray>(other));
     myDesc = std::exchange(other.myDesc, {});
     myArray = std::exchange(other.myArray, {});
     myBits = other.myBits;
@@ -167,8 +167,8 @@ CommandPool<Vk>::CommandPool(
     1,
     VK_OBJECT_TYPE_COMMAND_POOL, 
     reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
-, myDesc(std::move(std::get<0>(descAndData)))
-, myPool(std::move(std::get<1>(descAndData)))
+, myDesc(std::forward<CommandPoolCreateDesc<Vk>>(std::get<0>(descAndData)))
+, myPool(std::forward<CommandPoolHandle<Vk>>(std::get<1>(descAndData)))
 {
 }
 
@@ -179,7 +179,7 @@ CommandPool<Vk>::CommandPool(
 : CommandPool(
     deviceContext,
     std::make_tuple(
-        std::move(desc),
+        std::forward<CommandPoolCreateDesc<Vk>>(desc),
         createCommandPool(
             deviceContext->getDevice(),
             desc.flags,
@@ -189,7 +189,7 @@ CommandPool<Vk>::CommandPool(
 
 template <>
 CommandPool<Vk>::CommandPool(CommandPool&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<CommandPool>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myPool(std::exchange(other.myPool, {}))
 {
@@ -205,7 +205,7 @@ CommandPool<Vk>::~CommandPool()
 template <>
 CommandPool<Vk>& CommandPool<Vk>::operator=(CommandPool&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<CommandPool>(other));
     myDesc = std::exchange(other.myDesc, {});
     myPool = std::exchange(other.myPool, {});
     return *this;
@@ -345,7 +345,7 @@ CommandBufferAccessScope<Vk> CommandPoolContext<Vk>::internalCommands(const Comm
 template <>
 void CommandPoolContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback)
 {
-    myCommandsFinishedCallbacks.emplace_back(std::make_tuple(0, std::move(callback)));
+    myCommandsFinishedCallbacks.emplace_back(std::make_tuple(0, std::forward<std::function<void(uint64_t)>>(callback)));
 }
 
 template <>
@@ -356,11 +356,11 @@ void CommandPoolContext<Vk>::internalEnqueueSubmitted(CommandBufferListType&& co
     for (auto& [cmdArray, cmdTimelineValue] : commands)
         cmdTimelineValue = timelineValue;
 
-    mySubmittedCommands[level].splice(mySubmittedCommands[level].end(), std::move(commands));
+    mySubmittedCommands[level].splice(mySubmittedCommands[level].end(), std::forward<CommandBufferListType>(commands));
 
     while (!myCommandsFinishedCallbacks.empty())
     {
-        auto& callback = myCommandsFinishedCallbacks.front();
+        TimelineCallback& callback = myCommandsFinishedCallbacks.front();
         std::get<0>(callback) = timelineValue;
         getDeviceContext()->addTimelineCallback(std::move(callback));
         myCommandsFinishedCallbacks.pop_front();
@@ -399,7 +399,7 @@ QueueSubmitInfo<Vk> CommandPoolContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& sy
     if (pendingCommands.empty())
         return {};
 
-    QueueSubmitInfo<Vk> submitInfo{std::move(syncInfo), {}, 0};
+    QueueSubmitInfo<Vk> submitInfo{std::forward<QueueSyncInfo<Vk>>(syncInfo), {}, 0};
     submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
 
     for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
@@ -444,14 +444,14 @@ template <>
 CommandPoolContext<Vk>::CommandPoolContext(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     CommandPoolCreateDesc<Vk>&& poolDesc)
-: CommandPool(deviceContext, std::move(poolDesc))
+: CommandPool(deviceContext, std::forward<CommandPoolCreateDesc<Vk>>(poolDesc))
 {
     ZoneScopedN("CommandPoolContext()");
 }
 
 template <>
 CommandPoolContext<Vk>::CommandPoolContext(CommandPoolContext&& other) noexcept
-: CommandPool(std::move(other))
+: CommandPool(std::forward<CommandPoolContext>(other))
 , myPendingCommands(std::exchange(other.myPendingCommands, {}))
 , mySubmittedCommands(std::exchange(other.mySubmittedCommands, {}))
 , myFreeCommands(std::exchange(other.myFreeCommands, {}))
@@ -480,7 +480,7 @@ CommandPoolContext<Vk>::~CommandPoolContext()
 template <>
 CommandPoolContext<Vk>& CommandPoolContext<Vk>::operator=(CommandPoolContext&& other) noexcept
 {
-    CommandPool::operator=(std::move(other));
+    CommandPool::operator=(std::forward<CommandPoolContext>(other));
     myPendingCommands = std::exchange(other.myPendingCommands, {});
     mySubmittedCommands = std::exchange(other.mySubmittedCommands, {});
     myFreeCommands = std::exchange(other.myFreeCommands, {});

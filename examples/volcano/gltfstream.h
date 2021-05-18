@@ -11,7 +11,7 @@ class GlTFStreamReader : public Microsoft::glTF::IStreamReader
 {
 public:
 
-    GlTFStreamReader(std::filesystem::path pathBase);
+    GlTFStreamReader(std::filesystem::path&& pathBase);
     std::shared_ptr<std::istream> GetInputStream(const std::string& filename) const override;
 
 private:

@@ -404,8 +404,8 @@ Image<Vk>::Image(
     1,
     VK_OBJECT_TYPE_IMAGE,
     reinterpret_cast<uint64_t*>(&std::get<0>(data)))
-, myDesc(std::move(desc))
-, myImage(std::move(data))
+, myDesc(std::forward<ImageCreateDesc<Vk>>(desc))
+, myImage(std::forward<ValueType>(data))
 {
 }
 
@@ -415,7 +415,7 @@ Image<Vk>::Image(
     ImageCreateDesc<Vk>&& desc)
 : Image(
     deviceContext,
-    std::move(desc),
+    std::forward<ImageCreateDesc<Vk>>(desc),
     std::tuple_cat(
         image::createImage2D( deviceContext->getAllocator(), desc),
         std::make_tuple(desc.initialLayout)))
@@ -429,7 +429,7 @@ Image<Vk>::Image(
     std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 : Image(
     deviceContext,
-    std::move(std::get<0>(descAndInitialData)),
+    std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
     std::tuple_cat(
         image::createImage2D(
             commandContext.commands(),
@@ -454,7 +454,7 @@ Image<Vk>::Image(
     deviceContext,
     commandContext,
     std::tuple_cat(
-        std::make_tuple(std::move(desc)),
+        std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
         createStagingBuffer(
             deviceContext->getAllocator(),
             initialData,
@@ -484,7 +484,7 @@ Image<Vk>::~Image()
 
 template <>
 ImageView<Vk>::ImageView(ImageView&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<ImageView>(other))
 , myView(std::exchange(other.myView, {}))
 {
 }
@@ -500,7 +500,7 @@ ImageView<Vk>::ImageView(
     1,
     VK_OBJECT_TYPE_IMAGE_VIEW,
     reinterpret_cast<uint64_t*>(&view))
-, myView(std::move(view))
+, myView(std::forward<ImageViewHandle<Vk>>(view))
 {
 }
 
@@ -534,7 +534,7 @@ ImageView<Vk>::~ImageView()
 template <>
 ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<ImageView>(other));
     myView = std::exchange(other.myView, {});
     return *this;
 }

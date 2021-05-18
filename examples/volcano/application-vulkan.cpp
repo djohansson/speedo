@@ -561,7 +561,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
         auto resourcePathStr = resourcePath.string();
         nfdchar_t* openFilePath;
         return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
-            openFilePath, std::move(onCompletionCallback));
+            openFilePath, std::forward<std::function<uint32_t(nfdchar_t*)>>(onCompletionCallback));
     };
 
     auto loadModel = [this](nfdchar_t* openFilePath)

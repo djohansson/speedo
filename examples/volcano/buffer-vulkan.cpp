@@ -5,7 +5,7 @@
 
 template <>
 Buffer<Vk>::Buffer(Buffer&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<Buffer>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myBuffer(std::exchange(other.myBuffer, {}))
 {
@@ -22,8 +22,8 @@ Buffer<Vk>::Buffer(
     1,
     VK_OBJECT_TYPE_BUFFER,
     reinterpret_cast<uint64_t*>(&std::get<0>(buffer)))
-, myDesc(std::move(desc))
-, myBuffer(std::move(buffer))
+, myDesc(std::forward<BufferCreateDesc<Vk>>(desc))
+, myBuffer(std::forward<ValueType>(buffer))
 {
 }
 
@@ -33,7 +33,7 @@ Buffer<Vk>::Buffer(
     BufferCreateDesc<Vk>&& desc)
 : Buffer(
     deviceContext,
-    std::move(desc),
+    std::forward<BufferCreateDesc<Vk>>(desc),
     createBuffer(
         deviceContext->getAllocator(),
         desc.size,
@@ -53,7 +53,7 @@ Buffer<Vk>::Buffer(
         AllocationHandle<Vk>>&& descAndInitialData)
 : Buffer(
     deviceContext,
-    std::move(std::get<0>(descAndInitialData)),
+    std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
     createBuffer(
         commandContext.commands(),
         deviceContext->getAllocator(),
@@ -78,7 +78,7 @@ Buffer<Vk>::Buffer(
     deviceContext,
     commandContext, 
     std::tuple_cat(
-        std::make_tuple(std::move(desc)),
+        std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
         createStagingBuffer(
             deviceContext->getAllocator(),
             initialData,
@@ -100,7 +100,7 @@ Buffer<Vk>::~Buffer()
 template <>
 Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<Buffer>(other));
     myDesc = std::exchange(other.myDesc, {});
     myBuffer = std::exchange(other.myBuffer, {});
     return *this;
@@ -116,7 +116,7 @@ void Buffer<Vk>::swap(Buffer& rhs) noexcept
 
 template <>
 BufferView<Vk>::BufferView(BufferView&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<BufferView>(other))
 , myView(std::exchange(other.myView, {}))
 {
 }
@@ -131,7 +131,7 @@ BufferView<Vk>::BufferView(
     1,
     VK_OBJECT_TYPE_BUFFER_VIEW,
     reinterpret_cast<uint64_t*>(&view))
-, myView(std::move(view))
+, myView(std::forward<BufferViewHandle<Vk>>(view))
 {
 }
 
@@ -167,7 +167,7 @@ BufferView<Vk>::~BufferView()
 template <>
 BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<BufferView>(other));
     myView = std::exchange(other.myView, {});
     return *this;
 }

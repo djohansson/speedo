@@ -220,8 +220,8 @@ void PrintInfo(const std::filesystem::path& path)
 
 }
 
-GlTFStreamReader::GlTFStreamReader(std::filesystem::path pathBase)
- : myPathBase(std::move(pathBase))
+GlTFStreamReader::GlTFStreamReader(std::filesystem::path&& pathBase)
+ : myPathBase(std::forward<std::filesystem::path>(pathBase))
 {
     assert(myPathBase.has_root_path());
 }

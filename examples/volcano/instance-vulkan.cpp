@@ -193,7 +193,7 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
 : myConfig(
     AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
         std::filesystem::path(volcano_getUserProfilePath()) / "instance.json",
-        std::move(defaultConfig)))
+        std::forward<InstanceConfiguration<Vk>>(defaultConfig)))
 {
     ZoneScopedN("InstanceContext()");
 

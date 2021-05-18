@@ -5,8 +5,8 @@
 CEREAL_REGISTER_TYPE(SlangShaderNode);
 
 SlangShaderNode::SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path)
-: InputOutputNode(id, std::move(name))
-, myPath(std::move(path))
+: InputOutputNode(id, std::forward<std::string>(name))
+, myPath(std::forward<std::filesystem::path>(path))
 {
 }
 

@@ -7,7 +7,7 @@ CEREAL_REGISTER_POLYMORPHIC_RELATION(INode, InputOutputNode)
 
 InputOutputNode::InputOutputNode(int id, std::string&& name)
 : myId(id)
-, myName(std::move(name))
+, myName(std::forward<std::string>(name))
 {
 }
 

@@ -90,10 +90,10 @@ public:
 
 	constexpr ArrayDeleter() = default;
 	ArrayDeleter(DeleteFcn&& deleter)
-		: myDeleter(std::move(deleter))
+		: myDeleter(std::forward<DeleteFcn>(deleter))
 	{}
 	ArrayDeleter(DeleteFcn&& deleter, size_t size)
-		: myDeleter(std::move(deleter))
+		: myDeleter(std::forward<DeleteFcn>(deleter))
 		, mySize(size)
 	{}
 
@@ -326,7 +326,7 @@ public:
 		
 		if (isBegin || prevIt->second < low)
 		{
-			insertRangeIt = insert(afterIt, std::move(range));
+			insertRangeIt = insert(afterIt, std::forward<value_type>(range));
 			if constexpr (std::is_same_v<map_type, FlatMap<T, T>>)
 				afterIt = std::next(insertRangeIt); // since insert will have invalidated afterIt
 		}

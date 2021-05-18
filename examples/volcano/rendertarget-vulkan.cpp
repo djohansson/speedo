@@ -507,7 +507,7 @@ RenderTarget<Vk>::RenderTarget(
 
 template <>
 RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<RenderTarget>(other))
 , myAttachments(std::exchange(other.myAttachments, {}))
 , myAttachmentDescs(std::exchange(other.myAttachmentDescs, {}))
 , myAttachmentsReferences(std::exchange(other.myAttachmentsReferences, {}))
@@ -537,7 +537,7 @@ RenderTarget<Vk>::~RenderTarget()
 template <>
 RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<RenderTarget>(other));
     myAttachments = std::exchange(other.myAttachments, {});
     myAttachmentDescs = std::exchange(other.myAttachmentDescs, {});
     myAttachmentsReferences = std::exchange(other.myAttachmentsReferences, {});
@@ -568,13 +568,13 @@ RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     RenderTargetCreateDesc<Vk>&& desc)
 : RenderTarget(deviceContext, desc)
-, myDesc(std::move(desc))
+, myDesc(std::forward<RenderTargetCreateDesc<Vk>>(desc))
 {
 }
 
 template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl&& other) noexcept
-: RenderTarget(std::move(other))
+: RenderTarget(std::forward<RenderTargetImpl>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 {
 }
@@ -588,7 +588,7 @@ template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>& RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(
     RenderTargetImpl&& other) noexcept
 {
-    RenderTarget::operator=(std::move(other));
+    RenderTarget::operator=(std::forward<RenderTargetImpl>(other));
 	myDesc = std::exchange(other.myDesc, {});
     return *this;
 }

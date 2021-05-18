@@ -360,7 +360,7 @@ Model<Vk>::Model(
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT },
 		std::get<1>(descAndInitialData),
 		std::get<2>(descAndInitialData)))
-, myDesc(std::move(std::get<0>(descAndInitialData)))
+, myDesc(std::forward<ModelCreateDesc<Vk>>(std::get<0>(descAndInitialData)))
 , myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
 {
 }

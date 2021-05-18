@@ -35,7 +35,7 @@ struct QueuePresentInfo
     uint64_t timelineValue = 0ull;
 
     QueuePresentInfo<B>& operator|=(QueuePresentInfo<B>&& other);
-    friend QueuePresentInfo<B> operator|(QueuePresentInfo<B>&& lhs, QueuePresentInfo<B>&& rhs) { return std::move(lhs |= std::move(rhs)); }
+    friend QueuePresentInfo<B> operator|(QueuePresentInfo<B>&& lhs, QueuePresentInfo<B>&& rhs);
 };
 
 template <GraphicsBackend B>

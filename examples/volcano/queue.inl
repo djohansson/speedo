@@ -20,3 +20,9 @@ QueuePresentInfo<B>& QueuePresentInfo<B>::operator|=(QueuePresentInfo<B>&& other
     timelineValue = std::max(timelineValue, std::exchange(other.timelineValue, 0));
     return *this;
 }
+
+template <GraphicsBackend B>
+QueuePresentInfo<B> operator|(QueuePresentInfo<B>&& lhs, QueuePresentInfo<B>&& rhs)
+{
+    return std::forward<QueuePresentInfo<B>>(lhs |= std::forward<QueuePresentInfo<B>>(rhs));
+}

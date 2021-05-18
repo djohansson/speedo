@@ -11,7 +11,7 @@ SamplerVector<Vk>::SamplerVector(
     samplers.size(),
     VK_OBJECT_TYPE_SAMPLER,
     reinterpret_cast<uint64_t*>(samplers.data()))
-, mySamplers(std::move(samplers))
+, mySamplers(std::forward<std::vector<SamplerHandle<Vk>>>(samplers))
 {
 }
 
@@ -27,7 +27,7 @@ SamplerVector<Vk>::SamplerVector(
 
 template <>
 SamplerVector<Vk>::SamplerVector(SamplerVector&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<SamplerVector>(other))
 , mySamplers(std::exchange(other.mySamplers, {}))
 {
 }
@@ -42,7 +42,7 @@ SamplerVector<Vk>::~SamplerVector()
 template <>
 SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
 {
-	DeviceObject::operator=(std::move(other));
+	DeviceObject::operator=(std::forward<SamplerVector>(other));
 	mySamplers = std::exchange(other.mySamplers, {});
 	return *this;
 }

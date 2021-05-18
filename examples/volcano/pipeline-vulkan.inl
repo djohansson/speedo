@@ -33,7 +33,7 @@ void PipelineContext<Vk>::setDescriptorData(
         else
             offset = std::get<0>(std::prev(bindingIt)->second) + std::get<1>(std::prev(bindingIt)->second);
 
-        bindingsData.emplace(bindingsData.begin() + offset, std::move(data));
+        bindingsData.emplace(bindingsData.begin() + offset, std::forward<T>(data));
 
         // prefix sum offset
         for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
@@ -43,7 +43,7 @@ void PipelineContext<Vk>::setDescriptorData(
     {
         assert(count == 1);
 
-        std::get<T>(bindingsData[offset]) = std::move(data);
+        std::get<T>(bindingsData[offset]) = std::forward<T>(data);
     }
 
     setState = DescriptorSetStatus::Dirty;
@@ -63,7 +63,7 @@ void PipelineContext<Vk>::setDescriptorData(
             shaderVariableName.data(),
             shaderVariableName.size()),
         getLayout().getDescriptorSetLayout(set),
-        std::move(data));
+        std::forward<T>(data));
 }
 
 template <>
@@ -186,7 +186,7 @@ void PipelineContext<Vk>::setDescriptorData(
         else
             offset = std::get<0>(std::prev(bindingIt)->second) + std::get<1>(std::prev(bindingIt)->second);
 
-        bindingsData.emplace(bindingsData.begin() + offset, std::move(data));
+        bindingsData.emplace(bindingsData.begin() + offset, std::forward<T>(data));
 
         // prefix sum offset
         for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end(); it++, prev++)
@@ -213,11 +213,11 @@ void PipelineContext<Vk>::setDescriptorData(
 
         if (rangeIt != ranges.end())
         {
-            std::get<T>(bindingsData[offset + indexOffset]) = std::move(data);
+            std::get<T>(bindingsData[offset + indexOffset]) = std::forward<T>(data);
         }
         else
         {
-            bindingsData.emplace(bindingsData.begin() + offset + indexOffset, std::move(data));
+            bindingsData.emplace(bindingsData.begin() + offset + indexOffset, std::forward<T>(data));
             
             count++;
             ranges.insert({index, index + 1});
@@ -246,6 +246,6 @@ void PipelineContext<Vk>::setDescriptorData(
             shaderVariableName.data(),
             shaderVariableName.size()),
         getLayout().getDescriptorSetLayout(set),
-        std::move(data),
+        std::forward<T>(data),
         index);
 }

@@ -136,18 +136,18 @@ static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTempl
 template <>
 PipelineLayout<Vk>& PipelineLayout<Vk>::operator=(PipelineLayout<Vk>&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
-    myShaderModules = std::move(other.myShaderModules);
-    myDescriptorSetLayouts = std::move(other.myDescriptorSetLayouts);
+    DeviceObject::operator=(std::forward<PipelineLayout<Vk>>(other));
+    myShaderModules = std::exchange(other.myShaderModules, {});
+    myDescriptorSetLayouts = std::exchange(other.myDescriptorSetLayouts, {});
     myLayout = std::exchange(other.myLayout, {});
     return *this;
 }
 
 template <>
 PipelineLayout<Vk>::PipelineLayout(PipelineLayout<Vk>&& other) noexcept
-: DeviceObject(std::move(other))
-, myShaderModules(std::move(other.myShaderModules))
-, myDescriptorSetLayouts(std::move(other.myDescriptorSetLayouts))
+: DeviceObject(std::forward<PipelineLayout<Vk>>(other))
+, myShaderModules(std::exchange(other.myShaderModules, {}))
+, myDescriptorSetLayouts(std::exchange(other.myDescriptorSetLayouts, {}))
 , myLayout(std::exchange(other.myLayout, {}))
 {
 }
@@ -164,9 +164,9 @@ PipelineLayout<Vk>::PipelineLayout(
     1,
     VK_OBJECT_TYPE_PIPELINE_LAYOUT,
     reinterpret_cast<uint64_t*>(&layout))
-, myShaderModules(std::move(shaderModules))
-, myDescriptorSetLayouts(std::move(descriptorSetLayouts))
-, myLayout(std::move(layout))
+, myShaderModules(std::exchange(shaderModules, {}))
+, myDescriptorSetLayouts(std::exchange(descriptorSetLayouts, {}))
+, myLayout(std::forward<PipelineLayoutHandle<Vk>>(layout))
 {
 }
 
@@ -177,8 +177,8 @@ PipelineLayout<Vk>::PipelineLayout(
     DescriptorSetLayoutFlatMap<Vk>&& descriptorSetLayouts)
 : PipelineLayout(
     deviceContext,
-    std::move(shaderModules),
-    std::move(descriptorSetLayouts),
+    std::forward<std::vector<ShaderModule<Vk>>>(shaderModules),
+    std::forward<DescriptorSetLayoutFlatMap<Vk>>(descriptorSetLayouts),
     [&descriptorSetLayouts, device = deviceContext->getDevice()]
     {
         // todo: rewrite flatmap so that keys and vals are stored as separate arrays so that we dont have to make this conversion
@@ -799,7 +799,7 @@ PipelineContext<Vk>::PipelineContext(
 , myConfig(
     AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
         std::filesystem::path(volcano_getUserProfilePath()) / "pipeline.json",
-        std::move(defaultConfig)))
+        std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 {
     auto device = deviceContext->getDevice();
 

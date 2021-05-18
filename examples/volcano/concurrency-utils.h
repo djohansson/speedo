@@ -502,7 +502,7 @@ public:
 
 		auto lock = std::unique_lock(myMutex);
 
-		return internalProcessQueue(std::move(future), lock);
+		return internalProcessQueue(std::forward<std::future<T>>(future), lock);
 	}
 
 private:

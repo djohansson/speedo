@@ -63,14 +63,14 @@ template <typename T, FileAccessMode Mode, typename InputArchive, typename Outpu
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
 	const std::filesystem::path& filePath,
 	T&& defaultObject)
-: T(std::get<0>(loadObject<T, InputArchive>(filePath, getTypeName<std::decay_t<T>>())).value_or(std::move(defaultObject)))
+: T(std::get<0>(loadObject<T, InputArchive>(filePath, getTypeName<std::decay_t<T>>())).value_or(std::forward<T>(defaultObject)))
 , myFilePath(filePath)
 {
 }
 
 template <typename T, FileAccessMode Mode, typename InputArchive, typename OutputArchive, bool SaveOnClose>
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(FileObject&& other) noexcept
-: T(std::move(other))
+: T(std::forward<FileObject>(other))
 , myFilePath(std::exchange(other.myFilePath, {}))
 {
 }

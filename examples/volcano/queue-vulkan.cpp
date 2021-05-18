@@ -26,8 +26,8 @@ QueueContext<Vk>::QueueContext(
     1,
     VK_OBJECT_TYPE_QUEUE,
     reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
-, myDesc(std::move(std::get<0>(descAndHandle)))
-, myQueue(std::move(std::get<1>(descAndHandle)))
+, myDesc(std::forward<QueueContextCreateDesc<Vk>>(std::get<0>(descAndHandle)))
+, myQueue(std::get<1>(descAndHandle))
 {
     //if constexpr (PROFILING_ENABLED)
 #if PROFILING_ENABLED
@@ -54,7 +54,7 @@ QueueContext<Vk>::QueueContext(
 : QueueContext(
     deviceContext,
     std::make_tuple(
-        std::move(desc),
+        std::forward<QueueContextCreateDesc<Vk>>(desc),
         [device = deviceContext->getDevice(), &desc]()
         {
             QueueHandle<Vk> queue;
@@ -66,7 +66,7 @@ QueueContext<Vk>::QueueContext(
 
 template <>
 QueueContext<Vk>::QueueContext(QueueContext<Vk>&& other) noexcept
-: DeviceObject(std::move(other))
+: DeviceObject(std::forward<QueueContext<Vk>>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 , myQueue(std::exchange(other.myQueue, {}))
 , myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
@@ -91,7 +91,7 @@ QueueContext<Vk>::~QueueContext()
 template <>
 QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext<Vk>&& other) noexcept
 {
-    DeviceObject::operator=(std::move(other));
+    DeviceObject::operator=(std::forward<QueueContext<Vk>>(other));
     myDesc = std::exchange(other.myDesc, {});
     myQueue = std::exchange(other.myQueue, {});
     myPendingSubmits = std::exchange(other.myPendingSubmits, {});

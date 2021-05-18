@@ -5,7 +5,7 @@ class RenderTargetImpl : public RenderTarget<B>
 template <GraphicsBackend B>
 void RenderTarget<B>::addSubpassDescription(SubpassDescription<B>&& description)
 {
-    mySubPassDescs.emplace_back(std::move(description));
+    mySubPassDescs.emplace_back(std::forward<SubpassDescription<B>>(description));
     if (!myCurrentSubpass)
         myCurrentSubpass = std::make_optional<uint32_t>();
 }
@@ -13,7 +13,7 @@ void RenderTarget<B>::addSubpassDescription(SubpassDescription<B>&& description)
 template <GraphicsBackend B>
 void RenderTarget<B>::addSubpassDependency(SubpassDependency<B>&& dependency)
 {
-    mySubPassDependencies.emplace_back(std::move(dependency));
+    mySubPassDependencies.emplace_back(std::forward<SubpassDependency<B>>(dependency));
 }
 
 template <GraphicsBackend B>

@@ -4,7 +4,7 @@ void QueueContext<Vk>::enqueueSubmit(Args&&... args)
 {
     ZoneScopedN("QueueContext::enqueueSubmit");
 
-    myPendingSubmits.emplace_back(std::move(args)...);
+    myPendingSubmits.emplace_back(std::forward<Args>(args)...);
 }
 
 template <>
@@ -13,7 +13,7 @@ void QueueContext<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 {
     ZoneScopedN("QueueContext::enqueuePresent");
 
-    myPendingPresent |= std::move(first);
+    myPendingPresent |= std::forward<T>(first);
 
     if constexpr (sizeof...(rest) > 0)
         enqueuePresent(std::forward<Ts>(rest)...);

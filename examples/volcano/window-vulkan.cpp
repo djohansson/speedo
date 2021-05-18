@@ -395,12 +395,12 @@ WindowContext<Vk>::WindowContext(
 : Swapchain(
     deviceContext,
     defaultConfig,
-    std::move(surface),
+    std::forward<SurfaceHandle<Vk>>(surface),
     VK_NULL_HANDLE)
 , myConfig(
     AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
         std::filesystem::path(volcano_getUserProfilePath()) / "window.json",
-        std::move(defaultConfig)))
+        std::forward<WindowConfiguration<Vk>>(defaultConfig)))
 {
     ZoneScopedN("Window()");
 
@@ -411,7 +411,7 @@ WindowContext<Vk>::WindowContext(
 
 template <>
 WindowContext<Vk>::WindowContext(WindowContext&& other) noexcept
-: Swapchain(std::move(other))
+: Swapchain(std::forward<WindowContext>(other))
 , myConfig(std::exchange(other.myConfig, {}))
 , myTimestamps(std::exchange(other.myTimestamps, {}))
 , myViews(std::exchange(other.myViews, {}))
@@ -429,7 +429,7 @@ WindowContext<Vk>::~WindowContext()
 template <>
 WindowContext<Vk>& WindowContext<Vk>::operator=(WindowContext&& other) noexcept
 {
-    Swapchain::operator=(std::move(other));
+    Swapchain::operator=(std::forward<WindowContext>(other));
     myConfig = std::exchange(other.myConfig, {});
     myTimestamps = std::exchange(other.myTimestamps, {});
     myViews = std::exchange(other.myViews, {});

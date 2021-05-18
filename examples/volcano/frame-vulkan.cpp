@@ -12,13 +12,13 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     FrameCreateDesc<Vk>&& desc)
 : RenderTarget(deviceContext, desc)
-, myDesc(std::move(desc))
+, myDesc(std::forward<FrameCreateDesc<Vk>>(desc))
 {
 }
 
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl&& other) noexcept
-: RenderTarget(std::move(other))
+: RenderTarget(std::forward<RenderTargetImpl>(other))
 , myDesc(std::exchange(other.myDesc, {}))
 {
 }
@@ -32,7 +32,7 @@ template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>& RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(
     RenderTargetImpl&& other) noexcept
 {
-    RenderTarget::operator=(std::move(other));
+    RenderTarget::operator=(std::forward<RenderTargetImpl>(other));
     myDesc = std::exchange(other.myDesc, {});
     return *this;
 }
@@ -48,7 +48,7 @@ template <>
 Frame<Vk>::Frame(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     FrameCreateDesc<Vk>&& desc)
-: BaseType(deviceContext, std::move(desc))
+: BaseType(deviceContext, std::forward<FrameCreateDesc<Vk>>(desc))
 {
     ZoneScopedN("Frame()");
 
@@ -95,7 +95,7 @@ Frame<Vk>::Frame(
 
 template <>
 Frame<Vk>::Frame(Frame<Vk>&& other) noexcept
-: BaseType(std::move(other))
+: BaseType(std::forward<Frame<Vk>>(other))
 , myRenderCompleteSemaphore(std::exchange(other.myRenderCompleteSemaphore, {}))
 , myNewImageAcquiredSemaphore(std::exchange(other.myNewImageAcquiredSemaphore, {}))
 , myImageLayout(std::exchange(other.myImageLayout, {}))
@@ -118,7 +118,7 @@ Frame<Vk>::~Frame()
 template <>
 Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
 {
-    BaseType::operator=(std::move(other));
+    BaseType::operator=(std::forward<Frame<Vk>>(other));
     myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
     myNewImageAcquiredSemaphore = std::exchange(other.myNewImageAcquiredSemaphore, {});
     myImageLayout = std::exchange(other.myImageLayout, {});

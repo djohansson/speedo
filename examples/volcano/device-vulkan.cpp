@@ -59,7 +59,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& 
 
     auto timelineValue = myTimelineValue.load(std::memory_order_relaxed);
 
-    myTimelineCallbacks.emplace_back(std::make_tuple(timelineValue, std::move(callback)));
+    myTimelineCallbacks.emplace_back(std::make_tuple(timelineValue, std::forward<std::function<void(uint64_t)>>(callback)));
 
     return timelineValue;
 }
@@ -71,7 +71,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 
     auto timelineValue = std::get<0>(callback);
 
-    myTimelineCallbacks.emplace_back(std::move(callback));
+    myTimelineCallbacks.emplace_back(std::forward<TimelineCallback>(callback));
 
     return timelineValue;
 }
@@ -220,7 +220,7 @@ DeviceContext<Vk>::DeviceContext(
 , myConfig(
     AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
         std::filesystem::path(volcano_getUserProfilePath()) / "device.json",
-        std::move(defaultConfig)))
+        std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
 , myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
     ZoneScopedN("DeviceContext()");
@@ -408,7 +408,7 @@ DeviceObject<Vk>::DeviceObject(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     DeviceObjectCreateDesc&& desc)
 : myDevice(deviceContext)
-, myDesc(std::move(desc))
+, myDesc(std::forward<DeviceObjectCreateDesc>(desc))
 , myUid(uuids::uuid_system_generator{}())
 {
 }
@@ -420,7 +420,7 @@ DeviceObject<Vk>::DeviceObject(
     uint32_t objectCount,
     ObjectType<Vk> objectType,
     const uint64_t* objectHandles)
-: DeviceObject(deviceContext, std::move(desc))
+: DeviceObject(deviceContext, std::forward<DeviceObjectCreateDesc>(desc))
 {
     char stringBuffer[256];
     for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)

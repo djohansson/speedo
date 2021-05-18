@@ -31,7 +31,7 @@ public:
 
 	constexpr View() noexcept = default;
 	View(ViewCreateDesc&& data)
-		: myDesc(std::move(data))
+		: myDesc(std::forward<ViewCreateDesc>(data))
 	{
 		updateAll();
 	}
