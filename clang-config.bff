@@ -27,7 +27,7 @@
 	.ClangPath = '$CLANG_PATH$'
 #else
 #if __WINDOWS__
-	.ClangPath = '"$LLVMPath$"/lib/clang/$LLVMVersion$'
+	.ClangPath = '$LLVMPath$/lib/clang/$LLVMVersion$'
 #else
 	.ClangPath = '$LLVMPath$'
 #endif
@@ -85,8 +85,8 @@
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
 #endif
-	.LinkerOptionsCpp = ' -L "$LLVMPath$"/lib'
-//		+ ' -Wl,-rpath,"$LLVMPath$"/lib'
+	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
+		+ ' -Wl,-rpath,$LLVMPath$/lib'
 #if !__WINDOWS__
 		+ ' -lc++'
 #endif

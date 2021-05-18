@@ -131,7 +131,8 @@
 			"coroutine": "cpp",
 			"stop_token": "cpp",
 			"span": "cpp",
-			"gsl_byte": "cpp"
+			"gsl_byte": "cpp",
+			"__cxx_version": "cpp"
 		}
 	}
 }
