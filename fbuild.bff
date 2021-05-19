@@ -676,6 +676,7 @@
 			+ ' -I$BuildRootPath$/external/nativefiledialog/src/include'
 			+ ' -I$BuildRootPath$/external/tracy/nfd'
 			+ ' -I$BuildRootPath$/external/tracy'
+			+ ' -I$BuildRootPath$/external/concurrentqueue'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-ambiguous-reversed-operator'

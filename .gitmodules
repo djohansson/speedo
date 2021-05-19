@@ -82,3 +82,6 @@
 [submodule "external/stduuid"]
 	path = external/stduuid
 	url = https://github.com/mariusbancila/stduuid.git
+[submodule "external/concurrentqueue"]
+	path = external/concurrentqueue
+	url = https://github.com/cameron314/concurrentqueue.git

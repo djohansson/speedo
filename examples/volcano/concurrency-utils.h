@@ -18,6 +18,11 @@
 #include <type_traits>
 #include <vector>
 
+#include <concurrentqueue.h>
+
+template <typename T>
+using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
+
 template <typename T>
 bool is_ready(std::future<T> const& future)
 {
@@ -210,88 +215,6 @@ public:
 	}
 };
 
-// todo: a real concurrent queue
-template <typename T, typename DequeT = std::deque<T>, typename MutexT = UpgradableSharedMutex<>>
-class ConcurrentDeque : private DequeT
-{
-public:
-	using deque_t = DequeT;
-	using value_t = typename deque_t::value_type;
-	using mutex_t = MutexT;
-
-	void push_front(const value_t& src)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		deque_t::push_front(src);
-	}
-
-	void emplace_front(value_t&& src)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		deque_t::emplace_front(src);
-	}
-
-	void push_back(const value_t& src)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		deque_t::push_back(src);
-	}
-
-	void emplace_back(value_t&& src)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		deque_t::emplace_back(src);
-	}
-
-	bool try_pop_front(value_t& dst)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		if (deque_t::empty())
-			return false;
-
-		dst = deque_t::front();
-		deque_t::pop_front();
-
-		return true;
-	}
-
-	bool try_pop_back(value_t& dst)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		if (deque_t::empty())
-			return false;
-
-		dst = deque_t::back();
-		deque_t::pop_back();
-
-		return true;
-	}
-
-	void insert_front(typename deque_t::iterator beginIt, typename deque_t::iterator endIt)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		deque_t::insert(deque_t::begin(), beginIt, endIt);
-	}
-
-	void insert_back(typename deque_t::iterator beginIt, typename deque_t::iterator endIt)
-	{
-		auto lock = std::unique_lock(myMutex);
-
-		deque_t::insert(deque_t::end(), beginIt, endIt);
-	}
-
-private:
-
-	mutex_t myMutex;
-};
-
 class Task : public Noncopyable
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
@@ -441,10 +364,9 @@ public:
 
 		auto threadMain = [this]
 		{
-			auto lock = std::unique_lock(myMutex);
 			//auto stopToken = myStopSource.get_token();
 
-			internalThreadMain(lock/*, stopToken*/);
+			internalThreadMain(/*stopToken*/);
 		};
 		
 		myThreads.reserve(threadCount);
@@ -476,12 +398,20 @@ public:
 	{
 		ZoneScopedN("TaskThreadPool::submit");
 
-		auto lock = std::unique_lock(myMutex);
-		auto& task = myQueue.emplace_back(std::forward<F>(callable), std::forward<Args>(args)...);
+		Task task(std::forward<F>(callable), std::forward<Args>(args)...);
 		auto future = task.template getFuture<R>();
-		lock.unlock();
 
-		mySignal.notify_one();
+		{
+			ZoneScopedN("TaskThreadPool::submit::enqueue");
+
+			myQueue.enqueue(std::move(task));
+		}
+
+		{
+			ZoneScopedN("TaskThreadPool::submit::signal");
+		
+			mySignal.notify_one();
+		}
 
 		return future;
 	}
@@ -490,9 +420,7 @@ public:
 	{
 		ZoneScopedN("TaskThreadPool::processQueue");
 
-		auto lock = std::unique_lock(myMutex);
-
-		internalProcessQueue(lock);
+		internalProcessQueue();
 	}
 
 	template <typename T, typename R = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
@@ -500,28 +428,20 @@ public:
 	{
 		ZoneScopedN("TaskThreadPool::processQueueUntil");
 
-		auto lock = std::unique_lock(myMutex);
-
-		return internalProcessQueue(std::forward<std::future<T>>(future), lock);
+		return internalProcessQueue(std::forward<std::future<T>>(future));
 	}
 
 private:
 
-	void internalProcessQueue(std::unique_lock<mutex_t>& lock)
+	void internalProcessQueue()
 	{
-		while (!myQueue.empty())
-		{
-			Task task(std::move(myQueue.front()));
-			myQueue.pop_front();
-
-			lock.unlock();
+		Task task;
+		while (myQueue.try_dequeue(task))
 			task();
-			lock.lock();
-		}
 	}
 
 	template <typename T, typename R = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
-	std::optional<R> internalProcessQueue(std::future<T>&& future, std::unique_lock<mutex_t>& lock)
+	std::optional<R> internalProcessQueue(std::future<T>&& future)
 	{
 		if (!future.valid())
 			return std::nullopt;
@@ -539,31 +459,29 @@ private:
 			}
 		};
 
-		while (!myQueue.empty())
+		Task task;
+		while (myQueue.try_dequeue(task))
 		{
 			if (is_ready(future))
 				return returnFunc(future);
 
-			Task task(std::move(myQueue.front()));
-			myQueue.pop_front();
-
-			lock.unlock();
 			task();
-			lock.lock();
 		}
 
 		return returnFunc(future);
 	}
 
-	void internalThreadMain(std::unique_lock<mutex_t>& lock/*, std::stop_token& stopToken*/)
+	void internalThreadMain(/*std::stop_token& stopToken*/)
 	{		
 		//while (!stopToken.stop_requested())
 		while (!myStopSource.load(std::memory_order_relaxed))
 		{
-			internalProcessQueue(lock);
+			internalProcessQueue();
+
+			auto lock = std::unique_lock(myMutex);
 
 			//mySignal.wait(lock, stopToken, [&queue = myQueue](){ return !queue.empty(); });
-			mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource.load(std::memory_order_relaxed) || !queue.empty(); });
+			mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
 		}
 	}
 
@@ -573,5 +491,5 @@ private:
 	std::condition_variable_any mySignal;
 	//std::stop_source myStopSource;
 	std::atomic_bool myStopSource;
-	std::deque<Task> myQueue;
+	ConcurrentQueue<Task> myQueue;
 };

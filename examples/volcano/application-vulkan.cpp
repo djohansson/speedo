@@ -1212,8 +1212,10 @@ bool Application<Vk>::draw()
     {
         ZoneScopedN("Application::draw::submitTimelineCallbacks");
 
+        // todo: have the thread pool poll Host+Device visible memory heap for GPU completion instead
+
         myProcessTimelineCallbacksFuture = myThreadPool.submit(
-            [](uint64_t lastPresentTimelineValue, DeviceContext<Vk>& deviceContext)
+            [](std::optional<uint64_t> lastPresentTimelineValue, DeviceContext<Vk>& deviceContext)
             {
                 deviceContext.processTimelineCallbacks(lastPresentTimelineValue);
             }, lastPresentTimelineValue, *myDevice);

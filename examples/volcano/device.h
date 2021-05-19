@@ -47,7 +47,6 @@ struct QueueFamilyDesc
 };
 
 using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
-using TimelineCallbackQueue = ConcurrentDeque<TimelineCallback>;
 
 template <GraphicsBackend B>
 class DeviceContext : public Noncopyable
@@ -78,7 +77,7 @@ public:
     void waitIdle() const;
     uint64_t addTimelineCallback(std::function<void(uint64_t)>&& callback);
     uint64_t addTimelineCallback(TimelineCallback&& callback);
-    bool processTimelineCallbacks(std::optional<uint64_t> timelineValue = std::nullopt);
+    bool processTimelineCallbacks(const std::optional<uint64_t>& timelineValue = std::nullopt);
 
     void addOwnedObjectHandle(const uuids::uuid& ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
     void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
@@ -100,7 +99,7 @@ private:
     SemaphoreHandle<B> myTimelineSemaphore = {};
     std::atomic_uint64_t myTimelineValue = {};
 
-    TimelineCallbackQueue myTimelineCallbacks;
+    ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
     struct ObjectNameInfo : ObjectInfo<B>
     {

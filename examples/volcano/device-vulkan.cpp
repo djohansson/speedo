@@ -59,7 +59,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& 
 
     auto timelineValue = myTimelineValue.load(std::memory_order_relaxed);
 
-    myTimelineCallbacks.emplace_back(std::make_tuple(timelineValue, std::forward<std::function<void(uint64_t)>>(callback)));
+    myTimelineCallbacks.enqueue(std::make_tuple(timelineValue, std::forward<std::function<void(uint64_t)>>(callback)));
 
     return timelineValue;
 }
@@ -71,24 +71,24 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 
     auto timelineValue = std::get<0>(callback);
 
-    myTimelineCallbacks.emplace_back(std::forward<TimelineCallback>(callback));
+    myTimelineCallbacks.enqueue(std::forward<TimelineCallback>(callback));
 
     return timelineValue;
 }
 
 template <>
-bool DeviceContext<Vk>::processTimelineCallbacks(std::optional<uint64_t> timelineValue)
+bool DeviceContext<Vk>::processTimelineCallbacks(const std::optional<uint64_t>& timelineValue)
 {
     ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
     TimelineCallback callbackTuple;
-    while (myTimelineCallbacks.try_pop_front(callbackTuple))
+    while (myTimelineCallbacks.try_dequeue(callbackTuple))
     {
         const auto& [commandBufferTimelineValue, callback] = callbackTuple;
 
         if (timelineValue && commandBufferTimelineValue > timelineValue.value())
         {
-            myTimelineCallbacks.emplace_front(std::move(callbackTuple));
+            myTimelineCallbacks.enqueue(std::move(callbackTuple));
             return false;
         }
 
