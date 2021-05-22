@@ -86,13 +86,15 @@ class alignas(Aligmnent) UpgradableSharedMutex
 #endif
 
 	template <typename Func>
-	inline void internalSpinWait(Func lockFn) noexcept
+	inline void internalAquireLock(Func lockFn) noexcept
 	{
+		ZoneScopedN("aquireLock");
+
 		auto result = lockFn();
 		auto& [success, value] = result;
 		while (!success)
 		{
-			ZoneScopedN("wait");
+			ZoneScopedN("waitAndTryAgain");
 
 			internalAtomicRef().wait(value);
 			result = lockFn();
@@ -103,7 +105,7 @@ public:
 	// Lockable Concept
 	void lock() noexcept
 	{
-		internalSpinWait([this]() { return try_lock(); });
+		internalAquireLock([this]() { return try_lock(); });
 	}
 
 	// Writer is responsible for clearing up both the Upgraded and Writer bits.
@@ -118,7 +120,7 @@ public:
 	// SharedLockable Concept
 	void lock_shared() noexcept
 	{
-		internalSpinWait([this]() { return try_lock_shared(); });
+		internalAquireLock([this]() { return try_lock_shared(); });
 	}
 
 	inline void unlock_shared() noexcept
@@ -138,7 +140,7 @@ public:
 	// UpgradeLockable Concept
 	void lock_upgrade() noexcept
 	{
-		internalSpinWait([this]() { return try_lock_upgrade(); });
+		internalAquireLock([this]() { return try_lock_upgrade(); });
 	}
 
 	inline void unlock_upgrade() noexcept
@@ -151,7 +153,7 @@ public:
 	void unlock_upgrade_and_lock() noexcept
 	{
 		// try to unlock upgrade and write lock atomically
-		internalSpinWait([this]() { return try_lock<Upgraded>(); });
+		internalAquireLock([this]() { return try_lock<Upgraded>(); });
 	}
 
 	// unlock upgrade and read lock atomically
