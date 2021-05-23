@@ -272,12 +272,12 @@ int main(int argc, char** argv)
 		ZoneScopedN("main::gameLoop");
 
 		{
-			ZoneScopedN("main::glfw");
+			ZoneScopedN("main::glfwPollEvents");
 			glfwPollEvents();
 		}
 
 		{
-			ZoneScopedN("main::imgui");
+			ZoneScopedN("main::ImGui_ImplGlfw_NewFrame");
 			ImGui_ImplGlfw_NewFrame();
 		}
 
