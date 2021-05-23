@@ -15,11 +15,6 @@
 #include <string>
 
 template <GraphicsBackend B>
-struct PipelineCacheHeader
-{
-};
-
-template <GraphicsBackend B>
 class PipelineLayout : public DeviceObject<B>
 {
 public:
@@ -41,20 +36,7 @@ public:
 
     const auto& getShaderModules() const noexcept { return myShaderModules; }
     const auto& getDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
-    const auto& getDescriptorSetLayout(uint32_t set) const noexcept
-    {
-        const auto& setLayouts = getDescriptorSetLayouts();
-        auto setLayoutIt = std::lower_bound(
-            setLayouts.begin(),
-            setLayouts.end(),
-            set,
-            [](const auto& setLayout, uint32_t set){ return setLayout.first < set; });
-        assert(setLayoutIt != setLayouts.end());
-        const auto& [_set, setLayout] = *setLayoutIt;
-        assert(_set == set);
-
-        return setLayout;
-    };
+    const DescriptorSetLayout<B>& getDescriptorSetLayout(uint32_t set) const noexcept;
 
 private:
 
@@ -84,6 +66,11 @@ struct PipelineResourceView
 	std::shared_ptr<ImageView<B>> imageView;
 	std::shared_ptr<SamplerVector<B>> samplers = {};
 	// end temp
+};
+
+template <GraphicsBackend B>
+struct PipelineCacheHeader
+{
 };
 
 template <GraphicsBackend B>
