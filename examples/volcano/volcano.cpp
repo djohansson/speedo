@@ -13,7 +13,7 @@ static std::filesystem::path g_userProfilePath;
 namespace volcano
 {
 
-std::filesystem::path getAbsolutePath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
+std::filesystem::path getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
 {
     auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
     
@@ -22,7 +22,7 @@ std::filesystem::path getAbsolutePath(const char* pathStr, const char* defaultPa
     
     assert(std::filesystem::is_directory(path));
     
-    return std::filesystem::absolute(path);
+    return std::filesystem::canonical(path);
 }
 
 }
@@ -37,9 +37,9 @@ int volcano_create(
 {
 	assert(windowHandle != nullptr);
 
-	g_rootPath = volcano::getAbsolutePath(resourcePath, "./");
-	g_resourcePath = volcano::getAbsolutePath(resourcePath, "./resources/");
-	g_userProfilePath = volcano::getAbsolutePath(userProfilePath, "./.profile/", true);
+	g_rootPath = volcano::getCanonicalPath(resourcePath, "./");
+	g_resourcePath = volcano::getCanonicalPath(resourcePath, "./resources/");
+	g_userProfilePath = volcano::getCanonicalPath(userProfilePath, "./.profile/", true);
 	g_app = std::make_unique<Application<Vk>>(windowHandle, width, height);
 
 	return EXIT_SUCCESS;
