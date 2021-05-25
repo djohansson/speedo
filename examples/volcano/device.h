@@ -77,7 +77,7 @@ public:
     void waitIdle() const;
     uint64_t addTimelineCallback(std::function<void(uint64_t)>&& callback);
     uint64_t addTimelineCallback(TimelineCallback&& callback);
-    bool processTimelineCallbacks(const std::optional<uint64_t>& timelineValue = std::nullopt);
+    bool processTimelineCallbacks(uint64_t timelineValue);
 
     void addOwnedObjectHandle(const uuids::uuid& ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
     void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);

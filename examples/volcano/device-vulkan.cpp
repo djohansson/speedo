@@ -77,7 +77,7 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 }
 
 template <>
-bool DeviceContext<Vk>::processTimelineCallbacks(const std::optional<uint64_t>& timelineValue)
+bool DeviceContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
 {
     ZoneScopedN("DeviceContext::processTimelineCallbacks");
 
@@ -86,7 +86,7 @@ bool DeviceContext<Vk>::processTimelineCallbacks(const std::optional<uint64_t>& 
     {
         const auto& [commandBufferTimelineValue, callback] = callbackTuple;
 
-        if (timelineValue && commandBufferTimelineValue > timelineValue.value())
+        if (commandBufferTimelineValue > timelineValue)
         {
             myTimelineCallbacks.enqueue(std::move(callbackTuple));
             return false;
@@ -386,12 +386,11 @@ DeviceContext<Vk>::~DeviceContext()
 {
     ZoneScopedN("~DeviceContext()");
 
-    processTimelineCallbacks();
+    // it is the applications responsibility to wait for all queues complete gpu execution before destroying the DeviceContext.
+    processTimelineCallbacks(~0ull); // call all timline callbacks
 
     vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
-
     vmaDestroyAllocator(myAllocator);
-
     vkDestroyDevice(myDevice, nullptr);
 }
 
