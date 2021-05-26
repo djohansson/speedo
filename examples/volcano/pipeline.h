@@ -106,6 +106,9 @@ public:
     const auto& getConfig() const noexcept { return myConfig; }
     auto getCache() const noexcept { return myCache; }
     auto getDescriptorPool() const noexcept { return myDescriptorPool; }
+    auto getBindPoint() const noexcept { return myBindPoint; }
+
+    // "manual" api
 
     void bindPipeline(
         CommandBufferHandle<B> cmd,
@@ -120,7 +123,7 @@ public:
         uint32_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt) const;
 
-    // "auto" api begin
+    // "auto" api
 
     void bindPipelineAuto(CommandBufferHandle<B> cmd);
 
@@ -129,7 +132,6 @@ public:
         uint32_t set,
         std::optional<uint32_t> bufferOffset = std::nullopt);
 
-    // object
     template <typename T>
     void setDescriptorData(
         uint64_t shaderVariableNameHash,
@@ -142,7 +144,6 @@ public:
         T&& data,
         uint32_t set);
 
-    // array
     template <typename T>
     void setDescriptorData(
         uint64_t shaderVariableNameHash,
@@ -155,7 +156,6 @@ public:
         const std::vector<T>& data,
         uint32_t set);
 
-    // array-element
     template <typename T>
     void setDescriptorData(
         uint64_t shaderVariableNameHash,
@@ -171,10 +171,10 @@ public:
         uint32_t index);
     
     // temp
-    const auto& getLayout() const noexcept { return *myLayout; }
-    auto& getRenderTarget() const noexcept { return *myRenderTarget; }
+    const auto& getLayout() const noexcept { assert(myLayout); return *myLayout; }
+    auto& getRenderTarget() const noexcept { assert(myRenderTarget); return *myRenderTarget; }
     
-    void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout);
+    void setLayout(const std::shared_ptr<PipelineLayout<B>>& layout, PipelineBindPoint<B> bindPoint);
     void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
     void setModel(const std::shared_ptr<Model<B>>& model); // todo: rewrite to use generic draw call structures / buffers
 
@@ -188,11 +188,10 @@ private:
     // todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
     //       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
     //       might need more fine grained control here...
-    void internalResetSharedState();
-    void internalResetGraphicsInputState();
-    void internalResetGraphicsRasterizationState();
-    void internalResetGraphicsOutputState();
-    void internalResetGraphicsDynamicState();
+    void internalResetState();
+    void internalPrepareDescriptorSets();
+    void internalResetGraphicsState();
+    void internalResetComputeState();
     //
 
     void internalUpdateDescriptorSet(
@@ -223,13 +222,14 @@ private:
     
     // shared state
     PipelineBindPoint<B> myBindPoint = {};
-    std::vector<PipelineShaderStageCreateInfo<B>> myShaderStages;
     std::shared_ptr<PipelineLayout<B>> myLayout;
     std::shared_ptr<RenderTarget<B>> myRenderTarget;
     // end shared state
 
     struct GraphicsState
     {
+        std::vector<PipelineShaderStageCreateInfo<B>> shaderStages;
+        uint32_t shaderStageFlags = {};
         PipelineVertexInputStateCreateInfo<B> vertexInput = {};
         PipelineInputAssemblyStateCreateInfo<B> inputAssembly = {};
         std::vector<Viewport<B>> viewports;

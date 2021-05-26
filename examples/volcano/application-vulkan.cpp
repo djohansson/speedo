@@ -183,11 +183,17 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
     // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
     auto resourcePath = std::filesystem::path(volcano_getResourcePath());
     auto userProfilePath = std::filesystem::path(volcano_getUserProfilePath());
-    auto shaders = shader::loadSlangShaders<Vk>(
-        resourcePath / "shaders" / "shaders.slang",
-        { resourcePath / "shaders" },
-        std::filesystem::canonical(std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin"),
-        userProfilePath / ".slang.intermediate");
+
+    auto shaderIncludePath = resourcePath / "shaders";
+    auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
+    auto vkSDKBinPath = std::filesystem::canonical(std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin");
+
+    ShaderLoader shaderLoader(
+        {shaderIncludePath},
+        {std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)},
+        shaderIntermediatePath);
+
+    auto shaderReflection = shaderLoader.load<Vk>(resourcePath / "shaders" / "shaders.slang");
 
     auto surface = createSurface(myInstance->getInstance(), windowHandle);
 
@@ -482,14 +488,14 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
     constexpr uint32_t textureId = 1;
     constexpr uint32_t samplerId = 2;
-    static_assert(textureId < ShaderTypes_TextureCount);
-    static_assert(samplerId < ShaderTypes_SamplerCount);
+    static_assert(textureId < ShaderTypes_GlobalTextureCount);
+    static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
     {
         auto& dedicatedTransferContext = myCommands[CommandContextType_DedicatedTransfer].fetchAdd();
 
         auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
         materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
-        materialData[0].textureAndSamplerId = (textureId << ShaderTypes_TextureIndexBits) | samplerId;
+        materialData[0].textureAndSamplerId = (textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
         myMaterials = std::make_unique<Buffer<Vk>>(
             myDevice,
             dedicatedTransferContext,
@@ -525,9 +531,9 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
     // set global descriptor set data
 
-    auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaders));
+    auto [layoutIt, insertResult] = myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(myDevice, shaderReflection));
     assert(insertResult);
-    myPipeline->setLayout(*layoutIt);
+    myPipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
     myPipeline->setDescriptorData(
         "g_viewData",

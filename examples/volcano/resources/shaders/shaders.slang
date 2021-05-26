@@ -1,10 +1,17 @@
 #include "shadertypes.h"
 
+[[vk::binding(0, DescriptorSetCategory_Global)]]
+[[vk::push_constant]]
+ConstantBuffer<PushConstants> g_pushConstants;
+
 [[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
-Texture2D g_textures[ShaderTypes_TextureCount];
+Texture2D g_textures[ShaderTypes_GlobalTextureCount];
+
+[[vk::binding(0, DescriptorSetCategory_GlobalRWTextures)]]
+RWTexture2D g_rwtextures[ShaderTypes_GlobalRWTextureCount];
 
 [[vk::binding(0, DescriptorSetCategory_GlobalSamplers)]]
-SamplerState g_samplers[ShaderTypes_SamplerCount];
+SamplerState g_samplers[ShaderTypes_GlobalSamplerCount];
 
 [[vk::binding(0, DescriptorSetCategory_View)]]
 StructuredBuffer<ViewData> g_viewData;
@@ -14,9 +21,6 @@ StructuredBuffer<MaterialData> g_materialData;
 
 [[vk::binding(0, DescriptorSetCategory_Object)]]
 StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectBufferCount];
-
-[[vk::push_constant]]
-ConstantBuffer<PushConstants> g_pushConstants;
 
 struct InputStream
 {
@@ -87,8 +91,8 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 
     uint textureAndSamplerId = material.textureAndSamplerId;
     
-    uint textureId = textureAndSamplerId >> ShaderTypes_TextureIndexBits;
-    uint samplerId = textureAndSamplerId & (ShaderTypes_SamplerCount - 1u);
+    uint textureId = textureAndSamplerId >> ShaderTypes_GlobalTextureIndexBits;
+    uint samplerId = textureAndSamplerId & (ShaderTypes_GlobalSamplerCount - 1u);
 
     Texture2D texture = g_textures[textureId];
     SamplerState sampler = g_samplers[samplerId];
@@ -100,12 +104,16 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
     return output;
 }
 
-//RWStructuredBuffer<float4> colorTarget;
-//RWTexture2D<float4> colorTarget;
+[numthreads(8, 8, 1)]
+void computeMain(
+    uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID,
+    uint3 dispatchThreadId : SV_DispatchThreadID,
+    uint groupIndex : SV_GroupIndex)
+{
+    RWTexture2D<float4> colorSource = g_rwtextures[0];
+    colorSource[dispatchThreadId.xy] = float4(1.0f, 0.0f, 0.0f, 1.0f);
 
-//[numthreads(1, 1, 1)]
-//void computeMain(uint3 threadIds : SV_DispatchThreadID, uint3 groupId : SV_GroupID)
-//{
     // float4 color[3];
     // color[0].r = (r0 >> 0  & 0xFF) / 255.0f;
     // color[0].g = (r0 >> 8  & 0xFF) / 255.0f;
@@ -125,4 +133,5 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
     // float4 result = lerp(lerp(lerp(0, color[2], color[2].a), color[1], color[1].a), color[0], color[0].a);
     // result.a = 1.0f;
     // colorTarget[threadIds.xy] = result;
-//}
+}
+

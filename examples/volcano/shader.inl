@@ -3,8 +3,6 @@
 #include <cereal/archives/binary.hpp>
 //#include <cereal/archives/json.hpp>
 
-#include <slang.h>
-
 namespace shader
 {
 
@@ -12,7 +10,10 @@ template <GraphicsBackend B>
 ShaderStageFlagBits<B> getStageFlags(SlangStage stage);
 
 template <GraphicsBackend B>
-DescriptorType<Vk> getDescriptorType(slang::TypeReflection::Kind kind, SlangResourceShape shape);
+DescriptorType<Vk> getDescriptorType(
+	slang::TypeReflection::Kind kind,
+	SlangResourceShape shape,
+	SlangResourceAccess access);
 
 template <GraphicsBackend B>
 uint32_t createLayoutBindings(
@@ -22,12 +23,10 @@ uint32_t createLayoutBindings(
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr);
 
+}
+
 template <GraphicsBackend B>
-std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
-	const std::filesystem::path& slangFile,
-	const std::vector<std::filesystem::path>& includePaths,
-	const std::optional<std::filesystem::path>& compilerPath,
-	const std::optional<std::filesystem::path>& intermediatePath)
+std::shared_ptr<ShaderReflectionInfo<B>> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
 	auto slangModule = std::make_shared<ShaderReflectionInfo<B>>();
 
@@ -49,25 +48,10 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		return true;
 	};
 
-	auto loadSlang = [&slangModule, &slangFile, &includePaths, &compilerPath, &intermediatePath](
+	auto loadSlang = [slangSession = myCompilerSession.get(), &intermediatePath = myIntermediatePath, &includePaths = myIncludePaths, &slangModule, &slangFile](
 		std::istream& stream)
 	{
 		constexpr bool useGLSL = true;
-
-		SlangSession* slangSession = spCreateSession(NULL);
-		
-		// todo: support all compilers properly.
-		if (compilerPath)
-		{
-			auto path = std::filesystem::canonical(compilerPath.value());
-
-			std::cout << "Set downstream compiler path: " << path << std::endl;
-			assert(std::filesystem::is_directory(path));
-			
-			slangSession->setDownstreamCompilerPath(SLANG_PASS_THROUGH_DXC, path.generic_string().c_str());
-		}
-
-		slangSession->setDefaultDownstreamCompiler(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC);
 		
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
@@ -76,7 +60,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			auto path = std::filesystem::canonical(intermediatePath.value());
 
 			if (!std::filesystem::exists(path))
-        		std::filesystem::create_directory(path);
+				std::filesystem::create_directory(path);
 
 			std::cout << "Set intermediate path: " << path << std::endl;
 			assert(std::filesystem::is_directory(path));
@@ -118,12 +102,12 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		const char* epStrings[] = {
 			"vertexMain",
 			"fragmentMain",
-			//"computeMain",
+			"computeMain",
 		};
 		const SlangStage epStages[] = {
 			SLANG_STAGE_VERTEX,
 			SLANG_STAGE_FRAGMENT,
-			//SLANG_STAGE_COMPUTE,
+			SLANG_STAGE_COMPUTE,
 		};
 		// end temp
 
@@ -152,7 +136,6 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		if (SLANG_FAILED(compileRes))
 		{
 			spDestroyCompileRequest(slangRequest);
-			spDestroySession(slangSession);
 
 			throw std::runtime_error("Failed to compile slang shader module.");
 		}
@@ -171,7 +154,6 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
 			{
 				spDestroyCompileRequest(slangRequest);
-				spDestroySession(slangSession);
 
 				throw std::runtime_error("Failed to get slang blob.");
 			}
@@ -223,7 +205,6 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		// }
 
 		spDestroyCompileRequest(slangRequest);
-		spDestroySession(slangSession);
 
 		return true;
 	};
@@ -235,6 +216,4 @@ std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
 		throw std::runtime_error("Failed to load shaders.");
 
 	return slangModule;
-}
-
 }

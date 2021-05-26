@@ -275,23 +275,9 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 }
 
 template <>
-void PipelineContext<Vk>::internalResetSharedState()
+void PipelineContext<Vk>::internalPrepareDescriptorSets()
 {
     const auto& layout = getLayout();
-    const auto& shaderModules = layout.getShaderModules();
-    
-    myShaderStages.clear();
-    myShaderStages.reserve(shaderModules.size());
-    for (const auto& shader : shaderModules)
-        myShaderStages.emplace_back(
-            PipelineShaderStageCreateInfo<Vk>{
-                VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                nullptr,
-                0,
-                std::get<1>(shader.getEntryPoint()),
-                shader,
-                std::get<0>(shader.getEntryPoint()).c_str(),
-                nullptr});
 
     for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
     {
@@ -339,8 +325,11 @@ void PipelineContext<Vk>::internalResetSharedState()
 }
 
 template <>
-void PipelineContext<Vk>::internalResetGraphicsInputState()
+void PipelineContext<Vk>::internalResetGraphicsState()
 {
+    myGraphicsState.shaderStages.clear();
+    myGraphicsState.shaderStageFlags = {};
+
     myGraphicsState.vertexInput = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         nullptr,
@@ -356,11 +345,7 @@ void PipelineContext<Vk>::internalResetGraphicsInputState()
         0,
         VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         VK_FALSE};
-}
 
-template <>
-void PipelineContext<Vk>::internalResetGraphicsRasterizationState()
-{
     myGraphicsState.viewports.clear();
     myGraphicsState.viewports.emplace_back(Viewport<Vk>{0.0f, 0.0f, 0, 0, 0.0f, 1.0f});
 
@@ -401,11 +386,7 @@ void PipelineContext<Vk>::internalResetGraphicsRasterizationState()
         nullptr,
         VK_FALSE,
         VK_FALSE};
-}
 
-template <>
-void PipelineContext<Vk>::internalResetGraphicsOutputState()
-{
     myGraphicsState.depthStencil = {
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
         nullptr,
@@ -444,11 +425,7 @@ void PipelineContext<Vk>::internalResetGraphicsOutputState()
         static_cast<uint32_t>(myGraphicsState.colorBlendAttachments.size()),
         myGraphicsState.colorBlendAttachments.data(),
         {0.0f, 0.0f, 0.0f, 0.0f}};
-}
-    
-template <>
-void PipelineContext<Vk>::internalResetGraphicsDynamicState()
-{
+
     myGraphicsState.dynamicStateDescs.clear();
     myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
     myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_SCISSOR);
@@ -462,13 +439,29 @@ void PipelineContext<Vk>::internalResetGraphicsDynamicState()
 }
 
 template <>
+void PipelineContext<Vk>::internalResetComputeState()
+{
+    //myComputeState....
+}
+
+template <>
+void PipelineContext<Vk>::internalResetState()
+{
+    internalResetGraphicsState();
+    internalResetComputeState();
+}
+
+template <>
 PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
 {
     ZoneScopedN("PipelineContext::internalCreateGraphicsPipeline");
 
+    const auto& layout = getLayout();
+    auto& renderTarget = getRenderTarget();
+
     VkGraphicsPipelineCreateInfo pipelineInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-    pipelineInfo.stageCount = static_cast<uint32_t>(myShaderStages.size());
-    pipelineInfo.pStages = myShaderStages.data();
+    pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
+    pipelineInfo.pStages = myGraphicsState.shaderStages.data();
     pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
     pipelineInfo.pInputAssemblyState = &myGraphicsState.inputAssembly;
     pipelineInfo.pViewportState = &myGraphicsState.viewport;
@@ -477,9 +470,9 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     pipelineInfo.pDepthStencilState = &myGraphicsState.depthStencil;
     pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
     pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
-    pipelineInfo.layout = getLayout();
-    pipelineInfo.renderPass = getRenderTarget();
-    pipelineInfo.subpass = getRenderTarget().getSubpass().value_or(0);
+    pipelineInfo.layout = layout;
+    pipelineInfo.renderPass = renderTarget;
+    pipelineInfo.subpass = renderTarget.getSubpass().value_or(0);
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
@@ -570,11 +563,53 @@ void PipelineContext<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
 }
 
 template<>
-void PipelineContext<Vk>::setLayout(const std::shared_ptr<PipelineLayout<Vk>>& layout)
+void PipelineContext<Vk>::setLayout(const std::shared_ptr<PipelineLayout<Vk>>& layout, PipelineBindPoint<Vk> bindPoint)
 {
-    myLayout = layout;
+    assert(layout);
 
-    internalResetSharedState();
+    myLayout = layout;
+    myBindPoint = bindPoint;
+
+    const auto& shaderModules = myLayout->getShaderModules();
+
+    assert(!shaderModules.empty());
+
+    switch (myBindPoint)
+    {
+    case VK_PIPELINE_BIND_POINT_GRAPHICS:
+        {
+            myGraphicsState.shaderStageFlags = {};
+            myGraphicsState.shaderStages.reserve(shaderModules.size());
+
+            for (const auto& shader : shaderModules)
+            {
+                auto& [entryPointName, shaderStage] = shader.getEntryPoint();
+
+                if (shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS)
+                {
+                    myGraphicsState.shaderStages.emplace_back(
+                        PipelineShaderStageCreateInfo<Vk>{
+                            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                            nullptr,
+                            0,
+                            shaderStage,
+                            shader,
+                            entryPointName.c_str(),
+                            nullptr});
+
+                    myGraphicsState.shaderStageFlags |= shaderStage;
+                }
+            }
+        }
+        break;
+    case VK_PIPELINE_BIND_POINT_COMPUTE:
+        break;
+    default:
+        assertf(false, "Not implemented");
+        break;
+    };
+
+    internalPrepareDescriptorSets();
 }
 
 template<>
@@ -834,10 +869,8 @@ PipelineContext<Vk>::PipelineContext(
         reinterpret_cast<uint64_t>(myDescriptorPool),
         "Device_DescriptorPool");
 
-    internalResetGraphicsInputState();
-    internalResetGraphicsRasterizationState();
-    internalResetGraphicsOutputState();
-    internalResetGraphicsDynamicState();
+    // todo: refactor, since this will be called to excessivly
+    internalResetState();
 }
 
 template<>
