@@ -3,9 +3,10 @@
 #include "volcano.h"
 
 #include <algorithm>
+//#include <format>
 #include <list>
-#include <utility>
 #include <shared_mutex>
+#include <utility>
 
 #include <stb_sprintf.h>
 
@@ -425,6 +426,15 @@ DeviceObject<Vk>::DeviceObject(
     char stringBuffer[256];
     for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)
     {
+        // std::format_to_n(
+        //     stringBuffer,
+        //     std::size(stringBuffer),
+        //     "%.*s%.*u",
+        //     getName().size(),
+        //     getName().c_str(),
+        //     2,
+        //     objectIt);
+
         stbsp_sprintf(
             stringBuffer,
             "%.*s%.*u",
