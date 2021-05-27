@@ -45,7 +45,10 @@ ShaderStageFlagBits<Vk> getStageFlags<Vk>(SlangStage stage)
 }
 
 template <>
-DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeReflection::Kind kind, SlangResourceShape shape)
+DescriptorType<Vk> getDescriptorType<Vk>(
+	slang::TypeReflection::Kind kind,
+	SlangResourceShape shape,
+	SlangResourceAccess access)
 {
 	auto type = DescriptorType<Vk>{};
 
@@ -64,11 +67,12 @@ DescriptorType<Vk> getDescriptorType<Vk>(slang::TypeReflection::Kind kind, Slang
 	{
 		switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK)
 		{
-			case SLANG_TEXTURE_2D:
 			case SLANG_TEXTURE_1D:
+			case SLANG_TEXTURE_2D:
 			case SLANG_TEXTURE_3D:
 			case SLANG_TEXTURE_CUBE:
-				type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+				type = (access == SLANG_RESOURCE_ACCESS_READ_WRITE ?
+					VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 				break;
 			case SLANG_STRUCTURED_BUFFER:
 				type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -119,15 +123,17 @@ void addBinding(
 	auto descriptorCount = isArray ? typeLayout->getElementCount() : 1;
 	auto kind = typeLayout->getKind();
 	auto shape = typeLayout->getType()->getResourceShape();
+	auto access = typeLayout->getType()->getResourceAccess();
 
 	if (kind == slang::TypeReflection::Kind::Array)
 	{
 		auto* elementTypeLayout = typeLayout->getElementTypeLayout();
 		kind = elementTypeLayout->getKind();
 		shape = elementTypeLayout->getType()->getResourceShape();
+		access = elementTypeLayout->getType()->getResourceAccess();
 	}
 
-	auto descriptorType = shader::getDescriptorType<Vk>(kind, shape);
+	auto descriptorType = shader::getDescriptorType<Vk>(kind, shape, access);
 
 	//auto isUniformDynamic = descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	auto isInlineUniformBlock = descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;

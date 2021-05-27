@@ -13,6 +13,9 @@
 #include <utility>
 #include <vector>
 
+#include <slang.h>
+
+
 using ShaderBinary = std::vector<char>;
 
 template <GraphicsBackend B>
@@ -29,47 +32,68 @@ struct ShaderReflectionInfo
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
 };
 
-namespace shader
+class ShaderLoader
 {
+public:
 
-template <GraphicsBackend B>
-std::shared_ptr<ShaderReflectionInfo<B>> loadSlangShaders(
-	const std::filesystem::path& slangFile,
-	const std::vector<std::filesystem::path>& includePaths = {},
-	const std::optional<std::filesystem::path>& compilerPath = std::nullopt,
-	const std::optional<std::filesystem::path>& intermediatePath = std::nullopt);
-	
-}
+	using DownstreamCompiler = std::tuple<SlangSourceLanguage, SlangPassThrough, std::filesystem::path>;
+
+	ShaderLoader(
+		std::vector<std::filesystem::path>&& includePaths,
+		std::vector<DownstreamCompiler>&& downstreamCompilers,
+		std::optional<std::filesystem::path>&& intermediatePath = std::nullopt)
+		: myIncludePaths(std::forward<std::vector<std::filesystem::path>>(includePaths))
+		, myDownstreamCompilers(std::forward<std::vector<DownstreamCompiler>>(downstreamCompilers))
+		, myIntermediatePath(std::forward<std::optional<std::filesystem::path>>(intermediatePath))
+		, myCompilerSession(spCreateSession(), spDestroySession)
+	{
+		for (const auto& [sourceLanguage, compilerId, compilerPath] : myDownstreamCompilers)
+		{
+			auto path = std::filesystem::canonical(compilerPath);
+
+			std::cout << "Set downstream compiler path: " << path << std::endl;
+			assert(std::filesystem::is_directory(path));
+			
+			myCompilerSession->setDownstreamCompilerPath(compilerId, path.generic_string().c_str());
+			myCompilerSession->setDefaultDownstreamCompiler(sourceLanguage, compilerId);
+		}
+	}
+
+	template <GraphicsBackend B>
+	std::shared_ptr<ShaderReflectionInfo<B>> load(const std::filesystem::path& slangFile);
+
+private:
+	std::vector<std::filesystem::path> myIncludePaths;
+	std::vector<DownstreamCompiler> myDownstreamCompilers;
+	std::optional<std::filesystem::path> myIntermediatePath;
+	std::unique_ptr<SlangSession, void(*)(SlangSession*)> myCompilerSession;
+};
 
 template <GraphicsBackend B>
 class ShaderModule : public DeviceObject<B>
 {
 public:
-
 	constexpr ShaderModule() noexcept = default;
-	ShaderModule(
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const Shader<B>& shader);
+	ShaderModule(const std::shared_ptr<DeviceContext<B>>& deviceContext, const Shader<B>& shader);
 	ShaderModule(ShaderModule&& other) noexcept;
-    ~ShaderModule();
+	~ShaderModule();
 
-    ShaderModule& operator=(ShaderModule&& other) noexcept;
+	ShaderModule& operator=(ShaderModule&& other) noexcept;
 	operator auto() const noexcept { return myShaderModule; }
 
 	void swap(ShaderModule& rhs) noexcept;
-    friend void swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.swap(rhs); }
+	friend void swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getEntryPoint() const noexcept { return myEntryPoint; }
 
 private:
-
 	ShaderModule( // takes ownership of provided handle
-        const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        ShaderModuleHandle<B>&& shaderModule,
+		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		ShaderModuleHandle<B>&& shaderModule,
 		const EntryPoint<B>& entryPoint);
 
 	ShaderModuleHandle<B> myShaderModule = {};
-	EntryPoint<B> myEntryPoint = {}; 
+	EntryPoint<B> myEntryPoint = {};
 };
 
 #include "shader.inl"
