@@ -198,28 +198,28 @@ PipelineLayout<Vk>::PipelineLayout(
 template <>
 PipelineLayout<Vk>::PipelineLayout(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const std::shared_ptr<ShaderReflectionInfo<Vk>>& slangModule)
+    const ShaderSet<Vk>& shaderSet)
 : PipelineLayout(
     deviceContext,
-    [&slangModule, &deviceContext]
+    [&shaderSet, &deviceContext]
     {
         std::vector<ShaderModule<Vk>> shaderModules;
-        shaderModules.reserve(slangModule->shaders.size());
-        for (auto shader : slangModule->shaders)
+        shaderModules.reserve(shaderSet.shaders.size());
+        for (const auto& shader : shaderSet.shaders)
             shaderModules.emplace_back(ShaderModule<Vk>(deviceContext, shader));
         return shaderModules;
     }(),
-    [&slangModule, &deviceContext]
+    [&shaderSet, &deviceContext]
     {
         DescriptorSetLayoutFlatMap<Vk> map;
-        for (auto layout : slangModule->layouts)
+        for (auto [set, layout] : shaderSet.layouts)
             map.emplace(
                 map.end(),
                 std::make_pair(
-                    layout.first,
+                    set,
                     DescriptorSetLayout<Vk>(
                         deviceContext,
-                        std::move(layout.second))));
+                        std::move(layout))));
         return map;
     }())
 {

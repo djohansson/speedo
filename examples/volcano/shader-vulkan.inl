@@ -4,8 +4,8 @@
 #include <cereal/types/vector.hpp>
 
 template <class Archive>
-void serialize(Archive& archive, ShaderReflectionInfo<Vk>& module)
+void serialize(Archive& archive, ShaderSet<Vk>& shaderSet)
 {
-	archive(cereal::make_nvp("shaders", module.shaders));
-	archive(cereal::make_nvp("bindings", module.layouts));
+	archive(cereal::make_nvp("shaders", shaderSet.shaders));
+	archive(cereal::make_nvp("bindings", shaderSet.layouts));
 }

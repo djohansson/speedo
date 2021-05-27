@@ -23,7 +23,7 @@ public:
     PipelineLayout(PipelineLayout<B>&& other) noexcept;
     PipelineLayout(
         const std::shared_ptr<DeviceContext<B>>& deviceContext,
-        const std::shared_ptr<ShaderReflectionInfo<B>>& shaderModule);
+        const ShaderSet<B>& shaderSet);
     ~PipelineLayout();
 
     PipelineLayout& operator=(PipelineLayout&& other) noexcept;

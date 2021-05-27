@@ -26,29 +26,29 @@ uint32_t createLayoutBindings(
 }
 
 template <GraphicsBackend B>
-std::shared_ptr<ShaderReflectionInfo<B>> ShaderLoader::load(const std::filesystem::path& slangFile)
+ShaderSet<B> ShaderCompiler::load(const std::filesystem::path& slangFile)
 {
-	auto slangModule = std::make_shared<ShaderReflectionInfo<B>>();
+	auto shaderSet = ShaderSet<B>{};
 
-	auto loadBin = [&slangModule](std::istream& stream)
+	auto loadBin = [&shaderSet](std::istream& stream)
 	{
 		cereal::BinaryInputArchive bin(stream);
 		//cereal::JSONInputArchive bin(stream);
-		bin(*slangModule);
+		bin(shaderSet);
 
 		return true;
 	};
 
-	auto saveBin = [&slangModule](std::ostream& stream)
+	auto saveBin = [&shaderSet](std::ostream& stream)
 	{
 		cereal::BinaryOutputArchive bin(stream);
 		//cereal::JSONOutputArchive bin(stream);
-		bin(*slangModule);
+		bin(shaderSet);
 
 		return true;
 	};
 
-	auto loadSlang = [slangSession = myCompilerSession.get(), &intermediatePath = myIntermediatePath, &includePaths = myIncludePaths, &slangModule, &slangFile](
+	auto loadSlang = [slangSession = myCompilerSession.get(), &intermediatePath = myIntermediatePath, &includePaths = myIncludePaths, &shaderSet, &slangFile](
 		std::istream& stream)
 	{
 		constexpr bool useGLSL = true;
@@ -158,11 +158,11 @@ std::shared_ptr<ShaderReflectionInfo<B>> ShaderLoader::load(const std::filesyste
 				throw std::runtime_error("Failed to get slang blob.");
 			}
 
-			slangModule->shaders.emplace_back(std::make_tuple(blob->getBufferSize(), ep));
+			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), ep));
 			std::copy(
 				static_cast<const char*>(blob->getBufferPointer()),
 				static_cast<const char*>(blob->getBufferPointer()) + blob->getBufferSize(),
-				std::get<0>(slangModule->shaders.back()).data());
+				std::get<0>(shaderSet.shaders.back()).data());
 			blob->release();
 		}
 
@@ -192,7 +192,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> ShaderLoader::load(const std::filesyste
 			shader::createLayoutBindings<B>(
 				shaderReflection->getParameterByIndex(parameterIndex),
 				genericParameterIndices,
-				slangModule->layouts);
+				shaderSet.layouts);
 
 		// for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
 		// {
@@ -201,7 +201,7 @@ std::shared_ptr<ShaderReflectionInfo<B>> ShaderLoader::load(const std::filesyste
 		// epReflection->getComputeThreadGruopSize(3, &threadGroupSize[0]);
 
 		// 	for (unsigned parameterIndex = 0; parameterIndex < epReflection->getParameterCount(); parameterIndex++)
-		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), slangModule->layouts);
+		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), shaderSet->layouts);
 		// }
 
 		spDestroyCompileRequest(slangRequest);
@@ -212,8 +212,8 @@ std::shared_ptr<ShaderReflectionInfo<B>> ShaderLoader::load(const std::filesyste
 	loadCachedSourceFile(
 		slangFile, slangFile, "slang", "0.9.1-dev", loadSlang, loadBin, saveBin);
 
-	if (slangModule->shaders.empty())
+	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");
 
-	return slangModule;
+	return shaderSet;
 }

@@ -179,18 +179,20 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 {
     ZoneScopedN("Application()");
 
-    // load shaders, set pipeline layout
-    // todo: refactor this to shader / shaderset objects, holding the pipeline layouts
+    auto rootPath = std::filesystem::path(volcano_getRootPath());
     auto resourcePath = std::filesystem::path(volcano_getResourcePath());
     auto userProfilePath = std::filesystem::path(volcano_getUserProfilePath());
 
     auto shaderIncludePath = resourcePath / "shaders";
     auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
-    auto vkSDKBinPath = std::filesystem::canonical(std::filesystem::path(std::getenv("VK_SDK_PATH")) / "bin");
 
-    ShaderLoader shaderLoader(
+    auto vkSDKPathEnv = std::getenv("VK_SDK_PATH");
+    auto vkSDKPath = vkSDKPathEnv ? std::filesystem::path(vkSDKPathEnv) : rootPath;
+    auto vkSDKBinPath = vkSDKPath / "bin";
+
+    ShaderCompiler shaderLoader(
         {shaderIncludePath},
-        {std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)},
+        {/*std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)*/},
         shaderIntermediatePath);
 
     auto shaderReflection = shaderLoader.load<Vk>(resourcePath / "shaders" / "shaders.slang");
