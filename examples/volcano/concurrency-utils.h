@@ -11,8 +11,9 @@
 #include <deque>
 #include <future>
 #include <memory>
-#include <mutex>
 #include <optional>
+#include <semaphore>
+//#include <shared_mutex>
 //#include <stop_token>
 #include <tuple>
 #include <type_traits>
@@ -88,14 +89,10 @@ class alignas(Aligmnent) UpgradableSharedMutex
 	template <typename Func>
 	inline void internalAquireLock(Func lockFn) noexcept
 	{
-		ZoneScopedN("aquireLock");
-
 		auto result = lockFn();
 		auto& [success, value] = result;
 		while (!success)
 		{
-			ZoneScopedN("waitAndTryAgain");
-
 			internalAtomicRef().wait(value);
 			result = lockFn();
 		}
@@ -353,12 +350,10 @@ private:
 
 class TaskThreadPool : public Noncopyable
 {
-	using mutex_t = UpgradableSharedMutex<>;
-	//using mutex_t = std::mutex; // todo: compare performance
-
 public:
 
 	TaskThreadPool(uint32_t threadCount)
+		: mySignal(threadCount)
 	{
 		ZoneScopedN("TaskThreadPool()");
 
@@ -380,7 +375,8 @@ public:
 	{
 		//myStopSource.request_stop();
 		myStopSource.store(true, std::memory_order_relaxed);
-		mySignal.notify_all();
+		//mySignal.notify_all();
+		mySignal.release(mySignal.max());
 
 		// workaround for the following problem in msvc implementation of jthread in <mutex>:
 		// TRANSITION, ABI: Due to the unsynchronized delivery of notify_all by _Stoken,
@@ -412,7 +408,8 @@ public:
 		{
 			ZoneScopedN("TaskThreadPool::submit::signal");
 		
-			mySignal.notify_one();
+			//mySignal.notify_one();
+			mySignal.release();
 		}
 
 		return future;
@@ -480,18 +477,20 @@ private:
 		{
 			internalProcessQueue();
 
-			auto lock = std::unique_lock(myMutex);
+			//auto lock = std::shared_lock(myMutex);
 
 			//mySignal.wait(lock, stopToken, [&queue = myQueue](){ return !queue.empty(); });
-			mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
+			//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
+			mySignal.acquire();
 		}
 	}
 
-	mutex_t myMutex;
+	//std::shared_mutex myMutex;
 	//std::vector<std::jthread> myThreads;
 	std::vector<std::thread> myThreads;
-	std::condition_variable_any mySignal;
+	//std::condition_variable_any mySignal;
 	//std::stop_source myStopSource;
+	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
 	ConcurrentQueue<Task> myQueue;
 };

@@ -9,7 +9,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -105,9 +105,9 @@ private:
     {
         std::string name;
     };
-
     using ObjectInfos = std::vector<ObjectNameInfo>;
-    UpgradableSharedMutex<> myObjectMutex; // protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
+    
+    std::shared_mutex myObjectMutex; // protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
     UnorderedMap<uint64_t, ObjectInfos, IdentityHash<uint64_t>> myOwnerToDeviceObjectInfoMap;
     UnorderedMap<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
 };
