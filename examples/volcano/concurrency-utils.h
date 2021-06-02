@@ -210,12 +210,12 @@ public:
 	}
 };
 
-template <typename T, typename NonVoidT = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
+template <typename T>
 struct Future : Noncopyable
 {
 public:
 
-	using value_t = NonVoidT;
+	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
 	using state_t = std::tuple<value_t, bool>;
 
 	constexpr Future() = default;
@@ -263,7 +263,9 @@ private:
 	std::shared_ptr<state_t> myState;
 };
 
-// todo: continuation + return/args pipes
+// todo: continuations
+// todo: return/arg pipes
+// todo: fork/join
 class Task : public Noncopyable
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
@@ -279,7 +281,8 @@ public:
 		typename... Args,
 		typename ArgsTuple = std::tuple<Args...>,
 		typename R = std::invoke_result_t<dF, Args...>,
-		typename RState = typename Future<R>::state_t>
+		typename RState = typename Future<R>::state_t
+	>
 	Task(F&& f, Args&&... args)
 		: myInvokeThunk([](void* callablePtr, void* argsPtr, void* returnPtr)
 		{
@@ -358,10 +361,10 @@ public:
 		myInvokeThunk(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
 	}
 
-	template <typename R, typename RState = typename Future<R>::state_t>
+	template <typename R>
 	inline Future<R> getFuture()
 	{
-		return Future<R>(std::static_pointer_cast<RState>(myReturnState));
+		return Future<R>(std::static_pointer_cast<typename Future<R>::state_t>(myReturnState));
 	}
 
 private:
@@ -452,8 +455,8 @@ public:
 		internalProcessQueue();
 	}
 
-	template <typename R, typename NonVoidR = typename Future<R>::value_t>
-	std::optional<NonVoidR> processQueueUntil(Future<R>&& future)
+	template <typename R>
+	std::optional<typename Future<R>::value_t> processQueueUntil(Future<R>&& future)
 	{
 		ZoneScopedN("TaskThreadPool::processQueueUntil");
 
@@ -469,8 +472,8 @@ private:
 			task();
 	}
 
-	template <typename R, typename NonVoidR = typename Future<R>::value_t>
-	std::optional<NonVoidR> internalProcessQueue(Future<R>&& future)
+	template <typename R>
+	std::optional<typename Future<R>::value_t> internalProcessQueue(Future<R>&& future)
 	{
 		if (!future.valid())
 			return std::nullopt;
