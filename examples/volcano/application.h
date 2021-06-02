@@ -110,13 +110,13 @@ private:
 	using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
 	HandleSet<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 
-	std::future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
+	Future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
 	
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 
-	std::future<void> myPresentFuture;
-	std::future<void> myProcessTimelineCallbacksFuture;
+	Future<void> myPresentFuture;
+	Future<void> myProcessTimelineCallbacksFuture;
 
 	bool myRequestExit = false;
 

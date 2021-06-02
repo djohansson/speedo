@@ -31,13 +31,12 @@ struct ShaderSet
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
 };
 
-class ShaderCompiler
+class ShaderLoader
 {
 public:
-
 	using DownstreamCompiler = std::tuple<SlangSourceLanguage, SlangPassThrough, std::filesystem::path>;
 
-	ShaderCompiler(
+	ShaderLoader(
 		std::vector<std::filesystem::path>&& includePaths,
 		std::vector<DownstreamCompiler>&& downstreamCompilers,
 		std::optional<std::filesystem::path>&& intermediatePath = std::nullopt);

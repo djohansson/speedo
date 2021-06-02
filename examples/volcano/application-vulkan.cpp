@@ -190,7 +190,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
     auto vkSDKPath = vkSDKPathEnv ? std::filesystem::path(vkSDKPathEnv) : rootPath;
     auto vkSDKBinPath = vkSDKPath / "bin";
 
-    ShaderCompiler shaderLoader(
+    ShaderLoader shaderLoader(
         {shaderIncludePath},
         {/*std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)*/},
         shaderIntermediatePath);
@@ -1233,7 +1233,7 @@ bool Application<Vk>::draw()
     {
         ZoneScopedN("Application::draw::handleCallbacks");
 
-        if (myOpenFileFuture.valid() && is_ready(myOpenFileFuture))
+        if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
         {
             ZoneScopedN("Application::draw::openFileCallback");
 
@@ -1243,6 +1243,8 @@ bool Application<Vk>::draw()
                 onCompletionCallback(openFilePath);
                 std::free(openFilePath);
             }
+
+            myOpenFileFuture.reset();
         }
     }
 

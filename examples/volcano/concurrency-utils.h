@@ -5,11 +5,8 @@
 
 #include <array>
 #include <atomic>
-#include <chrono>
-#include <condition_variable>
+//#include <condition_variable>
 #include <cstdint>
-#include <deque>
-#include <future>
 #include <memory>
 #include <optional>
 #include <semaphore>
@@ -24,28 +21,26 @@
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
 
-template <typename T>
-bool is_ready(std::future<T> const& future)
-{
-	return future.wait_for(std::chrono::nanoseconds(0)) == std::future_status::ready;
-}
-
 template <typename T, typename AtomicT = std::atomic<T>>
 class CopyableAtomic : public AtomicT
 {
 public:
+	
 	using value_t = T;
 	using atomic_t = AtomicT;
 	using atomic_t::store;
 
 	constexpr CopyableAtomic() noexcept = default;
+
 	constexpr CopyableAtomic(value_t val) noexcept
 		: atomic_t(val)
-	{}
+	{ }
+
 	CopyableAtomic(const CopyableAtomic& other) noexcept
 	{
 		store(other.load(std::memory_order_acquire), std::memory_order_release);
 	}
+	
 	CopyableAtomic& operator=(const CopyableAtomic& other) noexcept
 	{
 		store(other.load(std::memory_order_acquire), std::memory_order_release);
@@ -58,7 +53,7 @@ template <typename ValueT = uint32_t, uint32_t Aligmnent =
 #if __cpp_lib_hardware_interference_size >= 201603
 	std::hardware_destructive_interference_size>
 #else
-	64>
+	128>
 #endif
 class alignas(Aligmnent) UpgradableSharedMutex
 {
@@ -99,6 +94,7 @@ class alignas(Aligmnent) UpgradableSharedMutex
 	}
 
 public:
+
 	// Lockable Concept
 	void lock() noexcept
 	{
@@ -214,81 +210,119 @@ public:
 	}
 };
 
+template <typename T, typename NonVoidT = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
+struct Future : Noncopyable
+{
+public:
+
+	using value_t = NonVoidT;
+	using state_t = std::tuple<value_t, bool>;
+
+	constexpr Future() = default;
+
+	Future(std::shared_ptr<state_t>&& state)
+		: myState(std::forward<std::shared_ptr<state_t>>(state))
+	{ }
+	
+	Future(Future&& other)
+		: myState(std::exchange(other.myState, {}))
+	{ }
+
+	Future& operator=(Future&& other)
+	{
+		myState = std::exchange(other.myState, {});
+
+		return *this;
+	}
+
+	inline value_t& get()
+	{
+		assert(valid());
+		auto& [value, flag] = *myState;
+		
+		if (!is_ready())
+			std::atomic_ref(flag).wait(false, std::memory_order_acquire);
+
+		return value;
+	}
+
+	inline bool valid() const { return !!myState; }
+
+	inline bool is_ready() const
+	{
+		assert(valid());
+		auto& [value, flag] = *myState;
+
+		return std::atomic_ref(flag).load(std::memory_order_relaxed);
+	}
+
+	inline void reset() { myState.reset(); }
+	
+private:
+
+	std::shared_ptr<state_t> myState;
+};
+
+// todo: continuation + return/args pipes
 class Task : public Noncopyable
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 24;
-	static constexpr size_t kMaxPromiseSizeBytes = 24;
 
 public:
 
 	constexpr Task() {};
 
-	template <typename F, typename dF = std::decay_t<F>, typename... Args, typename ArgsTuple = std::tuple<Args...>, typename R = std::invoke_result_t<dF, Args...>, typename Promise = std::promise<R>>
+	template <
+		typename F,
+		typename dF = std::decay_t<F>,
+		typename... Args,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename R = std::invoke_result_t<dF, Args...>,
+		typename RState = typename Future<R>::state_t>
 	Task(F&& f, Args&&... args)
-		: myInvokeThunk([](void* callablePtr, void* argsPtr, void* promisePtr)
+		: myInvokeThunk([](void* callablePtr, void* argsPtr, void* returnPtr)
 		{
 			auto& callable = *static_cast<dF*>(callablePtr);
 			auto& args = *static_cast<ArgsTuple*>(argsPtr);
-			auto& promise = *static_cast<Promise*>(promisePtr);
-			if constexpr(std::is_void_v<R>)
-			{
+			auto& [value, flag] = *static_cast<RState*>(returnPtr);
+			
+			if constexpr (std::is_void_v<R>)
 				std::apply(callable, args);
-				promise.set_value();
-			}
 			else
-			{
-				promise.set_value(std::apply(callable, args));
-		 	}
-		}) // todo: args
+				value = std::apply(callable, args);
+			
+			std::atomic_ref(flag).store(true, std::memory_order_release);
+			std::atomic_ref(flag).notify_all();
+		})
 		, myMoveThunk([](
 			void* callablePtr, void* otherCallablePtr,
-			void* argsPtr, void* otherArgsPtr,
-			void* promisePtr, void* otherPromisePtr)
+			void* argsPtr, void* otherArgsPtr)
 		{
 			auto& otherCallable = *static_cast<dF*>(otherCallablePtr);
-
 			new (callablePtr) dF(std::move(otherCallable));
-			
 			otherCallable.~dF();
 
 			auto& otherArgs = *static_cast<ArgsTuple*>(otherArgsPtr);
-
 			new (argsPtr) ArgsTuple(std::move(otherArgs));
-			
 			otherArgs.~ArgsTuple();
-
-			auto& otherPromise = *static_cast<Promise*>(otherPromisePtr);
-
-			new (promisePtr) Promise(std::move(otherPromise));
-
-			otherPromise.~Promise();
 		})
-		, myDeleteThunk([](void* callablePtr, void* argsPtr, void* promisePtr)
+		, myDeleteThunk([](void* callablePtr, void* argsPtr)
 		{
 			auto& callable = *static_cast<dF*>(callablePtr);
 			callable.~dF();
 
 			auto& args = *static_cast<ArgsTuple*>(argsPtr);
 			args.~ArgsTuple();
-
-			auto& promise = *static_cast<Promise*>(promisePtr);
-			promise.~Promise();
 		})
 	{	
 		static_assert(sizeof(dF) <= kMaxCallableSizeBytes);
-
 		new (myCallableMemory.data()) dF(std::forward<F>(f));
 
 		static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
-
 		new (myArgsMemory.data()) ArgsTuple(std::forward<Args>(args)...);
 
-		static_assert(sizeof(Promise) <= kMaxPromiseSizeBytes);
-
-		new (myPromiseMemory.data()) Promise();
-
-		static_assert(sizeof(Task) == 128);
+		myReturnState = std::make_shared<RState>();
 	}
 
 	Task(Task&& other) noexcept	{ *this = std::move(other);	}
@@ -296,23 +330,23 @@ public:
 	~Task()
 	{
 		if (myDeleteThunk)
-			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data(), myPromiseMemory.data());
+			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data());
 	}
 
 	Task& operator=(Task&& other) noexcept
 	{
 		if (myDeleteThunk)
-			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data(), myPromiseMemory.data());
+			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data());
 		
 		myInvokeThunk = std::exchange(other.myInvokeThunk, nullptr);
+		myReturnState = std::exchange(other.myReturnState, {});
 		myMoveThunk = std::exchange(other.myMoveThunk, nullptr);
 		myDeleteThunk = std::exchange(other.myDeleteThunk, nullptr);
 
 		if (myMoveThunk)
 			myMoveThunk(
 				myCallableMemory.data(), other.myCallableMemory.data(),
-				myArgsMemory.data(), other.myArgsMemory.data(), 
-				myPromiseMemory.data(), other.myPromiseMemory.data());
+				myArgsMemory.data(), other.myArgsMemory.data());
 
 		return *this;
 	}
@@ -321,18 +355,13 @@ public:
 	{
 		assert(myInvokeThunk);
 		
-		myInvokeThunk(myCallableMemory.data(), myArgsMemory.data(), myPromiseMemory.data());
+		myInvokeThunk(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
 	}
 
-	template <typename R, typename Promise = std::promise<R>>
-	inline std::future<R> getFuture()
+	template <typename R, typename RState = typename Future<R>::state_t>
+	inline Future<R> getFuture()
 	{
-		static_assert(sizeof(Promise) <= kMaxPromiseSizeBytes);
-		// todo: more type checking?
-
-		auto& promise = *static_cast<Promise*>(static_cast<void*>(myPromiseMemory.data()));
-		
-		return promise.get_future();
+		return Future<R>(std::static_pointer_cast<RState>(myReturnState));
 	}
 
 private:
@@ -342,10 +371,9 @@ private:
 	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
 	// cache line 2
 	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory;
-	alignas(intptr_t) AlignedArray<kMaxPromiseSizeBytes> myPromiseMemory;
-	void (*myMoveThunk)(void*, void*, void*, void*, void*, void*) = nullptr;
-	void (*myDeleteThunk)(void*, void*, void*) = nullptr;
-	//
+	std::shared_ptr<void> myReturnState;
+	void (*myMoveThunk)(void*, void*, void*, void*) = nullptr;
+	void (*myDeleteThunk)(void*, void*) = nullptr;
 };
 
 class TaskThreadPool : public Noncopyable
@@ -373,6 +401,8 @@ public:
 
 	~TaskThreadPool()
 	{
+		ZoneScopedN("~TaskThreadPool()");
+
 		//myStopSource.request_stop();
 		myStopSource.store(true, std::memory_order_relaxed);
 		//mySignal.notify_all();
@@ -392,7 +422,7 @@ public:
 	}
 
 	template <typename F, typename... Args, typename R = std::invoke_result_t<F, Args...>>
-	std::future<R> submit(F&& callable, Args&&... args)
+	Future<R> submit(F&& callable, Args&&... args)
 	{
 		ZoneScopedN("TaskThreadPool::submit");
 
@@ -422,12 +452,12 @@ public:
 		internalProcessQueue();
 	}
 
-	template <typename T, typename R = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
-	std::optional<R> processQueueUntil(std::future<T>&& future)
+	template <typename R, typename NonVoidR = typename Future<R>::value_t>
+	std::optional<NonVoidR> processQueueUntil(Future<R>&& future)
 	{
 		ZoneScopedN("TaskThreadPool::processQueueUntil");
 
-		return internalProcessQueue(std::forward<std::future<T>>(future));
+		return internalProcessQueue(std::forward<Future<R>>(future));
 	}
 
 private:
@@ -439,35 +469,28 @@ private:
 			task();
 	}
 
-	template <typename T, typename R = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>>
-	std::optional<R> internalProcessQueue(std::future<T>&& future)
+	template <typename R, typename NonVoidR = typename Future<R>::value_t>
+	std::optional<NonVoidR> internalProcessQueue(Future<R>&& future)
 	{
 		if (!future.valid())
 			return std::nullopt;
 
-		auto returnFunc = [](auto& future)
+		if (!future.is_ready())
 		{
-			if constexpr(std::is_void_v<T>)
+			Task task;
+			while (myQueue.try_dequeue(task))
 			{
-				future.get();
-				return std::make_optional<R>();
-			}
-			else
-			{
-				return std::make_optional(future.get());
-			}
-		};
+				task();
 
-		Task task;
-		while (myQueue.try_dequeue(task))
-		{
-			if (is_ready(future))
-				return returnFunc(future);
-
-			task();
+				if (future.is_ready())
+					break;
+			}
 		}
 
-		return returnFunc(future);
+		auto retval = std::make_optional(future.get());
+		future.reset();
+
+		return retval;
 	}
 
 	void internalThreadMain(/*std::stop_token& stopToken*/)

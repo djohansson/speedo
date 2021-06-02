@@ -26,7 +26,7 @@ uint32_t createLayoutBindings(
 }
 
 template <GraphicsBackend B>
-ShaderSet<B> ShaderCompiler::load(const std::filesystem::path& slangFile)
+ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<B>{};
 
@@ -175,7 +175,7 @@ ShaderSet<B> ShaderCompiler::load(const std::filesystem::path& slangFile)
 			auto parameter = shaderReflection->getParameterByIndex(parameterIndex);
 			auto* typeLayout = parameter->getTypeLayout();
 			
-	        if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
+			if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
 			{
 				auto parameterBlockIndex = ++parameterBlockCounter;
 				auto* elementTypeLayout = typeLayout->getElementTypeLayout();
@@ -183,7 +183,7 @@ ShaderSet<B> ShaderCompiler::load(const std::filesystem::path& slangFile)
 				if (kind == slang::TypeReflection::Kind::GenericTypeParameter)
 				{
 					auto genericParamIndex = elementTypeLayout->getGenericParamIndex();
-        			genericParameterIndices[genericParamIndex] = parameterBlockIndex;
+					genericParameterIndices[genericParamIndex] = parameterBlockIndex;
 				}
 			}
 		}
