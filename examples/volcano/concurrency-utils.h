@@ -216,7 +216,7 @@ struct Future : Noncopyable
 public:
 
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	using state_t = std::tuple<value_t, bool>;
+	using state_t = std::tuple<value_t, std::atomic_bool>;
 
 	constexpr Future() = default;
 
@@ -241,7 +241,7 @@ public:
 		auto& [value, flag] = *myState;
 		
 		if (!is_ready())
-			std::atomic_ref(flag).wait(false, std::memory_order_acquire);
+			flag.wait(false, std::memory_order_acquire);
 
 		return value;
 	}
@@ -253,10 +253,10 @@ public:
 		assert(valid());
 		auto& [value, flag] = *myState;
 
-		return std::atomic_ref(flag).load(std::memory_order_relaxed);
+		return flag.load(std::memory_order_relaxed);
 	}
 
-	inline void reset() { myState.reset(); }
+	inline void reset() { myState.reset(); } // potential race condition? std::atomic<std::shared_ptr<state_t>> required?
 	
 private:
 
@@ -295,28 +295,22 @@ public:
 			else
 				value = std::apply(callable, args);
 			
-			std::atomic_ref(flag).store(true, std::memory_order_release);
-			std::atomic_ref(flag).notify_all();
+			flag.store(true, std::memory_order_release);
+			flag.notify_all();
 		})
 		, myMoveThunk([](
 			void* callablePtr, void* otherCallablePtr,
 			void* argsPtr, void* otherArgsPtr)
 		{
-			auto& otherCallable = *static_cast<dF*>(otherCallablePtr);
-			new (callablePtr) dF(std::move(otherCallable));
-			otherCallable.~dF();
-
-			auto& otherArgs = *static_cast<ArgsTuple*>(otherArgsPtr);
-			new (argsPtr) ArgsTuple(std::move(otherArgs));
-			otherArgs.~ArgsTuple();
+			std::construct_at(static_cast<dF*>(callablePtr), std::move(*static_cast<dF*>(otherCallablePtr)));
+			std::destroy_at(static_cast<dF*>(otherCallablePtr));
+			std::construct_at(static_cast<ArgsTuple*>(argsPtr), std::move(*static_cast<ArgsTuple*>(otherArgsPtr)));
+			std::destroy_at(static_cast<ArgsTuple*>(otherArgsPtr));
 		})
 		, myDeleteThunk([](void* callablePtr, void* argsPtr)
 		{
-			auto& callable = *static_cast<dF*>(callablePtr);
-			callable.~dF();
-
-			auto& args = *static_cast<ArgsTuple*>(argsPtr);
-			args.~ArgsTuple();
+			std::destroy_at(static_cast<dF*>(callablePtr));
+			std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		})
 	{	
 		static_assert(sizeof(dF) <= kMaxCallableSizeBytes);
