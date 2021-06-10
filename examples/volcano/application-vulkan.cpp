@@ -39,10 +39,6 @@ void Application<Vk>::initIMGUI(
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.FontGlobalScale = 1.0f;
     //io.FontAllowUserScaling = true;
-    io.ConfigDockingWithShift = true;
-
-    // auto vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)
-    //     vkGetInstanceProcAddr(myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
     
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     auto& platformIo = ImGui::GetPlatformIO();
