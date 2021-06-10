@@ -57,7 +57,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 		if (intermediatePath)
 		{
-			auto path = std::filesystem::canonical(intermediatePath.value());
+			auto path = std::filesystem::absolute(intermediatePath.value());
 
 			if (!std::filesystem::exists(path))
 				std::filesystem::create_directory(path);
