@@ -460,6 +460,7 @@
 				+ ' -I$BuildRootPath$/external/glslang/OGLCompilersDLL'
 				+ ' -Wno-deprecated-enum-enum-conversion'
 				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-macro-redefined'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -509,6 +510,7 @@
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$ProjectBasePath$'
 				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-macro-redefined'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -535,6 +537,7 @@
 				+ ' -I$ProjectBasePath$'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
 				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-macro-redefined'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'

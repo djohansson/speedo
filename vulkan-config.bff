@@ -1,10 +1,10 @@
 #once
 
-#if exists(VK_SDK_PATH)
-#import VK_SDK_PATH
-.VulkanSDKPath = '$VK_SDK_PATH$'
+#if exists(VULKAN_SDK)
+    #import VULKAN_SDK
+    .VulkanSDKPath = '$VULKAN_SDK$'
 #else
-.VulkanSDKPath = '/usr/local'
+    Error('Vulkan not found. Please set the VULKAN_SDK environment variable to a path with a vulkan sdk in it.')
 #endif
 
 .VulkanDefines = '-D'
@@ -15,9 +15,8 @@
     //+ 'VK_USE_PLATFORM_MACOS_MVK=1'
 	+ 'VK_USE_PLATFORM_METAL_EXT=1'
 #endif //__OSX__
+#if __LINUX__
     // + 'VK_USE_PLATFORM_WAYLAND_KHR=1'
     // + 'VK_USE_PLATFORM_XCB_KHR=1'
     + 'VK_USE_PLATFORM_XLIB_KHR=1'
-#if __LINUX__
-
 #endif //__LINUX__
