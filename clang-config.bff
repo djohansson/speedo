@@ -2,9 +2,9 @@
 
 .Clang_BaseConfig =
 [
-#if exists(LLVM_PATH)
-#import LLVM_PATH
-	.LLVMPath = '$LLVM_PATH$'
+#if exists(LLVM)
+#import LLVM
+	.LLVMPath = '$LLVM$'
 #else
 #if __WINDOWS__
 	.LLVMPath = 'C:/Program Files/LLVM'
@@ -15,30 +15,21 @@
 #if __LINUX__
 	.LLVMPath = '/usr'
 #endif
-#endif // exists(LLVM_PATH)
+#endif // exists(LLVM)
 #if exists(LLVM_VERSION)
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
 	.LLVMVersion = '12.0.0'
 #endif // exists(LLVM_VERSION)
-#if exists(CLANG_PATH)
-#import CLANG_PATH
-	.ClangPath = '$CLANG_PATH$'
-#else
-#if __WINDOWS__
-	.ClangPath = '$LLVMPath$/lib/clang/$LLVMVersion$'
-#else
-	.ClangPath = '$LLVMPath$'
-#endif
-#endif // exists(CLANG_PATH)
-	.LLVMBinPath = '$LLVMPath$/bin'
-	.ClangBinPath = '$LLVMBinPath$'
-	.Executable = '$ClangBinPath$/clang$ExeSuffix$'
+	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
 	.CompilerInfo = 'Clang'
-    .Librarian = '$LLVMBinPath$/llvm-ar$ExeSuffix$'
-	.Linker = '$ClangBinPath$/clang$ExeSuffix$'
+    .Librarian = '$LLVMPath$/bin/llvm-ar$ExeSuffix$'
+	.Linker = '$LLVMPath$/bin/clang$ExeSuffix$'
 #if __WINDOWS__
+	// on Windows, ugly workarounds for "folders with spaces" are never going out of style
+	// note that we need to do this _after_ .Executable, .Librarian and .Linker have been set
+	.LLVMPath = '"$LLVMPath$"'
 	.PlatformInfo = 'Windows'
 #endif //__WINDOWS__
 #if __OSX__
@@ -49,7 +40,8 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -frtti -Wall'
-		+ ' -isystem $ClangPath$/include'
+		+ ' -isystem $LLVMPath$/include'
+		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersion$/include'
 		+ .PlatformIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
@@ -74,11 +66,11 @@
 		+ ' -D__linux__'
 		+ ' -fPIC'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c2x'
-	.CompilerOptionsCpp = ' -std=c++20'
+	.CompilerOptionsC = ' -std=c17 -nostdinc'
+	.CompilerOptionsCpp = ' -std=c++20 -nostdinc++'
 #if !__WINDOWS__
-		+ ' -stdlib=libc++ -nostdinc++'
-		+ ' -I $LLVMPath$/include/c++/v1'
+		+ ' -stdlib=libc++'
+		+ ' -I $LLVMPath$/include/c++/v1' // libc++ location
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
 		+ .PlatformLibPaths
@@ -86,8 +78,8 @@
 		+ ' -fuse-ld=lld'
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
-		+ ' -Wl,-rpath,$LLVMPath$/lib'
 #if !__WINDOWS__
+		+ ' -Wl,-rpath,$LLVMPath$/lib'
 		+ ' -lc++'
 #endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
@@ -112,7 +104,7 @@
 [
 	Using(.Clang_BaseConfig)
 
-	.CompilerOptions + ' -march=native'
+	.CompilerOptions + ' -march=x86-64-v3'
 ]
 
 .Clang_Native_DebugConfig =
