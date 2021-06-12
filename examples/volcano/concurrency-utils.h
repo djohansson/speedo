@@ -253,7 +253,7 @@ public:
 		assert(valid());
 		auto& [value, flag] = *myState;
 
-		return flag.load(std::memory_order_relaxed);
+		return flag.load(std::memory_order_acquire);
 	}
 
 	inline void reset() { myState.reset(); } // potential race condition? std::atomic<std::shared_ptr<state_t>> required?
@@ -314,7 +314,8 @@ public:
 		})
 	{	
 		static_assert(sizeof(dF) <= kMaxCallableSizeBytes);
-		new (myCallableMemory.data()) dF(std::forward<F>(f));
+		std::construct_at(myCallableMemory.data(), std::forward<F>(f));
+		new () dF();
 
 		static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 		new (myArgsMemory.data()) ArgsTuple(std::forward<Args>(args)...);
