@@ -236,7 +236,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
 template <>
 void WindowContext<Vk>::draw(
-    TaskThreadPool& threadPool,
+    ThreadPool& threadPool,
     PipelineContext<Vk>& pipeline,
 	CommandPoolContext<Vk>& primaryContext,
 	CommandPoolContext<Vk>* secondaryContexts,
@@ -244,7 +244,7 @@ void WindowContext<Vk>::draw(
 {
     ZoneScopedN("WindowContext::draw");
 
-    auto updateViewBufferFuture = threadPool.submit([this]{ internalUpdateViewBuffer(); });
+    auto updateViewBufferFuture = threadPool.submit(TypedTask([this]{ internalUpdateViewBuffer(); }));
 
     auto& renderTarget = pipeline.getRenderTarget();
 

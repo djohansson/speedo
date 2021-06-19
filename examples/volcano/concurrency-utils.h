@@ -235,37 +235,50 @@ public:
 		return *this;
 	}
 
-	inline value_t& get()
+	value_t get()
 	{
 		assert(valid());
-		auto& [value, flag] = *myState;
+
+		auto state = myState;
+		auto& [value, flag] = *state;
 		
 		if (!is_ready())
 			flag.wait(false, std::memory_order_acquire);
 
+		myState.reset();
+
 		return value;
 	}
 
-	inline bool valid() const { return !!myState; }
-
-	inline bool is_ready() const
+	bool is_ready() const
 	{
 		assert(valid());
+
 		auto& [value, flag] = *myState;
 
 		return flag.load(std::memory_order_acquire);
 	}
 
-	inline void reset() { myState.reset(); } // potential race condition? std::atomic<std::shared_ptr<state_t>> required?
+	bool valid() const { return !!myState; }
+
+	void wait() const
+	{
+		assert(valid());
+
+		auto& [value, flag] = *myState;
+
+		if (!is_ready())
+			flag.wait(false, std::memory_order_acquire);
+	}
 	
 private:
 
 	std::shared_ptr<state_t> myState;
 };
 
-// todo: continuations
 // todo: return/arg pipes
 // todo: fork/join
+// todo: dynamic memory allocation if larger tasks are created
 class Task : public Noncopyable
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
@@ -275,22 +288,61 @@ public:
 
 	constexpr Task() {};
 
+	Task(Task&& other) noexcept	{ *this = std::forward<Task>(other); }
+
+	~Task()
+	{
+		if (myDeleteFcnPtr)
+			myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
+	}
+
+	Task& operator=(Task&& other) noexcept
+	{
+		if (myDeleteFcnPtr)
+			myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
+
+		myReturnState = std::exchange(other.myReturnState, {});
+		myContinuation = std::exchange(other.myContinuation, {});
+		myInvokeFcnPtr = std::exchange(other.myInvokeFcnPtr, nullptr);
+		myMoveFcnPtr = std::exchange(other.myMoveFcnPtr, nullptr);
+		myDeleteFcnPtr = std::exchange(other.myDeleteFcnPtr, nullptr);
+
+		if (myMoveFcnPtr)
+			myMoveFcnPtr(
+				myCallableMemory.data(), other.myCallableMemory.data(),
+				myArgsMemory.data(), other.myArgsMemory.data());
+
+		return *this;
+	}
+
+	inline void invoke()	
+	{
+		assert(myInvokeFcnPtr);
+
+		myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get(), myContinuation.get());
+	}
+
+protected:
+
 	template <
 		typename F,
-		typename dF = std::decay_t<F>,
+		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ArgsTuple = std::tuple<Args...>,
-		typename R = std::invoke_result_t<dF, Args...>,
-		typename RState = typename Future<R>::state_t
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>,
+		typename ReturnState = typename Future<ReturnType>::state_t
 	>
 	Task(F&& f, Args&&... args)
-		: myInvokeThunk([](void* callablePtr, void* argsPtr, void* returnPtr)
+		: myReturnState(std::make_shared<ReturnState>())
+		, myInvokeFcnPtr([](void* callablePtr, void* argsPtr, void* returnPtr, void* continuationPtr)
 		{
-			auto& callable = *static_cast<dF*>(callablePtr);
+			assert(!continuationPtr);
+
+			auto& callable = *static_cast<CallableType*>(callablePtr);
 			auto& args = *static_cast<ArgsTuple*>(argsPtr);
-			auto& [value, flag] = *static_cast<RState*>(returnPtr);
+			auto& [value, flag] = *static_cast<ReturnState*>(returnPtr);
 			
-			if constexpr (std::is_void_v<R>)
+			if constexpr (std::is_void_v<ReturnType>)
 				std::apply(callable, args);
 			else
 				value = std::apply(callable, args);
@@ -298,90 +350,121 @@ public:
 			flag.store(true, std::memory_order_release);
 			flag.notify_all();
 		})
-		, myMoveThunk([](
+		, myMoveFcnPtr([](
 			void* callablePtr, void* otherCallablePtr,
 			void* argsPtr, void* otherArgsPtr)
 		{
-			std::construct_at(static_cast<dF*>(callablePtr), std::move(*static_cast<dF*>(otherCallablePtr)));
-			std::destroy_at(static_cast<dF*>(otherCallablePtr));
-			std::construct_at(static_cast<ArgsTuple*>(argsPtr), std::move(*static_cast<ArgsTuple*>(otherArgsPtr)));
+			std::construct_at(static_cast<CallableType*>(callablePtr), *static_cast<CallableType*>(otherCallablePtr));
+			std::destroy_at(static_cast<CallableType*>(otherCallablePtr));
+			std::construct_at(static_cast<ArgsTuple*>(argsPtr), *static_cast<ArgsTuple*>(otherArgsPtr));
 			std::destroy_at(static_cast<ArgsTuple*>(otherArgsPtr));
 		})
-		, myDeleteThunk([](void* callablePtr, void* argsPtr)
+		, myDeleteFcnPtr([](void* callablePtr, void* argsPtr)
 		{
-			std::destroy_at(static_cast<dF*>(callablePtr));
+			std::destroy_at(static_cast<CallableType*>(callablePtr));
 			std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		})
-	{	
-		static_assert(sizeof(dF) <= kMaxCallableSizeBytes);
-		std::construct_at(myCallableMemory.data(), std::forward<F>(f));
-		new () dF();
+	{
+		static_assert(sizeof(Task) == 128);
+
+		static_assert(sizeof(CallableType) <= kMaxCallableSizeBytes);
+		std::construct_at(static_cast<CallableType*>(static_cast<void*>(myCallableMemory.data())), std::forward<CallableType>(f));
 
 		static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
-		new (myArgsMemory.data()) ArgsTuple(std::forward<Args>(args)...);
-
-		myReturnState = std::make_shared<RState>();
+		std::construct_at(static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())), std::forward<Args>(args)...);
 	}
 
-	Task(Task&& other) noexcept	{ *this = std::move(other);	}
-
-	~Task()
-	{
-		if (myDeleteThunk)
-			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data());
-	}
-
-	Task& operator=(Task&& other) noexcept
-	{
-		if (myDeleteThunk)
-			myDeleteThunk(myCallableMemory.data(), myArgsMemory.data());
-		
-		myInvokeThunk = std::exchange(other.myInvokeThunk, nullptr);
-		myReturnState = std::exchange(other.myReturnState, {});
-		myMoveThunk = std::exchange(other.myMoveThunk, nullptr);
-		myDeleteThunk = std::exchange(other.myDeleteThunk, nullptr);
-
-		if (myMoveThunk)
-			myMoveThunk(
-				myCallableMemory.data(), other.myCallableMemory.data(),
-				myArgsMemory.data(), other.myArgsMemory.data());
-
-		return *this;
-	}
-
-	inline void operator()()
-	{
-		assert(myInvokeThunk);
-		
-		myInvokeThunk(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
-	}
-
-	template <typename R>
-	inline Future<R> getFuture()
-	{
-		return Future<R>(std::static_pointer_cast<typename Future<R>::state_t>(myReturnState));
-	}
+	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
+	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory;
+	std::shared_ptr<void> myReturnState;
+	std::unique_ptr<Task> myContinuation;
+	void (*myInvokeFcnPtr)(void*, void*, void*, void*) = nullptr;
 
 private:
 
-	// cache line 1
-	void (*myInvokeThunk)(void*, void*, void*) = nullptr;
-	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
-	// cache line 2
-	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory;
-	std::shared_ptr<void> myReturnState;
-	void (*myMoveThunk)(void*, void*, void*, void*) = nullptr;
-	void (*myDeleteThunk)(void*, void*) = nullptr;
+	void (*myMoveFcnPtr)(void*, void*, void*, void*) = nullptr;
+	void (*myDeleteFcnPtr)(void*, void*) = nullptr;
 };
 
-class TaskThreadPool : public Noncopyable
+template <typename F, typename... Args>
+class TypedTask : public Task
 {
 public:
 
-	TaskThreadPool(uint32_t threadCount)
+	using CallableType = std::decay_t<F>;
+	using ArgsTuple = std::tuple<Args...>;
+	using ReturnType = std::invoke_result_t<CallableType, Args...>;
+	using ReturnState = typename Future<ReturnType>::state_t;
+
+	TypedTask(F&& f, Args&&... args)
+		: Task(std::forward<F>(f), std::forward<Args>(args)...)
+	{
+	}
+
+	inline Future<ReturnType> getFuture()
+	{
+		return Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::state_t>(myReturnState));
+	}
+
+	inline void invoke(Args&&... args)
+	{
+		assert(myInvokeFcnPtr);
+
+		std::destroy_at(static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())));
+		std::construct_at(static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())), std::forward<Args>(args)...);
+
+		myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get(), myContinuation.get());
+	}
+
+	template <
+		typename CF,
+		typename CCallableType = std::decay_t<CF>,
+		typename... CArgs,
+		typename CArgsTuple = std::tuple<CArgs...>,
+		typename CReturnType = std::invoke_result_t<CCallableType, CArgs...>,
+		typename CReturnState = typename Future<CReturnType>::state_t>
+	TypedTask<CF, CArgs...>& then(CF&& f, CArgs&&... args)
+	{
+		static_assert(sizeof(TypedTask<CF, CArgs...>) == sizeof(Task));
+
+		myContinuation = std::make_unique<TypedTask<CF, CArgs...>>(std::forward<CCallableType>(f), std::forward<CArgs>(args)...);
+
+		myInvokeFcnPtr = [](void* callablePtr, void* argsPtr, void* returnPtr, void* continuationPtr)
+		{
+			assert(continuationPtr);
+
+			auto& callable = *static_cast<CCallableType*>(callablePtr);
+			auto& args = *static_cast<CArgsTuple*>(argsPtr);
+			auto& [value, flag] = *static_cast<CReturnState*>(returnPtr);
+			auto& continuation = *static_cast<TypedTask<CF, CArgs...>*>(continuationPtr);
+			
+			if constexpr (std::is_void_v<ReturnType>)
+			{
+				std::apply(callable, args);
+				continuation.invoke();
+			}
+			else
+			{
+				continuation.invoke(std::apply(callable, args));
+			}
+			
+			flag.store(true, std::memory_order_release);
+			flag.notify_all();
+		};
+		
+		return *static_cast<TypedTask<CF, CArgs...>*>(myContinuation.get());
+	}
+};
+
+// todo: wait_all/wait_any instead of processQueue/processQueueUntil
+class ThreadPool : public Noncopyable
+{
+public:
+
+	ThreadPool(uint32_t threadCount)
 		: mySignal(threadCount)
 	{
-		ZoneScopedN("TaskThreadPool()");
+		ZoneScopedN("ThreadPool()");
 
 		assertf(threadCount > 0, "Thread count must be nonzero");
 
@@ -397,9 +480,9 @@ public:
 			myThreads.emplace_back(threadMain);
 	}
 
-	~TaskThreadPool()
+	~ThreadPool()
 	{
-		ZoneScopedN("~TaskThreadPool()");
+		ZoneScopedN("~ThreadPool()");
 
 		//myStopSource.request_stop();
 		myStopSource.store(true, std::memory_order_relaxed);
@@ -412,29 +495,33 @@ public:
 		// is outstanding. A future ABI should store both the internal CV and internal mutex
 		// in the reference counted block to allow this.
 		{
-			ZoneScopedN("~TaskThreadPool()::join");
+			ZoneScopedN("~ThreadPool()::join");
 
 			for (auto& thread : myThreads)
 				thread.join();
 		}
 	}
 
-	template <typename F, typename... Args, typename R = std::invoke_result_t<F, Args...>>
-	Future<R> submit(F&& callable, Args&&... args)
+	template <
+		typename F,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>
+	>
+	Future<ReturnType> submit(TypedTask<F, Args...>&& task)
 	{
-		ZoneScopedN("TaskThreadPool::submit");
-
-		Task task(std::forward<F>(callable), std::forward<Args>(args)...);
-		auto future = task.template getFuture<R>();
+		ZoneScopedN("ThreadPool::submit");
+		
+		auto future = task.getFuture();
 
 		{
-			ZoneScopedN("TaskThreadPool::submit::enqueue");
+			ZoneScopedN("ThreadPool::submit::enqueue");
 
-			myQueue.enqueue(std::move(task));
+			myQueue.enqueue(std::forward<TypedTask<F, Args...>>(task));
 		}
 
 		{
-			ZoneScopedN("TaskThreadPool::submit::signal");
+			ZoneScopedN("ThreadPool::submit::signal");
 		
 			//mySignal.notify_one();
 			mySignal.release();
@@ -445,17 +532,17 @@ public:
 
 	void processQueue()
 	{
-		ZoneScopedN("TaskThreadPool::processQueue");
+		ZoneScopedN("ThreadPool::processQueue");
 
 		internalProcessQueue();
 	}
 
-	template <typename R>
-	std::optional<typename Future<R>::value_t> processQueueUntil(Future<R>&& future)
+	template <typename ReturnType>
+	std::optional<typename Future<ReturnType>::value_t> processQueueUntil(Future<ReturnType>&& future)
 	{
-		ZoneScopedN("TaskThreadPool::processQueueUntil");
+		ZoneScopedN("ThreadPool::processQueueUntil");
 
-		return internalProcessQueue(std::forward<Future<R>>(future));
+		return internalProcessQueue(std::forward<Future<ReturnType>>(future));
 	}
 
 private:
@@ -464,11 +551,11 @@ private:
 	{
 		Task task;
 		while (myQueue.try_dequeue(task))
-			task();
+			task.invoke();
 	}
 
-	template <typename R>
-	std::optional<typename Future<R>::value_t> internalProcessQueue(Future<R>&& future)
+	template <typename ReturnType>
+	std::optional<typename Future<ReturnType>::value_t> internalProcessQueue(Future<ReturnType>&& future)
 	{
 		if (!future.valid())
 			return std::nullopt;
@@ -478,17 +565,14 @@ private:
 			Task task;
 			while (myQueue.try_dequeue(task))
 			{
-				task();
+				task.invoke();
 
 				if (future.is_ready())
 					break;
 			}
 		}
 
-		auto retval = std::make_optional(future.get());
-		future.reset();
-
-		return retval;
+		return std::make_optional(future.get());
 	}
 
 	void internalThreadMain(/*std::stop_token& stopToken*/)

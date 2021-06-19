@@ -1010,14 +1010,14 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             if (BeginMenu("File"))
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.submit(
-                        [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
+                    myOpenFileFuture = myThreadPool.submit(TypedTask(
+                        [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); }));
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.submit(
-                        [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); });
+                    myOpenFileFuture = myThreadPool.submit(TypedTask(
+                        [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); }));
                 if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.submit(
-                        [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
+                    myOpenFileFuture = myThreadPool.submit(TypedTask(
+                        [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); }));
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -1140,7 +1140,7 @@ bool Application<Vk>::draw()
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
 
-        auto imguiPrepareDrawFuture = myThreadPool.submit([this]{ myIMGUIPrepareDrawFunction(); });
+        auto imguiPrepareDrawFuture = myThreadPool.submit(TypedTask([this]{ myIMGUIPrepareDrawFunction(); }));
 
         if (lastPresentTimelineValue)
         {
@@ -1210,7 +1210,7 @@ bool Application<Vk>::draw()
             myMainWindow->preparePresent(
                 myGraphicsQueues.front().submit()));
 
-        myPresentFuture = myThreadPool.submit([](QueueContext<Vk>& queue){ queue.present(); }, myGraphicsQueues.front());
+        myPresentFuture = myThreadPool.submit(TypedTask([](QueueContext<Vk>* queue){ queue->present(); }, &myGraphicsQueues.front()));
     }
 
     if (lastPresentTimelineValue)
@@ -1218,12 +1218,13 @@ bool Application<Vk>::draw()
         ZoneScopedN("Application::draw::submitTimelineCallbacks");
 
         // todo: have the thread pool poll Host+Device visible memory heap for GPU completion instead
-
-        myProcessTimelineCallbacksFuture = myThreadPool.submit(
-            [](uint64_t timelineValue, DeviceContext<Vk>& deviceContext)
+        auto processTask = TypedTask(
+            [](uint64_t timelineValue, DeviceContext<Vk>* deviceContext)
             {
-                deviceContext.processTimelineCallbacks(timelineValue);
-            }, lastPresentTimelineValue, *myDevice);
+                deviceContext->processTimelineCallbacks(timelineValue);
+            }, static_cast<uint64_t>(lastPresentTimelineValue), myDevice.get());
+        processTask.then([]{std::cout << "continuation" << std::endl;});
+        myProcessTimelineCallbacksFuture = myThreadPool.submit(std::move(processTask));
     }
 
     {
@@ -1239,8 +1240,6 @@ bool Application<Vk>::draw()
                 onCompletionCallback(openFilePath);
                 std::free(openFilePath);
             }
-
-            myOpenFileFuture.reset();
         }
     }
 
