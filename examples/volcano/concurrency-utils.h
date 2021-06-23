@@ -276,9 +276,10 @@ private:
 	std::shared_ptr<state_t> myState;
 };
 
-// todo: return/arg pipes
 // todo: fork/join
 // todo: dynamic memory allocation if larger tasks are created
+// wip: return/arg pipes
+// wip: continuations
 class Task : public Noncopyable
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
