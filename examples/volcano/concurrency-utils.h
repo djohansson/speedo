@@ -438,19 +438,21 @@ public:
 			auto& args = *static_cast<CArgsTuple*>(argsPtr);
 			auto& [value, flag] = *static_cast<CReturnState*>(returnPtr);
 			auto& continuation = *static_cast<TypedTask<CF, CArgs...>*>(continuationPtr);
-			
+
 			if constexpr (std::is_void_v<ReturnType>)
 			{
 				std::apply(callable, args);
+				flag.store(true, std::memory_order_release);
+				flag.notify_all();
 				continuation.invoke();
 			}
 			else
 			{
-				continuation.invoke(std::apply(callable, args));
+				auto retval = std::apply(callable, args);
+				flag.store(true, std::memory_order_release);
+				flag.notify_all();
+				continuation.invoke(std::move(retval));
 			}
-			
-			flag.store(true, std::memory_order_release);
-			flag.notify_all();
 		};
 		
 		return *static_cast<TypedTask<CF, CArgs...>*>(myContinuation.get());
