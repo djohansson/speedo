@@ -589,6 +589,7 @@
 			'$ProjectBasePath$/source/opt/local_single_block_elim_pass.cpp',
 			'$ProjectBasePath$/source/opt/mem_pass.cpp',
 			'$ProjectBasePath$/source/opt/pass.cpp',
+			'$ProjectBasePath$/source/opt/remove_unused_interface_variables_pass.cpp',
 			'$ProjectBasePath$/source/opt/scalar_replacement_pass.cpp',
 			'$ProjectBasePath$/source/opt/ssa_rewrite_pass.cpp',
 			'$ProjectBasePath$/source/opt/vector_dce.cpp',
