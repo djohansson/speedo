@@ -65,7 +65,7 @@ Frame<Vk>::Frame(
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(renderCompleteSemaphoreStr.size()),
         renderCompleteSemaphoreStr.data());
@@ -79,7 +79,7 @@ Frame<Vk>::Frame(
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(newImageAcquiredSemaphoreStr.size()),
         newImageAcquiredSemaphoreStr.data());

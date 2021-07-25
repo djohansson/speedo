@@ -492,7 +492,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s%u",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(pipelineStr.size()),
         pipelineStr.data(),
@@ -850,7 +850,7 @@ PipelineContext<Vk>::PipelineContext(
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(pipelineCacheStr.size()),
         pipelineCacheStr.data());

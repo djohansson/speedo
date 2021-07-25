@@ -437,7 +437,7 @@ DeviceObject<Vk>::DeviceObject(
         stbsp_sprintf(
             stringBuffer,
             "%.*s%.*u",
-            getName().size(),
+            static_cast<int>(getName().size()),
             getName().c_str(),
             2,
             objectIt);

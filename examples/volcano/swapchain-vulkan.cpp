@@ -195,7 +195,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(swapchainStr.size()),
         swapchainStr.data());

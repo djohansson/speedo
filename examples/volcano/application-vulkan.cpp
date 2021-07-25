@@ -925,7 +925,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
-                            stbsp_sprintf(buffer, "In %u", inOutNode->inputAttributes().size());
+                            stbsp_sprintf(buffer, "In %u", static_cast<uint>(inOutNode->inputAttributes().size()));
                             inOutNode->inputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
@@ -933,7 +933,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
                     {
                         if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
                         {
-                            stbsp_sprintf(buffer, "Out %u", inOutNode->outputAttributes().size());
+                            stbsp_sprintf(buffer, "Out %u", static_cast<uint>(inOutNode->outputAttributes().size()));
                             inOutNode->outputAttributes().emplace_back(Attribute{++myNodeGraph.uniqueId, buffer});
                         }
                     }
