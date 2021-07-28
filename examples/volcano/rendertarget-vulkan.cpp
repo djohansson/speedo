@@ -12,10 +12,11 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 {
     ZoneScopedN("RenderTarget::internalInitializeAttachments");
 
+#if PROFILING_ENABLED
     char stringBuffer[128];
-
     static constexpr std::string_view colorImageViewStr = "_ColorImageView";
     static constexpr std::string_view depthImageViewStr = "_DepthImageView";
+#endif
     
     myAttachments.clear();
     
@@ -30,10 +31,11 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             VK_IMAGE_ASPECT_COLOR_BIT,
             1));
 
+#if PROFILING_ENABLED
         stbsp_sprintf(
             stringBuffer,
             "%.*s%.*s%.*u",
-            getName().size(),
+            static_cast<int>(getName().size()),
             getName().c_str(),
             static_cast<int>(colorImageViewStr.size()),
             colorImageViewStr.data(),
@@ -45,6 +47,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
+#endif
 
         auto& colorAttachment = myAttachmentDescs.emplace_back();
         colorAttachment.format = desc.colorImageFormats[attachmentIt];
@@ -75,10 +78,11 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             depthAspectFlags,
             1));
 
+#if PROFILING_ENABLED
         stbsp_sprintf(
             stringBuffer,
             "%.*s%.*s",
-            getName().size(),
+            static_cast<int>(getName().size()),
             getName().c_str(),
             static_cast<int>(depthImageViewStr.size()),
             depthImageViewStr.data());
@@ -88,6 +92,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
             VK_OBJECT_TYPE_IMAGE_VIEW,
             reinterpret_cast<uint64_t>(myAttachments.back()),
             stringBuffer);
+#endif
 
         auto& depthStencilAttachment = myAttachmentDescs.emplace_back();
 		depthStencilAttachment.format = desc.depthStencilImageFormat;
@@ -197,33 +202,12 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
 {
     ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
 
-    char stringBuffer[128];
-    
-    static constexpr std::string_view renderPassStr = "_RenderPass";
-
     auto renderPass = createRenderPass(
         getDeviceContext()->getDevice(),
         myAttachmentDescs,
         mySubPassDescs,
         mySubPassDependencies);
 
-    stbsp_sprintf(
-        stringBuffer,
-        "%.*s%.*s%u",
-        getName().size(),
-        getName().c_str(),
-        static_cast<int>(renderPassStr.size()),
-        renderPassStr.data(),
-        hashKey);
-
-    getDeviceContext()->addOwnedObjectHandle(
-        getUid(),
-        VK_OBJECT_TYPE_RENDER_PASS,
-        reinterpret_cast<uint64_t>(renderPass),
-        stringBuffer);
-
-    static constexpr std::string_view framebufferStr = "_FrameBuffer";
-    
     auto frameBuffer = createFramebuffer(
         getDeviceContext()->getDevice(),
         renderPass,
@@ -233,20 +217,41 @@ RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(uint64_t hashKey, const
         desc.extent.height,
         desc.layerCount);
 
+#if PROFILING_ENABLED
+    char stringBuffer[128];
+    static constexpr std::string_view renderPassStr = "_RenderPass";
+    static constexpr std::string_view framebufferStr = "_FrameBuffer";
+
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s%u",
-        getName().size(),
+        static_cast<int>(getName().size()),
+        getName().c_str(),
+        static_cast<int>(renderPassStr.size()),
+        renderPassStr.data(),
+        static_cast<unsigned int>(hashKey));
+
+    getDeviceContext()->addOwnedObjectHandle(
+        getUid(),
+        VK_OBJECT_TYPE_RENDER_PASS,
+        reinterpret_cast<uint64_t>(renderPass),
+        stringBuffer);
+    
+    stbsp_sprintf(
+        stringBuffer,
+        "%.*s%.*s%u",
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(framebufferStr.size()),
         framebufferStr.data(),
-        hashKey);
+        static_cast<unsigned int>(hashKey));
 
     getDeviceContext()->addOwnedObjectHandle(
         getUid(),
         VK_OBJECT_TYPE_FRAMEBUFFER,
         reinterpret_cast<uint64_t>(frameBuffer),
         stringBuffer);
+#endif
 
     return std::make_tuple(renderPass, frameBuffer);
 }

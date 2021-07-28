@@ -49,6 +49,7 @@ Frame<Vk>::Frame(
     const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
     FrameCreateDesc<Vk>&& desc)
 : BaseType(deviceContext, std::forward<FrameCreateDesc<Vk>>(desc))
+, myImageLayout(VK_IMAGE_LAYOUT_UNDEFINED)
 {
     ZoneScopedN("Frame()");
 
@@ -58,6 +59,7 @@ Frame<Vk>::Frame(
     VK_CHECK(vkCreateSemaphore(
         getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 
+#if PROFILING_ENABLED
     char stringBuffer[64];
     static constexpr std::string_view renderCompleteSemaphoreStr = "_RenderCompleteSemaphore";
     static constexpr std::string_view newImageAcquiredSemaphoreStr = "_NewImageAcquiredSemaphore";
@@ -89,8 +91,7 @@ Frame<Vk>::Frame(
         VK_OBJECT_TYPE_SEMAPHORE,
         reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
         stringBuffer);
-
-    myImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+#endif
 }
 
 template <>

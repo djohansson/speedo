@@ -202,7 +202,11 @@ uint64_t QueueContext<Vk>::submit()
         submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
     }
 
-    VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, myFence));
+    {
+        ZoneScopedN("QueueContext::submit::vkQueueSubmit");
+
+        VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, myFence));
+    }
 
     myPendingSubmits.clear();
 

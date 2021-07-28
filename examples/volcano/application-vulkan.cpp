@@ -772,6 +772,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
                     str.c_str() + str.size()).x);;
         };
 
+    #if PROFILING_ENABLED
         static bool showStatistics = false;
         if (showStatistics)
         {
@@ -808,6 +809,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             }
             End();
         }
+    #endif
 
         static bool showDemoWindow = false;
         if (showDemoWindow)
@@ -1028,8 +1030,10 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             {
                 if (MenuItem("Node Editor..."))
                     showNodeEditor = !showNodeEditor;
+            #if PROFILING_ENABLED
                 if (MenuItem("Statistics..."))
                     showStatistics = !showStatistics;
+            #endif
                 ImGui::EndMenu();
             }
             if (BeginMenu("About"))

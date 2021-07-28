@@ -99,6 +99,7 @@ bool DeviceContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
     return true;
 }
 
+#if PROFILING_ENABLED
 template <>
 void DeviceContext<Vk>::addOwnedObjectHandle(
     const uuids::uuid& ownerId,
@@ -212,6 +213,7 @@ uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 
     return myObjectTypeToCountMap[type];
 }
+#endif // PROFILING_ENABLED
 
 template <>
 DeviceContext<Vk>::DeviceContext(
@@ -422,6 +424,7 @@ DeviceObject<Vk>::DeviceObject(
     const uint64_t* objectHandles)
 : DeviceObject(deviceContext, std::forward<DeviceObjectCreateDesc>(desc))
 {
+#if PROFILING_ENABLED
     char stringBuffer[256];
     for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)
     {
@@ -444,13 +447,16 @@ DeviceObject<Vk>::DeviceObject(
 
         deviceContext->addOwnedObjectHandle(getUid(), objectType, objectHandles[objectIt], stringBuffer);
     }
+#endif
 }
 
 template <>
 DeviceObject<Vk>::~DeviceObject()
 {
+#if PROFILING_ENABLED
     if (myDevice)
         myDevice->clearOwnedObjectHandles(getUid());
+#endif
 }
 
 template <>
