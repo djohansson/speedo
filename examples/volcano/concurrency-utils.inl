@@ -179,8 +179,8 @@ typename Future<T>::value_t Future<T>::get()
 {
 	assert(valid());
 
-	auto state = myState;
-	auto& [value, flag] = *state;
+	auto state = myState; // important! otherwise value will be garbage on exit due to myState.reset().
+	auto& [value, flag, continuation] = *state;
 
 	if (!is_ready())
 		flag.wait(false, std::memory_order_acquire);
@@ -195,7 +195,7 @@ bool Future<T>::is_ready() const
 {
 	assert(valid());
 
-	auto& [value, flag] = *myState;
+	auto& [value, flag, continuation] = *myState;
 
 	return flag.load(std::memory_order_acquire);
 }
@@ -211,23 +211,51 @@ void Future<T>::wait() const
 {
 	assert(valid());
 
-	auto& [value, flag] = *myState;
+	auto& [value, flag, continuation] = *myState;
 
 	if (!is_ready())
 		flag.wait(false, std::memory_order_acquire);
 }
 
-template <
-	typename F, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType,
-	typename ReturnState>
-Task::Task(F&& f, Args&&... args)
-	: myReturnState(std::make_shared<ReturnState>())
-	, myInvokeFcnPtr([](void* callablePtr, void* argsPtr, void* returnPtr, void* continuationPtr) {
-		assert(!continuationPtr);
+template <typename T>
+template <typename CF, typename CCallableType, typename... CArgs, typename CReturnType>
+Future<CReturnType> Future<T>::then(CF&& f, CArgs&&... args)
+{
+	auto& [value, flag, continuation] = *myState;
+	
+	continuation = Task(std::forward<CCallableType>(f), std::forward<CArgs>(args)...);
 
+	return Future<CReturnType>(continuation.template returnState<typename Future<CReturnType>::state_t>());
+}
+
+template <typename... Args>
+void Task::invoke(Args&&... args)
+{
+	assert(myInvokeFcnPtr);
+
+	std::destroy_at(static_cast<std::tuple<Args...>*>(static_cast<void*>(myArgsMemory.data())));
+	std::construct_at(
+		static_cast<std::tuple<Args...>*>(static_cast<void*>(myArgsMemory.data())),
+		std::forward<Args>(args)...);
+
+	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
+}
+
+template <typename ReturnState>
+std::shared_ptr<ReturnState> Task::returnState()
+{
+	return std::static_pointer_cast<ReturnState>(myReturnState);
+}
+
+//char (*__kaboom)[sizeof(Task)] = 1;
+
+template <typename F, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
+Task::Task(F&& f, Args&&... args)
+	: myReturnState(std::make_shared<typename Future<ReturnType>::state_t>())
+	, myInvokeFcnPtr([](void* callablePtr, void* argsPtr, void* returnPtr) {
 		auto& callable = *static_cast<CallableType*>(callablePtr);
 		auto& args = *static_cast<ArgsTuple*>(argsPtr);
-		auto& [value, flag] = *static_cast<ReturnState*>(returnPtr);
+		auto& [value, flag, continuation] = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
 
 		if constexpr (std::is_void_v<ReturnType>)
 			std::apply(callable, args);
@@ -236,14 +264,18 @@ Task::Task(F&& f, Args&&... args)
 
 		flag.store(true, std::memory_order_release);
 		flag.notify_all();
+
+		if (continuation)
+		{
+			//if constexpr (std::is_void_v<ReturnType>)
+				continuation.invoke();
+			// else
+			// 	std::apply(continuation, value);
+		}
 	})
-	, myMoveFcnPtr([](void* callablePtr, void* otherCallablePtr, void* argsPtr,
-					  void* otherArgsPtr) {
-		std::construct_at(
-			static_cast<CallableType*>(callablePtr), *static_cast<CallableType*>(otherCallablePtr));
-		std::destroy_at(static_cast<CallableType*>(otherCallablePtr));
-		std::construct_at(static_cast<ArgsTuple*>(argsPtr), *static_cast<ArgsTuple*>(otherArgsPtr));
-		std::destroy_at(static_cast<ArgsTuple*>(otherArgsPtr));
+	, myCopyFcnPtr([](void* callablePtr, const void* otherCallablePtr, void* argsPtr, const void* otherArgsPtr) {
+		std::construct_at(static_cast<CallableType*>(callablePtr), *static_cast<const CallableType*>(otherCallablePtr));
+		std::construct_at(static_cast<ArgsTuple*>(argsPtr), *static_cast<const ArgsTuple*>(otherArgsPtr));
 	})
 	, myDeleteFcnPtr([](void* callablePtr, void* argsPtr) {
 		std::destroy_at(static_cast<CallableType*>(callablePtr));
@@ -263,98 +295,37 @@ Task::Task(F&& f, Args&&... args)
 		std::forward<Args>(args)...);
 }
 
-template <typename F, typename... Args>
-TypedTask<F, Args...>::TypedTask(F&& f, Args&&... args)
-	: Task(std::forward<F>(f), std::forward<Args>(args)...)
-{}
-
-template <typename F, typename... Args>
-Future<typename TypedTask<F, Args...>::ReturnType> TypedTask<F, Args...>::getFuture()
-{
-	return Future<ReturnType>(
-		std::static_pointer_cast<typename Future<ReturnType>::state_t>(myReturnState));
-}
-
-template <typename F, typename... Args>
-void TypedTask<F, Args...>::invoke(Args&&... args)
-{
-	assert(myInvokeFcnPtr);
-
-	std::destroy_at(static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())));
-	std::construct_at(
-		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
-		std::forward<Args>(args)...);
-
-	myInvokeFcnPtr(
-		myCallableMemory.data(), myArgsMemory.data(), myReturnState.get(), myContinuation.get());
-}
-
-template <typename F, typename... Args>
-template <
-	typename CF, typename CCallableType, typename... CArgs, typename CArgsTuple,
-	typename CReturnType, typename CReturnState>
-TypedTask<CF, CArgs...>& TypedTask<F, Args...>::then(CF&& f, CArgs&&... args)
-{
-	static_assert(sizeof(TypedTask<CF, CArgs...>) == sizeof(Task));
-
-	myContinuation = std::make_unique<TypedTask<CF, CArgs...>>(
-		std::forward<CCallableType>(f), std::forward<CArgs>(args)...);
-
-	myInvokeFcnPtr = [](void* callablePtr, void* argsPtr, void* returnPtr, void* continuationPtr) {
-		assert(continuationPtr);
-
-		auto& callable = *static_cast<CCallableType*>(callablePtr);
-		auto& args = *static_cast<CArgsTuple*>(argsPtr);
-		auto& [value, flag] = *static_cast<CReturnState*>(returnPtr);
-		auto& continuation = *static_cast<TypedTask<CF, CArgs...>*>(continuationPtr);
-
-		if constexpr (std::is_void_v<ReturnType>)
-		{
-			std::apply(callable, args);
-			flag.store(true, std::memory_order_release);
-			flag.notify_all();
-			continuation.invoke();
-		}
-		else
-		{
-			auto retval = std::apply(callable, args);
-			flag.store(true, std::memory_order_release);
-			flag.notify_all();
-			continuation.invoke(std::move(retval));
-		}
-	};
-
-	return *static_cast<TypedTask<CF, CArgs...>*>(myContinuation.get());
-}
-
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
-Future<ReturnType> ThreadPool::submit(TypedTask<F, Args...>&& task)
+Future<ReturnType> ThreadPool::fork(F&& f, uint32_t count, Args&&... args)
 {
-	ZoneScopedN("ThreadPool::submit");
+	ZoneScopedN("ThreadPool::fork");
 
-	auto future = task.getFuture();
+	auto task = Task(std::forward<F>(f), std::forward<Args>(args)...);
+	auto returnState = task.template returnState<typename Future<ReturnType>::state_t>();
+
+	assert(count == 1);
 
 	{
-		ZoneScopedN("ThreadPool::submit::enqueue");
+		ZoneScopedN("ThreadPool::fork::enqueue");
 
-		myQueue.enqueue(std::forward<TypedTask<F, Args...>>(task));
+		myQueue.enqueue(std::move(task));
 	}
 
 	{
-		ZoneScopedN("ThreadPool::submit::signal");
+		ZoneScopedN("ThreadPool::fork::signal");
 
 		//mySignal.notify_one();
 		mySignal.release();
 	}
 
-	return future;
+	return Future<ReturnType>(std::move(returnState));
 }
 
 template <typename ReturnType>
 std::optional<typename Future<ReturnType>::value_t>
-ThreadPool::processQueueUntil(Future<ReturnType>&& future)
+ThreadPool::join(Future<ReturnType>&& future)
 {
-	ZoneScopedN("ThreadPool::processQueueUntil");
+	ZoneScopedN("ThreadPool::join");
 
 	return internalProcessQueue(std::forward<Future<ReturnType>>(future));
 }

@@ -5,6 +5,11 @@ Task::Task(Task&& other) noexcept
 	*this = std::forward<Task>(other);
 }
 
+Task::Task(const Task& other) noexcept
+{
+	*this = other;
+}
+
 Task::~Task()
 {
 	if (myDeleteFcnPtr)
@@ -17,25 +22,50 @@ Task& Task::operator=(Task&& other) noexcept
 		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 
 	myReturnState = std::exchange(other.myReturnState, {});
-	myContinuation = std::exchange(other.myContinuation, {});
 	myInvokeFcnPtr = std::exchange(other.myInvokeFcnPtr, nullptr);
-	myMoveFcnPtr = std::exchange(other.myMoveFcnPtr, nullptr);
+	myCopyFcnPtr = std::exchange(other.myCopyFcnPtr, nullptr);
 	myDeleteFcnPtr = std::exchange(other.myDeleteFcnPtr, nullptr);
 
-	if (myMoveFcnPtr)
-		myMoveFcnPtr(
-			myCallableMemory.data(), other.myCallableMemory.data(), myArgsMemory.data(),
-			other.myArgsMemory.data());
+	if (myCopyFcnPtr)
+		myCopyFcnPtr(myCallableMemory.data(), other.myCallableMemory.data(), myArgsMemory.data(), other.myArgsMemory.data());
+
+	if (myDeleteFcnPtr)
+		myDeleteFcnPtr(other.myCallableMemory.data(), other.myArgsMemory.data());
 
 	return *this;
+}
+
+Task& Task::operator=(const Task& other) noexcept
+{
+	if (myDeleteFcnPtr)
+		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
+
+	myReturnState = {};
+	myInvokeFcnPtr = other.myInvokeFcnPtr;
+	myCopyFcnPtr = other.myCopyFcnPtr;
+	myDeleteFcnPtr = other.myDeleteFcnPtr;
+
+	if (myCopyFcnPtr)
+		myCopyFcnPtr(myCallableMemory.data(), other.myCallableMemory.data(), myArgsMemory.data(), other.myArgsMemory.data());
+
+	return *this;
+}
+
+Task::operator bool() const noexcept
+{
+	return myInvokeFcnPtr != nullptr;
+}
+
+bool Task::operator!() const noexcept
+{
+ return !static_cast<bool>(*this);
 }
 
 void Task::invoke()
 {
 	assert(myInvokeFcnPtr);
 
-	myInvokeFcnPtr(
-		myCallableMemory.data(), myArgsMemory.data(), myReturnState.get(), myContinuation.get());
+	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
 }
 
 ThreadPool::ThreadPool(uint32_t threadCount)
@@ -47,7 +77,6 @@ ThreadPool::ThreadPool(uint32_t threadCount)
 
 	auto threadMain = [this] {
 		//auto stopToken = myStopSource.get_token();
-
 		internalThreadMain(/*stopToken*/);
 	};
 
@@ -78,9 +107,9 @@ ThreadPool::~ThreadPool()
 	}
 }
 
-void ThreadPool::processQueue()
+void ThreadPool::join()
 {
-	ZoneScopedN("ThreadPool::processQueue");
+	ZoneScopedN("ThreadPool::join");
 
 	internalProcessQueue();
 }

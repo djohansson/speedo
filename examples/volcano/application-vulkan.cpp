@@ -1012,14 +1012,14 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             if (BeginMenu("File"))
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.submit(TypedTask(
-                        [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); }));
+                    myOpenFileFuture = myThreadPool.fork(
+                        [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.submit(TypedTask(
-                        [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); }));
+                    myOpenFileFuture = myThreadPool.fork(
+                        [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); });
                 if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.submit(TypedTask(
-                        [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); }));
+                    myOpenFileFuture = myThreadPool.fork(
+                        [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
                     myRequestExit = true;
@@ -1131,8 +1131,8 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("Application::draw");
 
-    myThreadPool.processQueueUntil(std::move(myPresentFuture));
-    myThreadPool.processQueueUntil(std::move(myProcessTimelineCallbacksFuture));
+    myThreadPool.join(std::move(myPresentFuture));
+    myThreadPool.join(std::move(myProcessTimelineCallbacksFuture));
 
     auto [flipSuccess, lastPresentTimelineValue] = myMainWindow->flip();
 
@@ -1144,7 +1144,7 @@ bool Application<Vk>::draw()
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
 
-        auto imguiPrepareDrawFuture = myThreadPool.submit(TypedTask([this]{ myIMGUIPrepareDrawFunction(); }));
+        auto imguiPrepareDrawFuture = myThreadPool.fork([this]{ myIMGUIPrepareDrawFunction(); });
 
         if (lastPresentTimelineValue)
         {
@@ -1187,7 +1187,7 @@ bool Application<Vk>::draw()
             GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
             myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
-            myThreadPool.processQueueUntil(std::move(imguiPrepareDrawFuture));
+            myThreadPool.join(std::move(imguiPrepareDrawFuture));
             
             myIMGUIDrawFunction(cmd);
 
@@ -1214,7 +1214,7 @@ bool Application<Vk>::draw()
             myMainWindow->preparePresent(
                 myGraphicsQueues.front().submit()));
 
-        myPresentFuture = myThreadPool.submit(TypedTask([](QueueContext<Vk>* queue){ queue->present(); }, &myGraphicsQueues.front()));
+        myPresentFuture = myThreadPool.fork([](QueueContext<Vk>* queue){ queue->present(); }, 1, &myGraphicsQueues.front());
     }
 
     if (lastPresentTimelineValue)
@@ -1222,14 +1222,17 @@ bool Application<Vk>::draw()
         ZoneScopedN("Application::draw::submitTimelineCallbacks");
 
         // todo: have the thread pool poll Host+Device visible memory heap for GPU completion instead
-        auto processTask = TypedTask(
-            [](uint64_t timelineValue, DeviceContext<Vk>* deviceContext)
-            {
-                deviceContext->processTimelineCallbacks(timelineValue);
-            }, static_cast<uint64_t>(lastPresentTimelineValue), myDevice.get());
-        processTask.then([]{std::cout << "continuation" << std::endl;});
-        myProcessTimelineCallbacksFuture = myThreadPool.submit(std::move(processTask));
-    }
+		myProcessTimelineCallbacksFuture =
+			myThreadPool
+				.fork(
+					[](uint64_t timelineValue, DeviceContext<Vk>* deviceContext) {
+						deviceContext->processTimelineCallbacks(timelineValue);
+					},
+					1,
+					static_cast<uint64_t>(lastPresentTimelineValue),
+					myDevice.get())
+				.then([] { std::cout << "continuation" << std::endl; });
+	}
 
     {
         ZoneScopedN("Application::draw::handleCallbacks");
