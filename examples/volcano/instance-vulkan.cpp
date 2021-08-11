@@ -213,14 +213,14 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
 
     uint32_t instanceLayerCount;
     VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
-    std::cout << instanceLayerCount << " layers found!\n";
+    std::cout << instanceLayerCount << " vulkan layer(s) found:" << std::endl;
     if (instanceLayerCount > 0)
     {
         std::unique_ptr<VkLayerProperties[]> instanceLayers(
             new VkLayerProperties[instanceLayerCount]);
         VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
         for (uint32_t i = 0; i < instanceLayerCount; ++i)
-            std::cout << instanceLayers[i].layerName << "\n";
+            std::cout << instanceLayers[i].layerName << std::endl;
     }
 
     uint32_t instanceExtensionCount;
@@ -230,11 +230,13 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
     vkEnumerateInstanceExtensionProperties(
         nullptr, &instanceExtensionCount, availableInstanceExtensions.data());
 
+    std::cout << instanceExtensionCount << " vulkan instance extension(s) found:" << std::endl;
+    
     std::vector<const char*> instanceExtensions(instanceExtensionCount);
     for (uint32_t i = 0; i < instanceExtensionCount; i++)
     {
         instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
-        std::cout << instanceExtensions[i] << "\n";
+        std::cout << instanceExtensions[i] << std::endl;
     }
 
     // must be sorted lexicographically for std::includes to work!

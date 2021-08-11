@@ -202,12 +202,16 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
         std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
         graphicsDeviceCandidates.reserve(physicalDevices.size());
 
+        std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << std::endl;
+        
         for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size(); physicalDeviceIt++)
         {
             auto physicalDevice = physicalDevices[physicalDeviceIt];
             
             const auto& physicalDeviceInfo = instance->getPhysicalDeviceInfo(physicalDevice);
             const auto& swapchainInfo = instance->getSwapchainInfo(physicalDevice, surface);
+            
+            std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << std::endl;
             
             for (uint32_t queueFamilyIt = 0; queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size(); queueFamilyIt++)
             {

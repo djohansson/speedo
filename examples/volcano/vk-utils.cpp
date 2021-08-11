@@ -960,6 +960,8 @@ VkDescriptorPool createDescriptorPool(VkDevice device)
     poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(sizeof_array(poolSizes));
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+	// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT 
+	// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 
     VkDescriptorPool outDescriptorPool;
     VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr, &outDescriptorPool));
