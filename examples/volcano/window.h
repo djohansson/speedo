@@ -57,7 +57,7 @@ public:
 
 	// todo: generalize, move out of window. use sorted draw call lists.
 	void draw(
-		ThreadPool& threadPool,
+		TaskExecutor& executor,
 		PipelineContext<B>& pipeline,
 		CommandPoolContext<B>& primaryContext,
 		CommandPoolContext<Vk>* secondaryContexts,

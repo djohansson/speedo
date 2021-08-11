@@ -157,8 +157,8 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
 }
 
 template <typename T>
-Future<T>::Future(std::shared_ptr<state_t>&& state) noexcept
-	: myState(std::forward<std::shared_ptr<state_t>>(state))
+Future<T>::Future(const std::shared_ptr<state_t>& state) noexcept
+	: myState(state)
 {}
 
 template <typename T>
@@ -228,33 +228,17 @@ Future<CReturnType> Future<T>::then(CF&& f, CArgs&&... args)
 	return Future<CReturnType>(continuation.template returnState<typename Future<CReturnType>::state_t>());
 }
 
-template <typename... Args>
-void Task::invoke(Args&&... args)
-{
-	assert(myInvokeFcnPtr);
-
-	std::destroy_at(static_cast<std::tuple<Args...>*>(static_cast<void*>(myArgsMemory.data())));
-	std::construct_at(
-		static_cast<std::tuple<Args...>*>(static_cast<void*>(myArgsMemory.data())),
-		std::forward<Args>(args)...);
-
-	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
-}
-
 template <typename ReturnState>
-std::shared_ptr<ReturnState> Task::returnState()
+std::shared_ptr<ReturnState> Task::returnState() const noexcept
 {
 	return std::static_pointer_cast<ReturnState>(myReturnState);
 }
 
-//char (*__kaboom)[sizeof(Task)] = 1;
-
-template <typename F, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
-Task::Task(F&& f, Args&&... args)
-	: myReturnState(std::make_shared<typename Future<ReturnType>::state_t>())
-	, myInvokeFcnPtr([](void* callablePtr, void* argsPtr, void* returnPtr) {
-		auto& callable = *static_cast<CallableType*>(callablePtr);
-		auto& args = *static_cast<ArgsTuple*>(argsPtr);
+template <typename F, typename ReturnState, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
+Task::Task(F&& f, const std::shared_ptr<ReturnState>& returnState, Args&&... args)
+	: myInvokeFcnPtr([](const void* callablePtr, const void* argsPtr, void* returnPtr) {
+		const auto& callable = *static_cast<const CallableType*>(callablePtr);
+		const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 		auto& [value, flag, continuation] = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
 
 		if constexpr (std::is_void_v<ReturnType>)
@@ -268,7 +252,8 @@ Task::Task(F&& f, Args&&... args)
 		if (continuation)
 		{
 			//if constexpr (std::is_void_v<ReturnType>)
-				continuation.invoke();
+				continuation();
+				//std::invoke(continuation);
 			// else
 			// 	std::apply(continuation, value);
 		}
@@ -281,6 +266,7 @@ Task::Task(F&& f, Args&&... args)
 		std::destroy_at(static_cast<CallableType*>(callablePtr));
 		std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 	})
+	, myReturnState(returnState)
 {
 	static_assert(sizeof(Task) == 128);
 
@@ -296,43 +282,44 @@ Task::Task(F&& f, Args&&... args)
 }
 
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
-Future<ReturnType> ThreadPool::fork(F&& f, uint32_t count, Args&&... args)
+Future<ReturnType> TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
 {
-	ZoneScopedN("ThreadPool::fork");
+	ZoneScopedN("TaskExecutor::fork");
 
-	auto task = Task(std::forward<F>(f), std::forward<Args>(args)...);
-	auto returnState = task.template returnState<typename Future<ReturnType>::state_t>();
+	auto returnState = std::make_shared<typename Future<ReturnType>::state_t>();
+	auto task = Task(std::forward<F>(f), returnState, std::forward<Args>(args)...);
 
+	// todo: enqueue_bulk
 	assert(count == 1);
 
 	{
-		ZoneScopedN("ThreadPool::fork::enqueue");
+		ZoneScopedN("TaskExecutor::fork::enqueue");
 
 		myQueue.enqueue(std::move(task));
 	}
 
 	{
-		ZoneScopedN("ThreadPool::fork::signal");
+		ZoneScopedN("TaskExecutor::fork::signal");
 
 		//mySignal.notify_one();
 		mySignal.release();
 	}
 
-	return Future<ReturnType>(std::move(returnState));
+	return Future<ReturnType>(returnState);
 }
 
 template <typename ReturnType>
 std::optional<typename Future<ReturnType>::value_t>
-ThreadPool::join(Future<ReturnType>&& future)
+TaskExecutor::join(Future<ReturnType>&& future)
 {
-	ZoneScopedN("ThreadPool::join");
+	ZoneScopedN("TaskExecutor::join");
 
 	return internalProcessQueue(std::forward<Future<ReturnType>>(future));
 }
 
 template <typename ReturnType>
 std::optional<typename Future<ReturnType>::value_t>
-ThreadPool::internalProcessQueue(Future<ReturnType>&& future)
+TaskExecutor::internalProcessQueue(Future<ReturnType>&& future)
 {
 	if (!future.valid())
 		return std::nullopt;
@@ -342,7 +329,7 @@ ThreadPool::internalProcessQueue(Future<ReturnType>&& future)
 		Task task;
 		while (myQueue.try_dequeue(task))
 		{
-			task.invoke();
+			task();
 
 			if (future.is_ready())
 				break;

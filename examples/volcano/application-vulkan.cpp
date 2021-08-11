@@ -170,7 +170,7 @@ void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExten
 
 template <>
 Application<Vk>::Application(void* windowHandle, int width, int height)
-: myThreadPool(std::max(1u, std::thread::hardware_concurrency() - 1))
+: myExecutor(std::max(1u, std::thread::hardware_concurrency() - 1))
 , myInstance(std::make_shared<InstanceContext<Vk>>())
 {
     ZoneScopedN("Application()");
@@ -201,7 +201,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
         std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
         graphicsDeviceCandidates.reserve(physicalDevices.size());
-        
+
         for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size(); physicalDeviceIt++)
         {
             auto physicalDevice = physicalDevices[physicalDeviceIt];
@@ -1012,13 +1012,13 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             if (BeginMenu("File"))
             {
                 if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.fork(
+                    myOpenFileFuture = myExecutor.fork(
                         [openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
                 if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.fork(
+                    myOpenFileFuture = myExecutor.fork(
                         [openFileDialogue, resourcePath, loadImage] { return openFileDialogue(resourcePath, "jpg,png", loadImage); });
                 if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-                    myOpenFileFuture = myThreadPool.fork(
+                    myOpenFileFuture = myExecutor.fork(
                         [openFileDialogue, resourcePath, loadGlTF] { return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
                 Separator();
                 if (MenuItem("Exit", "CTRL+Q"))
@@ -1131,8 +1131,8 @@ bool Application<Vk>::draw()
 {
     ZoneScopedN("Application::draw");
 
-    myThreadPool.join(std::move(myPresentFuture));
-    myThreadPool.join(std::move(myProcessTimelineCallbacksFuture));
+    myExecutor.join(std::move(myPresentFuture));
+    myExecutor.join(std::move(myProcessTimelineCallbacksFuture));
 
     auto [flipSuccess, lastPresentTimelineValue] = myMainWindow->flip();
 
@@ -1144,7 +1144,7 @@ bool Application<Vk>::draw()
 
         std::rotate(myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
 
-        auto imguiPrepareDrawFuture = myThreadPool.fork([this]{ myIMGUIPrepareDrawFunction(); });
+        auto imguiPrepareDrawFuture = myExecutor.fork([this]{ myIMGUIPrepareDrawFunction(); });
 
         if (lastPresentTimelineValue)
         {
@@ -1181,13 +1181,13 @@ bool Application<Vk>::draw()
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
             myMainWindow->updateInput(myInput);
-            myMainWindow->draw(myThreadPool, *myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
+            myMainWindow->draw(myExecutor, *myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
         }
         {
             GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
             myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
-            myThreadPool.join(std::move(imguiPrepareDrawFuture));
+            myExecutor.join(std::move(imguiPrepareDrawFuture));
             
             myIMGUIDrawFunction(cmd);
 
@@ -1214,7 +1214,7 @@ bool Application<Vk>::draw()
             myMainWindow->preparePresent(
                 myGraphicsQueues.front().submit()));
 
-        myPresentFuture = myThreadPool.fork([](QueueContext<Vk>* queue){ queue->present(); }, 1, &myGraphicsQueues.front());
+        myPresentFuture = myExecutor.fork([](QueueContext<Vk>* queue){ queue->present(); }, 1, &myGraphicsQueues.front());
     }
 
     if (lastPresentTimelineValue)
@@ -1223,15 +1223,15 @@ bool Application<Vk>::draw()
 
         // todo: have the thread pool poll Host+Device visible memory heap for GPU completion instead
 		myProcessTimelineCallbacksFuture =
-			myThreadPool
+			myExecutor
 				.fork(
 					[](uint64_t timelineValue, DeviceContext<Vk>* deviceContext) {
 						deviceContext->processTimelineCallbacks(timelineValue);
 					},
 					1,
 					static_cast<uint64_t>(lastPresentTimelineValue),
-					myDevice.get())
-				.then([] { std::cout << "continuation" << std::endl; });
+					myDevice.get());
+				//.then([] { std::cout << "continuation" << std::endl; });
 	}
 
     {

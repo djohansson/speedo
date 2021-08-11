@@ -1,5 +1,7 @@
 #include "concurrency-utils.h"
 
+//#include <xxhash.h>
+
 Task::Task(Task&& other) noexcept
 {
 	*this = std::forward<Task>(other);
@@ -61,17 +63,37 @@ bool Task::operator!() const noexcept
  return !static_cast<bool>(*this);
 }
 
-void Task::invoke()
+void Task::operator()() const
 {
 	assert(myInvokeFcnPtr);
 
 	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
 }
 
-ThreadPool::ThreadPool(uint32_t threadCount)
+// uint64_t Task::hash() const noexcept
+// {
+// 	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState =
+// 	{
+// 		XXH3_createState(),
+// 		XXH3_freeState
+// 	};
+
+// 	auto result = XXH3_64bits_reset(threadXXHState.get());
+// 	assert(result != XXH_ERROR);
+
+// 	result = XXH3_64bits_update(threadXXHState.get(), myCallableMemory.data(), sizeof(myCallableMemory));
+// 	assert(result != XXH_ERROR);
+
+// 	result = XXH3_64bits_update(threadXXHState.get(), myArgsMemory.data(), sizeof(myArgsMemory));
+// 	assert(result != XXH_ERROR);
+
+// 	return XXH3_64bits_digest(threadXXHState.get());
+// }
+
+TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
 {
-	ZoneScopedN("ThreadPool()");
+	ZoneScopedN("TaskExecutor()");
 
 	assertf(threadCount > 0, "Thread count must be nonzero");
 
@@ -85,9 +107,9 @@ ThreadPool::ThreadPool(uint32_t threadCount)
 		myThreads.emplace_back(threadMain);
 }
 
-ThreadPool::~ThreadPool()
+TaskExecutor::~TaskExecutor()
 {
-	ZoneScopedN("~ThreadPool()");
+	ZoneScopedN("~TaskExecutor()");
 
 	//myStopSource.request_stop();
 	myStopSource.store(true, std::memory_order_relaxed);
@@ -100,28 +122,28 @@ ThreadPool::~ThreadPool()
 	// is outstanding. A future ABI should store both the internal CV and internal mutex
 	// in the reference counted block to allow this.
 	{
-		ZoneScopedN("~ThreadPool()::join");
+		ZoneScopedN("~TaskExecutor()::join");
 
 		for (auto& thread : myThreads)
 			thread.join();
 	}
 }
 
-void ThreadPool::join()
+void TaskExecutor::join()
 {
-	ZoneScopedN("ThreadPool::join");
+	ZoneScopedN("TaskExecutor::join");
 
 	internalProcessQueue();
 }
 
-void ThreadPool::internalProcessQueue()
+void TaskExecutor::internalProcessQueue()
 {
 	Task task;
 	while (myQueue.try_dequeue(task))
-		task.invoke();
+		task();
 }
 
-void ThreadPool::internalThreadMain(/*std::stop_token& stopToken*/)
+void TaskExecutor::internalThreadMain(/*std::stop_token& stopToken*/)
 {
 	//while (!stopToken.stop_requested())
 	while (!myStopSource.load(std::memory_order_relaxed))

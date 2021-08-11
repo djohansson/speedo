@@ -17,6 +17,9 @@
 #include <vector>
 
 #include <concurrentqueue.h>
+#include <robin_hood.h>
+
+#include <uuid.h>
 
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
@@ -57,8 +60,7 @@ class alignas(Aligmnent) UpgradableSharedMutex
 	value_t myBits = 0;
 	auto internalAtomicRef() noexcept;
 #else
-	using atomic_t = CopyableAtomic<value_t>;
-	atomic_t myAtomic;
+	CopyableAtomic<value_t> myAtomic;
 	auto& internalAtomicRef() noexcept;
 #endif
 
@@ -108,20 +110,21 @@ public:
 
 // todo: dynamic memory allocation if larger tasks are created
 // wip: return/arg pipes
-class Task
+class Task final
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
 
 public:
-	constexpr Task() = default;
+	constexpr Task() noexcept = default;
 	template <
 		typename F,
+		typename ReturnState,
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ArgsTuple = std::tuple<Args...>,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	Task(F&& f, Args&&... args);
+	Task(F&& f, const std::shared_ptr<ReturnState>& returnState, Args&&... args);
 	Task(Task&& other) noexcept;
 	Task(const Task& other) noexcept;
 	~Task();
@@ -130,26 +133,21 @@ public:
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	Task& operator=(const Task& other) noexcept;
-
-	void invoke();
-	template <typename... Args>
-	void invoke(Args&&... args);
+	void operator()() const;
 
 	template <typename ReturnState>
-	std::shared_ptr<ReturnState> returnState();
-
-protected:
-
-
-	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory;
-	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory;
-	std::shared_ptr<void> myReturnState;
-	void (*myInvokeFcnPtr)(void*, void*, void*) = nullptr;
+	std::shared_ptr<ReturnState> returnState() const noexcept;
 
 private:
+	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory = {};
+	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory = {};
+	void (*myInvokeFcnPtr)(const void*, const void*, void*) = nullptr;
 	void (*myCopyFcnPtr)(void*, const void*, void*, const void*) = nullptr;
 	void (*myDeleteFcnPtr)(void*, void*) = nullptr;
+	std::shared_ptr<void> myReturnState = {};
 };
+
+//char (*__kaboom)[sizeof(Task)] = 1;
 
 // wip: continuations
 template <typename T>
@@ -157,11 +155,10 @@ struct Future : Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	using state_t = std::tuple<value_t, std::atomic_bool, Task>;
+	using state_t = std::tuple<value_t, std::atomic_bool, /* optional */ Task>;
 
-	constexpr Future() = default;
-
-	Future(std::shared_ptr<state_t>&& state) noexcept;
+	constexpr Future() noexcept = default;
+	Future(const std::shared_ptr<state_t>& state) noexcept;
 	Future(Future&& other) noexcept;
 
 	Future& operator=(Future&& other) noexcept;
@@ -182,17 +179,40 @@ private:
 	std::shared_ptr<state_t> myState;
 };
 
-// wip: fork/join. todo: implement something like: "auto sumFuture = threadPool.submit(fork(task, 4, [](auto& tasks){ return sum(tasks); }));"
-class ThreadPool : public Noncopyable
+class TaskGraph : public Noncopyable
+{
+	struct Node
+	{
+		Task task = {};
+		std::vector<Node*> successors = {};
+		std::vector<Node*> dependents = {};
+	};
+	using NodeMap = robin_hood::unordered_node_map<uuids::uuid, Node>;
+
+public:
+	constexpr TaskGraph() = default;
+
+	template <
+		typename F,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	const uuids::uuid& emplace(F&& f, Args&&... args);
+
+private:
+	NodeMap myNodes = {};
+};
+
+// wip: fork/join.
+class TaskExecutor : public Noncopyable
 {
 public:
-	ThreadPool(uint32_t threadCount);
-	~ThreadPool();
+	TaskExecutor(uint32_t threadCount);
+	~TaskExecutor();
 
-	// // todo:
+	// todo: replace with:
 	// template <typename... Ts>
 	// void submit(Ts&&... args);
-
 	template <
 		typename F,
 		typename CallableType = std::decay_t<F>,

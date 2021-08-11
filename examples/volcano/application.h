@@ -75,7 +75,7 @@ private:
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 
-	ThreadPool myThreadPool;
+	TaskExecutor myExecutor;
 
 	InputState myInput = {};
 
