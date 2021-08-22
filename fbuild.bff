@@ -580,6 +580,7 @@
 			'$ProjectBasePath$/source/spirv_reducer_options.cpp',
 			'$ProjectBasePath$/source/opt/amd_ext_to_khr.cpp',
 			'$ProjectBasePath$/source/opt/basic_block.cpp',
+			'$ProjectBasePath$/source/opt/convert_to_sampled_image_pass.cpp',
 			'$ProjectBasePath$/source/opt/copy_prop_arrays.cpp',
 			'$ProjectBasePath$/source/opt/folding_rules.cpp',
 			'$ProjectBasePath$/source/opt/instruction.cpp',
