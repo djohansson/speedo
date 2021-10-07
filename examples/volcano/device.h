@@ -79,11 +79,12 @@ public:
     uint64_t addTimelineCallback(TimelineCallback&& callback);
     bool processTimelineCallbacks(uint64_t timelineValue);
 
+#if PROFILING_ENABLED
     void addOwnedObjectHandle(const uuids::uuid& ownerId, ObjectType<B> objectType, uint64_t objectHandle, const char* objectName);
     void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
     void clearOwnedObjectHandles(const uuids::uuid& ownerId);
-
     uint32_t getTypeCount(ObjectType<B> type);
+#endif
 
 private:
 
@@ -101,6 +102,7 @@ private:
 
     ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
+#if PROFILING_ENABLED
     struct ObjectNameInfo : ObjectInfo<B>
     {
         std::string name;
@@ -110,6 +112,7 @@ private:
     std::shared_mutex myObjectMutex; // protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
     UnorderedMap<uint64_t, ObjectInfos, IdentityHash<uint64_t>> myOwnerToDeviceObjectInfoMap;
     UnorderedMap<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
+#endif
 };
 
 struct DeviceObjectCreateDesc

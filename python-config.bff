@@ -1,13 +1,10 @@
 #once
+
 #include "platform-config.bff"
 
-#if __WINDOWS__
 #if exists(PYTHON_PATH)
-#import PYTHON_PATH
-.PythonExecutable = '$PYTHON_PATH$/python.exe'
+    #import PYTHON_PATH
+    .PythonExecutable = '$PYTHON_PATH$/python$ExeSuffix$'
 #else
-.PythonExecutable = 'C:/Program Files/Python38/python.exe'
-#endif
-#else
-.PythonExecutable = '/usr/bin/python'
+    Error('Python not found. Please set the PYTHON_PATH environment variable to a path with a Python 3 executable in it.')
 #endif

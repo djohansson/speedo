@@ -16,60 +16,60 @@ class VertexAllocator
 public:
 	VertexAllocator() noexcept = default;
 
-	inline void lock()
+	void lock()
 	{
 		assert(!myIsLocked);
 
 		myIsLocked = true;
 	}
 
-	inline void unlock() 
+	void unlock() 
 	{
 		assert(myIsLocked);
 
 		myIsLocked = false;
 	}
 
-	inline bool isLocked() const
+	bool isLocked() const
 	{
 		return myIsLocked;
 	}
 
-	inline size_t size() const
+	size_t size() const
 	{
 		return myData.size() / stride();
 	}
 
-	inline size_t sizeBytes() const
+	size_t sizeBytes() const
 	{
 		return myData.size();
 	}
 
-	inline void reserve(size_t size)
+	void reserve(size_t size)
 	{
 		assert(myIsLocked);
 
 		myData.reserve(size * stride());
 	}
 
-	inline void setStride(size_t stride)
+	void setStride(size_t stride)
 	{
 		assert(!myIsLocked);
 
 		myStride = stride;
 	}
 
-	inline size_t stride() const
+	size_t stride() const
 	{
 		return myStride;
 	}
 
-	inline const void* data() const
+	const void* data() const
 	{
 		return myData.data();
 	}
 
-	inline bool empty() const
+	bool empty() const
 	{
 		return myData.size() == 0;
 	}
@@ -103,7 +103,7 @@ class ScopedVertexAllocation;
 class Vertex
 {
 public:
-	inline bool operator==(const Vertex& other) const
+	bool operator==(const Vertex& other) const
 	{
 		return std::equal(
 			this,
@@ -112,24 +112,24 @@ public:
 			&other);
 	}
 
-	inline uint64_t hash(size_t seed = 42) const
+	uint64_t hash(size_t seed = 42) const
 	{
 		return XXH64(reinterpret_cast<const std::byte*>(this), allocator().stride(), seed);
 	}
 
 	template <typename T>
-	inline T* dataAs(size_t offset = 0)
+	T* dataAs(size_t offset = 0)
 	{
 		return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(this) + offset);
 	}
 
 	template <typename T>
-	inline const T* dataAs(size_t offset = 0) const
+	const T* dataAs(size_t offset = 0) const
 	{
 		return reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
-	inline static ScopedVertexAllocation* const getScope()
+	static ScopedVertexAllocation* const getScope()
 	{
 		return st_allocationScope;
 	}
@@ -139,7 +139,7 @@ private:
 
 	static VertexAllocator& allocator();
 
-	inline static void setScope(ScopedVertexAllocation* scope)
+	static void setScope(ScopedVertexAllocation* scope)
 	{
 		st_allocationScope = scope;
 	}
@@ -160,17 +160,17 @@ public:
 	ScopedVertexAllocation(VertexAllocator& allocator);
 	~ScopedVertexAllocation();
 
-	inline Vertex* createVertices(size_t count = 1)
+	Vertex* createVertices(size_t count = 1)
 	{
 		return reinterpret_cast<Vertex*>(myAllocatorRef.allocate(count));
 	}
 
-	inline void freeVertices(Vertex* ptr, size_t count = 1)
+	void freeVertices(Vertex* ptr, size_t count = 1)
 	{
 		return myAllocatorRef.deallocate(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
-	inline VertexAllocator& allocator()
+	VertexAllocator& allocator()
 	{
 		return myAllocatorRef;
 	}

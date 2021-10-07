@@ -236,7 +236,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
 template <>
 void WindowContext<Vk>::draw(
-    TaskThreadPool& threadPool,
+    TaskExecutor& executor,
     PipelineContext<Vk>& pipeline,
 	CommandPoolContext<Vk>& primaryContext,
 	CommandPoolContext<Vk>* secondaryContexts,
@@ -244,7 +244,7 @@ void WindowContext<Vk>::draw(
 {
     ZoneScopedN("WindowContext::draw");
 
-    auto updateViewBufferFuture = threadPool.submit([this]{ internalUpdateViewBuffer(); });
+    auto updateViewBufferFuture = executor.fork([this]{ internalUpdateViewBuffer(); });
 
     auto& renderTarget = pipeline.getRenderTarget();
 
@@ -266,7 +266,7 @@ void WindowContext<Vk>::draw(
 
     blit(cmd, renderTarget, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0);
 
-    threadPool.processQueueUntil(std::move(updateViewBufferFuture));
+    executor.join(std::move(updateViewBufferFuture));
 }
 
 template <>

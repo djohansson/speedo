@@ -485,24 +485,25 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
         nullptr,
         &pipelineHandle));
     
+#if PROFILING_ENABLED
     char stringBuffer[128];
-
     static constexpr std::string_view pipelineStr = "_Pipeline";
     
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s%u",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(pipelineStr.size()),
         pipelineStr.data(),
-        hashKey);
+        static_cast<unsigned int>(hashKey));
 
     getDeviceContext()->addOwnedObjectHandle(
         getUid(),
         VK_OBJECT_TYPE_PIPELINE,
         reinterpret_cast<uint64_t>(pipelineHandle),
         stringBuffer);
+#endif
 
     return pipelineHandle;
 }
@@ -835,22 +836,23 @@ PipelineContext<Vk>::PipelineContext(
     AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
         std::filesystem::path(volcano_getUserProfilePath()) / "pipeline.json",
         std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
+, myDescriptorPool(createDescriptorPool(deviceContext->getDevice()))
+, myCache(pipeline::loadPipelineCache(
+    myConfig.cachePath,
+    deviceContext->getDevice(),
+    deviceContext->getPhysicalDeviceInfo().deviceProperties))
 {
-    auto device = deviceContext->getDevice();
-
-    char stringBuffer[128];
-
-    myCache = pipeline::loadPipelineCache(
-        myConfig.cachePath,
-        device,
-        deviceContext->getPhysicalDeviceInfo().deviceProperties);
+    // todo: refactor, since this will be called to excessivly
+    internalResetState();
     
+#if PROFILING_ENABLED
+    char stringBuffer[128];
     static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
 
     stbsp_sprintf(
         stringBuffer,
         "%.*s%.*s",
-        getName().size(),
+        static_cast<int>(getName().size()),
         getName().c_str(),
         static_cast<int>(pipelineCacheStr.size()),
         pipelineCacheStr.data());
@@ -861,16 +863,12 @@ PipelineContext<Vk>::PipelineContext(
         reinterpret_cast<uint64_t>(myCache),
         stringBuffer);
 
-    myDescriptorPool = createDescriptorPool(device);
-
     deviceContext->addOwnedObjectHandle(
         getUid(),
         VK_OBJECT_TYPE_DESCRIPTOR_POOL,
         reinterpret_cast<uint64_t>(myDescriptorPool),
         "Device_DescriptorPool");
-
-    // todo: refactor, since this will be called to excessivly
-    internalResetState();
+#endif
 }
 
 template<>

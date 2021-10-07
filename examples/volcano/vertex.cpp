@@ -69,7 +69,7 @@ namespace std
 template <>
 struct hash<Vertex>
 {
-    inline size_t operator()(Vertex const& vertex) const
+    size_t operator()(Vertex const& vertex) const
     {
         return vertex.hash();
     }

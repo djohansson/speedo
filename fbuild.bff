@@ -460,6 +460,7 @@
 				+ ' -I$BuildRootPath$/external/glslang/OGLCompilersDLL'
 				+ ' -Wno-deprecated-enum-enum-conversion'
 				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-macro-redefined'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -509,6 +510,7 @@
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 				+ ' -I$ProjectBasePath$'
 				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-macro-redefined'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -535,6 +537,7 @@
 				+ ' -I$ProjectBasePath$'
 				+ ' -I$BuildRootPath$/external/spirv-tools/include'
 				+ ' -Wno-#pragma-messages'
+				+ ' -Wno-macro-redefined'
 				+ ' -DENABLE_HLSL'
 				+ ' -DENABLE_OPT=1'
 				+ ' -DAMD_EXTENSIONS'
@@ -577,6 +580,7 @@
 			'$ProjectBasePath$/source/spirv_reducer_options.cpp',
 			'$ProjectBasePath$/source/opt/amd_ext_to_khr.cpp',
 			'$ProjectBasePath$/source/opt/basic_block.cpp',
+			'$ProjectBasePath$/source/opt/convert_to_sampled_image_pass.cpp',
 			'$ProjectBasePath$/source/opt/copy_prop_arrays.cpp',
 			'$ProjectBasePath$/source/opt/folding_rules.cpp',
 			'$ProjectBasePath$/source/opt/instruction.cpp',
@@ -586,6 +590,7 @@
 			'$ProjectBasePath$/source/opt/local_single_block_elim_pass.cpp',
 			'$ProjectBasePath$/source/opt/mem_pass.cpp',
 			'$ProjectBasePath$/source/opt/pass.cpp',
+			'$ProjectBasePath$/source/opt/remove_unused_interface_variables_pass.cpp',
 			'$ProjectBasePath$/source/opt/scalar_replacement_pass.cpp',
 			'$ProjectBasePath$/source/opt/ssa_rewrite_pass.cpp',
 			'$ProjectBasePath$/source/opt/vector_dce.cpp',

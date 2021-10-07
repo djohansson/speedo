@@ -43,7 +43,7 @@ public:
 
 	bool operator!() const
 	{
-		return (myMax < myMin) != 0;
+		return !static_cast<bool>(*this);
 	}
 
 	const auto& getMin() const { return myMin; }

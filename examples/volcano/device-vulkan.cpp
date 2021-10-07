@@ -99,6 +99,7 @@ bool DeviceContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
     return true;
 }
 
+#if PROFILING_ENABLED
 template <>
 void DeviceContext<Vk>::addOwnedObjectHandle(
     const uuids::uuid& ownerId,
@@ -212,6 +213,7 @@ uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 
     return myObjectTypeToCountMap[type];
 }
+#endif // PROFILING_ENABLED
 
 template <>
 DeviceContext<Vk>::DeviceContext(
@@ -227,6 +229,8 @@ DeviceContext<Vk>::DeviceContext(
     ZoneScopedN("DeviceContext()");
 
     const auto& physicalDeviceInfo = getPhysicalDeviceInfo();
+
+    std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName << "\" is selected as primary graphics device" << std::endl;
  
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
     queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
@@ -256,12 +260,13 @@ DeviceContext<Vk>::DeviceContext(
     vkEnumerateDeviceExtensionProperties(
         getPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
 
+    std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << std::endl;
     std::vector<const char*> deviceExtensions;
     deviceExtensions.reserve(deviceExtensionCount);
     for (uint32_t i = 0ul; i < deviceExtensionCount; i++)
     {
         deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
-        std::cout << deviceExtensions.back() << "\n";
+        std::cout << deviceExtensions.back() << std::endl;
     }
 
     std::sort(
@@ -272,7 +277,7 @@ DeviceContext<Vk>::DeviceContext(
     std::vector<const char*> requiredDeviceExtensions = {
         // must be sorted lexicographically for std::includes to work!
         VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
-        VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+        //VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
         VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
     assert(std::includes(
@@ -362,7 +367,7 @@ DeviceContext<Vk>::DeviceContext(
         myInstance->getInstance(),
         myDevice,
         getPhysicalDevice(),
-        VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT);
+        {});
 
     VkSemaphoreTypeCreateInfo timelineCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -422,6 +427,7 @@ DeviceObject<Vk>::DeviceObject(
     const uint64_t* objectHandles)
 : DeviceObject(deviceContext, std::forward<DeviceObjectCreateDesc>(desc))
 {
+#if PROFILING_ENABLED
     char stringBuffer[256];
     for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)
     {
@@ -437,20 +443,23 @@ DeviceObject<Vk>::DeviceObject(
         stbsp_sprintf(
             stringBuffer,
             "%.*s%.*u",
-            getName().size(),
+            static_cast<int>(getName().size()),
             getName().c_str(),
             2,
             objectIt);
 
         deviceContext->addOwnedObjectHandle(getUid(), objectType, objectHandles[objectIt], stringBuffer);
     }
+#endif
 }
 
 template <>
 DeviceObject<Vk>::~DeviceObject()
 {
+#if PROFILING_ENABLED
     if (myDevice)
         myDevice->clearOwnedObjectHandles(getUid());
+#endif
 }
 
 template <>

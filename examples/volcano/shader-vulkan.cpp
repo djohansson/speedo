@@ -149,6 +149,7 @@ void addBinding(
 	layout.bindingFlags.push_back(
 		// VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
 		// VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
+		// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT |
 		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
 	layout.variableNames.push_back(name.data());
 	layout.variableNameHashes.push_back(XXH3_64bits(name.data(), name.size()));

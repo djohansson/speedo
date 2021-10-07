@@ -1,13 +1,10 @@
 #once
+
 #include "platform-config.bff"
 
-#if __WINDOWS__
 #if exists(POWERSHELL_PATH)
-#import POWERSHELL_PATH
-.PowerShellExecutable = '$POWERSHELL_PATH$/pwsh.exe'
+    #import POWERSHELL_PATH
+    .PowerShellExecutable = '$POWERSHELL_PATH$/pwsh$ExeSuffix$'
 #else
-.PowerShellExecutable = 'C:/Program Files/PowerShell/7/pwsh.exe'
-#endif
-#else
-.PowerShellExecutable = '/usr/local/bin/pwsh'
+    Error('PowerShell not found. Please set the POWERSHELL_PATH environment variable to a path with a PowerShell 7 executable in it.')
 #endif

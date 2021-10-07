@@ -31,7 +31,7 @@ static_assert(false, "Please let Daniel know that the reflection TS is supported
 #define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
 
 #if PROFILING_ENABLED
-#define assertf(A, M, ...) if(!(A)) {log_error(M, ##__VA_ARGS__); assert(A); }
+#define assertf(A, M, ...) if(!(A)) { log_error(M, ##__VA_ARGS__); assert(A); }
 #else
 #define assertf(A, M, ...)
 #endif
@@ -39,22 +39,12 @@ static_assert(false, "Please let Daniel know that the reflection TS is supported
 //#define compile_assert() char (*__kaboom)[sizeof( YourTypeHere )] = 1;
 
 template <typename T>
-inline constexpr auto sizeof_array(const T& array)
+consteval auto sizeof_array(const T& array)
 {
 	return (sizeof(array) / sizeof(array[0]));
 }
 
-inline uint32_t roundUp(uint32_t numToRound, uint32_t multiple)
-{
-	if (multiple == 0)
-		return numToRound;
-
-	auto remainder = numToRound % multiple;
-	if (remainder == 0)
-		return numToRound;
-
-	return numToRound + multiple - remainder;
-}
+uint32_t roundUp(uint32_t numToRound, uint32_t multiple);
 
 class Noncopyable
 {
@@ -97,12 +87,12 @@ public:
 		, mySize(size)
 	{}
 
-	inline void operator()(T* array) const
+	void operator()(T* array) const
 	{
 		myDeleter(array, mySize);
 	}
 
-	inline size_t getSize() const { return mySize; }
+	size_t getSize() const { return mySize; }
 
 private:
 
