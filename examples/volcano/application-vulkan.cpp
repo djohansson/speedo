@@ -325,6 +325,10 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
         return config;
     };
 
+    myPipeline = std::make_shared<PipelineContext<Vk>>(
+        myDevice,
+        PipelineConfiguration<Vk>{ userProfilePath / "pipeline.cache" });
+
     myMainWindow = std::make_shared<WindowContext<Vk>>(
         myDevice,
         std::move(surface),
@@ -332,10 +336,6 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
             detectSuitableSwapchain(myInstance, myDevice, surface),
             {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
             { 1ul, 1ul }});
-
-    myPipeline = std::make_shared<PipelineContext<Vk>>(
-        myDevice,
-        PipelineConfiguration<Vk>{ userProfilePath / "pipeline.cache" });
     
     {
         uint32_t frameCount = myMainWindow->getConfig().imageCount;
