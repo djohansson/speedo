@@ -121,7 +121,7 @@ void DeviceContext<Vk>::addOwnedObjectHandle(
     }
 
     {
-        auto lock = std::unique_lock(myObjectMutex);
+        auto lock = std::lock_guard(myObjectMutex);
 
         auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerIdHash];
 
@@ -163,7 +163,7 @@ void DeviceContext<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint6
     {
         ZoneScopedN("DeviceContext::addOwnedObjectHandle::erase");
 
-        auto lock = std::unique_lock(myObjectMutex);
+        auto lock = std::lock_guard(myObjectMutex);
 
         auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerIdHash];
 
@@ -195,7 +195,7 @@ void DeviceContext<Vk>::clearOwnedObjectHandles(const uuids::uuid& ownerId)
     {
         ZoneScopedN("DeviceContext::clearOwnedObjectHandles::clear");
 
-        auto lock = std::unique_lock(myObjectMutex);
+        auto lock = std::lock_guard(myObjectMutex);
 
         auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerIdHash];
 

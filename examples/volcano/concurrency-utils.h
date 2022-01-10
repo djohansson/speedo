@@ -41,9 +41,9 @@ public:
 
 template <typename ValueT = uint32_t, uint32_t Aligmnent =
 #if __cpp_lib_hardware_interference_size >= 201603
-									std::hardware_destructive_interference_size>
+std::hardware_destructive_interference_size>
 #else
-									128>
+128>
 #endif
 class alignas(Aligmnent) UpgradableSharedMutex
 {
