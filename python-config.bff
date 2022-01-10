@@ -4,7 +4,7 @@
 
 #if exists(PYTHON_PATH)
     #import PYTHON_PATH
-    .PythonExecutable = '$PYTHON_PATH$/python$ExeSuffix$'
+    .PythonExecutable = '$PYTHON_PATH$/python3$ExeSuffix$'
 #else
     Error('Python not found. Please set the PYTHON_PATH environment variable to a path with a Python 3 executable in it.')
 #endif
