@@ -594,6 +594,7 @@
 			'$ProjectBasePath$/source/opt/scalar_replacement_pass.cpp',
 			'$ProjectBasePath$/source/opt/ssa_rewrite_pass.cpp',
 			'$ProjectBasePath$/source/opt/vector_dce.cpp',
+			'$ProjectBasePath$/source/opt/replace_desc_array_access_using_var_index.cpp',
 			'$ProjectBasePath$/source/reduce/structured_loop_to_selection_reduction_opportunity.cpp',
 			'$ProjectBasePath$/source/reduce/structured_loop_to_selection_reduction_opportunity_finder.cpp',
 		}
@@ -763,6 +764,10 @@
 			'$ProjectBasePath$/src/init.c',
 			'$ProjectBasePath$/src/input.c',
 			'$ProjectBasePath$/src/monitor.c',
+			'$ProjectBasePath$/src/null_init.c',
+			'$ProjectBasePath$/src/null_joystick.c',
+			'$ProjectBasePath$/src/null_monitor.c',
+			'$ProjectBasePath$/src/null_window.c',
 			'$ProjectBasePath$/src/platform.c',
 			'$ProjectBasePath$/src/vulkan.c',
 			'$ProjectBasePath$/src/window.c',
@@ -784,6 +789,7 @@
 	#if __OSX__
 		.UnityInputFiles + {
 			'$ProjectBasePath$/src/cocoa_time.c',
+			'$ProjectBasePath$/src/posix_module.c',
 			'$ProjectBasePath$/src/posix_thread.c',
 		}
 	#endif //__OSX__
@@ -793,6 +799,7 @@
 			'$ProjectBasePath$/src/x11_monitor.c',
 			'$ProjectBasePath$/src/x11_window.c',
             '$ProjectBasePath$/src/xkb_unicode.c',
+			'$ProjectBasePath$/src/posix_module.c',
 			'$ProjectBasePath$/src/posix_time.c',
 			'$ProjectBasePath$/src/posix_thread.c',
 			'$ProjectBasePath$/src/glx_context.c',
@@ -813,10 +820,9 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$ProjectBasePath$/common'
 			+ ' -Wno-unused-function'
+			+ ' -DZSTD_DISABLE_ASM'
+			+ ' -DXXH_NAMESPACE=ZSTD_'
 		.CompilerInputPath = '$ProjectBasePath$'
-		.CompilerInputExcludedFiles = {
-			'common/xxhash.c'
-		}
 		.CompilerInputPattern = '*.c'
 	]
 
