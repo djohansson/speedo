@@ -598,6 +598,9 @@
 			'$ProjectBasePath$/source/reduce/structured_loop_to_selection_reduction_opportunity_finder.cpp',
 		}
 		.CompilerInputFiles = .UnityInputExcludedFiles
+		.UnityInputExcludedFiles + {
+			'$ProjectBasePath$/source/wasm/spirv-tools.cpp',
+		}
 	]
 
 	.SlangGlslangObjectList =
