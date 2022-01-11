@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-template <class T>
+template <typename T>
 consteval std::string_view getTypeName()
 {
 #if defined(__clang__) || defined(__GNUC__)

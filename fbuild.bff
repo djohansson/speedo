@@ -748,7 +748,7 @@
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/src/cocoa_init.m',
 			'$ProjectBasePath$/src/cocoa_joystick.m',
-            '$ProjectBasePath$/src/cocoa_monitor.m',
+			'$ProjectBasePath$/src/cocoa_monitor.m',
 			'$ProjectBasePath$/src/cocoa_window.m',
 			'$ProjectBasePath$/src/nsgl_context.m',
 		}
@@ -760,6 +760,7 @@
 			'$ProjectBasePath$/src/init.c',
 			'$ProjectBasePath$/src/input.c',
 			'$ProjectBasePath$/src/monitor.c',
+			'$ProjectBasePath$/src/platform.c',
 			'$ProjectBasePath$/src/vulkan.c',
 			'$ProjectBasePath$/src/window.c',
 			'$ProjectBasePath$/src/egl_context.c',
@@ -770,6 +771,7 @@
 			'$ProjectBasePath$/src/win32_init.c',
 			'$ProjectBasePath$/src/win32_joystick.c',
 			'$ProjectBasePath$/src/win32_monitor.c',
+			'$ProjectBasePath$/src/win32_module.c',
 			'$ProjectBasePath$/src/win32_time.c',
 			'$ProjectBasePath$/src/win32_thread.c',
 			'$ProjectBasePath$/src/win32_window.c',
