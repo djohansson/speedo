@@ -119,6 +119,15 @@ auto make_vector(size_t size)
     return std::vector<std::decay_t<T>>(size);
 }
 
+template <typename>
+struct is_tuple : std::false_type {};
+
+template <typename... T>
+struct is_tuple<std::tuple<T...>> : std::true_type {};
+
+template <typename... T>
+inline constexpr bool is_tuple_v = is_tuple<T...>::value;
+
 template <typename... Ts>
 struct overloaded : Ts... { using Ts::operator()...; };
 
