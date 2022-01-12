@@ -1234,8 +1234,8 @@ bool Application<Vk>::draw()
 					},
 					1,
 					static_cast<uint64_t>(lastPresentTimelineValue),
-					myDevice.get());
-				//.then([] { std::cout << "continuation" << std::endl; });
+					myDevice.get())
+				.then([] { std::cout << "continuation" << std::endl; });
 	}
 
     {

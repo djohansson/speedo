@@ -109,7 +109,6 @@ public:
 };
 
 // todo: dynamic memory allocation if larger tasks are created
-// wip: return/arg pipes
 class Task final
 {
 	static constexpr size_t kMaxCallableSizeBytes = 56;
@@ -124,7 +123,7 @@ public:
 		typename... Args,
 		typename ArgsTuple = std::tuple<Args...>,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	Task(F&& f, const std::shared_ptr<ReturnState>& returnState, Args&&... args);
+	Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
 	Task(Task&& other) noexcept;
 	Task(const Task& other) noexcept;
 	~Task();
@@ -133,7 +132,8 @@ public:
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	Task& operator=(const Task& other) noexcept;
-	void operator()() const;
+	template <typename... Args>
+	void operator()(Args&&... args);
 
 	template <typename ReturnState>
 	std::shared_ptr<ReturnState> returnState() const noexcept;
@@ -149,16 +149,15 @@ private:
 
 //char (*__kaboom)[sizeof(Task)] = 1;
 
-// wip: continuations
 template <typename T>
 struct Future : Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	using state_t = std::tuple<value_t, std::atomic_bool, /* optional */ Task>;
+	using state_t = std::tuple<value_t, std::atomic_bool, Task>; // retval, mutex, continuation (optional)
 
 	constexpr Future() noexcept = default;
-	Future(const std::shared_ptr<state_t>& state) noexcept;
+	Future(std::shared_ptr<state_t>&& state) noexcept;
 	Future(Future&& other) noexcept;
 
 	Future& operator=(Future&& other) noexcept;
@@ -169,11 +168,11 @@ public:
 	void wait() const;
 
 	template <
-		typename CF,
-		typename CCallableType = std::decay_t<CF>,
-		typename... CArgs,
-		typename CReturnType = std::invoke_result_t<CCallableType, CArgs...>>
-	Future<CReturnType> then(CF&& f, CArgs&&... args);
+		typename F,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	Future<ReturnType> then(F&& f);
 
 private:
 	std::shared_ptr<state_t> myState;

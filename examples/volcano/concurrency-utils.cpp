@@ -60,10 +60,11 @@ Task::operator bool() const noexcept
 
 bool Task::operator!() const noexcept
 {
- return !static_cast<bool>(*this);
+	return !static_cast<bool>(*this);
 }
 
-void Task::operator()() const
+template <>
+void Task::operator()()
 {
 	assert(myInvokeFcnPtr);
 

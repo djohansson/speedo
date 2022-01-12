@@ -157,8 +157,8 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
 }
 
 template <typename T>
-Future<T>::Future(const std::shared_ptr<state_t>& state) noexcept
-	: myState(state)
+Future<T>::Future(std::shared_ptr<state_t>&& state) noexcept
+	: myState(std::forward<std::shared_ptr<state_t>>(state))
 {}
 
 template <typename T>
@@ -218,14 +218,14 @@ void Future<T>::wait() const
 }
 
 template <typename T>
-template <typename CF, typename CCallableType, typename... CArgs, typename CReturnType>
-Future<CReturnType> Future<T>::then(CF&& f, CArgs&&... args)
+template <typename F, typename CallableType, typename... Args, typename ReturnType>
+Future<ReturnType> Future<T>::then(F&& f)
 {
 	auto& [value, flag, continuation] = *myState;
-	
-	continuation = Task(std::forward<CCallableType>(f), std::forward<CArgs>(args)...);
 
-	return Future<CReturnType>(continuation.template returnState<typename Future<CReturnType>::state_t>());
+	continuation = Task(std::forward<CallableType>(f), std::make_shared<typename Future<ReturnType>::state_t>());
+
+	return Future<ReturnType>(continuation.template returnState<typename Future<ReturnType>::state_t>());
 }
 
 template <typename ReturnState>
@@ -234,8 +234,21 @@ std::shared_ptr<ReturnState> Task::returnState() const noexcept
 	return std::static_pointer_cast<ReturnState>(myReturnState);
 }
 
+template <typename... Args>
+void Task::operator()(Args&&... args)
+{
+	using ArgsTuple = std::tuple<Args...>;
+	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
+	
+	std::construct_at(
+		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
+		std::forward<Args>(args)...);
+	
+	(*this)();
+}
+
 template <typename F, typename ReturnState, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
-Task::Task(F&& f, const std::shared_ptr<ReturnState>& returnState, Args&&... args)
+Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
 	: myInvokeFcnPtr([](const void* callablePtr, const void* argsPtr, void* returnPtr) {
 		const auto& callable = *static_cast<const CallableType*>(callablePtr);
 		const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
@@ -251,11 +264,10 @@ Task::Task(F&& f, const std::shared_ptr<ReturnState>& returnState, Args&&... arg
 
 		if (continuation)
 		{
-			//if constexpr (std::is_void_v<ReturnType>)
-				continuation();
-				//std::invoke(continuation);
-			// else
-			// 	std::apply(continuation, value);
+			if constexpr (std::is_tuple_v<ReturnType>)
+				std::apply(continuation, value);
+			else
+				std::invoke(continuation, value);
 		}
 	})
 	, myCopyFcnPtr([](void* callablePtr, const void* otherCallablePtr, void* argsPtr, const void* otherArgsPtr) {
@@ -266,7 +278,7 @@ Task::Task(F&& f, const std::shared_ptr<ReturnState>& returnState, Args&&... arg
 		std::destroy_at(static_cast<CallableType*>(callablePtr));
 		std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 	})
-	, myReturnState(returnState)
+	, myReturnState(std::forward<std::shared_ptr<ReturnState>>(returnState))
 {
 	static_assert(sizeof(Task) == 128);
 
@@ -286,9 +298,9 @@ Future<ReturnType> TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::fork");
 
-	auto returnState = std::make_shared<typename Future<ReturnType>::state_t>();
-	auto task = Task(std::forward<F>(f), returnState, std::forward<Args>(args)...);
-
+	auto task = Task(std::forward<F>(f), std::make_shared<typename Future<ReturnType>::state_t>(), std::forward<Args>(args)...);
+	auto returnState = task.returnState<typename Future<ReturnType>::state_t>();
+	
 	// todo: enqueue_bulk
 	assert(count == 1);
 
@@ -305,7 +317,7 @@ Future<ReturnType> TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
 		mySignal.release();
 	}
 
-	return Future<ReturnType>(returnState);
+	return Future<ReturnType>(std::move(returnState));
 }
 
 template <typename ReturnType>
