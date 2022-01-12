@@ -5,6 +5,7 @@
 
 #include <array>
 #include <atomic>
+#include <concepts>
 //#include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -15,6 +16,7 @@
 #include <tuple>
 #include <type_traits>
 #include <vector>
+#include <utility>
 
 #include <concurrentqueue.h>
 #include <robin_hood.h>
@@ -111,19 +113,8 @@ public:
 // todo: dynamic memory allocation if larger tasks are created
 class Task final
 {
-	static constexpr size_t kMaxCallableSizeBytes = 56;
-	static constexpr size_t kMaxArgsSizeBytes = 32;
-
 public:
 	constexpr Task() noexcept = default;
-	template <
-		typename F,
-		typename ReturnState,
-		typename CallableType = std::decay_t<F>,
-		typename... Args,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
 	Task(Task&& other) noexcept;
 	Task(const Task& other) noexcept;
 	~Task();
@@ -132,13 +123,38 @@ public:
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	Task& operator=(const Task& other) noexcept;
+
+private:
+	template <typename T>
+	friend class Future;
+	friend class TaskGraph;
+	friend class TaskExecutor;
+
+	template <
+		typename F,
+		typename ReturnState,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+		requires std::invocable<F&, Args...>
+	Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
+
 	template <typename... Args>
 	void operator()(Args&&... args);
+
+	template <class Tuple, size_t... I>
+	constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
+	{
+		return (*this)(std::get<I>(std::forward<Tuple>(t))...);
+	}
 
 	template <typename ReturnState>
 	std::shared_ptr<ReturnState> returnState() const noexcept;
 
-private:
+	static constexpr size_t kMaxCallableSizeBytes = 56;
+	static constexpr size_t kMaxArgsSizeBytes = 32;
+	
 	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory = {};
 	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory = {};
 	void (*myInvokeFcnPtr)(const void*, const void*, void*) = nullptr;
@@ -150,7 +166,7 @@ private:
 //char (*__kaboom)[sizeof(Task)] = 1;
 
 template <typename T>
-struct Future : Noncopyable
+class Future : Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
@@ -172,6 +188,7 @@ public:
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+		requires std::invocable<F&, Args...>
 	Future<ReturnType> then(F&& f);
 
 private:
@@ -196,6 +213,7 @@ public:
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+		requires std::invocable<F&, Args...>
 	const uuids::uuid& emplace(F&& f, Args&&... args);
 
 private:
@@ -217,6 +235,7 @@ public:
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+		requires std::invocable<F&, Args...>
 	Future<ReturnType> fork(F&& f, uint32_t count = 1, Args&&... args);
 
 	void join();

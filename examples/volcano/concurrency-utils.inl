@@ -219,6 +219,7 @@ void Future<T>::wait() const
 
 template <typename T>
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
+requires std::invocable<F&, Args...>
 Future<ReturnType> Future<T>::then(F&& f)
 {
 	auto& [value, flag, continuation] = *myState;
@@ -248,8 +249,10 @@ void Task::operator()(Args&&... args)
 }
 
 template <typename F, typename ReturnState, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
+requires std::invocable<F&, Args...>
 Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
-	: myInvokeFcnPtr([](const void* callablePtr, const void* argsPtr, void* returnPtr) {
+	: myInvokeFcnPtr([](const void* callablePtr, const void* argsPtr, void* returnPtr)
+	{
 		const auto& callable = *static_cast<const CallableType*>(callablePtr);
 		const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 		auto& [value, flag, continuation] = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
@@ -265,16 +268,18 @@ Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
 		if (continuation)
 		{
 			if constexpr (std::is_tuple_v<ReturnType>)
-				std::apply(continuation, value);
+				continuation.apply(value, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<ArgsTuple>>>{});
 			else
-				std::invoke(continuation, value);
+				continuation(value);
 		}
 	})
-	, myCopyFcnPtr([](void* callablePtr, const void* otherCallablePtr, void* argsPtr, const void* otherArgsPtr) {
+	, myCopyFcnPtr([](void* callablePtr, const void* otherCallablePtr, void* argsPtr, const void* otherArgsPtr)
+	{
 		std::construct_at(static_cast<CallableType*>(callablePtr), *static_cast<const CallableType*>(otherCallablePtr));
 		std::construct_at(static_cast<ArgsTuple*>(argsPtr), *static_cast<const ArgsTuple*>(otherArgsPtr));
 	})
-	, myDeleteFcnPtr([](void* callablePtr, void* argsPtr) {
+	, myDeleteFcnPtr([](void* callablePtr, void* argsPtr)
+	{
 		std::destroy_at(static_cast<CallableType*>(callablePtr));
 		std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 	})
@@ -294,6 +299,7 @@ Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
 }
 
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
+requires std::invocable<F&, Args...>
 Future<ReturnType> TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::fork");
