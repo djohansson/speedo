@@ -121,7 +121,7 @@ VkBool32 debugUtilsMessengerCallback(
         if (pCallbackData->pMessageIdName)
             std::cout << pCallbackData->pMessageIdName << ": ";
 
-        std::cout << pCallbackData->pMessage << std::endl;
+        std::cout << pCallbackData->pMessage << '\n';
         
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
             __debugbreak();
@@ -200,27 +200,27 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
 #ifdef _DEBUG
 	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
 	if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
-		std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << std::endl;
+		std::cout << VK_LOADER_DEBUG_STR << "=" << vkLoaderDebug << '\n';
 
 	static const char* VK_LAYER_PATH_STR = "VK_LAYER_PATH";
 	if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
-		std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << std::endl;
+		std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << '\n';
 
 	static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
 	if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
-		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << std::endl;
+		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << '\n';
 #endif
 
     uint32_t instanceLayerCount;
     VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
-    std::cout << instanceLayerCount << " vulkan layer(s) found:" << std::endl;
+    std::cout << instanceLayerCount << " vulkan layer(s) found:" << '\n';
     if (instanceLayerCount > 0)
     {
         std::unique_ptr<VkLayerProperties[]> instanceLayers(
             new VkLayerProperties[instanceLayerCount]);
         VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
         for (uint32_t i = 0; i < instanceLayerCount; ++i)
-            std::cout << instanceLayers[i].layerName << std::endl;
+            std::cout << instanceLayers[i].layerName << '\n';
     }
 
     uint32_t instanceExtensionCount;
@@ -230,13 +230,13 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
     vkEnumerateInstanceExtensionProperties(
         nullptr, &instanceExtensionCount, availableInstanceExtensions.data());
 
-    std::cout << instanceExtensionCount << " vulkan instance extension(s) found:" << std::endl;
+    std::cout << instanceExtensionCount << " vulkan instance extension(s) found:" << '\n';
     
     std::vector<const char*> instanceExtensions(instanceExtensionCount);
     for (uint32_t i = 0; i < instanceExtensionCount; i++)
     {
         instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
-        std::cout << instanceExtensions[i] << std::endl;
+        std::cout << instanceExtensions[i] << '\n';
     }
 
     // must be sorted lexicographically for std::includes to work!

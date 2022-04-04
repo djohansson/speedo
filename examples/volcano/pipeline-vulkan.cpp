@@ -64,7 +64,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 		
 		if (cacheData.empty() || !isCacheValid(*header, physicalDeviceProperties))
 		{
-			std::cout << "Invalid pipeline cache, creating new." << std::endl;
+			std::cout << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
 			return false;
 		}
@@ -110,7 +110,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 
 			if (!isCacheValid(*header, physicalDeviceProperties))
 			{
-				std::cout << "Invalid pipeline cache, will not save. Exiting." << std::endl;
+				std::cout << "Invalid pipeline cache, will not save. Exiting." << '\n';
 				return false;
 			}
 			
@@ -119,7 +119,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 		}
 		else
         {
-            std::cout << "Failed to get pipeline cache. Exiting." << std::endl;
+            std::cout << "Failed to get pipeline cache. Exiting." << '\n';
 			return false;
         }
 

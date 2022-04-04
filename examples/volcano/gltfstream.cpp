@@ -215,7 +215,7 @@ void PrintInfo(const std::filesystem::path& path)
     PrintDocumentInfo(document);
     PrintResourceInfo(document, *resourceReader);
 
-    std::cout << std::endl;
+    std::cout << '\n';
 }
 
 }

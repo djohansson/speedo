@@ -179,7 +179,7 @@ void addBinding(
 		"\": Set: " << bindingSpace <<
 		", Binding: " << slot.binding <<
 		", Count: " << descriptorCount <<
-		", Size: " << sizeBytes << std::endl;
+		", Size: " << sizeBytes << '\n';
 };
 
 template <>
@@ -259,7 +259,7 @@ uint32_t createLayoutBindings<Vk>(
 			<< ", alignment: " << alignment
 			<< ", genericParamIndex: " << genericParamIndex;
 
-		std::cout << std::endl;
+		std::cout << '\n';
 
 		if (subCategory == slang::ParameterCategory::RegisterSpace)
 		{

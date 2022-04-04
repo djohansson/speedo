@@ -304,18 +304,18 @@ void WindowContext<Vk>::updateInput(const InputState& input)
         size_t viewIdy = input.mousePosition[0].y / (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
         myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-        //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << std::endl;
+        //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << '\n';
     }
     else if (!input.mouseButtonsPressed[0])
     {
         myActiveView.reset();
 
-        //std::cout << "myActiveView.reset()" << std::endl;
+        //std::cout << "myActiveView.reset()" << '\n';
     }
 
     if (myActiveView)
     {
-        //std::cout << "window.myActiveView read/consume" << std::endl;
+        //std::cout << "window.myActiveView read/consume" << '\n';
 
         float dx = 0.f;
         float dz = 0.f;
@@ -359,7 +359,7 @@ void WindowContext<Vk>::updateInput(const InputState& input)
             view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
 
             // std::cout << *myActiveView << ":pos:[" << view.desc().cameraPosition.x << ", " <<
-            //     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << std::endl;
+            //     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << '\n';
 
             doUpdateViewMatrix = true;
         }
@@ -375,7 +375,7 @@ void WindowContext<Vk>::updateInput(const InputState& input)
                 rotSpeed;
 
             // std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
-            //     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << std::endl;
+            //     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << '\n';
 
             doUpdateViewMatrix = true;
         }

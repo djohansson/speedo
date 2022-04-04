@@ -230,7 +230,7 @@ DeviceContext<Vk>::DeviceContext(
 
     const auto& physicalDeviceInfo = getPhysicalDeviceInfo();
 
-    std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName << "\" is selected as primary graphics device" << std::endl;
+    std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName << "\" is selected as primary graphics device" << '\n';
  
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
     queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
@@ -260,13 +260,13 @@ DeviceContext<Vk>::DeviceContext(
     vkEnumerateDeviceExtensionProperties(
         getPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
 
-    std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << std::endl;
+    std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << '\n';
     std::vector<const char*> deviceExtensions;
     deviceExtensions.reserve(deviceExtensionCount);
     for (uint32_t i = 0ul; i < deviceExtensionCount; i++)
     {
         deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
-        std::cout << deviceExtensions.back() << std::endl;
+        std::cout << deviceExtensions.back() << '\n';
     }
 
     std::sort(

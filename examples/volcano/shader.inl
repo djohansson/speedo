@@ -62,7 +62,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 			if (!std::filesystem::exists(path))
 				std::filesystem::create_directory(path);
 
-			std::cout << "Set intermediate path: " << path << std::endl;
+			std::cout << "Set intermediate path: " << path << '\n';
 			assert(std::filesystem::is_directory(path));
 			spSetDumpIntermediatePrefix(
 				slangRequest,
@@ -75,7 +75,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		{
 			auto path = std::filesystem::canonical(includePath);
 
-			std::cout << "Add include search path: " << path << std::endl;
+			std::cout << "Add include search path: " << path << '\n';
 			assert(std::filesystem::is_directory(path));
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
@@ -131,7 +131,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		const SlangResult compileRes = spCompile(slangRequest);
 
 		if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
-			std::cout << diagnostics << std::endl;
+			std::cout << diagnostics << '\n';
 
 		if (SLANG_FAILED(compileRes))
 		{
@@ -145,7 +145,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		{
 			char const* depPath = spGetDependencyFilePath(slangRequest, dep);
 			// ... todo: add dependencies for recompile & hot reload
-			std::cout << "File include/import: " << depPath << std::endl;
+			std::cout << "File include/import: " << depPath << '\n';
 		}
 
 		for (const auto& ep : entryPoints)
