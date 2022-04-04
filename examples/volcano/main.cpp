@@ -162,7 +162,7 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 
 // 	size_t wszMsgSize;
 // 	wchar_t wszMsg[1024];
-// 	mbstowcs_s(&wszMsgSize, wszMsg, sizeof_array(wszMsg), szMsg, strnlen_s(szMsg, 1024));
+// 	mbstowcs_s(&wszMsgSize, wszMsg, std::ssize(wszMsg), szMsg, strnlen_s(szMsg, 1024));
 
 // 	OutputDebugString(wszMsg);
 

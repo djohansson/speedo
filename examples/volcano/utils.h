@@ -38,12 +38,6 @@ static_assert(false, "Please let Daniel know that the reflection TS is supported
 
 //#define compile_assert() char (*__kaboom)[sizeof( YourTypeHere )] = 1;
 
-template <typename T>
-consteval auto sizeof_array(const T& array)
-{
-	return (sizeof(array) / sizeof(array[0]));
-}
-
 uint32_t roundUp(uint32_t numToRound, uint32_t multiple);
 
 class Noncopyable

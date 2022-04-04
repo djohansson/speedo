@@ -113,7 +113,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
                 stbsp_sprintf(drawPartitionWithNumberStr, "%.*s%u",
                     static_cast<int>(drawPartitionStr.size()), drawPartitionStr.data(), threadIt);
 
-                ZoneName(drawPartitionWithNumberStr, sizeof_array(drawPartitionWithNumberStr));
+                ZoneName(drawPartitionWithNumberStr, std::ssize(drawPartitionWithNumberStr));
                 
                 CommandBufferInheritanceInfo<Vk> inheritInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
                 inheritInfo.renderPass = renderPassInfo.renderPass;
