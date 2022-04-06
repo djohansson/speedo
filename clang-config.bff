@@ -39,7 +39,7 @@
 	.PlatformInfo = 'Linux'
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
-	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -frtti -Wall'
+	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -Wall'
 		+ ' -isystem $LLVMPath$/include'
 		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersion$/include'
 		+ .PlatformIncludePaths
@@ -53,6 +53,7 @@
 		+ ' -D_CRTDBG_MAP_ALLOC'
 		+ ' -D_WIN32_LEAN_AND_MEAN'
 		+ ' -DNOMINMAX'
+		+ ' -D_HAS_STATIC_RTTI=1'
 		+ ' -gcodeview'
 		+ ' -Xclang -cfguard'
 #endif //__WINDOWS__
