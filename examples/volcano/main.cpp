@@ -297,10 +297,10 @@ int main(int argc, char** argv)
 
 	ImGui_ImplGlfw_Shutdown();
 
-	volcano_destroy();
-
 	glfwDestroyWindow(window);
 	glfwTerminate();
+
+	volcano_destroy();
 
 	return 0;
 }
