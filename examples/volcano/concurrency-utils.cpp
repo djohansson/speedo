@@ -63,14 +63,6 @@ bool Task::operator!() const noexcept
 	return !static_cast<bool>(*this);
 }
 
-template <>
-void Task::operator()()
-{
-	assert(myInvokeFcnPtr);
-
-	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
-}
-
 // uint64_t Task::hash() const noexcept
 // {
 // 	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState =
