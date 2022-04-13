@@ -238,14 +238,16 @@ std::shared_ptr<ReturnState> Task::returnState() const noexcept
 template <typename... Args>
 void Task::operator()(Args&&... args)
 {
+	assert(myInvokeFcnPtr);
+	
 	using ArgsTuple = std::tuple<Args...>;
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	
 	std::construct_at(
 		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
 		std::forward<Args>(args)...);
-	
-	(*this)();
+
+	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
 }
 
 template <typename F, typename ReturnState, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
