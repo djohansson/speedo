@@ -209,8 +209,9 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		return true;
 	};
 
-	loadCachedSourceFile(
-		slangFile, slangFile, "slang", "0.9.1-dev", loadSlang, loadBin, saveBin);
+	static constexpr char loaderTypeStr[] = "slang";
+	static constexpr char loaderVersionStr[] = "0.9.1-dev";
+	loadCachedSourceFile<loaderTypeStr, loaderVersionStr>(slangFile, slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");

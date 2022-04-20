@@ -327,8 +327,9 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
         return true;
     };
 
-    loadCachedSourceFile(
-        imageFile, imageFile, "stb_image|stb_image_resize|stb_dxt", "2.26|0.96|1.10", loadImage, loadBin, saveBin);
+    static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
+    static constexpr char loaderVersion[] = "2.26|0.96|1.10";
+    loadCachedSourceFile<loaderType, loaderVersion>(imageFile, imageFile, loadImage, loadBin, saveBin);
 
     if (!bufferHandle)
         throw std::runtime_error("Failed to load image.");

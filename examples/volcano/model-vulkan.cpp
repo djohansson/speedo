@@ -334,8 +334,9 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		return true;
 	};
 
-	loadCachedSourceFile(
-		modelFile, modelFile, "tinyobjloader", "2.0.0", loadOBJ, loadBin, saveBin);
+	static constexpr char loaderType[] = "tinyobjloader";
+    static constexpr char loaderVersion[] = "2.0.0";
+	loadCachedSourceFile<loaderType, loaderVersion>(modelFile, modelFile, loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");
