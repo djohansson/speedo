@@ -121,7 +121,7 @@ VkBool32 debugUtilsMessengerCallback(
         if (pCallbackData->pMessageIdName)
             std::cout << pCallbackData->pMessageIdName << ": ";
 
-        std::cout << pCallbackData->pMessage << '\n';
+        std::cout << pCallbackData->pMessage << std::endl;
         
         if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
             __debugbreak();
