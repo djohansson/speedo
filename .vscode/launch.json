@@ -154,17 +154,23 @@
             //"type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/debug/volcano.exe",
-            "symbolSearchPath": "cache*D:/symbolcache;srv*https://msdl.microsoft.com/download/symbols",
+            "symbolSearchPath": "${workspaceFolder}/build.output/debug",
+            "symbolOptions": {
+                "searchPaths": [
+                    "https://driver-symbols.nvidia.com/",
+                    "https://download.amd.com/dir/bin"
+                ],
+                "searchMicrosoftSymbolServer": true,
+                "cachePath": "D:/symbolcache",
+                "moduleFilter": {
+                    "mode": "loadAllButExcluded",
+                    "excludedModules": [ "DoNotLookForThisOne*.dll" ]
+                }
+            },
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
-            // "environment": [
-            //     {
-            //         "name": "_NO_DEBUG_HEAP",
-            //         "value": "1"
-            //     }
-            // ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) release/volcano",
@@ -172,6 +178,19 @@
             //"type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/release/volcano.exe",
+            "symbolSearchPath": "${workspaceFolder}/build.output/release",
+            "symbolOptions": {
+                "searchPaths": [
+                    "https://driver-symbols.nvidia.com/",
+                    "https://download.amd.com/dir/bin"
+                ],
+                "searchMicrosoftSymbolServer": true,
+                "cachePath": "D:/symbolcache",
+                "moduleFilter": {
+                    "mode": "loadAllButExcluded",
+                    "excludedModules": [ "DoNotLookForThisOne*.dll" ]
+                }
+            },
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
@@ -181,7 +200,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) profile/volcano",
@@ -189,6 +208,19 @@
             //"type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build.output/profile/volcano.exe",
+            "symbolSearchPath": "${workspaceFolder}/build.output/profile",
+            "symbolOptions": {
+                "searchPaths": [
+                    "https://driver-symbols.nvidia.com/",
+                    "https://download.amd.com/dir/bin"
+                ],
+                "searchMicrosoftSymbolServer": true,
+                "cachePath": "D:/symbolcache",
+                "moduleFilter": {
+                    "mode": "loadAllButExcluded",
+                    "excludedModules": [ "DoNotLookForThisOne*.dll" ]
+                }
+            },
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
@@ -198,7 +230,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) debug/mio-test",
@@ -214,7 +246,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) release/mio-test",
@@ -230,7 +262,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) profile/mio-test",
@@ -246,7 +278,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) debug/picosha2-test",
@@ -262,7 +294,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) release/picosha2-test",
@@ -278,7 +310,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(Windows) profile/picosha2-test",
@@ -294,7 +326,7 @@
                     "value": "1"
                 }
             ],
-            "console": false
+            "console": "internalConsole"
         },
         {
             "name": "(lldb) debug/slangc",
@@ -305,7 +337,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"}],
-            "console": false,
+            "console": "internalConsole",
             "MIMode": "lldb",
         },
         {
@@ -317,7 +349,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"}],
-            "console": false,
+            "console": "internalConsole",
             "MIMode": "lldb",
         },
         {
@@ -329,7 +361,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"}],
-            "console": false,
+            "console": "internalConsole",
             "MIMode": "lldb",
         },
         {
@@ -341,7 +373,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"}],
-            "console": false,
+            "console": "internalConsole",
             "MIMode": "lldb",
         },
         {
@@ -353,7 +385,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"}],
-            "console": false,
+            "console": "internalConsole",
             "MIMode": "lldb",
         },
         {
@@ -365,7 +397,7 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/examples/volcano",
             "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"}],
-            "console": false,
+            "console": "internalConsole",
             "MIMode": "lldb",
         },
     ]
