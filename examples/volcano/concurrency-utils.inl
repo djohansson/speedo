@@ -343,7 +343,7 @@ template <
 	typename... Args,
 	typename ReturnType>
 requires std::invocable<F&, Args...>
-std::tuple<TaskNode*, Future<ReturnType>> TaskGraph::createNode(F&& f, Args&&... args)
+std::tuple<const TaskNode*, Future<ReturnType>> TaskGraph::createNode(F&& f, Args&&... args)
 {
 	ZoneScopedN("TaskGraph::createNode");
 
@@ -352,7 +352,8 @@ std::tuple<TaskNode*, Future<ReturnType>> TaskGraph::createNode(F&& f, Args&&...
 		std::forward<F>(f),
 		std::make_shared<typename Future<ReturnType>::state_t>(),
 		std::forward<Args>(args)...);
-	auto& taskNode = *taskNodeIt;
+	
+	const auto& taskNode = *taskNodeIt;
 	
 	return std::make_tuple(
 		&taskNode,

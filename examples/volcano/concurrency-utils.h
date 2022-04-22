@@ -250,7 +250,7 @@ public:
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
 	requires std::invocable<F&, Args...>
-	std::tuple<TaskNode*, Future<ReturnType>> createNode(F&& f, Args&&... args);
+	std::tuple<const TaskNode*, Future<ReturnType>> createNode(F&& f, Args&&... args);
 
 private:
 	friend class TaskExecutor;
