@@ -1027,10 +1027,13 @@ VkResult checkFlipOrPresentResult(VkResult result)
 	case VK_SUCCESS:
 		break;
 	case VK_SUBOPTIMAL_KHR:
-		std::cout << "warning: flip/present returned VK_SUBOPTIMAL_KHR";
+		std::cout << "warning: flip/present returned VK_SUBOPTIMAL_KHR\n";
 		break;
 	case VK_ERROR_OUT_OF_DATE_KHR:
-		std::cout << "warning: flip/present returned VK_ERROR_OUT_OF_DATE_KHR";
+		std::cout << "warning: flip/present returned VK_ERROR_OUT_OF_DATE_KHR\n";
+		break;
+	case VK_NOT_READY:
+		std::cout << "warning: flip/present returned VK_NOT_READY\n";
 		break;
 	default:
 		throw std::runtime_error("Invalid error code.");
