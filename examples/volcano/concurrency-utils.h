@@ -126,7 +126,6 @@ public:
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	Task& operator=(const Task& other) noexcept;
-	bool operator==(const Task& other) const noexcept { return memcmp(this, &other, sizeof(Task)); }
 
 private:
 	template <typename T>
@@ -219,7 +218,7 @@ public:
 	operator bool() const noexcept;
 	bool operator!() const noexcept;
 	TaskNode& operator=(TaskNode&& other) noexcept;
-	bool operator==(const TaskNode& other) const noexcept { return Task::operator==(other) && mySuccessors == other.mySuccessors && myDependents == other.myDependents; }
+	auto operator<=>(const TaskNode&) const noexcept = default;
 
 	auto getId() const noexcept { return myId; }
 
