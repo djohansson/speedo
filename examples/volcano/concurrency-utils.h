@@ -194,7 +194,8 @@ public:
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
 	requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
 
-private : std::shared_ptr<state_t> myState;
+private:
+	std::shared_ptr<state_t> myState;
 };
 
 class TaskGraph : public Noncopyable
