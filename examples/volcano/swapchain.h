@@ -2,9 +2,9 @@
 
 #include "device.h"
 #include "frame.h"
+#include "queue.h"
 #include "rendertarget.h"
 #include "types.h"
-#include "queue.h"
 
 #include <memory>
 
@@ -18,10 +18,11 @@ struct SwapchainConfiguration
 };
 
 template <GraphicsBackend B>
-class Swapchain : public IRenderTarget<B>, public DeviceObject<B>
+class Swapchain
+	: public IRenderTarget<B>
+	, public DeviceObject<B>
 {
 public:
-
 	constexpr Swapchain() noexcept = default;
 	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
@@ -40,33 +41,36 @@ public:
 	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const final;
 
 	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
-    virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+	virtual ImageLayout<B> getDepthStencilImageLayout() const final;
 
 	virtual void blit(
-        CommandBufferHandle<B> cmd,
-        const IRenderTarget<Vk>& srcRenderTarget,
-        const ImageSubresourceLayers<B>& srcSubresource,
-        uint32_t srcIndex,
-        const ImageSubresourceLayers<B>& dstSubresource,
-        uint32_t dstIndex,
-        Filter<B> filter = {}) final;
+		CommandBufferHandle<B> cmd,
+		const IRenderTarget<Vk>& srcRenderTarget,
+		const ImageSubresourceLayers<B>& srcSubresource,
+		uint32_t srcIndex,
+		const ImageSubresourceLayers<B>& dstSubresource,
+		uint32_t dstIndex,
+		Filter<B> filter = {}) final;
 
 	virtual void clearSingleAttachment(
-        CommandBufferHandle<B> cmd,
-        const ClearAttachment<B>& clearAttachment) const final;
-    virtual void clearAllAttachments(
-        CommandBufferHandle<B> cmd,
-        const ClearColorValue<B>& color = {},
-        const ClearDepthStencilValue<B>& depthStencil = {}) const final;
+		CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const final;
+	virtual void clearAllAttachments(
+		CommandBufferHandle<B> cmd,
+		const ClearColorValue<B>& color = {},
+		const ClearDepthStencilValue<B>& depthStencil = {}) const final;
 
-	virtual void clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
-    virtual void clearDepthStencil(CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
+	virtual void
+	clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
+	virtual void clearDepthStencil(
+		CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
 
-    virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
-    virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+	virtual void
+	transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
+	virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
 
-	virtual const std::optional<RenderPassBeginInfo<B>>& begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
-    virtual void end(CommandBufferHandle<B> cmd) final;
+	virtual const std::optional<RenderPassBeginInfo<B>>&
+	begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
+	virtual void end(CommandBufferHandle<B> cmd) final;
 
 	auto getSurface() const noexcept { return mySurface; }
 	auto getRenderPass() { return static_cast<RenderPassHandle<B>>(myFrames[myFrameIndex]); }
@@ -77,7 +81,8 @@ public:
 		const auto& lastFrame = myFrames[myLastFrameIndex];
 		const auto& frame = myFrames[myFrameIndex];
 
-		return std::make_tuple(lastFrame.getNewImageAcquiredSemaphore(), frame.getRenderCompleteSemaphore());
+		return std::make_tuple(
+			lastFrame.getNewImageAcquiredSemaphore(), frame.getRenderCompleteSemaphore());
 	}
 	//
 
@@ -85,15 +90,12 @@ public:
 	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
 
 protected:
-
 	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }
 
-	void internalCreateSwapchain(
-		const SwapchainConfiguration<B>& config,
-		SwapchainHandle<B> previous);
+	void
+	internalCreateSwapchain(const SwapchainConfiguration<B>& config, SwapchainHandle<B> previous);
 
 private:
-
 	RenderTargetCreateDesc<B> myDesc = {};
 	SurfaceHandle<B> mySurface = {};
 	SwapchainHandle<B> mySwapchain = {};

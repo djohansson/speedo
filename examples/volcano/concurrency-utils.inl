@@ -1,5 +1,6 @@
 template <typename T, typename AtomicT>
-constexpr CopyableAtomic<T, AtomicT>::CopyableAtomic(CopyableAtomic<T, AtomicT>::value_t val) noexcept
+constexpr CopyableAtomic<T, AtomicT>::CopyableAtomic(
+	CopyableAtomic<T, AtomicT>::value_t val) noexcept
 	: AtomicT(val)
 {}
 
@@ -10,7 +11,8 @@ CopyableAtomic<T, AtomicT>::CopyableAtomic(const CopyableAtomic& other) noexcept
 }
 
 template <typename T, typename AtomicT>
-CopyableAtomic<T, AtomicT>& CopyableAtomic<T, AtomicT>::operator=(const CopyableAtomic& other) noexcept
+CopyableAtomic<T, AtomicT>&
+CopyableAtomic<T, AtomicT>::operator=(const CopyableAtomic& other) noexcept
 {
 	store(other.load(std::memory_order_acquire), std::memory_order_release);
 
@@ -179,7 +181,8 @@ typename Future<T>::value_t Future<T>::get()
 {
 	assert(valid());
 
-	auto state = myState; // important! otherwise value will be garbage on exit due to myState.reset().
+	auto state =
+		myState; // important! otherwise value will be garbage on exit due to myState.reset().
 	auto& [value, flag, continuation] = *state;
 
 	if (!is_ready())
@@ -219,14 +222,15 @@ void Future<T>::wait() const
 
 template <typename T>
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
-requires std::invocable<F&, Args...>
-Future<ReturnType> Future<T>::then(F&& f)
+requires std::invocable<F&, Args...> Future<ReturnType> Future<T>::then(F&& f)
 {
 	auto& [value, flag, continuation] = *myState;
 
-	continuation = Task(std::forward<CallableType>(f), std::make_shared<typename Future<ReturnType>::state_t>());
+	continuation = Task(
+		std::forward<CallableType>(f), std::make_shared<typename Future<ReturnType>::state_t>());
 
-	return Future<ReturnType>(continuation.template returnState<typename Future<ReturnType>::state_t>());
+	return Future<ReturnType>(
+		continuation.template returnState<typename Future<ReturnType>::state_t>());
 }
 
 template <typename ReturnState>
@@ -239,10 +243,10 @@ template <typename... Args>
 void Task::operator()(Args&&... args)
 {
 	assert(myInvokeFcnPtr);
-	
+
 	using ArgsTuple = std::tuple<Args...>;
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
-	
+
 	std::construct_at(
 		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
 		std::forward<Args>(args)...);
@@ -250,41 +254,60 @@ void Task::operator()(Args&&... args)
 	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
 }
 
-template <typename F, typename ReturnState, typename CallableType, typename... Args, typename ArgsTuple, typename ReturnType>
+template <
+	typename F,
+	typename ReturnState,
+	typename CallableType,
+	typename... Args,
+	typename ArgsTuple,
+	typename ReturnType>
 requires std::invocable<F&, Args...>
 Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
-	: myInvokeFcnPtr([](const void* callablePtr, const void* argsPtr, void* returnPtr)
-	{
-		const auto& callable = *static_cast<const CallableType*>(callablePtr);
-		const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
-		auto& [value, flag, continuation] = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
+	: myInvokeFcnPtr(
+		  [](const void* callablePtr, const void* argsPtr, void* returnPtr)
+		  {
+			  const auto& callable = *static_cast<const CallableType*>(callablePtr);
+			  const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
+			  auto& [value, flag, continuation] =
+				  *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
 
-		if constexpr (std::is_void_v<ReturnType>)
-			std::apply(callable, args);
-		else
-			value = std::apply(callable, args);
+			  if constexpr (std::is_void_v<ReturnType>)
+				  std::apply(callable, args);
+			  else
+				  value = std::apply(callable, args);
 
-		flag.store(true, std::memory_order_release);
-		flag.notify_all();
+			  flag.store(true, std::memory_order_release);
+			  flag.notify_all();
 
-		if (continuation)
-		{
-			if constexpr (std::is_tuple_v<ReturnType>)
-				continuation.apply(value, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<ArgsTuple>>>{});
-			else
-				continuation(value);
-		}
-	})
-	, myCopyFcnPtr([](void* callablePtr, const void* otherCallablePtr, void* argsPtr, const void* otherArgsPtr)
-	{
-		std::construct_at(static_cast<CallableType*>(callablePtr), *static_cast<const CallableType*>(otherCallablePtr));
-		std::construct_at(static_cast<ArgsTuple*>(argsPtr), *static_cast<const ArgsTuple*>(otherArgsPtr));
-	})
-	, myDeleteFcnPtr([](void* callablePtr, void* argsPtr)
-	{
-		std::destroy_at(static_cast<CallableType*>(callablePtr));
-		std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
-	})
+			  if (continuation)
+			  {
+				  if constexpr (std::is_tuple_v<ReturnType>)
+					  continuation.apply(
+						  value,
+						  std::make_index_sequence<
+							  std::tuple_size_v<std::remove_reference_t<ArgsTuple>>>{});
+				  else
+					  continuation(value);
+			  }
+		  })
+	, myCopyFcnPtr(
+		  [](void* callablePtr,
+			 const void* otherCallablePtr,
+			 void* argsPtr,
+			 const void* otherArgsPtr)
+		  {
+			  std::construct_at(
+				  static_cast<CallableType*>(callablePtr),
+				  *static_cast<const CallableType*>(otherCallablePtr));
+			  std::construct_at(
+				  static_cast<ArgsTuple*>(argsPtr), *static_cast<const ArgsTuple*>(otherArgsPtr));
+		  })
+	, myDeleteFcnPtr(
+		  [](void* callablePtr, void* argsPtr)
+		  {
+			  std::destroy_at(static_cast<CallableType*>(callablePtr));
+			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
+		  })
 	, myReturnState(std::forward<std::shared_ptr<ReturnState>>(returnState))
 {
 	static_assert(sizeof(Task) == 128);
@@ -301,14 +324,17 @@ Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
 }
 
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
-requires std::invocable<F&, Args...>
-Future<ReturnType> TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
+requires std::invocable<F&, Args...> Future<ReturnType>
+TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::fork");
 
-	auto task = Task(std::forward<F>(f), std::make_shared<typename Future<ReturnType>::state_t>(), std::forward<Args>(args)...);
+	auto task = Task(
+		std::forward<F>(f),
+		std::make_shared<typename Future<ReturnType>::state_t>(),
+		std::forward<Args>(args)...);
 	auto returnState = task.returnState<typename Future<ReturnType>::state_t>();
-	
+
 	// todo: enqueue_bulk
 	assert(count == 1);
 
@@ -329,8 +355,7 @@ Future<ReturnType> TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
 }
 
 template <typename ReturnType>
-std::optional<typename Future<ReturnType>::value_t>
-TaskExecutor::join(Future<ReturnType>&& future)
+std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<ReturnType>&& future)
 {
 	ZoneScopedN("TaskExecutor::join");
 

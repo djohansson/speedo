@@ -14,8 +14,8 @@
 
 #include <array>
 #include <chrono>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,14 +24,13 @@ template <GraphicsBackend B>
 struct WindowConfiguration : SwapchainConfiguration<B>
 {
 	Extent2d<B> windowExtent = {};
-	Extent2d<B> splitScreenGrid = { 1, 1 };
+	Extent2d<B> splitScreenGrid = {1, 1};
 };
 
 template <GraphicsBackend B>
 class WindowContext : public Swapchain<B>
 {
 public:
-
 	constexpr WindowContext() noexcept = default;
 	WindowContext(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
@@ -42,15 +41,15 @@ public:
 
 	WindowContext& operator=(WindowContext&& other) noexcept;
 
-    void swap(WindowContext& rhs) noexcept;
-    friend void swap(WindowContext& lhs, WindowContext& rhs) noexcept { lhs.swap(rhs); }
+	void swap(WindowContext& rhs) noexcept;
+	friend void swap(WindowContext& lhs, WindowContext& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getViews() const noexcept { return myViews; }
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer() const noexcept { return *myViewBuffer; }
 
-	void onResizeWindow(Extent2d<B> windowExtent) { myConfig.windowExtent = windowExtent;	}
+	void onResizeWindow(Extent2d<B> windowExtent) { myConfig.windowExtent = windowExtent; }
 	void onResizeFramebuffer(Extent2d<B> framebufferExtent);
 
 	void updateInput(const InputState& input);
@@ -65,7 +64,6 @@ public:
 	//
 
 private:
-
 	void internalUpdateViewBuffer() const;
 	void internalCreateFrameObjects(Extent2d<B> frameBufferExtent);
 

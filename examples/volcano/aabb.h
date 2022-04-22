@@ -8,7 +8,7 @@
 
 #include <cereal/cereal.hpp>
 
-template <typename T, size_t N=3>
+template <typename T, size_t N = 3>
 class AABB
 {
 	using ScalarType = T;
@@ -21,125 +21,126 @@ class AABB
 	static const size_t CornerCount = 1 << N;
 
 public:
-
 	constexpr AABB() noexcept
 		: myMin(std::numeric_limits<ScalarType>::max())
-		, myMax(std::numeric_limits<ScalarType>::lowest()) {}
+		, myMax(std::numeric_limits<ScalarType>::lowest())
+	{}
 
 	template <typename U = ScalarType>
 	AABB(const AABB<U, N>& other)
 		: myMin(static_cast<VectorType>(other.myMin))
-		, myMax(static_cast<VectorType>(other.myMax)) {}
+		, myMax(static_cast<VectorType>(other.myMax))
+	{}
 
 	template <typename U = ScalarType>
 	AABB(const OtherVectorType<U>& aMin, const OtherVectorType<U>& aMax)
 		: myMin(static_cast<VectorType>(aMin))
-		, myMax(static_cast<VectorType>(aMax)) {}
+		, myMax(static_cast<VectorType>(aMax))
+	{}
 
-	operator bool() const
-	{
-		return (myMax < myMin) == 0;
-	}
+	operator bool() const { return (myMax < myMin) == 0; }
 
-	bool operator!() const
-	{
-		return !static_cast<bool>(*this);
-	}
+	bool operator!() const { return !static_cast<bool>(*this); }
 
 	const auto& getMin() const { return myMin; }
 	const auto& getMax() const { return myMax; }
 
 	template <typename U = ScalarType>
-	void setMin(const OtherVectorType<U>& aPoint) { myMin = aPoint; }
-	
+	void setMin(const OtherVectorType<U>& aPoint)
+	{
+		myMin = aPoint;
+	}
+
 	template <typename U = ScalarType>
-	void setMax(const OtherVectorType<U>& aPoint) { myMax = aPoint; }
+	void setMax(const OtherVectorType<U>& aPoint)
+	{
+		myMax = aPoint;
+	}
 
 	template <typename U = ScalarType>
 	bool contains(const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const
 	{
-		return ((aPoint > (myMax + VectorType(aEpsilon))) == 0) && ((aPoint < (myMin - VectorType(aEpsilon))) == 0);
+		return ((aPoint > (myMax + VectorType(aEpsilon))) == 0) &&
+			   ((aPoint < (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
 	bool contains(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
 	{
-		return ((anOther.myMax > (myMax + VectorType(aEpsilon))) == 0) && ((anOther.myMin < (myMin - VectorType(aEpsilon))) == 0);
+		return ((anOther.myMax > (myMax + VectorType(aEpsilon))) == 0) &&
+			   ((anOther.myMin < (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool containsExclusive(const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const
+	bool containsExclusive(
+		const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const
 	{
-		return ((aPoint >= (myMax + VectorType(aEpsilon))) == 0) && ((aPoint <= (myMin - VectorType(aEpsilon))) == 0);
+		return ((aPoint >= (myMax + VectorType(aEpsilon))) == 0) &&
+			   ((aPoint <= (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool containsExclusive(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
+	bool
+	containsExclusive(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
 	{
-		return ((anOther.myMax >= (myMax + VectorType(aEpsilon))) == 0) && ((anOther.myMin <= (myMin - VectorType(aEpsilon))) == 0);
+		return ((anOther.myMax >= (myMax + VectorType(aEpsilon))) == 0) &&
+			   ((anOther.myMin <= (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
 	bool intersects(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
 	{
-		return ((anOther.myMin >= (myMax + VectorType(aEpsilon))) == 0) && ((anOther.myMax <= (myMin - VectorType(aEpsilon))) == 0);
+		return ((anOther.myMin >= (myMax + VectorType(aEpsilon))) == 0) &&
+			   ((anOther.myMax <= (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
 	bool overlaps(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
 	{
-		return ((anOther.myMin > (myMax + VectorType(aEpsilon))) == 0) && ((anOther.myMax < (myMin - VectorType(aEpsilon))) == 0);
+		return ((anOther.myMin > (myMax + VectorType(aEpsilon))) == 0) &&
+			   ((anOther.myMax < (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
 	void merge(const AABB<U, N>& anOther)
 	{
-        myMin = glm::min(myMin, static_cast<VectorType>(anOther.myMin));
-        myMax = glm::max(myMax, static_cast<VectorType>(anOther.myMax));
+		myMin = glm::min(myMin, static_cast<VectorType>(anOther.myMin));
+		myMax = glm::max(myMax, static_cast<VectorType>(anOther.myMax));
 	}
 
 	template <typename U = ScalarType>
 	void merge(const OtherVectorType<U>& aPoint)
 	{
-        myMin = glm::min(myMin, static_cast<VectorType>(aPoint));
-        myMax = glm::max(myMax, static_cast<VectorType>(aPoint));
+		myMin = glm::min(myMin, static_cast<VectorType>(aPoint));
+		myMax = glm::max(myMax, static_cast<VectorType>(aPoint));
 	}
 
 	template <typename U = ScalarType>
 	void mergeSphere(const OtherVectorType<U>& aCenter, U aRadius)
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(aCenter - OtherVectorType<U>(aRadius)));
-        myMax = glm::max(myMax, static_cast<VectorType>(aCenter + OtherVectorType<U>(aRadius)));
+		myMax = glm::max(myMax, static_cast<VectorType>(aCenter + OtherVectorType<U>(aRadius)));
 	}
 
-	VectorType center() const
-	{
-		return (myMax + myMin)*ScalarType(0.5);
-	}
+	VectorType center() const { return (myMax + myMin) * ScalarType(0.5); }
 
-	VectorType size() const
-	{
-		return (myMax - myMin);
-	}
+	VectorType size() const { return (myMax - myMin); }
 
-	ScalarType radius() const
-	{
-		return glm::length(myMax - myMin)*ScalarType(0.5);
-	}
+	ScalarType radius() const { return glm::length(myMax - myMin) * ScalarType(0.5); }
 
 	template <typename U = VectorType>
 	std::array<U, CornerCount> corners() const
 	{
-        std::array<U, CornerCount> somePointsOut;
+		std::array<U, CornerCount> somePointsOut;
 
 		for (size_t i = 0; i < CornerCount; i++)
 			for (size_t j = 0; j < N; j++)
 				somePointsOut[i][j] = (i & (1 << j)) ? myMax[j] : myMin[j];
 
-        return somePointsOut;
+		return somePointsOut;
 	}
 
-    template <class Archive>
+	template <class Archive>
 	void serialize(Archive& archive)
 	{
 		archive(myMin);
@@ -147,7 +148,6 @@ public:
 	}
 
 private:
-
 	VectorType myMin = {};
 	VectorType myMax = {};
 };

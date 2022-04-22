@@ -29,7 +29,11 @@ Task& Task::operator=(Task&& other) noexcept
 	myDeleteFcnPtr = std::exchange(other.myDeleteFcnPtr, nullptr);
 
 	if (myCopyFcnPtr)
-		myCopyFcnPtr(myCallableMemory.data(), other.myCallableMemory.data(), myArgsMemory.data(), other.myArgsMemory.data());
+		myCopyFcnPtr(
+			myCallableMemory.data(),
+			other.myCallableMemory.data(),
+			myArgsMemory.data(),
+			other.myArgsMemory.data());
 
 	if (myDeleteFcnPtr)
 		myDeleteFcnPtr(other.myCallableMemory.data(), other.myArgsMemory.data());
@@ -48,7 +52,11 @@ Task& Task::operator=(const Task& other) noexcept
 	myDeleteFcnPtr = other.myDeleteFcnPtr;
 
 	if (myCopyFcnPtr)
-		myCopyFcnPtr(myCallableMemory.data(), other.myCallableMemory.data(), myArgsMemory.data(), other.myArgsMemory.data());
+		myCopyFcnPtr(
+			myCallableMemory.data(),
+			other.myCallableMemory.data(),
+			myArgsMemory.data(),
+			other.myArgsMemory.data());
 
 	return *this;
 }
@@ -90,7 +98,8 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 
 	assertf(threadCount > 0, "Thread count must be nonzero");
 
-	auto threadMain = [this] {
+	auto threadMain = [this]
+	{
 		//auto stopToken = myStopSource.get_token();
 		internalThreadMain(/*stopToken*/);
 	};

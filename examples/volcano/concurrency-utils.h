@@ -1,7 +1,7 @@
 #pragma once
 
-#include "utils.h"
 #include "profiling.h"
+#include "utils.h"
 
 #include <array>
 #include <atomic>
@@ -15,8 +15,8 @@
 //#include <stop_token>
 #include <tuple>
 #include <type_traits>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include <concurrentqueue.h>
 #include <robin_hood.h>
@@ -41,11 +41,13 @@ public:
 	CopyableAtomic& operator=(const CopyableAtomic& other) noexcept;
 };
 
-template <typename ValueT = uint32_t, uint32_t Aligmnent =
+template <
+	typename ValueT = uint32_t,
+	uint32_t Aligmnent =
 #if __cpp_lib_hardware_interference_size >= 201603
-std::hardware_destructive_interference_size>
+		std::hardware_destructive_interference_size>
 #else
-128>
+		128>
 #endif
 class alignas(Aligmnent) UpgradableSharedMutex
 {
@@ -72,7 +74,8 @@ class alignas(Aligmnent) UpgradableSharedMutex
 public:
 	// Lockable Concept
 	void lock() noexcept;
-	void unlock() noexcept; // Writer is responsible for clearing up both the Upgraded and Writer bits.
+	void
+	unlock() noexcept; // Writer is responsible for clearing up both the Upgraded and Writer bits.
 
 	// SharedLockable Concept
 	void lock_shared() noexcept;
@@ -137,7 +140,7 @@ private:
 		typename... Args,
 		typename ArgsTuple = std::tuple<Args...>,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-		requires std::invocable<F&, Args...>
+	requires std::invocable<F&, Args...>
 	Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
 
 	template <typename... Args>
@@ -154,7 +157,7 @@ private:
 
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
-	
+
 	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory = {};
 	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory = {};
 	void (*myInvokeFcnPtr)(const void*, const void*, void*) = nullptr;
@@ -170,7 +173,8 @@ class Future : Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	using state_t = std::tuple<value_t, std::atomic_bool, Task>; // retval, mutex, continuation (optional)
+	using state_t =
+		std::tuple<value_t, std::atomic_bool, Task>; // retval, mutex, continuation (optional)
 
 	constexpr Future() noexcept = default;
 	Future(std::shared_ptr<state_t>&& state) noexcept;
@@ -188,11 +192,9 @@ public:
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-		requires std::invocable<F&, Args...>
-	Future<ReturnType> then(F&& f);
+	requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
 
-private:
-	std::shared_ptr<state_t> myState;
+private : std::shared_ptr<state_t> myState;
 };
 
 class TaskGraph : public Noncopyable
@@ -213,7 +215,7 @@ public:
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-		requires std::invocable<F&, Args...>
+	requires std::invocable<F&, Args...>
 	const uuids::uuid& emplace(F&& f, Args&&... args);
 
 private:
@@ -235,8 +237,8 @@ public:
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-		requires std::invocable<F&, Args...>
-	Future<ReturnType> fork(F&& f, uint32_t count = 1, Args&&... args);
+	requires std::invocable<F&, Args...> Future<ReturnType>
+	fork(F&& f, uint32_t count = 1, Args&&... args);
 
 	void join();
 

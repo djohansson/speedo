@@ -1,13 +1,13 @@
-#include "window.h"
 #include "resources/shaders/shadertypes.h"
 #include "typeinfo.h"
 #include "vk-utils.h"
 #include "volcano.h"
+#include "window.h"
 
 #include <stb_sprintf.h>
 
 #if defined(__WINDOWS__)
-#include <execution>
+#	include <execution>
 #endif
 #include <filesystem>
 #include <future>
@@ -19,432 +19,464 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
 
 template <>
 void WindowContext<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 {
-    ZoneScopedN("WindowContext::internalCreateFrameObjects");
+	ZoneScopedN("WindowContext::internalCreateFrameObjects");
 
-    myViewBuffer = std::make_unique<Buffer<Vk>>(
-        getDeviceContext(),
-        BufferCreateDesc<Vk>{
-            myConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
+	myViewBuffer = std::make_unique<Buffer<Vk>>(
+		getDeviceContext(),
+		BufferCreateDesc<Vk>{
+			myConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
-    myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
-    
-    for (auto& view : myViews)
-    {
-        if (!view.desc().viewport.width)
-            view.desc().viewport.width =  framebufferExtent.width / myConfig.splitScreenGrid.width;
+	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
-        if (!view.desc().viewport.height)
-            view.desc().viewport.height = framebufferExtent.height / myConfig.splitScreenGrid.height;
+	for (auto& view : myViews)
+	{
+		if (!view.desc().viewport.width)
+			view.desc().viewport.width = framebufferExtent.width / myConfig.splitScreenGrid.width;
 
-        view.updateAll();
-    }
+		if (!view.desc().viewport.height)
+			view.desc().viewport.height =
+				framebufferExtent.height / myConfig.splitScreenGrid.height;
+
+		view.updateAll();
+	}
 }
 
 template <>
 void WindowContext<Vk>::internalUpdateViewBuffer() const
 {
-    ZoneScopedN("WindowContext::internalUpdateViewBuffer");
+	ZoneScopedN("WindowContext::internalUpdateViewBuffer");
 
-    void* data;
-    VK_CHECK(vmaMapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+	void* data;
+	VK_CHECK(
+		vmaMapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-    ViewData* viewDataPtr = &reinterpret_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
-    auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
-    assert(viewCount <= ShaderTypes_ViewCount);
-    for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
-    {
-        viewDataPtr->viewProjectionTransform = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
-        viewDataPtr++;
-    }
+	ViewData* viewDataPtr =
+		&reinterpret_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
+	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
+	assert(viewCount <= ShaderTypes_ViewCount);
+	for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
+	{
+		viewDataPtr->viewProjectionTransform =
+			myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
+		viewDataPtr++;
+	}
 
-    vmaFlushAllocation(
-        getDeviceContext()->getAllocator(),
-        myViewBuffer->getBufferMemory(),
-        internalGetFrameIndex() * ShaderTypes_ViewCount * sizeof(ViewData),
-        viewCount * sizeof(ViewData));
+	vmaFlushAllocation(
+		getDeviceContext()->getAllocator(),
+		myViewBuffer->getBufferMemory(),
+		internalGetFrameIndex() * ShaderTypes_ViewCount * sizeof(ViewData),
+		viewCount * sizeof(ViewData));
 
-    vmaUnmapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory());
+	vmaUnmapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
 uint32_t WindowContext<Vk>::internalDrawViews(
-    PipelineContext<Vk>& pipeline,
-    CommandPoolContext<Vk>* secondaryContexts,
-    uint32_t secondaryContextCount,
-    const RenderPassBeginInfo<Vk>& renderPassInfo)
+	PipelineContext<Vk>& pipeline,
+	CommandPoolContext<Vk>* secondaryContexts,
+	uint32_t secondaryContextCount,
+	const RenderPassBeginInfo<Vk>& renderPassInfo)
 {
-    // setup draw parameters
-    uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
-    uint32_t drawThreadCount = std::min<uint32_t>(drawCount, secondaryContextCount);
+	// setup draw parameters
+	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
+	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, secondaryContextCount);
 
-    std::atomic_uint32_t drawAtomic = 0ul;
-    
-    // draw views using secondary command buffers
-    // todo: generalize this to other types of draws
-    if (pipeline.resources().model)
-    {
-        ZoneScopedN("WindowContext::drawViews");
+	std::atomic_uint32_t drawAtomic = 0ul;
 
-        std::array<uint32_t, 128> seq;
-        std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
-        std::for_each_n(
-    #if defined(__WINDOWS__)
-        std::execution::par,
-    #endif
-            seq.begin(), drawThreadCount,
-            [&pipeline, &secondaryContexts, &renderPassInfo, frameIndex = internalGetFrameIndex(), &drawAtomic, &drawCount, &desc = myConfig](uint32_t threadIt)
-            {
-                ZoneScoped;
+	// draw views using secondary command buffers
+	// todo: generalize this to other types of draws
+	if (pipeline.resources().model)
+	{
+		ZoneScopedN("WindowContext::drawViews");
 
-                auto drawIt = drawAtomic++;
-                if (drawIt >= drawCount)
-                    return;
+		std::array<uint32_t, 128> seq;
+		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
+		std::for_each_n(
+#if defined(__WINDOWS__)
+			std::execution::par,
+#endif
+			seq.begin(),
+			drawThreadCount,
+			[&pipeline,
+			 &secondaryContexts,
+			 &renderPassInfo,
+			 frameIndex = internalGetFrameIndex(),
+			 &drawAtomic,
+			 &drawCount,
+			 &desc = myConfig](uint32_t threadIt)
+			{
+				ZoneScoped;
 
-                static constexpr std::string_view drawPartitionStr = "WindowContext::drawPartition";
-                char drawPartitionWithNumberStr[drawPartitionStr.size()+3];
-                stbsp_sprintf(drawPartitionWithNumberStr, "%.*s%u",
-                    static_cast<int>(drawPartitionStr.size()), drawPartitionStr.data(), threadIt);
+				auto drawIt = drawAtomic++;
+				if (drawIt >= drawCount)
+					return;
 
-                ZoneName(drawPartitionWithNumberStr, std::ssize(drawPartitionWithNumberStr));
-                
-                CommandBufferInheritanceInfo<Vk> inheritInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
-                inheritInfo.renderPass = renderPassInfo.renderPass;
-                inheritInfo.framebuffer = renderPassInfo.framebuffer;
+				static constexpr std::string_view drawPartitionStr = "WindowContext::drawPartition";
+				char drawPartitionWithNumberStr[drawPartitionStr.size() + 3];
+				stbsp_sprintf(
+					drawPartitionWithNumberStr,
+					"%.*s%u",
+					static_cast<int>(drawPartitionStr.size()),
+					drawPartitionStr.data(),
+					threadIt);
 
-                CommandBufferAccessScopeDesc<Vk> beginInfo = {};
-                beginInfo.flags =
-                    VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
-                    VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-                beginInfo.pInheritanceInfo = &inheritInfo;
-                beginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-                    
-                auto& commandContext = secondaryContexts[threadIt];
-                auto cmd = commandContext.commands(beginInfo);
+				ZoneName(drawPartitionWithNumberStr, std::ssize(drawPartitionWithNumberStr));
 
-                auto bindState = [&pipeline](VkCommandBuffer cmd)
-                {
-                    ZoneScopedN("bindState");
+				CommandBufferInheritanceInfo<Vk> inheritInfo = {
+					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+				inheritInfo.renderPass = renderPassInfo.renderPass;
+				inheritInfo.framebuffer = renderPassInfo.framebuffer;
 
-                    // bind descriptor sets
-                    pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
-                    pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
-                    pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
-                    pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
-                    pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Object);
+				CommandBufferAccessScopeDesc<Vk> beginInfo = {};
+				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
+								  VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+				beginInfo.pInheritanceInfo = &inheritInfo;
+				beginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 
-                    // bind pipeline and vertex/index buffers
-                    pipeline.bindPipelineAuto(cmd);
+				auto& commandContext = secondaryContexts[threadIt];
+				auto cmd = commandContext.commands(beginInfo);
 
-                    VkBuffer vertexBuffers[] = { *pipeline.resources().model };
-                    VkDeviceSize vertexOffsets[] = { pipeline.resources().model->getVertexOffset() };
+				auto bindState = [&pipeline](VkCommandBuffer cmd)
+				{
+					ZoneScopedN("bindState");
 
-                    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
-                    vkCmdBindIndexBuffer(cmd, *pipeline.resources().model,
-                        pipeline.resources().model->getIndexOffset(), VK_INDEX_TYPE_UINT32);
-                };
+					// bind descriptor sets
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Object);
 
-                bindState(cmd);
+					// bind pipeline and vertex/index buffers
+					pipeline.bindPipelineAuto(cmd);
 
-                uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
-                uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
+					VkBuffer vertexBuffers[] = {*pipeline.resources().model};
+					VkDeviceSize vertexOffsets[] = {pipeline.resources().model->getVertexOffset()};
 
-                while (drawIt < drawCount)
-                {
-                    auto drawView = [&frameIndex, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
-                    {
-                        ZoneScopedN("drawView");
+					vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
+					vkCmdBindIndexBuffer(
+						cmd,
+						*pipeline.resources().model,
+						pipeline.resources().model->getIndexOffset(),
+						VK_INDEX_TYPE_UINT32);
+				};
 
-                        uint32_t i = viewIt % desc.splitScreenGrid.width;
-                        uint32_t j = viewIt / desc.splitScreenGrid.width;
+				bindState(cmd);
 
-                        auto setViewportAndScissor = [](VkCommandBuffer cmd, int32_t x, int32_t y, uint32_t width, uint32_t height)
-                        {
-                            ZoneScopedN("setViewportAndScissor");
+				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
+				uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 
-                            VkViewport viewport = {};
-                            viewport.x = static_cast<float>(x);
-                            viewport.y = static_cast<float>(y);
-                            viewport.width = static_cast<float>(width);
-                            viewport.height = static_cast<float>(height);
-                            viewport.minDepth = 0.0f;
-                            viewport.maxDepth = 1.0f;
+				while (drawIt < drawCount)
+				{
+					auto drawView = [&frameIndex, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
+					{
+						ZoneScopedN("drawView");
 
-                            VkRect2D scissor = {};
-                            scissor.offset = {x, y};
-                            scissor.extent = {width, height};
+						uint32_t i = viewIt % desc.splitScreenGrid.width;
+						uint32_t j = viewIt / desc.splitScreenGrid.width;
 
-                            vkCmdSetViewport(cmd, 0, 1, &viewport);
-                            vkCmdSetScissor(cmd, 0, 1, &scissor);
-                        };
+						auto setViewportAndScissor = [](VkCommandBuffer cmd,
+														int32_t x,
+														int32_t y,
+														uint32_t width,
+														uint32_t height)
+						{
+							ZoneScopedN("setViewportAndScissor");
 
-                        setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+							VkViewport viewport = {};
+							viewport.x = static_cast<float>(x);
+							viewport.y = static_cast<float>(y);
+							viewport.width = static_cast<float>(width);
+							viewport.height = static_cast<float>(height);
+							viewport.minDepth = 0.0f;
+							viewport.maxDepth = 1.0f;
 
-                        auto drawModel = [&pipeline, &frameIndex, &viewIt](VkCommandBuffer cmd)
-                        {
-                            ZoneScopedN("drawModel");
+							VkRect2D scissor = {};
+							scissor.offset = {x, y};
+							scissor.extent = {width, height};
 
-                            {
-                                ZoneScopedN("drawModel::vkCmdPushConstants");
+							vkCmdSetViewport(cmd, 0, 1, &viewport);
+							vkCmdSetScissor(cmd, 0, 1, &scissor);
+						};
 
-                                uint16_t viewId = frameIndex * ShaderTypes_ViewCount + viewIt;
-                                uint16_t materialId = 0ui16;
-                                uint16_t objectBufferIndex = 42ui16;
-                                uint16_t objectArrayIndex = 666ui16;
+						setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
-                                PushConstants pushConstants = {
-                                    (static_cast<uint32_t>(viewId) << 16ul) | materialId,
-                                    (static_cast<uint32_t>(objectBufferIndex) << 16ul) | objectArrayIndex};
-                                
-                                vkCmdPushConstants(
-                                    cmd,
-                                    pipeline.getLayout(),
-                                    VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-                                    0,
-                                    sizeof(PushConstants),
-                                    &pushConstants);
-                            }
+						auto drawModel = [&pipeline, &frameIndex, &viewIt](VkCommandBuffer cmd)
+						{
+							ZoneScopedN("drawModel");
 
-                            {
-                                ZoneScopedN("drawModel::vkCmdDrawIndexed");
+							{
+								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-                                vkCmdDrawIndexed(cmd, pipeline.resources().model->getDesc().indexCount, 1, 0, 0, 0);
-                            }
-                        };
+								uint16_t viewId = frameIndex * ShaderTypes_ViewCount + viewIt;
+								uint16_t materialId = 0ui16;
+								uint16_t objectBufferIndex = 42ui16;
+								uint16_t objectArrayIndex = 666ui16;
 
-                        drawModel(cmd);
-                    };
+								PushConstants pushConstants = {
+									(static_cast<uint32_t>(viewId) << 16ul) | materialId,
+									(static_cast<uint32_t>(objectBufferIndex) << 16ul) |
+										objectArrayIndex};
 
-                    drawView(drawIt);
+								vkCmdPushConstants(
+									cmd,
+									pipeline.getLayout(),
+									VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
+									0,
+									sizeof(PushConstants),
+									&pushConstants);
+							}
 
-                    drawIt = drawAtomic++;
-                }
+							{
+								ZoneScopedN("drawModel::vkCmdDrawIndexed");
 
-                cmd.end();
-            });
-    }
+								vkCmdDrawIndexed(
+									cmd,
+									pipeline.resources().model->getDesc().indexCount,
+									1,
+									0,
+									0,
+									0);
+							}
+						};
 
-    return drawThreadCount;
+						drawModel(cmd);
+					};
+
+					drawView(drawIt);
+
+					drawIt = drawAtomic++;
+				}
+
+				cmd.end();
+			});
+	}
+
+	return drawThreadCount;
 }
 
 template <>
 void WindowContext<Vk>::draw(
-    TaskExecutor& executor,
-    PipelineContext<Vk>& pipeline,
+	TaskExecutor& executor,
+	PipelineContext<Vk>& pipeline,
 	CommandPoolContext<Vk>& primaryContext,
 	CommandPoolContext<Vk>* secondaryContexts,
-    uint32_t secondaryContextCount)
+	uint32_t secondaryContextCount)
 {
-    ZoneScopedN("WindowContext::draw");
+	ZoneScopedN("WindowContext::draw");
 
-    auto updateViewBufferFuture = executor.fork([this]{ internalUpdateViewBuffer(); });
+	auto updateViewBufferFuture = executor.fork([this] { internalUpdateViewBuffer(); });
 
-    auto& renderTarget = pipeline.getRenderTarget();
+	auto& renderTarget = pipeline.getRenderTarget();
 
-    auto cmd = primaryContext.commands();
-    auto renderPassInfo = renderTarget.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-    
-    uint32_t drawThreadCount = internalDrawViews(
-        pipeline,
-        secondaryContexts,
-        secondaryContextCount,
-        renderPassInfo.value());
-    
-    for (uint32_t contextIt = 0ul; contextIt < drawThreadCount; contextIt++)
-        primaryContext.execute(secondaryContexts[contextIt]);
+	auto cmd = primaryContext.commands();
+	auto renderPassInfo = renderTarget.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-    //renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-    renderTarget.end(cmd);
-    renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+	uint32_t drawThreadCount = internalDrawViews(
+		pipeline, secondaryContexts, secondaryContextCount, renderPassInfo.value());
 
-    blit(cmd, renderTarget, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, 0);
+	for (uint32_t contextIt = 0ul; contextIt < drawThreadCount; contextIt++)
+		primaryContext.execute(secondaryContexts[contextIt]);
 
-    executor.join(std::move(updateViewBufferFuture));
+	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+	renderTarget.end(cmd);
+	renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+
+	blit(
+		cmd,
+		renderTarget,
+		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		0,
+		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		0);
+
+	executor.join(std::move(updateViewBufferFuture));
 }
 
 template <>
 void WindowContext<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 {
-    myConfig.extent = framebufferExtent;
-    
-    internalCreateSwapchain(myConfig, *this);
-    internalCreateFrameObjects(framebufferExtent);
+	myConfig.extent = framebufferExtent;
+
+	internalCreateSwapchain(myConfig, *this);
+	internalCreateFrameObjects(framebufferExtent);
 }
 
 template <>
 void WindowContext<Vk>::updateInput(const InputState& input)
 {
-    ZoneScopedN("WindowContext::updateInput");
+	ZoneScopedN("WindowContext::updateInput");
 
-    // todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
-    {
-        using namespace ImGui;
+	// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
+	{
+		using namespace ImGui;
 
-        auto& io = GetIO();
-        if (io.WantCaptureMouse)
-            return;
-    }
+		auto& io = GetIO();
+		if (io.WantCaptureMouse)
+			return;
+	}
 
-    myTimestamps[1] = myTimestamps[0];
-    myTimestamps[0] = std::chrono::high_resolution_clock::now();
+	myTimestamps[1] = myTimestamps[0];
+	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
-    float dt = (myTimestamps[1] - myTimestamps[0]).count();
+	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
-    if (input.mouseButtonsPressed[2])
-    {
-        // todo: generic view index calculation
-        size_t viewIdx = input.mousePosition[0].x / (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-        size_t viewIdy = input.mousePosition[0].y / (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
-        myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+	if (input.mouseButtonsPressed[2])
+	{
+		// todo: generic view index calculation
+		size_t viewIdx = input.mousePosition[0].x /
+						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
+		size_t viewIdy = input.mousePosition[0].y /
+						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
+		myActiveView =
+			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-        //std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << '\n';
-    }
-    else if (!input.mouseButtonsPressed[0])
-    {
-        myActiveView.reset();
+		//std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << '\n';
+	}
+	else if (!input.mouseButtonsPressed[0])
+	{
+		myActiveView.reset();
 
-        //std::cout << "myActiveView.reset()" << '\n';
-    }
+		//std::cout << "myActiveView.reset()" << '\n';
+	}
 
-    if (myActiveView)
-    {
-        //std::cout << "window.myActiveView read/consume" << '\n';
+	if (myActiveView)
+	{
+		//std::cout << "window.myActiveView read/consume" << '\n';
 
-        float dx = 0.f;
-        float dz = 0.f;
+		float dx = 0.f;
+		float dz = 0.f;
 
-        for (const auto& [key, pressed] : input.keysPressed)
-        {
-            if (pressed)
-            {
-                switch (key)
-                {
-                case GLFW_KEY_W:
-                    dz = -1;
-                    break;
-                case GLFW_KEY_S:
-                    dz = 1;
-                    break;
-                case GLFW_KEY_A:
-                    dx = -1;
-                    break;
-                case GLFW_KEY_D:
-                    dx = 1;
-                    break;
-                default:
-                    break;
-                }
-            }
-        }
+		for (const auto& [key, pressed] : input.keysPressed)
+		{
+			if (pressed)
+			{
+				switch (key)
+				{
+				case GLFW_KEY_W:
+					dz = -1;
+					break;
+				case GLFW_KEY_S:
+					dz = 1;
+					break;
+				case GLFW_KEY_A:
+					dx = -1;
+					break;
+				case GLFW_KEY_D:
+					dx = 1;
+					break;
+				default:
+					break;
+				}
+			}
+		}
 
-        auto& view = myViews[*myActiveView];
+		auto& view = myViews[*myActiveView];
 
-        bool doUpdateViewMatrix = false;
+		bool doUpdateViewMatrix = false;
 
-        if (dx != 0 || dz != 0)
-        {
-            const auto& viewMatrix = view.getViewMatrix();
-            auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
-            auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+		if (dx != 0 || dz != 0)
+		{
+			const auto& viewMatrix = view.getViewMatrix();
+			auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
+			auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
-            constexpr auto moveSpeed = 0.000000002f;
+			constexpr auto moveSpeed = 0.000000002f;
 
-            view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
+			view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
 
-            // std::cout << *myActiveView << ":pos:[" << view.desc().cameraPosition.x << ", " <<
-            //     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << '\n';
+			// std::cout << *myActiveView << ":pos:[" << view.desc().cameraPosition.x << ", " <<
+			//     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << '\n';
 
-            doUpdateViewMatrix = true;
-        }
+			doUpdateViewMatrix = true;
+		}
 
-        if (input.mouseButtonsPressed[0])
-        {
-            constexpr auto rotSpeed = 0.00000001f;
+		if (input.mouseButtonsPressed[0])
+		{
+			constexpr auto rotSpeed = 0.00000001f;
 
-            auto dM = input.mousePosition[1] - input.mousePosition[0];
+			auto dM = input.mousePosition[1] - input.mousePosition[0];
 
-            view.desc().cameraRotation +=
-                dt * glm::vec3(dM.y / view.desc().viewport.height, dM.x / view.desc().viewport.width, 0.0f) *
-                rotSpeed;
+			view.desc().cameraRotation +=
+				dt *
+				glm::vec3(
+					dM.y / view.desc().viewport.height, dM.x / view.desc().viewport.width, 0.0f) *
+				rotSpeed;
 
-            // std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
-            //     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << '\n';
+			// std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
+			//     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << '\n';
 
-            doUpdateViewMatrix = true;
-        }
+			doUpdateViewMatrix = true;
+		}
 
-        if (doUpdateViewMatrix)
-        {
-            myViews[*myActiveView].updateViewMatrix();
-        }
-    }
+		if (doUpdateViewMatrix)
+		{
+			myViews[*myActiveView].updateViewMatrix();
+		}
+	}
 }
 
 template <>
 WindowContext<Vk>::WindowContext(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    SurfaceHandle<Vk>&& surface,
-    WindowConfiguration<Vk>&& defaultConfig)
-: Swapchain(
-    deviceContext,
-    defaultConfig,
-    std::forward<SurfaceHandle<Vk>>(surface),
-    VK_NULL_HANDLE)
-, myConfig(
-    AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
-        std::filesystem::path(volcano_getUserProfilePath()) / "window.json",
-        std::forward<WindowConfiguration<Vk>>(defaultConfig)))
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	SurfaceHandle<Vk>&& surface,
+	WindowConfiguration<Vk>&& defaultConfig)
+	: Swapchain(
+		  deviceContext, defaultConfig, std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
+	, myConfig(AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
+		  std::filesystem::path(volcano_getUserProfilePath()) / "window.json",
+		  std::forward<WindowConfiguration<Vk>>(defaultConfig)))
 {
-    ZoneScopedN("Window()");
+	ZoneScopedN("Window()");
 
-    internalCreateFrameObjects(myConfig.extent);
+	internalCreateFrameObjects(myConfig.extent);
 
-    myTimestamps[0] = std::chrono::high_resolution_clock::now();
+	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 }
 
 template <>
 WindowContext<Vk>::WindowContext(WindowContext&& other) noexcept
-: Swapchain(std::forward<WindowContext>(other))
-, myConfig(std::exchange(other.myConfig, {}))
-, myTimestamps(std::exchange(other.myTimestamps, {}))
-, myViews(std::exchange(other.myViews, {}))
-, myActiveView(std::exchange(other.myActiveView, {}))
-, myViewBuffer(std::exchange(other.myViewBuffer, {}))
-{
-}
+	: Swapchain(std::forward<WindowContext>(other))
+	, myConfig(std::exchange(other.myConfig, {}))
+	, myTimestamps(std::exchange(other.myTimestamps, {}))
+	, myViews(std::exchange(other.myViews, {}))
+	, myActiveView(std::exchange(other.myActiveView, {}))
+	, myViewBuffer(std::exchange(other.myViewBuffer, {}))
+{}
 
 template <>
 WindowContext<Vk>::~WindowContext()
 {
-    ZoneScopedN("~Window()");
+	ZoneScopedN("~Window()");
 }
 
 template <>
 WindowContext<Vk>& WindowContext<Vk>::operator=(WindowContext&& other) noexcept
 {
-    Swapchain::operator=(std::forward<WindowContext>(other));
-    myConfig = std::exchange(other.myConfig, {});
-    myTimestamps = std::exchange(other.myTimestamps, {});
-    myViews = std::exchange(other.myViews, {});
-    myActiveView = std::exchange(other.myActiveView, {});
-    myViewBuffer = std::exchange(other.myViewBuffer, {});
-    return *this;
+	Swapchain::operator=(std::forward<WindowContext>(other));
+	myConfig = std::exchange(other.myConfig, {});
+	myTimestamps = std::exchange(other.myTimestamps, {});
+	myViews = std::exchange(other.myViews, {});
+	myActiveView = std::exchange(other.myActiveView, {});
+	myViewBuffer = std::exchange(other.myViewBuffer, {});
+	return *this;
 }
 
 template <>
 void WindowContext<Vk>::swap(WindowContext& other) noexcept
 {
-    Swapchain::swap(other);
-    std::swap(myConfig, other.myConfig);
-    std::swap(myTimestamps, other.myTimestamps);
-    std::swap(myViews, other.myViews);
-    std::swap(myActiveView, other.myActiveView);
-    std::swap(myViewBuffer, other.myViewBuffer);
+	Swapchain::swap(other);
+	std::swap(myConfig, other.myConfig);
+	std::swap(myTimestamps, other.myTimestamps);
+	std::swap(myViews, other.myViews);
+	std::swap(myActiveView, other.myActiveView);
+	std::swap(myViewBuffer, other.myViewBuffer);
 }

@@ -1,10 +1,10 @@
-#include "image.h"
 #include "file.h"
+#include "image.h"
 #include "vk-utils.h"
 
 #include <cstdint>
 #if defined(__WINDOWS__)
-#include <execution>
+#	include <execution>
 #endif
 #include <iostream>
 #include <numeric>
@@ -50,322 +50,336 @@ int eof(void* user)
 namespace image
 {
 
-std::tuple<VkImage, VmaAllocation> createImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
+std::tuple<VkImage, VmaAllocation>
+createImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
 {
-    return createImage2D(
-        allocator,
-        desc.mipLevels[0].extent.width,
-        desc.mipLevels[0].extent.height,
-        desc.mipLevels.size(),
-        desc.format, 
-        desc.tiling,
-        desc.usageFlags,
-        desc.memoryFlags,
-        "todo_insert_proper_name",
-        desc.initialLayout);
+	return createImage2D(
+		allocator,
+		desc.mipLevels[0].extent.width,
+		desc.mipLevels[0].extent.height,
+		desc.mipLevels.size(),
+		desc.format,
+		desc.tiling,
+		desc.usageFlags,
+		desc.memoryFlags,
+		"todo_insert_proper_name",
+		desc.initialLayout);
 }
 
-std::tuple<VkImage, VmaAllocation> createImage2D(VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<Vk>& desc)
+std::tuple<VkImage, VmaAllocation> createImage2D(
+	VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<Vk>& desc)
 {
-    return createImage2D(
-        cmd,
-        allocator,
-        buffer,
-        desc.mipLevels[0].extent.width,
-        desc.mipLevels[0].extent.height,
-        desc.mipLevels.size(),
-        &desc.mipLevels[0].offset,
-        sizeof(desc.mipLevels[0]) / sizeof(uint32_t),
-        desc.format, 
-        desc.tiling,
-        desc.usageFlags,
-        desc.memoryFlags,
-        "todo_insert_proper_name",
-        desc.initialLayout);
+	return createImage2D(
+		cmd,
+		allocator,
+		buffer,
+		desc.mipLevels[0].extent.width,
+		desc.mipLevels[0].extent.height,
+		desc.mipLevels.size(),
+		&desc.mipLevels[0].offset,
+		sizeof(desc.mipLevels[0]) / sizeof(uint32_t),
+		desc.format,
+		desc.tiling,
+		desc.usageFlags,
+		desc.memoryFlags,
+		"todo_insert_proper_name",
+		desc.initialLayout);
 }
 
 std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
-    const std::filesystem::path& imageFile,
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
+	const std::filesystem::path& imageFile, const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
-    ZoneScopedN("image::load");
+	ZoneScopedN("image::load");
 
-    std::tuple<
-        ImageCreateDesc<Vk>,
-        BufferHandle<Vk>,
-        AllocationHandle<Vk>> descAndInitialData = {};
+	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData = {};
 
-    auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-    auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
-    {
-        ZoneScopedN("image::loadBin");
+	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
+	{
+		ZoneScopedN("image::loadBin");
 
-        auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        cereal::BinaryInputArchive bin(stream);
-        bin(desc);
+		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		cereal::BinaryInputArchive bin(stream);
+		bin(desc);
 
-        size_t size = 0;
-        for (const auto& mipLevel : desc.mipLevels)
-            size += mipLevel.size;
-        
-        auto [locBufferHandle, locMemoryHandle] = createBuffer(
-            deviceContext->getAllocator(), size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            "todo_insert_proper_name");
+		size_t size = 0;
+		for (const auto& mipLevel : desc.mipLevels)
+			size += mipLevel.size;
 
-        void* data;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
-        bin(cereal::binary_data(data, size));
-        vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+		auto [locBufferHandle, locMemoryHandle] = createBuffer(
+			deviceContext->getAllocator(),
+			size,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			"todo_insert_proper_name");
 
-        bufferHandle = locBufferHandle;
-        memoryHandle = locMemoryHandle;
+		void* data;
+		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
+		bin(cereal::binary_data(data, size));
+		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
-        return true;
-    };
+		bufferHandle = locBufferHandle;
+		memoryHandle = locMemoryHandle;
 
-    auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
-    {
-        ZoneScopedN("image::saveBin");
+		return true;
+	};
 
-        auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        cereal::BinaryOutputArchive bin(stream);
-        bin(desc);
+	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
+	{
+		ZoneScopedN("image::saveBin");
 
-        size_t size = 0;
-        for (const auto& mipLevel : desc.mipLevels)
-            size += mipLevel.size;
+		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		cereal::BinaryOutputArchive bin(stream);
+		bin(desc);
 
-        void* data;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, &data));
-        bin(cereal::binary_data(data, size));
-        vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+		size_t size = 0;
+		for (const auto& mipLevel : desc.mipLevels)
+			size += mipLevel.size;
 
-        return true;
-    };
+		void* data;
+		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, &data));
+		bin(cereal::binary_data(data, size));
+		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
 
-    auto loadImage = [&descAndInitialData, &deviceContext](std::istream& stream)
-    {
-        ZoneScopedN("image::loadImage");
+		return true;
+	};
 
-        auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-        
-        stbi_io_callbacks callbacks;
-        callbacks.read = &stbi_istream_callbacks::read;
-        callbacks.skip = &stbi_istream_callbacks::skip;
-        callbacks.eof = &stbi_istream_callbacks::eof;
-        
-        int width, height, channelCount;
-        stbi_uc* stbiImageData = stbi_load_from_callbacks(&callbacks, &stream, &width, &height, &channelCount, STBI_rgb_alpha);
+	auto loadImage = [&descAndInitialData, &deviceContext](std::istream& stream)
+	{
+		ZoneScopedN("image::loadImage");
 
-        uint32_t mipCount = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
-        bool hasAlpha = channelCount == 4;
-        uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
+		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-        desc.mipLevels.resize(mipCount);
-        desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-        desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
+		stbi_io_callbacks callbacks;
+		callbacks.read = &stbi_istream_callbacks::read;
+		callbacks.skip = &stbi_istream_callbacks::skip;
+		callbacks.eof = &stbi_istream_callbacks::eof;
 
-        uint32_t mipOffset = 0;
-        for (uint32_t mipIt = 0; mipIt < mipCount; mipIt++)
-        {
-            uint32_t mipWidth = width >> mipIt;
-            uint32_t mipHeight = height >> mipIt;
-            auto mipSize = roundUp(mipWidth, 4) * roundUp(mipHeight, 4);
-            
-            if (!hasAlpha)
-                mipSize >>= 1;
-            
-            desc.mipLevels[mipIt].extent = { mipWidth, mipHeight };
-            desc.mipLevels[mipIt].size = mipSize;
-            desc.mipLevels[mipIt].offset = mipOffset;
+		int width, height, channelCount;
+		stbi_uc* stbiImageData = stbi_load_from_callbacks(
+			&callbacks, &stream, &width, &height, &channelCount, STBI_rgb_alpha);
 
-            mipOffset += mipSize;
-        }
-        
-        auto [locBufferHandle, locMemoryHandle] = createBuffer(
-            deviceContext->getAllocator(), mipOffset, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            "todo_insert_proper_name");
+		uint32_t mipCount =
+			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
+		bool hasAlpha = channelCount == 4;
+		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
-        void* stagingBuffer;
-        VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &stagingBuffer));
+		desc.mipLevels.resize(mipCount);
+		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+		desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
 
-        auto compressBlocks = [](
-            const stbi_uc* src,
-            unsigned char* dst,
-            const Extent2d<Vk>& extent,
-            uint32_t compressedBlockSize,
-            bool hasAlpha,
-            uint32_t threadCount)
-        {
-            ZoneScopedN("image::loadImage::compressBlocks");
+		uint32_t mipOffset = 0;
+		for (uint32_t mipIt = 0; mipIt < mipCount; mipIt++)
+		{
+			uint32_t mipWidth = width >> mipIt;
+			uint32_t mipHeight = height >> mipIt;
+			auto mipSize = roundUp(mipWidth, 4) * roundUp(mipHeight, 4);
 
-            auto blockRowCount = extent.height >> 2;
-            auto blockColCount = extent.width >> 2;
-            auto blockCount = blockRowCount * blockColCount;
+			if (!hasAlpha)
+				mipSize >>= 1;
 
-            auto extractBlock = [](const stbi_uc* src, uint32_t width, uint32_t stride, stbi_uc* dst)
-            {
-                for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
-                {
-                    std::copy(src, src + stride * 4, &dst[rowIt * 16]);
-                    src += width * stride;
-                }
-            };
+			desc.mipLevels[mipIt].extent = {mipWidth, mipHeight};
+			desc.mipLevels[mipIt].size = mipSize;
+			desc.mipLevels[mipIt].offset = mipOffset;
 
-            std::atomic_uint32_t blockAtomic = 0;
-            std::vector<uint32_t> threadIds(threadCount);
-            std::iota(threadIds.begin(), threadIds.end(), 0);
-            std::for_each_n(
-        #if defined(__WINDOWS__)
-                std::execution::par,
-        #endif
-                threadIds.begin(), threadCount,
-                [&](uint32_t /*threadId*/)
-                {
-                    ZoneScopedN("image::loadImage::compressBlocks::thread");
+			mipOffset += mipSize;
+		}
 
-                    auto blockIt = blockAtomic++;
-                    while (blockIt < blockCount)
-                    {
-                        auto blockRowIt = blockIt / blockColCount;
-                        auto blockColIt = blockIt % blockColCount;
-                        auto rowIt = blockRowIt << 2;
-                        auto colIt = blockColIt << 2;
-                        auto srcOffset = (rowIt * extent.width + colIt) * 4;
-                        auto dstOffset = blockIt * compressedBlockSize;
-                        
-                        stbi_uc block[64] = {0};
-                        extractBlock(src + srcOffset, extent.width, 4, block);
-                        
-                        stb_compress_dxt_block(dst + dstOffset, block, hasAlpha, STB_DXT_HIGHQUAL);
+		auto [locBufferHandle, locMemoryHandle] = createBuffer(
+			deviceContext->getAllocator(),
+			mipOffset,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			"todo_insert_proper_name");
 
-                        blockIt = blockAtomic++;
-                    }
-                });
-            
+		void* stagingBuffer;
+		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &stagingBuffer));
 
-            return blockCount * compressedBlockSize;
-        };
+		auto compressBlocks = [](const stbi_uc* src,
+								 unsigned char* dst,
+								 const Extent2d<Vk>& extent,
+								 uint32_t compressedBlockSize,
+								 bool hasAlpha,
+								 uint32_t threadCount)
+		{
+			ZoneScopedN("image::loadImage::compressBlocks");
 
-        auto threadCount = std::thread::hardware_concurrency();
-        auto src = stbiImageData;
-        auto dst = static_cast<unsigned char*>(stagingBuffer);
+			auto blockRowCount = extent.height >> 2;
+			auto blockColCount = extent.width >> 2;
+			auto blockCount = blockRowCount * blockColCount;
 
-        dst += compressBlocks(src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
+			auto extractBlock =
+				[](const stbi_uc* src, uint32_t width, uint32_t stride, stbi_uc* dst)
+			{
+				for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
+				{
+					std::copy(src, src + stride * 4, &dst[rowIt * 16]);
+					src += width * stride;
+				}
+			};
 
-        std::array<std::vector<stbi_uc>, 2> mipBuffers;
-        for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
-        {
-            ZoneScopedN("image::loadImage::mip");
+			std::atomic_uint32_t blockAtomic = 0;
+			std::vector<uint32_t> threadIds(threadCount);
+			std::iota(threadIds.begin(), threadIds.end(), 0);
+			std::for_each_n(
+#if defined(__WINDOWS__)
+				std::execution::par,
+#endif
+				threadIds.begin(),
+				threadCount,
+				[&](uint32_t /*threadId*/)
+				{
+					ZoneScopedN("image::loadImage::compressBlocks::thread");
 
-            uint32_t previousMipIt = (mipIt-1);
-            uint32_t currentBuffer = mipIt & 1;
+					auto blockIt = blockAtomic++;
+					while (blockIt < blockCount)
+					{
+						auto blockRowIt = blockIt / blockColCount;
+						auto blockColIt = blockIt % blockColCount;
+						auto rowIt = blockRowIt << 2;
+						auto colIt = blockColIt << 2;
+						auto srcOffset = (rowIt * extent.width + colIt) * 4;
+						auto dstOffset = blockIt * compressedBlockSize;
 
-            const auto& previousExtent = desc.mipLevels[previousMipIt].extent;
-            const auto& currentExtent = desc.mipLevels[mipIt].extent;
-            
-            mipBuffers[currentBuffer].resize(
-                std::max<uint32_t>(currentExtent.width, 4) * std::max<uint32_t>(currentExtent.height, 4) * 4);
+						stbi_uc block[64] = {0};
+						extractBlock(src + srcOffset, extent.width, 4, block);
 
-            auto threadRowCount = previousExtent.height / threadCount;
-            if (threadRowCount > 4)
-            {
-                std::vector<uint32_t> threadIds(threadCount);
-                std::iota(threadIds.begin(), threadIds.end(), 0);
-                std::for_each_n(
-            #if defined(__WINDOWS__)
-                    std::execution::par,
-            #endif
-                    threadIds.begin(), threadCount,
-                    [&](uint32_t threadId)
-                    {
-                        ZoneScopedN("image::loadImage::mip::resize::thread");
+						stb_compress_dxt_block(dst + dstOffset, block, hasAlpha, STB_DXT_HIGHQUAL);
 
-                        uint32_t threadRowCountRest = (threadId == (threadCount-1) ? previousExtent.height % threadCount : 0);
+						blockIt = blockAtomic++;
+					}
+				});
 
-                        stbir_resize_uint8(
-                            src + threadId * threadRowCount * previousExtent.width * 4,
-                            previousExtent.width,
-                            threadRowCount + threadRowCountRest,
-                            previousExtent.width * 4,
-                            mipBuffers[currentBuffer].data() + threadId * (threadRowCount >> 1) * currentExtent.width * 4,
-                            currentExtent.width,
-                            ((threadRowCount + threadRowCountRest) >> 1),
-                            currentExtent.width * 4,
-                            4);
-                    });
-            }
-            else
-            {
-                ZoneScopedN("image::loadImage::mip::resize");
+			return blockCount * compressedBlockSize;
+		};
 
-                stbir_resize_uint8(
-                    src,
-                    previousExtent.width,
-                    previousExtent.height,
-                    previousExtent.width * 4,
-                    mipBuffers[currentBuffer].data(),
-                    currentExtent.width,
-                    currentExtent.height,
-                    currentExtent.width * 4,
-                    4);
-            }
+		auto threadCount = std::thread::hardware_concurrency();
+		auto src = stbiImageData;
+		auto dst = static_cast<unsigned char*>(stagingBuffer);
 
-            src = mipBuffers[currentBuffer].data();
-            dst += compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
-        }
+		dst += compressBlocks(
+			src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
 
-        vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
-        stbi_image_free(stbiImageData);
+		std::array<std::vector<stbi_uc>, 2> mipBuffers;
+		for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
+		{
+			ZoneScopedN("image::loadImage::mip");
 
-        bufferHandle = locBufferHandle;
-        memoryHandle = locMemoryHandle;
+			uint32_t previousMipIt = (mipIt - 1);
+			uint32_t currentBuffer = mipIt & 1;
 
-        return true;
-    };
+			const auto& previousExtent = desc.mipLevels[previousMipIt].extent;
+			const auto& currentExtent = desc.mipLevels[mipIt].extent;
 
-    static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
-    static constexpr char loaderVersion[] = "2.26|0.96|1.10";
-    loadCachedSourceFile<loaderType, loaderVersion>(imageFile, imageFile, loadImage, loadBin, saveBin);
+			mipBuffers[currentBuffer].resize(
+				std::max<uint32_t>(currentExtent.width, 4) *
+				std::max<uint32_t>(currentExtent.height, 4) * 4);
 
-    if (!bufferHandle)
-        throw std::runtime_error("Failed to load image.");
+			auto threadRowCount = previousExtent.height / threadCount;
+			if (threadRowCount > 4)
+			{
+				std::vector<uint32_t> threadIds(threadCount);
+				std::iota(threadIds.begin(), threadIds.end(), 0);
+				std::for_each_n(
+#if defined(__WINDOWS__)
+					std::execution::par,
+#endif
+					threadIds.begin(),
+					threadCount,
+					[&](uint32_t threadId)
+					{
+						ZoneScopedN("image::loadImage::mip::resize::thread");
 
-    return descAndInitialData;
+						uint32_t threadRowCountRest =
+							(threadId == (threadCount - 1) ? previousExtent.height % threadCount
+														   : 0);
+
+						stbir_resize_uint8(
+							src + threadId * threadRowCount * previousExtent.width * 4,
+							previousExtent.width,
+							threadRowCount + threadRowCountRest,
+							previousExtent.width * 4,
+							mipBuffers[currentBuffer].data() +
+								threadId * (threadRowCount >> 1) * currentExtent.width * 4,
+							currentExtent.width,
+							((threadRowCount + threadRowCountRest) >> 1),
+							currentExtent.width * 4,
+							4);
+					});
+			}
+			else
+			{
+				ZoneScopedN("image::loadImage::mip::resize");
+
+				stbir_resize_uint8(
+					src,
+					previousExtent.width,
+					previousExtent.height,
+					previousExtent.width * 4,
+					mipBuffers[currentBuffer].data(),
+					currentExtent.width,
+					currentExtent.height,
+					currentExtent.width * 4,
+					4);
+			}
+
+			src = mipBuffers[currentBuffer].data();
+			dst +=
+				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
+		}
+
+		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+		stbi_image_free(stbiImageData);
+
+		bufferHandle = locBufferHandle;
+		memoryHandle = locMemoryHandle;
+
+		return true;
+	};
+
+	static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
+	static constexpr char loaderVersion[] = "2.26|0.96|1.10";
+	loadCachedSourceFile<loaderType, loaderVersion>(
+		imageFile, imageFile, loadImage, loadBin, saveBin);
+
+	if (!bufferHandle)
+		throw std::runtime_error("Failed to load image.");
+
+	return descAndInitialData;
 }
 
-}
+} // namespace image
 
 template <>
-void Image<Vk>::transition(
-    CommandBufferHandle<Vk> cmd,
-    ImageLayout<Vk> layout)
+void Image<Vk>::transition(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
-    ZoneScopedN("Image::transition");
+	ZoneScopedN("Image::transition");
 
-    if (getImageLayout() != layout)
-    {
-        transitionImageLayout(cmd, *this, myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
-        setImageLayout(layout);
-    }
+	if (getImageLayout() != layout)
+	{
+		transitionImageLayout(
+			cmd, *this, myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
+		setImageLayout(layout);
+	}
 }
 
 template <>
 void Image<Vk>::clear(
-    CommandBufferHandle<Vk> cmd,
-    const ClearValue<Vk>& value,
-    ClearType type,
-    const std::optional<ImageSubresourceRange<Vk>>& range)
+	CommandBufferHandle<Vk> cmd,
+	const ClearValue<Vk>& value,
+	ClearType type,
+	const std::optional<ImageSubresourceRange<Vk>>& range)
 {
-    ZoneScopedN("Image::clear");
+	ZoneScopedN("Image::clear");
 
-    static const VkImageSubresourceRange defaultColorRange = {
-        VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+	static const VkImageSubresourceRange defaultColorRange = {
+		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 	static const VkImageSubresourceRange defaultDepthStencilRange = {
-		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+		0,
+		VK_REMAINING_MIP_LEVELS,
+		0,
 		VK_REMAINING_ARRAY_LAYERS};
 
 	switch (type)
@@ -377,17 +391,17 @@ void Image<Vk>::clear(
 			getImageLayout(),
 			&value.color,
 			1,
-			range ? &range.value() : &defaultColorRange);        
-        break;
-    case ClearType::DepthStencil:
-        vkCmdClearDepthStencilImage(
-            cmd,
-            static_cast<VkImage>(*this),
-            getImageLayout(),
-            &value.depthStencil,
-            1,
-            range ? &range.value() : &defaultDepthStencilRange);
-        break;
+			range ? &range.value() : &defaultColorRange);
+		break;
+	case ClearType::DepthStencil:
+		vkCmdClearDepthStencilImage(
+			cmd,
+			static_cast<VkImage>(*this),
+			getImageLayout(),
+			&value.depthStencil,
+			1,
+			range ? &range.value() : &defaultDepthStencilRange);
+		break;
 	default:
 		assert(false);
 		break;
@@ -396,154 +410,146 @@ void Image<Vk>::clear(
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    ImageCreateDesc<Vk>&& desc,
-    ValueType&& data)
-: DeviceObject(
-    deviceContext,
-    {"_Image"},
-    1,
-    VK_OBJECT_TYPE_IMAGE,
-    reinterpret_cast<uint64_t*>(&std::get<0>(data)))
-, myDesc(std::forward<ImageCreateDesc<Vk>>(desc))
-, myImage(std::forward<ValueType>(data))
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	ImageCreateDesc<Vk>&& desc,
+	ValueType&& data)
+	: DeviceObject(
+		  deviceContext,
+		  {"_Image"},
+		  1,
+		  VK_OBJECT_TYPE_IMAGE,
+		  reinterpret_cast<uint64_t*>(&std::get<0>(data)))
+	, myDesc(std::forward<ImageCreateDesc<Vk>>(desc))
+	, myImage(std::forward<ValueType>(data))
+{}
+
+template <>
+Image<Vk>::Image(
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, ImageCreateDesc<Vk>&& desc)
+	: Image(
+		  deviceContext,
+		  std::forward<ImageCreateDesc<Vk>>(desc),
+		  std::tuple_cat(
+			  image::createImage2D(deviceContext->getAllocator(), desc),
+			  std::make_tuple(desc.initialLayout)))
+{}
+
+template <>
+Image<Vk>::Image(
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	CommandPoolContext<Vk>& commandContext,
+	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
+	: Image(
+		  deviceContext,
+		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
+		  std::tuple_cat(
+			  image::createImage2D(
+				  commandContext.commands(),
+				  deviceContext->getAllocator(),
+				  std::get<1>(descAndInitialData),
+				  std::get<0>(descAndInitialData)),
+			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
+	commandContext.addCommandsFinishedCallback(
+		[deviceContext, descAndInitialData](uint64_t)
+		{
+			vmaDestroyBuffer(
+				deviceContext->getAllocator(),
+				std::get<1>(descAndInitialData),
+				std::get<2>(descAndInitialData));
+		});
 }
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    ImageCreateDesc<Vk>&& desc)
-: Image(
-    deviceContext,
-    std::forward<ImageCreateDesc<Vk>>(desc),
-    std::tuple_cat(
-        image::createImage2D( deviceContext->getAllocator(), desc),
-        std::make_tuple(desc.initialLayout)))
-{
-}
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	CommandPoolContext<Vk>& commandContext,
+	ImageCreateDesc<Vk>&& desc,
+	const void* initialData,
+	size_t initialDataSize)
+	: Image(
+		  deviceContext,
+		  commandContext,
+		  std::tuple_cat(
+			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
+			  createStagingBuffer(
+				  deviceContext->getAllocator(),
+				  initialData,
+				  initialDataSize,
+				  "todo_insert_proper_name")))
+{}
 
 template <>
 Image<Vk>::Image(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    CommandPoolContext<Vk>& commandContext,
-    std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
-: Image(
-    deviceContext,
-    std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
-    std::tuple_cat(
-        image::createImage2D(
-            commandContext.commands(),
-            deviceContext->getAllocator(),
-            std::get<1>(descAndInitialData),
-            std::get<0>(descAndInitialData)),
-        std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
-{   
-    commandContext.addCommandsFinishedCallback([deviceContext, descAndInitialData](uint64_t){
-        vmaDestroyBuffer(deviceContext->getAllocator(), std::get<1>(descAndInitialData), std::get<2>(descAndInitialData));
-    });
-}
-
-template <>
-Image<Vk>::Image(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    CommandPoolContext<Vk>& commandContext,
-    ImageCreateDesc<Vk>&& desc,
-    const void* initialData,
-    size_t initialDataSize)
-: Image(
-    deviceContext,
-    commandContext,
-    std::tuple_cat(
-        std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
-        createStagingBuffer(
-            deviceContext->getAllocator(),
-            initialData,
-            initialDataSize,
-            "todo_insert_proper_name")))
-{   
-}
-
-template <>
-Image<Vk>::Image(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    CommandPoolContext<Vk>& commandContext,
-    const std::filesystem::path& imageFile)
-: Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
-{
-}
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	CommandPoolContext<Vk>& commandContext,
+	const std::filesystem::path& imageFile)
+	: Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
+{}
 
 template <>
 Image<Vk>::~Image()
 {
-    if (ImageHandle<Vk> image = *this; image)
-        getDeviceContext()->addTimelineCallback(
-            [allocator = getDeviceContext()->getAllocator(), image, imageMemory = getImageMemory()](uint64_t){
-                vmaDestroyImage(allocator, image, imageMemory);
-        });
+	if (ImageHandle<Vk> image = *this; image)
+		getDeviceContext()->addTimelineCallback(
+			[allocator = getDeviceContext()->getAllocator(), image, imageMemory = getImageMemory()](
+				uint64_t) { vmaDestroyImage(allocator, image, imageMemory); });
 }
 
 template <>
 ImageView<Vk>::ImageView(ImageView&& other) noexcept
-: DeviceObject(std::forward<ImageView>(other))
-, myView(std::exchange(other.myView, {}))
-{
-}
-
+	: DeviceObject(std::forward<ImageView>(other))
+	, myView(std::exchange(other.myView, {}))
+{}
 
 template <>
 ImageView<Vk>::ImageView(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    ImageViewHandle<Vk>&& view)
-: DeviceObject(
-    deviceContext,
-    {"_View"},
-    1,
-    VK_OBJECT_TYPE_IMAGE_VIEW,
-    reinterpret_cast<uint64_t*>(&view))
-, myView(std::forward<ImageViewHandle<Vk>>(view))
-{
-}
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, ImageViewHandle<Vk>&& view)
+	: DeviceObject(
+		  deviceContext,
+		  {"_View"},
+		  1,
+		  VK_OBJECT_TYPE_IMAGE_VIEW,
+		  reinterpret_cast<uint64_t*>(&view))
+	, myView(std::forward<ImageViewHandle<Vk>>(view))
+{}
 
 template <>
 ImageView<Vk>::ImageView(
-    const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-    const Image<Vk>& image,
-    Flags<Vk> aspectFlags)
-: ImageView<Vk>(
-    deviceContext,
-    createImageView2D(
-        deviceContext->getDevice(),
-        0, // "reserved for future use"
-        image,
-        image.getDesc().format,
-        aspectFlags,
-        image.getDesc().mipLevels.size()))
-{
-}
+	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const Image<Vk>& image,
+	Flags<Vk> aspectFlags)
+	: ImageView<Vk>(
+		  deviceContext,
+		  createImageView2D(
+			  deviceContext->getDevice(),
+			  0, // "reserved for future use"
+			  image,
+			  image.getDesc().format,
+			  aspectFlags,
+			  image.getDesc().mipLevels.size()))
+{}
 
 template <>
 ImageView<Vk>::~ImageView()
 {
-    if (ImageViewHandle<Vk> view = *this; view)
-        getDeviceContext()->addTimelineCallback(
-            [device = getDeviceContext()->getDevice(), view](uint64_t){
-                vkDestroyImageView(device, view, nullptr);
-        });
+	if (ImageViewHandle<Vk> view = *this; view)
+		getDeviceContext()->addTimelineCallback(
+			[device = getDeviceContext()->getDevice(), view](uint64_t)
+			{ vkDestroyImageView(device, view, nullptr); });
 }
 
 template <>
 ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 {
-    DeviceObject::operator=(std::forward<ImageView>(other));
-    myView = std::exchange(other.myView, {});
-    return *this;
+	DeviceObject::operator=(std::forward<ImageView>(other));
+	myView = std::exchange(other.myView, {});
+	return *this;
 }
-
 
 template <>
 void ImageView<Vk>::swap(ImageView& rhs) noexcept
 {
-    DeviceObject::swap(rhs);
-    std::swap(myView, rhs.myView);
+	DeviceObject::swap(rhs);
+	std::swap(myView, rhs.myView);
 }

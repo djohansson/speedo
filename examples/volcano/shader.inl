@@ -11,9 +11,7 @@ ShaderStageFlagBits<B> getStageFlags(SlangStage stage);
 
 template <GraphicsBackend B>
 DescriptorType<Vk> getDescriptorType(
-	slang::TypeReflection::Kind kind,
-	SlangResourceShape shape,
-	SlangResourceAccess access);
+	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access);
 
 template <GraphicsBackend B>
 uint32_t createLayoutBindings(
@@ -23,7 +21,7 @@ uint32_t createLayoutBindings(
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr);
 
-}
+} // namespace shader
 
 template <GraphicsBackend B>
 ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
@@ -48,11 +46,14 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		return true;
 	};
 
-	auto loadSlang = [slangSession = myCompilerSession.get(), &intermediatePath = myIntermediatePath, &includePaths = myIncludePaths, &shaderSet, &slangFile](
-		std::istream& stream)
+	auto loadSlang = [slangSession = myCompilerSession.get(),
+					  &intermediatePath = myIntermediatePath,
+					  &includePaths = myIncludePaths,
+					  &shaderSet,
+					  &slangFile](std::istream& stream)
 	{
 		constexpr bool useGLSL = true;
-		
+
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
 		if (intermediatePath)
@@ -64,9 +65,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 			std::cout << "Set intermediate path: " << path << '\n';
 			assert(std::filesystem::is_directory(path));
-			spSetDumpIntermediatePrefix(
-				slangRequest,
-				(path.generic_string() + "/").c_str());
+			spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + "/").c_str());
 		}
 
 		spSetDumpIntermediates(slangRequest, true);
@@ -92,11 +91,16 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		else
 			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
 
-		spSetTargetFlags(slangRequest, targetIndex, SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
-		
-		int translationUnitIndex = spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+		spSetTargetFlags(
+			slangRequest,
+			targetIndex,
+			SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
 
-		spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, slangFile.generic_string().c_str());
+		int translationUnitIndex =
+			spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+
+		spAddTranslationUnitSourceFile(
+			slangRequest, translationUnitIndex, slangFile.generic_string().c_str());
 
 		// temp
 		const char* epStrings[] = {
@@ -116,16 +120,14 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		std::vector<EntryPoint<B>> entryPoints;
 		for (int i = 0; i < std::ssize(epStrings); i++)
 		{
-			int index = spAddEntryPoint(
-				slangRequest,
-				translationUnitIndex,
-				epStrings[i],
-				epStages[i]);
+			int index =
+				spAddEntryPoint(slangRequest, translationUnitIndex, epStrings[i], epStages[i]);
 
 			if (index != entryPoints.size())
 				throw std::runtime_error("Failed to add entry point.");
 
-			entryPoints.push_back(std::make_pair(useGLSL ? "main" : epStrings[i], shader::getStageFlags<B>(epStages[i])));
+			entryPoints.push_back(std::make_pair(
+				useGLSL ? "main" : epStrings[i], shader::getStageFlags<B>(epStages[i])));
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);
@@ -151,7 +153,8 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		for (const auto& ep : entryPoints)
 		{
 			ISlangBlob* blob = nullptr;
-			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
+			if (SLANG_FAILED(
+					spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
 			{
 				spDestroyCompileRequest(slangRequest);
 
@@ -170,11 +173,12 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 		std::vector<uint32_t> genericParameterIndices(shaderReflection->getTypeParameterCount());
 		uint32_t parameterBlockCounter = 0;
-		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount(); parameterIndex++)
+		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount();
+			 parameterIndex++)
 		{
 			auto parameter = shaderReflection->getParameterByIndex(parameterIndex);
 			auto* typeLayout = parameter->getTypeLayout();
-			
+
 			if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
 			{
 				auto parameterBlockIndex = ++parameterBlockCounter;
@@ -188,7 +192,8 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 			}
 		}
 
-		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount(); parameterIndex++)
+		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount();
+			 parameterIndex++)
 			shader::createLayoutBindings<B>(
 				shaderReflection->getParameterByIndex(parameterIndex),
 				genericParameterIndices,
@@ -211,7 +216,8 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 	static constexpr char loaderTypeStr[] = "slang";
 	static constexpr char loaderVersionStr[] = "0.9.1-dev";
-	loadCachedSourceFile<loaderTypeStr, loaderVersionStr>(slangFile, slangFile, loadSlang, loadBin, saveBin);
+	loadCachedSourceFile<loaderTypeStr, loaderVersionStr>(
+		slangFile, slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");

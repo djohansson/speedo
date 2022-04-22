@@ -5,7 +5,10 @@
 #include <cassert>
 #include <cstdint>
 
-enum class ViewType : uint8_t { Perspective };
+enum class ViewType : uint8_t
+{
+	Perspective
+};
 
 struct ViewportCreateDesc
 {
@@ -28,7 +31,6 @@ struct ViewCreateDesc
 class View
 {
 public:
-
 	constexpr View() noexcept = default;
 	View(ViewCreateDesc&& data)
 		: myDesc(std::forward<ViewCreateDesc>(data))
@@ -51,8 +53,7 @@ public:
 	}
 
 private:
-
-    ViewCreateDesc myDesc = {};
+	ViewCreateDesc myDesc = {};
 	glm::mat4x3 myViewMatrix = glm::mat4x3(1.0f);
 	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
 };

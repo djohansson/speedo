@@ -15,7 +15,6 @@
 
 #include <slang.h>
 
-
 using ShaderBinary = std::vector<char>;
 
 template <GraphicsBackend B>
@@ -34,7 +33,8 @@ struct ShaderSet
 class ShaderLoader
 {
 public:
-	using DownstreamCompiler = std::tuple<SlangSourceLanguage, SlangPassThrough, std::filesystem::path>;
+	using DownstreamCompiler =
+		std::tuple<SlangSourceLanguage, SlangPassThrough, std::filesystem::path>;
 
 	ShaderLoader(
 		std::vector<std::filesystem::path>&& includePaths,
@@ -48,7 +48,7 @@ private:
 	std::vector<std::filesystem::path> myIncludePaths;
 	std::vector<DownstreamCompiler> myDownstreamCompilers;
 	std::optional<std::filesystem::path> myIntermediatePath;
-	std::unique_ptr<SlangSession, void(*)(SlangSession*)> myCompilerSession;
+	std::unique_ptr<SlangSession, void (*)(SlangSession*)> myCompilerSession;
 };
 
 template <GraphicsBackend B>
@@ -78,5 +78,5 @@ private:
 	EntryPoint<B> myEntryPoint = {};
 };
 
-#include "shader.inl"
 #include "shader-vulkan.inl"
+#include "shader.inl"

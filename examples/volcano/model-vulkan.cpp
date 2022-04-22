@@ -1,6 +1,6 @@
-#include "model.h"
 #include "aabb.h"
 #include "file.h"
+#include "model.h"
 #include "vertex.h"
 #include "vk-utils.h"
 
@@ -51,7 +51,7 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	for (const auto& [location, formatAndOffset] : attributeMap)
 	{
 		const auto& [format, offset] = formatAndOffset;
-		
+
 		if (location != (lastLocation + 1))
 			return {};
 
@@ -71,19 +71,15 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	return {VertexInputBindingDescription<Vk>{0u, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
-	const std::filesystem::path& modelFile,
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
+std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
+	const std::filesystem::path& modelFile, const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
 {
 	ZoneScopedN("model::load");
 
-	std::tuple<
-		ModelCreateDesc<Vk>,
-		BufferHandle<Vk>,
-		AllocationHandle<Vk>> descAndInitialData = {};
+	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData = {};
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-	
+
 	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
 	{
 		ZoneScopedN("model::loadBin");
@@ -112,7 +108,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			bufferHandle = locBufferHandle;
 			memoryHandle = locMemoryHandle;
 		}
-		
+
 		return true;
 	};
 
@@ -164,14 +160,14 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &stream))
 			throw std::runtime_error(err);
 #endif
-		
+
 		uint32_t indexCount = 0;
 		for (const auto& shape : shapes)
 		{
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			for (uint32_t faceOffset = shape.face_offset;
-					faceOffset < (shape.face_offset + shape.length);
-					faceOffset++)
+				 faceOffset < (shape.face_offset + shape.length);
+				 faceOffset++)
 				indexCount += attrib.face_num_verts[faceOffset];
 #else
 			indexCount += shape.mesh.indices.size();
@@ -182,31 +178,23 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		uint32_t binding = 0;
 		VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
 		uint32_t offset = 0;
-		
+
 		uint32_t posOffset = offset;
-		
+
 		if (!attrib.vertices.empty())
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
-					location,
-					binding,
-					format,
-					offset});
+				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
 
 		location++;
 		offset += getFormatSize(format);
-		
+
 		size_t normalOffset = offset;
 
 		format = VK_FORMAT_R32G32B32_SFLOAT;
-		
+
 		if (!attrib.normals.empty())
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
-					location,
-					binding,
-					format,
-					offset});
+				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
 
 		location++;
 		offset += getFormatSize(format);
@@ -217,11 +205,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 		if (!attrib.texcoords.empty())
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
-					location,
-					binding,
-					format,
-					offset});
+				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
 
 		location++;
 		offset += getFormatSize(format);
@@ -232,11 +216,7 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 		if (!attrib.colors.empty())
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
-					location,
-					binding,
-					format,
-					offset});
+				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
 
 		location++;
 		offset += getFormatSize(format);
@@ -256,8 +236,8 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		{
 #ifdef TINYOBJLOADER_USE_EXPERIMENTAL
 			for (uint32_t faceOffset = shape.face_offset;
-					faceOffset < (shape.face_offset + shape.length);
-					faceOffset++)
+				 faceOffset < (shape.face_offset + shape.length);
+				 faceOffset++)
 			{
 				const index_t& index = attrib.indices[faceOffset];
 #else
@@ -268,31 +248,35 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 				assert(!attrib.vertices.empty());
 				glm::vec3* pos = vertex.dataAs<glm::vec3>(posOffset);
-				*pos = {attrib.vertices[3 * index.vertex_index + 0],
-						attrib.vertices[3 * index.vertex_index + 1],
-						attrib.vertices[3 * index.vertex_index + 2]};
+				*pos = {
+					attrib.vertices[3 * index.vertex_index + 0],
+					attrib.vertices[3 * index.vertex_index + 1],
+					attrib.vertices[3 * index.vertex_index + 2]};
 
 				if (!attrib.normals.empty())
 				{
 					glm::vec3* normal = vertex.dataAs<glm::vec3>(normalOffset);
-					*normal = {attrib.normals[3 * index.normal_index + 0],
-							attrib.normals[3 * index.normal_index + 1],
-							attrib.normals[3 * index.normal_index + 2]};
+					*normal = {
+						attrib.normals[3 * index.normal_index + 0],
+						attrib.normals[3 * index.normal_index + 1],
+						attrib.normals[3 * index.normal_index + 2]};
 				}
 
 				if (!attrib.texcoords.empty())
 				{
 					glm::vec2* texCoord = vertex.dataAs<glm::vec2>(texCoordOffset);
-					*texCoord = {attrib.texcoords[2 * index.texcoord_index + 0],
+					*texCoord = {
+						attrib.texcoords[2 * index.texcoord_index + 0],
 						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
 				}
 
 				if (!attrib.colors.empty())
 				{
 					glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
-					*color = {attrib.colors[3 * index.vertex_index + 0],
-							attrib.colors[3 * index.vertex_index + 1],
-							attrib.colors[3 * index.vertex_index + 2]};
+					*color = {
+						attrib.colors[3 * index.vertex_index + 0],
+						attrib.colors[3 * index.vertex_index + 1],
+						attrib.colors[3 * index.vertex_index + 2]};
 				}
 
 				uint64_t vertexIndex = vertex.hash();
@@ -314,7 +298,9 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		desc.indexCount = indices.size();
 
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			deviceContext->getAllocator(), desc.indexBufferSize + desc.vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			deviceContext->getAllocator(),
+			desc.indexBufferSize + desc.vertexBufferSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
@@ -324,7 +310,10 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			void* data;
 			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
 			memcpy(data, indices.data(), desc.indexBufferSize);
-			memcpy(static_cast<std::byte*>(data) + desc.indexBufferSize, vertices.data(), desc.vertexBufferSize);
+			memcpy(
+				static_cast<std::byte*>(data) + desc.indexBufferSize,
+				vertices.data(),
+				desc.vertexBufferSize);
 			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
@@ -335,8 +324,9 @@ std::tuple<ModelCreateDesc<Vk>,	BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	};
 
 	static constexpr char loaderType[] = "tinyobjloader";
-    static constexpr char loaderVersion[] = "2.0.0";
-	loadCachedSourceFile<loaderType, loaderVersion>(modelFile, modelFile, loadOBJ, loadBin, saveBin);
+	static constexpr char loaderVersion[] = "2.0.0";
+	loadCachedSourceFile<loaderType, loaderVersion>(
+		modelFile, modelFile, loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");
@@ -351,20 +341,20 @@ Model<Vk>::Model(
 	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
 	CommandPoolContext<Vk>& commandContext,
 	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
-: Buffer(
-	deviceContext,
-	commandContext,
-	std::make_tuple(
-		BufferCreateDesc<Vk>{
-			std::get<0>(descAndInitialData).indexBufferSize + std::get<0>(descAndInitialData).vertexBufferSize,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT },
-		std::get<1>(descAndInitialData),
-		std::get<2>(descAndInitialData)))
-, myDesc(std::forward<ModelCreateDesc<Vk>>(std::get<0>(descAndInitialData)))
-, myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
-{
-}
+	: Buffer(
+		  deviceContext,
+		  commandContext,
+		  std::make_tuple(
+			  BufferCreateDesc<Vk>{
+				  std::get<0>(descAndInitialData).indexBufferSize +
+					  std::get<0>(descAndInitialData).vertexBufferSize,
+				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+			  std::get<1>(descAndInitialData),
+			  std::get<2>(descAndInitialData)))
+	, myDesc(std::forward<ModelCreateDesc<Vk>>(std::get<0>(descAndInitialData)))
+	, myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
+{}
 
 template <>
 Model<Vk>::Model(
@@ -372,8 +362,7 @@ Model<Vk>::Model(
 	CommandPoolContext<Vk>& commandContext,
 	const std::filesystem::path& modelFile)
 	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
-{
-}
+{}
 
 template <>
 void Model<Vk>::swap(Model& rhs) noexcept

@@ -7,9 +7,9 @@
 template <class Archive, GraphicsBackend B>
 void serialize(Archive& archive, ModelCreateDesc<B>& desc)
 {
-    archive(cereal::make_nvp("aabb", desc.aabb));
-    archive(cereal::make_nvp("indexBufferSize", desc.indexBufferSize));
-    archive(cereal::make_nvp("vertexBufferSize", desc.vertexBufferSize));
-    archive(cereal::make_nvp("indexCount", desc.indexCount));
-    archive(cereal::make_nvp("attributes", desc.attributes));
+	archive(cereal::make_nvp("aabb", desc.aabb));
+	archive(cereal::make_nvp("indexBufferSize", desc.indexBufferSize));
+	archive(cereal::make_nvp("vertexBufferSize", desc.vertexBufferSize));
+	archive(cereal::make_nvp("indexCount", desc.indexCount));
+	archive(cereal::make_nvp("attributes", desc.attributes));
 }

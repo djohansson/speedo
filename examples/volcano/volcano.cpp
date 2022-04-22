@@ -13,19 +13,20 @@ static std::filesystem::path g_userProfilePath;
 namespace volcano
 {
 
-std::filesystem::path getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
+std::filesystem::path
+getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
 {
-    auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-    
-    if (createIfMissing && !std::filesystem::exists(path))
-        std::filesystem::create_directory(path);
-    
-    assert(std::filesystem::is_directory(path));
-    
-    return std::filesystem::canonical(path);
+	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+
+	if (createIfMissing && !std::filesystem::exists(path))
+		std::filesystem::create_directory(path);
+
+	assert(std::filesystem::is_directory(path));
+
+	return std::filesystem::canonical(path);
 }
 
-}
+} // namespace volcano
 
 int volcano_create(
 	void* windowHandle,

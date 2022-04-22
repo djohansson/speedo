@@ -23,27 +23,18 @@ public:
 		myIsLocked = true;
 	}
 
-	void unlock() 
+	void unlock()
 	{
 		assert(myIsLocked);
 
 		myIsLocked = false;
 	}
 
-	bool isLocked() const
-	{
-		return myIsLocked;
-	}
+	bool isLocked() const { return myIsLocked; }
 
-	size_t size() const
-	{
-		return myData.size() / stride();
-	}
+	size_t size() const { return myData.size() / stride(); }
 
-	size_t sizeBytes() const
-	{
-		return myData.size();
-	}
+	size_t sizeBytes() const { return myData.size(); }
 
 	void reserve(size_t size)
 	{
@@ -59,20 +50,11 @@ public:
 		myStride = stride;
 	}
 
-	size_t stride() const
-	{
-		return myStride;
-	}
+	size_t stride() const { return myStride; }
 
-	const void* data() const
-	{
-		return myData.data();
-	}
+	const void* data() const { return myData.data(); }
 
-	bool empty() const
-	{
-		return myData.size() == 0;
-	}
+	bool empty() const { return myData.size() == 0; }
 
 	// todo: handle alignment properly
 	// todo: rewrite without vector
@@ -129,20 +111,14 @@ public:
 		return reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
-	static ScopedVertexAllocation* const getScope()
-	{
-		return st_allocationScope;
-	}
+	static ScopedVertexAllocation* const getScope() { return st_allocationScope; }
 
 private:
 	friend ScopedVertexAllocation;
 
 	static VertexAllocator& allocator();
 
-	static void setScope(ScopedVertexAllocation* scope)
-	{
-		st_allocationScope = scope;
-	}
+	static void setScope(ScopedVertexAllocation* scope) { st_allocationScope = scope; }
 
 	Vertex() = delete;
 	~Vertex() = delete;
@@ -154,7 +130,9 @@ private:
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
 
-class ScopedVertexAllocation : Noncopyable, Nondynamic
+class ScopedVertexAllocation
+	: Noncopyable
+	, Nondynamic
 {
 public:
 	ScopedVertexAllocation(VertexAllocator& allocator);
@@ -170,10 +148,7 @@ public:
 		return myAllocatorRef.deallocate(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
-	VertexAllocator& allocator()
-	{
-		return myAllocatorRef;
-	}
+	VertexAllocator& allocator() { return myAllocatorRef; }
 
 private:
 	VertexAllocator& myAllocatorRef;

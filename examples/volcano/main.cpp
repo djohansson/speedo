@@ -2,17 +2,17 @@
 #include "utils.h"
 #include "volcano.h"
 
+#include <clocale>
 #include <cstdio>
 #include <cstdlib>
-#include <clocale>
 
 #if defined(_DEBUG) && defined(__WINDOWS__)
-#include <stdlib.h>
-#include <crtdbg.h>
-#ifndef _AMD64_
-#define _AMD64_ 1
-#endif
-#include <debugapi.h>
+#	include <crtdbg.h>
+#	include <stdlib.h>
+#	ifndef _AMD64_
+#		define _AMD64_ 1
+#	endif
+#	include <debugapi.h>
 #endif
 
 #define STB_SPRINTF_IMPLEMENTATION
@@ -21,16 +21,16 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #if __WINDOWS__
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
+#	define GLFW_EXPOSE_NATIVE_WIN32
+#	include <GLFW/glfw3native.h>
 #endif
 
-#include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
+#include <imgui.h>
 
-static MouseState g_mouse = { -1.0, -1.0, 0, 0, 0, false };
-static KeyboardState g_keyboard = { 0, 0, 0, 0 };
-static WindowState g_window = { 0, 0, 1920, 1080, 0, 0, 0, false };
+static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
+static KeyboardState g_keyboard = {0, 0, 0, 0};
+static WindowState g_window = {0, 0, 1920, 1080, 0, 0, 0, false};
 
 static void onError(int error, const char* description)
 {
@@ -39,7 +39,7 @@ static void onError(int error, const char* description)
 
 static void onMouseEnter(GLFWwindow* window, int entered)
 {
-    g_mouse.insideWindow = entered;
+	g_mouse.insideWindow = entered;
 
 	volcano_mouse(&g_mouse);
 }
@@ -65,7 +65,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 {
 	static bool fullscreenChangeTriggered = false;
 	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
-    {
+	{
 		if (!fullscreenChangeTriggered)
 		{
 			fullscreenChangeTriggered = true;
@@ -74,8 +74,8 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 			{
 				g_window.fullscreenEnabled = false;
 
-				glfwSetWindowMonitor(window, nullptr,
-					g_window.x, g_window.y, g_window.width, g_window.height, 0);
+				glfwSetWindowMonitor(
+					window, nullptr, g_window.x, g_window.y, g_window.width, g_window.height, 0);
 			}
 			else
 			{
@@ -97,12 +97,18 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 					g_window.width = width;
 					g_window.height = height;
 
-					glfwSetWindowMonitor(window, monitor, 0, 0,
-						g_window.fullscreenWidth, g_window.fullscreenHeight, g_window.fullscreenRefresh);
+					glfwSetWindowMonitor(
+						window,
+						monitor,
+						0,
+						0,
+						g_window.fullscreenWidth,
+						g_window.fullscreenHeight,
+						g_window.fullscreenRefresh);
 				}
 			}
 		}
-    }
+	}
 	else
 	{
 		fullscreenChangeTriggered = false;
@@ -120,7 +126,7 @@ static void onFramebufferResize(GLFWwindow*, int w, int h)
 {
 	if (w == 0 || h == 0)
 		return;
-		
+
 	volcano_resizeFramebuffer(w, h);
 }
 
@@ -135,24 +141,20 @@ static void onWindowResize(GLFWwindow*, int w, int h)
 	volcano_resizeWindow(&g_window);
 }
 
-static void onWindowFocusChanged(GLFWwindow* window, int focused)
-{
-}
+static void onWindowFocusChanged(GLFWwindow* window, int focused) {}
 
-static void onWindowRefresh(GLFWwindow* window)
-{
-}
+static void onWindowRefresh(GLFWwindow* window) {}
 
 static void onMonitorChanged(GLFWmonitor* monitor, int event)
 {
-    if (event == GLFW_CONNECTED)
-    {
-        // The monitor was connected
-    }
-    else if (event == GLFW_DISCONNECTED)
-    {
-        // The monitor was disconnected
-    }
+	if (event == GLFW_CONNECTED)
+	{
+		// The monitor was connected
+	}
+	else if (event == GLFW_DISCONNECTED)
+	{
+		// The monitor was disconnected
+	}
 }
 
 // #if defined(_DEBUG) && defined(__WINDOWS__)
@@ -180,8 +182,8 @@ const char* getCmdOption(const char* const* begin, const char* const* end, const
 		if (strcmp(*begin++, option) == 0)
 			return *begin;
 	}
-    
-    return nullptr;
+
+	return nullptr;
 }
 
 // void* __real_malloc(size_t sz);
@@ -192,7 +194,7 @@ const char* getCmdOption(const char* const* begin, const char* const* end, const
 //     ptr = __real_malloc(sz);
 //     fprintf(stderr, "malloc of size %d yields pointer %p\n", sz, ptr);
 
-//     /* if you wish to save the pointer and the size to a data structure, 
+//     /* if you wish to save the pointer and the size to a data structure,
 //        then remember to add wrap code for calloc, realloc and free */
 
 //     return ptr;
@@ -281,17 +283,18 @@ int main(int argc, char** argv)
 			ImGui_ImplGlfw_NewFrame();
 		}
 
-	#if defined(_DEBUG) && defined(__WINDOWS__)
+#if defined(_DEBUG) && defined(__WINDOWS__)
 		{
 			ZoneScopedN("main::memorycheck");
 
 			_CrtMemState drawLoopMemState, diffMemState;
 			_CrtMemCheckpoint(&drawLoopMemState);
 
-			if ((++frameIndex % 10000 == 0) && _CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
+			if ((++frameIndex % 10000 == 0) &&
+				_CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
 				_CrtMemDumpStatistics(&diffMemState);
 		}
-	#endif
+#endif
 
 	} while (!glfwWindowShouldClose(window) && !volcano_draw());
 
