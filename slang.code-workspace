@@ -132,7 +132,12 @@
 			"stop_token": "cpp",
 			"span": "cpp",
 			"gsl_byte": "cpp",
-			"__cxx_version": "cpp"
+			"__cxx_version": "cpp",
+			"x86intrin.h": "c",
+			"immintrin.h": "c",
+			"format": "cpp",
+			"semaphore": "cpp",
+			"stdalign.h": "c"
 		}
 	}
 }
