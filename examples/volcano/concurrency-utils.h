@@ -11,7 +11,6 @@
 #include <memory>
 #include <optional>
 #include <semaphore>
-//#include <set>
 //#include <shared_mutex>
 //#include <stop_token>
 #include <tuple>
@@ -228,16 +227,6 @@ private:
 	std::vector<TaskNode*> myDependents = {};
 };
 
-namespace std
-{
-
-template <>
-struct hash<TaskNode>
-{
-	size_t operator()(const TaskNode& node) const { return node.getId(); }
-};
-
-} // namespace std
 
 class TaskGraph : public Noncopyable
 {
@@ -255,9 +244,7 @@ public:
 private:
 	friend class TaskExecutor;
 	
-	//using NodeSet = std::set<TaskNode>;
-	using NodeSet = UnorderedSet<TaskNode>;
-	NodeSet myNodes = {};
+	FlatSet<TaskNode> myNodes = {};
 };
 
 class TaskExecutor : public Noncopyable
