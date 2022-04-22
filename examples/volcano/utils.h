@@ -272,10 +272,33 @@ public:
 
 		return result;
 	}
+};
 
-	std::pair<iterator, bool> insert(const value_type& value)
+template <typename Key, typename VectorT = std::vector<Key>>
+class FlatSet : public VectorT
+{
+public:
+
+	using vector_type = VectorT;
+	using key_type = Key;
+	using value_type = typename vector_type::value_type;
+	using iterator = typename vector_type::iterator; 
+	using vector_type::begin;
+	using vector_type::end;
+	using vector_type::emplace;
+	using vector_type::insert;
+
+	template <typename... Args>
+	std::pair<iterator, bool> emplace(Args&&... args)
 	{
-		return std::apply(emplace, value);
+		auto key = Key(std::forward<Args>(args)...);
+		auto elementIt = std::lower_bound(begin(), end(), key, [](const value_type& a, const value_type& b){ return a < b; });
+
+		std::pair<iterator, bool> result(elementIt, false);
+		if (elementIt == end() || key != *elementIt)
+			result = std::make_pair(vector_type::insert(elementIt, std::move(key)), true);
+
+		return result;
 	}
 };
 
