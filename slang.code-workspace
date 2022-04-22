@@ -137,7 +137,8 @@
 			"immintrin.h": "c",
 			"format": "cpp",
 			"semaphore": "cpp",
-			"stdalign.h": "c"
+			"stdalign.h": "c",
+			"gsl_util": "cpp"
 		}
 	}
 }
