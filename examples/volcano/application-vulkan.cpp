@@ -1058,17 +1058,26 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 			if (BeginMenu("File"))
 			{
 				if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
-					myOpenFileFuture = myExecutor.fork(
-						[openFileDialogue, resourcePath, loadModel]
-						{ return openFileDialogue(resourcePath, "obj", loadModel); });
+				{
+					TaskGraph graph;
+					auto [node, openFileFuture] = graph.createNode([openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
+					myExecutor.submit(std::move(graph));
+					myOpenFileFuture = std::move(openFileFuture);
+				}
 				if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-					myOpenFileFuture = myExecutor.fork(
-						[openFileDialogue, resourcePath, loadImage]
-						{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
+				{
+					TaskGraph graph;
+					auto [node, openFileFuture] = graph.createNode([openFileDialogue, resourcePath, loadImage]{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
+					myExecutor.submit(std::move(graph));
+					myOpenFileFuture = std::move(openFileFuture);
+				}
 				if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-					myOpenFileFuture = myExecutor.fork(
-						[openFileDialogue, resourcePath, loadGlTF]
-						{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
+				{
+					TaskGraph graph;
+					auto [node, openFileFuture] = graph.createNode([openFileDialogue, resourcePath, loadGlTF]{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
+					myExecutor.submit(std::move(graph));
+					myOpenFileFuture = std::move(openFileFuture);
+				}
 				Separator();
 				if (MenuItem("Exit", "CTRL+Q"))
 					myRequestExit = true;
@@ -1199,7 +1208,9 @@ bool Application<Vk>::draw()
 		std::rotate(
 			myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
 
-		auto imguiPrepareDrawFuture = myExecutor.fork([this] { myIMGUIPrepareDrawFunction(); });
+		TaskGraph imguiPrepareDrawGraph;
+		auto [imguiPrepareDrawNode, imguiPrepareDrawFuture] = imguiPrepareDrawGraph.createNode([this]{ myIMGUIPrepareDrawFunction(); });
+		myExecutor.submit(std::move(imguiPrepareDrawGraph));
 
 		if (lastPresentTimelineValue)
 		{
@@ -1268,21 +1279,24 @@ bool Application<Vk>::draw()
 		myGraphicsQueues.front().enqueuePresent(
 			myMainWindow->preparePresent(myGraphicsQueues.front().submit()));
 
-		myPresentFuture = myExecutor.fork(
-			[](QueueContext<Vk>* queue) { queue->present(); }, 1, &myGraphicsQueues.front());
+		TaskGraph presentGraph;
+		auto [presentNode, presentFuture] = presentGraph.createNode([](QueueContext<Vk>* queue) { queue->present(); }, &myGraphicsQueues.front());
+		myExecutor.submit(std::move(presentGraph));
+		myPresentFuture = std::move(presentFuture);
 	}
 
 	if (lastPresentTimelineValue)
 	{
 		ZoneScopedN("Application::draw::submitTimelineCallbacks");
 
-		// todo: have the thread pool poll Host+Device visible memory heap for GPU completion instead
-		myProcessTimelineCallbacksFuture = myExecutor.fork(
-			[](uint64_t timelineValue, DeviceContext<Vk>* deviceContext)
-			{ deviceContext->processTimelineCallbacks(timelineValue); },
-			1,
+		// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
+		TaskGraph processTimelineCallbacksGraph;
+		auto [processTimelineCallbacksNode, processTimelineCallbacksFuture] = processTimelineCallbacksGraph.createNode(
+			[](uint64_t timelineValue, DeviceContext<Vk>* deviceContext){ deviceContext->processTimelineCallbacks(timelineValue); },
 			static_cast<uint64_t>(lastPresentTimelineValue),
 			myDevice.get());
+		myExecutor.submit(std::move(processTimelineCallbacksGraph));
+		myProcessTimelineCallbacksFuture = std::move(processTimelineCallbacksFuture);
 		//.then([] { std::cout << "continuation" << std::endl; });
 	}
 

@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <semaphore>
+//#include <set>
 //#include <shared_mutex>
 //#include <stop_token>
 #include <tuple>
@@ -20,8 +21,6 @@
 
 #include <concurrentqueue.h>
 #include <robin_hood.h>
-
-#include <uuid.h>
 
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
@@ -74,8 +73,9 @@ class alignas(Aligmnent) UpgradableSharedMutex
 public:
 	// Lockable Concept
 	void lock() noexcept;
-	void
-	unlock() noexcept; // Writer is responsible for clearing up both the Upgraded and Writer bits.
+	
+	// Writer is responsible for clearing up both the Upgraded and Writer bits.
+	void unlock() noexcept;
 
 	// SharedLockable Concept
 	void lock_shared() noexcept;
@@ -114,7 +114,7 @@ public:
 };
 
 // todo: dynamic memory allocation if larger tasks are created
-class Task final
+class Task
 {
 public:
 	constexpr Task() noexcept = default;
@@ -126,13 +126,15 @@ public:
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	Task& operator=(const Task& other) noexcept;
+	bool operator==(const Task& other) const noexcept { return memcmp(this, &other, sizeof(Task)); }
 
 private:
 	template <typename T>
 	friend class Future;
-	friend class TaskGraph;
 	friend class TaskExecutor;
-
+	friend class TaskGraph;
+	friend class TaskNode;
+	
 	template <
 		typename F,
 		typename ReturnState,
@@ -169,7 +171,7 @@ private:
 //char (*__kaboom)[sizeof(Task)] = 1;
 
 template <typename T>
-class Future : Noncopyable
+class Future : public Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
@@ -198,18 +200,50 @@ private:
 	std::shared_ptr<state_t> myState;
 };
 
+class TaskNode : public Task, public Noncopyable
+{	
+public:
+	constexpr TaskNode() noexcept = default;
+	TaskNode(TaskNode&& other) noexcept;
+	
+	template <
+		typename F,
+		typename ReturnState,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	requires std::invocable<F&, Args...>
+	TaskNode(uint32_t id, F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
+
+	operator bool() const noexcept;
+	bool operator!() const noexcept;
+	TaskNode& operator=(TaskNode&& other) noexcept;
+	bool operator==(const TaskNode& other) const noexcept { return Task::operator==(other) && mySuccessors == other.mySuccessors && myDependents == other.myDependents; }
+
+	auto getId() const noexcept { return myId; }
+
+private:
+	uint32_t myId = 0;
+	std::vector<TaskNode*> mySuccessors = {};
+	std::vector<TaskNode*> myDependents = {};
+};
+
+namespace std
+{
+
+template <>
+struct hash<TaskNode>
+{
+	size_t operator()(const TaskNode& node) const { return node.getId(); }
+};
+
+} // namespace std
+
 class TaskGraph : public Noncopyable
 {
-	struct Node
-	{
-		Task task = {};
-		std::vector<Node*> successors = {};
-		std::vector<Node*> dependents = {};
-	};
-	using NodeMap = robin_hood::unordered_node_map<uuids::uuid, Node>;
-
 public:
-	constexpr TaskGraph() = default;
+	constexpr TaskGraph() noexcept = default;
 
 	template <
 		typename F,
@@ -217,30 +251,23 @@ public:
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
 	requires std::invocable<F&, Args...>
-	const uuids::uuid& emplace(F&& f, Args&&... args);
+	std::tuple<TaskNode*, Future<ReturnType>> createNode(F&& f, Args&&... args);
 
 private:
-	NodeMap myNodes = {};
+	friend class TaskExecutor;
+	
+	//using NodeSet = std::set<TaskNode>;
+	using NodeSet = UnorderedSet<TaskNode>;
+	NodeSet myNodes = {};
 };
 
-// wip: fork/join.
 class TaskExecutor : public Noncopyable
 {
 public:
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	// todo: replace with:
-	// template <typename... Ts>
-	// void submit(Ts&&... args);
-	template <
-		typename F,
-		typename CallableType = std::decay_t<F>,
-		typename... Args,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...> Future<ReturnType>
-	fork(F&& f, uint32_t count = 1, Args&&... args);
-
+	void submit(TaskGraph&& graph);
 	void join();
 
 	template <typename ReturnType>

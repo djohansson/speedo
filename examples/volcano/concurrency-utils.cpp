@@ -91,6 +91,32 @@ bool Task::operator!() const noexcept
 // 	return XXH3_64bits_digest(threadXXHState.get());
 // }
 
+TaskNode::TaskNode(TaskNode&& other) noexcept
+{
+	*this = std::forward<TaskNode>(other);
+}
+
+TaskNode::operator bool() const noexcept
+{
+	return Task::operator bool() && myId;
+}
+
+bool TaskNode::operator!() const noexcept
+{
+	return !static_cast<bool>(*this);
+}
+
+TaskNode& TaskNode::operator=(TaskNode&& other) noexcept
+{
+	static_cast<Task&>(*this) = std::forward<Task>(static_cast<Task&&>(other));
+	
+	myId = std::exchange(other.myId, {});
+	mySuccessors = std::exchange(other.mySuccessors, {});
+	myDependents = std::exchange(other.myDependents, {});
+
+	return *this;
+}
+
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
 {
@@ -129,6 +155,16 @@ TaskExecutor::~TaskExecutor()
 		for (auto& thread : myThreads)
 			thread.join();
 	}
+}
+
+void TaskExecutor::submit(TaskGraph&& graph)
+{
+	ZoneScopedN("TaskExecutor::submit");
+
+	for (auto& node : graph.myNodes)
+		myQueue.enqueue(std::move(node));
+
+	mySignal.release();
 }
 
 void TaskExecutor::join()

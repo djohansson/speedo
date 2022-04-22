@@ -323,35 +323,40 @@ Task::Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
 		std::forward<Args>(args)...);
 }
 
-template <typename F, typename CallableType, typename... Args, typename ReturnType>
-requires std::invocable<F&, Args...> Future<ReturnType>
-TaskExecutor::fork(F&& f, uint32_t count, Args&&... args)
+template <
+	typename F,
+	typename ReturnState,
+	typename CallableType,
+	typename... Args,
+	typename ArgsTuple,
+	typename ReturnType>
+requires std::invocable<F&, Args...>
+TaskNode::TaskNode(uint32_t id, F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args)
+	: Task(std::forward<F>(f), std::forward<std::shared_ptr<ReturnState>>(returnState), std::forward<Args>(args)...)
+	, myId(id)
 {
-	ZoneScopedN("TaskExecutor::fork");
+}
 
-	auto task = Task(
+template <
+	typename F,
+	typename CallableType,
+	typename... Args,
+	typename ReturnType>
+requires std::invocable<F&, Args...>
+std::tuple<TaskNode*, Future<ReturnType>> TaskGraph::createNode(F&& f, Args&&... args)
+{
+	ZoneScopedN("TaskGraph::createNode");
+
+	auto [taskNodeIt, wasEmplaced] = myNodes.emplace(
+		myNodes.size() + 1,
 		std::forward<F>(f),
 		std::make_shared<typename Future<ReturnType>::state_t>(),
 		std::forward<Args>(args)...);
-	auto returnState = task.returnState<typename Future<ReturnType>::state_t>();
-
-	// todo: enqueue_bulk
-	assert(count == 1);
-
-	{
-		ZoneScopedN("TaskExecutor::fork::enqueue");
-
-		myQueue.enqueue(std::move(task));
-	}
-
-	{
-		ZoneScopedN("TaskExecutor::fork::signal");
-
-		//mySignal.notify_one();
-		mySignal.release();
-	}
-
-	return Future<ReturnType>(std::move(returnState));
+	auto& taskNode = *taskNodeIt;
+	
+	return std::make_tuple(
+		&taskNode,
+		Future<ReturnType>(taskNode.template returnState<typename Future<ReturnType>::state_t>()));
 }
 
 template <typename ReturnType>
