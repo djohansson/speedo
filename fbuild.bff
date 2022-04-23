@@ -357,7 +357,7 @@
 		.DependencyTasks = { .Gl3wGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/tracy/profiler'
-			+ ' -I$BuildRootPath$/external/capstone/include'
+			+ ' -I$BuildRootPath$/external/capstone/include/capstone'
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/freetype2/include'
 			+ ' -I$BuildRootPath$/external/nativefiledialog/src/include'
@@ -387,10 +387,12 @@
 		}
 		.CompilerInputFiles = {
 			'$ProjectBasePath$/server/TracyMicroArchitecture.cpp',
+			'$ProjectBasePath$/server/TracyTexture.cpp',
 		}
 		.CompilerInputUnity = '$Name$-unity'
 		.UnityInputFiles = {
 			'$ProjectBasePath$/common/TracySocket.cpp',
+			'$ProjectBasePath$/common/TracyStackFrames.cpp',
 			'$ProjectBasePath$/common/TracySystem.cpp',
 			'$ProjectBasePath$/common/tracy_lz4.cpp',
 			'$ProjectBasePath$/common/tracy_lz4hc.cpp',
@@ -398,21 +400,26 @@
 			'$ProjectBasePath$/server/TracyColor.cpp',
 			'$ProjectBasePath$/server/TracyFilesystem.cpp',
 			'$ProjectBasePath$/server/TracyMemory.cpp',
+			'$ProjectBasePath$/server/TracyMouse.cpp',
 			'$ProjectBasePath$/server/TracyMmap.cpp',
 			'$ProjectBasePath$/server/TracyPrint.cpp',
 			'$ProjectBasePath$/server/TracyStorage.cpp',
+			'$ProjectBasePath$/server/TracySourceContents.cpp',
+			'$ProjectBasePath$/server/TracySourceTokenizer.cpp',
 			'$ProjectBasePath$/server/TracySourceView.cpp',
-			'$ProjectBasePath$/server/TracyTexture.cpp',
 			'$ProjectBasePath$/server/TracyTextureCompression.cpp',
 			'$ProjectBasePath$/server/TracyTaskDispatch.cpp',
 			'$ProjectBasePath$/server/TracyThreadCompress.cpp',
 			'$ProjectBasePath$/server/TracyUserData.cpp',
 			'$ProjectBasePath$/server/TracyView.cpp',
+			'$ProjectBasePath$/server/TracyWeb.cpp',
 			'$ProjectBasePath$/server/TracyWorker.cpp',
+			'$ProjectBasePath$/profiler/src/HttpRequest.cpp',
 			'$ProjectBasePath$/profiler/src/main.cpp',
+			'$ProjectBasePath$/profiler/src/NativeWindow.cpp',
 			'$ProjectBasePath$/profiler/src/ResolvService.cpp',
 			'$ProjectBasePath$/profiler/src/winmain.cpp',
-			'$ProjectBasePath$/profiler/src/winmainarchdiscovery.cpp',
+			'$ProjectBasePath$/profiler/src/winmainArchDiscovery.cpp',
 		}
 		.UnityOutputPath + '/external/tracy'
 		.UnityOutputPattern = 'tracy-unity*.cpp'
