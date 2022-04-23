@@ -127,8 +127,8 @@ void Application<Vk>::initIMGUI(
 		1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[](uint64_t) { ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
 
-	imnodes::Initialize();
-	imnodes::LoadCurrentEditorStateFromIniString(
+	IMNODES_NAMESPACE::CreateContext();
+	IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
 		myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
 }
 
@@ -136,9 +136,10 @@ template <>
 void Application<Vk>::shutdownIMGUI()
 {
 	size_t count;
-	myNodeGraph.layout.assign(imnodes::SaveCurrentEditorStateToIniString(&count));
-	imnodes::Shutdown();
+	myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
 
+	IMNODES_NAMESPACE::DestroyContext();
+	
 	ImGui_ImplVulkan_Shutdown();
 	ImGui::DestroyContext();
 }
@@ -780,7 +781,6 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 			PopItemWidth();
 
 			return std::max(maxTextWidth, CalcTextSize(str.c_str(), str.c_str() + str.size()).x);
-			;
 		};
 
 		static bool showStatistics = false;
@@ -859,23 +859,23 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
 			PushAllowKeyboardFocus(false);
 
-			imnodes::BeginNodeEditor();
+			IMNODES_NAMESPACE::BeginNodeEditor();
 
 			for (const auto& node : myNodeGraph.nodes)
 			{
 				char buffer[64];
 
-				imnodes::BeginNode(node->id());
+				IMNODES_NAMESPACE::BeginNode(node->id());
 
 				// title bar
 				stbsp_sprintf(buffer, "##node%.*u", 4, node->id());
 
-				imnodes::BeginNodeTitleBar();
+				IMNODES_NAMESPACE::BeginNodeTitleBar();
 
 				float titleBarTextWidth =
 					editableTextField(node->id(), buffer, node->name(), 160.0f, node->selected());
 
-				imnodes::EndNodeTitleBar();
+				IMNODES_NAMESPACE::EndNodeTitleBar();
 
 				if (IsItemClicked() && IsMouseDoubleClicked(0))
 					node->selected() = std::make_optional(node->id());
@@ -895,7 +895,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 							auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
 							stbsp_sprintf(buffer, "##inputattribute%.*u", 4, inputAttribute.id);
 
-							imnodes::BeginInputAttribute(inputAttribute.id);
+							IMNODES_NAMESPACE::BeginInputAttribute(inputAttribute.id);
 
 							inputTextWidth = editableTextField(
 								inputAttribute.id,
@@ -904,7 +904,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 								80.0f,
 								node->selected());
 
-							imnodes::EndInputAttribute();
+							IMNODES_NAMESPACE::EndInputAttribute();
 
 							if (IsItemClicked() && IsMouseDoubleClicked(0))
 								node->selected() = std::make_optional(inputAttribute.id);
@@ -918,7 +918,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 							if (hasInputPin)
 								SameLine();
 
-							imnodes::BeginOutputAttribute(outputAttribute.id);
+							IMNODES_NAMESPACE::BeginOutputAttribute(outputAttribute.id);
 
 							float outputTextWidth =
 								CalcTextSize(
@@ -942,7 +942,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 								80.0f,
 								node->selected());
 
-							imnodes::EndOutputAttribute();
+							IMNODES_NAMESPACE::EndOutputAttribute();
 
 							if (IsItemClicked() && IsMouseDoubleClicked(0))
 								node->selected() = std::make_optional(outputAttribute.id);
@@ -950,7 +950,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 					}
 				}
 
-				imnodes::EndNode();
+				IMNODES_NAMESPACE::EndNode();
 
 				if (BeginPopupContextItem())
 				{
@@ -983,14 +983,14 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 			}
 
 			for (int linkIt = 0; linkIt < myNodeGraph.links.size(); linkIt++)
-				imnodes::Link(
+				IMNODES_NAMESPACE::Link(
 					linkIt, myNodeGraph.links[linkIt].fromId, myNodeGraph.links[linkIt].toId);
 
-			imnodes::EndNodeEditor();
+			IMNODES_NAMESPACE::EndNodeEditor();
 
 			int hoveredNodeId;
-			if (/*imnodes::IsEditorHovered() && */
-				!imnodes::IsNodeHovered(&hoveredNodeId) &&
+			if (/*IMNODES_NAMESPACE::IsEditorHovered() && */
+				!IMNODES_NAMESPACE::IsNodeHovered(&hoveredNodeId) &&
 				BeginPopupContextItem("Node Editor Context Menu"))
 			{
 				ImVec2 clickPos = GetMousePosOnOpeningCurrentPopup();
@@ -1009,7 +1009,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 					if (Selectable(itemName.data()))
 					{
 						int id = ++myNodeGraph.uniqueId;
-						imnodes::SetNodeScreenSpacePos(id, clickPos);
+						IMNODES_NAMESPACE::SetNodeScreenSpacePos(id, clickPos);
 						myNodeGraph.nodes.emplace_back(
 							[&menuItem, &id]() -> std::shared_ptr<INode>
 							{
@@ -1038,17 +1038,17 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
 			{
 				int startAttr, endAttr;
-				if (imnodes::IsLinkCreated(&startAttr, &endAttr))
+				if (IMNODES_NAMESPACE::IsLinkCreated(&startAttr, &endAttr))
 					myNodeGraph.links.emplace_back(Link{startAttr, endAttr});
 			}
 
 			// {
-			//     const int selectedNodeCount = imnodes::NumSelectedNodes();
+			//     const int selectedNodeCount = IMNODES_NAMESPACE::NumSelectedNodes();
 			//     if (selectedNodeCount > 0)
 			//     {
 			//         std::vector<int> selectedNodes;
 			//         selectedNodes.resize(selectedNodeCount);
-			//         imnodes::GetSelectedNodes(selectedNodes.data());
+			//         IMNODES_NAMESPACE::GetSelectedNodes(selectedNodes.data());
 			//     }
 			// }
 		}
