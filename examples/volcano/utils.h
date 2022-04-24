@@ -46,8 +46,6 @@ public:
 	constexpr Noncopyable() = default;
 	~Noncopyable() = default;
 
-	auto operator<=>(const Noncopyable&) const noexcept = default;
-
 private:
 	Noncopyable(const Noncopyable&) = delete;
 	Noncopyable& operator=(const Noncopyable&) = delete;
