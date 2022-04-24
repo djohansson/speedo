@@ -186,14 +186,15 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 	if (previous)
 	{
-		if constexpr (PROFILING_ENABLED)
+	#if PROFILING_ENABLED
 			getDeviceContext()->eraseOwnedObjectHandle(
 				getUid(), reinterpret_cast<uint64_t>(previous));
+	#endif
 
 		vkDestroySwapchainKHR(getDeviceContext()->getDevice(), previous, nullptr);
 	}
 
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char stringBuffer[32];
 		static constexpr std::string_view swapchainStr = "_Swapchain";
@@ -211,6 +212,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 			reinterpret_cast<uint64_t>(mySwapchain),
 			stringBuffer);
 	}
+#endif
 
 	uint32_t frameCount = config.imageCount;
 

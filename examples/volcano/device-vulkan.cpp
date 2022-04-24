@@ -426,7 +426,7 @@ DeviceObject<Vk>::DeviceObject(
 	const uint64_t* objectHandles)
 	: DeviceObject(deviceContext, std::forward<DeviceObjectCreateDesc>(desc))
 {
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char stringBuffer[256];
 		for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)
@@ -452,16 +452,18 @@ DeviceObject<Vk>::DeviceObject(
 				getUid(), objectType, objectHandles[objectIt], stringBuffer);
 		}
 	}
+#endif
 }
 
 template <>
 DeviceObject<Vk>::~DeviceObject()
 {
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		if (myDevice)
 			myDevice->clearOwnedObjectHandles(getUid());
 	}
+#endif
 }
 
 template <>

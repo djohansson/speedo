@@ -783,9 +783,8 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 			return std::max(maxTextWidth, CalcTextSize(str.c_str(), str.c_str() + str.size()).x);
 		};
 
+	#if PROFILING_ENABLED
 		static bool showStatistics = false;
-		(void)showStatistics;
-		if constexpr (PROFILING_ENABLED)
 		{
 			if (showStatistics)
 			{
@@ -838,6 +837,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 				End();
 			}
 		}
+	#endif
 
 		static bool showDemoWindow = false;
 		if (showDemoWindow)
@@ -1088,11 +1088,12 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 			{
 				if (MenuItem("Node Editor..."))
 					showNodeEditor = !showNodeEditor;
-				if constexpr (PROFILING_ENABLED)
+			#if PROFILING_ENABLED
 				{
 					if (MenuItem("Statistics..."))
 						showStatistics = !showStatistics;
 				}
+			#endif
 				ImGui::EndMenu();
 			}
 			if (BeginMenu("About"))

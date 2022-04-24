@@ -29,7 +29,7 @@ QueueContext<Vk>::QueueContext(
 	, myDesc(std::forward<QueueContextCreateDesc<Vk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
 {
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		if (auto cmd =
 				myDesc.tracingEnableInitCmd.value_or(CommandBufferHandle<Vk>{VK_NULL_HANDLE}))
@@ -43,6 +43,7 @@ QueueContext<Vk>::QueueContext(
 				nullptr)};
 		}
 	}
+#endif
 }
 
 template <>
@@ -74,11 +75,12 @@ QueueContext<Vk>::QueueContext(QueueContext<Vk>&& other) noexcept
 template <>
 QueueContext<Vk>::~QueueContext()
 {
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		if (myDesc.tracingEnableInitCmd)
 			tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
 	}
+#endif
 }
 
 template <>
@@ -109,18 +111,19 @@ void QueueContext<Vk>::swap(QueueContext& rhs) noexcept
 template <>
 void QueueContext<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
 {
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		if (myDesc.tracingEnableInitCmd)
 			TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
 	}
+#endif
 }
 
 template <>
 std::shared_ptr<void>
 QueueContext<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
 		// static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
@@ -138,6 +141,7 @@ QueueContext<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocatio
 				true));
 		}
 	}
+#endif
 
 	return {};
 }

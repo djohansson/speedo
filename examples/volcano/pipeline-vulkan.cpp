@@ -244,6 +244,7 @@ uint64_t PipelineContext<Vk>::internalCalculateHashKey() const
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(threadXXHState.get());
+	(void)result;
 	assert(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(threadXXHState.get(), &myBindPoint, sizeof(myBindPoint));
@@ -467,7 +468,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 	VK_CHECK(vkCreateGraphicsPipelines(
 		getDeviceContext()->getDevice(), myCache, 1, &pipelineInfo, nullptr, &pipelineHandle));
 
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineStr = "_Pipeline";
@@ -487,6 +488,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 			reinterpret_cast<uint64_t>(pipelineHandle),
 			stringBuffer);
 	}
+#endif
 
 	return pipelineHandle;
 }
@@ -808,7 +810,7 @@ PipelineContext<Vk>::PipelineContext(
 	// todo: refactor, since this will be called to excessivly
 	internalResetState();
 
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
@@ -833,6 +835,7 @@ PipelineContext<Vk>::PipelineContext(
 			reinterpret_cast<uint64_t>(myDescriptorPool),
 			"Device_DescriptorPool");
 	}
+#endif
 }
 
 template <>

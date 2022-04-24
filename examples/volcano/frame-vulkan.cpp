@@ -54,7 +54,7 @@ Frame<Vk>::Frame(
 	VK_CHECK(vkCreateSemaphore(
 		getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char stringBuffer[64];
 		static constexpr std::string_view renderCompleteSemaphoreStr = "_RenderCompleteSemaphore";
@@ -89,6 +89,7 @@ Frame<Vk>::Frame(
 			reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
 			stringBuffer);
 	}
+#endif
 }
 
 template <>

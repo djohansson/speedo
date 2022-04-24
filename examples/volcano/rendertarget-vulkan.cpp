@@ -25,7 +25,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			1));
 
-		if constexpr (PROFILING_ENABLED)
+	#if PROFILING_ENABLED
 		{
 			char stringBuffer[128];
 			static constexpr std::string_view colorImageViewStr = "_ColorImageView";
@@ -46,6 +46,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 				reinterpret_cast<uint64_t>(myAttachments.back()),
 				stringBuffer);
 		}
+	#endif
 
 		auto& colorAttachment = myAttachmentDescs.emplace_back();
 		colorAttachment.format = desc.colorImageFormats[attachmentIt];
@@ -76,7 +77,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			depthAspectFlags,
 			1));
 
-		if constexpr (PROFILING_ENABLED)
+	#if PROFILING_ENABLED
 		{
 			char stringBuffer[128];
 			static constexpr std::string_view depthImageViewStr = "_DepthImageView";
@@ -95,6 +96,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 				reinterpret_cast<uint64_t>(myAttachments.back()),
 				stringBuffer);
 		}
+	#endif
 
 		auto& depthStencilAttachment = myAttachmentDescs.emplace_back();
 		depthStencilAttachment.format = desc.depthStencilImageFormat;
@@ -175,6 +177,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(threadXXHState.get());
+	(void)result;
 	assert(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
@@ -231,7 +234,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 		desc.extent.height,
 		desc.layerCount);
 
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char stringBuffer[128];
 		static constexpr std::string_view renderPassStr = "_RenderPass";
@@ -267,6 +270,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 			reinterpret_cast<uint64_t>(frameBuffer),
 			stringBuffer);
 	}
+#endif
 
 	return std::make_tuple(renderPass, frameBuffer);
 }
