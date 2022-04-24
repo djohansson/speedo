@@ -5,9 +5,12 @@
 
 #include <array>
 #include <atomic>
+//#include <barrier>
 #include <concepts>
 //#include <condition_variable>
 #include <cstdint>
+#include <latch>
+#include <list>
 #include <memory>
 #include <optional>
 #include <semaphore>
@@ -19,7 +22,6 @@
 #include <vector>
 
 #include <concurrentqueue.h>
-#include <robin_hood.h>
 
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
@@ -72,7 +74,7 @@ class alignas(Aligmnent) UpgradableSharedMutex
 public:
 	// Lockable Concept
 	void lock() noexcept;
-	
+
 	// Writer is responsible for clearing up both the Upgraded and Writer bits.
 	void unlock() noexcept;
 
@@ -117,6 +119,14 @@ class Task
 {
 public:
 	constexpr Task() noexcept = default;
+	template <
+		typename F,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	requires std::invocable<F&, Args...>
+	Task(F&& f, Args&&... args);
 	Task(Task&& other) noexcept;
 	Task(const Task& other) noexcept;
 	~Task();
@@ -125,26 +135,11 @@ public:
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	Task& operator=(const Task& other) noexcept;
-
-private:
-	template <typename T>
-	friend class Future;
-	friend class TaskExecutor;
-	friend class TaskGraph;
-	friend class TaskNode;
-	
-	template <
-		typename F,
-		typename ReturnState,
-		typename CallableType = std::decay_t<F>,
-		typename... Args,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...>
-	Task(F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
-
 	template <typename... Args>
 	void operator()(Args&&... args);
+
+private:
+	friend class TaskGraph;
 
 	template <class Tuple, size_t... I>
 	constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
@@ -167,14 +162,21 @@ private:
 };
 
 //char (*__kaboom)[sizeof(Task)] = 1;
+//char (*__kaboom)[sizeof(std::latch)] = 1;
+//char (*__kaboom)[sizeof(std::barrier<>)] = 1;
 
 template <typename T>
 class Future : public Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	using state_t =
-		std::tuple<value_t, std::atomic_bool, Task>; // retval, mutex, continuation (optional)
+	struct state_t
+	{
+		state_t(std::ptrdiff_t latchInit) noexcept : latch(latchInit) {}
+		value_t value;
+		std::latch latch;
+		std::vector<std::latch*> dependents;
+	};
 
 	constexpr Future() noexcept = default;
 	Future(std::shared_ptr<state_t>&& state) noexcept;
@@ -187,64 +189,36 @@ public:
 	bool valid() const;
 	void wait() const;
 
-	template <
-		typename F,
-		typename CallableType = std::decay_t<F>,
-		typename... Args,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
+	// template <
+	// 	typename F,
+	// 	typename CallableType = std::decay_t<F>,
+	// 	typename... Args,
+	// 	typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	// requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
 
 private:
 	std::shared_ptr<state_t> myState;
 };
-
-class TaskNode : public Task, public Noncopyable
-{	
-public:
-	constexpr TaskNode() noexcept = default;
-	TaskNode(TaskNode&& other) noexcept;
-	
-	template <
-		typename F,
-		typename ReturnState,
-		typename CallableType = std::decay_t<F>,
-		typename... Args,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...>
-	TaskNode(uint32_t id, F&& f, std::shared_ptr<ReturnState>&& returnState, Args&&... args);
-
-	operator bool() const noexcept;
-	bool operator!() const noexcept;
-	TaskNode& operator=(TaskNode&& other) noexcept;
-	auto operator<=>(const TaskNode&) const noexcept = default;
-
-	auto getId() const noexcept { return myId; }
-
-private:
-	uint32_t myId = 0;
-	std::vector<TaskNode*> mySuccessors = {};
-	std::vector<TaskNode*> myDependents = {};
-};
-
-
 class TaskGraph : public Noncopyable
 {
 public:
-	constexpr TaskGraph() noexcept = default;
-
 	template <
 		typename F,
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...>
-	std::tuple<const TaskNode*, Future<ReturnType>> createNode(F&& f, Args&&... args);
+	requires std::invocable<F&, Args...> std::tuple<Task*, Future<ReturnType>>
+	createNode(F&& f, Args&&... args);
+
+	auto begin() { return myNodes.begin(); };
+	auto begin() const { return myNodes.begin(); };
+	auto cbegin() const { return myNodes.begin(); };
+	auto end() { return myNodes.end(); };
+	auto end() const { return myNodes.end(); };
+	auto cend() const { return myNodes.cend(); };
 
 private:
-	friend class TaskExecutor;
-	
-	FlatSet<TaskNode> myNodes = {};
+	std::list<Task> myNodes;
 };
 
 class TaskExecutor : public Noncopyable
@@ -260,11 +234,11 @@ public:
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
 private:
-	void internalProcessQueue();
+	void internalProcessReadyQueue();
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t>
-	internalProcessQueue(Future<ReturnType>&& future);
+	internalProcessReadyQueue(Future<ReturnType>&& future);
 
 	void internalThreadMain(/*std::stop_token& stopToken*/);
 
@@ -275,7 +249,7 @@ private:
 	//std::stop_source myStopSource;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
-	ConcurrentQueue<Task> myQueue;
+	ConcurrentQueue<Task> myReadyQueue;
 };
 
 #include "concurrency-utils.inl"

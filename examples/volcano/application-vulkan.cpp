@@ -1060,21 +1060,21 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 				if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
 				{
 					TaskGraph graph;
-					auto [node, openFileFuture] = graph.createNode([openFileDialogue, resourcePath, loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
+					auto [node, openFileFuture] = graph.createNode([&openFileDialogue, &resourcePath, &loadModel] { return openFileDialogue(resourcePath, "obj", loadModel); });
 					myExecutor.submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}
 				if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
 				{
 					TaskGraph graph;
-					auto [node, openFileFuture] = graph.createNode([openFileDialogue, resourcePath, loadImage]{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
+					auto [node, openFileFuture] = graph.createNode([&openFileDialogue, &resourcePath, &loadImage]{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
 					myExecutor.submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}
 				if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
 				{
 					TaskGraph graph;
-					auto [node, openFileFuture] = graph.createNode([openFileDialogue, resourcePath, loadGlTF]{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
+					auto [node, openFileFuture] = graph.createNode([&openFileDialogue, &resourcePath, &loadGlTF]{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
 					myExecutor.submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}

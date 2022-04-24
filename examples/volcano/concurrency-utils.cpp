@@ -91,32 +91,6 @@ bool Task::operator!() const noexcept
 // 	return XXH3_64bits_digest(threadXXHState.get());
 // }
 
-TaskNode::TaskNode(TaskNode&& other) noexcept
-{
-	*this = std::forward<TaskNode>(other);
-}
-
-TaskNode::operator bool() const noexcept
-{
-	return Task::operator bool() && myId;
-}
-
-bool TaskNode::operator!() const noexcept
-{
-	return !static_cast<bool>(*this);
-}
-
-TaskNode& TaskNode::operator=(TaskNode&& other) noexcept
-{
-	static_cast<Task&>(*this) = std::forward<Task>(static_cast<Task&&>(other));
-	
-	myId = std::exchange(other.myId, {});
-	mySuccessors = std::exchange(other.mySuccessors, {});
-	myDependents = std::exchange(other.myDependents, {});
-
-	return *this;
-}
-
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
 {
@@ -124,15 +98,9 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 
 	assertf(threadCount > 0, "Thread count must be nonzero");
 
-	auto threadMain = [this]
-	{
-		//auto stopToken = myStopSource.get_token();
-		internalThreadMain(/*stopToken*/);
-	};
-
 	myThreads.reserve(threadCount);
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(threadMain);
+		myThreads.emplace_back(&TaskExecutor::internalThreadMain, this);
 }
 
 TaskExecutor::~TaskExecutor()
@@ -161,8 +129,10 @@ void TaskExecutor::submit(TaskGraph&& graph)
 {
 	ZoneScopedN("TaskExecutor::submit");
 
-	for (auto& node : graph.myNodes)
-		myQueue.enqueue(std::move(node));
+	// TODO: initialize future state + latches
+
+	for (auto& node : graph)
+		myReadyQueue.enqueue(std::move(node));
 
 	mySignal.release();
 }
@@ -171,13 +141,13 @@ void TaskExecutor::join()
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	internalProcessQueue();
+	internalProcessReadyQueue();
 }
 
-void TaskExecutor::internalProcessQueue()
+void TaskExecutor::internalProcessReadyQueue()
 {
 	Task task;
-	while (myQueue.try_dequeue(task))
+	while (myReadyQueue.try_dequeue(task))
 		task();
 }
 
@@ -186,12 +156,12 @@ void TaskExecutor::internalThreadMain(/*std::stop_token& stopToken*/)
 	//while (!stopToken.stop_requested())
 	while (!myStopSource.load(std::memory_order_relaxed))
 	{
-		internalProcessQueue();
+		internalProcessReadyQueue();
 
 		//auto lock = std::shared_lock(myMutex);
 
-		//mySignal.wait(lock, stopToken, [&queue = myQueue](){ return !queue.empty(); });
-		//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
+		//mySignal.wait(lock, stopToken, [&queue = myReadyQueue](){ return !queue.empty(); });
+		//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myReadyQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
 		mySignal.acquire();
 	}
 }
