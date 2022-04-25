@@ -114,8 +114,14 @@ public:
 	std::tuple<bool, value_t> try_lock_upgrade() noexcept;
 };
 
+struct TaskState
+{
+	std::unique_ptr<std::latch> latch = {};
+	std::vector<std::latch*> dependents = {};
+};
+
 // todo: dynamic memory allocation if larger tasks are created
-class Task
+class Task : public Noncopyable
 {
 public:
 	constexpr Task() noexcept = default;
@@ -128,15 +134,17 @@ public:
 	requires std::invocable<F&, Args...>
 	Task(F&& f, Args&&... args);
 	Task(Task&& other) noexcept;
-	Task(const Task& other) noexcept;
 	~Task();
 
 	operator bool() const noexcept;
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
-	Task& operator=(const Task& other) noexcept;
 	template <typename... Args>
 	void operator()(Args&&... args);
+
+	const auto& getState() const noexcept { return myState; }
+
+	void dependsOn(const Task& other) const;
 
 private:
 	friend class TaskGraph;
@@ -147,9 +155,6 @@ private:
 		return (*this)(std::get<I>(std::forward<Tuple>(t))...);
 	}
 
-	template <typename ReturnState>
-	std::shared_ptr<ReturnState> returnState() const noexcept;
-
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
 
@@ -158,28 +163,19 @@ private:
 	void (*myInvokeFcnPtr)(const void*, const void*, void*) = nullptr;
 	void (*myCopyFcnPtr)(void*, const void*, void*, const void*) = nullptr;
 	void (*myDeleteFcnPtr)(void*, void*) = nullptr;
-	std::shared_ptr<void> myReturnState = {};
+	std::shared_ptr<TaskState> myState = {};
 };
 
 //char (*__kaboom)[sizeof(Task)] = 1;
-//char (*__kaboom)[sizeof(std::latch)] = 1;
-//char (*__kaboom)[sizeof(std::barrier<>)] = 1;
 
 template <typename T>
 class Future : public Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	struct state_t
-	{
-		state_t(std::ptrdiff_t latchInit) noexcept : latch(latchInit) {}
-		value_t value;
-		std::latch latch;
-		std::vector<std::latch*> dependents;
-	};
+	struct state_t : TaskState { value_t value = {}; };
 
 	constexpr Future() noexcept = default;
-	Future(std::shared_ptr<state_t>&& state) noexcept;
 	Future(Future&& other) noexcept;
 
 	Future& operator=(Future&& other) noexcept;
@@ -197,6 +193,10 @@ public:
 	// requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
 
 private:
+	friend class TaskGraph;
+
+	Future(std::shared_ptr<state_t>&& state) noexcept;
+
 	std::shared_ptr<state_t> myState;
 };
 class TaskGraph : public Noncopyable
@@ -208,17 +208,13 @@ public:
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
 	requires std::invocable<F&, Args...> std::tuple<Task*, Future<ReturnType>>
-	createNode(F&& f, Args&&... args);
+	createTask(F&& f, Args&&... args);
 
-	auto begin() { return myNodes.begin(); };
-	auto begin() const { return myNodes.begin(); };
-	auto cbegin() const { return myNodes.begin(); };
-	auto end() { return myNodes.end(); };
-	auto end() const { return myNodes.end(); };
-	auto cend() const { return myNodes.cend(); };
+	auto& tasks() noexcept { return myTasks; }
+	const auto& tasks() const noexcept { return myTasks; }
 
 private:
-	std::list<Task> myNodes;
+	std::list<Task> myTasks;
 };
 
 class TaskExecutor : public Noncopyable
@@ -250,6 +246,7 @@ private:
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
 	ConcurrentQueue<Task> myReadyQueue;
+	//ConcurrentQueue<TaskGraph> myWaitingQueue;
 };
 
 #include "concurrency-utils.inl"

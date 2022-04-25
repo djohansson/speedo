@@ -160,12 +160,6 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
 	return std::make_tuple(((value & (Upgraded | Writer)) == 0), value);
 }
 
-template <typename ReturnState>
-std::shared_ptr<ReturnState> Task::returnState() const noexcept
-{
-	return std::static_pointer_cast<ReturnState>(myReturnState);
-}
-
 template <typename... Args>
 void Task::operator()(Args&&... args)
 {
@@ -178,7 +172,7 @@ void Task::operator()(Args&&... args)
 		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
 		std::forward<Args>(args)...);
 
-	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myReturnState.get());
+	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get());
 }
 
 template <
@@ -189,25 +183,28 @@ template <
 	typename ReturnType>
 requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 	: myInvokeFcnPtr(
-		  [](const void* callablePtr, const void* argsPtr, void* returnPtr)
-		  {
-			  const auto& callable = *static_cast<const CallableType*>(callablePtr);
-			  const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
+		[](const void* callablePtr, const void* argsPtr, void* returnPtr)
+		{
+			const auto& callable = *static_cast<const CallableType*>(callablePtr);
+			const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 
-			  assertf(returnPtr, "Task::operator() called without any return state!");
+			assertf(returnPtr, "Task::operator() called without any return state!");
 
-			  auto& [value, latch, dependents] =
-				  *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
+			auto& state = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
 
-			  if constexpr (std::is_void_v<ReturnType>)
-				  std::apply(callable, args);
-			  else
-				  value = std::apply(callable, args);
+			if constexpr (std::is_void_v<ReturnType>)
+				std::apply(callable, args);
+			else
+				state.value = std::apply(callable, args);
 
-			  latch.count_down();
+			assertf(state.latch, "Latch is nullptr!");
 
-			  for (auto dependent : dependents)
-				  dependent->count_down();
+			state.latch->count_down();
+
+			assertf(state.latch->try_wait(), "Latch count should be zero!");
+
+			for (auto dependent : state.dependents)
+				dependent->count_down();
 
 			  //   if (continuation)
 			  //   {
@@ -219,7 +216,7 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 			  // 	  else
 			  // 		  continuation(value);
 			  //   }
-		  })
+		})
 	, myCopyFcnPtr(
 		  [](void* callablePtr,
 			 const void* otherCallablePtr,
@@ -238,6 +235,7 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 			  std::destroy_at(static_cast<CallableType*>(callablePtr));
 			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		  })
+	, myState(std::static_pointer_cast<TaskState>(std::make_shared<typename Future<ReturnType>::state_t>()))
 {
 	static_assert(sizeof(Task) == 128);
 
@@ -250,8 +248,6 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 	std::construct_at(
 		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
 		std::forward<Args>(args)...);
-
-	myReturnState = std::make_shared<typename Future<ReturnType>::state_t>(1);
 }
 
 template <typename T>
@@ -277,17 +273,14 @@ typename Future<T>::value_t Future<T>::get()
 {
 	assertf(valid(), "Future is not valid!");
 
-	// important! otherwise value will be garbage on exit due to myState.reset().
-	auto state = myState;
+	myState->latch->wait();
 
-	auto& [value, latch, dependents] = *state;
-
-	if (!is_ready())
-		latch.wait();
+	// important copy! otherwise value will be garbage on exit due to myState.reset().
+	auto retval = myState->value;
 
 	myState.reset();
 
-	return value;
+	return retval;
 }
 
 template <typename T>
@@ -295,15 +288,13 @@ bool Future<T>::is_ready() const
 {
 	assertf(valid(), "Future is not valid!");
 
-	auto& [value, latch, dependents] = *myState;
-
-	return latch.try_wait();
+	return myState->latch->try_wait();
 }
 
 template <typename T>
 bool Future<T>::valid() const
 {
-	return !!myState;
+	return !!myState && myState->latch;
 }
 
 template <typename T>
@@ -311,10 +302,7 @@ void Future<T>::wait() const
 {
 	assertf(valid(), "Future is not valid!");
 
-	auto& [value, latch, dependents] = *myState;
-
-	if (!is_ready())
-		latch.wait();
+	myState->latch->wait();
 }
 
 // template <typename T>
@@ -332,15 +320,15 @@ void Future<T>::wait() const
 
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
 requires std::invocable<F&, Args...> std::tuple<Task*, Future<ReturnType>>
-TaskGraph::createNode(F&& f, Args&&... args)
+TaskGraph::createTask(F&& f, Args&&... args)
 {
-	ZoneScopedN("TaskGraph::createNode");
+	ZoneScopedN("TaskGraph::createTask");
 
-	auto& taskNode = myNodes.emplace_back(std::forward<F>(f), std::forward<Args>(args)...);
+	auto& task = myTasks.emplace_back(std::forward<F>(f), std::forward<Args>(args)...);
 
 	return std::make_tuple(
-		&taskNode,
-		Future<ReturnType>(taskNode.template returnState<typename Future<ReturnType>::state_t>()));
+		&task,
+		Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::state_t>(task.getState())));
 }
 
 template <typename ReturnType>

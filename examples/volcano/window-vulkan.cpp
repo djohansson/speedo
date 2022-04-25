@@ -274,7 +274,7 @@ void WindowContext<Vk>::draw(
 	ZoneScopedN("WindowContext::draw");
 
 	TaskGraph graph;
-	auto [node, updateViewBufferFuture] = graph.createNode([this]{ internalUpdateViewBuffer(); });
+	auto [task, updateViewBufferFuture] = graph.createTask([this]{ internalUpdateViewBuffer(); });
 	executor.submit(std::move(graph));
 
 	auto& renderTarget = pipeline.getRenderTarget();
