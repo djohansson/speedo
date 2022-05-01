@@ -46,7 +46,7 @@ bool Task::operator!() const noexcept
 
 void Task::dependsOn(const Task& other) const
 {
-	myState->dependents.push_back(other.getState()->latch.get());
+	myState->dependents.push_back(other.state().get());
 }
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
@@ -89,12 +89,12 @@ void TaskExecutor::submit(TaskGraph&& graph)
 
 	// TODO: traverse graph to properly initialize latches
 
-	std::list<Task>::iterator taskIt = graph.tasks().begin();
+	auto taskIt = graph.tasks().begin();
 	while (taskIt != graph.tasks().end())
 	{
-		if (taskIt->getState()->dependents.empty())
+		if (taskIt->state()->dependents.empty())
 		{
-			taskIt->getState()->latch = std::make_unique<std::latch>(1);
+			taskIt->state()->latch.emplace(1);
 			myReadyQueue.enqueue(std::move(*taskIt));
 			taskIt = graph.tasks().erase(taskIt);
 			continue;

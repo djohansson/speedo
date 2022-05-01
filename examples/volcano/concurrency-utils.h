@@ -5,7 +5,6 @@
 
 #include <array>
 #include <atomic>
-//#include <barrier>
 #include <concepts>
 //#include <condition_variable>
 #include <cstdint>
@@ -116,8 +115,8 @@ public:
 
 struct TaskState
 {
-	std::unique_ptr<std::latch> latch = {};
-	std::vector<std::latch*> dependents = {};
+	std::optional<std::latch> latch;
+	std::vector<TaskState*> dependents;
 };
 
 // todo: dynamic memory allocation if larger tasks are created
@@ -142,18 +141,20 @@ public:
 	template <typename... Args>
 	void operator()(Args&&... args);
 
-	const auto& getState() const noexcept { return myState; }
-
 	void dependsOn(const Task& other) const;
 
 private:
 	friend class TaskGraph;
+	friend class TaskExecutor;
 
-	template <class Tuple, size_t... I>
-	constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
-	{
-		return (*this)(std::get<I>(std::forward<Tuple>(t))...);
-	}
+	// template <class Tuple, size_t... I>
+	// constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
+	// {
+	// 	return (*this)(std::get<I>(std::forward<Tuple>(t))...);
+	// }
+
+	auto& state() noexcept { return myState; }
+	const auto& state() const noexcept { return myState; }
 
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
@@ -173,7 +174,6 @@ class Future : public Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	struct state_t : TaskState { value_t value = {}; };
 
 	constexpr Future() noexcept = default;
 	Future(Future&& other) noexcept;
@@ -193,12 +193,19 @@ public:
 	// requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
 
 private:
+	friend class Task;
 	friend class TaskGraph;
+
+	struct state_t : TaskState
+	{
+		value_t value;
+	};
 
 	Future(std::shared_ptr<state_t>&& state) noexcept;
 
 	std::shared_ptr<state_t> myState;
 };
+
 class TaskGraph : public Noncopyable
 {
 public:
@@ -214,7 +221,7 @@ public:
 	const auto& tasks() const noexcept { return myTasks; }
 
 private:
-	std::list<Task> myTasks;
+	std::vector<Task> myTasks;
 };
 
 class TaskExecutor : public Noncopyable

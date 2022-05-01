@@ -192,19 +192,23 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 
 			auto& state = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
 
+			assertf(state.latch, "Latch needs to have been constructed!");
+
 			if constexpr (std::is_void_v<ReturnType>)
 				std::apply(callable, args);
 			else
 				state.value = std::apply(callable, args);
 
-			assertf(state.latch, "Latch is nullptr!");
+			state.latch.value().count_down();
 
-			state.latch->count_down();
-
-			assertf(state.latch->try_wait(), "Latch count should be zero!");
+			assertf(state.latch.value().try_wait(), "Latch count should be zero!");
 
 			for (auto dependent : state.dependents)
-				dependent->count_down();
+			{
+				assertf(dependent->latch, "Latch needs to have been constructed!");
+
+				dependent->latch.value().count_down();
+			}
 
 			  //   if (continuation)
 			  //   {
@@ -273,7 +277,7 @@ typename Future<T>::value_t Future<T>::get()
 {
 	assertf(valid(), "Future is not valid!");
 
-	myState->latch->wait();
+	myState->latch.value().wait();
 
 	// important copy! otherwise value will be garbage on exit due to myState.reset().
 	auto retval = myState->value;
@@ -288,7 +292,7 @@ bool Future<T>::is_ready() const
 {
 	assertf(valid(), "Future is not valid!");
 
-	return myState->latch->try_wait();
+	return myState->latch.value().try_wait();
 }
 
 template <typename T>
@@ -302,7 +306,7 @@ void Future<T>::wait() const
 {
 	assertf(valid(), "Future is not valid!");
 
-	myState->latch->wait();
+	myState->latch.value().wait();
 }
 
 // template <typename T>
@@ -328,7 +332,7 @@ TaskGraph::createTask(F&& f, Args&&... args)
 
 	return std::make_tuple(
 		&task,
-		Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::state_t>(task.getState())));
+		Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::state_t>(task.state())));
 }
 
 template <typename ReturnType>
