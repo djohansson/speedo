@@ -138,7 +138,9 @@
 			"format": "cpp",
 			"semaphore": "cpp",
 			"stdalign.h": "c",
-			"gsl_util": "cpp"
+			"gsl_util": "cpp",
+			"latch": "cpp",
+			"barrier": "cpp"
 		}
 	}
 }
