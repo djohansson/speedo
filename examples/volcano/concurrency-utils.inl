@@ -340,12 +340,12 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<Re
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	return internalProcessReadyQueue(std::forward<Future<ReturnType>>(future));
+	return internalProcessQueues(std::forward<Future<ReturnType>>(future));
 }
 
 template <typename ReturnType>
 std::optional<typename Future<ReturnType>::value_t>
-TaskExecutor::internalProcessReadyQueue(Future<ReturnType>&& future)
+TaskExecutor::internalProcessQueues(Future<ReturnType>&& future)
 {
 	if (!future.valid())
 		return std::nullopt;

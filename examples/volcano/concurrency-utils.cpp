@@ -113,22 +113,42 @@ void TaskExecutor::join()
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	internalProcessReadyQueue();
+	internalProcessQueues();
 }
 
-void TaskExecutor::internalProcessReadyQueue()
+void TaskExecutor::internalProcessQueues()
 {
 	Task task;
 	while (myReadyQueue.try_dequeue(task))
 		task();
 }
 
+void TaskExecutor::internalProcessQueues(
+	moodycamel::ProducerToken& readyProducerToken,
+	moodycamel::ConsumerToken& readyConsumerToken,
+	moodycamel::ProducerToken& waitingProducerToken,
+	moodycamel::ConsumerToken& waitingConsumerToken)
+{
+	Task task;
+	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
+		task();
+}
+
 void TaskExecutor::internalThreadMain(/*std::stop_token& stopToken*/)
 {
+	moodycamel::ProducerToken readyProducerToken(myReadyQueue);
+	moodycamel::ConsumerToken readyConsumerToken(myReadyQueue);
+	moodycamel::ProducerToken waitingProducerToken(myWaitingQueue);
+	moodycamel::ConsumerToken waitingConsumerToken(myWaitingQueue);
+
 	//while (!stopToken.stop_requested())
 	while (!myStopSource.load(std::memory_order_relaxed))
 	{
-		internalProcessReadyQueue();
+		internalProcessQueues(
+			readyProducerToken,
+			readyConsumerToken,
+			waitingProducerToken,
+			waitingConsumerToken);
 
 		//auto lock = std::shared_lock(myMutex);
 

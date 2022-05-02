@@ -22,9 +22,6 @@
 
 #include <concurrentqueue.h>
 
-template <typename T>
-using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
-
 template <typename T, typename AtomicT = std::atomic<T>>
 class CopyableAtomic : public AtomicT
 {
@@ -237,11 +234,18 @@ public:
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
 private:
-	void internalProcessReadyQueue();
+	void internalProcessQueues();
+
+	void internalProcessQueues(
+		moodycamel::ProducerToken& readyProducerToken,
+		moodycamel::ConsumerToken& readyConsumerToken,
+		moodycamel::ProducerToken& waitingProducerToken,
+		moodycamel::ConsumerToken& waitingConsumerToken
+	);
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t>
-	internalProcessReadyQueue(Future<ReturnType>&& future);
+	internalProcessQueues(Future<ReturnType>&& future);
 
 	void internalThreadMain(/*std::stop_token& stopToken*/);
 
@@ -252,8 +256,8 @@ private:
 	//std::stop_source myStopSource;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
-	ConcurrentQueue<Task> myReadyQueue;
-	//ConcurrentQueue<TaskGraph> myWaitingQueue;
+	moodycamel::ConcurrentQueue<Task> myReadyQueue;
+	moodycamel::ConcurrentQueue<TaskGraph> myWaitingQueue;
 };
 
 #include "concurrency-utils.inl"
