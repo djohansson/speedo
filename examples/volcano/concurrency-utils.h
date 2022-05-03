@@ -8,8 +8,6 @@
 #include <concepts>
 //#include <condition_variable>
 #include <cstdint>
-#include <latch>
-#include <list>
 #include <memory>
 #include <optional>
 #include <semaphore>
@@ -110,10 +108,12 @@ public:
 	std::tuple<bool, value_t> try_lock_upgrade() noexcept;
 };
 
+class Task;
+
 struct TaskState
 {
-	std::optional<std::latch> latch;
-	std::vector<TaskState*> dependents;
+	std::optional<std::atomic_uint32_t> latch;
+	std::vector<Task*> adjacencies;
 };
 
 // todo: dynamic memory allocation if larger tasks are created
@@ -137,8 +137,6 @@ public:
 	Task& operator=(Task&& other) noexcept;
 	template <typename... Args>
 	void operator()(Args&&... args);
-
-	void dependsOn(const Task& other) const;
 
 private:
 	friend class TaskGraph;
@@ -178,8 +176,8 @@ public:
 	Future& operator=(Future&& other) noexcept;
 
 	value_t get();
-	bool is_ready() const;
-	bool valid() const;
+	bool is_ready() const noexcept;
+	bool valid() const noexcept;
 	void wait() const;
 
 	// template <
@@ -193,32 +191,49 @@ private:
 	friend class Task;
 	friend class TaskGraph;
 
-	struct state_t : TaskState
+	struct FutureState : TaskState
 	{
 		value_t value;
 	};
 
-	Future(std::shared_ptr<state_t>&& state) noexcept;
+	Future(std::shared_ptr<FutureState>&& state) noexcept;
 
-	std::shared_ptr<state_t> myState;
+	std::shared_ptr<FutureState> myState;
 };
 
 class TaskGraph : public Noncopyable
 {
 public:
+	using TaskNodeHandle = size_t;
+
 	template <
 		typename F,
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...> std::tuple<Task*, Future<ReturnType>>
+	requires std::invocable<F&, Args...> std::tuple<TaskNodeHandle, Future<ReturnType>>
 	createTask(F&& f, Args&&... args);
 
-	auto& tasks() noexcept { return myTasks; }
-	const auto& tasks() const noexcept { return myTasks; }
+	// a happens before b
+	void addDependency(TaskNodeHandle a, TaskNodeHandle b);
 
 private:
-	std::vector<Task> myTasks;
+	friend class TaskExecutor;
+	
+	using TaskNodeHandleVector = std::vector<TaskNodeHandle>;
+	using TaskNode = std::tuple<Task, TaskNodeHandleVector, size_t>; // task, adjacencies, dependencies
+	using TaskNodeVec = std::vector<TaskNode>;
+
+	void depthFirstSearch(
+		size_t v,
+		std::vector<bool>& discovered,
+		std::vector<size_t>& departure,
+		std::vector<size_t>& sorted,
+		size_t& time) const;
+
+	void initialize();
+
+	TaskNodeVec myNodes;
 };
 
 class TaskExecutor : public Noncopyable
@@ -234,20 +249,21 @@ public:
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
 private:
-	void internalProcessQueues();
 
-	void internalProcessQueues(
+	void scheduleAdjacent(const Task& task);
+
+	template <typename ReturnType>
+	std::optional<typename Future<ReturnType>::value_t>
+	processQueues(Future<ReturnType>&& future);
+	void processQueues();
+	void processQueues(
 		moodycamel::ProducerToken& readyProducerToken,
 		moodycamel::ConsumerToken& readyConsumerToken,
 		moodycamel::ProducerToken& waitingProducerToken,
 		moodycamel::ConsumerToken& waitingConsumerToken
 	);
 
-	template <typename ReturnType>
-	std::optional<typename Future<ReturnType>::value_t>
-	internalProcessQueues(Future<ReturnType>&& future);
-
-	void internalThreadMain(/*std::stop_token& stopToken*/);
+	void threadMain(/*std::stop_token& stopToken*/);
 
 	//std::shared_mutex myMutex;
 	//std::vector<std::jthread> myThreads;

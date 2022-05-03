@@ -190,7 +190,7 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 
 			assertf(returnPtr, "Task::operator() called without any return state!");
 
-			auto& state = *static_cast<typename Future<ReturnType>::state_t*>(returnPtr);
+			auto& state = *static_cast<typename Future<ReturnType>::FutureState*>(returnPtr);
 
 			assertf(state.latch, "Latch needs to have been constructed!");
 
@@ -199,27 +199,22 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 			else
 				state.value = std::apply(callable, args);
 
-			state.latch.value().count_down();
+			auto counter = state.latch.value().fetch_sub(1, std::memory_order_release) - 1;
 
-			assertf(state.latch.value().try_wait(), "Latch count should be zero!");
+			assertf(counter == 0, "Latch counter should be zero!");
 
-			for (auto dependent : state.dependents)
-			{
-				assertf(dependent->latch, "Latch needs to have been constructed!");
+			state.latch.value().notify_all();
 
-				dependent->latch.value().count_down();
-			}
-
-			  //   if (continuation)
-			  //   {
-			  // 	  if constexpr (std::is_tuple_v<ReturnType>)
-			  // 		  continuation.apply(
-			  // 			  value,
-			  // 			  std::make_index_sequence<
-			  // 				  std::tuple_size_v<std::remove_reference_t<ArgsTuple>>>{});
-			  // 	  else
-			  // 		  continuation(value);
-			  //   }
+			//   if (continuation)
+			//   {
+			// 	  if constexpr (std::is_tuple_v<ReturnType>)
+			// 		  continuation.apply(
+			// 			  value,
+			// 			  std::make_index_sequence<
+			// 				  std::tuple_size_v<std::remove_reference_t<ArgsTuple>>>{});
+			// 	  else
+			// 		  continuation(value);
+			//   }
 		})
 	, myCopyFcnPtr(
 		  [](void* callablePtr,
@@ -239,7 +234,7 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 			  std::destroy_at(static_cast<CallableType*>(callablePtr));
 			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		  })
-	, myState(std::static_pointer_cast<TaskState>(std::make_shared<typename Future<ReturnType>::state_t>()))
+	, myState(std::static_pointer_cast<TaskState>(std::make_shared<typename Future<ReturnType>::FutureState>()))
 {
 	static_assert(sizeof(Task) == 128);
 
@@ -255,8 +250,8 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 }
 
 template <typename T>
-Future<T>::Future(std::shared_ptr<state_t>&& state) noexcept
-	: myState(std::forward<std::shared_ptr<state_t>>(state))
+Future<T>::Future(std::shared_ptr<FutureState>&& state) noexcept
+	: myState(std::forward<std::shared_ptr<FutureState>>(state))
 {}
 
 template <typename T>
@@ -275,9 +270,7 @@ Future<T>& Future<T>::operator=(Future&& other) noexcept
 template <typename T>
 typename Future<T>::value_t Future<T>::get()
 {
-	assertf(valid(), "Future is not valid!");
-
-	myState->latch.value().wait();
+	wait();
 
 	// important copy! otherwise value will be garbage on exit due to myState.reset().
 	auto retval = myState->value;
@@ -288,15 +281,15 @@ typename Future<T>::value_t Future<T>::get()
 }
 
 template <typename T>
-bool Future<T>::is_ready() const
+bool Future<T>::is_ready() const noexcept
 {
 	assertf(valid(), "Future is not valid!");
 
-	return myState->latch.value().try_wait();
+	return myState->latch.value().load(std::memory_order_acquire) == 0;
 }
 
 template <typename T>
-bool Future<T>::valid() const
+bool Future<T>::valid() const noexcept
 {
 	return !!myState && myState->latch;
 }
@@ -306,7 +299,15 @@ void Future<T>::wait() const
 {
 	assertf(valid(), "Future is not valid!");
 
-	myState->latch.value().wait();
+	while (true)
+	{
+		auto current = myState->latch.value().load(std::memory_order_acquire);
+
+		if (current == 0)
+			return;
+
+		myState->latch.value().wait(current, std::memory_order_relaxed);
+	}
 }
 
 // template <typename T>
@@ -316,23 +317,29 @@ void Future<T>::wait() const
 // 	auto& [value, flag, continuation] = *myState;
 
 // 	continuation = Task(
-// 		std::forward<CallableType>(f), std::make_shared<typename Future<ReturnType>::state_t>());
+// 		std::forward<CallableType>(f), std::make_shared<typename Future<ReturnType>::FutureState>());
 
 // 	return Future<ReturnType>(
-// 		continuation.template returnState<typename Future<ReturnType>::state_t>());
+// 		continuation.template returnState<typename Future<ReturnType>::FutureState>());
 // }
 
 template <typename F, typename CallableType, typename... Args, typename ReturnType>
-requires std::invocable<F&, Args...> std::tuple<Task*, Future<ReturnType>>
+requires std::invocable<F&, Args...> std::tuple<TaskGraph::TaskNodeHandle, Future<ReturnType>>
 TaskGraph::createTask(F&& f, Args&&... args)
 {
 	ZoneScopedN("TaskGraph::createTask");
 
-	auto& task = myTasks.emplace_back(std::forward<F>(f), std::forward<Args>(args)...);
+	const auto& taskNode = myNodes.emplace_back(
+		std::make_tuple(
+			Task(std::forward<F>(f), std::forward<Args>(args)...),
+			TaskNodeHandleVector{},
+			0));
+	
+	const auto& [task, adjacencies, dependencies] = taskNode;
 
 	return std::make_tuple(
-		&task,
-		Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::state_t>(task.state())));
+		&taskNode - &myNodes[0],
+		Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::FutureState>(task.state())));
 }
 
 template <typename ReturnType>
@@ -340,26 +347,21 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<Re
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	return internalProcessQueues(std::forward<Future<ReturnType>>(future));
+	return processQueues(std::forward<Future<ReturnType>>(future));
 }
 
 template <typename ReturnType>
 std::optional<typename Future<ReturnType>::value_t>
-TaskExecutor::internalProcessQueues(Future<ReturnType>&& future)
+TaskExecutor::processQueues(Future<ReturnType>&& future)
 {
 	if (!future.valid())
 		return std::nullopt;
 
-	if (!future.is_ready())
+	Task task;
+	while (!future.is_ready() && myReadyQueue.try_dequeue(task))
 	{
-		Task task;
-		while (myReadyQueue.try_dequeue(task))
-		{
-			task();
-
-			if (future.is_ready())
-				break;
-		}
+		task();
+		scheduleAdjacent(task);
 	}
 
 	return std::make_optional(future.get());
