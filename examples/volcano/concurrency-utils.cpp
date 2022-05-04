@@ -109,7 +109,6 @@ void TaskGraph::finalize()
 				throw std::runtime_error("Graph is not a DAG!");
 	}
 
-	/*
 	decltype(myNodes) sortedNodes(n);
 
 	for (size_t i = 0; i < sorted.size(); i++)
@@ -117,15 +116,13 @@ void TaskGraph::finalize()
 		sortedNodes[i] = std::move(myNodes[myNodes.size() - sorted[i] - 1]);
 
 	myNodes = std::move(sortedNodes);
-	*/
-
+	
 	for (auto& [task, adjacencies, dependencies] : myNodes)
 	{
 		task.state()->latch.emplace(dependencies + 1); // deps + self
-		task.state()->adjacencies.reserve(adjacencies.size());
 
 		for (auto adjacent : adjacencies)
-			task.state()->adjacencies.push_back(std::get<0>(myNodes[adjacent]));
+			task.state()->adjacencies.emplace_back(&std::get<0>(myNodes[adjacent]));
 	}
 }
 
@@ -185,21 +182,58 @@ void TaskExecutor::join()
 	processReadyQueue();
 }
 
-void TaskExecutor::scheduleAdjacent(const Task& task)
+void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task)
 {
+	bool signal = false;
+
 	for (auto& adjacent : task.state()->adjacencies)
 	{
-		if (!adjacent.get())
+		auto adjacentPtr = adjacent.load();
+		if (!adjacentPtr)
 			continue;
 
-		assertf(adjacent.get().state(), "Task has no return state!");
-		assertf(adjacent.get().state()->latch, "Latch needs to have been constructed!");
+		assertf(adjacentPtr->state(), "Task has no return state!");
+		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacent.get().state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
 
 		if (counter == 1)
-			myReadyQueue.enqueue(std::move(adjacent.get()));
+		{
+			myReadyQueue.enqueue(readyProducerToken, std::move(*adjacentPtr));
+			adjacent.store(nullptr);
+			signal = true;
+		}
 	}
+
+	if (signal)
+		mySignal.release();
+}
+
+void TaskExecutor::scheduleAdjacent(const Task& task)
+{
+	bool signal = false;
+
+	for (auto& adjacent : task.state()->adjacencies)
+	{
+		auto adjacentPtr = adjacent.load();
+		if (!adjacentPtr)
+			continue;
+
+		assertf(adjacentPtr->state(), "Task has no return state!");
+		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
+
+		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+
+		if (counter == 1)
+		{
+			myReadyQueue.enqueue(std::move(*adjacentPtr));
+			adjacent.store(nullptr);
+			signal = true;
+		}
+	}
+
+	if (signal)
+		mySignal.release();
 }
 
 void TaskExecutor::processReadyQueue()
@@ -224,7 +258,7 @@ void TaskExecutor::processReadyQueue(
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
 		task();
-		scheduleAdjacent(task);
+		scheduleAdjacent(readyProducerToken, task);
 	}
 }
 
@@ -247,9 +281,13 @@ void TaskExecutor::removeFinishedGraphs()
 	}
 
 	if (!notFinished.empty())
+	{
 		myWaitingQueue.enqueue_bulk(
 			std::make_move_iterator(notFinished.begin()),
 			notFinished.size());
+
+		mySignal.release();
+	}
 }
 
 void TaskExecutor::removeFinishedGraphs(
@@ -273,10 +311,14 @@ void TaskExecutor::removeFinishedGraphs(
 	}
 
 	if (!notFinished.empty())
+	{
 		myWaitingQueue.enqueue_bulk(
 			waitingProducerToken,
 			std::make_move_iterator(notFinished.begin()),
 			notFinished.size());
+
+		mySignal.release();
+	}
 }
 
 void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)

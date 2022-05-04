@@ -113,7 +113,7 @@ class Task;
 struct TaskState
 {
 	std::optional<std::atomic_uint32_t> latch;
-	std::vector<std::reference_wrapper<Task>> adjacencies;
+	std::vector<CopyableAtomic<Task*>> adjacencies;
 };
 
 // todo: dynamic memory allocation if larger tasks are created
@@ -256,6 +256,7 @@ public:
 private:
 
 	void scheduleAdjacent(const Task& task);
+	void scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task);
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t>
