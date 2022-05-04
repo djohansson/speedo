@@ -113,7 +113,7 @@ class Task;
 struct TaskState
 {
 	std::optional<std::atomic_uint32_t> latch;
-	std::vector<Task*> adjacencies;
+	std::vector<std::reference_wrapper<Task>> adjacencies;
 };
 
 // todo: dynamic memory allocation if larger tasks are created
@@ -206,6 +206,11 @@ class TaskGraph : public Noncopyable
 public:
 	using TaskNodeHandle = size_t;
 
+	constexpr TaskGraph() noexcept = default;
+	TaskGraph(TaskGraph&& other) noexcept;
+
+	TaskGraph& operator=(TaskGraph&& other) noexcept;
+
 	template <
 		typename F,
 		typename CallableType = std::decay_t<F>,
@@ -231,7 +236,7 @@ private:
 		std::vector<size_t>& sorted,
 		size_t& time) const;
 
-	void initialize();
+	void finalize(); // will invalidate all task handles
 
 	TaskNodeVec myNodes;
 };
@@ -242,7 +247,7 @@ public:
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	void submit(TaskGraph&& graph);
+	void submit(TaskGraph&& graph); // will invalidate all task handles
 	void join();
 
 	template <typename ReturnType>
@@ -254,14 +259,17 @@ private:
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t>
-	processQueues(Future<ReturnType>&& future);
-	void processQueues();
-	void processQueues(
+	processReadyQueue(Future<ReturnType>&& future);
+	void processReadyQueue();
+	void processReadyQueue(
 		moodycamel::ProducerToken& readyProducerToken,
-		moodycamel::ConsumerToken& readyConsumerToken,
-		moodycamel::ProducerToken& waitingProducerToken,
-		moodycamel::ConsumerToken& waitingConsumerToken
+		moodycamel::ConsumerToken& readyConsumerToken
 	);
+
+	void removeFinishedGraphs();
+	void removeFinishedGraphs(
+		moodycamel::ProducerToken& waitingProducerToken,
+		moodycamel::ConsumerToken& waitingConsumerToken);
 
 	void threadMain(/*std::stop_token& stopToken*/);
 

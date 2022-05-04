@@ -347,13 +347,19 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<Re
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	return processQueues(std::forward<Future<ReturnType>>(future));
+	auto result = processReadyQueue(std::forward<Future<ReturnType>>(future));
+	
+	removeFinishedGraphs();
+
+	return result;
 }
 
 template <typename ReturnType>
 std::optional<typename Future<ReturnType>::value_t>
-TaskExecutor::processQueues(Future<ReturnType>&& future)
+TaskExecutor::processReadyQueue(Future<ReturnType>&& future)
 {
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
 	if (!future.valid())
 		return std::nullopt;
 

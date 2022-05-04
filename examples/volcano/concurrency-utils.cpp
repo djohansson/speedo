@@ -44,9 +44,25 @@ bool Task::operator!() const noexcept
 	return !static_cast<bool>(*this);
 }
 
+TaskGraph::TaskGraph(TaskGraph&& other) noexcept
+{
+	*this = std::forward<TaskGraph>(other);
+}
+
+TaskGraph& TaskGraph::operator=(TaskGraph&& other) noexcept
+{
+	myNodes = std::exchange(other.myNodes, {});
+
+	return *this;
+}
+
 void TaskGraph::addDependency(TaskNodeHandle a, TaskNodeHandle b)
 {
-	// TODO:
+	auto& [taskA, adjacenciesA, dependenciesA] = myNodes[a];
+	auto& [taskB, adjacenciesB, dependenciesB] = myNodes[b];
+
+	adjacenciesA.push_back(b);
+	++dependenciesB;
 }
 
 void TaskGraph::depthFirstSearch(
@@ -68,7 +84,7 @@ void TaskGraph::depthFirstSearch(
 	departure[v] = time++;
 };
 
-void TaskGraph::initialize()
+void TaskGraph::finalize()
 {
 	auto n = myNodes.size();
 
@@ -93,12 +109,15 @@ void TaskGraph::initialize()
 				throw std::runtime_error("Graph is not a DAG!");
 	}
 
+	/*
 	decltype(myNodes) sortedNodes(n);
 
 	for (size_t i = 0; i < sorted.size(); i++)
-		sortedNodes[i] = std::move(myNodes[sorted[i]]);
+		//sortedNodes[i] = std::move(myNodes[sorted[i]]);
+		sortedNodes[i] = std::move(myNodes[myNodes.size() - sorted[i] - 1]);
 
 	myNodes = std::move(sortedNodes);
+	*/
 
 	for (auto& [task, adjacencies, dependencies] : myNodes)
 	{
@@ -106,7 +125,7 @@ void TaskGraph::initialize()
 		task.state()->adjacencies.reserve(adjacencies.size());
 
 		for (auto adjacent : adjacencies)
-			task.state()->adjacencies.push_back(&std::get<0>(myNodes[adjacent]));
+			task.state()->adjacencies.push_back(std::get<0>(myNodes[adjacent]));
 	}
 }
 
@@ -148,13 +167,13 @@ void TaskExecutor::submit(TaskGraph&& graph)
 {
 	ZoneScopedN("TaskExecutor::submit");
 
-	graph.initialize();
+	graph.finalize();
 
 	for (auto& [task, adjacencies, dependencies] : graph.myNodes)
 		if (dependencies == 0)
 			myReadyQueue.enqueue(std::move(task));
 
-	//myWaitingQueue.enqueue(std::forward<TaskGraph>(graph));
+	myWaitingQueue.enqueue(std::forward<TaskGraph>(graph));
 
 	mySignal.release();
 }
@@ -163,25 +182,30 @@ void TaskExecutor::join()
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	processQueues();
+	processReadyQueue();
 }
 
 void TaskExecutor::scheduleAdjacent(const Task& task)
 {
-	for (auto adjacent : task.state()->adjacencies)
+	for (auto& adjacent : task.state()->adjacencies)
 	{
-		assertf(adjacent->state(), "Task has no return state!");
-		assertf(adjacent->state()->latch, "Latch needs to have been constructed!");
+		if (!adjacent.get())
+			continue;
 
-		auto counter = adjacent->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+		assertf(adjacent.get().state(), "Task has no return state!");
+		assertf(adjacent.get().state()->latch, "Latch needs to have been constructed!");
+
+		auto counter = adjacent.get().state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
 
 		if (counter == 1)
-			myReadyQueue.enqueue(std::move(*adjacent));
+			myReadyQueue.enqueue(std::move(adjacent.get()));
 	}
 }
 
-void TaskExecutor::processQueues()
+void TaskExecutor::processReadyQueue()
 {
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
 	Task task;
 	while (myReadyQueue.try_dequeue(task))
 	{
@@ -190,18 +214,69 @@ void TaskExecutor::processQueues()
 	}
 }
 
-void TaskExecutor::processQueues(
+void TaskExecutor::processReadyQueue(
 	moodycamel::ProducerToken& readyProducerToken,
-	moodycamel::ConsumerToken& readyConsumerToken,
-	moodycamel::ProducerToken& waitingProducerToken,
-	moodycamel::ConsumerToken& waitingConsumerToken)
+	moodycamel::ConsumerToken& readyConsumerToken)
 {
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
 	Task task;
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
 		task();
 		scheduleAdjacent(task);
 	}
+}
+
+void TaskExecutor::removeFinishedGraphs()
+{
+	ZoneScopedN("TaskExecutor::removeFinishedGraphs");
+
+	std::vector<TaskGraph> notFinished;
+	TaskGraph graph;
+	while (myWaitingQueue.try_dequeue(graph))
+	{
+		for (auto& [task, adjacencies, dependencies] : graph.myNodes)
+		{
+			if (task)
+			{
+				notFinished.emplace_back(std::move(graph));
+				break;
+			}
+		}
+	}
+
+	if (!notFinished.empty())
+		myWaitingQueue.enqueue_bulk(
+			std::make_move_iterator(notFinished.begin()),
+			notFinished.size());
+}
+
+void TaskExecutor::removeFinishedGraphs(
+	moodycamel::ProducerToken& waitingProducerToken,
+	moodycamel::ConsumerToken& waitingConsumerToken)
+{
+	ZoneScopedN("TaskExecutor::removeFinishedGraphs");
+
+	std::vector<TaskGraph> notFinished;
+	TaskGraph graph;
+	while (myWaitingQueue.try_dequeue(waitingConsumerToken, graph))
+	{
+		for (auto& [task, adjacencies, dependencies] : graph.myNodes)
+		{
+			if (task)
+			{
+				notFinished.emplace_back(std::move(graph));
+				break;
+			}
+		}
+	}
+
+	if (!notFinished.empty())
+		myWaitingQueue.enqueue_bulk(
+			waitingProducerToken,
+			std::make_move_iterator(notFinished.begin()),
+			notFinished.size());
 }
 
 void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)
@@ -216,11 +291,8 @@ void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)
 		//while (!stopToken.stop_requested())
 		while (!myStopSource.load(std::memory_order_relaxed))
 		{
-			processQueues(
-				readyProducerToken,
-				readyConsumerToken,
-				waitingProducerToken,
-				waitingConsumerToken);
+			processReadyQueue(readyProducerToken, readyConsumerToken);
+			removeFinishedGraphs(waitingProducerToken, waitingConsumerToken);
 
 			//auto lock = std::shared_lock(myMutex);
 
