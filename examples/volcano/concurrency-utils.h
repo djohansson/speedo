@@ -268,9 +268,6 @@ private:
 	);
 
 	void removeFinishedGraphs();
-	void removeFinishedGraphs(
-		moodycamel::ProducerToken& waitingProducerToken,
-		moodycamel::ConsumerToken& waitingConsumerToken);
 
 	void threadMain(/*std::stop_token& stopToken*/);
 

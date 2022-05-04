@@ -164,6 +164,8 @@ void TaskExecutor::submit(TaskGraph&& graph)
 {
 	ZoneScopedN("TaskExecutor::submit");
 
+	removeFinishedGraphs();
+
 	graph.finalize();
 
 	for (auto& [task, adjacencies, dependencies] : graph.myNodes)
@@ -285,39 +287,6 @@ void TaskExecutor::removeFinishedGraphs()
 		myWaitingQueue.enqueue_bulk(
 			std::make_move_iterator(notFinished.begin()),
 			notFinished.size());
-
-		mySignal.release();
-	}
-}
-
-void TaskExecutor::removeFinishedGraphs(
-	moodycamel::ProducerToken& waitingProducerToken,
-	moodycamel::ConsumerToken& waitingConsumerToken)
-{
-	ZoneScopedN("TaskExecutor::removeFinishedGraphs");
-
-	std::vector<TaskGraph> notFinished;
-	TaskGraph graph;
-	while (myWaitingQueue.try_dequeue(waitingConsumerToken, graph))
-	{
-		for (auto& [task, adjacencies, dependencies] : graph.myNodes)
-		{
-			if (task)
-			{
-				notFinished.emplace_back(std::move(graph));
-				break;
-			}
-		}
-	}
-
-	if (!notFinished.empty())
-	{
-		myWaitingQueue.enqueue_bulk(
-			waitingProducerToken,
-			std::make_move_iterator(notFinished.begin()),
-			notFinished.size());
-
-		mySignal.release();
 	}
 }
 
@@ -327,15 +296,11 @@ void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)
 	{
 		moodycamel::ProducerToken readyProducerToken(myReadyQueue);
 		moodycamel::ConsumerToken readyConsumerToken(myReadyQueue);
-		moodycamel::ProducerToken waitingProducerToken(myWaitingQueue);
-		moodycamel::ConsumerToken waitingConsumerToken(myWaitingQueue);
 
 		//while (!stopToken.stop_requested())
 		while (!myStopSource.load(std::memory_order_relaxed))
 		{
 			processReadyQueue(readyProducerToken, readyConsumerToken);
-			removeFinishedGraphs(waitingProducerToken, waitingConsumerToken);
-
 			//auto lock = std::shared_lock(myMutex);
 
 			//mySignal.wait(lock, stopToken, [&queue = myReadyQueue](){ return !queue.empty(); });

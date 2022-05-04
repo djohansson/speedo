@@ -348,8 +348,6 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<Re
 	ZoneScopedN("TaskExecutor::join");
 
 	auto result = processReadyQueue(std::forward<Future<ReturnType>>(future));
-	
-	removeFinishedGraphs();
 
 	return result;
 }
