@@ -200,7 +200,7 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 				state.value = std::apply(callable, args);
 
 			auto counter = state.latch.value().fetch_sub(1, std::memory_order_release) - 1;
-
+			(void)counter;
 			assertf(counter == 0, "Latch counter should be zero!");
 
 			state.latch.value().notify_all();
