@@ -111,7 +111,7 @@ private:
 	SemaphoreHandle<B> myTimelineSemaphore = {};
 	std::atomic_uint64_t myTimelineValue = {};
 
-	ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
+	moodycamel::ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
 #if PROFILING_ENABLED
 	struct ObjectNameInfo : ObjectInfo<B>

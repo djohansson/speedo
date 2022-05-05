@@ -123,7 +123,6 @@ private:
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 
 	Future<void> myPresentFuture;
-	Future<void> myProcessTimelineCallbacksFuture;
 
 	bool myRequestExit = false;
 };

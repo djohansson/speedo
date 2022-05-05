@@ -1195,128 +1195,127 @@ bool Application<Vk>::draw()
 	ZoneScopedN("Application::draw");
 
 	myExecutor.join(std::move(myPresentFuture));
-	myExecutor.join(std::move(myProcessTimelineCallbacksFuture));
 
-	auto [flipSuccess, lastPresentTimelineValue] = myMainWindow->flip();
+	TaskGraph frameGraph;
 
-	if (flipSuccess)
+	auto [drawTask, drawFuture] = frameGraph.createTask([this]
 	{
-		auto& primaryContext = myCommands[CommandContextType_GeneralPrimary].fetchAdd();
-		constexpr uint32_t secondaryContextCount = 4;
-		auto secondaryContexts =
-			&myCommands[CommandContextType_GeneralSecondary].fetchAdd(secondaryContextCount);
+		ZoneScopedN("Application::drawTask");
 
-		std::rotate(
-			myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
+		auto [flipSuccess, lastPresentTimelineValue] = myMainWindow->flip();
 
-		TaskGraph imguiPrepareDrawGraph;
-		auto [imguiPrepareDrawTask, imguiPrepareDrawFuture] = imguiPrepareDrawGraph.createTask([this]{ myIMGUIPrepareDrawFunction(); });
-		myExecutor.submit(std::move(imguiPrepareDrawGraph));
+		if (flipSuccess)
+		{
+			ZoneScopedN("Application::drawTask::submit");
+
+			auto& primaryContext = myCommands[CommandContextType_GeneralPrimary].fetchAdd();
+			constexpr uint32_t secondaryContextCount = 4;
+			auto secondaryContexts =
+				&myCommands[CommandContextType_GeneralSecondary].fetchAdd(secondaryContextCount);
+
+			std::rotate(
+				myGraphicsQueues.begin(), std::next(myGraphicsQueues.begin()), myGraphicsQueues.end());
+
+			if (lastPresentTimelineValue)
+			{
+				ZoneScopedN("Application::drawTask::waitFrame");
+
+				// todo: don't wait on transfer here - use callback to publish updated resources instead
+
+				myDevice->wait(std::max(
+					lastPresentTimelineValue,
+					myTransferQueues.front().getLastSubmitTimelineValue().value_or(0)));
+
+				primaryContext.reset();
+
+				for (uint32_t secIt = 0; secIt < secondaryContextCount; secIt++)
+					secondaryContexts[secIt].reset();
+			}
+
+			auto cmd = primaryContext.commands();
+
+			{
+				GPU_SCOPE(cmd, myGraphicsQueues.front(), collect);
+				myGraphicsQueues.front().traceCollect(cmd);
+			}
+			{
+				GPU_SCOPE(cmd, myGraphicsQueues.front(), clear);
+				myRenderImageSet->clearDepthStencil(cmd, {1.0f, 0});
+			}
+			{
+				GPU_SCOPE(cmd, myGraphicsQueues.front(), transition);
+				myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+				myRenderImageSet->transitionDepthStencil(
+					cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+			}
+			{
+				GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
+				myMainWindow->updateInput(myInput);
+				myMainWindow->draw(
+					myExecutor, *myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
+			}
+			{
+				GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
+				myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+
+				myIMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
+				myIMGUIDrawFunction(cmd);
+
+				myMainWindow->end(cmd);
+			}
+			{
+				GPU_SCOPE(cmd, myGraphicsQueues.front(), transitionColor);
+				myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+			}
+
+			cmd.end();
+
+			auto [imageAquired, renderComplete] = myMainWindow->getFrameSyncSemaphores();
+
+			myGraphicsQueues.front().enqueueSubmit(primaryContext.prepareSubmit(
+				{{myDevice->getTimelineSemaphore(), imageAquired},
+				{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+				{myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0), 1},
+				{myDevice->getTimelineSemaphore(), renderComplete},
+				{1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
+
+			myGraphicsQueues.front().enqueuePresent(
+				myMainWindow->preparePresent(myGraphicsQueues.front().submit()));
+		}
 
 		if (lastPresentTimelineValue)
 		{
-			ZoneScopedN("Application::draw::waitFrame");
+			ZoneScopedN("Application::drawTask::submitTimelineCallbacks");
 
-			// todo: don't wait on transfer here - use callback to publish updated resources instead
-
-			myDevice->wait(std::max(
-				lastPresentTimelineValue,
-				myTransferQueues.front().getLastSubmitTimelineValue().value_or(0)));
-
-			primaryContext.reset();
-
-			for (uint32_t secIt = 0; secIt < secondaryContextCount; secIt++)
-				secondaryContexts[secIt].reset();
+			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
+			myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
 		}
 
-		auto cmd = primaryContext.commands();
-
 		{
-			GPU_SCOPE(cmd, myGraphicsQueues.front(), collect);
-			myGraphicsQueues.front().traceCollect(cmd);
-		}
-		{
-			GPU_SCOPE(cmd, myGraphicsQueues.front(), clear);
-			myRenderImageSet->clearDepthStencil(cmd, {1.0f, 0});
-		}
-		{
-			GPU_SCOPE(cmd, myGraphicsQueues.front(), transition);
-			myRenderImageSet->transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			myRenderImageSet->transitionDepthStencil(
-				cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-		}
-		{
-			GPU_SCOPE(cmd, myGraphicsQueues.front(), draw);
-			myMainWindow->updateInput(myInput);
-			myMainWindow->draw(
-				myExecutor, *myPipeline, primaryContext, secondaryContexts, secondaryContextCount);
-		}
-		{
-			GPU_SCOPE(cmd, myGraphicsQueues.front(), imgui);
-			myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+			ZoneScopedN("Application::drawTask::handleCallbacks");
 
-			myExecutor.join(std::move(imguiPrepareDrawFuture));
-
-			myIMGUIDrawFunction(cmd);
-
-			myMainWindow->end(cmd);
-		}
-		{
-			GPU_SCOPE(cmd, myGraphicsQueues.front(), transitionColor);
-			myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
-		}
-
-		cmd.end();
-
-		auto [imageAquired, renderComplete] = myMainWindow->getFrameSyncSemaphores();
-
-		myGraphicsQueues.front().enqueueSubmit(primaryContext.prepareSubmit(
-			{{myDevice->getTimelineSemaphore(), imageAquired},
-			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			 {myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0), 1},
-			 {myDevice->getTimelineSemaphore(), renderComplete},
-			 {1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
-
-		myGraphicsQueues.front().enqueuePresent(
-			myMainWindow->preparePresent(myGraphicsQueues.front().submit()));
-
-		TaskGraph presentGraph;
-		auto [presentTask, presentFuture] = presentGraph.createTask([](QueueContext<Vk>* queue) { queue->present(); }, &myGraphicsQueues.front());
-		myExecutor.submit(std::move(presentGraph));
-		myPresentFuture = std::move(presentFuture);
-	}
-
-	if (lastPresentTimelineValue)
-	{
-		ZoneScopedN("Application::draw::submitTimelineCallbacks");
-
-		// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-		TaskGraph processTimelineCallbacksGraph;
-		auto [processTimelineCallbacksTask, processTimelineCallbacksFuture] = processTimelineCallbacksGraph.createTask(
-			[](uint64_t timelineValue, DeviceContext<Vk>* deviceContext){ deviceContext->processTimelineCallbacks(timelineValue); },
-			static_cast<uint64_t>(lastPresentTimelineValue),
-			myDevice.get());
-		myExecutor.submit(std::move(processTimelineCallbacksGraph));
-		myProcessTimelineCallbacksFuture = std::move(processTimelineCallbacksFuture);
-		//.then([] { std::cout << "continuation" << std::endl; });
-	}
-
-	{
-		ZoneScopedN("Application::draw::handleCallbacks");
-
-		if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
-		{
-			ZoneScopedN("Application::draw::openFileCallback");
-
-			const auto& [openFileResult, openFilePath, onCompletionCallback] =
-				myOpenFileFuture.get();
-			if (openFileResult == NFD_OKAY)
+			if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
 			{
-				onCompletionCallback(openFilePath);
-				std::free(openFilePath);
+				ZoneScopedN("Application::drawTask::openFileCallback");
+
+				const auto& [openFileResult, openFilePath, onCompletionCallback] =
+					myOpenFileFuture.get();
+				if (openFileResult == NFD_OKAY)
+				{
+					onCompletionCallback(openFilePath);
+					std::free(openFilePath);
+				}
 			}
 		}
-	}
+	});
+
+	auto [presentTask, presentFuture] = frameGraph.createTask([](QueueContext<Vk>* queue) { queue->present(); }, &myGraphicsQueues.front());
+
+	frameGraph.addDependency(drawTask, presentTask);
+
+	myExecutor.submit(std::move(frameGraph));
+
+	myPresentFuture = std::move(presentFuture);
 
 	return myRequestExit;
 }

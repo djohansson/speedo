@@ -5,12 +5,9 @@
 
 #include <array>
 #include <atomic>
-//#include <barrier>
 #include <concepts>
 //#include <condition_variable>
 #include <cstdint>
-#include <latch>
-#include <list>
 #include <memory>
 #include <optional>
 #include <semaphore>
@@ -22,9 +19,6 @@
 #include <vector>
 
 #include <concurrentqueue.h>
-
-template <typename T>
-using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
 
 template <typename T, typename AtomicT = std::atomic<T>>
 class CopyableAtomic : public AtomicT
@@ -114,10 +108,12 @@ public:
 	std::tuple<bool, value_t> try_lock_upgrade() noexcept;
 };
 
+class Task;
+
 struct TaskState
 {
-	std::unique_ptr<std::latch> latch = {};
-	std::vector<std::latch*> dependents = {};
+	std::optional<std::atomic_uint32_t> latch;
+	std::vector<CopyableAtomic<Task*>> adjacencies;
 };
 
 // todo: dynamic memory allocation if larger tasks are created
@@ -142,18 +138,18 @@ public:
 	template <typename... Args>
 	void operator()(Args&&... args);
 
-	const auto& getState() const noexcept { return myState; }
-
-	void dependsOn(const Task& other) const;
-
 private:
 	friend class TaskGraph;
+	friend class TaskExecutor;
 
-	template <class Tuple, size_t... I>
-	constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
-	{
-		return (*this)(std::get<I>(std::forward<Tuple>(t))...);
-	}
+	// template <class Tuple, size_t... I>
+	// constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
+	// {
+	// 	return (*this)(std::get<I>(std::forward<Tuple>(t))...);
+	// }
+
+	auto& state() noexcept { return myState; }
+	const auto& state() const noexcept { return myState; }
 
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
@@ -173,7 +169,6 @@ class Future : public Noncopyable
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	struct state_t : TaskState { value_t value = {}; };
 
 	constexpr Future() noexcept = default;
 	Future(Future&& other) noexcept;
@@ -181,8 +176,8 @@ public:
 	Future& operator=(Future&& other) noexcept;
 
 	value_t get();
-	bool is_ready() const;
-	bool valid() const;
+	bool is_ready() const noexcept;
+	bool valid() const noexcept;
 	void wait() const;
 
 	// template <
@@ -193,28 +188,57 @@ public:
 	// requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
 
 private:
+	friend class Task;
 	friend class TaskGraph;
 
-	Future(std::shared_ptr<state_t>&& state) noexcept;
+	struct FutureState : TaskState
+	{
+		value_t value;
+	};
 
-	std::shared_ptr<state_t> myState;
+	Future(std::shared_ptr<FutureState>&& state) noexcept;
+
+	std::shared_ptr<FutureState> myState;
 };
+
 class TaskGraph : public Noncopyable
 {
 public:
+	using TaskNodeHandle = size_t;
+
+	constexpr TaskGraph() noexcept = default;
+	TaskGraph(TaskGraph&& other) noexcept;
+
+	TaskGraph& operator=(TaskGraph&& other) noexcept;
+
 	template <
 		typename F,
 		typename CallableType = std::decay_t<F>,
 		typename... Args,
 		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...> std::tuple<Task*, Future<ReturnType>>
+	requires std::invocable<F&, Args...> std::tuple<TaskNodeHandle, Future<ReturnType>>
 	createTask(F&& f, Args&&... args);
 
-	auto& tasks() noexcept { return myTasks; }
-	const auto& tasks() const noexcept { return myTasks; }
+	// a happens before b
+	void addDependency(TaskNodeHandle a, TaskNodeHandle b);
 
 private:
-	std::list<Task> myTasks;
+	friend class TaskExecutor;
+	
+	using TaskNodeHandleVector = std::vector<TaskNodeHandle>;
+	using TaskNode = std::tuple<Task, TaskNodeHandleVector, size_t>; // task, adjacencies, dependencies
+	using TaskNodeVec = std::vector<TaskNode>;
+
+	void depthFirstSearch(
+		size_t v,
+		std::vector<bool>& discovered,
+		std::vector<size_t>& departure,
+		std::vector<size_t>& sorted,
+		size_t& time) const;
+
+	void finalize(); // will invalidate all task handles
+
+	TaskNodeVec myNodes;
 };
 
 class TaskExecutor : public Noncopyable
@@ -223,20 +247,29 @@ public:
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	void submit(TaskGraph&& graph);
+	void submit(TaskGraph&& graph); // will invalidate all task handles
 	void join();
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
 private:
-	void internalProcessReadyQueue();
+
+	void scheduleAdjacent(const Task& task);
+	void scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task);
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t>
-	internalProcessReadyQueue(Future<ReturnType>&& future);
+	processReadyQueue(Future<ReturnType>&& future);
+	void processReadyQueue();
+	void processReadyQueue(
+		moodycamel::ProducerToken& readyProducerToken,
+		moodycamel::ConsumerToken& readyConsumerToken
+	);
 
-	void internalThreadMain(/*std::stop_token& stopToken*/);
+	void removeFinishedGraphs();
+
+	void threadMain(/*std::stop_token& stopToken*/);
 
 	//std::shared_mutex myMutex;
 	//std::vector<std::jthread> myThreads;
@@ -245,8 +278,8 @@ private:
 	//std::stop_source myStopSource;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
-	ConcurrentQueue<Task> myReadyQueue;
-	//ConcurrentQueue<TaskGraph> myWaitingQueue;
+	moodycamel::ConcurrentQueue<Task> myReadyQueue;
+	moodycamel::ConcurrentQueue<TaskGraph> myWaitingQueue;
 };
 
 #include "concurrency-utils.inl"

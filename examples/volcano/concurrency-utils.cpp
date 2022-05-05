@@ -44,9 +44,86 @@ bool Task::operator!() const noexcept
 	return !static_cast<bool>(*this);
 }
 
-void Task::dependsOn(const Task& other) const
+TaskGraph::TaskGraph(TaskGraph&& other) noexcept
 {
-	myState->dependents.push_back(other.getState()->latch.get());
+	*this = std::forward<TaskGraph>(other);
+}
+
+TaskGraph& TaskGraph::operator=(TaskGraph&& other) noexcept
+{
+	myNodes = std::exchange(other.myNodes, {});
+
+	return *this;
+}
+
+void TaskGraph::addDependency(TaskNodeHandle a, TaskNodeHandle b)
+{
+	auto& [taskA, adjacenciesA, dependenciesA] = myNodes[a];
+	auto& [taskB, adjacenciesB, dependenciesB] = myNodes[b];
+
+	adjacenciesA.push_back(b);
+	++dependenciesB;
+}
+
+void TaskGraph::depthFirstSearch(
+	size_t v,
+	std::vector<bool>& visited,
+	std::vector<size_t>& departure,
+	std::vector<size_t>& sorted,
+	size_t& time) const
+{
+	visited[v] = true;
+
+	const auto& [task, adjacencies, dependencies] = myNodes[v];
+
+	for (auto u : adjacencies)
+		if (!visited[u])
+			depthFirstSearch(u, visited, departure, sorted, time);
+
+	sorted.emplace_back(v);
+	departure[v] = time++;
+};
+
+void TaskGraph::finalize()
+{
+	auto n = myNodes.size();
+
+	std::vector<bool> visited(n);
+	std::vector<size_t> departure(n);
+	std::vector<size_t> sorted;
+	
+	sorted.reserve(n);
+
+	size_t time = 0;
+
+	for (size_t i = 0; i < n; i++)
+		if (!visited[i])
+			depthFirstSearch(i, visited, departure, sorted, time);
+
+	for (size_t u = 0; u < n; u++)
+	{
+		const auto& [task, adjacencies, dependencies] = myNodes[u];
+
+		for (auto v : adjacencies)
+			if (departure[u] <= departure[v])
+				throw std::runtime_error("Graph is not a DAG!");
+	}
+
+	decltype(myNodes) sortedNodes(n);
+
+	for (size_t i = 0; i < sorted.size(); i++)
+		//sortedNodes[i] = std::move(myNodes[sorted[i]]);
+		sortedNodes[i] = std::move(myNodes[myNodes.size() - sorted[i] - 1]);
+
+	myNodes = std::move(sortedNodes);
+	
+	for (auto& [task, adjacencies, dependencies] : myNodes)
+	{
+		task.state()->latch.emplace(dependencies + 1); // deps + self
+
+		for (auto adjacent : adjacencies)
+			task.state()->adjacencies.emplace_back(&std::get<0>(myNodes[adjacent]));
+	}
 }
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
@@ -58,7 +135,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 
 	myThreads.reserve(threadCount);
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(&TaskExecutor::internalThreadMain, this);
+		myThreads.emplace_back(&TaskExecutor::threadMain, this);
 }
 
 TaskExecutor::~TaskExecutor()
@@ -87,24 +164,15 @@ void TaskExecutor::submit(TaskGraph&& graph)
 {
 	ZoneScopedN("TaskExecutor::submit");
 
-	// TODO: traverse graph to properly initialize latches
+	removeFinishedGraphs();
 
-	std::list<Task>::iterator taskIt = graph.tasks().begin();
-	while (taskIt != graph.tasks().end())
-	{
-		if (taskIt->getState()->dependents.empty())
-		{
-			taskIt->getState()->latch = std::make_unique<std::latch>(1);
-			myReadyQueue.enqueue(std::move(*taskIt));
-			taskIt = graph.tasks().erase(taskIt);
-			continue;
-		}
+	graph.finalize();
 
-		taskIt++;
-	}
+	for (auto& [task, adjacencies, dependencies] : graph.myNodes)
+		if (dependencies == 0)
+			myReadyQueue.enqueue(std::move(task));
 
-	// if (!graph.tasks().empty())
-	// 	myWaitingQueue.enqueue(std::forward<TaskGraph>(graph));
+	myWaitingQueue.enqueue(std::forward<TaskGraph>(graph));
 
 	mySignal.release();
 }
@@ -113,27 +181,144 @@ void TaskExecutor::join()
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	internalProcessReadyQueue();
+	processReadyQueue();
 }
 
-void TaskExecutor::internalProcessReadyQueue()
+void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task)
 {
+	bool signal = false;
+
+	for (auto& adjacent : task.state()->adjacencies)
+	{
+		auto adjacentPtr = adjacent.load();
+		if (!adjacentPtr)
+			continue;
+
+		assertf(adjacentPtr->state(), "Task has no return state!");
+		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
+
+		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+
+		if (counter == 1)
+		{
+			myReadyQueue.enqueue(readyProducerToken, std::move(*adjacentPtr));
+			adjacent.store(nullptr);
+			signal = true;
+		}
+	}
+
+	if (signal)
+		mySignal.release();
+}
+
+void TaskExecutor::scheduleAdjacent(const Task& task)
+{
+	bool signal = false;
+
+	for (auto& adjacent : task.state()->adjacencies)
+	{
+		auto adjacentPtr = adjacent.load();
+		if (!adjacentPtr)
+			continue;
+
+		assertf(adjacentPtr->state(), "Task has no return state!");
+		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
+
+		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+
+		if (counter == 1)
+		{
+			myReadyQueue.enqueue(std::move(*adjacentPtr));
+			adjacent.store(nullptr);
+			signal = true;
+		}
+	}
+
+	if (signal)
+		mySignal.release();
+}
+
+void TaskExecutor::processReadyQueue()
+{
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
 	Task task;
 	while (myReadyQueue.try_dequeue(task))
+	{
 		task();
+		scheduleAdjacent(task);
+	}
 }
 
-void TaskExecutor::internalThreadMain(/*std::stop_token& stopToken*/)
+void TaskExecutor::processReadyQueue(
+	moodycamel::ProducerToken& readyProducerToken,
+	moodycamel::ConsumerToken& readyConsumerToken)
 {
-	//while (!stopToken.stop_requested())
-	while (!myStopSource.load(std::memory_order_relaxed))
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
+	Task task;
+	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
-		internalProcessReadyQueue();
+		task();
+		scheduleAdjacent(readyProducerToken, task);
+	}
+}
 
-		//auto lock = std::shared_lock(myMutex);
+void TaskExecutor::removeFinishedGraphs()
+{
+	ZoneScopedN("TaskExecutor::removeFinishedGraphs");
 
-		//mySignal.wait(lock, stopToken, [&queue = myReadyQueue](){ return !queue.empty(); });
-		//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myReadyQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
-		mySignal.acquire();
+	std::vector<TaskGraph> notFinished;
+	TaskGraph graph;
+	while (myWaitingQueue.try_dequeue(graph))
+	{
+		for (auto& [task, adjacencies, dependencies] : graph.myNodes)
+		{
+			if (task)
+			{
+				notFinished.emplace_back(std::move(graph));
+				break;
+			}
+		}
+	}
+
+	if (!notFinished.empty())
+	{
+		myWaitingQueue.enqueue_bulk(
+			std::make_move_iterator(notFinished.begin()),
+			notFinished.size());
+	}
+}
+
+void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)
+{
+	try
+	{
+		moodycamel::ProducerToken readyProducerToken(myReadyQueue);
+		moodycamel::ConsumerToken readyConsumerToken(myReadyQueue);
+
+		//while (!stopToken.stop_requested())
+		while (!myStopSource.load(std::memory_order_relaxed))
+		{
+			processReadyQueue(readyProducerToken, readyConsumerToken);
+			//auto lock = std::shared_lock(myMutex);
+
+			//mySignal.wait(lock, stopToken, [&queue = myReadyQueue](){ return !queue.empty(); });
+			//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myReadyQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
+			mySignal.acquire();
+		}
+	}
+	catch (const std::runtime_error& ex)
+	{
+		std::cerr << "Error! - ";
+		std::cerr << ex.what() << "\n";
+
+		throw;
+	}
+	catch (...)
+	{
+		std::cerr << "Error! Unhandled exception";
+
+		throw;
 	}
 }
