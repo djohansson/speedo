@@ -48,6 +48,7 @@
 .VisualStudioIncludePath = '$VisualStudioToolchainPath$/include'
 .VisualStudioATLMFCIncludePath = '$VisualStudioToolchainPath$/ATLMFC/include'
 .VisualStudioLibPath = '$VisualStudioToolchainPath$/lib/x64'
+.VisualStudioBinPath = '$VisualStudioToolchainPath$/bin/Hostx64/x64'
 
 Settings
 {
