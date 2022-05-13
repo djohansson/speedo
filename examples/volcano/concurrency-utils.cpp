@@ -86,12 +86,14 @@ void TaskGraph::depthFirstSearch(
 
 void TaskGraph::finalize()
 {
+	ZoneScopedN("TaskGraph::finalize");
+
 	auto n = myNodes.size();
 
 	std::vector<bool> visited(n);
 	std::vector<size_t> departure(n);
 	std::vector<size_t> sorted;
-	
+
 	sorted.reserve(n);
 
 	size_t time = 0;
@@ -116,7 +118,7 @@ void TaskGraph::finalize()
 		sortedNodes[i] = std::move(myNodes[myNodes.size() - sorted[i] - 1]);
 
 	myNodes = std::move(sortedNodes);
-	
+
 	for (auto& [task, adjacencies, dependencies] : myNodes)
 	{
 		task.state()->latch.emplace(dependencies + 1); // deps + self
@@ -134,8 +136,9 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	assertf(threadCount > 0, "Thread count must be nonzero");
 
 	myThreads.reserve(threadCount);
+
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(&TaskExecutor::threadMain, this);
+		myThreads.emplace_back(std::thread(&TaskExecutor::threadMain, this, threadIt), nullptr);
 }
 
 TaskExecutor::~TaskExecutor()
@@ -155,7 +158,7 @@ TaskExecutor::~TaskExecutor()
 	{
 		ZoneScopedN("~TaskExecutor()::join");
 
-		for (auto& thread : myThreads)
+		for (auto& [thread, exception] : myThreads)
 			thread.join();
 	}
 }
@@ -186,7 +189,9 @@ void TaskExecutor::join()
 
 void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task)
 {
-	bool signal = false;
+	ZoneScopedN("TaskExecutor::scheduleAdjacent");
+
+	std::vector<Task> next;
 
 	for (auto& adjacent : task.state()->adjacencies)
 	{
@@ -197,23 +202,29 @@ void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToke
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+		auto counter =
+			adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
 
 		if (counter == 1)
 		{
-			myReadyQueue.enqueue(readyProducerToken, std::move(*adjacentPtr));
+			next.emplace_back(std::move(*adjacentPtr));
 			adjacent.store(nullptr);
-			signal = true;
 		}
 	}
 
-	if (signal)
+	if (!next.empty())
+	{
+		myReadyQueue.enqueue_bulk(
+			readyProducerToken, std::make_move_iterator(next.begin()), next.size());
 		mySignal.release();
+	}
 }
 
 void TaskExecutor::scheduleAdjacent(const Task& task)
 {
-	bool signal = false;
+	ZoneScopedN("TaskExecutor::scheduleAdjacent");
+
+	std::vector<Task> next;
 
 	for (auto& adjacent : task.state()->adjacencies)
 	{
@@ -224,24 +235,25 @@ void TaskExecutor::scheduleAdjacent(const Task& task)
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+		auto counter =
+			adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
 
 		if (counter == 1)
 		{
-			myReadyQueue.enqueue(std::move(*adjacentPtr));
+			next.emplace_back(std::move(*adjacentPtr));
 			adjacent.store(nullptr);
-			signal = true;
 		}
 	}
 
-	if (signal)
+	if (!next.empty())
+	{
+		myReadyQueue.enqueue_bulk(std::make_move_iterator(next.begin()), next.size());
 		mySignal.release();
+	}
 }
 
 void TaskExecutor::processReadyQueue()
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
-
 	Task task;
 	while (myReadyQueue.try_dequeue(task))
 	{
@@ -251,11 +263,8 @@ void TaskExecutor::processReadyQueue()
 }
 
 void TaskExecutor::processReadyQueue(
-	moodycamel::ProducerToken& readyProducerToken,
-	moodycamel::ConsumerToken& readyConsumerToken)
+	moodycamel::ProducerToken& readyProducerToken, moodycamel::ConsumerToken& readyConsumerToken)
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
-
 	Task task;
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
@@ -285,40 +294,26 @@ void TaskExecutor::removeFinishedGraphs()
 	if (!notFinished.empty())
 	{
 		myWaitingQueue.enqueue_bulk(
-			std::make_move_iterator(notFinished.begin()),
-			notFinished.size());
+			std::make_move_iterator(notFinished.begin()), notFinished.size());
 	}
 }
 
-void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)
+void TaskExecutor::threadMain(uint32_t threadId)
 {
 	try
 	{
 		moodycamel::ProducerToken readyProducerToken(myReadyQueue);
 		moodycamel::ConsumerToken readyConsumerToken(myReadyQueue);
 
-		//while (!stopToken.stop_requested())
 		while (!myStopSource.load(std::memory_order_relaxed))
 		{
 			processReadyQueue(readyProducerToken, readyConsumerToken);
-			//auto lock = std::shared_lock(myMutex);
 
-			//mySignal.wait(lock, stopToken, [&queue = myReadyQueue](){ return !queue.empty(); });
-			//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myReadyQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
 			mySignal.acquire();
 		}
 	}
-	catch (const std::runtime_error& ex)
-	{
-		std::cerr << "Error! - ";
-		std::cerr << ex.what() << "\n";
-
-		throw;
-	}
 	catch (...)
 	{
-		std::cerr << "Error! Unhandled exception";
-
-		throw;
+		std::get<1>(myThreads[threadId]) = std::current_exception();
 	}
 }
