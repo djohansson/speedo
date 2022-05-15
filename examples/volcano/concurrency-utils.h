@@ -165,15 +165,17 @@ private:
 //char (*__kaboom)[sizeof(Task)] = 1;
 
 template <typename T>
-class Future : public Noncopyable
+class Future
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
 
 	constexpr Future() noexcept = default;
 	Future(Future&& other) noexcept;
-
+	Future(const Future& other) noexcept;
+	
 	Future& operator=(Future&& other) noexcept;
+	Future& operator=(const Future& other) noexcept;
 
 	value_t get();
 	bool is_ready() const noexcept;
