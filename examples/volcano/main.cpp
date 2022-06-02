@@ -283,19 +283,6 @@ int main(int argc, char** argv)
 			ImGui_ImplGlfw_NewFrame();
 		}
 
-#if defined(_DEBUG) && defined(__WINDOWS__)
-		{
-			ZoneScopedN("main::memorycheck");
-
-			_CrtMemState drawLoopMemState, diffMemState;
-			_CrtMemCheckpoint(&drawLoopMemState);
-
-			if ((++frameIndex % 10000 == 0) &&
-				_CrtMemDifference(&diffMemState, &programStartMemState, &drawLoopMemState))
-				_CrtMemDumpStatistics(&diffMemState);
-		}
-#endif
-
 	} while (!glfwWindowShouldClose(window) && !volcano_draw());
 
 	ImGui_ImplGlfw_Shutdown();
