@@ -7,6 +7,14 @@
 // todo: frame graph
 // todo: clustered forward shading
 // todo: shader graph
+// todo: migrate out of slang into own root and clean up folder structure
+// todo: replace all external deps with vcpkg packages
+// todo: port slang into vcpkg package
+// todo: replace cereal with zpp::bits
+// todo: implement interprocess distributed task system using cppzmq & zpp::bits
+// todo: split and clean up concurrency-utils
+// todo: (maybe) switch from ms-gltf to cgltf
+// todo: (maybe) use Scatter/Gather I/O
 
 // done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
