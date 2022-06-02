@@ -39,7 +39,7 @@ public:
 	void swap(CommandBufferArray& rhs) noexcept;
 	friend void swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const { return myDesc; }
+	const auto& getDesc() const noexcept { return myDesc; }
 
 	static constexpr auto capacity() { return kCommandBufferCount; }
 
@@ -56,7 +56,7 @@ public:
 	}
 
 	bool recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
-	uint8_t recordingFlags() const { return myBits.recordingFlags; }
+	uint8_t recordingFlags() const noexcept { return myBits.recordingFlags; }
 
 	bool full() const { return (head() + 1) >= capacity(); }
 
