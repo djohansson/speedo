@@ -212,9 +212,6 @@ int main(int argc, char** argv)
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 
-#if defined(_DEBUG) && defined(__WINDOWS__)
-	uint64_t frameIndex = 0;
-#endif
 	do
 	{
 		FrameMark;
