@@ -182,8 +182,7 @@ void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExten
 
 template <>
 Application<Vk>::Application(void* windowHandle, int width, int height)
-	: myInstance(std::make_shared<InstanceContext<Vk>>())
-	, myExecutor(std::max(1u, std::thread::hardware_concurrency() - 1))
+	: Application()
 {
 	ZoneScopedN("Application()");
 

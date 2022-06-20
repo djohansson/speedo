@@ -71,6 +71,8 @@ public:
 	const char* getName() const;
 
 private:
+	Application();
+	
 	void initIMGUI(
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		CommandBufferHandle<B> commands,

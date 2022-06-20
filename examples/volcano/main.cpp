@@ -2,7 +2,6 @@
 #include "utils.h"
 #include "volcano.h"
 
-#include <clocale>
 #include <cstdio>
 #include <cstdlib>
 
@@ -202,9 +201,6 @@ const char* getCmdOption(const char* const* begin, const char* const* end, const
 
 int main(int argc, char** argv)
 {
-	setlocale(LC_ALL, ".UTF8");
-	printf("😊\n");
-
 #if defined(_DEBUG) && defined(__WINDOWS__)
 	_CrtMemState programStartMemState;
 	_CrtMemCheckpoint(&programStartMemState);
