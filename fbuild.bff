@@ -3,7 +3,7 @@
 .FBuildProjectName = "slang"
 
 .CompilerBaseConfig = .Clang_BaseConfig
-.CompilerConfigs = .Clang_Native_Configs
+.CompilerConfigs = .Clang_x86_64_v3_Configs
 
 {
 	Using(.CompilerBaseConfig)
