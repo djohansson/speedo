@@ -5,14 +5,6 @@
 #include <cstdio>
 #include <cstdlib>
 
-#if defined(_DEBUG) && defined(__WINDOWS__)
-#	include <crtdbg.h>
-#	include <stdlib.h>
-#	ifndef _AMD64_
-#		define _AMD64_ 1
-#	endif
-#	include <debugapi.h>
-#endif
 
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
@@ -156,24 +148,6 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 	}
 }
 
-// #if defined(_DEBUG) && defined(__WINDOWS__)
-// int __cdecl CrtReportHook(int nReportType, char* szMsg, int* pnRet)
-// {
-// 	int nRet = 0;
-
-// 	size_t wszMsgSize;
-// 	wchar_t wszMsg[1024];
-// 	mbstowcs_s(&wszMsgSize, wszMsg, std::ssize(wszMsg), szMsg, strnlen_s(szMsg, 1024));
-
-// 	OutputDebugString(wszMsg);
-
-// 	if (pnRet)
-// 		*pnRet = 0;
-
-// 	return nRet;
-// }
-// #endif
-
 const char* getCmdOption(const char* const* begin, const char* const* end, const char* option)
 {
 	while (begin != end)
@@ -185,31 +159,8 @@ const char* getCmdOption(const char* const* begin, const char* const* end, const
 	return nullptr;
 }
 
-// void* __real_malloc(size_t sz);
-// void* __wrap_malloc(size_t sz)
-// {
-//     void *ptr;
-
-//     ptr = __real_malloc(sz);
-//     fprintf(stderr, "malloc of size %d yields pointer %p\n", sz, ptr);
-
-//     /* if you wish to save the pointer and the size to a data structure,
-//        then remember to add wrap code for calloc, realloc and free */
-
-//     return ptr;
-// }
-
 int main(int argc, char** argv)
 {
-#if defined(_DEBUG) && defined(__WINDOWS__)
-	_CrtMemState programStartMemState;
-	_CrtMemCheckpoint(&programStartMemState);
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-	// _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-	// int nRet = _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
-	// printf("_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, CrtReportHook) returned %d\n", nRet);
-#endif
-
 	// Setup window
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
