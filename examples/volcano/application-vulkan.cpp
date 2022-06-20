@@ -1124,14 +1124,6 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
 	myNodeGraph = std::filesystem::path(volcano_getUserProfilePath()) /
 				  "nodegraph.json"; // temp - this should be stored in the resource path
-
-	if constexpr (PROFILING_ENABLED)
-	{
-		char* allocatorStatsJSON = nullptr;
-		vmaBuildStatsString(myDevice->getAllocator(), &allocatorStatsJSON, true);
-		std::cout << allocatorStatsJSON << std::endl;
-		vmaFreeStatsString(myDevice->getAllocator(), allocatorStatsJSON);
-	}
 }
 
 template <>
