@@ -185,16 +185,6 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	glfwSetCursorEnterCallback(window, onMouseEnter);
-	glfwSetMouseButtonCallback(window, onMouseButton);
-	glfwSetCursorPosCallback(window, onMouseCursorPos);
-	glfwSetKeyCallback(window, onKey);
-	glfwSetWindowSizeCallback(window, onWindowResize);
-	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
-	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
-	glfwSetWindowRefreshCallback(window, onWindowRefresh);
-	glfwSetMonitorCallback(onMonitorChanged);
-
 #if __WINDOWS__
 	auto windowHandle = glfwGetWin32Window(window);
 	volcano_create(
@@ -209,6 +199,15 @@ int main(int argc, char** argv)
 		getCmdOption(argv, argv + argc, R"(-r)"),
 		getCmdOption(argv, argv + argc, R"(-u)"));
 
+	glfwSetCursorEnterCallback(window, onMouseEnter);
+	glfwSetMouseButtonCallback(window, onMouseButton);
+	glfwSetCursorPosCallback(window, onMouseCursorPos);
+	glfwSetKeyCallback(window, onKey);
+	glfwSetWindowSizeCallback(window, onWindowResize);
+	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
+	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
+	glfwSetWindowRefreshCallback(window, onWindowRefresh);
+	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetWindowTitle(window, volcano_getAppName());
 
 	ImGui_ImplGlfw_InitForVulkan(window, true);
