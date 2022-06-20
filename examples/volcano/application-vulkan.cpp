@@ -284,14 +284,14 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
 		SwapchainConfiguration<Vk> config = {swapchainInfo.capabilities.currentExtent};
 
-		static constexpr Format<Vk> requestSurfaceImageFormat[] = {
+		constexpr Format<Vk> requestSurfaceImageFormat[] = {
 			VK_FORMAT_B8G8R8A8_UNORM,
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_FORMAT_B8G8R8_UNORM,
 			VK_FORMAT_R8G8B8_UNORM};
-		static constexpr ColorSpace<Vk> requestSurfaceColorSpace =
+		constexpr ColorSpace<Vk> requestSurfaceColorSpace =
 			VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		static constexpr PresentMode<Vk> requestPresentMode[] = {
+		constexpr PresentMode<Vk> requestPresentMode[] = {
 			VK_PRESENT_MODE_MAILBOX_KHR,
 			VK_PRESENT_MODE_FIFO_RELAXED_KHR,
 			VK_PRESENT_MODE_FIFO_KHR,
@@ -373,7 +373,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
 		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-		static constexpr bool useCommandBufferCreateReset = true;
+		constexpr bool useCommandBufferCreateReset = true;
 		if (useCommandBufferCreateReset)
 			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
