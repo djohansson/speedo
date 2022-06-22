@@ -159,7 +159,7 @@ const char* getCmdOption(const char* const* begin, const char* const* end, const
 	return nullptr;
 }
 
-int main(int argc, char** argv)
+int main(int argc, char* argv[], char* env[])
 {
 	// Setup window
 	glfwSetErrorCallback(onError);
