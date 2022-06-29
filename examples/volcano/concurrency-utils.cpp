@@ -138,29 +138,17 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::thread(&TaskExecutor::threadMain, this, threadIt), nullptr);
+		myThreads.emplace_back(std::jthread(&TaskExecutor::threadMain, this, threadIt), nullptr);
 }
 
 TaskExecutor::~TaskExecutor()
 {
 	ZoneScopedN("~TaskExecutor()");
 
-	//myStopSource.request_stop();
 	myStopSource.store(true, std::memory_order_relaxed);
-	//mySignal.notify_all();
 	mySignal.release(mySignal.max());
 
-	// workaround for the following problem in msvc implementation of jthread in <mutex>:
-	// TRANSITION, ABI: Due to the unsynchronized delivery of notify_all by _Stoken,
-	// this implementation cannot tolerate *this destruction while an interruptible wait
-	// is outstanding. A future ABI should store both the internal CV and internal mutex
-	// in the reference counted block to allow this.
-	{
-		ZoneScopedN("~TaskExecutor()::join");
-
-		for (auto& [thread, exception] : myThreads)
-			thread.join();
-	}
+	processReadyQueue();
 }
 
 void TaskExecutor::submit(TaskGraph&& graph)
@@ -178,13 +166,6 @@ void TaskExecutor::submit(TaskGraph&& graph)
 	myWaitingQueue.enqueue(std::forward<TaskGraph>(graph));
 
 	mySignal.release();
-}
-
-void TaskExecutor::join()
-{
-	ZoneScopedN("TaskExecutor::join");
-
-	processReadyQueue();
 }
 
 void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task)
@@ -216,6 +197,7 @@ void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToke
 	{
 		myReadyQueue.enqueue_bulk(
 			readyProducerToken, std::make_move_iterator(next.begin()), next.size());
+		
 		mySignal.release();
 	}
 }
@@ -248,6 +230,7 @@ void TaskExecutor::scheduleAdjacent(const Task& task)
 	if (!next.empty())
 	{
 		myReadyQueue.enqueue_bulk(std::make_move_iterator(next.begin()), next.size());
+		
 		mySignal.release();
 	}
 }
@@ -258,6 +241,7 @@ void TaskExecutor::processReadyQueue()
 	while (myReadyQueue.try_dequeue(task))
 	{
 		task();
+
 		scheduleAdjacent(task);
 	}
 }
@@ -269,6 +253,7 @@ void TaskExecutor::processReadyQueue(
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
 		task();
+
 		scheduleAdjacent(readyProducerToken, task);
 	}
 }
@@ -286,6 +271,7 @@ void TaskExecutor::removeFinishedGraphs()
 			if (task)
 			{
 				notFinished.emplace_back(std::move(graph));
+				
 				break;
 			}
 		}

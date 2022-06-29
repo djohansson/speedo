@@ -6,15 +6,13 @@
 #include <array>
 #include <atomic>
 #include <concepts>
-//#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <memory>
 #include <optional>
 #include <semaphore>
-//#include <shared_mutex>
 #include <stdexcept>
-//#include <stop_token>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -241,7 +239,7 @@ private:
 
 	void finalize(); // will invalidate all task handles allocated from graph
 
-	TaskNodeVec myNodes{};
+	TaskNodeVec myNodes;
 };
 
 class TaskExecutor : public Noncopyable
@@ -251,7 +249,6 @@ public:
 	~TaskExecutor();
 
 	void submit(TaskGraph&& graph); // will invalidate all task handles allocated from graph
-	void join();
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
@@ -272,7 +269,7 @@ private:
 
 	void threadMain(uint32_t threadId);
 
-	std::vector<std::tuple<std::thread, std::exception_ptr>> myThreads;
+	std::vector<std::tuple<std::jthread, std::exception_ptr>> myThreads;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
 	moodycamel::ConcurrentQueue<Task> myReadyQueue;
