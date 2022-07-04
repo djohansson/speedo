@@ -167,7 +167,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 	myDesc = {config.extent}; // more?
 
-	VkSwapchainCreateInfoKHR info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
 	info.minImageCount = config.imageCount;
 	info.imageFormat = config.surfaceFormat.format;

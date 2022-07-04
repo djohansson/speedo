@@ -12,7 +12,7 @@
 template <GraphicsBackend B>
 struct ModelCreateDesc
 {
-	AABB3f aabb = {};
+	AABB3f aabb;
 	DeviceSize<B> indexBufferSize = 0;
 	DeviceSize<B> vertexBufferSize = 0;
 	uint32_t indexCount = 0;
@@ -46,7 +46,7 @@ private:
 		CommandPoolContext<B>& commandContext,
 		std::tuple<ModelCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 
-	ModelCreateDesc<B> myDesc = {};
+	ModelCreateDesc<B> myDesc{};
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 };
 

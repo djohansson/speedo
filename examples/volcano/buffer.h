@@ -10,9 +10,9 @@
 template <GraphicsBackend B>
 struct BufferCreateDesc
 {
-	DeviceSize<B> size = {};
-	Flags<B> usageFlags = {};
-	Flags<B> memoryFlags = {};
+	DeviceSize<B> size{};
+	Flags<B> usageFlags{};
+	Flags<B> memoryFlags{};
 };
 
 template <GraphicsBackend B>
@@ -54,8 +54,8 @@ private:
 		BufferCreateDesc<B>&& desc,
 		ValueType&& buffer);
 
-	BufferCreateDesc<B> myDesc = {};
-	ValueType myBuffer = {};
+	BufferCreateDesc<B> myDesc{};
+	ValueType myBuffer{};
 };
 
 template <GraphicsBackend B>
@@ -83,5 +83,5 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		BufferViewHandle<B>&& view);
 
-	BufferViewHandle<B> myView = {};
+	BufferViewHandle<B> myView{};
 };

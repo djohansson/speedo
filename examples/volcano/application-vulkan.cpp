@@ -67,7 +67,7 @@ void Application<Vk>::initIMGUI(
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
-	const char* fonts[] = {
+	constexpr const char* fonts[]{
 		"Cousine-Regular.ttf",
 		"DroidSans.ttf",
 		"Karla-Regular.ttf",
@@ -246,7 +246,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 			graphicsDeviceCandidates.end(),
 			[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
 			{
-				constexpr uint32_t deviceTypePriority[] = {
+				constexpr uint32_t deviceTypePriority[]{
 					4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
 					1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
 					0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
@@ -281,16 +281,16 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 		const auto& swapchainInfo =
 			instance->getSwapchainInfo(device->getPhysicalDevice(), surface);
 
-		SwapchainConfiguration<Vk> config = {swapchainInfo.capabilities.currentExtent};
+		SwapchainConfiguration<Vk> config{swapchainInfo.capabilities.currentExtent};
 
-		constexpr Format<Vk> requestSurfaceImageFormat[] = {
+		constexpr Format<Vk> requestSurfaceImageFormat[]{
 			VK_FORMAT_B8G8R8A8_UNORM,
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_FORMAT_B8G8R8_UNORM,
 			VK_FORMAT_R8G8B8_UNORM};
 		constexpr ColorSpace<Vk> requestSurfaceColorSpace =
 			VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		constexpr PresentMode<Vk> requestPresentMode[] = {
+		constexpr PresentMode<Vk> requestPresentMode[]{
 			VK_PRESENT_MODE_MAILBOX_KHR,
 			VK_PRESENT_MODE_FIFO_RELAXED_KHR,
 			VK_PRESENT_MODE_FIFO_KHR,
@@ -301,8 +301,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestSurfaceImageFormat);
 			 requestIt++)
 		{
-			SurfaceFormat<Vk> requestedFormat = {
-				requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
+			auto requestedFormat = SurfaceFormat<Vk>{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
 
 			auto formatIt = std::find_if(
 				swapchainInfo.formats.begin(),

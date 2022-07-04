@@ -9,9 +9,6 @@
 namespace instance
 {
 
-static PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2 = {};
-static PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2 = {};
-
 SurfaceCapabilities<Vk>
 getSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
@@ -24,25 +21,25 @@ getSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surfac
 PhysicalDeviceInfo<Vk>
 getPhysicalDeviceInfo(InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> device)
 {
-	instance::vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
 
-	PhysicalDeviceInfo<Vk> deviceInfo = {};
+	PhysicalDeviceInfo<Vk> deviceInfo{};
 	deviceInfo.deviceRobustnessFeatures.sType =
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
 	deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.deviceRobustnessFeatures;
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeaturesEx;
-	instance::vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
+	vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
-	instance::vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+	auto vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
 
 	deviceInfo.devicePropertiesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.devicePropertiesEx;
-	instance::vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 
 	uint32_t queueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
@@ -59,7 +56,7 @@ getPhysicalDeviceInfo(InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> devi
 SwapchainInfo<Vk>
 getPhysicalDeviceSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
-	SwapchainInfo<Vk> swapchainInfo = {};
+	SwapchainInfo<Vk> swapchainInfo{};
 	swapchainInfo.capabilities = getSurfaceCapabilities(device, surface);
 
 	uint32_t formatCount;
@@ -132,7 +129,7 @@ VkBool32 debugUtilsMessengerCallback(
 	return VK_FALSE;
 }
 
-VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo = {
+VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo{
 	VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
 	nullptr,
 	0,
@@ -292,7 +289,7 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
 			[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }),
 		"Can't find required Vulkan extensions.");
 
-	VkInstanceCreateInfo info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+	VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
 	info.pNext = &instance::debugUtilsMessengerCallbackCreateInfo;
 	info.pApplicationInfo = &myConfig.appInfo;
 	info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());

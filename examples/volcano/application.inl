@@ -21,8 +21,7 @@ const char* Application<B>::getName() const
 
 template <GraphicsBackend B>
 Application<B>::Application()
-	: myInstance(std::make_shared<InstanceContext<B>>())
-	, myExecutor(std::max(1u, std::thread::hardware_concurrency() - 1))
+: myInstance(std::make_shared<InstanceContext<B>>())
 {
 	std::locale utf8Locale(".UTF8");  	
 	std::locale::global(utf8Locale);

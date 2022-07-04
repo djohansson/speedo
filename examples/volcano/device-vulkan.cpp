@@ -33,7 +33,7 @@ void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 {
 	ZoneScopedN("DeviceContext::wait");
 
-	VkSemaphoreWaitInfo waitInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
 	waitInfo.flags = {};
 	waitInfo.semaphoreCount = 1;
 	waitInfo.pSemaphores = &myTimelineSemaphore;
@@ -293,7 +293,7 @@ DeviceContext<Vk>::DeviceContext(
 	// deviceFeaturesEx.timelineSemaphore = myConfig.useTimelineSemaphores.value();
 	// deviceFeaturesEx.bufferDeviceAddress = myConfig.useBufferDeviceAddress.value();
 
-	VkDeviceCreateInfo deviceCreateInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
 	deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
@@ -363,11 +363,11 @@ DeviceContext<Vk>::DeviceContext(
 
 	myAllocator = createAllocator(myInstance->getInstance(), myDevice, getPhysicalDevice(), {});
 
-	VkSemaphoreTypeCreateInfo timelineCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+	VkSemaphoreTypeCreateInfo timelineCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
 	timelineCreateInfo.initialValue = 0ull;
 
-	VkSemaphoreCreateInfo semaphoreCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+	VkSemaphoreCreateInfo semaphoreCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 	semaphoreCreateInfo.pNext = &timelineCreateInfo;
 	semaphoreCreateInfo.flags = {};
 

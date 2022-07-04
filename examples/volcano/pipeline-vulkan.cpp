@@ -14,7 +14,7 @@ struct PipelineCacheHeader<Vk>
 	uint32_t cacheHeaderVersion = 0ul;
 	uint32_t vendorID = 0ul;
 	uint32_t deviceID = 0ul;
-	uint8_t pipelineCacheUUID[VK_UUID_SIZE] = {};
+	uint8_t pipelineCacheUUID[VK_UUID_SIZE]{};
 };
 #pragma pack(pop)
 
@@ -130,7 +130,7 @@ std::tuple<FileState, FileInfo> savePipelineCache(
 	return saveBinaryFile(cacheFilePath, saveCacheOp, false);
 }
 
-static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTemplateKHR = {};
+static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTemplateKHR{};
 
 } // namespace pipeline
 
@@ -447,7 +447,7 @@ PipelineHandle<Vk> PipelineContext<Vk>::internalCreateGraphicsPipeline(uint64_t 
 	const auto& layout = getLayout();
 	auto& renderTarget = getRenderTarget();
 
-	VkGraphicsPipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
 	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
 	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
 	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;

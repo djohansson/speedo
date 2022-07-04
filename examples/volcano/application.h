@@ -86,9 +86,9 @@ private:
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	std::shared_ptr<DeviceContext<B>> myDevice;
 
-	TaskExecutor myExecutor;
+	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
 
-	InputState myInput = {};
+	InputState myInput{};
 
 	std::shared_ptr<WindowContext<B>> myMainWindow;
 	std::shared_ptr<PipelineContext<B>> myPipeline;

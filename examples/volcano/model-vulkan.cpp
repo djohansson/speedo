@@ -76,7 +76,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 {
 	ZoneScopedN("model::load");
 
-	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData = {};
+	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData;
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 

@@ -127,14 +127,14 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCre
 
 	if (desc.depthStencilImage)
 	{
-		VkSubpassDescription colorAndDepth = {};
+		VkSubpassDescription colorAndDepth{};
 		colorAndDepth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		colorAndDepth.colorAttachmentCount = myAttachmentsReferences.size() - 1;
 		colorAndDepth.pColorAttachments = myAttachmentsReferences.data();
 		colorAndDepth.pDepthStencilAttachment = &myAttachmentsReferences.back();
 		addSubpassDescription(std::move(colorAndDepth));
 
-		VkSubpassDependency dep1 = {};
+		VkSubpassDependency dep1{};
 		dep1.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dep1.dstSubpass = subPassIt;
 		dep1.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
@@ -149,14 +149,14 @@ void RenderTarget<Vk>::internalInitializeDefaultRenderPass(const RenderTargetCre
 	}
 	else
 	{
-		VkSubpassDescription color = {};
+		VkSubpassDescription color{};
 		color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		color.colorAttachmentCount = myAttachmentsReferences.size();
 		color.pColorAttachments = myAttachmentsReferences.data();
 		color.pDepthStencilAttachment = nullptr;
 		addSubpassDescription(std::move(color));
 
-		VkSubpassDependency dep0 = {};
+		VkSubpassDependency dep0{};
 		dep0.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dep0.dstSubpass = subPassIt;
 		dep0.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -173,7 +173,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
 {
 	ZoneScopedN("RenderTarget::internalCalculateHashKey");
 
-	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState = {
+	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState{
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(threadXXHState.get());
@@ -367,7 +367,7 @@ void RenderTarget<Vk>::clearSingleAttachment(
 {
 	ZoneScopedN("RenderTarget::clearSingleAttachment");
 
-	VkClearRect rect = {
+	VkClearRect rect{
 		{{0, 0}, getRenderTargetDesc().extent}, 0, getRenderTargetDesc().layerCount};
 	vkCmdClearAttachments(cmd, 1, &clearAttachment, 1, &rect);
 }
@@ -381,7 +381,7 @@ void RenderTarget<Vk>::clearAllAttachments(
 	ZoneScopedN("RenderTarget::clearAllAttachments");
 
 	uint32_t attachmentIt = 0ul;
-	VkClearRect rect = {
+	VkClearRect rect{
 		{{0, 0}, getRenderTargetDesc().extent}, 0, getRenderTargetDesc().layerCount};
 	std::vector<VkClearAttachment> clearAttachments(
 		myAttachments.size(), {VK_IMAGE_ASPECT_COLOR_BIT, attachmentIt, {.color = color}});
@@ -406,7 +406,7 @@ void RenderTarget<Vk>::clearColor(
 
 	transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
 
-	static const VkImageSubresourceRange colorRange = {
+	static const VkImageSubresourceRange colorRange{
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 
 	vkCmdClearColorImage(
@@ -426,7 +426,7 @@ void RenderTarget<Vk>::clearDepthStencil(
 
 	transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-	static const VkImageSubresourceRange depthStencilRange = {
+	static const VkImageSubresourceRange depthStencilRange{
 		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
 		0,
 		VK_REMAINING_MIP_LEVELS,

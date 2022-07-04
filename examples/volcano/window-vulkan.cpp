@@ -130,12 +130,12 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 
 				ZoneName(drawPartitionWithNumberStr, std::ssize(drawPartitionWithNumberStr));
 
-				CommandBufferInheritanceInfo<Vk> inheritInfo = {
+				CommandBufferInheritanceInfo<Vk> inheritInfo{
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 				inheritInfo.renderPass = renderPassInfo.renderPass;
 				inheritInfo.framebuffer = renderPassInfo.framebuffer;
 
-				CommandBufferAccessScopeDesc<Vk> beginInfo = {};
+				CommandBufferAccessScopeDesc<Vk> beginInfo{};
 				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
 								  VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 				beginInfo.pInheritanceInfo = &inheritInfo;
@@ -158,8 +158,8 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 					// bind pipeline and vertex/index buffers
 					pipeline.bindPipelineAuto(cmd);
 
-					VkBuffer vertexBuffers[] = {*pipeline.resources().model};
-					VkDeviceSize vertexOffsets[] = {pipeline.resources().model->getVertexOffset()};
+					VkBuffer vertexBuffers[]{*pipeline.resources().model};
+					VkDeviceSize vertexOffsets[]{pipeline.resources().model->getVertexOffset()};
 
 					vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
 					vkCmdBindIndexBuffer(
@@ -191,7 +191,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 						{
 							ZoneScopedN("setViewportAndScissor");
 
-							VkViewport viewport = {};
+							VkViewport viewport{};
 							viewport.x = static_cast<float>(x);
 							viewport.y = static_cast<float>(y);
 							viewport.width = static_cast<float>(width);
@@ -199,7 +199,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 							viewport.minDepth = 0.0f;
 							viewport.maxDepth = 1.0f;
 
-							VkRect2D scissor = {};
+							VkRect2D scissor{};
 							scissor.offset = {x, y};
 							scissor.extent = {width, height};
 
@@ -221,7 +221,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 								uint16_t objectBufferIndex = 42ui16;
 								uint16_t objectArrayIndex = 666ui16;
 
-								PushConstants pushConstants = {
+								PushConstants pushConstants{
 									(static_cast<uint32_t>(viewId) << 16ul) | materialId,
 									(static_cast<uint32_t>(objectBufferIndex) << 16ul) |
 										objectArrayIndex};

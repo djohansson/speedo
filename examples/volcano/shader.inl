@@ -103,12 +103,12 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 			slangRequest, translationUnitIndex, slangFile.generic_string().c_str());
 
 		// temp
-		const char* epStrings[] = {
+		constexpr const char* epStrings[]{
 			"vertexMain",
 			"fragmentMain",
 			"computeMain",
 		};
-		const SlangStage epStages[] = {
+		constexpr const SlangStage epStages[]{
 			SLANG_STAGE_VERTEX,
 			SLANG_STAGE_FRAGMENT,
 			SLANG_STAGE_COMPUTE,

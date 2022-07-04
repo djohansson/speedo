@@ -49,7 +49,7 @@ private:
 
 	std::vector<ShaderModule<B>> myShaderModules;
 	DescriptorSetLayoutFlatMap<B> myDescriptorSetLayouts;
-	PipelineLayoutHandle<B> myLayout = {};
+	PipelineLayoutHandle<B> myLayout{};
 };
 
 template <GraphicsBackend B>
@@ -61,7 +61,7 @@ struct PipelineResourceView
 	std::shared_ptr<ImageView<B>> blackImageView;
 	std::shared_ptr<Image<B>> image;
 	std::shared_ptr<ImageView<B>> imageView;
-	std::shared_ptr<SamplerVector<B>> samplers = {};
+	std::shared_ptr<SamplerVector<B>> samplers;
 	// end temp
 };
 
@@ -207,16 +207,16 @@ private:
 	AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
 
 	DescriptorMapType myDescriptorMap;
-	DescriptorPoolHandle<B> myDescriptorPool =
-		{}; // todo: should be handled differently to cater for multithread and explicit binds.
+	
+	// todo: should be handled differently to cater for multithread and explicit binds.
+	DescriptorPoolHandle<B> myDescriptorPool{};
 
-	PipelineMapType
-		myPipelineMap; // todo: move pipeline map & cache to its own class, and pass in reference to it.
-	PipelineCacheHandle<B> myCache =
-		{}; // todo: move pipeline map & cache to its own class, and pass in reference to it.
+	// todo: move pipeline map & cache to its own class, and pass in reference to it.
+	PipelineMapType myPipelineMap; 
+	PipelineCacheHandle<B> myCache{};
 
 	// shared state
-	PipelineBindPoint<B> myBindPoint = {};
+	PipelineBindPoint<B> myBindPoint{};
 	std::shared_ptr<PipelineLayout<B>> myLayout;
 	std::shared_ptr<RenderTarget<B>> myRenderTarget;
 	// end shared state
@@ -224,33 +224,33 @@ private:
 	struct GraphicsState
 	{
 		std::vector<PipelineShaderStageCreateInfo<B>> shaderStages;
-		uint32_t shaderStageFlags = {};
-		PipelineVertexInputStateCreateInfo<B> vertexInput = {};
-		PipelineInputAssemblyStateCreateInfo<B> inputAssembly = {};
+		uint32_t shaderStageFlags{};
+		PipelineVertexInputStateCreateInfo<B> vertexInput{};
+		PipelineInputAssemblyStateCreateInfo<B> inputAssembly{};
 		std::vector<Viewport<B>> viewports;
 		std::vector<Rect2D<B>> scissorRects;
-		PipelineViewportStateCreateInfo<B> viewport = {};
-		PipelineRasterizationStateCreateInfo<B> rasterization = {};
-		PipelineMultisampleStateCreateInfo<B> multisample = {};
-		PipelineDepthStencilStateCreateInfo<B> depthStencil = {};
-		std::vector<PipelineColorBlendAttachmentState<B>> colorBlendAttachments = {};
-		PipelineColorBlendStateCreateInfo<B> colorBlend = {};
+		PipelineViewportStateCreateInfo<B> viewport{};
+		PipelineRasterizationStateCreateInfo<B> rasterization{};
+		PipelineMultisampleStateCreateInfo<B> multisample{};
+		PipelineDepthStencilStateCreateInfo<B> depthStencil{};
+		std::vector<PipelineColorBlendAttachmentState<B>> colorBlendAttachments{};
+		PipelineColorBlendStateCreateInfo<B> colorBlend{};
 		std::vector<DynamicState<B>> dynamicStateDescs;
-		PipelineDynamicStateCreateInfo<B> dynamicState = {};
+		PipelineDynamicStateCreateInfo<B> dynamicState{};
 		// temp
 		PipelineResourceView<B> resources;
 		//
-	} myGraphicsState = {};
+	} myGraphicsState{};
 
 	struct ComputeState
 	{
 		// todo:
-	} myComputeState = {};
+	} myComputeState{};
 
 	struct RayTracingState
 	{
 		// todo:
-	} myRayTracingState = {};
+	} myRayTracingState{};
 };
 
 #include "pipeline-vulkan.inl"

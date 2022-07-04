@@ -6,7 +6,7 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 	const std::vector<std::shared_ptr<Image<B>>>& colorImages,
 	const std::shared_ptr<Image<B>>& depthStencilImage)
 {
-	RenderTargetCreateDesc<B> outDesc = {};
+	RenderTargetCreateDesc<B> outDesc{};
 
 	assertf(colorImages.size(), "colorImages cannot be empty");
 

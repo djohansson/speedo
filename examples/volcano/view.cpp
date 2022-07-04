@@ -14,7 +14,7 @@ void View::updateProjectionMatrix()
 	switch (myDesc.type)
 	{
 	case ViewType::Perspective: {
-		static const glm::mat4 clip = {
+		static const glm::mat4 clip{
 			1.0f,
 			0.0f,
 			0.0f,
