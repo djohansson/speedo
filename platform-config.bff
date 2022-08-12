@@ -21,30 +21,32 @@
 
 #if exists(VISUAL_STUDIO_TOOLCHAIN_VERSION)
 #import VISUAL_STUDIO_TOOLCHAIN_VERSION
-.VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VISUAL_STUDIO_TOOLCHAIN_VERSION$'
+.VisualStudioToolchainVersion = '$VISUAL_STUDIO_TOOLCHAIN_VERSION$'
 #else
-.VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/14.32.31326'
+.VisualStudioToolchainVersion = '14.32.31326'
 #endif
+
+.VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VisualStudioToolchainVersion$'
 
 #if exists(WINDOWS_SDK)
 #import WINDOWS_SDK
-.WindowsSDKBasePath = '$WINDOWS_SDK$'
+.WindowsSDKPath = '$WINDOWS_SDK$'
 #else
-.WindowsSDKBasePath = 'C:/Program Files (x86)/Windows Kits/10'
+.WindowsSDKPath = 'C:/Program Files (x86)/Windows Kits/10'
 #endif
 
 #if exists(WINDOWS_SDK_VERSION)
 #import WINDOWS_SDK_VERSION
 .WindowsSDKVersion = '$WINDOWS_SDK_VERSION$'
 #else
-.WindowsSDKVersion = '10.0.22000.0'
+.WindowsSDKVersion = '10.0.22621.0'
 #endif
 
-.WindowsLibPath = '$WindowsSDKBasePath$/Lib/$WindowsSDKVersion$/um/x64'
-.WindowsIncludePath = '$WindowsSDKBasePath$/Include/$WindowsSDKVersion$/um'
-.WindowsUcrtLibPath = '$WindowsSDKBasePath$/Lib/$WindowsSDKVersion$/ucrt/x64'
-.WindowsUcrtIncludePath = '$WindowsSDKBasePath$/Include/$WindowsSDKVersion$/ucrt'
-.WindowsSharedIncludePath = '$WindowsSDKBasePath$/Include/$WindowsSDKVersion$/shared'
+.WindowsLibPath = '$WindowsSDKPath$/Lib/$WindowsSDKVersion$/um/x64'
+.WindowsIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/um'
+.WindowsUcrtLibPath = '$WindowsSDKPath$/Lib/$WindowsSDKVersion$/ucrt/x64'
+.WindowsUcrtIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/ucrt'
+.WindowsSharedIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/shared'
 .VisualStudioIncludePath = '$VisualStudioToolchainPath$/include'
 .VisualStudioATLMFCIncludePath = '$VisualStudioToolchainPath$/ATLMFC/include'
 .VisualStudioLibPath = '$VisualStudioToolchainPath$/lib/x64'
