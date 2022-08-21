@@ -9,7 +9,7 @@ namespace queue
 
 struct UserData
 {
-	TracyVkCtx tracyContext = {};
+	TracyVkCtx tracyContext{};
 };
 
 } // namespace queue
@@ -225,7 +225,7 @@ void QueueContext<Vk>::present()
 	if (myPendingPresent.swapchains.empty())
 		return;
 
-	PresentInfo<Vk> presentInfo = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+	PresentInfo<Vk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();

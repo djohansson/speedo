@@ -132,7 +132,7 @@ VkFormat findSupportedFormat(
 VkCommandPool
 createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags, int queueFamilyIndex)
 {
-	VkCommandPoolCreateInfo cmdPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+	VkCommandPoolCreateInfo cmdPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 	cmdPoolInfo.flags = flags;
 	cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
 
@@ -147,7 +147,7 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(
 {
 	std::vector<VkCommandBuffer> commandBuffers(count);
 
-	VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+	VkCommandBufferAllocateInfo cmdInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 	cmdInfo.commandPool = pool;
 	cmdInfo.level = level;
 	cmdInfo.commandBufferCount = count;
@@ -159,7 +159,7 @@ std::vector<VkCommandBuffer> allocateCommandBuffers(
 VkDescriptorSet
 allocateDescriptorSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout)
 {
-	VkDescriptorSetAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+	VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
 	allocInfo.descriptorPool = pool;
 	allocInfo.descriptorSetCount = 1;
 	allocInfo.pSetLayouts = &layout;
@@ -176,7 +176,7 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(
 	const VkDescriptorSetLayout* layouts,
 	uint32_t layoutCount)
 {
-	VkDescriptorSetAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+	VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
 	allocInfo.descriptorPool = pool;
 	allocInfo.descriptorSetCount = layoutCount;
 	allocInfo.pSetLayouts = layouts;
@@ -189,7 +189,7 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(
 
 VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32_t* codePtr)
 {
-	VkShaderModuleCreateInfo info = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+	VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
 	info.codeSize = codeSize;
 	info.pCode = codePtr;
 
@@ -206,12 +206,12 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	const VkDescriptorBindingFlags* bindingFlags,
 	uint32_t bindingCount)
 {
-	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = {
+	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
 	bindingFlagsInfo.bindingCount = bindingCount;
 	bindingFlagsInfo.pBindingFlags = bindingFlags;
 
-	VkDescriptorSetLayoutCreateInfo layoutInfo = {
+	VkDescriptorSetLayoutCreateInfo layoutInfo{
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
 	layoutInfo.pNext = &bindingFlagsInfo;
 	layoutInfo.flags = flags;
@@ -236,7 +236,7 @@ VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(
 void copyBuffer(
 	VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
-	VkBufferCopy copyRegion = {};
+	VkBufferCopy copyRegion{};
 	copyRegion.srcOffset = 0ull;
 	copyRegion.dstOffset = 0ull;
 	copyRegion.size = size;
@@ -250,12 +250,12 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VkMemoryPropertyFlags flags,
 	const char* debugName)
 {
-	VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+	VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
 	bufferInfo.size = size;
 	bufferInfo.usage = usage;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-	VmaAllocationCreateInfo allocInfo = {};
+	VmaAllocationCreateInfo allocInfo{};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
 	allocInfo.usage = (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? VMA_MEMORY_USAGE_GPU_ONLY
 																	: VMA_MEMORY_USAGE_UNKNOWN;
@@ -333,7 +333,7 @@ VkBufferView createBufferView(
 	VkDeviceSize offset,
 	VkDeviceSize range)
 {
-	VkBufferViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
+	VkBufferViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
 	viewInfo.buffer = buffer;
 	viewInfo.format = format;
@@ -354,7 +354,7 @@ void transitionImageLayout(
 	VkImageLayout newLayout,
 	uint32_t mipLevels)
 {
-	VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+	VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
 	barrier.oldLayout = oldLayout;
 	barrier.newLayout = newLayout;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -378,8 +378,8 @@ void transitionImageLayout(
 	barrier.subresourceRange.baseArrayLayer = 0ul;
 	barrier.subresourceRange.layerCount = 1;
 
-	VkPipelineStageFlags sourceStage = {};
-	VkPipelineStageFlags destinationStage = {};
+	VkPipelineStageFlags sourceStage{};
+	VkPipelineStageFlags destinationStage{};
 
 	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 	{
@@ -658,7 +658,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	const char* debugName,
 	VkImageLayout initialLayout)
 {
-	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+	VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
 	imageInfo.extent.width = width;
 	imageInfo.extent.height = height;
@@ -673,7 +673,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.flags = {};
 
-	VmaAllocationCreateInfo allocInfo = {};
+	VmaAllocationCreateInfo allocInfo{};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
 	allocInfo.usage = (memoryFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
 						  ? VMA_MEMORY_USAGE_GPU_ONLY
@@ -752,7 +752,7 @@ VkImageView createImageView2D(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels)
 {
-	VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+	VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
 	viewInfo.image = image;
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -802,7 +802,7 @@ VkFramebuffer createFramebuffer(
 	uint32_t height,
 	uint32_t layers)
 {
-	VkFramebufferCreateInfo info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+	VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
 	info.renderPass = renderPass;
 	info.attachmentCount = attachmentCount;
 	info.pAttachments = attachments;
@@ -822,7 +822,7 @@ VkRenderPass createRenderPass(
 	const std::vector<VkSubpassDescription>& subpasses,
 	const std::vector<VkSubpassDependency>& subpassDependencies)
 {
-	VkRenderPassCreateInfo renderPassInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+	VkRenderPassCreateInfo renderPassInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
 	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 	renderPassInfo.pAttachments = attachments.data();
 	renderPassInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
@@ -862,16 +862,16 @@ VkRenderPass createRenderPass(
 	colorAttachment.initialLayout = colorInitialLayout;
 	colorAttachment.finalLayout = colorFinalLayout;
 
-	VkAttachmentReference colorAttachmentRef = {};
+	VkAttachmentReference colorAttachmentRef{};
 	colorAttachmentRef.attachment = 0ul;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-	VkSubpassDescription subpass = {};
+	VkSubpassDescription subpass{};
 	subpass.pipelineBindPoint = bindPoint;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
 
-	VkAttachmentReference depthAttachmentRef = {};
+	VkAttachmentReference depthAttachmentRef{};
 	if (depthFormat != VK_FORMAT_UNDEFINED)
 	{
 		VkAttachmentDescription& depthAttachment = attachments.emplace_back();
@@ -891,7 +891,7 @@ VkRenderPass createRenderPass(
 		subpass.pDepthStencilAttachment = &depthAttachmentRef;
 	}
 
-	VkSubpassDependency dependency = {};
+	VkSubpassDependency dependency{};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0ul;
 	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -929,7 +929,7 @@ VkSurfaceKHR createSurface(VkInstance instance, void* view)
 	auto vkCreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(
 		vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR"));
 	assert(vkCreateWin32SurfaceKHR);
-	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
+	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo{
 		VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
 	surfaceCreateInfo.hinstance = GetModuleHandle(NULL);
 	surfaceCreateInfo.hwnd = *reinterpret_cast<HWND*>(view);
@@ -955,7 +955,7 @@ VmaAllocator createAllocator(
 			instance, "vkGetImageMemoryRequirements2KHR");
 	assert(vkGetImageMemoryRequirements2KHR != nullptr);
 
-	VmaVulkanFunctions functions = {};
+	VmaVulkanFunctions functions{};
 	functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
 	functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
 	functions.vkAllocateMemory = vkAllocateMemory;
@@ -976,7 +976,7 @@ VmaAllocator createAllocator(
 	functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
 
 	VmaAllocator allocator;
-	VmaAllocatorCreateInfo allocatorInfo = {};
+	VmaAllocatorCreateInfo allocatorInfo{};
 	allocatorInfo.flags = flags;
 	allocatorInfo.physicalDevice = physicalDevice;
 	allocatorInfo.device = device;

@@ -135,7 +135,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 			  layouts.fill(layout);
 
 			  ArrayType sets;
-			  VkDescriptorSetAllocateInfo allocInfo = {
+			  VkDescriptorSetAllocateInfo allocInfo{
 				  VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
 			  allocInfo.descriptorPool = desc.pool;
 			  allocInfo.descriptorSetCount = layouts.size();

@@ -156,7 +156,7 @@ void addBinding(
 	//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
 
 	// todo: push descriptors
-	static constexpr bool usePushDescriptor = false;
+	constexpr bool usePushDescriptor = false;
 	if (usePushDescriptor)
 	{
 		//assert(!isUniformDynamic);

@@ -29,7 +29,7 @@ template <typename T, typename Archive>
 T loadObject(std::istream& stream, std::string_view name)
 {
 	Archive archive(stream);
-	T outValue = {};
+	T outValue{};
 	archive(cereal::make_nvp(std::string(name), outValue));
 	return outValue;
 };

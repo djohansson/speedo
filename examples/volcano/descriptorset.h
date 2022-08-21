@@ -22,7 +22,7 @@ struct DescriptorSetLayoutCreateDesc
 	std::vector<uint64_t> variableNameHashes;
 	std::vector<SamplerCreateInfo<B>> immutableSamplers;
 	std::optional<PushConstantRange<B>> pushConstantRange;
-	DescriptorSetLayoutCreateFlags<B> flags = {};
+	DescriptorSetLayoutCreateFlags<B> flags{};
 };
 
 template <GraphicsBackend B>
@@ -66,8 +66,8 @@ private:
 		DescriptorSetLayoutCreateDesc<B>&& desc,
 		ValueType&& layout);
 
-	DescriptorSetLayoutCreateDesc<B> myDesc = {};
-	ValueType myLayout = {};
+	DescriptorSetLayoutCreateDesc<B> myDesc{};
+	ValueType myLayout{};
 };
 
 template <GraphicsBackend B>
@@ -76,7 +76,7 @@ using DescriptorSetLayoutFlatMap = FlatMap<uint32_t, DescriptorSetLayout<B>>;
 template <GraphicsBackend B>
 struct DescriptorSetArrayCreateDesc
 {
-	DescriptorPoolHandle<B> pool = {};
+	DescriptorPoolHandle<B> pool{};
 };
 
 template <GraphicsBackend B>
@@ -102,7 +102,7 @@ public:
 
 	const auto& getDesc() const { return myDesc; }
 
-	static constexpr auto capacity() { return kDescriptorSetCount; }
+	constexpr auto capacity() const noexcept { return kDescriptorSetCount; }
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles
@@ -110,7 +110,7 @@ private:
 		DescriptorSetArrayCreateDesc<Vk>&& desc,
 		ArrayType&& descriptorSetHandles);
 
-	DescriptorSetArrayCreateDesc<B> myDesc = {};
+	DescriptorSetArrayCreateDesc<B> myDesc{};
 	ArrayType myDescriptorSets;
 };
 
@@ -123,10 +123,10 @@ using DescriptorSetArrayList = std::list<std::tuple<
 template <GraphicsBackend B>
 struct DescriptorUpdateTemplateCreateDesc
 {
-	DescriptorUpdateTemplateType<B> templateType = {};
-	DescriptorSetLayoutHandle<B> descriptorSetLayout = {};
-	PipelineBindPoint<B> pipelineBindPoint = {};
-	PipelineLayoutHandle<B> pipelineLayout = {};
+	DescriptorUpdateTemplateType<B> templateType{};
+	DescriptorSetLayoutHandle<B> descriptorSetLayout{};
+	PipelineBindPoint<B> pipelineBindPoint{};
+	PipelineLayoutHandle<B> pipelineLayout{};
 	uint32_t set = 0ul;
 };
 
@@ -168,9 +168,9 @@ private:
 		DescriptorUpdateTemplateCreateDesc<B>&& desc,
 		DescriptorUpdateTemplateHandle<B>&& handle);
 
-	DescriptorUpdateTemplateCreateDesc<B> myDesc = {};
+	DescriptorUpdateTemplateCreateDesc<B> myDesc{};
 	std::vector<DescriptorUpdateTemplateEntry<B>> myEntries;
-	DescriptorUpdateTemplateHandle<B> myHandle = {};
+	DescriptorUpdateTemplateHandle<B> myHandle{};
 };
 
 template <GraphicsBackend B>

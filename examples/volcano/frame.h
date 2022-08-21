@@ -47,8 +47,8 @@ public:
 	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
 
 private:
-	SemaphoreHandle<B> myRenderCompleteSemaphore = {};
-	SemaphoreHandle<B> myNewImageAcquiredSemaphore = {};
-	ImageLayout<B> myImageLayout = {};
+	SemaphoreHandle<B> myRenderCompleteSemaphore{};
+	SemaphoreHandle<B> myNewImageAcquiredSemaphore{};
+	ImageLayout<B> myImageLayout{};
 	uint64_t myLastPresentTimelineValue = 0;
 };

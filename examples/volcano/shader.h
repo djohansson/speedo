@@ -74,8 +74,8 @@ private:
 		ShaderModuleHandle<B>&& shaderModule,
 		const EntryPoint<B>& entryPoint);
 
-	ShaderModuleHandle<B> myShaderModule = {};
-	EntryPoint<B> myEntryPoint = {};
+	ShaderModuleHandle<B> myShaderModule{};
+	EntryPoint<B> myEntryPoint{};
 };
 
 #include "shader-vulkan.inl"

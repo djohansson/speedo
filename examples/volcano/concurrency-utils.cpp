@@ -86,12 +86,14 @@ void TaskGraph::depthFirstSearch(
 
 void TaskGraph::finalize()
 {
+	ZoneScopedN("TaskGraph::finalize");
+
 	auto n = myNodes.size();
 
 	std::vector<bool> visited(n);
 	std::vector<size_t> departure(n);
 	std::vector<size_t> sorted;
-	
+
 	sorted.reserve(n);
 
 	size_t time = 0;
@@ -116,7 +118,7 @@ void TaskGraph::finalize()
 		sortedNodes[i] = std::move(myNodes[myNodes.size() - sorted[i] - 1]);
 
 	myNodes = std::move(sortedNodes);
-	
+
 	for (auto& [task, adjacencies, dependencies] : myNodes)
 	{
 		task.state()->latch.emplace(dependencies + 1); // deps + self
@@ -134,30 +136,19 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	assertf(threadCount > 0, "Thread count must be nonzero");
 
 	myThreads.reserve(threadCount);
+
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(&TaskExecutor::threadMain, this);
+		myThreads.emplace_back(std::jthread(&TaskExecutor::threadMain, this, threadIt), nullptr);
 }
 
 TaskExecutor::~TaskExecutor()
 {
 	ZoneScopedN("~TaskExecutor()");
 
-	//myStopSource.request_stop();
 	myStopSource.store(true, std::memory_order_relaxed);
-	//mySignal.notify_all();
 	mySignal.release(mySignal.max());
 
-	// workaround for the following problem in msvc implementation of jthread in <mutex>:
-	// TRANSITION, ABI: Due to the unsynchronized delivery of notify_all by _Stoken,
-	// this implementation cannot tolerate *this destruction while an interruptible wait
-	// is outstanding. A future ABI should store both the internal CV and internal mutex
-	// in the reference counted block to allow this.
-	{
-		ZoneScopedN("~TaskExecutor()::join");
-
-		for (auto& thread : myThreads)
-			thread.join();
-	}
+	processReadyQueue();
 }
 
 void TaskExecutor::submit(TaskGraph&& graph)
@@ -177,16 +168,11 @@ void TaskExecutor::submit(TaskGraph&& graph)
 	mySignal.release();
 }
 
-void TaskExecutor::join()
-{
-	ZoneScopedN("TaskExecutor::join");
-
-	processReadyQueue();
-}
-
 void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task)
 {
-	bool signal = false;
+	ZoneScopedN("TaskExecutor::scheduleAdjacent");
+
+	std::vector<Task> next;
 
 	for (auto& adjacent : task.state()->adjacencies)
 	{
@@ -203,17 +189,23 @@ void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToke
 		{
 			myReadyQueue.enqueue(readyProducerToken, std::move(*adjacentPtr));
 			adjacent.store(nullptr, std::memory_order_release);
-			signal = true;
 		}
 	}
 
-	if (signal)
+	if (!next.empty())
+	{
+		myReadyQueue.enqueue_bulk(
+			readyProducerToken, std::make_move_iterator(next.begin()), next.size());
+		
 		mySignal.release();
+	}
 }
 
 void TaskExecutor::scheduleAdjacent(const Task& task)
 {
-	bool signal = false;
+	ZoneScopedN("TaskExecutor::scheduleAdjacent");
+
+	std::vector<Task> next;
 
 	for (auto& adjacent : task.state()->adjacencies)
 	{
@@ -230,36 +222,36 @@ void TaskExecutor::scheduleAdjacent(const Task& task)
 		{
 			myReadyQueue.enqueue(std::move(*adjacentPtr));
 			adjacent.store(nullptr, std::memory_order_release);
-			signal = true;
 		}
 	}
 
-	if (signal)
+	if (!next.empty())
+	{
+		myReadyQueue.enqueue_bulk(std::make_move_iterator(next.begin()), next.size());
+		
 		mySignal.release();
+	}
 }
 
 void TaskExecutor::processReadyQueue()
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
-
 	Task task;
 	while (myReadyQueue.try_dequeue(task))
 	{
 		task();
+
 		scheduleAdjacent(task);
 	}
 }
 
 void TaskExecutor::processReadyQueue(
-	moodycamel::ProducerToken& readyProducerToken,
-	moodycamel::ConsumerToken& readyConsumerToken)
+	moodycamel::ProducerToken& readyProducerToken, moodycamel::ConsumerToken& readyConsumerToken)
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
-
 	Task task;
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
 		task();
+
 		scheduleAdjacent(readyProducerToken, task);
 	}
 }
@@ -277,6 +269,7 @@ void TaskExecutor::removeFinishedGraphs()
 			if (task)
 			{
 				notFinished.emplace_back(std::move(graph));
+				
 				break;
 			}
 		}
@@ -285,40 +278,26 @@ void TaskExecutor::removeFinishedGraphs()
 	if (!notFinished.empty())
 	{
 		myWaitingQueue.enqueue_bulk(
-			std::make_move_iterator(notFinished.begin()),
-			notFinished.size());
+			std::make_move_iterator(notFinished.begin()), notFinished.size());
 	}
 }
 
-void TaskExecutor::threadMain(/*std::stop_token& stopToken*/)
+void TaskExecutor::threadMain(uint32_t threadId)
 {
 	try
 	{
 		moodycamel::ProducerToken readyProducerToken(myReadyQueue);
 		moodycamel::ConsumerToken readyConsumerToken(myReadyQueue);
 
-		//while (!stopToken.stop_requested())
 		while (!myStopSource.load(std::memory_order_relaxed))
 		{
 			processReadyQueue(readyProducerToken, readyConsumerToken);
-			//auto lock = std::shared_lock(myMutex);
 
-			//mySignal.wait(lock, stopToken, [&queue = myReadyQueue](){ return !queue.empty(); });
-			//mySignal.wait(lock, [&stopSource = myStopSource, &queue = myReadyQueue](){ return stopSource.load(std::memory_order_relaxed) || queue.size_approx(); });
 			mySignal.acquire();
 		}
 	}
-	catch (const std::runtime_error& ex)
-	{
-		std::cerr << "Error! - ";
-		std::cerr << ex.what() << "\n";
-
-		throw;
-	}
 	catch (...)
 	{
-		std::cerr << "Error! Unhandled exception";
-
-		throw;
+		std::get<1>(myThreads[threadId]) = std::current_exception();
 	}
 }

@@ -148,8 +148,8 @@ public:
 	}
 
 private:
-	VectorType myMin = {};
-	VectorType myMax = {};
+	VectorType myMin{};
+	VectorType myMax{};
 };
 
 using AABB2d = AABB<double, 2>;

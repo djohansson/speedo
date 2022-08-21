@@ -1,3 +1,5 @@
+#include <locale>
+
 template <GraphicsBackend B>
 void Application<B>::resizeWindow(const WindowState& state)
 {
@@ -15,4 +17,12 @@ template <GraphicsBackend B>
 const char* Application<B>::getName() const
 {
 	return myInstance->getConfig().applicationName.c_str();
+}
+
+template <GraphicsBackend B>
+Application<B>::Application()
+: myInstance(std::make_shared<InstanceContext<B>>())
+{
+	std::locale utf8Locale(".UTF8");  	
+	std::locale::global(utf8Locale);
 }

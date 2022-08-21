@@ -101,16 +101,16 @@
 	.GraphicsValidationEnabled = '0'
 ]
 
-.Clang_Native_BaseConfig =
+.Clang_x86_64_v3_BaseConfig =
 [
 	Using(.Clang_BaseConfig)
 
 	.CompilerOptions + ' -march=x86-64-v3'
 ]
 
-.Clang_Native_DebugConfig =
+.Clang_x86_64_v3_DebugConfig =
 [
-	Using(.Clang_Native_BaseConfig)
+	Using(.Clang_x86_64_v3_BaseConfig)
 
 	.ConfigName = 'debug'
 	.ProfilingEnabled = '1'
@@ -127,9 +127,9 @@
 #endif //__WINDOWS__
 ]
 
-.Clang_Native_ReleaseConfig =
+.Clang_x86_64_v3_ReleaseConfig =
 [
-	Using(.Clang_Native_BaseConfig)
+	Using(.Clang_x86_64_v3_BaseConfig)
 
 	.ConfigName = 'release'
 	.CompilerOptions + ' -DRELEASE -DNDEBUG'
@@ -141,16 +141,16 @@
 #endif //__WINDOWS__
 ]
 
-.Clang_Native_ProfileConfig =
+.Clang_x86_64_v3_ProfileConfig =
 [
-	Using(.Clang_Native_ReleaseConfig)
+	Using(.Clang_x86_64_v3_ReleaseConfig)
 
 	.ConfigName = 'profile'
 	.ProfilingEnabled = '1'
 ]
 
-.Clang_Native_Configs = {
-	.Clang_Native_DebugConfig, .Clang_Native_ProfileConfig, .Clang_Native_ReleaseConfig
+.Clang_x86_64_v3_Configs = {
+	.Clang_x86_64_v3_DebugConfig, .Clang_x86_64_v3_ProfileConfig, .Clang_x86_64_v3_ReleaseConfig
 }
 
 Compiler('Compiler-Clang')

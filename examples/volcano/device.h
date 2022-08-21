@@ -101,15 +101,15 @@ public:
 private:
 	std::shared_ptr<InstanceContext<B>> myInstance;
 	AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
-	DeviceHandle<B> myDevice = {};
+	DeviceHandle<B> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
 
 	std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
 
-	AllocatorHandle<B> myAllocator = {};
+	AllocatorHandle<B> myAllocator{};
 
-	SemaphoreHandle<B> myTimelineSemaphore = {};
-	std::atomic_uint64_t myTimelineValue = {};
+	SemaphoreHandle<B> myTimelineSemaphore{};
+	std::atomic_uint64_t myTimelineValue;
 
 	moodycamel::ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
@@ -162,9 +162,9 @@ protected:
 	const auto& getDeviceContext() const noexcept { return myDevice; }
 
 private:
-	std::shared_ptr<DeviceContext<B>> myDevice;
-	DeviceObjectCreateDesc myDesc = {};
-	uuids::uuid myUid = {};
+	std::shared_ptr<Device<B>> myDevice;
+	DeviceObjectCreateDesc myDesc{};
+	uuids::uuid myUid{};
 };
 
 #include "device.inl"

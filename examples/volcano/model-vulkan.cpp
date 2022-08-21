@@ -76,7 +76,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 {
 	ZoneScopedN("model::load");
 
-	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData = {};
+	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData;
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -174,52 +174,55 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 #endif
 		}
 
-		uint32_t location = 0;
-		uint32_t binding = 0;
-		VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
 		uint32_t offset = 0;
 
 		uint32_t posOffset = offset;
 
 		if (!attrib.vertices.empty())
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
+		{
+			constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
 
-		location++;
-		offset += getFormatSize(format);
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
+
+			offset += getFormatSize(format);
+		}
 
 		size_t normalOffset = offset;
 
-		format = VK_FORMAT_R32G32B32_SFLOAT;
-
 		if (!attrib.normals.empty())
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
+		{
+			constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
 
-		location++;
-		offset += getFormatSize(format);
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
+
+			offset += getFormatSize(format);
+		}
 
 		size_t texCoordOffset = offset;
 
-		format = VK_FORMAT_R32G32_SFLOAT;
-
 		if (!attrib.texcoords.empty())
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
+		{
+			constexpr VkFormat format = VK_FORMAT_R32G32_SFLOAT;
 
-		location++;
-		offset += getFormatSize(format);
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
+
+			offset += getFormatSize(format);
+		}
 
 		size_t colorOffset = offset;
 
-		format = VK_FORMAT_R32G32B32_SFLOAT;
-
 		if (!attrib.colors.empty())
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{location, binding, format, offset});
+		{
+			constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
 
-		location++;
-		offset += getFormatSize(format);
+			desc.attributes.emplace_back(
+				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
+
+			offset += getFormatSize(format);
+		}
 
 		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
 
@@ -245,45 +248,37 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			{
 #endif
 				auto& vertex = *vertexScope.createVertices();
-
-				assert(!attrib.vertices.empty());
-				glm::vec3* pos = vertex.dataAs<glm::vec3>(posOffset);
-				*pos = {
-					attrib.vertices[3 * index.vertex_index + 0],
-					attrib.vertices[3 * index.vertex_index + 1],
-					attrib.vertices[3 * index.vertex_index + 2]};
+				
+				if (!attrib.vertices.empty())
+					*vertex.dataAs<glm::vec3>(posOffset) = {
+						attrib.vertices[3 * index.vertex_index + 0],
+						attrib.vertices[3 * index.vertex_index + 1],
+						attrib.vertices[3 * index.vertex_index + 2]};
 
 				if (!attrib.normals.empty())
-				{
-					glm::vec3* normal = vertex.dataAs<glm::vec3>(normalOffset);
-					*normal = {
+					*vertex.dataAs<glm::vec3>(normalOffset) = {
 						attrib.normals[3 * index.normal_index + 0],
 						attrib.normals[3 * index.normal_index + 1],
 						attrib.normals[3 * index.normal_index + 2]};
-				}
 
 				if (!attrib.texcoords.empty())
-				{
-					glm::vec2* texCoord = vertex.dataAs<glm::vec2>(texCoordOffset);
-					*texCoord = {
+					*vertex.dataAs<glm::vec2>(texCoordOffset) = {
 						attrib.texcoords[2 * index.texcoord_index + 0],
 						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
-				}
 
 				if (!attrib.colors.empty())
-				{
-					glm::vec3* color = vertex.dataAs<glm::vec3>(colorOffset);
-					*color = {
+					*vertex.dataAs<glm::vec3>(colorOffset) = {
 						attrib.colors[3 * index.vertex_index + 0],
 						attrib.colors[3 * index.vertex_index + 1],
 						attrib.colors[3 * index.vertex_index + 2]};
-				}
 
 				uint64_t vertexIndex = vertex.hash();
 				if (uniqueVertices.count(vertexIndex) == 0)
 				{
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.size() - 1);
-					desc.aabb.merge(*pos);
+
+					if (!attrib.vertices.empty())
+						desc.aabb.merge(*vertex.dataAs<glm::vec3>(posOffset));
 				}
 				else
 				{
@@ -324,7 +319,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	};
 
 	static constexpr char loaderType[] = "tinyobjloader";
-	static constexpr char loaderVersion[] = "2.0.0";
+	static constexpr char loaderVersion[] = "2.0.1";
 	loadCachedSourceFile<loaderType, loaderVersion>(
 		modelFile, modelFile, loadOBJ, loadBin, saveBin);
 

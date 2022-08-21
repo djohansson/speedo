@@ -6,13 +6,13 @@
 #include <array>
 #include <atomic>
 #include <concepts>
-//#include <condition_variable>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <semaphore>
-//#include <shared_mutex>
-//#include <stop_token>
+#include <stdexcept>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -116,19 +116,11 @@ struct TaskState
 	std::vector<CopyableAtomic<Task*>> adjacencies;
 };
 
-// todo: dynamic memory allocation if larger tasks are created
+// TODO: (perhaps) dynamic memory allocation if larger tasks are created
 class Task : public Noncopyable
 {
 public:
 	constexpr Task() noexcept = default;
-	template <
-		typename F,
-		typename CallableType = std::decay_t<F>,
-		typename... Args,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...>
-	Task(F&& f, Args&&... args);
 	Task(Task&& other) noexcept;
 	~Task();
 
@@ -142,6 +134,14 @@ private:
 	friend class TaskGraph;
 	friend class TaskExecutor;
 
+	template <
+		typename F,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	requires std::invocable<F&, Args...> Task(F&& f, Args&&... args);
+
 	// template <class Tuple, size_t... I>
 	// constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
 	// {
@@ -154,12 +154,12 @@ private:
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
 
-	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory = {};
-	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory = {};
-	void (*myInvokeFcnPtr)(const void*, const void*, void*) = nullptr;
-	void (*myCopyFcnPtr)(void*, const void*, void*, const void*) = nullptr;
-	void (*myDeleteFcnPtr)(void*, void*) = nullptr;
-	std::shared_ptr<TaskState> myState = {};
+	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory{};
+	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory{};
+	void (*myInvokeFcnPtr)(const void*, const void*, void*){};
+	void (*myCopyFcnPtr)(void*, const void*, void*, const void*){};
+	void (*myDeleteFcnPtr)(void*, void*){};
+	std::shared_ptr<TaskState> myState;
 };
 
 //char (*__kaboom)[sizeof(Task)] = 1;
@@ -226,7 +226,7 @@ public:
 
 private:
 	friend class TaskExecutor;
-	
+
 	using TaskNodeHandleVector = std::vector<TaskNodeHandle>;
 	// todo: use pool allocator for tasks, and just use pointer here
 	using TaskNode = std::tuple<Task, TaskNodeHandleVector, size_t>; // task, adjacencies, dependencies
@@ -239,7 +239,7 @@ private:
 		std::vector<size_t>& sorted,
 		size_t& time) const;
 
-	void finalize(); // will invalidate all task handles
+	void finalize(); // will invalidate all task handles allocated from graph
 
 	TaskNodeVec myNodes;
 };
@@ -250,14 +250,12 @@ public:
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	void submit(TaskGraph&& graph); // will invalidate all task handles
-	void join();
+	void submit(TaskGraph&& graph); // will invalidate all task handles allocated from graph
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
 private:
-
 	void scheduleAdjacent(const Task& task);
 	void scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task);
 
@@ -267,18 +265,13 @@ private:
 	void processReadyQueue();
 	void processReadyQueue(
 		moodycamel::ProducerToken& readyProducerToken,
-		moodycamel::ConsumerToken& readyConsumerToken
-	);
+		moodycamel::ConsumerToken& readyConsumerToken);
 
 	void removeFinishedGraphs();
 
-	void threadMain(/*std::stop_token& stopToken*/);
+	void threadMain(uint32_t threadId);
 
-	//std::shared_mutex myMutex;
-	//std::vector<std::jthread> myThreads;
-	std::vector<std::thread> myThreads;
-	//std::condition_variable_any mySignal;
-	//std::stop_source myStopSource;
+	std::vector<std::tuple<std::jthread, std::exception_ptr>> myThreads;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
 	// todo: use pool allocator for tasks, and just use pointer here

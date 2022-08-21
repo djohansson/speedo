@@ -163,6 +163,8 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
 template <typename... Args>
 void Task::operator()(Args&&... args)
 {
+	ZoneScopedN("Task::operator()");
+
 	assertf(myInvokeFcnPtr, "Task is not initialized!");
 
 	using ArgsTuple = std::tuple<Args...>;
@@ -234,7 +236,8 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 			  std::destroy_at(static_cast<CallableType*>(callablePtr));
 			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		  })
-	, myState(std::static_pointer_cast<TaskState>(std::make_shared<typename Future<ReturnType>::FutureState>()))
+	, myState(std::static_pointer_cast<TaskState>(
+		  std::make_shared<typename Future<ReturnType>::FutureState>()))
 {
 	static_assert(sizeof(Task) == 128);
 
@@ -255,8 +258,7 @@ Future<T>::Future(std::shared_ptr<FutureState>&& state) noexcept
 {}
 
 template <typename T>
-Future<T>::Future(Future&& other) noexcept
-	: myState(std::exchange(other.myState, {}))
+Future<T>::Future(Future&& other) noexcept : myState(std::exchange(other.myState, {}))
 {}
 
 template <typename T>
@@ -342,17 +344,15 @@ TaskGraph::createTask(F&& f, Args&&... args)
 {
 	ZoneScopedN("TaskGraph::createTask");
 
-	const auto& taskNode = myNodes.emplace_back(
-		std::make_tuple(
-			Task(std::forward<F>(f), std::forward<Args>(args)...),
-			TaskNodeHandleVector{},
-			0));
-	
+	const auto& taskNode = myNodes.emplace_back(std::make_tuple(
+		Task(std::forward<F>(f), std::forward<Args>(args)...), TaskNodeHandleVector{}, 0));
+
 	const auto& [task, adjacencies, dependencies] = taskNode;
 
 	return std::make_tuple(
 		&taskNode - &myNodes[0],
-		Future<ReturnType>(std::static_pointer_cast<typename Future<ReturnType>::FutureState>(task.state())));
+		Future<ReturnType>(
+			std::static_pointer_cast<typename Future<ReturnType>::FutureState>(task.state())));
 }
 
 template <typename ReturnType>

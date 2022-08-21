@@ -16,13 +16,13 @@ struct InstanceConfiguration
 
 	std::string applicationName = "";
 	std::string engineName = "";
-	ApplicationInfo<B> appInfo = {};
+	ApplicationInfo<B> appInfo{};
 };
 
 template <GraphicsBackend B>
 struct SwapchainInfo
 {
-	SurfaceCapabilities<B> capabilities = {};
+	SurfaceCapabilities<B> capabilities{};
 	std::vector<SurfaceFormat<B>> formats;
 	std::vector<PresentMode<B>> presentModes;
 	std::vector<uint32_t> queueFamilyPresentSupport;
@@ -31,11 +31,11 @@ struct SwapchainInfo
 template <GraphicsBackend B>
 struct PhysicalDeviceInfo
 {
-	PhysicalDeviceProperties<B> deviceProperties = {};
-	PhysicalDevicePropertiesEx<B> devicePropertiesEx = {};
-	PhysicalDeviceFeatures<B> deviceFeatures = {};
-	PhysicalDeviceFeaturesEx<B> deviceFeaturesEx = {};
-	PhysicalDeviceRobustnessFeatures<B> deviceRobustnessFeatures = {};
+	PhysicalDeviceProperties<B> deviceProperties{};
+	PhysicalDevicePropertiesEx<B> devicePropertiesEx{};
+	PhysicalDeviceFeatures<B> deviceFeatures{};
+	PhysicalDeviceFeaturesEx<B> deviceFeaturesEx{};
+	PhysicalDeviceRobustnessFeatures<B> deviceRobustnessFeatures{};
 	std::vector<QueueFamilyProperties<B>> queueFamilyProperties;
 };
 
@@ -60,7 +60,7 @@ public:
 
 private:
 	AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
-	InstanceHandle<B> myInstance;
+	InstanceHandle<B> myInstance{};
 	std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
 	UnorderedMap<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
 	UnorderedMap<std::tuple<PhysicalDeviceHandle<B>, SurfaceHandle<B>>, SwapchainInfo<B>, TupleHash>

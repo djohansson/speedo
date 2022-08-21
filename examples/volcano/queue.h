@@ -97,12 +97,12 @@ private:
 	std::shared_ptr<void>
 	internalTrace(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
 
-	QueueContextCreateDesc<B> myDesc = {};
-	QueueHandle<B> myQueue = {};
+	QueueCreateDesc<B> myDesc{};
+	QueueHandle<B> myQueue{};
 	std::vector<QueueSubmitInfo<B>> myPendingSubmits;
-	QueuePresentInfo<B> myPendingPresent = {};
+	QueuePresentInfo<B> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	FenceHandle<B> myFence = {};
+	FenceHandle<B> myFence{};
 	std::optional<uint64_t> myLastSubmitTimelineValue;
 	std::any myUserData;
 };

@@ -23,8 +23,8 @@
 template <GraphicsBackend B>
 struct WindowConfiguration : SwapchainConfiguration<B>
 {
-	Extent2d<B> windowExtent = {};
-	Extent2d<B> splitScreenGrid = {1, 1};
+	Extent2d<B> windowExtent{};
+	Extent2d<B> splitScreenGrid{1, 1};
 };
 
 template <GraphicsBackend B>
@@ -73,7 +73,7 @@ private:
 		uint32_t secondaryContextCount,
 		const RenderPassBeginInfo<B>& renderPassInfo);
 
-	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig = {};
+	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig;
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;

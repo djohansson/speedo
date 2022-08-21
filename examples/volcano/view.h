@@ -23,7 +23,7 @@ struct ViewportCreateDesc
 struct ViewCreateDesc
 {
 	ViewType type = ViewType::Perspective;
-	ViewportCreateDesc viewport = {};
+	ViewportCreateDesc viewport{};
 	glm::vec3 cameraPosition = glm::vec3(0.0f, -2.0f, 0.0f);
 	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0);
 };
@@ -53,7 +53,7 @@ public:
 	}
 
 private:
-	ViewCreateDesc myDesc = {};
+	ViewCreateDesc myDesc{};
 	glm::mat4x3 myViewMatrix = glm::mat4x3(1.0f);
 	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
 };

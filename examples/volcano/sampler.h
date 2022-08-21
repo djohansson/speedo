@@ -30,7 +30,7 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		std::vector<SamplerHandle<B>>&& samplers);
 
-	std::vector<SamplerHandle<B>> mySamplers = {};
+	std::vector<SamplerHandle<B>> mySamplers;
 };
 
 #include "sampler-vulkan.inl"

@@ -11,9 +11,9 @@
 template <GraphicsBackend B>
 struct SwapchainConfiguration
 {
-	Extent2d<B> extent = {};
-	SurfaceFormat<B> surfaceFormat = {};
-	PresentMode<B> presentMode = {};
+	Extent2d<B> extent{};
+	SurfaceFormat<B> surfaceFormat{};
+	PresentMode<B> presentMode{};
 	uint8_t imageCount = 0;
 };
 
@@ -96,9 +96,9 @@ protected:
 	internalCreateSwapchain(const SwapchainConfiguration<B>& config, SwapchainHandle<B> previous);
 
 private:
-	RenderTargetCreateDesc<B> myDesc = {};
-	SurfaceHandle<B> mySurface = {};
-	SwapchainHandle<B> mySwapchain = {};
+	RenderTargetCreateDesc<B> myDesc{};
+	SurfaceHandle<B> mySurface{};
+	SwapchainHandle<B> mySwapchain{};
 	std::vector<Frame<B>> myFrames;
 	uint32_t myFrameIndex = 0;
 	uint32_t myLastFrameIndex = 0;

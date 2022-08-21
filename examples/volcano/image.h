@@ -11,7 +11,7 @@
 template <GraphicsBackend B>
 struct ImageMipLevelDesc
 {
-	Extent2d<B> extent = {};
+	Extent2d<B> extent{};
 	uint32_t size = 0;
 	uint32_t offset = 0;
 };
@@ -20,11 +20,11 @@ template <GraphicsBackend B>
 struct ImageCreateDesc
 {
 	std::vector<ImageMipLevelDesc<B>> mipLevels;
-	Format<B> format = {};
-	ImageTiling<B> tiling = {};
-	Flags<B> usageFlags = {};
-	Flags<B> memoryFlags = {};
-	ImageLayout<B> initialLayout = {};
+	Format<B> format{};
+	ImageTiling<B> tiling{};
+	Flags<B> usageFlags{};
+	Flags<B> memoryFlags{};
+	ImageLayout<B> initialLayout{};
 };
 
 template <GraphicsBackend B>
@@ -90,8 +90,8 @@ private:
 	// (which implicitly changes the image layout).
 	void setImageLayout(ImageLayout<B> layout) noexcept { std::get<2>(myImage) = layout; }
 
-	ImageCreateDesc<B> myDesc = {};
-	ValueType myImage = {};
+	ImageCreateDesc<B> myDesc{};
+	ValueType myImage{};
 };
 
 template <GraphicsBackend B>
@@ -117,7 +117,7 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		ImageViewHandle<B>&& view);
 
-	ImageViewHandle<B> myView = {};
+	ImageViewHandle<B> myView{};
 };
 
 #include "image.inl"

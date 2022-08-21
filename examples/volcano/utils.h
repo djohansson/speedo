@@ -380,5 +380,5 @@ public:
 
 private:
 
-	IndexT myIndex = {};
+	IndexT myIndex{};
 };

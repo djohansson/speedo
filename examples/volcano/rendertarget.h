@@ -10,13 +10,13 @@
 template <GraphicsBackend B>
 struct RenderTargetCreateDesc
 {
-	Extent2d<B> extent = {};
+	Extent2d<B> extent{};
 	std::vector<Format<B>> colorImageFormats;
 	std::vector<ImageLayout<B>> colorImageLayouts;
 	std::vector<ImageHandle<B>> colorImages;
-	Format<B> depthStencilImageFormat = {};
-	ImageLayout<B> depthStencilImageLayout = {};
-	ImageHandle<B> depthStencilImage = {}; // optional
+	Format<B> depthStencilImageFormat{};
+	ImageLayout<B> depthStencilImageLayout{};
+	ImageHandle<B> depthStencilImage{}; // optional
 	uint32_t layerCount = 1;
 	bool useDefaultInitialization = true; // create default render passes & framebuffer objects
 };

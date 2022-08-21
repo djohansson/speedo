@@ -91,7 +91,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 {
 	ZoneScopedN("image::load");
 
-	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData = {};
+	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData;
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -242,7 +242,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 						auto srcOffset = (rowIt * extent.width + colIt) * 4;
 						auto dstOffset = blockIt * compressedBlockSize;
 
-						stbi_uc block[64] = {0};
+						stbi_uc block[64]{0};
 						extractBlock(src + srcOffset, extent.width, 4, block);
 
 						stb_compress_dxt_block(dst + dstOffset, block, hasAlpha, STB_DXT_HIGHQUAL);
@@ -373,9 +373,9 @@ void Image<Vk>::clear(
 {
 	ZoneScopedN("Image::clear");
 
-	static const VkImageSubresourceRange defaultColorRange = {
+	static const VkImageSubresourceRange defaultColorRange{
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-	static const VkImageSubresourceRange defaultDepthStencilRange = {
+	static const VkImageSubresourceRange defaultDepthStencilRange{
 		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
 		0,
 		VK_REMAINING_MIP_LEVELS,

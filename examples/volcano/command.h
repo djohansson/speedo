@@ -14,8 +14,8 @@
 template <GraphicsBackend B>
 struct CommandBufferArrayCreateDesc
 {
-	CommandPoolHandle<B> pool = {};
-	CommandBufferLevel<B> level = {};
+	CommandPoolHandle<B> pool{};
+	CommandBufferLevel<B> level{};
 	bool useBufferReset = false;
 };
 
@@ -39,7 +39,7 @@ public:
 	void swap(CommandBufferArray& rhs) noexcept;
 	friend void swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const { return myDesc; }
+	const auto& getDesc() const noexcept { return myDesc; }
 
 	static constexpr auto capacity() { return kCommandBufferCount; }
 
@@ -56,7 +56,7 @@ public:
 	}
 
 	bool recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
-	uint8_t recordingFlags() const { return myBits.recordingFlags; }
+	uint8_t recordingFlags() const noexcept { return myBits.recordingFlags; }
 
 	bool full() const { return (head() + 1) >= capacity(); }
 
@@ -67,13 +67,13 @@ private:
 			CommandBufferArrayCreateDesc<B>,
 			std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
 
-	CommandBufferArrayCreateDesc<B> myDesc = {};
-	std::array<CommandBufferHandle<B>, kCommandBufferCount> myArray = {};
+	CommandBufferArrayCreateDesc<B> myDesc{};
+	std::array<CommandBufferHandle<B>, kCommandBufferCount> myArray{};
 	struct Bits
 	{
 		uint8_t head : kHeadBitCount;
 		uint8_t recordingFlags : kCommandBufferCount;
-	} myBits = {0, 0};
+	} myBits{0, 0};
 };
 
 template <GraphicsBackend B>
@@ -85,8 +85,8 @@ struct CommandBufferAccessScopeDesc : CommandBufferBeginInfo<B>
 	CommandBufferAccessScopeDesc<B>& operator=(const CommandBufferAccessScopeDesc<B>& other);
 	bool operator==(const CommandBufferAccessScopeDesc<B>& other) const;
 
-	CommandBufferLevel<B> level = {};
-	CommandBufferInheritanceInfo<Vk> inheritance = {};
+	CommandBufferLevel<B> level{};
+	CommandBufferInheritanceInfo<Vk> inheritance{};
 	bool scopedBeginEnd = true;
 };
 
@@ -116,7 +116,7 @@ public:
 	void end() const { myArray->end(myIndex); }
 
 private:
-	CommandBufferAccessScopeDesc<B> myDesc = {};
+	CommandBufferAccessScopeDesc<B> myDesc{};
 	std::shared_ptr<uint32_t> myRefCount;
 	CommandBufferArray<B>* myArray = nullptr;
 	uint8_t myIndex = 0;
@@ -125,7 +125,7 @@ private:
 template <GraphicsBackend B>
 struct CommandPoolCreateDesc
 {
-	CommandPoolCreateFlags<B> flags = {};
+	CommandPoolCreateFlags<B> flags{};
 	uint32_t queueFamilyIndex = 0ul;
 	bool usePoolReset = true;
 };
@@ -155,8 +155,8 @@ private:
 		const std::shared_ptr<DeviceContext<B>>& deviceContext,
 		std::tuple<CommandPoolCreateDesc<B>, CommandPoolHandle<B>>&& descAndData);
 
-	CommandPoolCreateDesc<B> myDesc = {};
-	CommandPoolHandle<B> myPool = {};
+	CommandPoolCreateDesc<B> myDesc{};
+	CommandPoolHandle<B> myPool{};
 };
 
 template <GraphicsBackend B>

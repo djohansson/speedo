@@ -18,5 +18,5 @@ protected:
 	void swap(RenderTargetImpl& rhs) noexcept;
 
 private:
-	CreateDescType myDesc = {};
+	CreateDescType myDesc{};
 };
