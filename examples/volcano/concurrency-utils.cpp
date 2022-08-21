@@ -190,19 +190,19 @@ void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToke
 
 	for (auto& adjacent : task.state()->adjacencies)
 	{
-		auto adjacentPtr = adjacent.load();
+		auto adjacentPtr = adjacent.load(std::memory_order_relaxed);
 		if (!adjacentPtr)
 			continue;
 
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_relaxed) - 1;
 
 		if (counter == 1)
 		{
 			myReadyQueue.enqueue(readyProducerToken, std::move(*adjacentPtr));
-			adjacent.store(nullptr);
+			adjacent.store(nullptr, std::memory_order_release);
 			signal = true;
 		}
 	}
@@ -217,19 +217,19 @@ void TaskExecutor::scheduleAdjacent(const Task& task)
 
 	for (auto& adjacent : task.state()->adjacencies)
 	{
-		auto adjacentPtr = adjacent.load();
+		auto adjacentPtr = adjacent.load(std::memory_order_relaxed);
 		if (!adjacentPtr)
 			continue;
 
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_release) - 1;
+		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_relaxed) - 1;
 
 		if (counter == 1)
 		{
 			myReadyQueue.enqueue(std::move(*adjacentPtr));
-			adjacent.store(nullptr);
+			adjacent.store(nullptr, std::memory_order_release);
 			signal = true;
 		}
 	}
