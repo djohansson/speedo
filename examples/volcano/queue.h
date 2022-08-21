@@ -97,7 +97,7 @@ private:
 	std::shared_ptr<void>
 	internalTrace(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
 
-	QueueCreateDesc<B> myDesc{};
+	QueueContextCreateDesc<B> myDesc{};
 	QueueHandle<B> myQueue{};
 	std::vector<QueueSubmitInfo<B>> myPendingSubmits;
 	QueuePresentInfo<B> myPendingPresent{};

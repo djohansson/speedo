@@ -162,7 +162,7 @@ protected:
 	const auto& getDeviceContext() const noexcept { return myDevice; }
 
 private:
-	std::shared_ptr<Device<B>> myDevice;
+	std::shared_ptr<DeviceContext<B>> myDevice;
 	DeviceObjectCreateDesc myDesc{};
 	uuids::uuid myUid{};
 };
