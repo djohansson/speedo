@@ -228,6 +228,7 @@ private:
 	friend class TaskExecutor;
 	
 	using TaskNodeHandleVector = std::vector<TaskNodeHandle>;
+	// todo: use pool allocator for tasks, and just use pointer here
 	using TaskNode = std::tuple<Task, TaskNodeHandleVector, size_t>; // task, adjacencies, dependencies
 	using TaskNodeVec = std::vector<TaskNode>;
 
@@ -280,6 +281,7 @@ private:
 	//std::stop_source myStopSource;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
+	// todo: use pool allocator for tasks, and just use pointer here
 	moodycamel::ConcurrentQueue<Task> myReadyQueue;
 	moodycamel::ConcurrentQueue<TaskGraph> myWaitingQueue;
 };
