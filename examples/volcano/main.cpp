@@ -210,24 +210,7 @@ int main(int argc, char* argv[], char* env[])
 	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetWindowTitle(window, volcano_getAppName());
 
-	ImGui_ImplGlfw_InitForVulkan(window, true);
-
-	do
-	{
-		FrameMark;
-		ZoneScopedN("main::gameLoop");
-
-		{
-			ZoneScopedN("main::glfwPollEvents");
-			glfwPollEvents();
-		}
-
-		{
-			ZoneScopedN("main::ImGui_ImplGlfw_NewFrame");
-			ImGui_ImplGlfw_NewFrame();
-		}
-
-	} while (!glfwWindowShouldClose(window) && !volcano_draw());
+	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && !volcano_tick());
 
 	ImGui_ImplGlfw_Shutdown();
 

@@ -1180,12 +1180,19 @@ void Application<Vk>::onKeyboard(const KeyboardState& state)
 }
 
 template <>
-bool Application<Vk>::draw()
+bool Application<Vk>::tick()
 {
-	ZoneScopedN("Application::draw");
+	ZoneScopedN("Application::tick");
 
-	myExecutor.join(std::move(myPresentFuture));
+	FrameMark;
 
+	{
+
+		ZoneScopedN("ImGui_ImplGlfw_NewFrame");
+
+		ImGui_ImplGlfw_NewFrame();
+	}
+	
 	TaskGraph frameGraph;
 
 	auto [drawTask, drawFuture] = frameGraph.createTask([this]
@@ -1303,9 +1310,15 @@ bool Application<Vk>::draw()
 
 	frameGraph.addDependency(drawTask, presentTask);
 
-	myExecutor.submit(std::move(frameGraph));
+	{
+		ZoneScopedN("Application::tick::waitPresent");
+
+		myExecutor.join(std::move(myPresentFuture));
+	}
 
 	myPresentFuture = std::move(presentFuture);
+
+	myExecutor.submit(std::move(frameGraph));
 
 	return myRequestExit;
 }

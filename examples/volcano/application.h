@@ -60,7 +60,7 @@ public:
 	Application(void* windowHandle, int width, int height);
 	~Application();
 
-	bool draw();
+	bool tick();
 
 	void resizeWindow(const WindowState& state);
 	void resizeFramebuffer(int width, int height);

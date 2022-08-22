@@ -46,11 +46,11 @@ int volcano_create(
 	return EXIT_SUCCESS;
 }
 
-bool volcano_draw()
+bool volcano_tick()
 {
 	assert(g_app);
 
-	return g_app->draw();
+	return g_app->tick();
 }
 
 void volcano_resizeWindow(const WindowState* state)

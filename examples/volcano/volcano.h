@@ -14,7 +14,7 @@ extern "C"
 		const char* rootPath,
 		const char* resourcePath,
 		const char* userProfilePath);
-	bool volcano_draw();
+	bool volcano_tick();
 	void volcano_resizeWindow(const WindowState* state);
 	void volcano_resizeFramebuffer(int width, int height);
 	void volcano_mouse(const MouseState* state);
