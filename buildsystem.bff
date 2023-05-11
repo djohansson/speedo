@@ -160,11 +160,11 @@ function AddObjectList(.ObjectList .CompilerConfig)
             ^PreBuildDependencies + .ReturnValues
         }
 
-        .CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
-            + .ObjectListCompilerOptions
-
-        .CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
-            + .ObjectListCompilerOptions
+		.CompilerOptions + ' -DMI_DEBUG_FULL=$MemoryDebugEnabled$'
+		.CompilerOptions + ' -DMI_SECURE=$MemorySecurityLevel$'
+		.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
+		.CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
+		.CompilerOptions + .ObjectListCompilerOptions
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
@@ -214,8 +214,11 @@ function AddLibrary(.Library .CompilerConfig)
             ^PreBuildDependencies + .ReturnValues
         }
 
-        .CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
-            + .LibraryCompilerOptions
+		.CompilerOptions + ' -DMI_DEBUG_FULL=$MemoryDebugEnabled$'
+		.CompilerOptions + ' -DMI_SECURE=$MemorySecurityLevel$'
+		.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
+		.CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
+		.CompilerOptions + .LibraryCompilerOptions
 
         ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
         {
