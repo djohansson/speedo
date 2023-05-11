@@ -23,7 +23,7 @@
 #import VISUAL_STUDIO_TOOLCHAIN_VERSION
 .VisualStudioToolchainVersion = '$VISUAL_STUDIO_TOOLCHAIN_VERSION$'
 #else
-.VisualStudioToolchainVersion = '14.32.31326'
+.VisualStudioToolchainVersion = '14.35.32215'
 #endif
 
 .VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VisualStudioToolchainVersion$'
