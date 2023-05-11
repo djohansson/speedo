@@ -88,18 +88,6 @@
 	.LibrarianType = 'ar'
 	.MemoryDebugEnabled = '0'
 	.MemorySecurityLevel = '0'
-	.CompilerDebugOptimizations = ' -O0'
-	.CompilerReleaseOptimizations = ' -O3'
-#if __WINDOWS__
-		+ ' -flto=thin'
-#endif
-	.LibrarianDebugOptimizations = ''
-	.LibrarianReleaseOptimizations = ''
-	.LinkerDebugOptimizations = ''
-	.LinkerReleaseOptimizations = ''
-#if __WINDOWS__
-		+ ' -flto=thin'
-#endif
 	.ProfilingEnabled = '0'
 	.GraphicsValidationEnabled = '0'
 ]
@@ -120,16 +108,7 @@
 	.MemorySecurityLevel = '4'
 	.ProfilingEnabled = '1'
 	.GraphicsValidationEnabled = '1'
-	.CompilerOptions + ' -D_DEBUG'
-		+ .CompilerDebugOptimizations
-#if __WINDOWS__
-		+ ' -D_ITERATOR_DEBUG_LEVEL=1'
-#endif //__WINDOWS__
-	.LibrarianOptions + .LibrarianDebugOptimizations
-	.LinkerOptions + .LinkerDebugOptimizations
-#if __WINDOWS__
-		+ ' -lmsvcrtd'
-#endif //__WINDOWS__
+	.CompilerOptions + ' -O0'
 ]
 
 .Clang_x86_64_v3_ReleaseConfig =
@@ -137,12 +116,14 @@
 	Using(.Clang_x86_64_v3_BaseConfig)
 
 	.ConfigName = 'release'
-	.CompilerOptions + ' -DRELEASE -DNDEBUG'
-		+ .CompilerReleaseOptimizations
-	.LibrarianOptions + .LibrarianReleaseOptimizations
-	.LinkerOptions + .LinkerReleaseOptimizations
+	.CompilerOptions + ' -O3'
+	.CompilerOptions + ' -DNDEBUG'
 #if __WINDOWS__
-		+ ' -lmsvcrt'
+		+ ' -flto=thin'
+#endif
+	.LinkerOptions + ''
+#if __WINDOWS__
+		+ ' -flto=thin'
 #endif //__WINDOWS__
 ]
 
