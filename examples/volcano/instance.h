@@ -49,7 +49,6 @@ public:
 	operator auto() const noexcept { return myInstance; }
 
 	const auto& getConfig() const noexcept { return myConfig; }
-	auto getInstance() const noexcept { return myInstance; }
 	const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
 	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<B> device) const noexcept
 	{
