@@ -5,10 +5,6 @@
 #include <cstdio>
 #include <cstdlib>
 
-
-#define STB_SPRINTF_IMPLEMENTATION
-#include <stb_sprintf.h>
-
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #if __WINDOWS__

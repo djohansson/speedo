@@ -993,9 +993,11 @@
 			+ ' -I$BuildRootPath$/external/imnodes'
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/freetype2/include'
+			+ ' -I$BuildRootPath$/external/stb'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-#pragma-messages'
 			+ ' -Wno-unused-variable'
+			+ ' -DIMGUI_USE_STB_SPRINTF'
 		.ConfigDependentCompilerOptions = {
 			' -I$IntermediateFilePath$/gl3w-generate',
 		}
