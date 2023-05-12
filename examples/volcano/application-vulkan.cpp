@@ -2,6 +2,7 @@
 #include "gltfstream.h"
 #include "nodes/inputoutputnode.h"
 #include "nodes/slangshadernode.h"
+#include "profiling.h"
 #include "resources/shaders/shadertypes.h"
 #include "vk-utils.h"
 #include "volcano.h"

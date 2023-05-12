@@ -46,9 +46,11 @@
 #	include <sdkddkver.h>
 #endif
 
+#include <algorithm>
 #include <filesystem>
 #include <functional>
 #include <future>
+#include <thread>
 #include <tuple>
 
 #include <nfd.h>
