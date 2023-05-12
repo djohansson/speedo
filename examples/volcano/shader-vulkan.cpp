@@ -317,6 +317,7 @@ ShaderModule<Vk>::ShaderModule(
 		  device,
 		  createShaderModule(
 			  *device,
+			  &device->getInstance()->getHostAllocationCallbacks(),
 			  std::get<0>(shader).size(),
 			  reinterpret_cast<const uint32_t*>(std::get<0>(shader).data())),
 		  std::get<1>(shader))
@@ -333,7 +334,10 @@ template <>
 ShaderModule<Vk>::~ShaderModule()
 {
 	if (myShaderModule)
-		vkDestroyShaderModule(*getDevice(), myShaderModule, nullptr);
+		vkDestroyShaderModule(
+			*getDevice(),
+			myShaderModule,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

@@ -182,16 +182,22 @@ void Swapchain<Vk>::internalCreateSwapchain(
 	info.clipped = VK_TRUE;
 	info.oldSwapchain = previous;
 
-	VK_CHECK(vkCreateSwapchainKHR(*getDevice(), &info, nullptr, &mySwapchain));
+	VK_CHECK(vkCreateSwapchainKHR(
+		*getDevice(),
+		&info,
+		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+		&mySwapchain));
 
 	if (previous)
 	{
-	#if PROFILING_ENABLED
-			getDevice()->eraseOwnedObjectHandle(
-				getUid(), reinterpret_cast<uint64_t>(previous));
-	#endif
+#if PROFILING_ENABLED
+		getDevice()->eraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous));
+#endif
 
-		vkDestroySwapchainKHR(*getDevice(), previous, nullptr);
+		vkDestroySwapchainKHR(
+			*getDevice(),
+			previous,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 	}
 
 #if PROFILING_ENABLED
@@ -274,11 +280,16 @@ Swapchain<Vk>::~Swapchain()
 	ZoneScopedN("~Swapchain()");
 
 	if (mySwapchain)
-		vkDestroySwapchainKHR(*getDevice(), mySwapchain, nullptr);
+		vkDestroySwapchainKHR(
+			*getDevice(),
+			mySwapchain,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 
 	if (mySurface)
 		vkDestroySurfaceKHR(
-			*getDevice()->getInstance(), mySurface, nullptr);
+			*getDevice()->getInstance(),
+			mySurface,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

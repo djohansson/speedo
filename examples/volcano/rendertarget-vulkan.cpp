@@ -19,7 +19,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 	{
 		myAttachments.emplace_back(createImageView2D(
 			*getDevice(),
-            &getDevice()->getInstance()->getHostAllocationCallbacks(),
+			&getDevice()->getInstance()->getHostAllocationCallbacks(),
 			0,
 			desc.colorImages[attachmentIt],
 			desc.colorImageFormats[attachmentIt],
@@ -72,7 +72,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 
 		myAttachments.emplace_back(createImageView2D(
 			*getDevice(),
-            &getDevice()->getInstance()->getHostAllocationCallbacks(),
+			&getDevice()->getInstance()->getHostAllocationCallbacks(),
 			0,
 			desc.depthStencilImage,
 			desc.depthStencilImageFormat,
@@ -225,10 +225,15 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 	ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
 
 	auto renderPass = createRenderPass(
-		*getDevice(), myAttachmentDescs, mySubPassDescs, mySubPassDependencies);
+		*getDevice(),
+		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+		myAttachmentDescs,
+		mySubPassDescs,
+		mySubPassDependencies);
 
 	auto frameBuffer = createFramebuffer(
 		*getDevice(),
+		&getDevice()->getInstance()->getHostAllocationCallbacks(),
 		renderPass,
 		myAttachments.size(),
 		myAttachments.data(),
@@ -537,12 +542,21 @@ RenderTarget<Vk>::~RenderTarget()
 
 	for (const auto& entry : myMap)
 	{
-		vkDestroyRenderPass(*getDevice(), std::get<0>(entry.second), nullptr);
-		vkDestroyFramebuffer(*getDevice(), std::get<1>(entry.second), nullptr);
+		vkDestroyRenderPass(
+			*getDevice(),
+			std::get<0>(entry.second),
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
+		vkDestroyFramebuffer(
+			*getDevice(),
+			std::get<1>(entry.second),
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 	}
 
 	for (const auto& colorView : myAttachments)
-		vkDestroyImageView(*getDevice(), colorView, nullptr);
+		vkDestroyImageView(
+			*getDevice(),
+			colorView,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

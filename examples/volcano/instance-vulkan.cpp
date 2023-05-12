@@ -333,21 +333,15 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 	if constexpr (GRAPHICS_VALIDATION_ENABLED)
 	{
-		std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger = [this]
-		{
-			auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-				myInstance, "vkCreateDebugUtilsMessengerEXT");
-			assert(vkCreateDebugUtilsMessengerEXT != nullptr);
+		auto vkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
+			myInstance, "vkCreateDebugUtilsMessengerEXT"));
+		assert(vkCreateDebugUtilsMessengerEXT != nullptr);
 
-			VkDebugUtilsMessengerEXT messenger;
-			VK_CHECK(vkCreateDebugUtilsMessengerEXT(
-				myInstance,
-				&instance::debugUtilsMessengerCallbackCreateInfo,
-				&getHostAllocationCallbacks(),
-				&messenger));
+		VkDebugUtilsMessengerEXT messenger;
+		VK_CHECK(vkCreateDebugUtilsMessengerEXT(
+			myInstance, &instance::debugUtilsMessengerCallbackCreateInfo, &myHostAllocator, &messenger));
 
-			return messenger;
-		}();
+		std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger = messenger;
 	}
 }
 
@@ -367,5 +361,5 @@ Instance<Vk>::~Instance()
 			&getHostAllocationCallbacks());
 	}
 
-	vkDestroyInstance(myInstance, nullptr);
+	vkDestroyInstance(myInstance, &myHostAllocator);
 }

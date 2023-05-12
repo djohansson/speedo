@@ -38,12 +38,20 @@ VkFormat findSupportedFormat(
 	VkFormatFeatureFlags features);
 
 std::vector<VkCommandBuffer> allocateCommandBuffers(
-	VkDevice device, VkCommandPool pool, VkCommandBufferLevel level, uint32_t count);
+	VkDevice device,
+	VkCommandPool pool,
+	VkCommandBufferLevel level,
+	uint32_t count);
 
-VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32_t* codePtr);
+VkShaderModule createShaderModule(
+	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
+	size_t codeSize,
+	const uint32_t* codePtr);
 
 VkDescriptorSetLayout createDescriptorSetLayout(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	VkDescriptorSetLayoutCreateFlags flags,
 	const VkDescriptorSetLayoutBinding* bindings,
 	const VkDescriptorBindingFlags* bindingFlags,
@@ -135,12 +143,19 @@ VkImageView createImageView2D(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels);
 
-VkSampler createSampler(VkDevice device, const VkSamplerCreateInfo& createInfo);
-std::vector<VkSampler>
-createSamplers(VkDevice device, const std::vector<VkSamplerCreateInfo>& createInfos);
+VkSampler createSampler(
+	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
+	const VkSamplerCreateInfo& createInfo);
+
+std::vector<VkSampler> createSamplers(
+	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
+	const std::vector<VkSamplerCreateInfo>& createInfos);
 
 VkFramebuffer createFramebuffer(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	VkRenderPass renderPass,
 	uint32_t attachmentCount,
 	const VkImageView* attachments,
@@ -150,12 +165,14 @@ VkFramebuffer createFramebuffer(
 
 VkRenderPass createRenderPass(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	const std::vector<VkAttachmentDescription>& attachments,
 	const std::vector<VkSubpassDescription>& subpasses,
 	const std::vector<VkSubpassDependency>& subpassDependencies);
 
 VkRenderPass createRenderPass(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	VkPipelineBindPoint bindPoint,
 	VkFormat colorFormat,
 	VkAttachmentLoadOp colorLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -168,14 +185,7 @@ VkRenderPass createRenderPass(
 	VkImageLayout depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-VkPipelineLayout createPipelineLayout(
-	VkDevice device,
-	const VkDescriptorSetLayout* descriptorSetLayouts,
-	uint32_t descriptorSetLayoutCount,
-	const VkPushConstantRange* pushConstantRanges,
-	uint32_t pushConstantRangeCount);
-
-VkSurfaceKHR createSurface(VkInstance instance, void* view);
+VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
 
 VkDescriptorPool createDescriptorPool(VkDevice device);
 

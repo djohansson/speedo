@@ -36,35 +36,18 @@ bool isCacheValid(
 			sizeof(header.pipelineCacheUUID)) == 0);
 }
 
-PipelineCacheHandle<Vk>
-createPipelineCache(DeviceHandle<Vk> device, const std::vector<char>& cacheData)
-{
-	PipelineCacheHandle<Vk> cache;
-
-	VkPipelineCacheCreateInfo createInfo = {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-	createInfo.initialDataSize = cacheData.size();
-	createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
-
-	VK_CHECK(vkCreatePipelineCache(device, &createInfo, nullptr, &cache));
-
-	return cache;
-};
-
-PipelineCacheHandle<Vk> loadPipelineCache(
-	const std::filesystem::path& cacheFilePath,
-	DeviceHandle<Vk> device,
-	PhysicalDeviceProperties<Vk> physicalDeviceProperties)
+PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFilePath, const std::shared_ptr<Device<Vk>>& device)
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&physicalDeviceProperties, &cacheData](std::istream& stream)
+	auto loadCacheOp = [&device, &cacheData](std::istream& stream)
 	{
 		cereal::BinaryInputArchive bin(stream);
 		bin(cacheData);
 
 		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
-		if (cacheData.empty() || !isCacheValid(*header, physicalDeviceProperties))
+		if (cacheData.empty() || !isCacheValid(*header, device->getPhysicalDeviceInfo().deviceProperties))
 		{
 			std::cout << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
@@ -78,7 +61,18 @@ PipelineCacheHandle<Vk> loadPipelineCache(
 	if (fileState != FileState::Missing)
 		auto [fileState, fileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
 
-	return createPipelineCache(device, cacheData);
+	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+	createInfo.initialDataSize = cacheData.size();
+	createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
+
+	PipelineCacheHandle<Vk> cache;
+	VK_CHECK(vkCreatePipelineCache(
+		*device,
+		&createInfo,
+		&device->getInstance()->getHostAllocationCallbacks(),
+		&cache));
+
+	return cache;
 }
 
 std::vector<char>
@@ -185,12 +179,21 @@ PipelineLayout<Vk>::PipelineLayout(
 			  auto pushConstantRanges =
 				  descriptorset::getPushConstantRanges<Vk>(descriptorSetLayouts);
 
-			  return createPipelineLayout(
+			  VkPipelineLayoutCreateInfo pipelineLayoutInfo{
+				  VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+			  pipelineLayoutInfo.setLayoutCount = handles.size();
+			  pipelineLayoutInfo.pSetLayouts = handles.data();
+			  pipelineLayoutInfo.pushConstantRangeCount = pushConstantRanges.size();
+			  pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
+
+			  VkPipelineLayout layout;
+			  VK_CHECK(vkCreatePipelineLayout(
 				  *device,
-				  handles.data(),
-				  handles.size(),
-				  pushConstantRanges.data(),
-				  pushConstantRanges.size());
+				  &pipelineLayoutInfo,
+				  &device->getInstance()->getHostAllocationCallbacks(),
+				  &layout));
+
+			  return layout;
 		  }())
 {}
 
@@ -223,7 +226,10 @@ template <>
 PipelineLayout<Vk>::~PipelineLayout()
 {
 	if (myLayout)
-		vkDestroyPipelineLayout(*getDevice(), myLayout, nullptr);
+		vkDestroyPipelineLayout(
+			*getDevice(),
+			myLayout,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>
@@ -240,7 +246,7 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 {
 	ZoneScopedN("Pipeline::internalCalculateHashKey");
 
-	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState = {
+	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState{
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(threadXXHState.get());
@@ -465,7 +471,13 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
-	VK_CHECK(vkCreateGraphicsPipelines(*getDevice(), myCache, 1, &pipelineInfo, nullptr, &pipelineHandle));
+	VK_CHECK(vkCreateGraphicsPipelines(
+		*getDevice(),
+		myCache,
+		1,
+		&pipelineInfo,
+		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+		&pipelineHandle));
 
 #if PROFILING_ENABLED
 	{
@@ -800,8 +812,44 @@ Pipeline<Vk>::Pipeline(
 	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
 		  std::filesystem::path(volcano_getUserProfilePath()) / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
-	, myDescriptorPool(createDescriptorPool(*device))
-	, myCache(pipeline::loadPipelineCache(myConfig.cachePath, *device, device->getPhysicalDeviceInfo().deviceProperties))
+	, myDescriptorPool(
+		[](const std::shared_ptr<Device<Vk>>& device)
+		{
+			constexpr uint32_t maxDescriptorCount = 128;
+			constexpr uint32_t maxInlineBlockSizeBytes = 64;
+
+			VkDescriptorPoolSize poolSizes[]{
+				{VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount},
+				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, maxInlineBlockSizeBytes}};
+
+			VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+			poolInfo.poolSizeCount = static_cast<uint32_t>(std::ssize(poolSizes));
+			poolInfo.pPoolSizes = poolSizes;
+			poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(std::ssize(poolSizes));
+			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
+			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
+
+			VkDescriptorPool outDescriptorPool;
+			VK_CHECK(vkCreateDescriptorPool(
+				*device,
+				&poolInfo,
+				&device->getInstance()->getHostAllocationCallbacks(),
+				&outDescriptorPool));
+
+			return outDescriptorPool;
+		}(device))
+	, myCache(pipeline::loadPipelineCache(myConfig.cachePath, device))
 {
 	// todo: refactor, since this will be called to excessivly
 	internalResetState();
@@ -844,9 +892,15 @@ Pipeline<Vk>::~Pipeline()
 		myCache);
 
 	for (const auto& pipelineIt : myPipelineMap)
-		vkDestroyPipeline(*getDevice(), pipelineIt.second, nullptr);
+		vkDestroyPipeline(
+			*getDevice(),
+			pipelineIt.second,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 
-	vkDestroyPipelineCache(*getDevice(), myCache, nullptr);
+	vkDestroyPipelineCache(
+		*getDevice(),
+		myCache,
+		&getDevice()->getInstance()->getHostAllocationCallbacks());
 
 	myGraphicsState.resources = {};
 	myDescriptorMap.clear();
@@ -855,6 +909,9 @@ Pipeline<Vk>::~Pipeline()
 		getDevice()->addTimelineCallback(
 			[device = getDevice(), pool = myDescriptorPool](uint64_t)
 			{
-				vkDestroyDescriptorPool(*device, pool, nullptr);
+				vkDestroyDescriptorPool(
+					*device,
+					pool,
+					&device->getInstance()->getHostAllocationCallbacks());
 			});
 }

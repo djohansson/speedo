@@ -174,20 +174,21 @@ std::vector<VkDescriptorSet> allocateDescriptorSets(
 	return outDescriptorSets;
 }
 
-VkShaderModule createShaderModule(VkDevice device, size_t codeSize, const uint32_t* codePtr)
+VkShaderModule createShaderModule(VkDevice device, const VkAllocationCallbacks* hostAllocator, size_t codeSize, const uint32_t* codePtr)
 {
 	VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
 	info.codeSize = codeSize;
 	info.pCode = codePtr;
 
 	VkShaderModule vkShaderModule;
-	VK_CHECK(vkCreateShaderModule(device, &info, nullptr, &vkShaderModule));
+	VK_CHECK(vkCreateShaderModule(device, &info, hostAllocator, &vkShaderModule));
 
 	return vkShaderModule;
 };
 
 VkDescriptorSetLayout createDescriptorSetLayout(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	VkDescriptorSetLayoutCreateFlags flags,
 	const VkDescriptorSetLayoutBinding* bindings,
 	const VkDescriptorBindingFlags* bindingFlags,
@@ -206,7 +207,7 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	layoutInfo.pBindings = bindings;
 
 	VkDescriptorSetLayout layout;
-	VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
+	VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, hostAllocator, &layout));
 
 	return layout;
 }
@@ -731,28 +732,29 @@ VkImageView createImageView2D(
 	return outImageView;
 }
 
-VkSampler createSampler(VkDevice device, const VkSamplerCreateInfo& createInfo)
+VkSampler createSampler(VkDevice device, const VkAllocationCallbacks* hostAllocator, const VkSamplerCreateInfo& createInfo)
 {
 	VkSampler outSampler;
-	VK_CHECK(vkCreateSampler(device, &createInfo, nullptr, &outSampler));
+	VK_CHECK(vkCreateSampler(device, &createInfo, hostAllocator, &outSampler));
 
 	return outSampler;
 }
 
 std::vector<VkSampler>
-createSamplers(VkDevice device, const std::vector<VkSamplerCreateInfo>& createInfos)
+createSamplers(VkDevice device, const VkAllocationCallbacks* hostAllocator, const std::vector<VkSamplerCreateInfo>& createInfos)
 {
 	std::vector<VkSampler> outSamplers;
 	outSamplers.reserve(createInfos.size());
 
 	for (const auto& createInfo : createInfos)
-		outSamplers.emplace_back(createSampler(device, createInfo));
+		outSamplers.emplace_back(createSampler(device, hostAllocator, createInfo));
 
 	return outSamplers;
 }
 
 VkFramebuffer createFramebuffer(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	VkRenderPass renderPass,
 	uint32_t attachmentCount,
 	const VkImageView* attachments,
@@ -769,13 +771,14 @@ VkFramebuffer createFramebuffer(
 	info.layers = layers;
 
 	VkFramebuffer outFramebuffer;
-	VK_CHECK(vkCreateFramebuffer(device, &info, nullptr, &outFramebuffer));
+	VK_CHECK(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
 
 	return outFramebuffer;
 }
 
 VkRenderPass createRenderPass(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	const std::vector<VkAttachmentDescription>& attachments,
 	const std::vector<VkSubpassDescription>& subpasses,
 	const std::vector<VkSubpassDependency>& subpassDependencies)
@@ -789,13 +792,14 @@ VkRenderPass createRenderPass(
 	renderPassInfo.pDependencies = subpassDependencies.data();
 
 	VkRenderPass outRenderPass;
-	VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &outRenderPass));
+	VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, hostAllocator, &outRenderPass));
 
 	return outRenderPass;
 }
 
 VkRenderPass createRenderPass(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocator,
 	VkPipelineBindPoint bindPoint,
 	VkFormat colorFormat,
 	VkAttachmentLoadOp colorLoadOp,
@@ -858,29 +862,14 @@ VkRenderPass createRenderPass(
 	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
 	return createRenderPass(
-		device, attachments, std::make_vector(subpass), std::make_vector(dependency));
+		device,
+		hostAllocator,
+		attachments,
+		std::make_vector(subpass),
+		std::make_vector(dependency));
 }
 
-VkPipelineLayout createPipelineLayout(
-	VkDevice device,
-	const VkDescriptorSetLayout* descriptorSetLayouts,
-	uint32_t descriptorSetLayoutCount,
-	const VkPushConstantRange* pushConstantRanges,
-	uint32_t pushConstantRangeCount)
-{
-	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-	pipelineLayoutInfo.setLayoutCount = descriptorSetLayoutCount;
-	pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts;
-	pipelineLayoutInfo.pushConstantRangeCount = pushConstantRangeCount;
-	pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges;
-
-	VkPipelineLayout layout;
-	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &layout));
-
-	return layout;
-}
-
-VkSurfaceKHR createSurface(VkInstance instance, void* view)
+VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)
 {
 	VkSurfaceKHR surface;
 #ifdef __WINDOWS__
@@ -891,10 +880,18 @@ VkSurfaceKHR createSurface(VkInstance instance, void* view)
 		VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
 	surfaceCreateInfo.hinstance = GetModuleHandle(NULL);
 	surfaceCreateInfo.hwnd = *reinterpret_cast<HWND*>(view);
-	VK_CHECK(vkCreateWin32SurfaceKHR(instance, &surfaceCreateInfo, nullptr, &surface));
+	VK_CHECK(vkCreateWin32SurfaceKHR(
+		instance,
+		&surfaceCreateInfo,
+		hostAllocator,
+		&surface));
 #else
 	VK_CHECK(
-		glfwCreateWindowSurface(instance, reinterpret_cast<GLFWwindow*>(view), nullptr, &surface));
+		glfwCreateWindowSurface(
+			instance,
+			reinterpret_cast<GLFWwindow*>(view),
+			hostAllocator,
+			&surface));
 #endif
 
 	return surface;

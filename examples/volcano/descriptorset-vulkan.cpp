@@ -60,6 +60,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 
 			  auto layout = createDescriptorSetLayout(
 				  *device,
+				  &device->getInstance()->getHostAllocationCallbacks(),
 				  desc.flags,
 				  bindings.data(),
 				  bindingFlags.data(),

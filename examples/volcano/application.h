@@ -72,6 +72,8 @@ public:
 
 	const char* getName() const;
 
+	void setGraphicsBackend(GraphicsBackend backend);
+
 private:
 	Application();
 
@@ -86,56 +88,63 @@ private:
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 
-	std::shared_ptr<Instance<B>> myInstance;
-	std::shared_ptr<Device<B>> myDevice;
+	auto& gfx() noexcept { return myGraphicsContext; }
+	const auto& gfx() const noexcept { return myGraphicsContext; }
 
 	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
 
 	InputState myInput{};
 
-	std::shared_ptr<Window<B>> myMainWindow;
-	std::shared_ptr<Pipeline<B>> myPipeline;
-
-	std::list<Queue<B>> myGraphicsQueues;
-	std::list<Queue<B>> myComputeQueues;
-	std::list<Queue<B>> myTransferQueues;
-
-	enum CommandContextType : uint8_t
+	struct GraphicsContext
 	{
-		CommandContextType_GeneralPrimary,
-		CommandContextType_GeneralSecondary,
-		CommandContextType_GeneralTransfer,
-		CommandContextType_DedicatedCompute,
-		CommandContextType_DedicatedTransfer,
-		CommandContextType_Count
+		std::shared_ptr<Instance<B>> myInstance;
+		std::shared_ptr<Device<B>> myDevice;
+
+		std::shared_ptr<Window<B>> myMainWindow;
+		std::shared_ptr<Pipeline<B>> myPipeline;
+
+		std::list<Queue<B>> myGraphicsQueues;
+		std::list<Queue<B>> myComputeQueues;
+		std::list<Queue<B>> myTransferQueues;
+
+		enum CommandType : uint8_t
+		{
+			CommandType_GeneralPrimary,
+			CommandType_GeneralSecondary,
+			CommandType_GeneralTransfer,
+			CommandType_DedicatedCompute,
+			CommandType_DedicatedTransfer,
+			CommandType_Count
+		};
+
+		std::array<WrapContainer<CommandPoolContext<B>>, CommandType_Count> myCommands;
+
+		//std::shared_ptr<ResourceContext<B>> myResources;
+
+		std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
+
+		std::unique_ptr<Buffer<B>> myMaterials;
+		std::unique_ptr<Buffer<B>> myObjects;
+
+		template <
+			typename Key,
+			typename Handle,
+			typename KeyHash = HandleHash<Key, Handle>,
+			typename KeyEqualTo = SharedPtrEqualTo<>>
+		using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
+		HandleSet<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
 	};
 
-	std::array<WrapContainer<CommandPoolContext<B>>, CommandContextType_Count> myCommands;
+	GraphicsContext myGraphicsContext{std::make_shared<Instance<B>>()};
 
-	//std::shared_ptr<ResourceContext<B>> myResources;
-
-	std::shared_ptr<RenderImageSet<B>> myRenderImageSet;
-
-	std::unique_ptr<Buffer<B>> myMaterials;
-	std::unique_ptr<Buffer<B>> myObjects;
-
-	AutoSaveJSONFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
-
-	template <
-		typename Key,
-		typename Handle,
-		typename KeyHash = HandleHash<Key, Handle>,
-		typename KeyEqualTo = SharedPtrEqualTo<>>
-	using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
-	HandleSet<std::shared_ptr<PipelineLayout<B>>, PipelineLayoutHandle<B>> myLayouts;
-
-	Future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>>
-		myOpenFileFuture;
+	Future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
 
 	std::function<void()> myIMGUIPrepareDrawFunction;
 	std::function<void(CommandBufferHandle<B> cmd)> myIMGUIDrawFunction;
 
 	Future<void> myPresentFuture;
+
+	AutoSaveJSONFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
 
 	bool myRequestExit = false;
 };

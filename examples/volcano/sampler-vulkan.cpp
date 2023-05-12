@@ -18,7 +18,12 @@ template <>
 SamplerVector<Vk>::SamplerVector(
 	const std::shared_ptr<Device<Vk>>& device,
 	const std::vector<SamplerCreateInfo<Vk>>& createInfos)
-	: SamplerVector<Vk>(device, createSamplers(*device, createInfos))
+	: SamplerVector<Vk>(
+		device,
+		createSamplers(
+			*device,
+			&device->getInstance()->getHostAllocationCallbacks(),
+			createInfos))
 {}
 
 template <>
@@ -31,7 +36,10 @@ template <>
 SamplerVector<Vk>::~SamplerVector()
 {
 	for (auto sampler : mySamplers)
-		vkDestroySampler(*getDevice(), sampler, nullptr);
+		vkDestroySampler(
+			*getDevice(),
+			sampler,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

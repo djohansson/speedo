@@ -21,6 +21,9 @@ template <GraphicsBackend B>
 using ApplicationInfo = std::conditional_t<B == Vk, VkApplicationInfo, std::nullptr_t>;
 
 template <GraphicsBackend B>
+using SystemAllocationScope  = std::conditional_t<B == Vk, VkSystemAllocationScope, std::nullptr_t>;;
+
+template <GraphicsBackend B>
 using ObjectInfo = std::conditional_t<B == Vk, VkDebugUtilsObjectNameInfoEXT, std::nullptr_t>;
 
 template <GraphicsBackend B>

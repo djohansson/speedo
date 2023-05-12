@@ -60,6 +60,7 @@ public:
 
 private:
 	AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
+	AllocationCallbacks<B> myHostAllocator{};
 	InstanceHandle<B> myInstance{};
 	AllocationCallbacks<B> myHostAllocationCallbacks{};
 	std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
