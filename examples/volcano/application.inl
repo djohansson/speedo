@@ -21,7 +21,7 @@ const char* Application<B>::getName() const
 
 template <GraphicsBackend B>
 Application<B>::Application()
-: myInstance(std::make_shared<InstanceContext<B>>())
+: myInstance(std::make_shared<Instance<B>>())
 {
 	std::locale utf8Locale(".UTF8");  	
 	std::locale::global(utf8Locale);

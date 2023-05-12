@@ -26,7 +26,7 @@ public:
 	constexpr Model() noexcept = default;
 	Model(Model&& other) noexcept = default;
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		const std::filesystem::path& modelFile);
 
@@ -42,7 +42,7 @@ public:
 
 private:
 	Model( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		std::tuple<ModelCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 

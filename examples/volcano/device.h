@@ -49,17 +49,18 @@ struct QueueFamilyDesc
 using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
 
 template <GraphicsBackend B>
-class DeviceContext : public Noncopyable
+class Device : public Noncopyable
 {
 public:
-	DeviceContext(
-		const std::shared_ptr<InstanceContext<B>>& instanceContext,
+	Device(
+		const std::shared_ptr<Instance<B>>& instance,
 		DeviceConfiguration<B>&& defaultConfig = {});
-	~DeviceContext();
+	~Device();
 
-	auto getInstanceContext() const noexcept { return myInstance; } // todo: make global?
+	operator auto() const noexcept { return myDevice; }
+
+	auto getInstance() const noexcept { return myInstance; } // todo: make global?
 	const auto& getConfig() const noexcept { return myConfig; }
-	auto getDevice() const noexcept { return myDevice; }
 	auto getPhysicalDevice() const noexcept
 	{
 		return myInstance->getPhysicalDevices()[myPhysicalDeviceIndex];
@@ -99,7 +100,7 @@ public:
 #endif
 
 private:
-	std::shared_ptr<InstanceContext<B>> myInstance;
+	std::shared_ptr<Instance<B>> myInstance;
 	AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
 	DeviceHandle<B> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
@@ -146,10 +147,10 @@ protected:
 	constexpr DeviceObject() noexcept = default;
 	DeviceObject(DeviceObject<B>&& other) noexcept;
 	DeviceObject( // no object names are set
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		DeviceObjectCreateDesc&& desc);
 	DeviceObject( // uses desc.name and one objectType for all objectHandles
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		DeviceObjectCreateDesc&& desc,
 		uint32_t objectCount,
 		ObjectType<B> objectType,
@@ -159,10 +160,10 @@ protected:
 
 	void swap(DeviceObject& rhs) noexcept;
 
-	const auto& getDeviceContext() const noexcept { return myDevice; }
+	const auto& getDevice() const noexcept { return myDevice; }
 
 private:
-	std::shared_ptr<DeviceContext<B>> myDevice;
+	std::shared_ptr<Device<B>> myDevice;
 	DeviceObjectCreateDesc myDesc{};
 	uuids::uuid myUid{};
 };

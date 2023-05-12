@@ -28,21 +28,21 @@ struct WindowConfiguration : SwapchainConfiguration<B>
 };
 
 template <GraphicsBackend B>
-class WindowContext : public Swapchain<B>
+class Window : public Swapchain<B>
 {
 public:
-	constexpr WindowContext() noexcept = default;
-	WindowContext(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+	constexpr Window() noexcept = default;
+	Window(
+		const std::shared_ptr<Device<B>>& device,
 		SurfaceHandle<B>&& surface, // swapchain base class takes ownership of surface
 		WindowConfiguration<B>&& defaultConfig = {});
-	WindowContext(WindowContext&& other) noexcept;
-	~WindowContext();
+	Window(Window&& other) noexcept;
+	~Window();
 
-	WindowContext& operator=(WindowContext&& other) noexcept;
+	Window& operator=(Window&& other) noexcept;
 
-	void swap(WindowContext& rhs) noexcept;
-	friend void swap(WindowContext& lhs, WindowContext& rhs) noexcept { lhs.swap(rhs); }
+	void swap(Window& rhs) noexcept;
+	friend void swap(Window& lhs, Window& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getViews() const noexcept { return myViews; }
@@ -57,7 +57,7 @@ public:
 	// todo: generalize, move out of window. use sorted draw call lists.
 	void draw(
 		TaskExecutor& executor,
-		PipelineContext<B>& pipeline,
+		Pipeline<B>& pipeline,
 		CommandPoolContext<B>& primaryContext,
 		CommandPoolContext<Vk>* secondaryContexts,
 		uint32_t secondaryContextCount);
@@ -68,7 +68,7 @@ private:
 	void internalCreateFrameObjects(Extent2d<B> frameBufferExtent);
 
 	uint32_t internalDrawViews(
-		PipelineContext<B>& pipeline,
+		Pipeline<B>& pipeline,
 		CommandPoolContext<Vk>* secondaryContexts,
 		uint32_t secondaryContextCount,
 		const RenderPassBeginInfo<B>& renderPassInfo);

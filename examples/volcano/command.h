@@ -28,7 +28,7 @@ class CommandBufferArray : public DeviceObject<B>
 public:
 	constexpr CommandBufferArray() noexcept = default;
 	CommandBufferArray(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandBufferArrayCreateDesc<B>&& desc);
 	CommandBufferArray(CommandBufferArray&& other) noexcept;
 	~CommandBufferArray();
@@ -62,7 +62,7 @@ public:
 
 private:
 	CommandBufferArray(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		std::tuple<
 			CommandBufferArrayCreateDesc<B>,
 			std::array<CommandBufferHandle<B>, kCommandBufferCount>>&& descAndData);
@@ -136,7 +136,7 @@ class CommandPool : public DeviceObject<B>
 public:
 	constexpr CommandPool() noexcept = default;
 	CommandPool(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext, CommandPoolCreateDesc<B>&& desc);
+		const std::shared_ptr<Device<B>>& device, CommandPoolCreateDesc<B>&& desc);
 	CommandPool(CommandPool&& other) noexcept;
 	~CommandPool();
 
@@ -152,7 +152,7 @@ public:
 
 private:
 	CommandPool(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		std::tuple<CommandPoolCreateDesc<B>, CommandPoolHandle<B>>&& descAndData);
 
 	CommandPoolCreateDesc<B> myDesc{};
@@ -169,7 +169,7 @@ class CommandPoolContext : public CommandPool<B>
 public:
 	constexpr CommandPoolContext() noexcept = default;
 	CommandPoolContext(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolCreateDesc<B>&& poolDesc);
 	CommandPoolContext(CommandPoolContext&& other) noexcept;
 	~CommandPoolContext();

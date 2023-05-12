@@ -297,11 +297,11 @@ uint32_t createLayoutBindings<Vk>(
 
 template <>
 ShaderModule<Vk>::ShaderModule(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	ShaderModuleHandle<Vk>&& shaderModule,
 	const EntryPoint<Vk>& entryPoint)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {std::get<0>(entryPoint).c_str()},
 		  1,
 		  VK_OBJECT_TYPE_SHADER_MODULE,
@@ -312,11 +312,11 @@ ShaderModule<Vk>::ShaderModule(
 
 template <>
 ShaderModule<Vk>::ShaderModule(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, const Shader<Vk>& shader)
+	const std::shared_ptr<Device<Vk>>& device, const Shader<Vk>& shader)
 	: ShaderModule<Vk>(
-		  deviceContext,
+		  device,
 		  createShaderModule(
-			  deviceContext->getDevice(),
+			  *device,
 			  std::get<0>(shader).size(),
 			  reinterpret_cast<const uint32_t*>(std::get<0>(shader).data())),
 		  std::get<1>(shader))
@@ -333,7 +333,7 @@ template <>
 ShaderModule<Vk>::~ShaderModule()
 {
 	if (myShaderModule)
-		vkDestroyShaderModule(getDeviceContext()->getDevice(), myShaderModule, nullptr);
+		vkDestroyShaderModule(*getDevice(), myShaderModule, nullptr);
 }
 
 template <>

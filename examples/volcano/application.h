@@ -72,9 +72,9 @@ public:
 
 private:
 	Application();
-	
+
 	void initIMGUI(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandBufferHandle<B> commands,
 		RenderPassHandle<B> renderPass,
 		SurfaceHandle<B> surface,
@@ -83,19 +83,19 @@ private:
 
 	void createWindowDependentObjects(Extent2d<B> frameBufferExtent);
 
-	std::shared_ptr<InstanceContext<B>> myInstance;
-	std::shared_ptr<DeviceContext<B>> myDevice;
+	std::shared_ptr<Instance<B>> myInstance;
+	std::shared_ptr<Device<B>> myDevice;
 
 	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
 
 	InputState myInput{};
 
-	std::shared_ptr<WindowContext<B>> myMainWindow;
-	std::shared_ptr<PipelineContext<B>> myPipeline;
+	std::shared_ptr<Window<B>> myMainWindow;
+	std::shared_ptr<Pipeline<B>> myPipeline;
 
-	std::list<QueueContext<B>> myGraphicsQueues;
-	std::list<QueueContext<B>> myComputeQueues;
-	std::list<QueueContext<B>> myTransferQueues;
+	std::list<Queue<B>> myGraphicsQueues;
+	std::list<Queue<B>> myComputeQueues;
+	std::list<Queue<B>> myTransferQueues;
 
 	enum CommandContextType : uint8_t
 	{

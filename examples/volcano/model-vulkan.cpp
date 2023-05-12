@@ -72,7 +72,7 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 }
 
 std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
-	const std::filesystem::path& modelFile, const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
+	const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device)
 {
 	ZoneScopedN("model::load");
 
@@ -80,7 +80,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
+	auto loadBin = [&descAndInitialData, &device](std::istream& stream)
 	{
 		ZoneScopedN("model::loadBin");
 
@@ -91,7 +91,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			deviceContext->getAllocator(),
+			device->getAllocator(),
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -101,9 +101,9 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			ZoneScopedN("model::loadBin::buffers");
 
 			void* data;
-			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
+			VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
 			bin(cereal::binary_data(data, size));
-			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+			vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
 			memoryHandle = locMemoryHandle;
@@ -112,7 +112,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		return true;
 	};
 
-	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
+	auto saveBin = [&descAndInitialData, &device](std::ostream& stream)
 	{
 		ZoneScopedN("model::saveBin");
 
@@ -126,15 +126,15 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			ZoneScopedN("model::saveBin::buffers");
 
 			void* data;
-			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, &data));
+			VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
 			bin(cereal::binary_data(data, size));
-			vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+			vmaUnmapMemory(device->getAllocator(), memoryHandle);
 		}
 
 		return true;
 	};
 
-	auto loadOBJ = [&descAndInitialData, &deviceContext](std::istream& stream)
+	auto loadOBJ = [&descAndInitialData, &device](std::istream& stream)
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -293,7 +293,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		desc.indexCount = indices.size();
 
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			deviceContext->getAllocator(),
+			device->getAllocator(),
 			desc.indexBufferSize + desc.vertexBufferSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -303,13 +303,13 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			ZoneScopedN("model::loadObj::buffers");
 
 			void* data;
-			VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
+			VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
 			memcpy(data, indices.data(), desc.indexBufferSize);
 			memcpy(
 				static_cast<std::byte*>(data) + desc.indexBufferSize,
 				vertices.data(),
 				desc.vertexBufferSize);
-			vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+			vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
 			memoryHandle = locMemoryHandle;
@@ -333,11 +333,11 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 template <>
 Model<Vk>::Model(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
-		  deviceContext,
+		  device,
 		  commandContext,
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
@@ -353,10 +353,10 @@ Model<Vk>::Model(
 
 template <>
 Model<Vk>::Model(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	const std::filesystem::path& modelFile)
-	: Model(deviceContext, commandContext, model::load(modelFile, deviceContext))
+	: Model(device, commandContext, model::load(modelFile, device))
 {}
 
 template <>

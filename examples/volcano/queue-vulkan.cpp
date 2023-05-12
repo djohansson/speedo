@@ -17,16 +17,16 @@ struct UserData
 //
 
 template <>
-QueueContext<Vk>::QueueContext(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-	std::tuple<QueueContextCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
+Queue<Vk>::Queue(
+	const std::shared_ptr<Device<Vk>>& device,
+	std::tuple<QueueCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_Queue"},
 		  1,
 		  VK_OBJECT_TYPE_QUEUE,
 		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
-	, myDesc(std::forward<QueueContextCreateDesc<Vk>>(std::get<0>(descAndHandle)))
+	, myDesc(std::forward<QueueCreateDesc<Vk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
 {
 #if PROFILING_ENABLED
@@ -35,8 +35,8 @@ QueueContext<Vk>::QueueContext(
 				myDesc.tracingEnableInitCmd.value_or(CommandBufferHandle<Vk>{VK_NULL_HANDLE}))
 		{
 			myUserData = queue::UserData{tracy::CreateVkContext(
-				deviceContext->getPhysicalDevice(),
-				deviceContext->getDevice(),
+				device->getPhysicalDevice(),
+				*device,
 				myQueue,
 				cmd,
 				nullptr,
@@ -47,23 +47,23 @@ QueueContext<Vk>::QueueContext(
 }
 
 template <>
-QueueContext<Vk>::QueueContext(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, QueueContextCreateDesc<Vk>&& desc)
-	: QueueContext(
-		  deviceContext,
+Queue<Vk>::Queue(
+	const std::shared_ptr<Device<Vk>>& device, QueueCreateDesc<Vk>&& desc)
+	: Queue(
+		  device,
 		  std::make_tuple(
-			  std::forward<QueueContextCreateDesc<Vk>>(desc),
-			  [device = deviceContext->getDevice(), &desc]()
+			  std::forward<QueueCreateDesc<Vk>>(desc),
+			  [device, &desc]()
 			  {
 				  QueueHandle<Vk> queue;
-				  vkGetDeviceQueue(device, desc.queueFamilyIndex, desc.queueIndex, &queue);
+				  vkGetDeviceQueue(*device, desc.queueFamilyIndex, desc.queueIndex, &queue);
 				  return queue;
 			  }()))
 {}
 
 template <>
-QueueContext<Vk>::QueueContext(QueueContext<Vk>&& other) noexcept
-	: DeviceObject(std::forward<QueueContext<Vk>>(other))
+Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
+	: DeviceObject(std::forward<Queue<Vk>>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myQueue(std::exchange(other.myQueue, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
@@ -73,7 +73,7 @@ QueueContext<Vk>::QueueContext(QueueContext<Vk>&& other) noexcept
 {}
 
 template <>
-QueueContext<Vk>::~QueueContext()
+Queue<Vk>::~Queue()
 {
 #if PROFILING_ENABLED
 	{
@@ -84,9 +84,9 @@ QueueContext<Vk>::~QueueContext()
 }
 
 template <>
-QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext<Vk>&& other) noexcept
+Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<QueueContext<Vk>>(other));
+	DeviceObject::operator=(std::forward<Queue<Vk>>(other));
 	myDesc = std::exchange(other.myDesc, {});
 	myQueue = std::exchange(other.myQueue, {});
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
@@ -97,7 +97,7 @@ QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext<Vk>&& other) noexcept
 }
 
 template <>
-void QueueContext<Vk>::swap(QueueContext& rhs) noexcept
+void Queue<Vk>::swap(Queue& rhs) noexcept
 {
 	DeviceObject::swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
@@ -109,7 +109,7 @@ void QueueContext<Vk>::swap(QueueContext& rhs) noexcept
 }
 
 template <>
-void QueueContext<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
+void Queue<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
 {
 #if PROFILING_ENABLED
 	{
@@ -121,7 +121,7 @@ void QueueContext<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
 
 template <>
 std::shared_ptr<void>
-QueueContext<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
+Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
 #if PROFILING_ENABLED
 	{
@@ -147,9 +147,9 @@ QueueContext<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocatio
 }
 
 template <>
-uint64_t QueueContext<Vk>::submit()
+uint64_t Queue<Vk>::submit()
 {
-	ZoneScopedN("QueueContext::submit");
+	ZoneScopedN("Queue::submit");
 
 	if (myPendingSubmits.empty())
 		return 0;
@@ -197,7 +197,7 @@ uint64_t QueueContext<Vk>::submit()
 	}
 
 	{
-		ZoneScopedN("QueueContext::submit::vkQueueSubmit");
+		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
 		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, myFence));
 	}
@@ -210,17 +210,17 @@ uint64_t QueueContext<Vk>::submit()
 }
 
 template <>
-void QueueContext<Vk>::waitIdle() const
+void Queue<Vk>::waitIdle() const
 {
-	ZoneScopedN("QueueContext::waitIdle");
+	ZoneScopedN("Queue::waitIdle");
 
 	VK_CHECK(vkQueueWaitIdle(myQueue));
 }
 
 template <>
-void QueueContext<Vk>::present()
+void Queue<Vk>::present()
 {
-	ZoneScopedN("QueueContext::present");
+	ZoneScopedN("Queue::present");
 
 	if (myPendingPresent.swapchains.empty())
 		return;

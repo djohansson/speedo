@@ -20,7 +20,7 @@ static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT = {};
 }
 
 template <>
-uint64_t DeviceContext<Vk>::getTimelineSemaphoreValue() const
+uint64_t Device<Vk>::getTimelineSemaphoreValue() const
 {
 	uint64_t value;
 	VK_CHECK(vkGetSemaphoreCounterValue(myDevice, myTimelineSemaphore, &value));
@@ -29,9 +29,9 @@ uint64_t DeviceContext<Vk>::getTimelineSemaphoreValue() const
 }
 
 template <>
-void DeviceContext<Vk>::wait(uint64_t timelineValue) const
+void Device<Vk>::wait(uint64_t timelineValue) const
 {
-	ZoneScopedN("DeviceContext::wait");
+	ZoneScopedN("Device::wait");
 
 	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
 	waitInfo.flags = {};
@@ -43,17 +43,17 @@ void DeviceContext<Vk>::wait(uint64_t timelineValue) const
 }
 
 template <>
-void DeviceContext<Vk>::waitIdle() const
+void Device<Vk>::waitIdle() const
 {
-	ZoneScopedN("DeviceContext::waitIdle");
+	ZoneScopedN("Device::waitIdle");
 
 	VK_CHECK(vkDeviceWaitIdle(myDevice));
 }
 
 template <>
-uint64_t DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
+uint64_t Device<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
 {
-	ZoneScopedN("DeviceContext::addTimelineCallback");
+	ZoneScopedN("Device::addTimelineCallback");
 
 	auto timelineValue = myTimelineValue.load(std::memory_order_relaxed);
 
@@ -64,9 +64,9 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& 
 }
 
 template <>
-uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
+uint64_t Device<Vk>::addTimelineCallback(TimelineCallback&& callback)
 {
-	ZoneScopedN("DeviceContext::addTimelineCallback");
+	ZoneScopedN("Device::addTimelineCallback");
 
 	auto timelineValue = std::get<0>(callback);
 
@@ -76,9 +76,9 @@ uint64_t DeviceContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 }
 
 template <>
-bool DeviceContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
+bool Device<Vk>::processTimelineCallbacks(uint64_t timelineValue)
 {
-	ZoneScopedN("DeviceContext::processTimelineCallbacks");
+	ZoneScopedN("Device::processTimelineCallbacks");
 
 	TimelineCallback callbackTuple;
 	while (myTimelineCallbacks.try_dequeue(callbackTuple))
@@ -99,13 +99,13 @@ bool DeviceContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
 
 #if PROFILING_ENABLED
 template <>
-void DeviceContext<Vk>::addOwnedObjectHandle(
+void Device<Vk>::addOwnedObjectHandle(
 	const uuids::uuid& ownerId,
 	ObjectType<Vk> objectType,
 	uint64_t objectHandle,
 	const char* objectName)
 {
-	ZoneScopedN("DeviceContext::addOwnedObjectHandle");
+	ZoneScopedN("Device::addOwnedObjectHandle");
 
 	if (!objectHandle)
 		return;
@@ -113,7 +113,7 @@ void DeviceContext<Vk>::addOwnedObjectHandle(
 	uint64_t ownerIdHash = 0ull;
 
 	{
-		ZoneScopedN("DeviceContext::addOwnedObjectHandle::hash");
+		ZoneScopedN("Device::addOwnedObjectHandle::hash");
 
 		ownerIdHash = XXH3_64bits(&ownerId, sizeof(ownerId));
 	}
@@ -132,7 +132,7 @@ void DeviceContext<Vk>::addOwnedObjectHandle(
 		objectInfo.pObjectName = objectInfo.name.c_str();
 
 		{
-			ZoneScopedN("DeviceContext::addOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
+			ZoneScopedN("Device::addOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
 
 			VK_CHECK(device::vkSetDebugUtilsObjectNameEXT(myDevice, &objectInfo));
 		}
@@ -142,9 +142,9 @@ void DeviceContext<Vk>::addOwnedObjectHandle(
 }
 
 template <>
-void DeviceContext<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle)
+void Device<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle)
 {
-	ZoneScopedN("DeviceContext::eraseOwnedObjectHandle");
+	ZoneScopedN("Device::eraseOwnedObjectHandle");
 
 	if (!objectHandle)
 		return;
@@ -152,13 +152,13 @@ void DeviceContext<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint6
 	uint64_t ownerIdHash = 0ull;
 
 	{
-		ZoneScopedN("DeviceContext::eraseOwnedObjectHandle::hash");
+		ZoneScopedN("Device::eraseOwnedObjectHandle::hash");
 
 		ownerIdHash = XXH3_64bits(&ownerId, sizeof(ownerId));
 	}
 
 	{
-		ZoneScopedN("DeviceContext::addOwnedObjectHandle::erase");
+		ZoneScopedN("Device::addOwnedObjectHandle::erase");
 
 		auto lock = std::lock_guard(myObjectMutex);
 
@@ -177,20 +177,20 @@ void DeviceContext<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint6
 }
 
 template <>
-void DeviceContext<Vk>::clearOwnedObjectHandles(const uuids::uuid& ownerId)
+void Device<Vk>::clearOwnedObjectHandles(const uuids::uuid& ownerId)
 {
-	ZoneScopedN("DeviceContext::clearOwnedObjectHandles");
+	ZoneScopedN("Device::clearOwnedObjectHandles");
 
 	uint64_t ownerIdHash = 0ull;
 
 	{
-		ZoneScopedN("DeviceContext::clearOwnedObjectHandles::hash");
+		ZoneScopedN("Device::clearOwnedObjectHandles::hash");
 
 		ownerIdHash = XXH3_64bits(&ownerId, sizeof(ownerId));
 	}
 
 	{
-		ZoneScopedN("DeviceContext::clearOwnedObjectHandles::clear");
+		ZoneScopedN("Device::clearOwnedObjectHandles::clear");
 
 		auto lock = std::lock_guard(myObjectMutex);
 
@@ -204,7 +204,7 @@ void DeviceContext<Vk>::clearOwnedObjectHandles(const uuids::uuid& ownerId)
 }
 
 template <>
-uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
+uint32_t Device<Vk>::getTypeCount(ObjectType<Vk> type)
 {
 	auto lock = std::shared_lock(myObjectMutex);
 
@@ -213,16 +213,16 @@ uint32_t DeviceContext<Vk>::getTypeCount(ObjectType<Vk> type)
 #endif // PROFILING_ENABLED
 
 template <>
-DeviceContext<Vk>::DeviceContext(
-	const std::shared_ptr<InstanceContext<Vk>>& instanceContext,
+Device<Vk>::Device(
+	const std::shared_ptr<Instance<Vk>>& instance,
 	DeviceConfiguration<Vk>&& defaultConfig)
-	: myInstance(instanceContext)
+	: myInstance(instance)
 	, myConfig(AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
 		  std::filesystem::path(volcano_getUserProfilePath()) / "device.json",
 		  std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
-	ZoneScopedN("DeviceContext()");
+	ZoneScopedN("Device()");
 
 	const auto& physicalDeviceInfo = getPhysicalDeviceInfo();
 
@@ -361,7 +361,7 @@ DeviceContext<Vk>::DeviceContext(
 		queueFamilyDesc.flags = queueFamilyProperty.queueFlags;
 	}
 
-	myAllocator = createAllocator(myInstance->getInstance(), myDevice, getPhysicalDevice(), {});
+	myAllocator = createAllocator(*myInstance, myDevice, getPhysicalDevice(), {});
 
 	VkSemaphoreTypeCreateInfo timelineCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -381,11 +381,11 @@ DeviceContext<Vk>::DeviceContext(
 }
 
 template <>
-DeviceContext<Vk>::~DeviceContext()
+Device<Vk>::~Device()
 {
-	ZoneScopedN("~DeviceContext()");
+	ZoneScopedN("~Device()");
 
-	// it is the applications responsibility to wait for all queues complete gpu execution before destroying the DeviceContext.
+	// it is the applications responsibility to wait for all queues complete gpu execution before destroying the Device.
 	processTimelineCallbacks(~0ull); // call all timline callbacks
 
 	vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
@@ -411,20 +411,20 @@ DeviceObject<Vk>::DeviceObject(DeviceObject&& other) noexcept
 
 template <>
 DeviceObject<Vk>::DeviceObject(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, DeviceObjectCreateDesc&& desc)
-	: myDevice(deviceContext)
+	const std::shared_ptr<Device<Vk>>& device, DeviceObjectCreateDesc&& desc)
+	: myDevice(device)
 	, myDesc(std::forward<DeviceObjectCreateDesc>(desc))
 	, myUid(uuids::uuid_system_generator{}())
 {}
 
 template <>
 DeviceObject<Vk>::DeviceObject(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	DeviceObjectCreateDesc&& desc,
 	uint32_t objectCount,
 	ObjectType<Vk> objectType,
 	const uint64_t* objectHandles)
-	: DeviceObject(deviceContext, std::forward<DeviceObjectCreateDesc>(desc))
+	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc))
 {
 #if PROFILING_ENABLED
 	{
@@ -448,7 +448,7 @@ DeviceObject<Vk>::DeviceObject(
 				2,
 				objectIt);
 
-			deviceContext->addOwnedObjectHandle(
+			device->addOwnedObjectHandle(
 				getUid(), objectType, objectHandles[objectIt], stringBuffer);
 		}
 	}

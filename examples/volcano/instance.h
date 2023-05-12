@@ -40,11 +40,13 @@ struct PhysicalDeviceInfo
 };
 
 template <GraphicsBackend B>
-class InstanceContext : public Noncopyable
+class Instance : public Noncopyable
 {
 public:
-	InstanceContext(InstanceConfiguration<B>&& defaultConfig = {});
-	~InstanceContext();
+	Instance(InstanceConfiguration<B>&& defaultConfig = {});
+	~Instance();
+
+	operator auto() const noexcept { return myInstance; }
 
 	const auto& getConfig() const noexcept { return myConfig; }
 	auto getInstance() const noexcept { return myInstance; }

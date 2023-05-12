@@ -170,7 +170,7 @@ InstanceConfiguration<Vk>::InstanceConfiguration()
 {}
 
 template <>
-void InstanceContext<Vk>::updateSurfaceCapabilities(
+void Instance<Vk>::updateSurfaceCapabilities(
 	PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
 	myPhysicalDeviceSwapchainInfos.at(std::make_tuple(device, surface)).capabilities =
@@ -179,7 +179,7 @@ void InstanceContext<Vk>::updateSurfaceCapabilities(
 
 template <>
 const SwapchainInfo<Vk>&
-InstanceContext<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
+Instance<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
 	auto infoInsertNode = myPhysicalDeviceSwapchainInfos.emplace(
 		std::make_tuple(device, surface),
@@ -191,12 +191,12 @@ InstanceContext<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHa
 }
 
 template <>
-InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
+Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	: myConfig(AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
 		  std::filesystem::path(volcano_getUserProfilePath()) / "instance.json",
 		  std::forward<InstanceConfiguration<Vk>>(defaultConfig)))
 {
-	ZoneScopedN("InstanceContext()");
+	ZoneScopedN("Instance()");
 
 #ifdef _DEBUG
 	static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
@@ -333,9 +333,9 @@ InstanceContext<Vk>::InstanceContext(InstanceConfiguration<Vk>&& defaultConfig)
 }
 
 template <>
-InstanceContext<Vk>::~InstanceContext()
+Instance<Vk>::~Instance()
 {
-	ZoneScopedN("~InstanceContext()");
+	ZoneScopedN("~Instance()");
 
 	if constexpr (GRAPHICS_VALIDATION_ENABLED)
 	{

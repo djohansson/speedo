@@ -24,10 +24,10 @@ public:
 	constexpr Buffer() noexcept = default;
 	Buffer(Buffer&& other) noexcept;
 	Buffer( // creates uninitialized buffer
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		BufferCreateDesc<B>&& desc);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		BufferCreateDesc<B>&& desc,
 		const void* initialData);
@@ -44,13 +44,13 @@ public:
 
 protected:
 	Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		std::tuple<BufferCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 
 private:
 	Buffer( // takes ownership of provided buffer handle and allocation
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		BufferCreateDesc<B>&& desc,
 		ValueType&& buffer);
 
@@ -65,7 +65,7 @@ public:
 	constexpr BufferView() noexcept = default;
 	BufferView(BufferView&& other) noexcept;
 	BufferView( // creates a view from buffer
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		const Buffer<B>& buffer,
 		Format<B> format,
 		DeviceSize<B> offset,
@@ -80,7 +80,7 @@ public:
 
 private:
 	BufferView( // uses provided image view
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		BufferViewHandle<B>&& view);
 
 	BufferViewHandle<B> myView{};

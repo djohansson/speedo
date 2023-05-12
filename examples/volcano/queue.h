@@ -39,7 +39,7 @@ struct QueuePresentInfo
 };
 
 template <GraphicsBackend B>
-struct QueueContextCreateDesc
+struct QueueCreateDesc
 {
 	uint32_t queueIndex = 0ul;
 	uint32_t queueFamilyIndex = 0ul;
@@ -56,20 +56,20 @@ struct SourceLocationData
 };
 
 template <GraphicsBackend B>
-class QueueContext : public DeviceObject<B>
+class Queue : public DeviceObject<B>
 {
 public:
-	constexpr QueueContext() noexcept = default;
-	QueueContext(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext, QueueContextCreateDesc<B>&& desc);
-	QueueContext(QueueContext<B>&& other) noexcept;
-	~QueueContext();
+	constexpr Queue() noexcept = default;
+	Queue(
+		const std::shared_ptr<Device<B>>& device, QueueCreateDesc<B>&& desc);
+	Queue(Queue<B>&& other) noexcept;
+	~Queue();
 
-	QueueContext& operator=(QueueContext&& other) noexcept;
+	Queue& operator=(Queue&& other) noexcept;
 	operator auto() const noexcept { return myQueue; }
 
-	void swap(QueueContext& rhs) noexcept;
-	friend void swap(QueueContext& lhs, QueueContext& rhs) noexcept { lhs.swap(rhs); }
+	void swap(Queue& rhs) noexcept;
+	friend void swap(Queue& lhs, Queue& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getDesc() const noexcept { return myDesc; }
 	const auto& getLastSubmitTimelineValue() const noexcept { return myLastSubmitTimelineValue; }
@@ -90,14 +90,14 @@ public:
 	void traceCollect(CommandBufferHandle<B> cmd);
 
 private:
-	QueueContext(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
-		std::tuple<QueueContextCreateDesc<B>, QueueHandle<B>>&& descAndHandle);
+	Queue(
+		const std::shared_ptr<Device<B>>& device,
+		std::tuple<QueueCreateDesc<B>, QueueHandle<B>>&& descAndHandle);
 
 	std::shared_ptr<void>
 	internalTrace(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
 
-	QueueContextCreateDesc<B> myDesc{};
+	QueueCreateDesc<B> myDesc{};
 	QueueHandle<B> myQueue{};
 	std::vector<QueueSubmitInfo<B>> myPendingSubmits;
 	QueuePresentInfo<B> myPendingPresent{};

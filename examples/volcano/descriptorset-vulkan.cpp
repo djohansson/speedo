@@ -16,11 +16,11 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexce
 
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	DescriptorSetLayoutCreateDesc<Vk>&& desc,
 	ValueType&& layout)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_DescriptorSetLayout"},
 		  1,
 		  VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
@@ -31,16 +31,16 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	DescriptorSetLayoutCreateDesc<Vk>&& desc)
 	: DescriptorSetLayout(
-		  deviceContext,
+		  device,
 		  std::forward<DescriptorSetLayoutCreateDesc<Vk>>(desc),
-		  [&deviceContext, &desc]
+		  [&device, &desc]
 		  {
 			  ZoneScopedN("DescriptorSetLayout::createDescriptorSetLayout");
 
-			  auto samplers = SamplerVector<Vk>(deviceContext, desc.immutableSamplers);
+			  auto samplers = SamplerVector<Vk>(device, desc.immutableSamplers);
 
 			  ShaderVariableBindingsMap bindingsMap;
 			  auto& bindings = desc.bindings;
@@ -59,7 +59,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 			  assert(bindings.size() == bindingFlags.size());
 
 			  auto layout = createDescriptorSetLayout(
-				  deviceContext->getDevice(),
+				  *device,
 				  desc.flags,
 				  bindings.data(),
 				  bindingFlags.data(),
@@ -76,7 +76,7 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 	{
 		ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorSetLayout");
 
-		vkDestroyDescriptorSetLayout(getDeviceContext()->getDevice(), layout, nullptr);
+		vkDestroyDescriptorSetLayout(*getDevice(), layout, nullptr);
 	}
 }
 
@@ -99,11 +99,11 @@ void DescriptorSetLayout<Vk>::swap(DescriptorSetLayout& rhs) noexcept
 
 template <>
 DescriptorSetArray<Vk>::DescriptorSetArray(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	DescriptorSetArrayCreateDesc<Vk>&& desc,
 	ArrayType&& descriptorSetHandles)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_DescriptorSet"},
 		  descriptorSetHandles.size(),
 		  VK_OBJECT_TYPE_DESCRIPTOR_SET,
@@ -121,13 +121,13 @@ DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
 
 template <>
 DescriptorSetArray<Vk>::DescriptorSetArray(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	const DescriptorSetLayout<Vk>& layout,
 	DescriptorSetArrayCreateDesc<Vk>&& desc)
 	: DescriptorSetArray(
-		  deviceContext,
+		  device,
 		  std::forward<DescriptorSetArrayCreateDesc<Vk>>(desc),
-		  [device = deviceContext->getDevice(), &layout, &desc]
+		  [&device, &layout, &desc]
 		  {
 			  ZoneScopedN("DescriptorSetArray::vkAllocateDescriptorSets");
 
@@ -140,7 +140,7 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 			  allocInfo.descriptorPool = desc.pool;
 			  allocInfo.descriptorSetCount = layouts.size();
 			  allocInfo.pSetLayouts = layouts.data();
-			  VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, sets.data()));
+			  VK_CHECK(vkAllocateDescriptorSets(*device, &allocInfo, sets.data()));
 
 			  return sets;
 		  }())
@@ -150,15 +150,15 @@ template <>
 DescriptorSetArray<Vk>::~DescriptorSetArray()
 {
 	if (isValid())
-		getDeviceContext()->addTimelineCallback(
-			[device = getDeviceContext()->getDevice(),
+		getDevice()->addTimelineCallback(
+			[device = getDevice(),
 			 pool = myDesc.pool,
 			 descriptorSetHandles = std::move(myDescriptorSets)](uint64_t)
 			{
 				ZoneScopedN("DescriptorSetArray::vkFreeDescriptorSets");
 
 				vkFreeDescriptorSets(
-					device, pool, descriptorSetHandles.size(), descriptorSetHandles.data());
+					*device, pool, descriptorSetHandles.size(), descriptorSetHandles.data());
 			});
 }
 
@@ -183,7 +183,7 @@ template <>
 DescriptorUpdateTemplateHandle<Vk> DescriptorUpdateTemplate<Vk>::internalCreateTemplate()
 {
 	return createDescriptorUpdateTemplate(
-		getDeviceContext()->getDevice(),
+		*getDevice(),
 		VkDescriptorUpdateTemplateCreateInfo{
 			VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
 			nullptr,
@@ -202,7 +202,7 @@ void DescriptorUpdateTemplate<Vk>::internalDestroyTemplate()
 {
 	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
 
-	vkDestroyDescriptorUpdateTemplate(getDeviceContext()->getDevice(), myHandle, nullptr);
+	vkDestroyDescriptorUpdateTemplate(*getDevice(), myHandle, nullptr);
 }
 
 template <>
@@ -223,11 +223,11 @@ DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&
 
 template <>
 DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	DescriptorUpdateTemplateCreateDesc<Vk>&& desc,
 	DescriptorUpdateTemplateHandle<Vk>&& handle)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_DescriptorUpdateTemplate"},
 		  1,
 		  VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
@@ -238,10 +238,10 @@ DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
 
 template <>
 DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	DescriptorUpdateTemplateCreateDesc<Vk>&& desc)
 	: DescriptorUpdateTemplate(
-		  deviceContext, std::forward<DescriptorUpdateTemplateCreateDesc<Vk>>(desc), VK_NULL_HANDLE)
+		  device, std::forward<DescriptorUpdateTemplateCreateDesc<Vk>>(desc), VK_NULL_HANDLE)
 {}
 
 template <>

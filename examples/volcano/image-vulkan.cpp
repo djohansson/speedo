@@ -86,8 +86,8 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 		desc.initialLayout);
 }
 
-std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
-	const std::filesystem::path& imageFile, const std::shared_ptr<DeviceContext<Vk>>& deviceContext)
+std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>
+load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& device)
 {
 	ZoneScopedN("image::load");
 
@@ -95,7 +95,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &deviceContext](std::istream& stream)
+	auto loadBin = [&descAndInitialData, &device](std::istream& stream)
 	{
 		ZoneScopedN("image::loadBin");
 
@@ -108,16 +108,16 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			size += mipLevel.size;
 
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			deviceContext->getAllocator(),
+			device->getAllocator(),
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* data;
-		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
 		bin(cereal::binary_data(data, size));
-		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
@@ -125,7 +125,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		return true;
 	};
 
-	auto saveBin = [&descAndInitialData, &deviceContext](std::ostream& stream)
+	auto saveBin = [&descAndInitialData, &device](std::ostream& stream)
 	{
 		ZoneScopedN("image::saveBin");
 
@@ -138,14 +138,14 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			size += mipLevel.size;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), memoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
 		bin(cereal::binary_data(data, size));
-		vmaUnmapMemory(deviceContext->getAllocator(), memoryHandle);
+		vmaUnmapMemory(device->getAllocator(), memoryHandle);
 
 		return true;
 	};
 
-	auto loadImage = [&descAndInitialData, &deviceContext](std::istream& stream)
+	auto loadImage = [&descAndInitialData, &device](std::istream& stream)
 	{
 		ZoneScopedN("image::loadImage");
 
@@ -187,14 +187,14 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		}
 
 		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			deviceContext->getAllocator(),
+			device->getAllocator(),
 			mipOffset,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* stagingBuffer;
-		VK_CHECK(vmaMapMemory(deviceContext->getAllocator(), locMemoryHandle, &stagingBuffer));
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &stagingBuffer));
 
 		auto compressBlocks = [](const stbi_uc* src,
 								 unsigned char* dst,
@@ -329,7 +329,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
 		}
 
-		vmaUnmapMemory(deviceContext->getAllocator(), locMemoryHandle);
+		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 		stbi_image_free(stbiImageData);
 
 		bufferHandle = locBufferHandle;
@@ -410,11 +410,9 @@ void Image<Vk>::clear(
 
 template <>
 Image<Vk>::Image(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-	ImageCreateDesc<Vk>&& desc,
-	ValueType&& data)
+	const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&& desc, ValueType&& data)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_Image"},
 		  1,
 		  VK_OBJECT_TYPE_IMAGE,
@@ -424,37 +422,36 @@ Image<Vk>::Image(
 {}
 
 template <>
-Image<Vk>::Image(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, ImageCreateDesc<Vk>&& desc)
+Image<Vk>::Image(const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&& desc)
 	: Image(
-		  deviceContext,
+		  device,
 		  std::forward<ImageCreateDesc<Vk>>(desc),
 		  std::tuple_cat(
-			  image::createImage2D(deviceContext->getAllocator(), desc),
+			  image::createImage2D(device->getAllocator(), desc),
 			  std::make_tuple(desc.initialLayout)))
 {}
 
 template <>
 Image<Vk>::Image(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Image(
-		  deviceContext,
+		  device,
 		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  std::tuple_cat(
 			  image::createImage2D(
 				  commandContext.commands(),
-				  deviceContext->getAllocator(),
+				  device->getAllocator(),
 				  std::get<1>(descAndInitialData),
 				  std::get<0>(descAndInitialData)),
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
 	commandContext.addCommandsFinishedCallback(
-		[deviceContext, descAndInitialData](uint64_t)
+		[device, descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
-				deviceContext->getAllocator(),
+				device->getAllocator(),
 				std::get<1>(descAndInitialData),
 				std::get<2>(descAndInitialData));
 		});
@@ -462,37 +459,34 @@ Image<Vk>::Image(
 
 template <>
 Image<Vk>::Image(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	ImageCreateDesc<Vk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
-		  deviceContext,
+		  device,
 		  commandContext,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(
-				  deviceContext->getAllocator(),
-				  initialData,
-				  initialDataSize,
-				  "todo_insert_proper_name")))
+				  device->getAllocator(), initialData, initialDataSize, "todo_insert_proper_name")))
 {}
 
 template <>
 Image<Vk>::Image(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	const std::filesystem::path& imageFile)
-	: Image(deviceContext, commandContext, image::load(imageFile, deviceContext))
+	: Image(device, commandContext, image::load(imageFile, device))
 {}
 
 template <>
 Image<Vk>::~Image()
 {
 	if (ImageHandle<Vk> image = *this; image)
-		getDeviceContext()->addTimelineCallback(
-			[allocator = getDeviceContext()->getAllocator(), image, imageMemory = getImageMemory()](
+		getDevice()->addTimelineCallback(
+			[allocator = getDevice()->getAllocator(), image, imageMemory = getImageMemory()](
 				uint64_t) { vmaDestroyImage(allocator, image, imageMemory); });
 }
 
@@ -503,26 +497,19 @@ ImageView<Vk>::ImageView(ImageView&& other) noexcept
 {}
 
 template <>
-ImageView<Vk>::ImageView(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, ImageViewHandle<Vk>&& view)
+ImageView<Vk>::ImageView(const std::shared_ptr<Device<Vk>>& device, ImageViewHandle<Vk>&& view)
 	: DeviceObject(
-		  deviceContext,
-		  {"_View"},
-		  1,
-		  VK_OBJECT_TYPE_IMAGE_VIEW,
-		  reinterpret_cast<uint64_t*>(&view))
+		  device, {"_View"}, 1, VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t*>(&view))
 	, myView(std::forward<ImageViewHandle<Vk>>(view))
 {}
 
 template <>
 ImageView<Vk>::ImageView(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
-	const Image<Vk>& image,
-	Flags<Vk> aspectFlags)
+	const std::shared_ptr<Device<Vk>>& device, const Image<Vk>& image, Flags<Vk> aspectFlags)
 	: ImageView<Vk>(
-		  deviceContext,
+		  device,
 		  createImageView2D(
-			  deviceContext->getDevice(),
+			  *device,
 			  0, // "reserved for future use"
 			  image,
 			  image.getDesc().format,
@@ -534,9 +521,9 @@ template <>
 ImageView<Vk>::~ImageView()
 {
 	if (ImageViewHandle<Vk> view = *this; view)
-		getDeviceContext()->addTimelineCallback(
-			[device = getDeviceContext()->getDevice(), view](uint64_t)
-			{ vkDestroyImageView(device, view, nullptr); });
+		getDevice()->addTimelineCallback(
+			[device = getDevice(), view](uint64_t)
+			{ vkDestroyImageView(*device, view, nullptr); });
 }
 
 template <>

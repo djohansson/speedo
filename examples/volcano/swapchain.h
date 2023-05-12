@@ -26,7 +26,7 @@ public:
 	constexpr Swapchain() noexcept = default;
 	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		const SwapchainConfiguration<B>& config,
 		SurfaceHandle<B>&& surface, // takes ownership
 		SwapchainHandle<B> previous);

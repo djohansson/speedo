@@ -11,7 +11,7 @@ class SamplerVector : public DeviceObject<B>
 public:
 	constexpr SamplerVector() noexcept = default;
 	SamplerVector(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		const std::vector<SamplerCreateInfo<B>>& createInfos);
 	SamplerVector(SamplerVector&& other) noexcept;
 	~SamplerVector();
@@ -27,7 +27,7 @@ public:
 
 private:
 	SamplerVector( // takes ownership of provided handle
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		std::vector<SamplerHandle<B>>&& samplers);
 
 	std::vector<SamplerHandle<B>> mySamplers;

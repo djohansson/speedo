@@ -101,7 +101,7 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 	const auto& lastFrame = myFrames[myLastFrameIndex];
 
 	auto flipResult = checkFlipOrPresentResult(vkAcquireNextImageKHR(
-		getDeviceContext()->getDevice(),
+		*getDevice(),
 		mySwapchain,
 		UINT64_MAX,
 		lastFrame.getNewImageAcquiredSemaphore(),
@@ -182,16 +182,16 @@ void Swapchain<Vk>::internalCreateSwapchain(
 	info.clipped = VK_TRUE;
 	info.oldSwapchain = previous;
 
-	VK_CHECK(vkCreateSwapchainKHR(getDeviceContext()->getDevice(), &info, nullptr, &mySwapchain));
+	VK_CHECK(vkCreateSwapchainKHR(*getDevice(), &info, nullptr, &mySwapchain));
 
 	if (previous)
 	{
 	#if PROFILING_ENABLED
-			getDeviceContext()->eraseOwnedObjectHandle(
+			getDevice()->eraseOwnedObjectHandle(
 				getUid(), reinterpret_cast<uint64_t>(previous));
 	#endif
 
-		vkDestroySwapchainKHR(getDeviceContext()->getDevice(), previous, nullptr);
+		vkDestroySwapchainKHR(*getDevice(), previous, nullptr);
 	}
 
 #if PROFILING_ENABLED
@@ -206,7 +206,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 			static_cast<int>(swapchainStr.size()),
 			swapchainStr.data());
 
-		getDeviceContext()->addOwnedObjectHandle(
+		getDevice()->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SWAPCHAIN_KHR,
 			reinterpret_cast<uint64_t>(mySwapchain),
@@ -220,20 +220,20 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 	uint32_t imageCount;
 	VK_CHECK(vkGetSwapchainImagesKHR(
-		getDeviceContext()->getDevice(), mySwapchain, &imageCount, nullptr));
+		*getDevice(), mySwapchain, &imageCount, nullptr));
 
 	assert(imageCount == frameCount);
 
 	std::vector<ImageHandle<Vk>> colorImages(imageCount);
 	VK_CHECK(vkGetSwapchainImagesKHR(
-		getDeviceContext()->getDevice(), mySwapchain, &imageCount, colorImages.data()));
+		*getDevice(), mySwapchain, &imageCount, colorImages.data()));
 
 	myFrames.clear();
 	myFrames.reserve(frameCount);
 
 	for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
 		myFrames.emplace_back(Frame<Vk>(
-			getDeviceContext(),
+			getDevice(),
 			FrameCreateDesc<Vk>{
 				{config.extent,
 				 std::make_vector(config.surfaceFormat.format),
@@ -256,11 +256,11 @@ Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
 
 template <>
 Swapchain<Vk>::Swapchain(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	const SwapchainConfiguration<Vk>& config,
 	SurfaceHandle<Vk>&& surface,
 	SwapchainHandle<Vk> previous)
-	: DeviceObject(deviceContext, {})
+	: DeviceObject(device, {})
 	, mySurface(std::forward<SurfaceHandle<Vk>>(surface))
 {
 	ZoneScopedN("Swapchain()");
@@ -274,11 +274,11 @@ Swapchain<Vk>::~Swapchain()
 	ZoneScopedN("~Swapchain()");
 
 	if (mySwapchain)
-		vkDestroySwapchainKHR(getDeviceContext()->getDevice(), mySwapchain, nullptr);
+		vkDestroySwapchainKHR(*getDevice(), mySwapchain, nullptr);
 
 	if (mySurface)
 		vkDestroySurfaceKHR(
-			getDeviceContext()->getInstanceContext()->getInstance(), mySurface, nullptr);
+			*getDevice()->getInstance(), mySurface, nullptr);
 }
 
 template <>

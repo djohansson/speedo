@@ -7,7 +7,7 @@ namespace commandbufferarray
 {
 
 static auto createArray(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	const CommandBufferArrayCreateDesc<Vk>& desc)
 {
 	ZoneScopedN("commandbufferarray::createArray");
@@ -21,7 +21,7 @@ static auto createArray(
 		cmdInfo.commandPool = desc.pool;
 		cmdInfo.level = desc.level;
 		cmdInfo.commandBufferCount = CommandBufferArray<Vk>::capacity();
-		VK_CHECK(vkAllocateCommandBuffers(deviceContext->getDevice(), &cmdInfo, outArray.data()));
+		VK_CHECK(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
 	}
 
 	return outArray;
@@ -31,12 +31,12 @@ static auto createArray(
 
 template <>
 CommandBufferArray<Vk>::CommandBufferArray(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	std::tuple<
 		CommandBufferArrayCreateDesc<Vk>,
 		std::array<CommandBufferHandle<Vk>, kCommandBufferCount>>&& descAndData)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_CommandBufferArray"},
 		  kCommandBufferCount,
 		  VK_OBJECT_TYPE_COMMAND_BUFFER,
@@ -48,13 +48,13 @@ CommandBufferArray<Vk>::CommandBufferArray(
 
 template <>
 CommandBufferArray<Vk>::CommandBufferArray(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandBufferArrayCreateDesc<Vk>&& desc)
 	: CommandBufferArray(
-		  deviceContext,
+		  device,
 		  std::make_tuple(
 			  std::forward<CommandBufferArrayCreateDesc<Vk>>(desc),
-			  commandbufferarray::createArray(deviceContext, desc)))
+			  commandbufferarray::createArray(device, desc)))
 {}
 
 template <>
@@ -75,7 +75,7 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 		ZoneScopedN("~CommandBufferArray()::vkFreeCommandBuffers");
 
 		vkFreeCommandBuffers(
-			getDeviceContext()->getDevice(), myDesc.pool, kCommandBufferCount, myArray.data());
+			*getDevice(), myDesc.pool, kCommandBufferCount, myArray.data());
 	}
 }
 
@@ -149,10 +149,10 @@ void CommandBufferArray<Vk>::end(uint8_t index)
 
 template <>
 CommandPool<Vk>::CommandPool(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	std::tuple<CommandPoolCreateDesc<Vk>, CommandPoolHandle<Vk>>&& descAndData)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {},
 		  1,
 		  VK_OBJECT_TYPE_COMMAND_POOL,
@@ -163,12 +163,15 @@ CommandPool<Vk>::CommandPool(
 
 template <>
 CommandPool<Vk>::CommandPool(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, CommandPoolCreateDesc<Vk>&& desc)
+	const std::shared_ptr<Device<Vk>>& device, CommandPoolCreateDesc<Vk>&& desc)
 	: CommandPool(
-		  deviceContext,
+		  device,
 		  std::make_tuple(
 			  std::forward<CommandPoolCreateDesc<Vk>>(desc),
-			  createCommandPool(deviceContext->getDevice(), desc.flags, desc.queueFamilyIndex)))
+			  createCommandPool(
+				  *device,
+				  desc.flags,
+				  desc.queueFamilyIndex)))
 {}
 
 template <>
@@ -182,7 +185,10 @@ template <>
 CommandPool<Vk>::~CommandPool()
 {
 	if (myPool)
-		vkDestroyCommandPool(getDeviceContext()->getDevice(), myPool, nullptr);
+		vkDestroyCommandPool(
+			*getDevice(),
+			myPool,
+			nullptr);
 }
 
 template <>
@@ -212,7 +218,7 @@ void CommandPool<Vk>::reset()
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
 		VK_CHECK(vkResetCommandPool(
-			getDeviceContext()->getDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
+			*getDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
 	}
 }
 
@@ -238,7 +244,7 @@ void CommandPoolContext<Vk>::internalEnqueueOnePending(CommandBufferLevel<Vk> le
 
 		myPendingCommands[level].emplace_back(std::make_tuple(
 			CommandBufferArray<Vk>(
-				getDeviceContext(), CommandBufferArrayCreateDesc<Vk>{*this, level}),
+				getDevice(), CommandBufferArrayCreateDesc<Vk>{*this, level}),
 			0));
 	}
 }
@@ -345,7 +351,7 @@ void CommandPoolContext<Vk>::internalEnqueueSubmitted(
 	{
 		TimelineCallback& callback = myCommandsFinishedCallbacks.front();
 		std::get<0>(callback) = timelineValue;
-		getDeviceContext()->addTimelineCallback(std::move(callback));
+		getDevice()->addTimelineCallback(std::move(callback));
 		myCommandsFinishedCallbacks.pop_front();
 	}
 }
@@ -414,7 +420,7 @@ uint64_t CommandPoolContext<Vk>::execute(CommandPoolContext<Vk>& callee)
 		 callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
 		vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
 
-	auto timelineValue = getDeviceContext()->timelineValue().load(std::memory_order_relaxed);
+	auto timelineValue = getDevice()->timelineValue().load(std::memory_order_relaxed);
 
 	callee.internalEnqueueSubmitted(
 		std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]),
@@ -426,8 +432,8 @@ uint64_t CommandPoolContext<Vk>::execute(CommandPoolContext<Vk>& callee)
 
 template <>
 CommandPoolContext<Vk>::CommandPoolContext(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, CommandPoolCreateDesc<Vk>&& poolDesc)
-	: CommandPool(deviceContext, std::forward<CommandPoolCreateDesc<Vk>>(poolDesc))
+	const std::shared_ptr<Device<Vk>>& device, CommandPoolCreateDesc<Vk>&& poolDesc)
+	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(poolDesc))
 {
 	ZoneScopedN("CommandPoolContext()");
 }
@@ -453,8 +459,8 @@ CommandPoolContext<Vk>::~CommandPoolContext()
 		{
 			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
 
-			getDeviceContext()->wait(cmdTimelineValue);
-			getDeviceContext()->processTimelineCallbacks(cmdTimelineValue);
+			getDevice()->wait(cmdTimelineValue);
+			getDevice()->processTimelineCallbacks(cmdTimelineValue);
 		}
 	}
 }

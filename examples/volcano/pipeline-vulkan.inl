@@ -4,7 +4,7 @@
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptorData(
+void Pipeline<Vk>::setDescriptorData(
 	uint64_t shaderVariableNameHash, const DescriptorSetLayout<Vk>& layout, T&& data)
 {
 	const auto& [binding, descriptorType, descriptorCount] =
@@ -56,7 +56,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptorData(
+void Pipeline<Vk>::setDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set)
 {
 	setDescriptorData(
@@ -67,7 +67,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptorData(
+void Pipeline<Vk>::setDescriptorData(
 	uint64_t shaderVariableNameHash,
 	const DescriptorSetLayout<Vk>& layout,
 	const std::vector<T>& data)
@@ -149,7 +149,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptorData(
+void Pipeline<Vk>::setDescriptorData(
 	std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set)
 {
 	setDescriptorData(
@@ -160,7 +160,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptorData(
+void Pipeline<Vk>::setDescriptorData(
 	uint64_t shaderVariableNameHash,
 	const DescriptorSetLayout<Vk>& layout,
 	T&& data,
@@ -246,7 +246,7 @@ void PipelineContext<Vk>::setDescriptorData(
 
 template <>
 template <typename T>
-void PipelineContext<Vk>::setDescriptorData(
+void Pipeline<Vk>::setDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index)
 {
 	setDescriptorData(

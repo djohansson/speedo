@@ -21,7 +21,7 @@
 
 template <>
 void Application<Vk>::initIMGUI(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandBufferHandle<Vk> commands,
 	RenderPassHandle<Vk> renderPass,
 	SurfaceHandle<Vk> surface,
@@ -47,7 +47,7 @@ void Application<Vk>::initIMGUI(
 			myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
-		myInstance->getSwapchainInfo(myDevice->getPhysicalDevice(), surface).capabilities;
+		myInstance->getSwapchainInfo(device->getPhysicalDevice(), surface).capabilities;
 
 	float dpiScaleX = static_cast<float>(surfaceCapabilities.currentExtent.width) /
 					  myMainWindow->getConfig().windowExtent.width;
@@ -92,7 +92,7 @@ void Application<Vk>::initIMGUI(
 	ImGui_ImplVulkan_InitInfo initInfo = {};
 	initInfo.Instance = myInstance->getInstance();
 	initInfo.PhysicalDevice = myDevice->getPhysicalDevice();
-	initInfo.Device = myDevice->getDevice();
+	initInfo.Device = *device;
 	initInfo.QueueFamily = myGraphicsQueues.front().getDesc().queueFamilyIndex;
 	initInfo.Queue = myGraphicsQueues.front();
 	initInfo.PipelineCache = myPipeline->getCache();
@@ -107,9 +107,9 @@ void Application<Vk>::initIMGUI(
 								 VkDeviceMemory buffer_memory,
 								 const VkAllocationCallbacks* allocator)
 	{
-		DeviceContext<Vk>* deviceContext = static_cast<DeviceContext<Vk>*>(user_data);
-		deviceContext->addTimelineCallback(
-			[device = deviceContext->getDevice(), buffer, buffer_memory, allocator](uint64_t)
+		auto& device = *static_cast<Device<Vk>*>(user_data);
+		device.addTimelineCallback(
+			[&device, buffer, buffer_memory, allocator](uint64_t)
 			{
 				if (buffer != VK_NULL_HANDLE)
 					vkDestroyBuffer(device, buffer, allocator);
@@ -117,13 +117,13 @@ void Application<Vk>::initIMGUI(
 					vkFreeMemory(device, buffer_memory, allocator);
 			});
 	};
-	initInfo.UserData = deviceContext.get();
+	initInfo.UserData = device.get();
 	ImGui_ImplVulkan_Init(&initInfo, renderPass);
 
 	// Upload Fonts
 	ImGui_ImplVulkan_CreateFontsTexture(commands);
 
-	deviceContext->addTimelineCallback(std::make_tuple(
+	device->addTimelineCallback(std::make_tuple(
 		1 + myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[](uint64_t) { ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
 
@@ -139,7 +139,7 @@ void Application<Vk>::shutdownIMGUI()
 	myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
 
 	IMNODES_NAMESPACE::DestroyContext();
-	
+
 	ImGui_ImplVulkan_Shutdown();
 	ImGui::DestroyContext();
 }
@@ -273,7 +273,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 		return std::get<0>(graphicsDeviceCandidates.front());
 	};
 
-	myDevice = std::make_shared<DeviceContext<Vk>>(
+	myDevice = std::make_shared<Device<Vk>>(
 		myInstance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(myInstance, surface)});
 
 	auto detectSuitableSwapchain = [](auto instance, auto device, auto surface)
@@ -349,10 +349,10 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 		return config;
 	};
 
-	myPipeline = std::make_shared<PipelineContext<Vk>>(
+	myPipeline = std::make_shared<Pipeline<Vk>>(
 		myDevice, PipelineConfiguration<Vk>{userProfilePath / "pipeline.cache"});
 
-	myMainWindow = std::make_shared<WindowContext<Vk>>(
+	myMainWindow = std::make_shared<Window<Vk>>(
 		myDevice,
 		std::move(surface),
 		WindowConfiguration<Vk>{
@@ -402,9 +402,9 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 				generalTransferContexts.emplace_back(CommandPoolContext<Vk>(
 					myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-				myGraphicsQueues.emplace_back(QueueContext<Vk>(
+				myGraphicsQueues.emplace_back(Queue<Vk>(
 					myDevice,
-					QueueContextCreateDesc<Vk>{
+					QueueCreateDesc<Vk>{
 						0,
 						queueFamilyIndex,
 						primaryContexts.front().commands(
@@ -418,7 +418,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 					myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
 				myComputeQueues.emplace_back(
-					QueueContext<Vk>(myDevice, QueueContextCreateDesc<Vk>{0, queueFamilyIndex}));
+					Queue<Vk>(myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 			else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
 			{
@@ -428,7 +428,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 					myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
 				myTransferQueues.emplace_back(
-					QueueContext<Vk>(myDevice, QueueContextCreateDesc<Vk>{0, queueFamilyIndex}));
+					Queue<Vk>(myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 		}
 	}
@@ -1154,7 +1154,7 @@ Application<Vk>::~Application()
 		myDevice->wait(timelineValue);
 	}
 
-	vkDeviceWaitIdle(*gfx().myDevice); // added this hack since timeline wait is not respected by the validation layer (likely) or is not actually working for some reason.
+	vkDeviceWaitIdle(*myDevice); // added this hack since timeline wait is not respected by the validation layer (likely) or is not actually working for some reason.
 
 	shutdownIMGUI();
 }
@@ -1200,7 +1200,7 @@ bool Application<Vk>::tick()
 
 		ImGui_ImplGlfw_NewFrame();
 	}
-	
+
 	TaskGraph frameGraph;
 
 	auto [drawTask, drawFuture] = frameGraph.createTask([this]
@@ -1314,7 +1314,7 @@ bool Application<Vk>::tick()
 		}
 	});
 
-	auto [presentTask, presentFuture] = frameGraph.createTask([](QueueContext<Vk>* queue) { queue->present(); }, &myGraphicsQueues.front());
+	auto [presentTask, presentFuture] = frameGraph.createTask([](Queue<Vk>* queue) { queue->present(); }, &myGraphicsQueues.front());
 
 	frameGraph.addDependency(drawTask, presentTask);
 

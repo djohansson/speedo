@@ -56,7 +56,7 @@ class ShaderModule : public DeviceObject<B>
 {
 public:
 	constexpr ShaderModule() noexcept = default;
-	ShaderModule(const std::shared_ptr<DeviceContext<B>>& deviceContext, const Shader<B>& shader);
+	ShaderModule(const std::shared_ptr<Device<B>>& device, const Shader<B>& shader);
 	ShaderModule(ShaderModule&& other) noexcept;
 	~ShaderModule();
 
@@ -70,7 +70,7 @@ public:
 
 private:
 	ShaderModule( // takes ownership of provided handle
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		ShaderModuleHandle<B>&& shaderModule,
 		const EntryPoint<B>& entryPoint);
 

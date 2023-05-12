@@ -1,17 +1,17 @@
 template <>
 template <typename... Args>
-void QueueContext<Vk>::enqueueSubmit(Args&&... args)
+void Queue<Vk>::enqueueSubmit(Args&&... args)
 {
-	ZoneScopedN("QueueContext::enqueueSubmit");
+	ZoneScopedN("Queue::enqueueSubmit");
 
 	myPendingSubmits.emplace_back(std::forward<Args>(args)...);
 }
 
 template <>
 template <typename T, typename... Ts>
-void QueueContext<Vk>::enqueuePresent(T&& first, Ts&&... rest)
+void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 {
-	ZoneScopedN("QueueContext::enqueuePresent");
+	ZoneScopedN("Queue::enqueuePresent");
 
 	myPendingPresent |= std::forward<T>(first);
 
@@ -22,9 +22,9 @@ void QueueContext<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 template <>
 template <typename T, uint32_t Line>
 std::shared_ptr<void>
-QueueContext<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* function, const char* file)
+Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* function, const char* file)
 {
-	ZoneScopedN("QueueContext::trace");
+	ZoneScopedN("Queue::trace");
 
 	if constexpr (PROFILING_ENABLED)
 	{

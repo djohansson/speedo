@@ -47,11 +47,11 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 
 template <GraphicsBackend B>
 RenderImageSet<B>::RenderImageSet(
-	const std::shared_ptr<DeviceContext<B>>& deviceContext,
+	const std::shared_ptr<Device<B>>& device,
 	const std::vector<std::shared_ptr<Image<B>>>& colorImages,
 	const std::shared_ptr<Image<B>>& depthStencilImage)
 	: BaseType(
-		  deviceContext,
+		  device,
 		  renderimageset::createRenderTargetCreateDesc(colorImages, depthStencilImage))
 	, myColorImages(colorImages)
 	, myDepthStencilImage(depthStencilImage)

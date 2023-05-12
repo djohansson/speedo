@@ -9,8 +9,8 @@
 
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, FrameCreateDesc<Vk>&& desc)
-	: RenderTarget(deviceContext, desc)
+	const std::shared_ptr<Device<Vk>>& device, FrameCreateDesc<Vk>&& desc)
+	: RenderTarget(device, desc)
 	, myDesc(std::forward<FrameCreateDesc<Vk>>(desc))
 {}
 
@@ -42,17 +42,17 @@ void RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::swap(RenderTargetImpl& rhs) noex
 
 template <>
 Frame<Vk>::Frame(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, FrameCreateDesc<Vk>&& desc)
-	: BaseType(deviceContext, std::forward<FrameCreateDesc<Vk>>(desc))
+	const std::shared_ptr<Device<Vk>>& device, FrameCreateDesc<Vk>&& desc)
+	: BaseType(device, std::forward<FrameCreateDesc<Vk>>(desc))
 	, myImageLayout(VK_IMAGE_LAYOUT_UNDEFINED)
 {
 	ZoneScopedN("Frame()");
 
 	VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 	VK_CHECK(vkCreateSemaphore(
-		getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
+		*getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
 	VK_CHECK(vkCreateSemaphore(
-		getDeviceContext()->getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
+		*getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
 
 #if PROFILING_ENABLED
 	{
@@ -69,7 +69,7 @@ Frame<Vk>::Frame(
 			static_cast<int>(renderCompleteSemaphoreStr.size()),
 			renderCompleteSemaphoreStr.data());
 
-		deviceContext->addOwnedObjectHandle(
+		device->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SEMAPHORE,
 			reinterpret_cast<uint64_t>(myRenderCompleteSemaphore),
@@ -83,7 +83,7 @@ Frame<Vk>::Frame(
 			static_cast<int>(newImageAcquiredSemaphoreStr.size()),
 			newImageAcquiredSemaphoreStr.data());
 
-		deviceContext->addOwnedObjectHandle(
+		device->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SEMAPHORE,
 			reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
@@ -108,8 +108,8 @@ Frame<Vk>::~Frame()
 
 	if (isValid())
 	{
-		vkDestroySemaphore(getDeviceContext()->getDevice(), myRenderCompleteSemaphore, nullptr);
-		vkDestroySemaphore(getDeviceContext()->getDevice(), myNewImageAcquiredSemaphore, nullptr);
+		vkDestroySemaphore(*getDevice(), myRenderCompleteSemaphore, nullptr);
+		vkDestroySemaphore(*getDevice(), myNewImageAcquiredSemaphore, nullptr);
 	}
 }
 

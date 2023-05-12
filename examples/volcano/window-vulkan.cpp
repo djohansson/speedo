@@ -23,12 +23,12 @@
 #include <imgui.h>
 
 template <>
-void WindowContext<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
+void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 {
-	ZoneScopedN("WindowContext::internalCreateFrameObjects");
+	ZoneScopedN("Window::internalCreateFrameObjects");
 
 	myViewBuffer = std::make_unique<Buffer<Vk>>(
-		getDeviceContext(),
+		getDevice(),
 		BufferCreateDesc<Vk>{
 			myConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -50,13 +50,12 @@ void WindowContext<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExten
 }
 
 template <>
-void WindowContext<Vk>::internalUpdateViewBuffer() const
+void Window<Vk>::internalUpdateViewBuffer() const
 {
-	ZoneScopedN("WindowContext::internalUpdateViewBuffer");
+	ZoneScopedN("Window::internalUpdateViewBuffer");
 
 	void* data;
-	VK_CHECK(
-		vmaMapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
 	ViewData* viewDataPtr =
 		&reinterpret_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
@@ -70,17 +69,17 @@ void WindowContext<Vk>::internalUpdateViewBuffer() const
 	}
 
 	vmaFlushAllocation(
-		getDeviceContext()->getAllocator(),
+		getDevice()->getAllocator(),
 		myViewBuffer->getBufferMemory(),
 		internalGetFrameIndex() * ShaderTypes_ViewCount * sizeof(ViewData),
 		viewCount * sizeof(ViewData));
 
-	vmaUnmapMemory(getDeviceContext()->getAllocator(), myViewBuffer->getBufferMemory());
+	vmaUnmapMemory(getDevice()->getAllocator(), myViewBuffer->getBufferMemory());
 }
 
 template <>
-uint32_t WindowContext<Vk>::internalDrawViews(
-	PipelineContext<Vk>& pipeline,
+uint32_t Window<Vk>::internalDrawViews(
+	Pipeline<Vk>& pipeline,
 	CommandPoolContext<Vk>* secondaryContexts,
 	uint32_t secondaryContextCount,
 	const RenderPassBeginInfo<Vk>& renderPassInfo)
@@ -95,7 +94,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 	// todo: generalize this to other types of draws
 	if (pipeline.resources().model)
 	{
-		ZoneScopedN("WindowContext::drawViews");
+		ZoneScopedN("Window::drawViews");
 
 		std::array<uint32_t, 128> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
@@ -119,7 +118,7 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 				if (drawIt >= drawCount)
 					return;
 
-				static constexpr std::string_view drawPartitionStr = "WindowContext::drawPartition";
+				static constexpr std::string_view drawPartitionStr = "Window::drawPartition";
 				char drawPartitionWithNumberStr[drawPartitionStr.size() + 3];
 				stbsp_sprintf(
 					drawPartitionWithNumberStr,
@@ -264,14 +263,14 @@ uint32_t WindowContext<Vk>::internalDrawViews(
 }
 
 template <>
-void WindowContext<Vk>::draw(
+void Window<Vk>::draw(
 	TaskExecutor& executor,
-	PipelineContext<Vk>& pipeline,
+	Pipeline<Vk>& pipeline,
 	CommandPoolContext<Vk>& primaryContext,
 	CommandPoolContext<Vk>* secondaryContexts,
 	uint32_t secondaryContextCount)
 {
-	ZoneScopedN("WindowContext::draw");
+	ZoneScopedN("Window::draw");
 
 	TaskGraph graph;
 	auto [task, updateViewBufferFuture] = graph.createTask([this]{ internalUpdateViewBuffer(); });
@@ -304,7 +303,7 @@ void WindowContext<Vk>::draw(
 }
 
 template <>
-void WindowContext<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
+void Window<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 {
 	myConfig.extent = framebufferExtent;
 
@@ -313,9 +312,9 @@ void WindowContext<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 }
 
 template <>
-void WindowContext<Vk>::updateInput(const InputState& input)
+void Window<Vk>::updateInput(const InputState& input)
 {
-	ZoneScopedN("WindowContext::updateInput");
+	ZoneScopedN("Window::updateInput");
 
 	// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
 	{
@@ -427,12 +426,12 @@ void WindowContext<Vk>::updateInput(const InputState& input)
 }
 
 template <>
-WindowContext<Vk>::WindowContext(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+Window<Vk>::Window(
+	const std::shared_ptr<Device<Vk>>& device,
 	SurfaceHandle<Vk>&& surface,
 	WindowConfiguration<Vk>&& defaultConfig)
 	: Swapchain(
-		  deviceContext, defaultConfig, std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
+		  device, defaultConfig, std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig(AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
 		  std::filesystem::path(volcano_getUserProfilePath()) / "window.json",
 		  std::forward<WindowConfiguration<Vk>>(defaultConfig)))
@@ -445,8 +444,8 @@ WindowContext<Vk>::WindowContext(
 }
 
 template <>
-WindowContext<Vk>::WindowContext(WindowContext&& other) noexcept
-	: Swapchain(std::forward<WindowContext>(other))
+Window<Vk>::Window(Window&& other) noexcept
+	: Swapchain(std::forward<Window>(other))
 	, myConfig(std::exchange(other.myConfig, {}))
 	, myTimestamps(std::exchange(other.myTimestamps, {}))
 	, myViews(std::exchange(other.myViews, {}))
@@ -455,15 +454,15 @@ WindowContext<Vk>::WindowContext(WindowContext&& other) noexcept
 {}
 
 template <>
-WindowContext<Vk>::~WindowContext()
+Window<Vk>::~Window()
 {
 	ZoneScopedN("~Window()");
 }
 
 template <>
-WindowContext<Vk>& WindowContext<Vk>::operator=(WindowContext&& other) noexcept
+Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 {
-	Swapchain::operator=(std::forward<WindowContext>(other));
+	Swapchain::operator=(std::forward<Window>(other));
 	myConfig = std::exchange(other.myConfig, {});
 	myTimestamps = std::exchange(other.myTimestamps, {});
 	myViews = std::exchange(other.myViews, {});
@@ -473,7 +472,7 @@ WindowContext<Vk>& WindowContext<Vk>::operator=(WindowContext&& other) noexcept
 }
 
 template <>
-void WindowContext<Vk>::swap(WindowContext& other) noexcept
+void Window<Vk>::swap(Window& other) noexcept
 {
 	Swapchain::swap(other);
 	std::swap(myConfig, other.myConfig);

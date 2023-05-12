@@ -10,7 +10,7 @@ public:
 
 protected:
 	RenderTargetImpl(
-		const std::shared_ptr<DeviceContext<Vk>>& deviceContext, CreateDescType&& desc);
+		const std::shared_ptr<Device<Vk>>& device, CreateDescType&& desc);
 	RenderTargetImpl(RenderTargetImpl&& other) noexcept;
 
 	RenderTargetImpl<CreateDescType, Vk>& operator=(RenderTargetImpl&& other) noexcept;

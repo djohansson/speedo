@@ -3,10 +3,10 @@
 
 template <>
 SamplerVector<Vk>::SamplerVector(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	std::vector<SamplerHandle<Vk>>&& samplers)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_Sampler"},
 		  samplers.size(),
 		  VK_OBJECT_TYPE_SAMPLER,
@@ -16,9 +16,9 @@ SamplerVector<Vk>::SamplerVector(
 
 template <>
 SamplerVector<Vk>::SamplerVector(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	const std::vector<SamplerCreateInfo<Vk>>& createInfos)
-	: SamplerVector<Vk>(deviceContext, createSamplers(deviceContext->getDevice(), createInfos))
+	: SamplerVector<Vk>(device, createSamplers(*device, createInfos))
 {}
 
 template <>
@@ -31,7 +31,7 @@ template <>
 SamplerVector<Vk>::~SamplerVector()
 {
 	for (auto sampler : mySamplers)
-		vkDestroySampler(getDeviceContext()->getDevice(), sampler, nullptr);
+		vkDestroySampler(*getDevice(), sampler, nullptr);
 }
 
 template <>

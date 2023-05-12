@@ -12,11 +12,11 @@ Buffer<Vk>::Buffer(Buffer&& other) noexcept
 
 template <>
 Buffer<Vk>::Buffer(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	BufferCreateDesc<Vk>&& desc,
 	ValueType&& buffer)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_Buffer"},
 		  1,
 		  VK_OBJECT_TYPE_BUFFER,
@@ -27,12 +27,12 @@ Buffer<Vk>::Buffer(
 
 template <>
 Buffer<Vk>::Buffer(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, BufferCreateDesc<Vk>&& desc)
+	const std::shared_ptr<Device<Vk>>& device, BufferCreateDesc<Vk>&& desc)
 	: Buffer(
-		  deviceContext,
+		  device,
 		  std::forward<BufferCreateDesc<Vk>>(desc),
 		  createBuffer(
-			  deviceContext->getAllocator(),
+			  device->getAllocator(),
 			  desc.size,
 			  desc.usageFlags,
 			  desc.memoryFlags,
@@ -41,15 +41,15 @@ Buffer<Vk>::Buffer(
 
 template <>
 Buffer<Vk>::Buffer(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	std::tuple<BufferCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
-		  deviceContext,
+		  device,
 		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  createBuffer(
 			  commandContext.commands(),
-			  deviceContext->getAllocator(),
+			  device->getAllocator(),
 			  std::get<1>(descAndInitialData),
 			  std::get<0>(descAndInitialData).size,
 			  std::get<0>(descAndInitialData).usageFlags,
@@ -57,10 +57,10 @@ Buffer<Vk>::Buffer(
 			  "todo_insert_proper_name"))
 {
 	commandContext.addCommandsFinishedCallback(
-		[deviceContext, descAndInitialData](uint64_t)
+		[device, descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
-				deviceContext->getAllocator(),
+				device->getAllocator(),
 				std::get<1>(descAndInitialData),
 				std::get<2>(descAndInitialData));
 		});
@@ -68,17 +68,17 @@ Buffer<Vk>::Buffer(
 
 template <>
 Buffer<Vk>::Buffer(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolContext<Vk>& commandContext,
 	BufferCreateDesc<Vk>&& desc,
 	const void* initialData)
 	: Buffer(
-		  deviceContext,
+		  device,
 		  commandContext,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(
-				  deviceContext->getAllocator(),
+				  device->getAllocator(),
 				  initialData,
 				  desc.size,
 				  "todo_insert_proper_name")))
@@ -88,8 +88,8 @@ template <>
 Buffer<Vk>::~Buffer()
 {
 	if (BufferHandle<Vk> buffer = *this; buffer)
-		getDeviceContext()->addTimelineCallback(
-			[allocator = getDeviceContext()->getAllocator(),
+		getDevice()->addTimelineCallback(
+			[allocator = getDevice()->getAllocator(),
 			 buffer,
 			 bufferMemory = getBufferMemory()](uint64_t)
 			{ vmaDestroyBuffer(allocator, buffer, bufferMemory); });
@@ -120,9 +120,9 @@ BufferView<Vk>::BufferView(BufferView&& other) noexcept
 
 template <>
 BufferView<Vk>::BufferView(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, BufferViewHandle<Vk>&& view)
+	const std::shared_ptr<Device<Vk>>& device, BufferViewHandle<Vk>&& view)
 	: DeviceObject(
-		  deviceContext,
+		  device,
 		  {"_View"},
 		  1,
 		  VK_OBJECT_TYPE_BUFFER_VIEW,
@@ -132,15 +132,15 @@ BufferView<Vk>::BufferView(
 
 template <>
 BufferView<Vk>::BufferView(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+	const std::shared_ptr<Device<Vk>>& device,
 	const Buffer<Vk>& buffer,
 	Format<Vk> format,
 	DeviceSize<Vk> offset,
 	DeviceSize<Vk> range)
 	: BufferView<Vk>(
-		  deviceContext,
+		  device,
 		  createBufferView(
-			  deviceContext->getDevice(),
+			  *device,
 			  buffer,
 			  0, // "reserved for future use"
 			  format,
@@ -152,9 +152,9 @@ template <>
 BufferView<Vk>::~BufferView()
 {
 	if (BufferViewHandle<Vk> view = *this; view)
-		getDeviceContext()->addTimelineCallback(
-			[device = getDeviceContext()->getDevice(), view](uint64_t)
-			{ vkDestroyBufferView(device, view, nullptr); });
+		getDevice()->addTimelineCallback(
+			[device = getDevice(), view](uint64_t)
+			{ vkDestroyBufferView(*device, view, nullptr); });
 }
 
 template <>

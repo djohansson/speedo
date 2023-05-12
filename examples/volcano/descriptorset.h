@@ -37,7 +37,7 @@ public:
 	constexpr DescriptorSetLayout() noexcept = default;
 	DescriptorSetLayout(DescriptorSetLayout&& other) noexcept;
 	DescriptorSetLayout(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		DescriptorSetLayoutCreateDesc<B>&& desc);
 	~DescriptorSetLayout();
 
@@ -62,7 +62,7 @@ private:
 		std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>, ShaderVariableBindingsMap>;
 
 	DescriptorSetLayout( // takes ownership of provided handle
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		DescriptorSetLayoutCreateDesc<B>&& desc,
 		ValueType&& layout);
 
@@ -89,7 +89,7 @@ public:
 	constexpr DescriptorSetArray() noexcept = default;
 	DescriptorSetArray(DescriptorSetArray&& other) noexcept;
 	DescriptorSetArray( // allocates array of descriptor set handles using single layout
-		const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+		const std::shared_ptr<Device<Vk>>& device,
 		const DescriptorSetLayout<Vk>& layout,
 		DescriptorSetArrayCreateDesc<Vk>&& desc);
 	~DescriptorSetArray();
@@ -106,7 +106,7 @@ public:
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles
-		const std::shared_ptr<DeviceContext<Vk>>& deviceContext,
+		const std::shared_ptr<Device<Vk>>& device,
 		DescriptorSetArrayCreateDesc<Vk>&& desc,
 		ArrayType&& descriptorSetHandles);
 
@@ -137,7 +137,7 @@ public:
 	constexpr DescriptorUpdateTemplate() noexcept = default;
 	DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept;
 	DescriptorUpdateTemplate(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		DescriptorUpdateTemplateCreateDesc<B>&& desc);
 	~DescriptorUpdateTemplate();
 
@@ -164,7 +164,7 @@ private:
 	void internalDestroyTemplate();
 
 	DescriptorUpdateTemplate( // takes ownership of provided handle
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		DescriptorUpdateTemplateCreateDesc<B>&& desc,
 		DescriptorUpdateTemplateHandle<B>&& handle);
 

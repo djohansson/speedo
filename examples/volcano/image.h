@@ -36,14 +36,14 @@ public:
 	constexpr Image() noexcept = default;
 	Image(Image&& other) noexcept;
 	Image( // creates uninitialized image
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		ImageCreateDesc<B>&& desc);
 	Image( // loads a file into a buffer and creates a new image from it.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		const std::filesystem::path& imageFile);
 	Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		ImageCreateDesc<B>&& desc,
 		const void* initialData,
@@ -74,11 +74,11 @@ public:
 
 private:
 	Image( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		CommandPoolContext<B>& commandContext,
 		std::tuple<ImageCreateDesc<B>, BufferHandle<B>, AllocationHandle<B>>&& descAndInitialData);
 	Image( // takes ownership of provided image handle & allocation
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		ImageCreateDesc<B>&& desc,
 		ValueType&& data);
 
@@ -101,7 +101,7 @@ public:
 	constexpr ImageView() noexcept = default;
 	ImageView(ImageView&& other) noexcept;
 	ImageView( // creates a view from image
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		const Image<B>& image,
 		Flags<Vk> aspectFlags);
 	~ImageView();
@@ -114,7 +114,7 @@ public:
 
 private:
 	ImageView( // uses provided image view
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		ImageViewHandle<B>&& view);
 
 	ImageViewHandle<B> myView{};

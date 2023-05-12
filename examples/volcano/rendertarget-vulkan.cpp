@@ -18,7 +18,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 	for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
 	{
 		myAttachments.emplace_back(createImageView2D(
-			getDeviceContext()->getDevice(),
+			*getDevice(),
 			0,
 			desc.colorImages[attachmentIt],
 			desc.colorImageFormats[attachmentIt],
@@ -40,7 +40,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 				1,
 				attachmentIt);
 
-			getDeviceContext()->addOwnedObjectHandle(
+			getDevice()->addOwnedObjectHandle(
 				getUid(),
 				VK_OBJECT_TYPE_IMAGE_VIEW,
 				reinterpret_cast<uint64_t>(myAttachments.back()),
@@ -70,7 +70,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			depthAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
 		myAttachments.emplace_back(createImageView2D(
-			getDeviceContext()->getDevice(),
+			*getDevice(),
 			0,
 			desc.depthStencilImage,
 			desc.depthStencilImageFormat,
@@ -90,7 +90,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 				static_cast<int>(depthImageViewStr.size()),
 				depthImageViewStr.data());
 
-			getDeviceContext()->addOwnedObjectHandle(
+			getDevice()->addOwnedObjectHandle(
 				getUid(),
 				VK_OBJECT_TYPE_IMAGE_VIEW,
 				reinterpret_cast<uint64_t>(myAttachments.back()),
@@ -223,10 +223,10 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 	ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
 
 	auto renderPass = createRenderPass(
-		getDeviceContext()->getDevice(), myAttachmentDescs, mySubPassDescs, mySubPassDependencies);
+		*getDevice(), myAttachmentDescs, mySubPassDescs, mySubPassDependencies);
 
 	auto frameBuffer = createFramebuffer(
-		getDeviceContext()->getDevice(),
+		*getDevice(),
 		renderPass,
 		myAttachments.size(),
 		myAttachments.data(),
@@ -249,7 +249,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 			renderPassStr.data(),
 			static_cast<unsigned int>(hashKey));
 
-		getDeviceContext()->addOwnedObjectHandle(
+		getDevice()->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_RENDER_PASS,
 			reinterpret_cast<uint64_t>(renderPass),
@@ -264,7 +264,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 			framebufferStr.data(),
 			static_cast<unsigned int>(hashKey));
 
-		getDeviceContext()->addOwnedObjectHandle(
+		getDevice()->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_FRAMEBUFFER,
 			reinterpret_cast<uint64_t>(frameBuffer),
@@ -501,8 +501,8 @@ void RenderTarget<Vk>::end(CommandBufferHandle<Vk> cmd)
 
 template <>
 RenderTarget<Vk>::RenderTarget(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, const RenderTargetCreateDesc<Vk>& desc)
-	: DeviceObject(deviceContext, {})
+	const std::shared_ptr<Device<Vk>>& device, const RenderTargetCreateDesc<Vk>& desc)
+	: DeviceObject(device, {})
 {
 	ZoneScopedN("RenderTarget()");
 
@@ -535,12 +535,12 @@ RenderTarget<Vk>::~RenderTarget()
 
 	for (const auto& entry : myMap)
 	{
-		vkDestroyRenderPass(getDeviceContext()->getDevice(), std::get<0>(entry.second), nullptr);
-		vkDestroyFramebuffer(getDeviceContext()->getDevice(), std::get<1>(entry.second), nullptr);
+		vkDestroyRenderPass(*getDevice(), std::get<0>(entry.second), nullptr);
+		vkDestroyFramebuffer(*getDevice(), std::get<1>(entry.second), nullptr);
 	}
 
 	for (const auto& colorView : myAttachments)
-		vkDestroyImageView(getDeviceContext()->getDevice(), colorView, nullptr);
+		vkDestroyImageView(*getDevice(), colorView, nullptr);
 }
 
 template <>
@@ -574,8 +574,8 @@ void RenderTarget<Vk>::swap(RenderTarget& rhs) noexcept
 
 template <>
 RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
-	const std::shared_ptr<DeviceContext<Vk>>& deviceContext, RenderTargetCreateDesc<Vk>&& desc)
-	: RenderTarget(deviceContext, desc)
+	const std::shared_ptr<Device<Vk>>& device, RenderTargetCreateDesc<Vk>&& desc)
+	: RenderTarget(device, desc)
 	, myDesc(std::forward<RenderTargetCreateDesc<Vk>>(desc))
 {}
 

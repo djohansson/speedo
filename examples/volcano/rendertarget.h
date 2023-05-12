@@ -118,7 +118,7 @@ protected:
 	constexpr RenderTarget() noexcept = default;
 	RenderTarget(RenderTarget<B>&& other) noexcept;
 	RenderTarget(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		const RenderTargetCreateDesc<B>& desc);
 
 	RenderTarget& operator=(RenderTarget&& other) noexcept;

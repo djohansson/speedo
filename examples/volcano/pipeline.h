@@ -21,7 +21,7 @@ public:
 	constexpr PipelineLayout() noexcept = default;
 	PipelineLayout(PipelineLayout<B>&& other) noexcept;
 	PipelineLayout(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext, const ShaderSet<B>& shaderSet);
+		const std::shared_ptr<Device<B>>& device, const ShaderSet<B>& shaderSet);
 	~PipelineLayout();
 
 	PipelineLayout& operator=(PipelineLayout&& other) noexcept;
@@ -38,11 +38,11 @@ public:
 
 private:
 	PipelineLayout( // takes ownership over provided handles
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		std::vector<ShaderModule<B>>&& shaderModules,
 		DescriptorSetLayoutFlatMap<B>&& descriptorSetLayouts);
 	PipelineLayout( // takes ownership over provided handles
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+		const std::shared_ptr<Device<B>>& device,
 		std::vector<ShaderModule<B>>&& shaderModules,
 		DescriptorSetLayoutFlatMap<B>&& descriptorSetLayouts,
 		PipelineLayoutHandle<B>&& layout);
@@ -81,7 +81,7 @@ struct PipelineConfiguration
 //         * pipeline map/cache shared across thread instances
 //         * descriptor data shared across thread instances (if possible. avoids excessive copying...)
 template <GraphicsBackend B>
-class PipelineContext : public DeviceObject<B>
+class Pipeline : public DeviceObject<B>
 {
 	using PipelineMapType = UnorderedMap<
 		uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
@@ -94,10 +94,10 @@ class PipelineContext : public DeviceObject<B>
 		DescriptorSetState<B>>;
 
 public:
-	PipelineContext(
-		const std::shared_ptr<DeviceContext<B>>& deviceContext,
+	Pipeline(
+		const std::shared_ptr<Device<B>>& device,
 		PipelineConfiguration<B>&& defaultConfig = {});
-	~PipelineContext();
+	~Pipeline();
 
 	const auto& getConfig() const noexcept { return myConfig; }
 	auto getCache() const noexcept { return myCache; }
