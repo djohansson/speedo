@@ -140,7 +140,8 @@
 			"stdalign.h": "c",
 			"gsl_util": "cpp",
 			"latch": "cpp",
-			"barrier": "cpp"
+			"barrier": "cpp",
+			"source_location": "cpp"
 		}
 	}
 }
