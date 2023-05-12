@@ -50,10 +50,8 @@ public:
 
 	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
-	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<B> device) const noexcept
-	{
-		return myPhysicalDeviceInfos.at(device);
-	}
+	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<B> device) const { return myPhysicalDeviceInfos.at(device);	}
+
 	const SwapchainInfo<B>&
 	getSwapchainInfo(PhysicalDeviceHandle<B> device, SurfaceHandle<B> surface);
 
