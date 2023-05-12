@@ -8,6 +8,21 @@
 {
 	Using(.CompilerBaseConfig)
 
+	.MiMallocLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/external/mimalloc'
+
+		.Name = 'mimalloc'
+		.LibraryCompilerOptions = .CompilerOptionsC
+			+ ' -I$ProjectBasePath$/include'
+			+ ' -Wno-unused-function'
+		.CompilerInputFiles = {
+			'$ProjectBasePath$/src/static.c'
+		}
+	]
+
 	.CoreObjectList = 
 	[
 		Using(.ObjectListCommon)
@@ -328,34 +343,6 @@
 		.CompilerInputPath = '$ProjectBasePath$/Source'
 	]
 
-	.MiMallocLibrary =
-	[
-		Using(.LibraryCommon)
-
-		.ProjectBasePath = '$BuildRootPath$/external/mimalloc'
-
-		.Name = 'mimalloc'
-		.LibraryCompilerOptions = .CompilerOptionsC
-			+ ' -I$ProjectBasePath$/include'
-			+ ' -Wno-unused-function'
-		.CompilerInputFiles = {
-			'$ProjectBasePath$/src/stats.c',
-			'$ProjectBasePath$/src/random.c',
-			'$ProjectBasePath$/src/os.c',
-			'$ProjectBasePath$/src/bitmap.c',
-			'$ProjectBasePath$/src/arena.c',
-			'$ProjectBasePath$/src/segment-cache.c',
-			'$ProjectBasePath$/src/segment.c',
-			'$ProjectBasePath$/src/page.c',
-			'$ProjectBasePath$/src/alloc.c',
-			'$ProjectBasePath$/src/alloc-aligned.c',
-			'$ProjectBasePath$/src/alloc-posix.c',
-			'$ProjectBasePath$/src/heap.c',
-			'$ProjectBasePath$/src/options.c',
-			'$ProjectBasePath$/src/init.c',
-		}
-	]
-
 	.TracyClientObjectList =
 	[
 		Using(.ObjectListCommon)
@@ -365,7 +352,6 @@
 		.Name = 'tracy-client'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/tracy'
-			+ ' -I$BuildRootPath$/external/mimalloc/include'
 			+ ' -Wno-deprecated-anon-enum-enum-conversion'
 			+ ' -Wno-format'
 			+ ' -Wno-unused-variable'
@@ -386,7 +372,6 @@
 		.DependencyTasks = { .Gl3wGenerateTask }
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/external/tracy/profiler'
-			+ ' -I$BuildRootPath$/external/mimalloc/include'
 			+ ' -I$BuildRootPath$/external/capstone/include/capstone'
 			+ ' -I$BuildRootPath$/external/glfw/include'
 			+ ' -I$BuildRootPath$/external/freetype2/include'
@@ -730,7 +715,6 @@
 			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
-			+ ' -Dcorealgos_allocator=MiMallocAllocator'
 		.CompilerInputPath = '$ProjectBasePath$'
 	//	.CompilerInputUnity = '$Name$-unity'
 	// 	.UnityInputPath = '$ProjectBasePath$'
@@ -1157,7 +1141,6 @@
 			.Freetype2Library,
 			.NFDLibrary,
 			.CapstoneLibrary,
-			.MiMallocLibrary,
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
@@ -1232,6 +1215,7 @@
 			.VolcanoObjectList,
 		}
 		.DependencyLibraries = {
+			.MiMallocLibrary,
 			.Gl3wLibrary,
 			.GlTFSDKLibrary,
 			.GlfwLibrary,
@@ -1241,7 +1225,6 @@
 			.ImguiLibrary,
 			.Freetype2Library,
 			.NFDLibrary,
-			.MiMallocLibrary,
 		}
 		.DependencyDLLs = {
 			.SlangDLL,
