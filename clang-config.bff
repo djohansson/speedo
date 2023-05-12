@@ -108,6 +108,12 @@
 	.ProfilingEnabled = '1'
 	.GraphicsValidationEnabled = '1'
 	.CompilerOptions + ' -O0'
+		+ ' -fno-omit-frame-pointer'
+		+ ' -fsanitize=undefined'
+	// 	+ ' -fsanitize=address'
+	// 	+ ' -D_DISABLE_STRING_ANNOTATION'
+	// 	+ ' -D_DISABLE_VECTOR_ANNOTATION'
+	// .LinkerOptions + ' -fsanitize=address'
 ]
 
 .Clang_x86_64_v3_ReleaseConfig =
