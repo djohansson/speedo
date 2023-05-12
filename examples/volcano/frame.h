@@ -33,15 +33,11 @@ public:
 
 	virtual void end(CommandBufferHandle<B> cmd) final;
 
-	virtual void
-	transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
+	virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
 	virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
 
 	const auto& getRenderCompleteSemaphore() const noexcept { return myRenderCompleteSemaphore; }
-	const auto& getNewImageAcquiredSemaphore() const noexcept
-	{
-		return myNewImageAcquiredSemaphore;
-	}
+	const auto& getNewImageAcquiredSemaphore() const noexcept { return myNewImageAcquiredSemaphore; }
 	const auto& getLastPresentTimelineValue() const noexcept { return myLastPresentTimelineValue; }
 
 	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);

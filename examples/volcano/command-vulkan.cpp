@@ -17,7 +17,7 @@ static auto createArray(
 	{
 		ZoneScopedN("commandbufferarray::createArray::vkAllocateCommandBuffers");
 
-		VkCommandBufferAllocateInfo cmdInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+		VkCommandBufferAllocateInfo cmdInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 		cmdInfo.commandPool = desc.pool;
 		cmdInfo.level = desc.level;
 		cmdInfo.commandBufferCount = CommandBufferArray<Vk>::capacity();

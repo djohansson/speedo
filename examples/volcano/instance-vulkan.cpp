@@ -199,8 +199,8 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		{
 			mi_free(pMemory);
 		},
-		PFN_vkInternalAllocationNotification{},
-		PFN_vkInternalFreeNotification{}}
+		nullptr,
+		nullptr}
 {
 	ZoneScopedN("Instance()");
 

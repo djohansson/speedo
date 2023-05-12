@@ -57,8 +57,7 @@ void Window<Vk>::internalUpdateViewBuffer() const
 	void* data;
 	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
 
-	ViewData* viewDataPtr =
-		&reinterpret_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
+	ViewData* viewDataPtr = &static_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 	assert(viewCount <= ShaderTypes_ViewCount);
 	for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)

@@ -48,7 +48,7 @@ Frame<Vk>::Frame(
 {
 	ZoneScopedN("Frame()");
 
-	VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+	VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 	VK_CHECK(vkCreateSemaphore(
 		*getDevice(),
 		&semaphoreInfo,

@@ -205,7 +205,7 @@ Application<Vk>::Application(const WindowState& window)
 		{/*std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)*/},
 		shaderIntermediatePath);
 
-	auto shaderReflection = shaderLoader.load<Vk>(resourcePath / "shaders" / "shaders.slang");
+	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
 
 	auto surface = createSurface(*myInstance, windowHandle);
 
@@ -304,7 +304,7 @@ Application<Vk>::Application(const WindowState& window)
 		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestSurfaceImageFormat);
 			 requestIt++)
 		{
-			auto requestedFormat = SurfaceFormat<Vk>{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
+			SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
 
 			auto formatIt = std::find_if(
 				swapchainInfo.formats.begin(),
