@@ -339,7 +339,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 		VkDebugUtilsMessengerEXT messenger;
 		VK_CHECK(vkCreateDebugUtilsMessengerEXT(
-			myInstance, &instance::debugUtilsMessengerCallbackCreateInfo, &myHostAllocator, &messenger));
+			myInstance, &instance::debugUtilsMessengerCallbackCreateInfo, &myHostAllocationCallbacks, &messenger));
 
 		std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger = messenger;
 	}
@@ -361,5 +361,5 @@ Instance<Vk>::~Instance()
 			&getHostAllocationCallbacks());
 	}
 
-	vkDestroyInstance(myInstance, &myHostAllocator);
+	vkDestroyInstance(myInstance, &myHostAllocationCallbacks);
 }
