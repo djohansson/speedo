@@ -154,8 +154,8 @@ private:
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
 
-	alignas(intptr_t) AlignedArray<kMaxCallableSizeBytes> myCallableMemory{};
-	alignas(intptr_t) AlignedArray<kMaxArgsSizeBytes> myArgsMemory{};
+	alignas(intptr_t) std::byte myCallableMemory[kMaxCallableSizeBytes];
+	alignas(intptr_t) std::byte myArgsMemory[kMaxArgsSizeBytes];
 	void (*myInvokeFcnPtr)(const void*, const void*, void*){};
 	void (*myCopyFcnPtr)(void*, const void*, void*, const void*){};
 	void (*myDeleteFcnPtr)(void*, void*){};

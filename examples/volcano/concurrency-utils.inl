@@ -171,10 +171,10 @@ void Task::operator()(Args&&... args)
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 
 	std::construct_at(
-		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
+		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory)),
 		std::forward<Args>(args)...);
 
-	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get());
+	myInvokeFcnPtr(myCallableMemory, myArgsMemory, myState.get());
 }
 
 template <
@@ -243,12 +243,12 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 
 	static_assert(sizeof(CallableType) <= kMaxCallableSizeBytes);
 	std::construct_at(
-		static_cast<CallableType*>(static_cast<void*>(myCallableMemory.data())),
+		static_cast<CallableType*>(static_cast<void*>(myCallableMemory)),
 		std::forward<CallableType>(f));
 
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	std::construct_at(
-		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
+		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory)),
 		std::forward<Args>(args)...);
 }
 
