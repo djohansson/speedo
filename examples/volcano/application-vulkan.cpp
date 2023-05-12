@@ -1154,6 +1154,8 @@ Application<Vk>::~Application()
 		myDevice->wait(timelineValue);
 	}
 
+	vkDeviceWaitIdle(*gfx().myDevice); // added this hack since timeline wait is not respected by the validation layer (likely) or is not actually working for some reason.
+
 	shutdownIMGUI();
 }
 
