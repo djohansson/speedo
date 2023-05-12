@@ -1131,7 +1131,13 @@ Application<Vk>::~Application()
 	ZoneScopedN("~Application()");
 
 	{
-		ZoneScopedN("Application::waitGPU");
+		ZoneScopedN("~Application()::waitCPU");
+
+		myExecutor.join(std::move(myPresentFuture));
+	}
+
+	{
+		ZoneScopedN("~Application()::waitGPU");
 
 		// wait in on all queues
 		uint64_t timelineValue = 0ull;
