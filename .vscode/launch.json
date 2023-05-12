@@ -1,404 +1,209 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "(Windows) debug/slangc",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/slangc.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) release/slangc",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/slangc.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) profile/slangc",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/slangc.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) debug/hello-world",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/hello-world.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/hello-world",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) release/hello-world",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/hello-world.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/hello-world",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) profile/hello-world",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/hello-world.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/hello-world",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) debug/model-viewer",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/model-viewer.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/model-viewer",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) release/model-viewer",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/model-viewer.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/model-viewer",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) profile/model-viewer",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/model-viewer.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/model-viewer",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) debug/volcano",
-            "type": "cppvsdbg",
-            //"type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/volcano.exe",
-            "symbolSearchPath": "${workspaceFolder}/build.output/debug",
-            "symbolOptions": {
-                "searchPaths": [
-                    "https://driver-symbols.nvidia.com/",
-                    "https://download.amd.com/dir/bin"
-                ],
-                "searchMicrosoftSymbolServer": true,
-                "cachePath": "D:/symbolcache",
-                "moduleFilter": {
-                    "mode": "loadAllButExcluded",
-                    "excludedModules": [ "DoNotLookForThisOne*.dll" ]
-                }
-            },
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) release/volcano",
-            "type": "cppvsdbg",
-            //"type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/volcano.exe",
-            "symbolSearchPath": "${workspaceFolder}/build.output/release",
-            "symbolOptions": {
-                "searchPaths": [
-                    "https://driver-symbols.nvidia.com/",
-                    "https://download.amd.com/dir/bin"
-                ],
-                "searchMicrosoftSymbolServer": true,
-                "cachePath": "D:/symbolcache",
-                "moduleFilter": {
-                    "mode": "loadAllButExcluded",
-                    "excludedModules": [ "DoNotLookForThisOne*.dll" ]
-                }
-            },
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) profile/volcano",
-            "type": "cppvsdbg",
-            //"type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/volcano.exe",
-            "symbolSearchPath": "${workspaceFolder}/build.output/profile",
-            "symbolOptions": {
-                "searchPaths": [
-                    "https://driver-symbols.nvidia.com/",
-                    "https://download.amd.com/dir/bin"
-                ],
-                "searchMicrosoftSymbolServer": true,
-                "cachePath": "D:/symbolcache",
-                "moduleFilter": {
-                    "mode": "loadAllButExcluded",
-                    "excludedModules": [ "DoNotLookForThisOne*.dll" ]
-                }
-            },
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) debug/mio-test",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/mio.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) release/mio-test",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/mio.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) profile/mio-test",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/mio.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) debug/picosha2-test",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/picosha2.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/external/PicoSHA2/test",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) release/picosha2-test",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/picosha2.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/external/PicoSHA2/test",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(Windows) profile/picosha2-test",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/picosha2.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/external/PicoSHA2/test",
-            "environment": [
-                {
-                    "name": "_NO_DEBUG_HEAP",
-                    "value": "1"
-                }
-            ],
-            "console": "internalConsole"
-        },
-        {
-            "name": "(lldb) debug/slangc",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/slangc",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"}],
-            "console": "internalConsole",
-            "MIMode": "lldb",
-        },
-        {
-            "name": "(lldb) release/slangc",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/slangc",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"}],
-            "console": "internalConsole",
-            "MIMode": "lldb",
-        },
-        {
-            "name": "(lldb) profile/slangc",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/slangc",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"}],
-            "console": "internalConsole",
-            "MIMode": "lldb",
-        },
-        {
-            "name": "(lldb) debug/volcano",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/debug/volcano",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"}],
-            "console": "internalConsole",
-            "MIMode": "lldb",
-        },
-        {
-            "name": "(lldb) release/volcano",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/release/volcano",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"}],
-            "console": "internalConsole",
-            "MIMode": "lldb",
-        },
-        {
-            "name": "(lldb) profile/volcano",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build.output/profile/volcano",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/examples/volcano",
-            "environment": [{"name":"DYLD_LIBRARY_PATH", "value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"}],
-            "console": "internalConsole",
-            "MIMode": "lldb",
-        },
-    ]
+	// Use IntelliSense to learn about possible attributes.
+	// Hover to view descriptions of existing attributes.
+	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+	"version": "0.2.1",
+	"configurations": [
+		{
+			"name": "(Windows) debug/slangc",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/slangc.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) release/slangc",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/slangc.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) profile/slangc",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/slangc.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) debug/hello-world",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/hello-world.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/hello-world",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) release/hello-world",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/hello-world.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/hello-world",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) profile/hello-world",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/hello-world.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/hello-world",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) debug/model-viewer",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/model-viewer.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/model-viewer",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) release/model-viewer",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/model-viewer.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/model-viewer",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) profile/model-viewer",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/model-viewer.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/model-viewer",
+			"console": "internalConsole"
+		},
+		{
+			"name": "(Windows) debug/volcano",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/volcano.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/volcano",
+			"terminal": "integrated",
+			"env": { "_NO_DEBUG_HEAP": "1", "MIMALLOC_SHOW_STATS": "1", "MIMALLOC_VERBOSE": "1", "MIMALLOC_SHOW_ERRORS": "1" }
+		},
+		{
+			"name": "(Windows) release/volcano",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/volcano.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/volcano",
+			"terminal": "integrated",
+			"env": { "MIMALLOC_SHOW_ERRORS": "1" }
+		},
+		{
+			"name": "(Windows) profile/volcano",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/volcano.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/volcano",
+			"terminal": "integrated",
+			"env": { "MIMALLOC_SHOW_ERRORS": "1" }
+		},
+		{
+			"name": "(Mac) debug/slangc",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/slangc",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{
+					"name": "DYLD_LIBRARY_PATH",
+					"value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"
+				}
+			],
+			"MIMode": "lldb"
+		},
+		{
+			"name": "(Mac) release/slangc",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/slangc",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{
+					"name": "DYLD_LIBRARY_PATH",
+					"value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"
+				}
+			],
+			"MIMode": "lldb"
+		},
+		{
+			"name": "(Mac) profile/slangc",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/slangc",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{
+					"name": "DYLD_LIBRARY_PATH",
+					"value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"
+				}
+			],
+			"MIMode": "lldb"
+		},
+		{
+			"name": "(Mac) debug/volcano",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/volcano",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/volcano",
+			"environment": [
+				{
+					"name": "DYLD_LIBRARY_PATH",
+					"value": "${workspaceFolder}/build.output/debug:$DYLD_LIBRARY_PATH"
+				}
+			],
+			"MIMode": "lldb"
+		},
+		{
+			"name": "(Mac) release/volcano",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/volcano",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/volcano",
+			"environment": [
+				{
+					"name": "DYLD_LIBRARY_PATH",
+					"value": "${workspaceFolder}/build.output/release:$DYLD_LIBRARY_PATH"
+				}
+			],
+			"MIMode": "lldb"
+		},
+		{
+			"name": "(Mac) profile/volcano",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/volcano",
+			"args": [],
+			"cwd": "${workspaceFolder}/examples/volcano",
+			"environment": [
+				{
+					"name": "DYLD_LIBRARY_PATH",
+					"value": "${workspaceFolder}/build.output/profile:$DYLD_LIBRARY_PATH"
+				}
+			],
+			"MIMode": "lldb"
+		},
+	]
 }
