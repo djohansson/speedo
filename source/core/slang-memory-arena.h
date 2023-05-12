@@ -236,7 +236,7 @@ SLANG_FORCE_INLINE void* MemoryArena::allocateUnaligned(size_t sizeInBytes)
     assert(sizeInBytes > 0);
     // Align with the minimum alignment
     uint8_t* mem = m_current;
-    uint8_t* end = mem + sizeInBytes;
+    uint8_t* end = (uint8_t*)(size_t(mem) + sizeInBytes);
     if (end <= m_end)
     {
         m_current = end;
@@ -253,7 +253,7 @@ SLANG_FORCE_INLINE void* MemoryArena::allocateCurrentUnaligned(size_t sizeInByte
 {
     // Align with the minimum alignment
     uint8_t* mem = m_current;
-    uint8_t* end = mem + sizeInBytes;
+    uint8_t* end = (uint8_t*)(size_t(mem) + sizeInBytes);
     if (end <= m_end)
     {
         m_current = end;
@@ -273,9 +273,9 @@ SLANG_FORCE_INLINE void* MemoryArena::allocate(size_t sizeInBytes)
     const size_t alignMask = kMinAlignment - 1;
     uint8_t* mem = (uint8_t*)((size_t(m_current) + alignMask) & ~alignMask);
 
-    if (mem + sizeInBytes <= m_end)
+    if (size_t(mem) + sizeInBytes <= size_t(m_end))
     {
-        m_current = mem + sizeInBytes;
+        m_current = (uint8_t*)(size_t(mem) + sizeInBytes);
         return mem;
     }
     else
@@ -292,7 +292,7 @@ SLANG_FORCE_INLINE void* MemoryArena::allocateAndZero(size_t sizeInBytes)
     const size_t alignMask = kMinAlignment - 1;
     // Implement without calling ::allocate, because in most common case we don't need to test for null.
     uint8_t* mem = (uint8_t*)((size_t(m_current) + alignMask) & ~alignMask);
-    uint8_t* end = mem + sizeInBytes;
+    uint8_t* end = (uint8_t*)(size_t(mem) + sizeInBytes);
     if ( end <= m_end)
     {
         ::memset(mem, 0, sizeInBytes);
@@ -318,7 +318,7 @@ SLANG_FORCE_INLINE void* MemoryArena::allocateAligned(size_t sizeInBytes, size_t
 
     if (memory + sizeInBytes <= m_end)
     {
-        m_current = memory + sizeInBytes;
+        m_current = (uint8_t*)(size_t(memory) + sizeInBytes);
         return memory;
     }
     else
