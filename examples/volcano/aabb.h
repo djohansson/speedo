@@ -18,7 +18,7 @@ class AABB
 	template <typename U>
 	using OtherVectorType = glm::vec<N, U, glm::defaultp>;
 
-	static const size_t CornerCount = 1 << N;
+	static constexpr size_t CornerCount = 1 << N;
 
 public:
 	constexpr AABB() noexcept
