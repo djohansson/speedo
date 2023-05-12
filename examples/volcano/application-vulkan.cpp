@@ -43,8 +43,7 @@ void Application<Vk>::initIMGUI(
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	auto& platformIo = ImGui::GetPlatformIO();
 	platformIo.Platform_CreateVkSurface =
-		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(
-			myInstance->getInstance(), "vkCreateWin32SurfaceKHR");
+		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*myInstance, "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
 		myInstance->getSwapchainInfo(device->getPhysicalDevice(), surface).capabilities;
@@ -90,7 +89,7 @@ void Application<Vk>::initIMGUI(
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo = {};
-	initInfo.Instance = myInstance->getInstance();
+	initInfo.Instance = *myInstance;
 	initInfo.PhysicalDevice = myDevice->getPhysicalDevice();
 	initInfo.Device = *device;
 	initInfo.QueueFamily = myGraphicsQueues.front().getDesc().queueFamilyIndex;
@@ -204,7 +203,7 @@ Application<Vk>::Application(void* windowHandle, int width, int height)
 
 	auto shaderReflection = shaderLoader.load<Vk>(resourcePath / "shaders" / "shaders.slang");
 
-	auto surface = createSurface(myInstance->getInstance(), windowHandle);
+	auto surface = createSurface(*myInstance, windowHandle);
 
 	auto detectSuitableGraphicsDevice = [](auto instance, auto surface)
 	{
