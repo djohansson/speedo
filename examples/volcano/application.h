@@ -57,16 +57,16 @@ template <GraphicsBackend B>
 class Application
 {
 public:
-	Application(void* windowHandle, int width, int height);
+	Application(const WindowState& window);
 	~Application();
 
 	bool tick();
 
-	void resizeWindow(const WindowState& state);
+	void resizeWindow(const WindowState& window);
 	void resizeFramebuffer(int width, int height);
 
-	void onMouse(const MouseState& state);
-	void onKeyboard(const KeyboardState& state);
+	void onMouse(const MouseState& mouse);
+	void onKeyboard(const KeyboardState& keyboard);
 
 	const char* getName() const;
 
@@ -74,6 +74,7 @@ private:
 	Application();
 
 	void initIMGUI(
+		const WindowState& window,
 		const std::shared_ptr<Device<B>>& device,
 		CommandBufferHandle<B> commands,
 		RenderPassHandle<B> renderPass,

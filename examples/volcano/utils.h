@@ -62,9 +62,6 @@ private:
     void *operator new[](size_t);
 };
 
-template <size_t ArraySize, size_t ElementSize = sizeof(std::byte), size_t Alignment = alignof(std::byte)>
-using AlignedArray = std::array<std::aligned_storage_t<ElementSize, Alignment>, ArraySize>;
-
 template <typename T>
 class ArrayDeleter : Noncopyable
 {

@@ -333,14 +333,14 @@ void Window<Vk>::updateInput(const InputState& input)
 	if (input.mouseButtonsPressed[2])
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = input.mousePosition[0].x /
+		size_t viewIdx = input.mousePosition[0][0] /
 						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-		size_t viewIdy = input.mousePosition[0].y /
+		size_t viewIdy = input.mousePosition[0][1] /
 						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
 		myActiveView =
 			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-		//std::cout << *myActiveView << ":[" << input.mousePosition[0].x << ", " << input.mousePosition[0].y << "]" << '\n';
+		//std::cout << *myActiveView << ":[" << input.mousePosition[0][0] << ", " << input.mousePosition[0][1] << "]" << '\n';
 	}
 	else if (!input.mouseButtonsPressed[0])
 	{

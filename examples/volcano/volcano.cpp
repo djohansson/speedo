@@ -29,19 +29,18 @@ getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 } // namespace volcano
 
 int volcano_create(
-	void* windowHandle,
-	int width,
-	int height,
+	const WindowState* window,
 	const char* rootPath,
 	const char* resourcePath,
 	const char* userProfilePath)
 {
-	assert(windowHandle != nullptr);
+	assert(window != nullptr);
+	assert(window->handle != nullptr);
 
 	g_rootPath = volcano::getCanonicalPath(resourcePath, "./");
 	g_resourcePath = volcano::getCanonicalPath(resourcePath, "./resources/");
 	g_userProfilePath = volcano::getCanonicalPath(userProfilePath, "./.profile/", true);
-	g_app = std::make_unique<Application<Vk>>(windowHandle, width, height);
+	g_app = std::make_unique<Application<Vk>>(*window);
 
 	return EXIT_SUCCESS;
 }

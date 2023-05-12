@@ -1,7 +1,5 @@
 #pragma once
 
-#include <array>
-
 #include "glm.h"
 #include "utils.h"
 
@@ -28,6 +26,8 @@ struct KeyboardState
 
 struct WindowState
 {
+	void* handle = nullptr;
+	void* nativeHandle = nullptr;
 	uint32_t x = 0;
 	uint32_t y = 0;
 	uint32_t width = 0;
@@ -41,6 +41,6 @@ struct WindowState
 struct InputState
 {
 	UnorderedMap<uint32_t, bool> keysPressed;
-	std::array<bool, 3> mouseButtonsPressed;
-	std::array<glm::vec2, 2> mousePosition;
+	bool mouseButtonsPressed[3];
+	glm::vec2 mousePosition[2];
 };

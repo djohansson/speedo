@@ -21,6 +21,7 @@
 
 template <>
 void Application<Vk>::initIMGUI(
+	const WindowState& window,
 	const std::shared_ptr<Device<Vk>>& device,
 	CommandBufferHandle<Vk> commands,
 	RenderPassHandle<Vk> renderPass,
@@ -117,6 +118,7 @@ void Application<Vk>::initIMGUI(
 	};
 	initInfo.UserData = device.get();
 	ImGui_ImplVulkan_Init(&initInfo, renderPass);
+	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
 	// Upload Fonts
 	ImGui_ImplVulkan_CreateFontsTexture(commands);
@@ -139,6 +141,8 @@ void Application<Vk>::shutdownIMGUI()
 	IMNODES_NAMESPACE::DestroyContext();
 
 	ImGui_ImplVulkan_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+
 	ImGui::DestroyContext();
 }
 
@@ -179,7 +183,7 @@ void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExten
 }
 
 template <>
-Application<Vk>::Application(void* windowHandle, int width, int height)
+Application<Vk>::Application(const WindowState& window)
 	: Application()
 {
 	ZoneScopedN("Application()");
@@ -1158,12 +1162,12 @@ Application<Vk>::~Application()
 }
 
 template <>
-void Application<Vk>::onMouse(const MouseState& state)
+void Application<Vk>::onMouse(const MouseState& mouse)
 {
-	bool leftPressed = state.button == GLFW_MOUSE_BUTTON_LEFT && state.action == GLFW_PRESS;
-	bool rightPressed = state.button == GLFW_MOUSE_BUTTON_RIGHT && state.action == GLFW_PRESS;
+	bool leftPressed = mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS;
+	bool rightPressed = mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS;
 
-	auto screenPos = glm::vec2(state.xpos, state.ypos);
+	auto screenPos = glm::vec2(mouse.xpos, mouse.ypos);
 
 	myInput.mousePosition[0] =
 		glm::vec2{static_cast<float>(screenPos.x), static_cast<float>(screenPos.y)};
@@ -1173,16 +1177,16 @@ void Application<Vk>::onMouse(const MouseState& state)
 
 	myInput.mouseButtonsPressed[0] = leftPressed;
 	myInput.mouseButtonsPressed[1] = rightPressed;
-	myInput.mouseButtonsPressed[2] = state.insideWindow && !myInput.mouseButtonsPressed[0];
+	myInput.mouseButtonsPressed[2] = mouse.insideWindow && !myInput.mouseButtonsPressed[0];
 }
 
 template <>
-void Application<Vk>::onKeyboard(const KeyboardState& state)
+void Application<Vk>::onKeyboard(const KeyboardState& keyboard)
 {
-	if (state.action == GLFW_PRESS)
-		myInput.keysPressed[state.key] = true;
-	else if (state.action == GLFW_RELEASE)
-		myInput.keysPressed[state.key] = false;
+	if (keyboard.action == GLFW_PRESS)
+		myInput.keysPressed[keyboard.key] = true;
+	else if (keyboard.action == GLFW_RELEASE)
+		myInput.keysPressed[keyboard.key] = false;
 }
 
 template <>

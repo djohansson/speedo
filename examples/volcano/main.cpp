@@ -1,9 +1,7 @@
-#include "profiling.h"
-#include "utils.h"
 #include "volcano.h"
 
-#include <cstdio>
-#include <cstdlib>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -12,12 +10,9 @@
 #	include <GLFW/glfw3native.h>
 #endif
 
-#include <backends/imgui_impl_glfw.h>
-#include <imgui.h>
-
-static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
-static KeyboardState g_keyboard = {0, 0, 0, 0};
-static WindowState g_window = {0, 0, 1920, 1080, 0, 0, 0, false};
+static MouseState g_mouse{-1.0, -1.0, 0, 0, 0, false};
+static KeyboardState g_keyboard{0, 0, 0, 0};
+static WindowState g_window{nullptr, nullptr, 0, 0, 1920, 1080, 0, 0, 0, false};
 
 static void onError(int error, const char* description)
 {
@@ -171,9 +166,6 @@ int main(int argc, char* argv[], char* env[])
 		return 1;
 	}
 
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "", NULL, NULL);
-
 	// Setup Vulkan
 	if (!glfwVulkanSupported())
 	{
@@ -181,21 +173,22 @@ int main(int argc, char* argv[], char* env[])
 		return 1;
 	}
 
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "", NULL, NULL);
+
+	g_window.handle = window;
 #if __WINDOWS__
-	auto windowHandle = glfwGetWin32Window(window);
-	volcano_create(
-		reinterpret_cast<void*>(&windowHandle),
+	auto nativeHandle = glfwGetWin32Window(window);
+	g_window.nativeHandle = &nativeHandle;
 #else
-	volcano_create(
-		reinterpret_cast<void*>(window),
+	g_window.nativeHandle = window;
 #endif
-		g_window.width,
-		g_window.height,
+
+	volcano_create(
+		&g_window,
 		"./",
 		getCmdOption(argv, argv + argc, R"(-r)"),
 		getCmdOption(argv, argv + argc, R"(-u)"));
-
-	ImGui_ImplGlfw_InitForVulkan(window, true);
 
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);
@@ -210,12 +203,10 @@ int main(int argc, char* argv[], char* env[])
 
 	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && !volcano_tick());
 
-	ImGui_ImplGlfw_Shutdown();
+	volcano_destroy();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
-
-	volcano_destroy();
 
 	return 0;
 }

@@ -8,9 +8,7 @@ extern "C"
 #endif
 
 	int volcano_create(
-		void* windowHandle,
-		int windowWidth,
-		int windowHeight,
+		const WindowState* window,
 		const char* rootPath,
 		const char* resourcePath,
 		const char* userProfilePath);
