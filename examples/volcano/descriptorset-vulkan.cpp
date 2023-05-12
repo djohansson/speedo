@@ -76,7 +76,10 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 	{
 		ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorSetLayout");
 
-		vkDestroyDescriptorSetLayout(*getDevice(), layout, nullptr);
+		vkDestroyDescriptorSetLayout(
+			*getDevice(),
+			layout,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 	}
 }
 
@@ -180,11 +183,28 @@ void DescriptorSetArray<Vk>::swap(DescriptorSetArray& rhs) noexcept
 }
 
 template <>
-DescriptorUpdateTemplateHandle<Vk> DescriptorUpdateTemplate<Vk>::internalCreateTemplate()
+void DescriptorUpdateTemplate<Vk>::internalDestroyTemplate()
 {
-	return createDescriptorUpdateTemplate(
+	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
+
+	vkDestroyDescriptorUpdateTemplate(
 		*getDevice(),
-		VkDescriptorUpdateTemplateCreateInfo{
+		myHandle,
+		&getDevice()->getInstance()->getHostAllocationCallbacks());
+}
+
+template <>
+void DescriptorUpdateTemplate<Vk>::setEntries(
+	std::vector<DescriptorUpdateTemplateEntry<Vk>>&& entries)
+{
+	internalDestroyTemplate();
+	myEntries = std::forward<std::vector<DescriptorUpdateTemplateEntry<Vk>>>(entries);
+	myHandle = [this]
+	{
+		ZoneScopedN("DescriptorSetLayout::vkCreateDescriptorUpdateTemplate");
+
+		VkDescriptorUpdateTemplate descriptorTemplate;
+		VkDescriptorUpdateTemplateCreateInfo createInfo{
 			VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
 			nullptr,
 			0, // reserved for future use
@@ -194,24 +214,15 @@ DescriptorUpdateTemplateHandle<Vk> DescriptorUpdateTemplate<Vk>::internalCreateT
 			getDesc().descriptorSetLayout,
 			getDesc().pipelineBindPoint,
 			getDesc().pipelineLayout,
-			getDesc().set});
-}
+			getDesc().set};
+		vkCreateDescriptorUpdateTemplate(
+			*getDevice(),
+			&createInfo,
+			&getDevice()->getInstance()->getHostAllocationCallbacks(),
+			&descriptorTemplate);
 
-template <>
-void DescriptorUpdateTemplate<Vk>::internalDestroyTemplate()
-{
-	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
-
-	vkDestroyDescriptorUpdateTemplate(*getDevice(), myHandle, nullptr);
-}
-
-template <>
-void DescriptorUpdateTemplate<Vk>::setEntries(
-	std::vector<DescriptorUpdateTemplateEntry<Vk>>&& entries)
-{
-	internalDestroyTemplate();
-	myEntries = std::forward<std::vector<DescriptorUpdateTemplateEntry<Vk>>>(entries);
-	myHandle = internalCreateTemplate();
+		return descriptorTemplate;
+	}();
 }
 
 template <>

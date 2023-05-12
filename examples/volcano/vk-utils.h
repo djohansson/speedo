@@ -37,9 +37,6 @@ VkFormat findSupportedFormat(
 	VkImageTiling tiling,
 	VkFormatFeatureFlags features);
 
-VkCommandPool
-createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags, int queueFamilyIndex);
-
 std::vector<VkCommandBuffer> allocateCommandBuffers(
 	VkDevice device, VkCommandPool pool, VkCommandBufferLevel level, uint32_t count);
 
@@ -51,9 +48,6 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	const VkDescriptorSetLayoutBinding* bindings,
 	const VkDescriptorBindingFlags* bindingFlags,
 	uint32_t bindingCount);
-
-VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(
-	VkDevice device, const VkDescriptorUpdateTemplateCreateInfo& createInfo);
 
 VkDescriptorSet
 allocateDescriptorSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout);
@@ -85,14 +79,6 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 
 std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
 	VmaAllocator allocator, const void* srcData, size_t srcDataSize, const char* debugName);
-
-VkBufferView createBufferView(
-	VkDevice device,
-	VkBuffer buffer,
-	VkBufferViewCreateFlags flags,
-	VkFormat format,
-	VkDeviceSize offset,
-	VkDeviceSize range);
 
 void transitionImageLayout(
 	VkCommandBuffer commandBuffer,
@@ -142,6 +128,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 VkImageView createImageView2D(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocationCallbacks,
 	VkImageViewCreateFlags flags,
 	VkImage image,
 	VkFormat format,
@@ -189,9 +176,6 @@ VkPipelineLayout createPipelineLayout(
 	uint32_t pushConstantRangeCount);
 
 VkSurfaceKHR createSurface(VkInstance instance, void* view);
-
-VmaAllocator createAllocator(
-	VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice, VkFlags flags);
 
 VkDescriptorPool createDescriptorPool(VkDevice device);
 

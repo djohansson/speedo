@@ -160,9 +160,7 @@ public:
 	void setEntries(std::vector<DescriptorUpdateTemplateEntry<B>>&& entries);
 
 private:
-	DescriptorUpdateTemplateHandle<B> internalCreateTemplate();
 	void internalDestroyTemplate();
-
 	DescriptorUpdateTemplate( // takes ownership of provided handle
 		const std::shared_ptr<Device<B>>& device,
 		DescriptorUpdateTemplateCreateDesc<B>&& desc,

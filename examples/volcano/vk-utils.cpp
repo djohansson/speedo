@@ -129,19 +129,6 @@ VkFormat findSupportedFormat(
 	return VK_FORMAT_UNDEFINED;
 }
 
-VkCommandPool
-createCommandPool(VkDevice device, VkCommandPoolCreateFlags flags, int queueFamilyIndex)
-{
-	VkCommandPoolCreateInfo cmdPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-	cmdPoolInfo.flags = flags;
-	cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
-
-	VkCommandPool outPool;
-	VK_CHECK(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &outPool));
-
-	return outPool;
-}
-
 std::vector<VkCommandBuffer> allocateCommandBuffers(
 	VkDevice device, VkCommandPool pool, VkCommandBufferLevel level, uint32_t count)
 {
@@ -222,15 +209,6 @@ VkDescriptorSetLayout createDescriptorSetLayout(
 	VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &layout));
 
 	return layout;
-}
-
-VkDescriptorUpdateTemplate createDescriptorUpdateTemplate(
-	VkDevice device, const VkDescriptorUpdateTemplateCreateInfo& createInfo)
-{
-	VkDescriptorUpdateTemplate descriptorTemplate;
-	vkCreateDescriptorUpdateTemplate(device, &createInfo, nullptr, &descriptorTemplate);
-
-	return descriptorTemplate;
 }
 
 void copyBuffer(
@@ -323,27 +301,6 @@ std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
 	vmaUnmapMemory(allocator, memoryHandle);
 
 	return bufferData;
-}
-
-VkBufferView createBufferView(
-	VkDevice device,
-	VkBuffer buffer,
-	VkBufferViewCreateFlags flags,
-	VkFormat format,
-	VkDeviceSize offset,
-	VkDeviceSize range)
-{
-	VkBufferViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
-	viewInfo.flags = flags;
-	viewInfo.buffer = buffer;
-	viewInfo.format = format;
-	viewInfo.offset = offset;
-	viewInfo.range = range;
-
-	VkBufferView outBufferView;
-	VK_CHECK(vkCreateBufferView(device, &viewInfo, nullptr, &outBufferView));
-
-	return outBufferView;
 }
 
 void transitionImageLayout(
@@ -746,6 +703,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 VkImageView createImageView2D(
 	VkDevice device,
+	const VkAllocationCallbacks* hostAllocationCallbacks,
 	VkImageViewCreateFlags flags,
 	VkImage image,
 	VkFormat format,
@@ -768,7 +726,7 @@ VkImageView createImageView2D(
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
 	VkImageView outImageView;
-	VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &outImageView));
+	VK_CHECK(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
 
 	return outImageView;
 }
@@ -940,51 +898,6 @@ VkSurfaceKHR createSurface(VkInstance instance, void* view)
 #endif
 
 	return surface;
-}
-
-VmaAllocator createAllocator(
-	VkInstance instance, VkDevice device, VkPhysicalDevice physicalDevice, VkFlags flags)
-{
-	auto vkGetBufferMemoryRequirements2KHR =
-		(PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
-			instance, "vkGetBufferMemoryRequirements2KHR");
-	assert(vkGetBufferMemoryRequirements2KHR != nullptr);
-
-	auto vkGetImageMemoryRequirements2KHR =
-		(PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(
-			instance, "vkGetImageMemoryRequirements2KHR");
-	assert(vkGetImageMemoryRequirements2KHR != nullptr);
-
-	VmaVulkanFunctions functions{};
-	functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
-	functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
-	functions.vkAllocateMemory = vkAllocateMemory;
-	functions.vkFreeMemory = vkFreeMemory;
-	functions.vkMapMemory = vkMapMemory;
-	functions.vkUnmapMemory = vkUnmapMemory;
-	functions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
-	functions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
-	functions.vkBindBufferMemory = vkBindBufferMemory;
-	functions.vkBindImageMemory = vkBindImageMemory;
-	functions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
-	functions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
-	functions.vkCreateBuffer = vkCreateBuffer;
-	functions.vkDestroyBuffer = vkDestroyBuffer;
-	functions.vkCreateImage = vkCreateImage;
-	functions.vkDestroyImage = vkDestroyImage;
-	functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
-	functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
-
-	VmaAllocator allocator;
-	VmaAllocatorCreateInfo allocatorInfo{};
-	allocatorInfo.flags = flags;
-	allocatorInfo.physicalDevice = physicalDevice;
-	allocatorInfo.device = device;
-	allocatorInfo.pVulkanFunctions = &functions;
-	allocatorInfo.instance = instance;
-	vmaCreateAllocator(&allocatorInfo, &allocator);
-
-	return allocator;
 }
 
 VkDescriptorPool createDescriptorPool(VkDevice device)

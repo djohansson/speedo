@@ -19,6 +19,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 	{
 		myAttachments.emplace_back(createImageView2D(
 			*getDevice(),
+            &getDevice()->getInstance()->getHostAllocationCallbacks(),
 			0,
 			desc.colorImages[attachmentIt],
 			desc.colorImageFormats[attachmentIt],
@@ -71,6 +72,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 
 		myAttachments.emplace_back(createImageView2D(
 			*getDevice(),
+            &getDevice()->getInstance()->getHostAllocationCallbacks(),
 			0,
 			desc.depthStencilImage,
 			desc.depthStencilImageFormat,

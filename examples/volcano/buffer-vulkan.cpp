@@ -139,13 +139,20 @@ BufferView<Vk>::BufferView(
 	DeviceSize<Vk> range)
 	: BufferView<Vk>(
 		  device,
-		  createBufferView(
-			  *device,
-			  buffer,
-			  0, // "reserved for future use"
-			  format,
-			  offset,
-			  range))
+		  [&device, &buffer, format, offset, range]
+		  {
+				VkBufferViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
+				viewInfo.flags = 0; // "reserved for future use"
+				viewInfo.buffer = buffer;
+				viewInfo.format = format;
+				viewInfo.offset = offset;
+				viewInfo.range = range;
+
+				VkBufferView outBufferView;
+				VK_CHECK(vkCreateBufferView(*device, &viewInfo, &device->getInstance()->getHostAllocationCallbacks(), &outBufferView));
+
+				return outBufferView;
+		  }())
 {}
 
 template <>
@@ -154,7 +161,7 @@ BufferView<Vk>::~BufferView()
 	if (BufferViewHandle<Vk> view = *this; view)
 		getDevice()->addTimelineCallback(
 			[device = getDevice(), view](uint64_t)
-			{ vkDestroyBufferView(*device, view, nullptr); });
+			{ vkDestroyBufferView(*device, view, &device->getInstance()->getHostAllocationCallbacks()); });
 }
 
 template <>

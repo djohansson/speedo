@@ -49,6 +49,7 @@ public:
 	operator auto() const noexcept { return myInstance; }
 
 	const auto& getConfig() const noexcept { return myConfig; }
+	const auto& getHostAllocationCallbacks() const noexcept { return myHostAllocationCallbacks; }
 	const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
 	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<B> device) const { return myPhysicalDeviceInfos.at(device);	}
 
@@ -60,6 +61,7 @@ public:
 private:
 	AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
 	InstanceHandle<B> myInstance{};
+	AllocationCallbacks<B> myHostAllocationCallbacks{};
 	std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
 	UnorderedMap<PhysicalDeviceHandle<B>, PhysicalDeviceInfo<B>> myPhysicalDeviceInfos;
 	UnorderedMap<std::tuple<PhysicalDeviceHandle<B>, SurfaceHandle<B>>, SwapchainInfo<B>, TupleHash>

@@ -510,6 +510,7 @@ ImageView<Vk>::ImageView(
 		  device,
 		  createImageView2D(
 			  *device,
+			  &device->getInstance()->getHostAllocationCallbacks(),
 			  0, // "reserved for future use"
 			  image,
 			  image.getDesc().format,
@@ -523,7 +524,7 @@ ImageView<Vk>::~ImageView()
 	if (ImageViewHandle<Vk> view = *this; view)
 		getDevice()->addTimelineCallback(
 			[device = getDevice(), view](uint64_t)
-			{ vkDestroyImageView(*device, view, nullptr); });
+			{ vkDestroyImageView(*device, view, &device->getInstance()->getHostAllocationCallbacks()); });
 }
 
 template <>

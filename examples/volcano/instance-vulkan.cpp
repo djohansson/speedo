@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <vector>
 
+#include <mimalloc.h>
+
 namespace instance
 {
 
@@ -95,7 +97,8 @@ getPhysicalDeviceSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk
 
 struct UserData
 {
-	VkDebugUtilsMessengerEXT debugUtilsMessenger = 0;
+	VkDebugUtilsMessengerEXT debugUtilsMessenger{};
+	VkAllocationCallbacks allocationCallbacks{};
 };
 
 VkBool32 debugUtilsMessengerCallback(
@@ -140,19 +143,6 @@ VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo{
 	debugUtilsMessengerCallback,
 	nullptr};
 
-VkDebugUtilsMessengerEXT createDebugUtilsMessenger(VkInstance instance)
-{
-	auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-		instance, "vkCreateDebugUtilsMessengerEXT");
-	assert(vkCreateDebugUtilsMessengerEXT != nullptr);
-
-	VkDebugUtilsMessengerEXT messenger;
-	VK_CHECK(vkCreateDebugUtilsMessengerEXT(
-		instance, &debugUtilsMessengerCallbackCreateInfo, nullptr, &messenger));
-
-	return messenger;
-}
-
 } // namespace instance
 
 template <>
@@ -195,6 +185,22 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	: myConfig(AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
 		  std::filesystem::path(volcano_getUserProfilePath()) / "instance.json",
 		  std::forward<InstanceConfiguration<Vk>>(defaultConfig)))
+	, myHostAllocationCallbacks{
+		nullptr,
+		[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+		{
+			return mi_malloc_aligned(size, alignment);
+		},
+		[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+		{
+			return mi_realloc_aligned(pOriginal, size, alignment);
+		},
+		[](void* /*pUserData*/, void* pMemory)
+		{
+			mi_free(pMemory);
+		},
+		PFN_vkInternalAllocationNotification{},
+		PFN_vkInternalFreeNotification{}}
 {
 	ZoneScopedN("Instance()");
 
@@ -297,7 +303,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
 	info.ppEnabledExtensionNames = info.enabledExtensionCount ? requiredExtensions.data() : nullptr;
 
-	VK_CHECK(vkCreateInstance(&info, nullptr, &myInstance));
+	VK_CHECK(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
 
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
@@ -327,8 +333,21 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 	if constexpr (GRAPHICS_VALIDATION_ENABLED)
 	{
-		std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger =
-			instance::createDebugUtilsMessenger(myInstance);
+		std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger = [this]
+		{
+			auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+				myInstance, "vkCreateDebugUtilsMessengerEXT");
+			assert(vkCreateDebugUtilsMessengerEXT != nullptr);
+
+			VkDebugUtilsMessengerEXT messenger;
+			VK_CHECK(vkCreateDebugUtilsMessengerEXT(
+				myInstance,
+				&instance::debugUtilsMessengerCallbackCreateInfo,
+				&getHostAllocationCallbacks(),
+				&messenger));
+
+			return messenger;
+		}();
 	}
 }
 
@@ -345,7 +364,7 @@ Instance<Vk>::~Instance()
 		vkDestroyDebugUtilsMessengerEXT(
 			myInstance,
 			std::any_cast<instance::UserData>(&myUserData)->debugUtilsMessenger,
-			nullptr);
+			&getHostAllocationCallbacks());
 	}
 
 	vkDestroyInstance(myInstance, nullptr);

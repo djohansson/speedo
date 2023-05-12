@@ -300,7 +300,7 @@ Device<Vk>::Device(
 	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size());
 	deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
-	VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, nullptr, &myDevice));
+	VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, &myInstance->getHostAllocationCallbacks(), &myDevice));
 
 	device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
 		vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
@@ -361,7 +361,51 @@ Device<Vk>::Device(
 		queueFamilyDesc.flags = queueFamilyProperty.queueFlags;
 	}
 
-	myAllocator = createAllocator(*myInstance, myDevice, getPhysicalDevice(), {});
+	myAllocator = [this]
+	{
+		auto vkGetBufferMemoryRequirements2KHR =
+			(PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
+				*getInstance(), "vkGetBufferMemoryRequirements2KHR");
+		assert(vkGetBufferMemoryRequirements2KHR != nullptr);
+
+		auto vkGetImageMemoryRequirements2KHR =
+			(PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(
+				*getInstance(), "vkGetImageMemoryRequirements2KHR");
+		assert(vkGetImageMemoryRequirements2KHR != nullptr);
+
+		VmaVulkanFunctions functions{};
+		functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+		functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+		functions.vkAllocateMemory = vkAllocateMemory;
+		functions.vkFreeMemory = vkFreeMemory;
+		functions.vkMapMemory = vkMapMemory;
+		functions.vkUnmapMemory = vkUnmapMemory;
+		functions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+		functions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+		functions.vkBindBufferMemory = vkBindBufferMemory;
+		functions.vkBindImageMemory = vkBindImageMemory;
+		functions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+		functions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+		functions.vkCreateBuffer = vkCreateBuffer;
+		functions.vkDestroyBuffer = vkDestroyBuffer;
+		functions.vkCreateImage = vkCreateImage;
+		functions.vkDestroyImage = vkDestroyImage;
+		functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
+		functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
+
+		VmaAllocator allocator;
+		VmaAllocatorCreateInfo allocatorInfo{};
+		allocatorInfo.flags = {};
+		allocatorInfo.physicalDevice = getPhysicalDevice();
+        allocatorInfo.preferredLargeHeapBlockSize = 0; // 0 = default (256Mb)
+		allocatorInfo.device = myDevice;
+		allocatorInfo.instance = *getInstance();
+        allocatorInfo.pAllocationCallbacks = &getInstance()->getHostAllocationCallbacks();
+		allocatorInfo.pVulkanFunctions = &functions;
+		vmaCreateAllocator(&allocatorInfo, &allocator);
+
+		return allocator;
+	}();
 
 	VkSemaphoreTypeCreateInfo timelineCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -371,7 +415,7 @@ Device<Vk>::Device(
 	semaphoreCreateInfo.pNext = &timelineCreateInfo;
 	semaphoreCreateInfo.flags = {};
 
-	VK_CHECK(vkCreateSemaphore(myDevice, &semaphoreCreateInfo, nullptr, &myTimelineSemaphore));
+	VK_CHECK(vkCreateSemaphore(myDevice, &semaphoreCreateInfo, &myInstance->getHostAllocationCallbacks(), &myTimelineSemaphore));
 
 	// addOwnedObjectHandle(
 	//     getUid(),
@@ -388,7 +432,7 @@ Device<Vk>::~Device()
 	// it is the applications responsibility to wait for all queues complete gpu execution before destroying the Device.
 	processTimelineCallbacks(~0ull); // call all timline callbacks
 
-	vkDestroySemaphore(myDevice, myTimelineSemaphore, nullptr);
+	vkDestroySemaphore(myDevice, myTimelineSemaphore, &myInstance->getHostAllocationCallbacks());
 
 	if constexpr (PROFILING_ENABLED)
 	{
@@ -399,7 +443,7 @@ Device<Vk>::~Device()
 	}
 
 	vmaDestroyAllocator(myAllocator);
-	vkDestroyDevice(myDevice, nullptr);
+	vkDestroyDevice(myDevice, &myInstance->getHostAllocationCallbacks());
 }
 
 template <>

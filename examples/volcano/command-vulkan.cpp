@@ -168,10 +168,21 @@ CommandPool<Vk>::CommandPool(
 		  device,
 		  std::make_tuple(
 			  std::forward<CommandPoolCreateDesc<Vk>>(desc),
-			  createCommandPool(
-				  *device,
-				  desc.flags,
-				  desc.queueFamilyIndex)))
+			  [&device, &desc]
+			  {
+					VkCommandPoolCreateInfo cmdPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+					cmdPoolInfo.flags = desc.flags;
+					cmdPoolInfo.queueFamilyIndex = desc.queueFamilyIndex;
+
+					VkCommandPool outPool;
+					VK_CHECK(vkCreateCommandPool(
+						*device,
+						&cmdPoolInfo,
+						&device->getInstance()->getHostAllocationCallbacks(),
+						&outPool));
+
+					return outPool;
+				}()))
 {}
 
 template <>
@@ -188,7 +199,7 @@ CommandPool<Vk>::~CommandPool()
 		vkDestroyCommandPool(
 			*getDevice(),
 			myPool,
-			nullptr);
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

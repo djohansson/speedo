@@ -98,8 +98,7 @@ void Application<Vk>::initIMGUI(
 	initInfo.DescriptorPool = myPipeline->getDescriptorPool();
 	initInfo.MinImageCount = myMainWindow->getConfig().imageCount;
 	initInfo.ImageCount = myMainWindow->getConfig().imageCount;
-	initInfo.Allocator = nullptr;
-	// initInfo.HostAllocationCallbacks = nullptr;
+	initInfo.Allocator = &myDevice->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = checkResult;
 	initInfo.DeleteBufferFn = [](void* user_data,
 								 VkBuffer buffer,

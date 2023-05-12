@@ -50,9 +50,15 @@ Frame<Vk>::Frame(
 
 	VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 	VK_CHECK(vkCreateSemaphore(
-		*getDevice(), &semaphoreInfo, nullptr, &myRenderCompleteSemaphore));
+		*getDevice(),
+		&semaphoreInfo,
+		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+		&myRenderCompleteSemaphore));
 	VK_CHECK(vkCreateSemaphore(
-		*getDevice(), &semaphoreInfo, nullptr, &myNewImageAcquiredSemaphore));
+		*getDevice(),
+		&semaphoreInfo,
+		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+		&myNewImageAcquiredSemaphore));
 
 #if PROFILING_ENABLED
 	{
@@ -108,8 +114,14 @@ Frame<Vk>::~Frame()
 
 	if (isValid())
 	{
-		vkDestroySemaphore(*getDevice(), myRenderCompleteSemaphore, nullptr);
-		vkDestroySemaphore(*getDevice(), myNewImageAcquiredSemaphore, nullptr);
+		vkDestroySemaphore(
+			*getDevice(),
+			myRenderCompleteSemaphore,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
+		vkDestroySemaphore(
+			*getDevice(),
+			myNewImageAcquiredSemaphore,
+			&getDevice()->getInstance()->getHostAllocationCallbacks());
 	}
 }
 
