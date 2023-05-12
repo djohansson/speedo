@@ -195,6 +195,8 @@ int main(int argc, char* argv[], char* env[])
 		getCmdOption(argv, argv + argc, R"(-r)"),
 		getCmdOption(argv, argv + argc, R"(-u)"));
 
+	ImGui_ImplGlfw_InitForVulkan(window, true);
+
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);
 	glfwSetCursorPosCallback(window, onMouseCursorPos);
