@@ -1,0 +1,44 @@
+{
+  "name": "craplication",
+  "dependencies": [
+    "cereal",
+    "llvm",
+    "lz4",
+    "mimalloc",
+    "mio",
+    "picosha2",
+    "robin-hood-hashing",
+    "stduuid",
+    "xxhash"
+  ],
+  "features": {
+    "client": {
+      "description": "Game Client Executable",
+      "dependencies": [
+        "directx-dxc",
+        "glfw3",
+        "glm",
+        {"name": "imgui", "features": ["docking-experimental", "glfw-binding", "vulkan-binding"]},
+        {"name": "ms-gltf", "default-features": false, "features": ["samples"]},
+        "nativefiledialog",
+        "shader-slang",
+        "stb",
+        "tinyobjloader",
+        {"name": "tracy", "features": ["cli-tools", "crash-handler", "gui-tools", "on-demand"]},
+        "vulkan",
+        "vulkan-memory-allocator"
+      ]
+    },
+    "server": {
+      "description": "Game Server Executable",
+      "dependencies": []
+    },
+    "tests": {
+      "description": "Build tests",
+      "dependencies": [
+        "catch2"
+      ]
+    }
+  },
+  "builtin-baseline": "7f52deab66689f912da6d04de105c457d8ba671e"
+}

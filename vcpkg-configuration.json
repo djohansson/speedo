@@ -1,0 +1,10 @@
+{
+  "registries": [
+    {
+      "kind": "git",
+      "baseline": "7f52deab66689f912da6d04de105c457d8ba671e",
+      "repository": "https://github.com/Microsoft/vcpkg",
+      "packages": ["*"]
+    }
+  ]
+}
