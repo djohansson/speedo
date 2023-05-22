@@ -1,3 +1,0 @@
-[submodule "my-vcpkg-triplets"]
-	path = my-vcpkg-triplets
-	url = https://github.com/Neumann-A/my-vcpkg-triplets
