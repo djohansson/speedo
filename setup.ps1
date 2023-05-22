@@ -44,11 +44,11 @@ else
 
 if ($IsWindows)
 {
-	if (-not (Get-InstalledModule VSSetup))
+	if (-not (Get-InstalledModule VSSetup -ErrorAction 'SilentlyContinue'))
 	{
 		Write-Host "Installing VSSetup powershell module..."
 	
-		Install-Module VSSetup -Scope CurrentUser
+		Install-Module VSSetup -Scope CurrentUser -Confirm:$False -Force
 	}
 
 	if (-not (Get-VSSetupInstance | Select-VSSetupInstance -Product * -Latest -Require "Microsoft.VisualStudio.Workload.VCTools"))
