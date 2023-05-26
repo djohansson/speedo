@@ -52,14 +52,18 @@ if ($IsWindows)
 
 		winget install -e -h --id Git.Git
 	}
-	else
-	{
-		$gitVersion = (-split $gitListResult[-1])[-2]
+	
+	$gitVersion = (-split $gitListResult[-1])[-2]
 
-		if (-not $(git --version) -like $gitVersion)
-		{
-			Write-Warning "Git avaliable from PATH does not match the installed version by this script."
-		}
+	if (-not (Get-Command "git.exe" -ErrorAction SilentlyContinue))
+	{ 
+		Write-Host "Unable to find git in your PATH"
+
+		return
+	}
+	elseif (-not $(git --version) -like $gitVersion)
+	{
+		Write-Warning "Git avaliable from PATH does not match the installed version by this script."
 	}
 
 	winget list --id LLVM.LLVM -e | Out-Null
