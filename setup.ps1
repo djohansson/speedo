@@ -22,7 +22,7 @@ else
 
 if ($IsWindows)
 {
-	$Triplet += "windows"
+	$Triplet += "windows-clang"
 }
 # elseif ($IsMacOS)
 # {
@@ -38,8 +38,6 @@ else
 	
 	return
 }
-
-$Triplet += "-clang"
 
 if ($IsWindows)
 {
