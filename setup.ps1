@@ -5,6 +5,7 @@ if ($Arch -eq "AMD64")
 {
 	$Triplet += "x64-"
 }
+# TODO: Add support for other architectures
 # elseif ($Arch -eq "x86")
 # {
 # 	$Triplet += "x86-"
@@ -24,6 +25,7 @@ if ($IsWindows)
 {
 	$Triplet += "windows-clang"
 }
+# TODO: Add support for other operating systems
 # elseif ($IsMacOS)
 # {
 # 	$Triplet += "osx"
@@ -39,6 +41,7 @@ else
 	return
 }
 
+# TODO: use targeted versions of all these winget packages.
 if ($IsWindows)
 {
 	$gitListResult = winget list --id Git.Git -e
