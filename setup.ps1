@@ -5,14 +5,14 @@ if ($Arch -eq "AMD64")
 {
 	$Triplet += "x64-"
 }
-elseif ($Arch -eq "x86")
-{
-	$Triplet += "x86-"
-}
-elseif ($Arch -eq "ARM64")
-{
-	$Triplet += "arm64-"
-}
+# elseif ($Arch -eq "x86")
+# {
+# 	$Triplet += "x86-"
+# }
+# elseif ($Arch -eq "ARM64")
+# {
+# 	$Triplet += "arm64-"
+# }
 else
 {
 	Write-Error "Unsupported architecture: $Arch"
@@ -23,18 +23,15 @@ else
 if ($IsWindows)
 {
 	$Triplet += "windows"
-
-	# by default cmake builds both debug and release versions on windows. we only need release, so lets use an experimental community triplet
-	$Triplet += "-release"
 }
-elseif ($IsMacOS)
-{
-	$Triplet += "osx"
-}
-elseif ($IsLinux)
-{
-	$Triplet += "linux"
-}
+# elseif ($IsMacOS)
+# {
+# 	$Triplet += "osx"
+# }
+# elseif ($IsLinux)
+# {
+# 	$Triplet += "linux"
+# }
 else
 {
 	Write-Error "Unsupported Operating System"
