@@ -39,6 +39,8 @@ else
 	return
 }
 
+$Triplet += "-clang"
+
 if ($IsWindows)
 {
 	if (-not (Get-InstalledModule VSSetup -ErrorAction 'SilentlyContinue'))
@@ -85,7 +87,7 @@ else
 
 Write-Host "Installing vcpkg packages for $Triplet using manifest..."
 
-vcpkg install --triplet $Triplet --x-feature=client --x-feature=server --x-feature=tests --no-print-usage
+vcpkg install --overlay-triplets=$PSScriptRoot --triplet $Triplet --x-feature=client --x-feature=server --x-feature=tests --no-print-usage
 
 Write-Host "Adding installed vcpkg packages to path..."
 
