@@ -43,6 +43,33 @@ $Triplet += "-clang"
 
 if ($IsWindows)
 {
+	$gitListResult = winget list --id Git.Git -e
+	
+	if ($LASTEXITCODE)
+	{
+		Write-Host "Installing Git..."
+
+		winget install -e -h --id Git.Git
+	}
+	else
+	{
+		$gitVersion = (-split $gitListResult[-1])[-2]
+
+		if (-not $(git --version) -like $gitVersion)
+		{
+			Write-Warning "Git avaliable from PATH does not match the installed version by this script."
+		}
+	}
+
+	winget list --id LLVM.LLVM -e | Out-Null
+	
+	if ($LASTEXITCODE)
+	{
+		Write-Host "Installing LLVM..."
+
+		winget install -e -h --id LLVM.LLVM
+	}
+
 	if (-not (Get-InstalledModule VSSetup -ErrorAction 'SilentlyContinue'))
 	{
 		Write-Host "Installing VSSetup powershell module..."
@@ -50,26 +77,16 @@ if ($IsWindows)
 		Install-Module VSSetup -Scope CurrentUser -Confirm:$False -Force
 	}
 
-	if (-not (Get-VSSetupInstance | Select-VSSetupInstance -Product * -Latest -Require "Microsoft.VisualStudio.Workload.VCTools"))
+	$VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools"
+
+	if (-not ($VSSetupInstance))
 	{
-		Write-Host "Installing Visual Studio build tools..."
+		Write-Host "Installing VisualStudio 2022 VC BuildTools..."
 
-		$TempDir = "$HOME/temp"
-		
-		if (-not (Test-Path -Path $TempDir))
-		{
-			New-Item -Path $TempDir -ItemType Directory | Out-Null
-		}
-
-		$VSBTExe = "$TempDir/vs_BuildTools.exe"
-		
-		Invoke-WebRequest -Uri https://aka.ms/vs/17/release/vs_BuildTools.exe -UseBasicParsing -OutFile $VSBTExe
-		Start-Process -FilePath $VSBTExe -ArgumentList @("--layout", "$TempDir/vs_buildtools2022_layout", "--arch", "*", "--lang", "en-US", "--add", "Microsoft.VisualStudio.Workload.VCTools;includeRecommended", "--quiet") -Wait
-		Start-Process -FilePath $TempDir/vs_buildtools2022_layout/vs_setup.exe -ArgumentList @("--installPath", "$HOME/vs_buildtools2022", "--nocache", "--wait", "--noUpdateInstaller", "--noWeb", "--norestart", "--quiet") -Wait
-		
-		Remove-Item $VSBTExe
-		Remove-Item $TempDir/vs_buildtools2022_layout -Recurse
+		winget install -e -h --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --wait" --force
 	}
+
+	$Env:VCTOOLS_DIR = Get-ChildItem -Path "$($VSSetupInstance.InstallationPath)/VC/Tools/MSVC" | Sort-Object | Select-Object -Last 1
 }
 
 Write-Host "Setting up vcpkg environment..."
