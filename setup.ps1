@@ -85,8 +85,6 @@ if ($IsWindows)
 
 		winget install -e -h --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --wait" --force
 	}
-
-	$Env:VCTOOLS_DIR = Get-ChildItem -Path "$($VSSetupInstance.InstallationPath)/VC/Tools/MSVC" | Sort-Object | Select-Object -Last 1
 }
 
 Write-Host "Setting up vcpkg environment..."
