@@ -1,0 +1,150 @@
+#once
+
+.Clang_BaseConfig =
+[
+#if exists(LLVM)
+#import LLVM
+	.LLVMPath = '$LLVM$'
+#else
+#if __WINDOWS__
+	.LLVMPath = 'C:/Program Files/LLVM'
+#endif
+#if __OSX__
+	.LLVMPath = '/usr/local/opt/llvm'
+#endif
+#if __LINUX__
+	.LLVMPath = '/usr'
+#endif
+#endif // exists(LLVM)
+#if exists(LLVM_VERSION)
+#import LLVM_VERSION
+	.LLVMVersion = '$LLVM_VERSION$'
+#else
+	.LLVMVersionMajor = '16'
+	.LLVMVersion = '$LLVMVersionMajor$.0.0'
+#endif // exists(LLVM_VERSION)
+	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
+	.CompilerInfo = 'Clang'
+    .Librarian = '$LLVMPath$/bin/llvm-ar$ExeSuffix$'
+	.Linker = '$LLVMPath$/bin/clang$ExeSuffix$'
+#if __WINDOWS__
+	// on Windows, ugly workarounds for "folders with spaces" are never going out of style
+	// note that we need to do this _after_ .Executable, .Librarian and .Linker have been set
+	.LLVMPath = '"$LLVMPath$"'
+	.PlatformInfo = 'Windows'
+#endif //__WINDOWS__
+#if __OSX__
+	.PlatformInfo = 'OSX'
+#endif //__OSX__
+#if __LINUX__
+	.PlatformInfo = 'Linux'
+#endif //__LINUX__
+	.Compiler = 'Compiler-Clang'
+	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -Wall'
+		+ ' -isystem $LLVMPath$/include'
+		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
+		+ .PlatformIncludePaths
+#if __WINDOWS__
+		+ ' -D__WINDOWS__'
+		+ ' -D_WIN32'
+		+ ' -D_WIN64'
+		+ ' -DUNICODE'
+		+ ' -D_UNICODE'
+		+ ' -D_CRT_SECURE_NO_WARNINGS'
+		+ ' -D_WIN32_LEAN_AND_MEAN'
+		+ ' -DNOMINMAX'
+		+ ' -D_HAS_STATIC_RTTI=1'
+		+ ' -gcodeview'
+		+ ' -Xclang -cfguard'
+#endif //__WINDOWS__
+#if __OSX__
+		+ ' -D__APPLE__'
+		+ ' -D__OSX__'
+		+ ' -fPIC'
+#endif //__OSX__
+#if __LINUX__
+		+ ' -D__LINUX__'
+		+ ' -D__linux__'
+		+ ' -fPIC'
+#endif //__LINUX__
+	.CompilerOptionsC = ' -std=c17 -nostdinc'
+	.CompilerOptionsCpp = ' -std=c++2b -nostdinc++'
+#if !__WINDOWS__
+		+ ' -stdlib=libc++'
+		+ ' -I $LLVMPath$/include/c++/v1' // libc++ location
+#endif
+	.LinkerOptions = '"%1" -o "%2" -g'
+		+ .PlatformLibPaths
+#if __WINDOWS__
+		+ ' -fuse-ld=lld'
+#endif
+	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
+#if !__WINDOWS__
+		+ ' -Wl,-rpath,$LLVMPath$/lib'
+		+ ' -lc++'
+#endif
+	.LibrarianOptions = 'rcs "%2" "%1"'
+	.LibrarianType = 'ar'
+	.MemoryDebugEnabled = '0'
+	.MemorySecurityLevel = '0'
+	.ProfilingEnabled = '0'
+	.GraphicsValidationEnabled = '0'
+]
+
+.Clang_x86_64_v3_BaseConfig =
+[
+	Using(.Clang_BaseConfig)
+
+	.CompilerOptions + ' -march=x86-64-v3'
+]
+
+.Clang_x86_64_v3_DebugConfig =
+[
+	Using(.Clang_x86_64_v3_BaseConfig)
+
+	.ConfigName = 'debug'
+	.MemoryDebugEnabled = '1'
+	.MemorySecurityLevel = '4'
+	.ProfilingEnabled = '1'
+	.GraphicsValidationEnabled = '1'
+	.CompilerOptions + ' -O0'
+		+ ' -fno-omit-frame-pointer'
+		+ ' -fsanitize=undefined'
+	// 	+ ' -fsanitize=address'
+	// 	+ ' -D_DISABLE_STRING_ANNOTATION'
+	// 	+ ' -D_DISABLE_VECTOR_ANNOTATION'
+	// .LinkerOptions + ' -fsanitize=address'
+]
+
+.Clang_x86_64_v3_ReleaseConfig =
+[
+	Using(.Clang_x86_64_v3_BaseConfig)
+
+	.ConfigName = 'release'
+	.CompilerOptions + ' -O3'
+	.CompilerOptions + ' -DNDEBUG'
+#if __WINDOWS__
+		+ ' -flto=thin'
+#endif
+	.LinkerOptions + ''
+#if __WINDOWS__
+		+ ' -flto=thin'
+#endif //__WINDOWS__
+]
+
+.Clang_x86_64_v3_ProfileConfig =
+[
+	Using(.Clang_x86_64_v3_ReleaseConfig)
+
+	.ConfigName = 'profile'
+	.ProfilingEnabled = '1'
+]
+
+.Clang_x86_64_v3_Configs = {
+	.Clang_x86_64_v3_DebugConfig, .Clang_x86_64_v3_ProfileConfig, .Clang_x86_64_v3_ReleaseConfig
+}
+
+Compiler('Compiler-Clang')
+{
+	Using(.Clang_BaseConfig)
+}
