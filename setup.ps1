@@ -84,6 +84,7 @@ if ($IsWindows)
 	{
 		Write-Host "Installing VisualStudio 2022 VC BuildTools..."
 
+		# --force is required to circumvent the fact that Microsoft.VisualStudio.2022.BuildTools could already be installed without the VCTools workload
 		winget install -e -h --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --wait" --force
 	}
 }
