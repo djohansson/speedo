@@ -1,10 +1,10 @@
 #once
 
-#include "platform-config.bff"
-#include "clang-config.bff"
-#include "powershell-config.bff"
-#include "python-config.bff"
-#include "vulkan-config.bff"
+#include "config/platform.bff"
+#include "config/clang.bff"
+#include "config/powershell.bff"
+#include "config/python.bff"
+#include "config/vulkan.bff"
 
 .BuildRootPath = '$_WORKING_DIR_$' // should be '$_CURRENT_BFF_DIR_$' but that seems broken...
 .IntermediateFilePath = '$BuildRootPath$/build.intermediate'
