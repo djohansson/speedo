@@ -1,3 +1,4 @@
+// TODO: remove vertex.h/inl/cpp
 #include "vertex.h"
 
 void* VertexAllocator::allocate(size_t count)

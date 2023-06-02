@@ -1,3 +1,5 @@
+#include "vulkan/queue.inl"
+
 template <>
 template <typename... Args>
 void Queue<Vk>::enqueueSubmit(Args&&... args)

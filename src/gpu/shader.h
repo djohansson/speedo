@@ -78,5 +78,4 @@ private:
 	EntryPoint<B> myEntryPoint{};
 };
 
-#include "shader-vulkan.inl"
 #include "shader.inl"

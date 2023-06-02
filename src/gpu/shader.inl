@@ -1,3 +1,5 @@
+#include "vulkan/shader.inl"
+
 #include "file.h"
 
 #include <cereal/archives/binary.hpp>

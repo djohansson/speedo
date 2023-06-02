@@ -1,3 +1,5 @@
+#include "vulkan/rendertarget.inl"
+
 template <typename CreateDescType, GraphicsBackend B>
 class RenderTargetImpl : public RenderTarget<B>
 {};

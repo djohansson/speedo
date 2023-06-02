@@ -32,5 +32,3 @@ private:
 
 	std::vector<SamplerHandle<B>> mySamplers;
 };
-
-#include "sampler-vulkan.inl"

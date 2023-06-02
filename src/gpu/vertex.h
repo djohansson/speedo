@@ -1,3 +1,4 @@
+// TODO: remove vertex.h/inl/cpp
 #pragma once
 
 #include "types.h"
@@ -155,4 +156,4 @@ private:
 	ScopedVertexAllocation* const myPrevScope = nullptr;
 };
 
-#include "vertex-vulkan.inl"
+#include "vertex.inl"

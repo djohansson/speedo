@@ -1,3 +1,5 @@
+#include "vulkan/instance.inl"
+
 #include <cereal/cereal.hpp>
 
 template <class Archive, GraphicsBackend B>

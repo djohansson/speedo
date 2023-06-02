@@ -1,3 +1,4 @@
+// TODO: remove vertex.h/inl/cpp
 #include <cereal/cereal.hpp>
 
 template <class Archive>
