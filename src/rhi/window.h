@@ -3,14 +3,16 @@
 #include "buffer.h"
 #include "command.h"
 #include "device.h"
-#include "file.h"
-#include "glm.h"
 #include "image.h"
 #include "pipeline.h"
-#include "state.h"
 #include "swapchain.h"
-#include "utils.h"
-#include "view.h"
+
+#include "../client/state.h" // temp - remove & clean up
+
+#include <core/file.h>
+#include <core/glm.h>
+#include <core/utils.h>
+#include <core/view.h>
 
 #include <array>
 #include <chrono>

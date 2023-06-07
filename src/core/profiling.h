@@ -5,4 +5,4 @@
 #		define TRACY_ENABLE
 #	endif
 #endif
-#include <Tracy.hpp>
+#include <tracy/Tracy.hpp>

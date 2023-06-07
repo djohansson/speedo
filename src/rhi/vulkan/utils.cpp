@@ -20,7 +20,7 @@
 #	include <GLFW/glfw3.h>
 #endif
 
-#include "vk-utils.h"
+#include "utils.h"
 
 #include <array>
 #include <iostream>

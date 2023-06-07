@@ -28,18 +28,19 @@
 #pragma once
 
 #include "command.h"
-#include "concurrency-utils.h"
 #include "device.h"
-#include "file.h"
 #include "instance.h"
-#include "nodegraph.h"
 #include "pipeline.h"
 #include "renderimageset.h"
 #include "types.h"
-#include "utils.h"
 #include "window.h"
 
-#include "state.h" // temp - remove & clean up
+#include "../client/state.h" // temp - remove & clean up
+
+#include <core/concurrency-utils.h>
+#include <core/file.h>
+#include <core/nodegraph.h>
+#include <core/utils.h>
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)

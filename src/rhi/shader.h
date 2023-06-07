@@ -4,7 +4,8 @@
 #include "device.h"
 #include "sampler.h"
 #include "types.h"
-#include "utils.h"
+
+#include <core/utils.h>
 
 #include <map>
 #include <memory>

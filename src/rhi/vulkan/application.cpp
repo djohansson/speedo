@@ -1,11 +1,12 @@
-#include "application.h"
-#include "gltfstream.h"
-#include "nodes/inputoutputnode.h"
-#include "nodes/slangshadernode.h"
-#include "profiling.h"
-#include "resources/shaders/shadertypes.h"
-#include "vk-utils.h"
-#include "volcano.h"
+#include "../application.h"
+#include "../resources/shaders/shadertypes.h"
+
+#include "utils.h"
+
+#include <core/gltfstream.h>
+#include <core/nodes/inputoutputnode.h>
+#include <core/nodes/slangshadernode.h>
+#include <core/profiling.h>
 
 #include <stb_sprintf.h>
 

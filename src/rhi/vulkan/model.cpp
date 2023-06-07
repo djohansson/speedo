@@ -1,8 +1,10 @@
-#include "aabb.h"
-#include "file.h"
-#include "model.h"
-#include "vertex.h"
-#include "vk-utils.h"
+#include "../model.h"
+#include "../vertex.h"
+
+#include "utils.h"
+
+#include <core/aabb.h>
+#include <core/file.h>
 
 #include <algorithm>
 #include <cstdint>

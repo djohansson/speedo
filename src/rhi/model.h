@@ -1,9 +1,10 @@
 #pragma once
 
-#include "aabb.h"
 #include "buffer.h"
 #include "device.h"
 #include "vertex.h"
+
+#include <core/aabb.h>
 
 #include <memory>
 #include <tuple>

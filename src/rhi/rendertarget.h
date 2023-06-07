@@ -153,4 +153,3 @@ private:
 };
 
 #include "rendertarget.inl"
-#include "rendertarget-vulkan.inl"

@@ -1,10 +1,11 @@
 #pragma once
 
-#include "concurrency-utils.h"
-#include "file.h"
 #include "instance.h"
 #include "types.h"
-#include "utils.h"
+
+#include <core/concurrency-utils.h>
+#include <core/file.h>
+#include <core/utils.h>
 
 #include <atomic>
 #include <functional>

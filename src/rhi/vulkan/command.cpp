@@ -1,5 +1,6 @@
-#include "command.h"
-#include "vk-utils.h"
+#include "../command.h"
+
+#include "utils.h"
 
 #include <stb_sprintf.h>
 

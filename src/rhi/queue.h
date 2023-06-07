@@ -120,5 +120,4 @@ private:
 		{}
 #endif
 
-#include "queue-vulkan.inl"
 #include "queue.inl"

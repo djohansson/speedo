@@ -207,5 +207,4 @@ using DescriptorSetState = std::tuple<
 	DescriptorUpdateTemplate<B>,
 	std::optional<DescriptorSetArrayList<B>>>; // if std::nullopt -> uses push descriptors
 
-#include "descriptorset-vulkan.inl"
 #include "descriptorset.inl"

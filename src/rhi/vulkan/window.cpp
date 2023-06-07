@@ -1,8 +1,9 @@
-#include "resources/shaders/shadertypes.h"
-#include "typeinfo.h"
-#include "vk-utils.h"
-#include "volcano.h"
-#include "window.h"
+#include "../window.h"
+
+#include "utils.h"
+
+#include <client/resources/shaders/shadertypes.h>
+
 
 #include <stb_sprintf.h>
 

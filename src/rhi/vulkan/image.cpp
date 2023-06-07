@@ -1,6 +1,8 @@
-#include "file.h"
-#include "image.h"
-#include "vk-utils.h"
+#include "../image.h"
+
+#include "utils.h"
+
+#include <core/file.h>
 
 #include <cstdint>
 #if defined(__WINDOWS__)

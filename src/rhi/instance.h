@@ -1,8 +1,9 @@
 #pragma once
 
-#include "file.h"
 #include "types.h"
-#include "utils.h"
+
+#include <core/file.h>
+#include <core/utils.h>
 
 #include <any>
 #include <string>
@@ -69,5 +70,4 @@ private:
 	std::any myUserData;
 };
 
-#include "instance-vulkan.inl"
 #include "instance.inl"

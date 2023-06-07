@@ -2,13 +2,14 @@
 
 #include "descriptorset.h"
 #include "device.h"
-#include "file.h"
 #include "image.h"
 #include "model.h"
 #include "rendertarget.h"
 #include "shader.h"
 #include "types.h"
-#include "utils.h"
+
+#include <core/file.h>
+#include <core/utils.h>
 
 #include <memory>
 #include <optional>
@@ -253,5 +254,4 @@ private:
 	} myRayTracingState{};
 };
 
-#include "pipeline-vulkan.inl"
 #include "pipeline.inl"

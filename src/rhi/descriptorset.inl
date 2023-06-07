@@ -1,3 +1,5 @@
+#include "vulkan/descriptorset.inl"
+
 namespace descriptorset
 {
 

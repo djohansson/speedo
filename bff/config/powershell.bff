@@ -1,6 +1,6 @@
 #once
 
-#include "platform-config.bff"
+#include "platform.bff"
 
 #if exists(POWERSHELL_PATH)
     #import POWERSHELL_PATH
