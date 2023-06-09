@@ -2,6 +2,7 @@
   "name": "craplication",
   "dependencies": [
     "cereal",
+    "concurrentqueue",
     "lz4",
     "mimalloc",
     "mio",
