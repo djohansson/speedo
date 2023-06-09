@@ -1,5 +1,3 @@
-#include "vulkan/shader.inl"
-
 #include <core/file.h>
 
 #include <cereal/archives/binary.hpp>
@@ -93,10 +91,10 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		else
 			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
 
-		spSetTargetFlags(
-			slangRequest,
-			targetIndex,
-			SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
+		// spSetTargetFlags(
+		// 	slangRequest,
+		// 	targetIndex,
+		// 	SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
 
 		int translationUnitIndex =
 			spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
@@ -135,7 +133,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		const SlangResult compileRes = spCompile(slangRequest);
 
 		if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
-			std::cout << diagnostics << '\n';
+			std::cout << diagnostics;
 
 		if (SLANG_FAILED(compileRes))
 		{
