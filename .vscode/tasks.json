@@ -1,6 +1,4 @@
 {
-	// See https://go.microsoft.com/fwlink/?LinkId=733558
-	// for the documentation about the tasks.json format
 	"version": "2.0.0",
 	"tasks": [
 		{
@@ -9,7 +7,6 @@
 			"command": "./fbuild",
 			"args": [
 				"-cache",
-				"-summary",
 				//"all"
 				"debug"
 			],
@@ -25,7 +22,6 @@
 			"args": [
 				"-clean",
 				"-cache",
-				"-summary",
 				"all"
 			],
 			"group": "build"
@@ -36,7 +32,6 @@
 			"command": "./fbuild",
 			"args": [
 				"-clean",
-				"-summary",
 				"all"
 			],
 			"group": "build"
