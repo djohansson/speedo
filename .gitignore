@@ -1,4 +1,7 @@
-vcpkg_installed/*
+.vs/*
+.profile/*
 build.*/*
+*.vcxproj*
+*.sln
 *.fdb
 fbuild.exe
