@@ -46,6 +46,15 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
+			+ ' -L$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/lib'
+			+ ' -lglfw3dll'
+			+ ' -lGLTFSDK'
+			+ ' -lTracyClient'
+			+ ' -limgui'
+			+ ' -lnfd'
+			+ ' -lmimalloc'
+			+ ' -lslang'
+			+ ' -lxxhash'
 	#if __WINDOWS__
 		.ExecutableLinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'
