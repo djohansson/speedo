@@ -1,5 +1,3 @@
-#include "vulkan/rendertarget.inl"
-
 template <typename CreateDescType, GraphicsBackend B>
 class RenderTargetImpl : public RenderTarget<B>
 {};
@@ -53,3 +51,5 @@ void RenderTarget<B>::setDepthStencilAttachmentStoreOp(AttachmentStoreOp<B> op)
 {
 	myAttachmentDescs[myAttachmentDescs.size() - 1].storeOp = op;
 }
+
+#include "vulkan/rendertarget.inl"

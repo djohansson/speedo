@@ -1,5 +1,3 @@
-#include "vulkan/pipeline.inl"
-
 #include <cereal/archives/json.hpp>
 #include <cereal/cereal.hpp>
 
@@ -24,3 +22,5 @@ const DescriptorSetLayout<B>& PipelineLayout<B>::getDescriptorSetLayout(uint32_t
 
 	return setLayout;
 }
+
+#include "vulkan/pipeline.inl"

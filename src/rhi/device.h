@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include <uuid.h>
+#include <stduuid/uuid.h>
 
 template <GraphicsBackend B>
 struct DeviceConfiguration

@@ -1,5 +1,3 @@
-#include "vulkan/instance.inl"
-
 #include <cereal/cereal.hpp>
 
 template <class Archive, GraphicsBackend B>
@@ -23,3 +21,5 @@ void save(Archive& archive, const InstanceConfiguration<B>& config)
 	archive(cereal::make_nvp("engineName", config.engineName));
 	archive(cereal::make_nvp("appInfo", config.appInfo));
 }
+
+#include "vulkan/instance.inl"

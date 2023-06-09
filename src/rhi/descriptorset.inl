@@ -1,5 +1,3 @@
-#include "vulkan/descriptorset.inl"
-
 namespace descriptorset
 {
 
@@ -37,3 +35,5 @@ getPushConstantRanges(const DescriptorSetLayoutFlatMap<B>& layouts)
 }
 
 } // namespace descriptorset
+
+#include "vulkan/descriptorset.inl"

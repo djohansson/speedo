@@ -226,3 +226,5 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 	return shaderSet;
 }
+
+#include "vulkan/shader.inl"

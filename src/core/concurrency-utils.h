@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include <concurrentqueue.h>
+#include <concurrentqueue/concurrentqueue.h>
 
 template <typename T, typename AtomicT = std::atomic<T>>
 class CopyableAtomic : public AtomicT

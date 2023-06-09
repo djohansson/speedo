@@ -26,3 +26,5 @@ QueuePresentInfo<B> operator|(QueuePresentInfo<B>&& lhs, QueuePresentInfo<B>&& r
 {
 	return std::forward<QueuePresentInfo<B>>(lhs |= std::forward<QueuePresentInfo<B>>(rhs));
 }
+
+#include "vulkan/queue.inl"

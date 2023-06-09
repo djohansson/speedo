@@ -1,4 +1,5 @@
 #include "../window.h"
+#include "../resources/shaders/shadertypes.h"
 
 #include "utils.h"
 
@@ -20,8 +21,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
+#include <imgui_impl_vulkan.h>
 
 template <>
 void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)

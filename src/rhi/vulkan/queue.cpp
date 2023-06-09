@@ -2,8 +2,8 @@
 
 #include "utils.h"
 
-#include <TracyC.h>
-#include <TracyVulkan.hpp>
+#include <tracy/TracyC.h>
+#include <tracy/TracyVulkan.hpp>
 
 namespace queue
 {
