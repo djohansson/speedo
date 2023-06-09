@@ -17,7 +17,7 @@
 		.Name = 'client'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/vcpkg_installed/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-ambiguous-reversed-operator'
