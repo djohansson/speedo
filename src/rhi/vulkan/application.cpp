@@ -105,22 +105,22 @@ void Application<Vk>::initIMGUI(
 	initInfo.ImageCount = gfx().myMainWindow->getConfig().imageCount;
 	initInfo.Allocator = &gfx().myDevice->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = checkResult;
-	initInfo.DeleteBufferFn = [](void* user_data,
-								 VkBuffer buffer,
-								 VkDeviceMemory buffer_memory,
-								 const VkAllocationCallbacks* allocator)
-	{
-		auto& device = *static_cast<Device<Vk>*>(user_data);
-		device.addTimelineCallback(
-			[&device, buffer, buffer_memory, allocator](uint64_t)
-			{
-				if (buffer != VK_NULL_HANDLE)
-					vkDestroyBuffer(device, buffer, allocator);
-				if (buffer_memory != VK_NULL_HANDLE)
-					vkFreeMemory(device, buffer_memory, allocator);
-			});
-	};
-	initInfo.UserData = device.get();
+	// initInfo.DeleteBufferFn = [](void* user_data,
+	// 							 VkBuffer buffer,
+	// 							 VkDeviceMemory buffer_memory,
+	// 							 const VkAllocationCallbacks* allocator)
+	// {
+	// 	auto& device = *static_cast<Device<Vk>*>(user_data);
+	// 	device.addTimelineCallback(
+	// 		[&device, buffer, buffer_memory, allocator](uint64_t)
+	// 		{
+	// 			if (buffer != VK_NULL_HANDLE)
+	// 				vkDestroyBuffer(device, buffer, allocator);
+	// 			if (buffer_memory != VK_NULL_HANDLE)
+	// 				vkFreeMemory(device, buffer_memory, allocator);
+	// 		});
+	// };
+	// initInfo.UserData = device.get();
 	ImGui_ImplVulkan_Init(&initInfo, renderPass);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
