@@ -108,16 +108,16 @@ else
 
 Write-Host "Installing vcpkg packages for $Triplet using manifest..."
 
-vcpkg install --overlay-triplets=$PSScriptRoot --triplet $Triplet --x-feature=client --x-feature=server --x-feature=tests --no-print-usage
+vcpkg install --x-install-root="build.vcpkg-installed" --overlay-triplets=$PSScriptRoot --triplet $Triplet --x-feature=client --x-feature=server --x-feature=tests --no-print-usage
 
 Write-Host "Adding installed vcpkg packages to path..."
 
-$BinDirectory = "$PSScriptRoot\vcpkg_installed\$Triplet\bin"
+$BinDirectory = "$PSScriptRoot\build.vcpkg-installed\$Triplet\bin"
 $env:Path += ";$BinDirectory"
 
 Write-Host $BinDirectory
 
-foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot\vcpkg_installed\$Triplet\tools -Directory)
+foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot\build.vcpkg-installed\$Triplet\tools -Directory)
 {
 	$env:Path += ";$ToolsDirectory"
 
