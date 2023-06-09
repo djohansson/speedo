@@ -54,6 +54,8 @@
 		+ ' -D_WIN32_LEAN_AND_MEAN'
 		+ ' -DNOMINMAX'
 		+ ' -D_HAS_STATIC_RTTI=1'
+		+ ' -D_MT'
+		+ ' -D_DLL'
 		+ ' -gcodeview'
 		+ ' -Xclang -cfguard'
 #endif //__WINDOWS__
@@ -109,7 +111,7 @@
 	.GraphicsValidationEnabled = '1'
 	.CompilerOptions + ' -O0'
 		+ ' -fno-omit-frame-pointer'
-		+ ' -fsanitize=undefined'
+	//	+ ' -fsanitize=undefined'
 	// 	+ ' -fsanitize=address'
 	// 	+ ' -D_DISABLE_STRING_ANNOTATION'
 	// 	+ ' -D_DISABLE_VECTOR_ANNOTATION'
