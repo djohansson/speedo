@@ -8,6 +8,7 @@
 #include <core/nodes/slangshadernode.h>
 #include <core/profiling.h>
 
+#define STB_SPRINTF_IMPLEMENTATION // TODO: move this somewhere else
 #include <stb_sprintf.h>
 
 #define GLFW_INCLUDE_NONE
