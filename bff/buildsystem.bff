@@ -6,7 +6,7 @@
 #include "config/python.bff"
 #include "config/vulkan.bff"
 
-.BuildRootPath = '$_WORKING_DIR_$' // should be '$_CURRENT_BFF_DIR_$' but that seems broken...
+.BuildRootPath = '$_CURRENT_BFF_DIR_$/../'
 .IntermediateFilePath = '$BuildRootPath$/build.intermediate'
 .BuildOutputPath = '$BuildRootPath$/build.output'
 
