@@ -221,7 +221,7 @@ uint32_t createLayoutBindings<Vk>(
 
 	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
 	{
-		auto subCategory = parameter->getCategoryByIndex(categoryIndex);
+		auto subCategory = static_cast<SlangParameterCategory>(parameter->getCategoryByIndex(categoryIndex));
 		auto spaceForCategory = parameter->getBindingSpace(subCategory);
 		auto elementSize = elementTypeLayout->getSize(subCategory);
 		auto elementAlignment = elementTypeLayout->getAlignment(subCategory);
@@ -251,11 +251,11 @@ uint32_t createLayoutBindings<Vk>(
 
 		std::cout << '\n';
 
-		if (subCategory == slang::ParameterCategory::RegisterSpace)
+		if (subCategory == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
 		{
 			bindingSpace = spaceForCategory;
 		}
-		else if (subCategory == slang::ParameterCategory::Uniform)
+		else if (subCategory == SLANG_PARAMETER_CATEGORY_UNIFORM)
 		{
 			uniformsTotalSize += size;
 		}
