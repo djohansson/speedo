@@ -3,8 +3,7 @@
 
 #include "utils.h"
 
-#include <client/resources/shaders/shadertypes.h>
-
+#include <client/client.h> // TODO: eliminate this dependency
 
 #include <stb_sprintf.h>
 
@@ -434,7 +433,7 @@ Window<Vk>::Window(
 	: Swapchain(
 		  device, defaultConfig, std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig(AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
-		  std::filesystem::path(volcano_getUserProfilePath()) / "window.json",
+		  std::filesystem::path(client_getUserProfilePath()) / "window.json",
 		  std::forward<WindowConfiguration<Vk>>(defaultConfig)))
 {
 	ZoneScopedN("Window()");

@@ -2,6 +2,8 @@
 
 #include "utils.h"
 
+#include <client/client.h> // TODO: eliminate this dependency
+
 #include <algorithm>
 #include <vector>
 
@@ -146,7 +148,7 @@ VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo{
 
 template <>
 InstanceConfiguration<Vk>::InstanceConfiguration()
-	: applicationName("volcano")
+	: applicationName("client")
 	, engineName("magma")
 	, appInfo{
 		  VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -182,7 +184,7 @@ Instance<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk
 template <>
 Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	: myConfig(AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
-		  std::filesystem::path(volcano_getUserProfilePath()) / "instance.json",
+		  std::filesystem::path(client_getUserProfilePath()) / "instance.json",
 		  std::forward<InstanceConfiguration<Vk>>(defaultConfig)))
 	, myHostAllocationCallbacks{
 		nullptr,

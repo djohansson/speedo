@@ -3,6 +3,8 @@
 
 #include "utils.h"
 
+#include <client/client.h> // TODO: eliminate this dependency
+
 #include <core/gltfstream.h>
 #include <core/nodes/inputoutputnode.h>
 #include <core/nodes/slangshadernode.h>
@@ -67,7 +69,7 @@ void Application<Vk>::initIMGUI(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(volcano_getResourcePath());
+	std::filesystem::path fontPath(client_getResourcePath());
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -191,9 +193,9 @@ Application<Vk>::Application(const WindowState& window)
 {
 	ZoneScopedN("Application()");
 
-	auto rootPath = std::filesystem::path(volcano_getRootPath());
-	auto resourcePath = std::filesystem::path(volcano_getResourcePath());
-	auto userProfilePath = std::filesystem::path(volcano_getUserProfilePath());
+	auto rootPath = std::filesystem::path(client_getRootPath());
+	auto resourcePath = std::filesystem::path(client_getResourcePath());
+	auto userProfilePath = std::filesystem::path(client_getUserProfilePath());
 
 	auto shaderIncludePath = resourcePath / "shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
@@ -851,7 +853,7 @@ Application<Vk>::Application(const WindowState& window)
 		static bool showAbout = false;
 		if (showAbout)
 		{
-			if (Begin("About volcano", &showAbout)) {}
+			if (Begin("About client", &showAbout)) {}
 			End();
 		}
 
@@ -1116,7 +1118,7 @@ Application<Vk>::Application(const WindowState& window)
 				if (MenuItem("Show IMGUI Demo..."))
 					showDemoWindow = !showDemoWindow;
 				Separator();
-				if (MenuItem("About volcano..."))
+				if (MenuItem("About client..."))
 					showAbout = !showAbout;
 				ImGui::EndMenu();
 			}
@@ -1139,7 +1141,7 @@ Application<Vk>::Application(const WindowState& window)
 		ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
 	};
 
-	myNodeGraph = std::filesystem::path(volcano_getUserProfilePath()) /
+	myNodeGraph = std::filesystem::path(client_getUserProfilePath()) /
 				  "nodegraph.json"; // temp - this should be stored in the resource path
 }
 

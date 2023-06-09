@@ -16,7 +16,7 @@
 // todo: (maybe) switch from ms-gltf to cgltf
 // todo: (maybe) use Scatter/Gather I/O
 
-// done: separate IMGUI and volcano abstractions more clearly. avoid referencing IMGUI:s windowdata
+// done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
 // done: instrumentation and timing information
 // done: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads

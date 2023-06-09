@@ -2,6 +2,8 @@
 
 #include "utils.h"
 
+#include <client/client.h> // TODO: eliminate this dependency
+
 #include <cereal/archives/binary.hpp>
 
 #include <stb_sprintf.h>
@@ -810,7 +812,7 @@ Pipeline<Vk>::Pipeline(
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
 	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
-		  std::filesystem::path(volcano_getUserProfilePath()) / "pipeline.json",
+		  std::filesystem::path(client_getUserProfilePath()) / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)

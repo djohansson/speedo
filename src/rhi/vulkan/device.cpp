@@ -2,6 +2,8 @@
 
 #include "utils.h"
 
+#include <client/client.h> // TODO: eliminate this dependency
+
 #include <algorithm>
 //#include <format>
 #include <list>
@@ -218,7 +220,7 @@ Device<Vk>::Device(
 	DeviceConfiguration<Vk>&& defaultConfig)
 	: myInstance(instance)
 	, myConfig(AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
-		  std::filesystem::path(volcano_getUserProfilePath()) / "device.json",
+		  std::filesystem::path(client_getUserProfilePath()) / "device.json",
 		  std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
