@@ -1126,7 +1126,6 @@ Application<Vk>::Application(const WindowState& window)
 			EndMainMenuBar();
 		}
 
-		//End();
 		EndFrame();
 		UpdatePlatformWindows();
 		Render();
@@ -1196,6 +1195,10 @@ void Application<Vk>::onMouse(const MouseState& mouse)
 	myInput.mouseButtonsPressed[0] = leftPressed;
 	myInput.mouseButtonsPressed[1] = rightPressed;
 	myInput.mouseButtonsPressed[2] = mouse.insideWindow && !myInput.mouseButtonsPressed[0];
+
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, leftPressed);
+	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, rightPressed);
 }
 
 template <>
@@ -1280,8 +1283,17 @@ bool Application<Vk>::tick()
 						cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 				}
 				{
+					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), update);
+
+					// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
+					using namespace ImGui;
+
+					auto& io = GetIO();
+					if (!io.WantCaptureMouse)
+						gfx().myMainWindow->updateInput(myInput);
+				}
+				{
 					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), draw);
-					gfx().myMainWindow->updateInput(myInput);
 					gfx().myMainWindow->draw(
 						myExecutor,
 						*gfx().myPipeline,

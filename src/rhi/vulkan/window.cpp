@@ -20,9 +20,6 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include <imgui.h>
-#include <imgui_impl_vulkan.h>
-
 template <>
 void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 {
@@ -315,15 +312,6 @@ template <>
 void Window<Vk>::updateInput(const InputState& input)
 {
 	ZoneScopedN("Window::updateInput");
-
-	// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
-	{
-		using namespace ImGui;
-
-		auto& io = GetIO();
-		if (io.WantCaptureMouse)
-			return;
-	}
 
 	myTimestamps[1] = myTimestamps[0];
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
