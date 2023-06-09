@@ -20,7 +20,7 @@
 #include <imgui_impl_vulkan.h>
 #include <imgui_stdlib.h>
 
-#include <imnodes.h>
+//#include <imnodes.h>
 
 template <>
 void Application<Vk>::initIMGUI(
@@ -131,18 +131,17 @@ void Application<Vk>::initIMGUI(
 		1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[](uint64_t) { ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
 
-	IMNODES_NAMESPACE::CreateContext();
-	IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
-		myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
+	// IMNODES_NAMESPACE::CreateContext();
+	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
+	//	myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
 }
 
 template <>
 void Application<Vk>::shutdownIMGUI()
 {
-	size_t count;
-	myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
-
-	IMNODES_NAMESPACE::DestroyContext();
+	// size_t count;
+	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
+	// IMNODES_NAMESPACE::DestroyContext();
 
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
@@ -719,7 +718,7 @@ Application<Vk>::Application(const WindowState& window)
 		NewFrame();
 
 		// todo: move elsewhere
-		auto editableTextField = [](int id,
+		/*auto editableTextField = [](int id,
 									const char* label,
 									std::string& str,
 									float maxTextWidth,
@@ -787,6 +786,7 @@ Application<Vk>::Application(const WindowState& window)
 
 			return std::max(maxTextWidth, CalcTextSize(str.c_str(), str.c_str() + str.size()).x);
 		};
+		*/
 
 #if PROFILING_ENABLED
 		static bool showStatistics = false;
@@ -855,7 +855,7 @@ Application<Vk>::Application(const WindowState& window)
 			End();
 		}
 
-		static bool showNodeEditor = false;
+		/*static bool showNodeEditor = false;
 		if (showNodeEditor)
 		{
 			ImGui::SetNextWindowSize(ImVec2(800, 450), ImGuiCond_FirstUseEver);
@@ -993,7 +993,7 @@ Application<Vk>::Application(const WindowState& window)
 
 			IMNODES_NAMESPACE::EndNodeEditor();
 
-			//if (ImGui::IsWindowHovered() || ImGui::IsWindowFocused()/*IMNODES_NAMESPACE::IsEditorHovered()*/)
+			//if (ImGui::IsWindowHovered() || ImGui::IsWindowFocused())
 			{
 				//if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Tab)))
 				{
@@ -1060,6 +1060,7 @@ Application<Vk>::Application(const WindowState& window)
 			//     }
 			// }
 		}
+		*/
 
 		if (BeginMainMenuBar())
 		{
@@ -1100,8 +1101,8 @@ Application<Vk>::Application(const WindowState& window)
 			}
 			if (BeginMenu("View"))
 			{
-				if (MenuItem("Node Editor..."))
-					showNodeEditor = !showNodeEditor;
+				// if (MenuItem("Node Editor..."))
+				// 	showNodeEditor = !showNodeEditor;
 #if PROFILING_ENABLED
 				{
 					if (MenuItem("Statistics..."))
