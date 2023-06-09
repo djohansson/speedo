@@ -23,7 +23,7 @@ static void onMouseEnter(GLFWwindow* window, int entered)
 {
 	g_mouse.insideWindow = entered;
 
-	volcano_mouse(&g_mouse);
+	client_mouse(&g_mouse);
 }
 
 static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
@@ -32,7 +32,7 @@ static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 	g_mouse.action = action;
 	g_mouse.mods = mods;
 
-	volcano_mouse(&g_mouse);
+	client_mouse(&g_mouse);
 }
 
 static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
@@ -40,7 +40,7 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 	g_mouse.xpos = xpos;
 	g_mouse.ypos = ypos;
 
-	volcano_mouse(&g_mouse);
+	client_mouse(&g_mouse);
 }
 
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -101,7 +101,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 	g_keyboard.action = action;
 	g_keyboard.mods = mods;
 
-	volcano_keyboard(&g_keyboard);
+	client_keyboard(&g_keyboard);
 }
 
 static void onFramebufferResize(GLFWwindow*, int w, int h)
@@ -109,7 +109,7 @@ static void onFramebufferResize(GLFWwindow*, int w, int h)
 	if (w == 0 || h == 0)
 		return;
 
-	volcano_resizeFramebuffer(w, h);
+	client_resizeFramebuffer(w, h);
 }
 
 static void onWindowResize(GLFWwindow*, int w, int h)
@@ -120,7 +120,7 @@ static void onWindowResize(GLFWwindow*, int w, int h)
 		g_window.height = h;
 	}
 
-	volcano_resizeWindow(&g_window);
+	client_resizeWindow(&g_window);
 }
 
 static void onWindowFocusChanged(GLFWwindow* window, int focused) {}
@@ -184,7 +184,7 @@ int main(int argc, char* argv[], char* env[])
 	g_window.nativeHandle = window;
 #endif
 
-	volcano_create(
+	client_create(
 		&g_window,
 		"./",
 		getCmdOption(argv, argv + argc, R"(-r)"),
@@ -199,11 +199,11 @@ int main(int argc, char* argv[], char* env[])
 	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
 	glfwSetWindowRefreshCallback(window, onWindowRefresh);
 	glfwSetMonitorCallback(onMonitorChanged);
-	glfwSetWindowTitle(window, volcano_getAppName());
+	glfwSetWindowTitle(window, client_getAppName());
 
-	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && !volcano_tick());
+	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && !client_tick());
 
-	volcano_destroy();
+	client_destroy();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
