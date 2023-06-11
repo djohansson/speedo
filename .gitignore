@@ -5,3 +5,6 @@ build.*/*
 *.sln
 *.fdb
 fbuild.exe
+slang-stdlib.bin
+slang.dll
+slang.pdb
