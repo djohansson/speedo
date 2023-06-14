@@ -4,7 +4,7 @@
 		{
 			"label": "FastBuild (Cache)",
 			"type": "shell",
-			"command": "./fbuild",
+			"command": "fbuild",
 			"args": [
 				"-cache",
 				//"all"
@@ -18,7 +18,7 @@
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
-			"command": "./fbuild",
+			"command": "fbuild",
 			"args": [
 				"-clean",
 				"-cache",
@@ -29,7 +29,7 @@
 		{
 			"label": "FastBuild (Clean, No Cache)",
 			"type": "shell",
-			"command": "./fbuild",
+			"command": "fbuild",
 			"args": [
 				"-clean",
 				"all"
