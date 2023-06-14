@@ -108,27 +108,23 @@ VkBool32 debugUtilsMessengerCallback(
 	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
 	void* pUserData)
 {
-	if (pCallbackData->messageIdNumber !=
-		-1666394502) // UNASSIGNED-CoreValidation-DrawState-QueryNotReset - https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/1179
+	for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
 	{
-		for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
-		{
-			std::cout << "Object " << objectIt;
+		std::cout << "Object " << objectIt;
 
-			if (pCallbackData->pObjects[objectIt].pObjectName)
-				std::cout << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
+		if (pCallbackData->pObjects[objectIt].pObjectName)
+			std::cout << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
 
-			std::cout << ": ";
-		}
-
-		if (pCallbackData->pMessageIdName)
-			std::cout << pCallbackData->pMessageIdName << ": ";
-
-		std::cout << pCallbackData->pMessage << std::endl;
-
-		if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-			__debugbreak();
+		std::cout << ": ";
 	}
+
+	if (pCallbackData->pMessageIdName)
+		std::cout << pCallbackData->pMessageIdName << ": ";
+
+	std::cout << pCallbackData->pMessage << std::endl;
+
+	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+		__debugbreak();
 
 	return VK_FALSE;
 }
