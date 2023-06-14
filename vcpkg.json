@@ -3,6 +3,7 @@
   "dependencies": [
     "cereal",
     "concurrentqueue",
+    "fastbuild",
     "lz4",
     "mimalloc",
     "mio",
