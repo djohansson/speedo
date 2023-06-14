@@ -149,7 +149,7 @@ VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo{
 template <>
 InstanceConfiguration<Vk>::InstanceConfiguration()
 	: applicationName("client")
-	, engineName("magma")
+	, engineName("speedo")
 	, appInfo{
 		  VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		  nullptr,
