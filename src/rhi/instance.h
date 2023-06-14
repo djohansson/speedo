@@ -15,8 +15,8 @@ struct InstanceConfiguration
 {
 	InstanceConfiguration();
 
-	std::string applicationName = "";
-	std::string engineName = "";
+	std::string applicationName;
+	std::string engineName;
 	ApplicationInfo<B> appInfo{};
 };
 
