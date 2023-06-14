@@ -1333,15 +1333,13 @@ bool Application<Vk>::tick()
 
 			if (lastPresentTimelineValue)
 			{
-				ZoneScopedN("Application::draw::submitTimelineCallbacks");
+				ZoneScopedN("Application::draw::processTimelineCallbacks");
 
 				// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 				gfx().myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
 			}
 
 			{
-				ZoneScopedN("Application::draw::handleCallbacks");
-
 				if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
 				{
 					ZoneScopedN("Application::draw::openFileCallback");
