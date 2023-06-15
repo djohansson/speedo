@@ -243,20 +243,19 @@ using UnorderedMap = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
 template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedSet = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
-template <typename Key, typename T, typename VectorT = std::vector<std::pair<Key, T>>>
-class FlatMap : public VectorT
+template <typename Key, typename T, typename ContainerT = std::vector<std::pair<Key, T>>>
+class FlatMap : public ContainerT
 {
 public:
 
-	using vector_type = VectorT;
+	using container_type = ContainerT;
 	using key_type = Key;
 	using mapped_type = T;
-	using value_type = typename vector_type::value_type;
-	using iterator = typename vector_type::iterator; 
-	using vector_type::begin;
-	using vector_type::end;
-	using vector_type::emplace;
-	using vector_type::insert;
+	using value_type = typename container_type::value_type;
+	using iterator = typename container_type::iterator; 
+	using container_type::begin;
+	using container_type::end;
+	using container_type::empty;
 
 	template <typename... Args>
 	std::pair<iterator, bool> emplace(const Key& key, Args&&... args)
@@ -265,25 +264,24 @@ public:
 
 		std::pair<iterator, bool> result(elementIt, false);
 		if (elementIt == end() || key != elementIt->first)
-			result = std::make_pair(vector_type::emplace(elementIt, key, std::forward<Args>(args)...), true);
+			result = std::make_pair(container_type::emplace(elementIt, key, std::forward<Args>(args)...), true);
 
 		return result;
 	}
 };
 
-template <typename Key, typename VectorT = std::vector<Key>>
-class FlatSet : public VectorT
+template <typename Key, typename ContainerT = std::vector<Key>>
+class FlatSet : public ContainerT
 {
 public:
 
-	using vector_type = VectorT;
+	using container_type = ContainerT;
 	using key_type = Key;
-	using value_type = typename vector_type::value_type;
-	using iterator = typename vector_type::iterator; 
-	using vector_type::begin;
-	using vector_type::end;
-	using vector_type::emplace;
-	using vector_type::insert;
+	using value_type = typename container_type::value_type;
+	using iterator = typename container_type::iterator; 
+	using container_type::begin;
+	using container_type::end;
+	using container_type::empty;
 
 	template <typename... Args>
 	std::pair<iterator, bool> emplace(Args&&... args)
@@ -293,32 +291,31 @@ public:
 
 		std::pair<iterator, bool> result(elementIt, false);
 		if (elementIt == end() || key != *elementIt)
-			result = std::make_pair(vector_type::insert(elementIt, std::move(key)), true);
+			result = std::make_pair(container_type::insert(elementIt, std::move(key)), true);
 
 		return result;
 	}
 };
 
-template <typename T, typename MapT = FlatMap<T, T>>
-class RangeSet : public MapT
+template <typename T, typename ContainerT = FlatMap<T, T>>
+class RangeSet : private ContainerT
 {
 public:
 
-	using map_type = MapT;
+	using container_type = ContainerT;
 	using key_type = T;
 	using mapped_type = T;
-	using value_type = typename map_type::value_type;
-	using iterator = typename map_type::iterator; 
-	using map_type::begin;
-	using map_type::end;
-	using map_type::insert;
-	using map_type::erase;
+	using value_type = typename container_type::value_type;
+	using iterator = typename container_type::iterator; 
+	using container_type::begin;
+	using container_type::end;
+	using container_type::empty;
 
 	auto insert(value_type&& range)
 	{
 		assert(range.first < range.second);
 
-		if constexpr (std::is_same_v<map_type, FlatMap<T, T>>)
+		if constexpr (std::is_same_v<container_type, FlatMap<T, T>>)
 		{
 			auto currentCapacity = this->capacity();
 			if (currentCapacity == this->size())
@@ -339,8 +336,8 @@ public:
 		
 		if (isBegin || prevIt->second < low)
 		{
-			insertRangeIt = insert(afterIt, std::forward<value_type>(range));
-			if constexpr (std::is_same_v<map_type, FlatMap<T, T>>)
+			insertRangeIt = container_type::insert(afterIt, std::forward<value_type>(range));
+			if constexpr (std::is_same_v<container_type, FlatMap<T, T>>)
 				afterIt = std::next(insertRangeIt); // since insert will have invalidated afterIt
 		}
 		else
@@ -356,7 +353,7 @@ public:
 		while (afterIt != end() && high >= afterIt->first)
 		{
 			insertRangeIt->second = std::max(afterIt->second, insertRangeIt->second);
-			afterIt = erase(afterIt);
+			afterIt = container_type::erase(afterIt);
 		}
 
 		return std::make_pair(insertRangeIt, true);
