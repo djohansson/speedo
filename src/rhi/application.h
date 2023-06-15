@@ -118,7 +118,7 @@ private:
 			CommandType_Count
 		};
 
-		std::array<WrapContainer<CommandPoolContext<B>>, CommandType_Count> myCommands;
+		std::array<CircularContainer<CommandPoolContext<B>>, CommandType_Count> myCommands;
 
 		//std::shared_ptr<ResourceContext<B>> myResources;
 

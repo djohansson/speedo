@@ -361,18 +361,34 @@ public:
 };
 
 template <typename T, typename ContainerT = std::vector<T>, typename IndexT = uint32_t>
-class WrapContainer : public ContainerT
+class CircularContainer : private ContainerT
 {
 public:
 
+	using value_type = T;
+	using container_type = ContainerT;
+	using container_type::begin;
+	using container_type::end;
+	using container_type::emplace_back;
+
+	T& get()
+	{
+		return container_type::at(myHead);
+	}
+
+	const T& get() const
+	{
+		return container_type::at(myHead);
+	}
+
 	T& fetchAdd(IndexT offset = 1u)
 	{
-		auto index = myIndex;
-		myIndex = (myIndex + offset) % ContainerT::size();
-		return ContainerT::at(index);
+		auto index = myHead;
+		myHead = (myHead + offset) % container_type::size();
+		return container_type::at(index);
 	}
 
 private:
 
-	IndexT myIndex{};
+	IndexT myHead{};
 };
