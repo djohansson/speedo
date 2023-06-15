@@ -1158,22 +1158,8 @@ Application<Vk>::~Application()
 	{
 		ZoneScopedN("~Application()::waitGPU");
 
-		// wait in on all queues
-		uint64_t timelineValue = 0ull;
-
-		for (const auto& queue : gfx().myGraphicsQueues)
-			timelineValue = std::max(timelineValue, queue.getLastSubmitTimelineValue().value_or(0));
-
-		for (const auto& queue : gfx().myComputeQueues)
-			timelineValue = std::max(timelineValue, queue.getLastSubmitTimelineValue().value_or(0));
-
-		for (const auto& queue : gfx().myTransferQueues)
-			timelineValue = std::max(timelineValue, queue.getLastSubmitTimelineValue().value_or(0));
-
-		gfx().myDevice->wait(timelineValue);
+		gfx().myDevice->waitIdle();
 	}
-
-	vkDeviceWaitIdle(*gfx().myDevice); // added this hack since timeline wait is not respected by the validation layer (likely) or is not actually working for some reason.
 
 	shutdownIMGUI();
 }
