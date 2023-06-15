@@ -216,10 +216,7 @@ PipelineLayout<Vk>::PipelineLayout(
 		  {
 			  DescriptorSetLayoutFlatMap<Vk> map;
 			  for (auto [set, layout] : shaderSet.layouts)
-				  map.emplace(
-					  map.end(),
-					  std::make_pair(
-						  set, DescriptorSetLayout<Vk>(device, std::move(layout))));
+				  map.emplace(set, DescriptorSetLayout<Vk>(device, std::move(layout)));
 			  return map;
 		  }())
 {}
