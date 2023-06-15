@@ -1,10 +1,14 @@
-.vs/*
 .profile/*
-build.*/*
+
+.vs/*
+
 *.vcxproj*
 *.sln
+
 *.fdb
-fbuild.exe
+
+build.*/*
+
 slang-stdlib.bin
 slang.dll
 slang.pdb
