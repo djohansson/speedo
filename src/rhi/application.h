@@ -104,9 +104,9 @@ private:
 		std::shared_ptr<Window<B>> myMainWindow;
 		std::shared_ptr<Pipeline<B>> myPipeline;
 
-		std::list<Queue<B>> myGraphicsQueues;
-		std::list<Queue<B>> myComputeQueues;
-		std::list<Queue<B>> myTransferQueues;
+		CircularContainer<Queue<B>> myGraphicsQueues;
+		CircularContainer<Queue<B>> myComputeQueues;
+		CircularContainer<Queue<B>> myTransferQueues;
 
 		enum CommandType : uint8_t
 		{

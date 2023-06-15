@@ -99,8 +99,8 @@ void Application<Vk>::initIMGUI(
 	initInfo.Instance = *gfx().myInstance;
 	initInfo.PhysicalDevice = gfx().myDevice->getPhysicalDevice();
 	initInfo.Device = *gfx().myDevice;
-	initInfo.QueueFamily = gfx().myGraphicsQueues.front().getDesc().queueFamilyIndex;
-	initInfo.Queue = gfx().myGraphicsQueues.front();
+	initInfo.QueueFamily = gfx().myGraphicsQueues.get().getDesc().queueFamilyIndex;
+	initInfo.Queue = gfx().myGraphicsQueues.get();
 	initInfo.PipelineCache = gfx().myPipeline->getCache();
 	initInfo.DescriptorPool = gfx().myPipeline->getDescriptorPool();
 	initInfo.MinImageCount = gfx().myMainWindow->getConfig().imageCount;
@@ -376,6 +376,10 @@ Application<Vk>::Application(const WindowState& window)
 		auto& dedicatedComputeContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedCompute];
 		auto& dedicatedTransferContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer];
 
+		auto& graphicsQueues = gfx().myGraphicsQueues;
+		auto& computeQueues = gfx().myComputeQueues;
+		auto& transferQueues = gfx().myTransferQueues;
+
 		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
 		constexpr bool useCommandBufferCreateReset = true;
@@ -409,12 +413,12 @@ Application<Vk>::Application(const WindowState& window)
 				generalTransferContexts.emplace_back(CommandPoolContext<Vk>(
 					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-				gfx().myGraphicsQueues.emplace_back(Queue<Vk>(
+				graphicsQueues.emplace_back(Queue<Vk>(
 					gfx().myDevice,
 					QueueCreateDesc<Vk>{
 						0,
 						queueFamilyIndex,
-						primaryContexts.front().commands(
+						primaryContexts.get().commands(
 							CommandBufferAccessScopeDesc<Vk>(false))}));
 			}
 			else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
@@ -424,7 +428,7 @@ Application<Vk>::Application(const WindowState& window)
 				dedicatedComputeContexts.emplace_back(CommandPoolContext<Vk>(
 					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-				gfx().myComputeQueues.emplace_back(
+				computeQueues.emplace_back(
 					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 			else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
@@ -434,7 +438,7 @@ Application<Vk>::Application(const WindowState& window)
 				dedicatedTransferContexts.emplace_back(CommandPoolContext<Vk>(
 					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
-				gfx().myTransferQueues.emplace_back(
+				transferQueues.emplace_back(
 					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 		}
@@ -498,14 +502,14 @@ Application<Vk>::Application(const WindowState& window)
 
 		cmd.end();
 
-		gfx().myGraphicsQueues.front().enqueueSubmit(generalTransferContext.prepareSubmit(
+		gfx().myGraphicsQueues.get().enqueueSubmit(generalTransferContext.prepareSubmit(
 			{{gfx().myDevice->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {gfx().myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0)},
+			 {gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0)},
 			 {gfx().myDevice->getTimelineSemaphore()},
 			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		gfx().myGraphicsQueues.front().submit();
+		gfx().myGraphicsQueues.get().submit();
 	}
 
 	constexpr uint32_t textureId = 1;
@@ -515,6 +519,8 @@ Application<Vk>::Application(const WindowState& window)
 	{
 		auto& dedicatedTransferContext =
 			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
+
+		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
@@ -543,14 +549,14 @@ Application<Vk>::Application(const WindowState& window)
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			objectData.get());
 
-		gfx().myTransferQueues.front().enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
 			 {gfx().myDevice->getTimelineSemaphore()},
 			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		gfx().myTransferQueues.front().submit();
+		transferQueue.submit();
 	}
 
 	// set global descriptor set data
@@ -601,26 +607,23 @@ Application<Vk>::Application(const WindowState& window)
 		auto& dedicatedTransferContext =
 			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
 
-		std::rotate(
-			gfx().myTransferQueues.begin(), std::next(gfx().myTransferQueues.begin()), gfx().myTransferQueues.end());
+		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
 
-		gfx().myDevice->wait(gfx().myTransferQueues.front().getLastSubmitTimelineValue().value_or(0));
+		gfx().myDevice->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
 
 		dedicatedTransferContext.reset();
 
 		gfx().myPipeline->setModel(
 			std::make_shared<Model<Vk>>(gfx().myDevice, dedicatedTransferContext, openFilePath));
 
-		gfx().myTransferQueues.front().enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
 			 {gfx().myDevice->getTimelineSemaphore()},
 			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		gfx().myTransferQueues.front().submit();
-
-		return 1;
+		return transferQueue.submit();
 	};
 
 	auto loadImage = [this](nfdchar_t* openFilePath)
@@ -628,10 +631,9 @@ Application<Vk>::Application(const WindowState& window)
 		auto& dedicatedTransferContext =
 			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
 
-		std::rotate(
-			gfx().myTransferQueues.begin(), std::next(gfx().myTransferQueues.begin()), gfx().myTransferQueues.end());
+		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
 
-		gfx().myDevice->wait(gfx().myTransferQueues.front().getLastSubmitTimelineValue().value_or(0));
+		gfx().myDevice->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
 
 		dedicatedTransferContext.reset();
 
@@ -640,34 +642,32 @@ Application<Vk>::Application(const WindowState& window)
 		gfx().myPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
 			gfx().myDevice, *gfx().myPipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
-		gfx().myTransferQueues.front().enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
 			 {gfx().myDevice->getTimelineSemaphore()},
 			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		gfx().myTransferQueues.front().submit();
+		transferQueue.submit();
 
 		///////////
 
 		auto& generalTransferContext = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer].fetchAdd();
 		auto cmd = generalTransferContext.commands();
 
+		auto& graphicsQueue = gfx().myGraphicsQueues.get();
+
 		gfx().myPipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 		cmd.end();
 
-		gfx().myGraphicsQueues.front().enqueueSubmit(generalTransferContext.prepareSubmit(
+		graphicsQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
 			{{gfx().myDevice->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {gfx().myTransferQueues.front().getLastSubmitTimelineValue().value_or(0)},
+			 {transferQueue.getLastSubmitTimelineValue().value_or(0)},
 			 {gfx().myDevice->getTimelineSemaphore()},
 			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-		gfx().myGraphicsQueues.front().submit();
-
-		///////////
 
 		gfx().myPipeline->setDescriptorData(
 			"g_textures",
@@ -678,7 +678,7 @@ Application<Vk>::Application(const WindowState& window)
 			DescriptorSetCategory_GlobalTextures,
 			1);
 
-		return 1;
+		return graphicsQueue.submit();
 	};
 
 	auto loadGlTF = [](nfdchar_t* openFilePath)
@@ -1228,10 +1228,7 @@ bool Application<Vk>::tick()
 				auto secondaryContexts = &gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary].fetchAdd(
 					secondaryContextCount);
 
-				std::rotate(
-					gfx().myGraphicsQueues.begin(),
-					std::next(gfx().myGraphicsQueues.begin()),
-					gfx().myGraphicsQueues.end());
+				auto& graphicsQueue = gfx().myGraphicsQueues.fetchAdd();
 
 				if (lastPresentTimelineValue)
 				{
@@ -1250,22 +1247,22 @@ bool Application<Vk>::tick()
 				auto cmd = primaryContext.commands();
 
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), collect);
-					gfx().myGraphicsQueues.front().traceCollect(cmd);
+					GPU_SCOPE(cmd, graphicsQueue, collect);
+					graphicsQueue.traceCollect(cmd);
 				}
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), clear);
+					GPU_SCOPE(cmd, graphicsQueue, clear);
 					gfx().myRenderImageSet->clearDepthStencil(cmd, {1.0f, 0});
 				}
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), transition);
+					GPU_SCOPE(cmd, graphicsQueue, transition);
 					gfx().myRenderImageSet->transitionColor(
 						cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 					gfx().myRenderImageSet->transitionDepthStencil(
 						cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 				}
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), update);
+					GPU_SCOPE(cmd, graphicsQueue, update);
 
 					// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
 					using namespace ImGui;
@@ -1275,7 +1272,7 @@ bool Application<Vk>::tick()
 						gfx().myMainWindow->updateInput(myInput);
 				}
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), draw);
+					GPU_SCOPE(cmd, graphicsQueue, draw);
 					gfx().myMainWindow->draw(
 						myExecutor,
 						*gfx().myPipeline,
@@ -1284,7 +1281,7 @@ bool Application<Vk>::tick()
 						secondaryContextCount);
 				}
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), imgui);
+					GPU_SCOPE(cmd, graphicsQueue, imgui);
 					gfx().myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
 					myIMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
@@ -1293,7 +1290,7 @@ bool Application<Vk>::tick()
 					gfx().myMainWindow->end(cmd);
 				}
 				{
-					GPU_SCOPE(cmd, gfx().myGraphicsQueues.front(), transitionColor);
+					GPU_SCOPE(cmd, graphicsQueue, transitionColor);
 					gfx().myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
 				}
 
@@ -1301,16 +1298,16 @@ bool Application<Vk>::tick()
 
 				auto [imageAquired, renderComplete] = gfx().myMainWindow->getFrameSyncSemaphores();
 
-				gfx().myGraphicsQueues.front().enqueueSubmit(primaryContext.prepareSubmit(
+				graphicsQueue.enqueueSubmit(primaryContext.prepareSubmit(
 					{{gfx().myDevice->getTimelineSemaphore(), imageAquired},
 					 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
 					  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-					 {gfx().myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0), 1},
+					 {graphicsQueue.getLastSubmitTimelineValue().value_or(0), 1},
 					 {gfx().myDevice->getTimelineSemaphore(), renderComplete},
 					 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
-				gfx().myGraphicsQueues.front().enqueuePresent(
-					gfx().myMainWindow->preparePresent(gfx().myGraphicsQueues.front().submit()));
+				graphicsQueue.enqueuePresent(
+					gfx().myMainWindow->preparePresent(graphicsQueue.submit()));
 			}
 
 			if (lastPresentTimelineValue)
@@ -1338,7 +1335,7 @@ bool Application<Vk>::tick()
 		});
 
 	auto [presentTask, presentFuture] = frameGraph.createTask(
-		[](Queue<Vk>* queue) { queue->present(); }, &gfx().myGraphicsQueues.front());
+		[](Queue<Vk>* queue) { queue->present(); }, &gfx().myGraphicsQueues.get());
 
 	frameGraph.addDependency(drawTask, presentTask);
 
@@ -1363,7 +1360,7 @@ void Application<Vk>::resizeFramebuffer(int, int)
 	{
 		ZoneScopedN("Application::resizeFramebuffer::waitGPU");
 
-		gfx().myDevice->wait(gfx().myGraphicsQueues.front().getLastSubmitTimelineValue().value_or(0));
+		gfx().myDevice->wait(gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
 	}
 
 	auto physicalDevice = gfx().myDevice->getPhysicalDevice();
