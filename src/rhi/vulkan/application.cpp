@@ -1238,11 +1238,7 @@ bool Application<Vk>::tick()
 					{
 						ZoneScopedN("Application::draw::waitFrame");
 
-						// todo: don't wait on transfer here - use callback to publish updated resources instead
-
-						gfx().myDevice->wait(std::max(
-							lastPresentTimelineValue,
-							gfx().myTransferQueues.front().getLastSubmitTimelineValue().value_or(0)));
+						gfx().myDevice->wait(lastPresentTimelineValue);
 					}
 
 					primaryContext.reset();
