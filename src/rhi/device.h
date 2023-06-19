@@ -89,7 +89,7 @@ public:
 	uint64_t addTimelineCallback(TimelineCallback&& callback);
 	bool processTimelineCallbacks(uint64_t timelineValue);
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	void addOwnedObjectHandle(
 		const uuids::uuid& ownerId,
 		ObjectType<B> objectType,
@@ -115,7 +115,7 @@ private:
 
 	moodycamel::ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	struct ObjectNameInfo : ObjectInfo<B>
 	{
 		std::string name;

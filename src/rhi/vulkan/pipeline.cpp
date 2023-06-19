@@ -478,7 +478,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
 		&pipelineHandle));
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	{
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineStr = "_Pipeline";
@@ -853,7 +853,7 @@ Pipeline<Vk>::Pipeline(
 	// todo: refactor, since this will be called to excessivly
 	internalResetState();
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	{
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineCacheStr = "_PipelineCache";

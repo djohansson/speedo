@@ -790,7 +790,7 @@ Application<Vk>::Application(const WindowState& window)
 		};
 		*/
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 		static bool showStatistics = false;
 		{
 			if (showStatistics)
@@ -1105,7 +1105,7 @@ Application<Vk>::Application(const WindowState& window)
 			{
 				// if (MenuItem("Node Editor..."))
 				// 	showNodeEditor = !showNodeEditor;
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 				{
 					if (MenuItem("Statistics..."))
 						showStatistics = !showStatistics;

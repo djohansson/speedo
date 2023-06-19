@@ -27,7 +27,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			1));
 
-	#if PROFILING_ENABLED
+	#if GRAPHICS_VALIDATION_ENABLED
 		{
 			char stringBuffer[128];
 			static constexpr std::string_view colorImageViewStr = "_ColorImageView";
@@ -80,7 +80,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			depthAspectFlags,
 			1));
 
-	#if PROFILING_ENABLED
+	#if GRAPHICS_VALIDATION_ENABLED
 		{
 			char stringBuffer[128];
 			static constexpr std::string_view depthImageViewStr = "_DepthImageView";
@@ -242,7 +242,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 		desc.extent.height,
 		desc.layerCount);
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	{
 		char stringBuffer[128];
 		static constexpr std::string_view renderPassStr = "_RenderPass";

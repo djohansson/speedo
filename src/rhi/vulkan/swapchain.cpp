@@ -191,7 +191,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 	if (previous)
 	{
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 		getDevice()->eraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous));
 #endif
 
@@ -201,7 +201,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 			&getDevice()->getInstance()->getHostAllocationCallbacks());
 	}
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	{
 		char stringBuffer[32];
 		static constexpr std::string_view swapchainStr = "_Swapchain";
