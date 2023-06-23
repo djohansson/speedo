@@ -13,7 +13,10 @@
 			"group": {
 				"kind": "build",
 				"isDefault": true
-			}
+			},
+			"options": {
+				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
+			},
 		},
 		{
 			"label": "FastBuild (Clean, Cache)",
