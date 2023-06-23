@@ -23,6 +23,7 @@
 			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
+			+ ' -DTRACY_ENABLE'
 		.CompilerInputPath = '$ProjectBasePath$'
 	//	.CompilerInputUnity = '$Name$-unity'
 	// 	.UnityInputPath = '$ProjectBasePath$'

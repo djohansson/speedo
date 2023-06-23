@@ -107,7 +107,7 @@ private:
 	std::any myUserData;
 };
 
-#if PROFILING_ENABLED
+#if 0 // PROFILING_ENABLED
 #	define GPU_SCOPE(cmd, queue, name)                                                            \
 		struct name##__struct                                                                      \
 		{                                                                                          \

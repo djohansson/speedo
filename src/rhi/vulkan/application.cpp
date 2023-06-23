@@ -1199,8 +1199,6 @@ void Application<Vk>::onKeyboard(const KeyboardState& keyboard)
 template <>
 bool Application<Vk>::tick()
 {
-	ZoneScopedN("Application::tick");
-
 	FrameMark;
 
 	{
