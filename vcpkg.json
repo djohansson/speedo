@@ -25,7 +25,7 @@
         "shader-slang",
         "stb",
         "tinyobjloader",
-        {"name": "tracy", "features": ["cli-tools", "crash-handler", "gui-tools", "on-demand"]},
+        {"name": "tracy", "features": ["cli-tools", "crash-handler", "gui-tools"]},
         "vulkan",
         "vulkan-memory-allocator"
       ]
