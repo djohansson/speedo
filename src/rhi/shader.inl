@@ -153,13 +153,14 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		for (const auto& ep : entryPoints)
 		{
 			ISlangBlob* blob = nullptr;
-			if (SLANG_FAILED(
-					spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
-			{
-				spDestroyCompileRequest(slangRequest);
+			//if (SLANG_FAILED(
+					spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob);
+			//))
+			//{
+			//	spDestroyCompileRequest(slangRequest);
 
-				throw std::runtime_error("Failed to get slang blob.");
-			}
+			//	throw std::runtime_error("Failed to get slang blob.");
+			//}
 
 			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), ep));
 			std::copy(
