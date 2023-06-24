@@ -1,5 +1,5 @@
 #include "../application.h"
-#include "../resources/shaders/shadertypes.h"
+#include "../shaders/shadertypes.h"
 
 #include "utils.h"
 
@@ -197,7 +197,7 @@ Application<Vk>::Application(const WindowState& window)
 	auto resourcePath = std::filesystem::path(client_getResourcePath());
 	auto userProfilePath = std::filesystem::path(client_getUserProfilePath());
 
-	auto shaderIncludePath = resourcePath / "shaders";
+	auto shaderIncludePath = rootPath / "src/rhi/shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
 
 	auto vkSDKPathEnv = std::getenv("VK_SDK_PATH");

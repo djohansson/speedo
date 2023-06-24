@@ -39,7 +39,7 @@ int client_create(
 	assert(window->handle != nullptr);
 
 	g_rootPath = client::getCanonicalPath(resourcePath, "./");
-	g_resourcePath = client::getCanonicalPath(resourcePath, "./src/rhi/resources/");
+	g_resourcePath = client::getCanonicalPath(resourcePath, "./resources/");
 	g_userProfilePath = client::getCanonicalPath(userProfilePath, "./.profile/", true);
 	g_app = std::make_unique<Application<Vk>>(*window);
 
