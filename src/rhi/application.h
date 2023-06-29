@@ -1,20 +1,23 @@
-// wip: graph based GUI
 // todo: compute pipeline
 // todo: generalize drawcall submission & move out of window class. use sorted draw call lists.
 // todo: multi window/swapchain capability
 // todo: resource loading / manager
 // todo: proper GLTF support
+// todo: (maybe) switch from ms-gltf to cgltf
 // todo: frame graph
 // todo: clustered forward shading
 // todo: shader graph
 // todo: migrate out of slang into own root and clean up folder structure
-// todo: replace all external deps with vcpkg packages
-// todo: port slang into vcpkg package
 // todo: replace cereal with zpp::bits
 // todo: implement interprocess distributed task system using cppzmq & zpp::bits
 // todo: split and clean up concurrency-utils
-// todo: (maybe) switch from ms-gltf to cgltf
+// todo: make Application & Window class graphics independent (if possible)
 // todo: (maybe) use Scatter/Gather I/O
+// todo: untangle client dependencies
+// todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
+
+// in progress: replace all external deps with vcpkg packages
+// in progress: streamlined project setup process on all platforms.
 
 // done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
@@ -23,6 +26,9 @@
 // done: move stuff from headers into compilation units
 // done: remove "gfx" and specialize
 // done: extract descriptor sets
+// done: port slang into vcpkg package
+// done: move volcano into own github repo and rename to something else (speedo)
+
 // cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 
 #pragma once
