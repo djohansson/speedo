@@ -28,29 +28,23 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<B>{};
 
-	auto loadBin = [&shaderSet](std::istream& stream)
+	auto loadBin = [&shaderSet](std::istream&& stream)
 	{
 		cereal::BinaryInputArchive bin(stream);
-		//cereal::JSONInputArchive bin(stream);
 		bin(shaderSet);
-
-		return true;
 	};
 
-	auto saveBin = [&shaderSet](std::ostream& stream)
+	auto saveBin = [&shaderSet](std::ostream&& stream)
 	{
 		cereal::BinaryOutputArchive bin(stream);
-		//cereal::JSONOutputArchive bin(stream);
 		bin(shaderSet);
-
-		return true;
 	};
 
 	auto loadSlang = [slangSession = myCompilerSession.get(),
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
-					  &slangFile](std::istream& stream)
+					  &slangFile](std::istream&& stream)
 	{
 		constexpr bool useGLSL = true;
 
@@ -211,14 +205,11 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		// }
 
 		spDestroyCompileRequest(slangRequest);
-
-		return true;
 	};
 
 	static constexpr char loaderTypeStr[] = "slang";
 	static constexpr char loaderVersionStr[] = "0.9.1-dev";
-	loadCachedSourceFile<loaderTypeStr, loaderVersionStr>(
-		slangFile, slangFile, loadSlang, loadBin, saveBin);
+	loadCachedSourceFile<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");

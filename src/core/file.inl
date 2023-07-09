@@ -1,6 +1,8 @@
 #include "profiling.h"
 #include "typeinfo.h"
 
+#include <client/client.h> // TODO: eliminate this dependency
+
 #include <cereal/cereal.hpp>
 #include <cereal/types/array.hpp>
 #include <cereal/types/string.hpp>
@@ -153,84 +155,99 @@ FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::save() const
 		static_cast<const T&>(*this), myInfo.path, getTypeName<std::decay_t<T>>());
 }
 
-template <const char* Id, const char* LoaderType, const char* LoaderVersion>
-std::tuple<FileState, FileInfo> getFileInfo(
-	const std::filesystem::path& filePath,
-	std::istream& jsonStream,
-	LoadFileInfoFromJSONFn loadJSONFn,
-	bool sha2Enable)
+template <bool Sha256ChecksumEnable>
+FileInfo getFileInfo(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
 	auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return std::make_tuple(FileState::Missing, FileInfo{});
+		return FileInfo{filePath, 0, "", {}, FileState::Missing};
 
-	auto [loaderTypeStr, loaderVersionStr, fileInfoStr] =
-		loadJSONFn(jsonStream, std::string_view(Id));
+	auto outFileInfo = FileInfo{filePath, std::filesystem::file_size(filePath), getFileTimeStamp(filePath), {}, FileState::Valid};
 
-	if (std::string_view(LoaderType).compare(loaderTypeStr) != 0 ||
-		std::string_view(LoaderVersion).compare(loaderVersionStr) != 0)
-		return std::make_tuple(FileState::Stale, FileInfo{});
-
-	auto outFileInfo =
-		FileInfo{filePath, std::filesystem::file_size(filePath), getFileTimeStamp(filePath)};
-
-	if (sha2Enable)
+	if constexpr (Sha256ChecksumEnable)
 	{
 		ZoneScopedN("getFileInfo::sha2");
 
 		mio::mmap_source file(filePath.string());
-		picosha2::hash256(
-			file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+		picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
 	}
 
-	// perhaps add path check as well?
-	if (outFileInfo.size != fileInfoStr.size ||
-				outFileInfo.timeStamp.compare(fileInfoStr.timeStamp) != 0 || sha2Enable
-			? outFileInfo.sha2 != fileInfoStr.sha2
-			: false)
-		return std::make_tuple(FileState::Stale, FileInfo{});
+	return outFileInfo;
+}
 
-	return std::make_tuple(FileState::Valid, std::move(outFileInfo));
+template <const char* Id, const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
+FileInfo getAndCheckFileInfoFromManifest(std::istream& stream, LoadManifestFn loadManifestFn)
+{
+	ZoneScoped;
+
+	auto [loaderTypeStr, loaderVersionStr, manifestFileInfo] = loadManifestFn(stream, std::string_view(Id));
+
+	if (std::string_view(LoaderType).compare(loaderTypeStr) != 0 ||
+		std::string_view(LoaderVersion).compare(loaderVersionStr) != 0)
+		return FileInfo{manifestFileInfo.path, 0, "", {}, FileState::Stale};
+
+	auto outFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestFileInfo.path);
+
+	if (outFileInfo.size != manifestFileInfo.size ||
+		outFileInfo.timeStamp.compare(manifestFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? outFileInfo.sha2 != manifestFileInfo.sha2 : false)
+		return FileInfo{manifestFileInfo.path, 0, "", {}, FileState::Stale};
+
+	return outFileInfo;
+}
+
+template <bool Sha256ChecksumEnable>
+FileInfo loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp)
+{
+	ZoneScoped;
+
+	auto fileInfo = getFileInfo<Sha256ChecksumEnable>(filePath);
+
+	if (fileInfo.state == FileState::Valid)
+		loadOp(mio::mmap_istream(fileInfo.path.string()));
+
+	return fileInfo;
+}
+
+template <bool Sha256ChecksumEnable>
+FileInfo saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp)
+{
+	ZoneScoped;
+
+	// todo: check if file exist and prompt for overwrite?
+	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
+	{
+		mio::mmap_iostreambuf fileStreamBuf(filePath.string());
+		saveOp(std::iostream(&fileStreamBuf));
+	}
+
+	return getFileInfo<Sha256ChecksumEnable>(filePath);
 }
 
 template <const char* LoaderType, const char* LoaderVersion>
 void loadCachedSourceFile(
 	const std::filesystem::path& sourceFilePath,
-	const std::filesystem::path& cacheFilePath,
 	LoadFileFn loadSourceFileFn,
 	LoadFileFn loadBinaryCacheFn,
 	SaveFileFn saveBinaryCacheFn)
 {
 	ZoneScoped;
-
+	
 	std::filesystem::path jsonFilePath(sourceFilePath);
-	jsonFilePath += ".bin.json";
-
-	std::filesystem::path binFilePath(cacheFilePath);
-	binFilePath += ".bin";
-
+	jsonFilePath += ".json";
+	
 	bool doImport;
-	std::tuple<FileState, FileInfo> sourceFile, binFile;
+	FileInfo sourceFileInfo, cacheFileInfo;
 	auto jsonFileStatus = std::filesystem::status(jsonFilePath);
-	auto binFileStatus = std::filesystem::status(binFilePath);
 
 	if (std::filesystem::exists(jsonFileStatus) &&
-		std::filesystem::is_regular_file(jsonFileStatus) && !std::filesystem::exists(binFileStatus))
+		std::filesystem::is_regular_file(jsonFileStatus))
 	{
-		ZoneScopedN("loadCachedSourceFile::deleteJson");
+		ZoneScopedN("loadCachedSourceFile::loadManifest");
 
-		std::filesystem::remove(jsonFilePath);
-
-		doImport = true;
-	}
-	else if (
-		std::filesystem::exists(jsonFileStatus) && std::filesystem::is_regular_file(jsonFileStatus))
-	{
-		ZoneScopedN("loadCachedSourceFile::readJsonAndFileState");
-
-		auto loadJSONFn = [](std::istream& stream, std::string_view id)
+		auto loadManifestFn = [](std::istream& stream, std::string_view id)
 		{
 			cereal::JSONInputArchive json(stream);
 
@@ -250,25 +267,20 @@ void loadCachedSourceFile(
 		auto fileStream = mio::mmap_istream(jsonFilePath.string());
 
 		static constexpr char sourceFileInfoIdStr[] = "sourceFileInfo";
-		sourceFile = getFileInfo<sourceFileInfoIdStr, LoaderType, LoaderVersion>(
-			sourceFilePath, fileStream, loadJSONFn, false);
+		sourceFileInfo = getAndCheckFileInfoFromManifest<sourceFileInfoIdStr, LoaderType, LoaderVersion, false>(fileStream, loadManifestFn);
 
 		fileStream.clear();
 		fileStream.seekg(0, std::ios_base::beg);
 
-		static constexpr char binFileInfoIdStr[] = "binFileInfo";
-		binFile = getFileInfo<binFileInfoIdStr, LoaderType, LoaderVersion>(
-			binFilePath, fileStream, loadJSONFn, false);
+		static constexpr char cacheFileInfoIdStr[] = "cacheFileInfo";
+		cacheFileInfo = getAndCheckFileInfoFromManifest<cacheFileInfoIdStr, LoaderType, LoaderVersion, false>(fileStream, loadManifestFn);
 	}
 	else
 	{
 		doImport = true;
 	}
 
-	auto& [sourceFileState, sourceFileInfo] = sourceFile;
-	auto& [binFileState, binFileInfo] = binFile;
-
-	if (doImport || sourceFileState == FileState::Stale || binFileState != FileState::Valid)
+	if (doImport || sourceFileInfo.state == FileState::Stale || cacheFileInfo.state != FileState::Valid)
 	{
 		ZoneScopedN("loadCachedSourceFile::importSourceFile");
 
@@ -281,17 +293,25 @@ void loadCachedSourceFile(
 		json(cereal::make_nvp("loaderType", loaderTypeStr));
 		json(cereal::make_nvp("loaderVersion", loaderVersionStr));
 
-		auto [sourceFileState, sourceFileInfo] =
-			loadBinaryFile(sourceFilePath, loadSourceFileFn, true);
-		json(CEREAL_NVP(sourceFileInfo));
+		sourceFileInfo = loadBinaryFile<true>(sourceFilePath, loadSourceFileFn);
+		json(cereal::make_nvp("sourceFileInfo", sourceFileInfo));
 
-		auto [binFileState, binFileInfo] = saveBinaryFile(binFilePath, saveBinaryCacheFn, true);
-		json(CEREAL_NVP(binFileInfo));
+		auto cacheDir = std::filesystem::path(client_getUserProfilePath()) / ".cache";
+		auto cacheDirStatus = std::filesystem::status(cacheDir);
+		if (!std::filesystem::exists(cacheDirStatus) ||
+			!std::filesystem::is_directory(cacheDirStatus))
+			std::filesystem::create_directory(cacheDir);
+
+		auto id = uuids::uuid_system_generator{}();
+		auto idStr = uuids::to_string(id);
+
+		cacheFileInfo = saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn);
+		json(cereal::make_nvp("cacheFileInfo", cacheFileInfo));
 	}
 	else
 	{
-		ZoneScopedN("loadCachedSourceFile::loadBin");
+		ZoneScopedN("loadCachedSourceFile::load");
 
-		auto [binFileState, binFileInfo] = loadBinaryFile(binFilePath, loadBinaryCacheFn, false);
+		cacheFileInfo = loadBinaryFile<false>(cacheFileInfo.path, loadBinaryCacheFn);
 	}
 }

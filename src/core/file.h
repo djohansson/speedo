@@ -32,35 +32,31 @@ struct FileInfo
 	uintmax_t size = 0;
 	std::string timeStamp;
 	std::array<uint8_t, 32> sha2;
+	FileState state = FileState::Missing;
 };
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath);
 
-std::tuple<FileState, FileInfo> getFileInfo(const std::filesystem::path& filePath, bool sha2Enable);
+template <bool Sha256ChecksumEnable>
+FileInfo getFileInfo(const std::filesystem::path& filePath);
 
-using LoadFileInfoFromJSONFn =
-	std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, std::string_view)>;
+using LoadManifestFn = std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, std::string_view)>;
 
-template <const char* Id, const char* LoaderType, const char* LoaderVersion>
-std::tuple<FileState, FileInfo> getFileInfo(
-	const std::filesystem::path& filePath,
-	std::istream& jsonStream,
-	LoadFileInfoFromJSONFn loadJSONFn,
-	bool sha2Enable);
+template <const char* Id, const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
+FileInfo getAndCheckFileInfoFromManifest(std::istream& stream, LoadManifestFn loadManifestFn);
 
-using LoadFileFn = std::function<bool(std::istream&)>;
-using SaveFileFn = std::function<bool(std::iostream&)>;
+using LoadFileFn = std::function<void(std::istream&&)>;
+using SaveFileFn = std::function<void(std::ostream&&)>;
 
-std::tuple<FileState, FileInfo>
-loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp, bool sha2Enable);
+template <bool Sha256ChecksumEnable>
+FileInfo loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp);
 
-std::tuple<FileState, FileInfo>
-saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp, bool sha2Enable);
+template <bool Sha256ChecksumEnable>
+FileInfo saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp);
 
 template <const char* LoaderType, const char* LoaderVersion>
 void loadCachedSourceFile(
 	const std::filesystem::path& sourceFilePath,
-	const std::filesystem::path& cacheFilePath,
 	LoadFileFn loadSourceFileFn,
 	LoadFileFn loadBinaryCacheFn,
 	SaveFileFn saveBinaryCacheFn);

@@ -97,7 +97,7 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](std::istream& stream)
+	auto loadBin = [&descAndInitialData, &device](std::istream&& stream)
 	{
 		ZoneScopedN("image::loadBin");
 
@@ -123,11 +123,9 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
-
-		return true;
 	};
 
-	auto saveBin = [&descAndInitialData, &device](std::ostream& stream)
+	auto saveBin = [&descAndInitialData, &device](std::ostream&& stream)
 	{
 		ZoneScopedN("image::saveBin");
 
@@ -143,11 +141,9 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
 		bin(cereal::binary_data(data, size));
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
-
-		return true;
 	};
 
-	auto loadImage = [&descAndInitialData, &device](std::istream& stream)
+	auto loadImage = [&descAndInitialData, &device](std::istream&& stream)
 	{
 		ZoneScopedN("image::loadImage");
 
@@ -336,14 +332,11 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
-
-		return true;
 	};
 
 	static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
 	static constexpr char loaderVersion[] = "2.26|0.96|1.10";
-	loadCachedSourceFile<loaderType, loaderVersion>(
-		imageFile, imageFile, loadImage, loadBin, saveBin);
+	loadCachedSourceFile<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load image.");

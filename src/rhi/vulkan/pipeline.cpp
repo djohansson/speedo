@@ -42,7 +42,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](std::istream& stream)
+	auto loadCacheOp = [&device, &cacheData](std::istream&& stream)
 	{
 		cereal::BinaryInputArchive bin(stream);
 		bin(cacheData);
@@ -53,15 +53,12 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 		{
 			std::cout << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
-			return false;
 		}
-
-		return true;
 	};
 
-	auto [fileState, fileInfo] = getFileInfo(cacheFilePath, false);
-	if (fileState != FileState::Missing)
-		auto [fileState, fileInfo] = loadBinaryFile(cacheFilePath, loadCacheOp, false);
+	auto fileInfo = getFileInfo<false>(cacheFilePath);
+	if (fileInfo.state != FileState::Missing)
+		fileInfo = loadBinaryFile<false>(cacheFilePath, loadCacheOp);
 
 	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
 	createInfo.initialDataSize = cacheData.size();
@@ -92,38 +89,37 @@ getPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCa
 	return cacheData;
 };
 
-std::tuple<FileState, FileInfo> savePipelineCache(
+FileInfo savePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<Vk> device,
 	PhysicalDeviceProperties<Vk> physicalDeviceProperties,
 	PipelineCacheHandle<Vk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream& stream)
+	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream&& stream)
 	{
 		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
 		{
 			auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
-			if (!isCacheValid(*header, physicalDeviceProperties))
+			if (isCacheValid(*header, physicalDeviceProperties))
 			{
-				std::cout << "Invalid pipeline cache, will not save. Exiting." << '\n';
-				return false;
+				cereal::BinaryOutputArchive bin(stream);
+				bin(cacheData);
 			}
-
-			cereal::BinaryOutputArchive bin(stream);
-			bin(cacheData);
+			else
+			{
+				std::cout << "Invalid pipeline cache, will not save." << '\n';
+			}
+			
 		}
 		else
 		{
-			std::cout << "Failed to get pipeline cache. Exiting." << '\n';
-			return false;
+			std::cout << "Failed to get pipeline cache." << '\n';
 		}
-
-		return true;
 	};
 
-	return saveBinaryFile(cacheFilePath, saveCacheOp, false);
+	return saveBinaryFile<true>(cacheFilePath, saveCacheOp);
 }
 
 static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTemplateKHR{};
@@ -884,11 +880,13 @@ Pipeline<Vk>::Pipeline(
 template <>
 Pipeline<Vk>::~Pipeline()
 {
-	auto [fileState, fileInfo] = pipeline::savePipelineCache(
+	auto fileInfo = pipeline::savePipelineCache(
 		myConfig.cachePath,
 		*getDevice(),
 		getDevice()->getPhysicalDeviceInfo().deviceProperties,
 		myCache);
+
+	assert(fileInfo.state == FileState::Valid);
 
 	for (const auto& pipelineIt : myPipelineMap)
 		vkDestroyPipeline(

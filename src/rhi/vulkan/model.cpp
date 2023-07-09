@@ -82,7 +82,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](std::istream& stream)
+	auto loadBin = [&descAndInitialData, &device](std::istream&& stream)
 	{
 		ZoneScopedN("model::loadBin");
 
@@ -110,11 +110,9 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			bufferHandle = locBufferHandle;
 			memoryHandle = locMemoryHandle;
 		}
-
-		return true;
 	};
 
-	auto saveBin = [&descAndInitialData, &device](std::ostream& stream)
+	auto saveBin = [&descAndInitialData, &device](std::ostream&& stream)
 	{
 		ZoneScopedN("model::saveBin");
 
@@ -124,19 +122,13 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
-		{
-			ZoneScopedN("model::saveBin::buffers");
-
-			void* data;
-			VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-			bin(cereal::binary_data(data, size));
-			vmaUnmapMemory(device->getAllocator(), memoryHandle);
-		}
-
-		return true;
+		void* data;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
+		bin(cereal::binary_data(data, size));
+		vmaUnmapMemory(device->getAllocator(), memoryHandle);
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device](std::istream& stream)
+	auto loadOBJ = [&descAndInitialData, &device](std::istream&& stream)
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -316,14 +308,11 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			bufferHandle = locBufferHandle;
 			memoryHandle = locMemoryHandle;
 		}
-
-		return true;
 	};
 
 	static constexpr char loaderType[] = "tinyobjloader";
 	static constexpr char loaderVersion[] = "2.0.1";
-	loadCachedSourceFile<loaderType, loaderVersion>(
-		modelFile, modelFile, loadOBJ, loadBin, saveBin);
+	loadCachedSourceFile<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");
