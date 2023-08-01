@@ -65,14 +65,8 @@ template <typename T, typename Archive>
 T loadObject(std::istream& stream, std::string_view name);
 
 template <typename T, typename Archive>
-void saveObject(const T& object, std::ostream& stream, std::string_view name);
-
-template <typename T, typename Archive>
 std::tuple<std::optional<T>, FileState>
 loadObject(const std::filesystem::path& filePath, std::string_view name);
-
-template <typename T, typename Archive>
-void saveObject(const T& object, const std::filesystem::path& filePath, std::string_view name);
 
 template <
 	typename T,

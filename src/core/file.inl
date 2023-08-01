@@ -37,13 +37,6 @@ T loadObject(std::istream& stream, std::string_view name)
 };
 
 template <typename T, typename Archive>
-void saveObject(const T& object, std::ostream& stream, std::string_view name)
-{
-	Archive json(stream);
-	json(cereal::make_nvp(std::string(name), object));
-};
-
-template <typename T, typename Archive>
 std::tuple<std::optional<T>, FileState>
 loadObject(const std::filesystem::path& filePath, std::string_view name)
 {
@@ -55,13 +48,6 @@ loadObject(const std::filesystem::path& filePath, std::string_view name)
 
 	return std::make_tuple(
 		std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
-}
-
-template <typename T, typename Archive>
-void saveObject(const T& object, const std::filesystem::path& filePath, std::string_view name)
-{
-	auto fileStream = mio::mmap_ostream(filePath.string());
-	saveObject<T, Archive>(object, fileStream, name);
 }
 
 template <
@@ -151,8 +137,9 @@ template <FileAccessMode M>
 typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::save() const
 {
-	saveObject<T, OutputArchive>(
-		static_cast<const T&>(*this), myInfo.path, getTypeName<std::decay_t<T>>());
+	auto fileStream = mio::mmap_ostream(myInfo.path.string());
+	OutputArchive archive(fileStream);
+	archive(cereal::make_nvp(std::string(getTypeName<std::decay_t<T>>()), static_cast<const T&>(*this))); 
 }
 
 template <bool Sha256ChecksumEnable>
