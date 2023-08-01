@@ -61,7 +61,7 @@ Frame<Vk>::Frame(
 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
 		&myNewImageAcquiredSemaphore));
 
-#if PROFILING_ENABLED
+#if GRAPHICS_VALIDATION_ENABLED
 	{
 		char stringBuffer[64];
 		static constexpr std::string_view renderCompleteSemaphoreStr = "_RenderCompleteSemaphore";
