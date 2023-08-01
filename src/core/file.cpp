@@ -13,18 +13,3 @@ std::string getFileTimeStamp(const std::filesystem::path& filePath)
 
 	return std::string(std::asctime(std::localtime(&timestamp)));
 }
-
-// 	if (!saveOp(fileStream))
-// 		return std::make_tuple(FileState::Stale, std::move(outFileInfo));
-
-// 	fileStream.sync();
-// 	fileStream.seekg(0, std::ios_base::beg);
-
-// 	picosha2::hash256(
-// 		std::istreambuf_iterator(&fileStreamBuf),
-// 		std::istreambuf_iterator<decltype(fileStreamBuf)::char_type>(),
-// 		outFileInfo.sha2.begin(),
-// 		outFileInfo.sha2.end());
-
-// outFileInfo.size = std::filesystem::file_size(outFileInfo.path);
-// outFileInfo.timeStamp = getFileTimeStamp(outFileInfo.path);

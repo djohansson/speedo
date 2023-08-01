@@ -56,8 +56,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 		}
 	};
 
-	auto fileInfo = getFileInfo<false>(cacheFilePath);
-	if (fileInfo.state != FileState::Missing)
+	if (auto fileInfo = getFileInfo<false>(cacheFilePath); fileInfo)
 		fileInfo = loadBinaryFile<false>(cacheFilePath, loadCacheOp);
 
 	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
@@ -89,7 +88,7 @@ getPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCa
 	return cacheData;
 };
 
-FileInfo savePipelineCache(
+std::expected<FileInfo, FileState> savePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<Vk> device,
 	PhysicalDeviceProperties<Vk> physicalDeviceProperties,
@@ -886,7 +885,7 @@ Pipeline<Vk>::~Pipeline()
 		getDevice()->getPhysicalDeviceInfo().deviceProperties,
 		myCache);
 
-	assert(fileInfo.state == FileState::Valid);
+	assert(fileInfo);
 
 	for (const auto& pipelineIt : myPipelineMap)
 		vkDestroyPipeline(

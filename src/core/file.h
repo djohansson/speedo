@@ -11,14 +11,8 @@
 
 #include <cereal/archives/json.hpp>
 
-#include <picosha2.h>
-
-enum class FileState : uint8_t
-{
-	Missing,
-	Stale,
-	Valid,
-};
+#include <glaze/glaze.hpp>
+#include <glaze/core/macros.hpp>
 
 enum class FileAccessMode : uint8_t
 {
@@ -26,33 +20,58 @@ enum class FileAccessMode : uint8_t
 	ReadWrite
 };
 
+enum class FileState : uint8_t
+{
+	Missing = 0,
+	Valid,
+};
+
 struct FileInfo
 {
-	std::filesystem::path path;
-	uintmax_t size = 0;
+	std::string path;
+	uint64_t size = 0;
 	std::string timeStamp;
 	std::array<uint8_t, 32> sha2;
-	FileState state = FileState::Missing;
 };
+
+GLZ_META(FileInfo, path, size, timeStamp, sha2);
+
+enum class ManifestState : uint8_t
+{
+	Missing = 0,
+	InvalidVersion,
+	InvalidSourceFile,
+	InvalidCacheFile,
+	Valid,
+};
+struct ManifestInfo
+{
+	std::string loaderType;
+	std::string loaderVersion;
+	FileInfo sourceFileInfo{};
+	FileInfo cacheFileInfo{};
+};
+
+GLZ_META(ManifestInfo, loaderType, loaderVersion, sourceFileInfo, cacheFileInfo);
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
-FileInfo getFileInfo(const std::filesystem::path& filePath);
+std::expected<FileInfo, FileState> getFileInfo(const std::filesystem::path& filePath);
 
-using LoadManifestFn = std::function<std::tuple<std::string, std::string, FileInfo>(std::istream&, std::string_view)>;
+using LoadManifestInfoFn = std::function<ManifestInfo(std::string_view)>;
 
-template <const char* Id, const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
-FileInfo getAndCheckFileInfoFromManifest(std::istream& stream, LoadManifestFn loadManifestFn);
+template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
+std::expected<ManifestInfo, ManifestState> loadManifest(std::string_view buffer, LoadManifestInfoFn loadManifestInfoFn);
 
 using LoadFileFn = std::function<void(std::istream&&)>;
 using SaveFileFn = std::function<void(std::ostream&&)>;
 
 template <bool Sha256ChecksumEnable>
-FileInfo loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp);
+std::expected<FileInfo, FileState> loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp);
 
 template <bool Sha256ChecksumEnable>
-FileInfo saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp);
+std::expected<FileInfo, FileState> saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp);
 
 template <const char* LoaderType, const char* LoaderVersion>
 void loadCachedSourceFile(
@@ -88,17 +107,6 @@ public:
 	~FileObject();
 
 	FileObject& operator=(FileObject&& other) noexcept;
-
-	// bool isDirty() const noexcept
-	// {
-	// 	FileInfo info;
-	// 	picosha2::hash256(
-	// 		,
-	// 		,
-	// 		info.sha2.begin(),
-	// 		info.sha2.end());
-	// 	return myInfo.sha2 == info.sha2;
-	// }
 
 	void swap(FileObject& rhs) noexcept;
 	friend void swap(FileObject& lhs, FileObject& rhs) noexcept { lhs.swap(rhs); }

@@ -9,23 +9,25 @@
 
 #include <mio/mmap_iostream.hpp>
 
-template <class Archive>
-void load(Archive& archive, FileInfo& info)
-{
-	archive(cereal::make_nvp("path", info.path));
-	archive(cereal::make_nvp("size", info.size));
-	archive(cereal::make_nvp("timeStamp", info.timeStamp));
-	archive.loadBinaryValue(info.sha2.data(), info.sha2.size(), "sha2");
-}
+#include <picosha2.h>
 
-template <class Archive>
-void save(Archive& archive, const FileInfo& info)
-{
-	archive(cereal::make_nvp("path", info.path));
-	archive(cereal::make_nvp("size", info.size));
-	archive(cereal::make_nvp("timeStamp", info.timeStamp));
-	archive.saveBinaryValue(info.sha2.data(), info.sha2.size(), "sha2");
-}
+// template <class Archive>
+// void load(Archive& archive, FileInfo& info)
+// {
+// 	archive(cereal::make_nvp("path", info.path));
+// 	archive(cereal::make_nvp("size", info.size));
+// 	archive(cereal::make_nvp("timeStamp", info.timeStamp));
+// 	archive.loadBinaryValue(info.sha2.data(), info.sha2.size(), "sha2");
+// }
+
+// template <class Archive>
+// void save(Archive& archive, const FileInfo& info)
+// {
+// 	archive(cereal::make_nvp("path", info.path));
+// 	archive(cereal::make_nvp("size", info.size));
+// 	archive(cereal::make_nvp("timeStamp", info.timeStamp));
+// 	archive.saveBinaryValue(info.sha2.data(), info.sha2.size(), "sha2");
+// }
 
 template <typename T, typename Archive>
 T loadObject(std::istream& stream, std::string_view name)
@@ -60,7 +62,7 @@ FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
 	const std::filesystem::path& filePath, T&& defaultObject)
 	: T(std::get<0>(loadObject<T, InputArchive>(filePath, getTypeName<std::decay_t<T>>()))
 			.value_or(std::forward<T>(defaultObject)))
-	, myInfo{filePath}
+	, myInfo{filePath.string()}
 {}
 
 template <
@@ -137,69 +139,78 @@ template <FileAccessMode M>
 typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type
 FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::save() const
 {
-	auto fileStream = mio::mmap_ostream(myInfo.path.string());
+	auto fileStream = mio::mmap_ostream(myInfo.path);
 	OutputArchive archive(fileStream);
 	archive(cereal::make_nvp(std::string(getTypeName<std::decay_t<T>>()), static_cast<const T&>(*this))); 
 }
 
 template <bool Sha256ChecksumEnable>
-FileInfo getFileInfo(const std::filesystem::path& filePath)
+std::expected<FileInfo, FileState> getFileInfo(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
 	auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return FileInfo{filePath, 0, "", {}, FileState::Missing};
+		return std::unexpected(FileState::Missing);
 
-	auto outFileInfo = FileInfo{filePath, std::filesystem::file_size(filePath), getFileTimeStamp(filePath), {}, FileState::Valid};
+	auto fileInfo = FileInfo{filePath.string(), std::filesystem::file_size(filePath), getFileTimeStamp(filePath)/*, {}*/};
 
 	if constexpr (Sha256ChecksumEnable)
 	{
 		ZoneScopedN("getFileInfo::sha2");
 
 		mio::mmap_source file(filePath.string());
-		picosha2::hash256(file.begin(), file.end(), outFileInfo.sha2.begin(), outFileInfo.sha2.end());
+		picosha2::hash256(file.cbegin(), file.cend(), fileInfo.sha2.begin(), fileInfo.sha2.end());
 	}
 
-	return outFileInfo;
+	return fileInfo;
 }
 
-template <const char* Id, const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
-FileInfo getAndCheckFileInfoFromManifest(std::istream& stream, LoadManifestFn loadManifestFn)
+template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
+std::expected<ManifestInfo, ManifestState> loadManifest(std::string_view buffer, LoadManifestInfoFn loadManifestInfoFn)
 {
 	ZoneScoped;
 
-	auto [loaderTypeStr, loaderVersionStr, manifestFileInfo] = loadManifestFn(stream, std::string_view(Id));
+	auto manifestInfo = loadManifestInfoFn(buffer);
 
-	if (std::string_view(LoaderType).compare(loaderTypeStr) != 0 ||
-		std::string_view(LoaderVersion).compare(loaderVersionStr) != 0)
-		return FileInfo{manifestFileInfo.path, 0, "", {}, FileState::Stale};
+	if (std::string_view(LoaderType).compare(manifestInfo.loaderType) != 0 ||
+		std::string_view(LoaderVersion).compare(manifestInfo.loaderVersion) != 0)
+		return std::unexpected(ManifestState::InvalidVersion);
 
-	auto outFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestFileInfo.path);
+	auto sourceFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo.sourceFileInfo.path);
 
-	if (outFileInfo.size != manifestFileInfo.size ||
-		outFileInfo.timeStamp.compare(manifestFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? outFileInfo.sha2 != manifestFileInfo.sha2 : false)
-		return FileInfo{manifestFileInfo.path, 0, "", {}, FileState::Stale};
+	if (!sourceFileInfo ||
+		sourceFileInfo->size != manifestInfo.sourceFileInfo.size ||
+		sourceFileInfo->timeStamp.compare(manifestInfo.sourceFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? sourceFileInfo->sha2 != manifestInfo.sourceFileInfo.sha2 : false)
+		return std::unexpected(ManifestState::InvalidSourceFile);
 
-	return outFileInfo;
+	auto cacheFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo.cacheFileInfo.path);
+
+	if (!cacheFileInfo ||
+		cacheFileInfo->size != manifestInfo.cacheFileInfo.size ||
+		cacheFileInfo->timeStamp.compare(manifestInfo.cacheFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? cacheFileInfo->sha2 != manifestInfo.cacheFileInfo.sha2 : false)
+		return std::unexpected(ManifestState::InvalidCacheFile);
+
+	return manifestInfo;
 }
 
 template <bool Sha256ChecksumEnable>
-FileInfo loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp)
+std::expected<FileInfo, FileState> loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp)
 {
 	ZoneScoped;
 
 	auto fileInfo = getFileInfo<Sha256ChecksumEnable>(filePath);
 
-	if (fileInfo.state == FileState::Valid)
-		loadOp(mio::mmap_istream(fileInfo.path.string()));
+	if (fileInfo)
+		loadOp(mio::mmap_istream(fileInfo->path));
 
 	return fileInfo;
 }
 
 template <bool Sha256ChecksumEnable>
-FileInfo saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp)
+std::expected<FileInfo, FileState> saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp)
 {
 	ZoneScoped;
 
@@ -222,67 +233,40 @@ void loadCachedSourceFile(
 {
 	ZoneScoped;
 	
-	std::filesystem::path manifestFilePath(sourceFilePath);
-	manifestFilePath += ".json";
+	std::filesystem::path manifestPath(sourceFilePath);
+	manifestPath += ".json";
 	
-	bool doImport;
-	FileInfo sourceFileInfo, cacheFileInfo;
-	auto manifestFileStatus = std::filesystem::status(manifestFilePath);
+	std::expected<ManifestInfo, ManifestState> manifest;
 
-	if (std::filesystem::exists(manifestFileStatus) &&
-		std::filesystem::is_regular_file(manifestFileStatus))
+	auto manifestStatus = std::filesystem::status(manifestPath);
+
+	if (std::filesystem::exists(manifestStatus) &&
+		std::filesystem::is_regular_file(manifestStatus))
 	{
 		ZoneScopedN("loadCachedSourceFile::loadManifest");
 
-		auto loadManifestFn = [](std::istream& stream, std::string_view id)
+		auto loadManifestInfoFn = [](std::string_view buffer)
 		{
-			cereal::JSONInputArchive archive(stream);
-
-			std::string outLoaderType;
-			std::string outLoaderVersion;
-			FileInfo outFileInfo;
-
-			archive(cereal::make_nvp("loaderType", outLoaderType));
-			archive(cereal::make_nvp("loaderVersion", outLoaderVersion));
-			archive(cereal::make_nvp(id.data(), outFileInfo));
-
-			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
+			if (auto s = glz::read_json<ManifestInfo>(buffer); s)
+				return s.value();
+			else
+				std::cout << "Error: " << s.error() << std::endl;
+			
+			return ManifestInfo{};
 		};
 
-		doImport = false;
+		auto manifestFile = mio::mmap_source(manifestPath.string());
 
-		auto fileStream = mio::mmap_istream(manifestFilePath.string());
-
-		static constexpr char sourceFileInfoIdStr[] = "sourceFileInfo";
-		sourceFileInfo = getAndCheckFileInfoFromManifest<sourceFileInfoIdStr, LoaderType, LoaderVersion, false>(fileStream, loadManifestFn);
-
-		fileStream.clear();
-		fileStream.seekg(0, std::ios_base::beg);
-
-		static constexpr char cacheFileInfoIdStr[] = "cacheFileInfo";
-		cacheFileInfo = getAndCheckFileInfoFromManifest<cacheFileInfoIdStr, LoaderType, LoaderVersion, false>(fileStream, loadManifestFn);
+		manifest = loadManifest<LoaderType, LoaderVersion, false>(std::string_view(manifestFile.cbegin(), manifestFile.cend()), loadManifestInfoFn);
 	}
 	else
 	{
-		doImport = true;
+		manifest = std::unexpected(ManifestState::Missing);
 	}
 
-	if (doImport || sourceFileInfo.state == FileState::Stale || cacheFileInfo.state != FileState::Valid)
+	if (!manifest)
 	{
 		ZoneScopedN("loadCachedSourceFile::importSourceFile");
-
-		auto fileStream = mio::mmap_ostream(manifestFilePath.string());
-		
-		cereal::JSONOutputArchive archive(fileStream);
-
-		static const std::string loaderTypeStr(LoaderType);
-		static const std::string loaderVersionStr(LoaderVersion);
-
-		archive(cereal::make_nvp("loaderType", loaderTypeStr));
-		archive(cereal::make_nvp("loaderVersion", loaderVersionStr));
-
-		sourceFileInfo = loadBinaryFile<true>(sourceFilePath, loadSourceFileFn);
-		archive(cereal::make_nvp("sourceFileInfo", sourceFileInfo));
 
 		auto cacheDir = std::filesystem::path(client_getUserProfilePath()) / ".cache";
 		auto cacheDirStatus = std::filesystem::status(cacheDir);
@@ -293,13 +277,27 @@ void loadCachedSourceFile(
 		auto id = uuids::uuid_system_generator{}();
 		auto idStr = uuids::to_string(id);
 
-		cacheFileInfo = saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn);
-		archive(cereal::make_nvp("cacheFileInfo", cacheFileInfo));
+		auto manifestFile = mio::mmap_ostream(manifestPath.string());
+
+		// todo: use mio buffer directly instead of using temp std::string
+		std::string buffer;
+		glz::write<glz::opts{.prettify = true}>(
+			ManifestInfo
+			{
+				LoaderType,
+				LoaderVersion,
+				loadBinaryFile<true>(sourceFilePath, loadSourceFileFn).value(),
+				saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn).value(),
+			},
+			buffer);
+
+		manifestFile << buffer;
 	}
 	else
 	{
 		ZoneScopedN("loadCachedSourceFile::load");
 
-		cacheFileInfo = loadBinaryFile<false>(cacheFileInfo.path, loadBinaryCacheFn);
+		auto cacheFileInfo = loadBinaryFile<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
+		assert(cacheFileInfo);
 	}
 }

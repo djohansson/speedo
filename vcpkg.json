@@ -4,13 +4,15 @@
     "cereal",
     "concurrentqueue",
     "fastbuild",
+    "glaze",
     "lz4",
     "mimalloc",
     "mio",
     "picosha2",
     "robin-hood-hashing",
     "stduuid",
-    "xxhash"
+    "xxhash",
+    "zpp-bits"
   ],
   "features": {
     "client": {
