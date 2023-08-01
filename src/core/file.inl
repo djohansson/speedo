@@ -222,36 +222,36 @@ void loadCachedSourceFile(
 {
 	ZoneScoped;
 	
-	std::filesystem::path jsonFilePath(sourceFilePath);
-	jsonFilePath += ".json";
+	std::filesystem::path manifestFilePath(sourceFilePath);
+	manifestFilePath += ".json";
 	
 	bool doImport;
 	FileInfo sourceFileInfo, cacheFileInfo;
-	auto jsonFileStatus = std::filesystem::status(jsonFilePath);
+	auto manifestFileStatus = std::filesystem::status(manifestFilePath);
 
-	if (std::filesystem::exists(jsonFileStatus) &&
-		std::filesystem::is_regular_file(jsonFileStatus))
+	if (std::filesystem::exists(manifestFileStatus) &&
+		std::filesystem::is_regular_file(manifestFileStatus))
 	{
 		ZoneScopedN("loadCachedSourceFile::loadManifest");
 
 		auto loadManifestFn = [](std::istream& stream, std::string_view id)
 		{
-			cereal::JSONInputArchive json(stream);
+			cereal::JSONInputArchive archive(stream);
 
 			std::string outLoaderType;
 			std::string outLoaderVersion;
 			FileInfo outFileInfo;
 
-			json(cereal::make_nvp("loaderType", outLoaderType));
-			json(cereal::make_nvp("loaderVersion", outLoaderVersion));
-			json(cereal::make_nvp(id.data(), outFileInfo));
+			archive(cereal::make_nvp("loaderType", outLoaderType));
+			archive(cereal::make_nvp("loaderVersion", outLoaderVersion));
+			archive(cereal::make_nvp(id.data(), outFileInfo));
 
 			return std::make_tuple(outLoaderType, outLoaderVersion, outFileInfo);
 		};
 
 		doImport = false;
 
-		auto fileStream = mio::mmap_istream(jsonFilePath.string());
+		auto fileStream = mio::mmap_istream(manifestFilePath.string());
 
 		static constexpr char sourceFileInfoIdStr[] = "sourceFileInfo";
 		sourceFileInfo = getAndCheckFileInfoFromManifest<sourceFileInfoIdStr, LoaderType, LoaderVersion, false>(fileStream, loadManifestFn);
@@ -271,17 +271,18 @@ void loadCachedSourceFile(
 	{
 		ZoneScopedN("loadCachedSourceFile::importSourceFile");
 
-		auto fileStream = mio::mmap_ostream(jsonFilePath.string());
-		cereal::JSONOutputArchive json(fileStream);
+		auto fileStream = mio::mmap_ostream(manifestFilePath.string());
+		
+		cereal::JSONOutputArchive archive(fileStream);
 
 		static const std::string loaderTypeStr(LoaderType);
 		static const std::string loaderVersionStr(LoaderVersion);
 
-		json(cereal::make_nvp("loaderType", loaderTypeStr));
-		json(cereal::make_nvp("loaderVersion", loaderVersionStr));
+		archive(cereal::make_nvp("loaderType", loaderTypeStr));
+		archive(cereal::make_nvp("loaderVersion", loaderVersionStr));
 
 		sourceFileInfo = loadBinaryFile<true>(sourceFilePath, loadSourceFileFn);
-		json(cereal::make_nvp("sourceFileInfo", sourceFileInfo));
+		archive(cereal::make_nvp("sourceFileInfo", sourceFileInfo));
 
 		auto cacheDir = std::filesystem::path(client_getUserProfilePath()) / ".cache";
 		auto cacheDirStatus = std::filesystem::status(cacheDir);
@@ -293,7 +294,7 @@ void loadCachedSourceFile(
 		auto idStr = uuids::to_string(id);
 
 		cacheFileInfo = saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn);
-		json(cereal::make_nvp("cacheFileInfo", cacheFileInfo));
+		archive(cereal::make_nvp("cacheFileInfo", cacheFileInfo));
 	}
 	else
 	{
