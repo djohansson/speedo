@@ -277,21 +277,38 @@ void loadCachedSourceFile(
 		auto id = uuids::uuid_system_generator{}();
 		auto idStr = uuids::to_string(id);
 
-		auto manifestFile = mio::mmap_ostream(manifestPath.string());
+		struct mio_mmap_sink : public mio::mmap_sink
+		{
+			mio_mmap_sink(const std::string& path, const size_type offset = 0, const size_type length = mio::map_entire_file)
+				: mio::mmap_sink(path, offset, length)
+			{}
 
-		// todo: use mio buffer directly instead of using temp std::string
-		std::string buffer;
-		glz::write<glz::opts{.prettify = true}>(
-			ManifestInfo
+			void resize(size_t size)
 			{
-				LoaderType,
-				LoaderVersion,
-				loadBinaryFile<true>(sourceFilePath, loadSourceFileFn).value(),
-				saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn).value(),
-			},
-			buffer);
+				std::error_code error;
+				mio::mmap_sink::remap(0, size, error);
+				if (error)
+					throw std::system_error(std::move(error));
+			}
+		};
 
-		manifestFile << buffer;
+		auto manifestFile = mio_mmap_sink(manifestPath.string());
+
+		std::error_code error;
+		manifestFile.truncate(
+			glz::write<glz::opts{.prettify = true}>(
+				ManifestInfo
+				{
+					LoaderType,
+					LoaderVersion,
+					loadBinaryFile<true>(sourceFilePath, loadSourceFileFn).value(),
+					saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn).value(),
+				},
+				manifestFile),
+			error);
+
+		if (error)
+			throw std::system_error(std::move(error));
 	}
 	else
 	{
