@@ -221,10 +221,9 @@ std::expected<FileInfo, FileState> saveBinaryFile(const std::filesystem::path& f
 	ZoneScoped;
 
 	// todo: check if file exist and prompt for overwrite?
-	// intended scope - fileStreamBuf needs to be destroyed before we call std::filesystem::file_size
+	// intended scope - file needs to be closed before we call getFileInfo (due to internal call to std::filesystem::file_size)
 	{
-		mio::mmap_iostreambuf fileStreamBuf(filePath.string());
-		saveOp(std::iostream(&fileStreamBuf));
+		saveOp(mio::mmap_ostream(filePath.string()));
 	}
 
 	return getFileInfo<Sha256ChecksumEnable>(filePath);
