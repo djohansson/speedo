@@ -22,7 +22,7 @@ enum class FileAccessMode : uint8_t
 
 enum class FileState : uint8_t
 {
-	Missing = 0,
+	Missing,
 	Valid,
 };
 
@@ -38,7 +38,7 @@ GLZ_META(FileInfo, path, size, timeStamp, sha2);
 
 enum class ManifestState : uint8_t
 {
-	Missing = 0,
+	Missing,
 	InvalidVersion,
 	InvalidSourceFile,
 	InvalidCacheFile,
