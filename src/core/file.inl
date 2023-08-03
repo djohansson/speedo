@@ -250,7 +250,7 @@ void loadCachedSourceFile(
 			if (auto s = glz::read_json<ManifestInfo>(buffer); s)
 				return s.value();
 			else
-				std::cout << "Error: " << s.error() << std::endl;
+				std::cout << "Manifest parse error: " << glz::format_error(s.error(), buffer) << std::endl;
 			
 			return ManifestInfo{};
 		};
