@@ -153,14 +153,20 @@ std::expected<FileInfo, FileState> getFileInfo(const std::filesystem::path& file
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(FileState::Missing);
 
-	auto fileInfo = FileInfo{filePath.string(), std::filesystem::file_size(filePath), getFileTimeStamp(filePath)/*, {}*/};
+	auto fileInfo = FileInfo{
+		filePath.string(),
+		getFileTimeStamp(filePath),
+		{},
+		std::filesystem::file_size(filePath)};
 
 	if constexpr (Sha256ChecksumEnable)
 	{
 		ZoneScopedN("getFileInfo::sha2");
 
+		std::array<uint8_t, 32> sha2;
 		mio::mmap_source file(filePath.string());
-		picosha2::hash256(file.cbegin(), file.cend(), fileInfo.sha2.begin(), fileInfo.sha2.end());
+		picosha2::hash256(file.cbegin(), file.cend(), sha2.begin(), sha2.end());
+		picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), fileInfo.sha2);
 	}
 
 	return fileInfo;

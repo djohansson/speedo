@@ -29,9 +29,9 @@ enum class FileState : uint8_t
 struct FileInfo
 {
 	std::string path;
-	uint64_t size = 0;
 	std::string timeStamp;
-	std::array<uint8_t, 32> sha2;
+	std::string sha2;
+	uint64_t size = 0;
 };
 
 GLZ_META(FileInfo, path, size, timeStamp, sha2);
