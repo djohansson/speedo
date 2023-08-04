@@ -89,9 +89,9 @@ public:
 	constexpr DescriptorSetArray() noexcept = default;
 	DescriptorSetArray(DescriptorSetArray&& other) noexcept;
 	DescriptorSetArray( // allocates array of descriptor set handles using single layout
-		const std::shared_ptr<Device<Vk>>& device,
-		const DescriptorSetLayout<Vk>& layout,
-		DescriptorSetArrayCreateDesc<Vk>&& desc);
+		const std::shared_ptr<Device<B>>& device,
+		const DescriptorSetLayout<B>& layout,
+		DescriptorSetArrayCreateDesc<B>&& desc);
 	~DescriptorSetArray();
 
 	DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
@@ -106,8 +106,8 @@ public:
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles
-		const std::shared_ptr<Device<Vk>>& device,
-		DescriptorSetArrayCreateDesc<Vk>&& desc,
+		const std::shared_ptr<Device<B>>& device,
+		DescriptorSetArrayCreateDesc<B>&& desc,
 		ArrayType&& descriptorSetHandles);
 
 	DescriptorSetArrayCreateDesc<B> myDesc{};
