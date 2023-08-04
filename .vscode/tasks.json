@@ -16,7 +16,7 @@
 			},
 			"options": {
 				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
-			},
+			}
 		},
 		{
 			"label": "FastBuild (Clean, Cache)",
@@ -27,7 +27,10 @@
 				"-cache",
 				"all"
 			],
-			"group": "build"
+			"group": "build",
+			"options": {
+				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
+			}
 		},
 		{
 			"label": "FastBuild (Clean, No Cache)",
@@ -37,7 +40,10 @@
 				"-clean",
 				"all"
 			],
-			"group": "build"
+			"group": "build",
+			"options": {
+				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
+			}
 		}
 	]
 }
