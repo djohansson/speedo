@@ -443,10 +443,10 @@ Image<Vk>::Image(
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
 	commandContext.addCommandsFinishedCallback(
-		[device, descAndInitialData](uint64_t)
+		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
-				device->getAllocator(),
+				allocator,
 				std::get<1>(descAndInitialData),
 				std::get<2>(descAndInitialData));
 		});

@@ -156,14 +156,14 @@ DescriptorSetArray<Vk>::~DescriptorSetArray()
 {
 	if (isValid())
 		getDevice()->addTimelineCallback(
-			[device = getDevice(),
+			[device = static_cast<DeviceHandle<Vk>>(*getDevice()),
 			 pool = myDesc.pool,
 			 descriptorSetHandles = std::move(myDescriptorSets)](uint64_t)
 			{
 				ZoneScopedN("DescriptorSetArray::vkFreeDescriptorSets");
 
 				vkFreeDescriptorSets(
-					*device, pool, descriptorSetHandles.size(), descriptorSetHandles.data());
+					device, pool, descriptorSetHandles.size(), descriptorSetHandles.data());
 			});
 }
 

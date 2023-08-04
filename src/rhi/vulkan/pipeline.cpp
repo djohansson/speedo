@@ -903,11 +903,6 @@ Pipeline<Vk>::~Pipeline()
 
 	if (myDescriptorPool)
 		getDevice()->addTimelineCallback(
-			[device = getDevice(), pool = myDescriptorPool](uint64_t)
-			{
-				vkDestroyDescriptorPool(
-					*device,
-					pool,
-					&device->getInstance()->getHostAllocationCallbacks());
-			});
+			[device = static_cast<DeviceHandle<Vk>>(*getDevice()), pool = myDescriptorPool, callbacks = &getDevice()->getInstance()->getHostAllocationCallbacks()](uint64_t)
+			{ vkDestroyDescriptorPool(device, pool, callbacks); });
 }

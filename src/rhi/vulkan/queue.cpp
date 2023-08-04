@@ -54,7 +54,7 @@ Queue<Vk>::Queue(
 		  device,
 		  std::make_tuple(
 			  std::forward<QueueCreateDesc<Vk>>(desc),
-			  [device, &desc]()
+			  [&device, &desc]()
 			  {
 				  QueueHandle<Vk> queue;
 				  vkGetDeviceQueue(*device, desc.queueFamilyIndex, desc.queueIndex, &queue);
