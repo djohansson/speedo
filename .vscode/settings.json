@@ -91,6 +91,11 @@
 		"xmemory": "cpp",
 		"xstddef": "cpp",
 		"xtr1common": "cpp",
-		"xutility": "cpp"
+		"xutility": "cpp",
+		"coroutine": "cpp",
+		"resumable": "cpp",
+		"*.ipp": "cpp",
+		"cfenv": "cpp",
+		"expected": "cpp"
 	}
 }
