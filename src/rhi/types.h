@@ -1,8 +1,5 @@
 #pragma once
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
-
 #include <cstdint>
 #include <type_traits>
 

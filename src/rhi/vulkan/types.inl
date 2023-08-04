@@ -1,3 +1,6 @@
+#include <vk_mem_alloc.h>
+#include <vulkan/vulkan.h>
+
 #include <cereal/cereal.hpp>
 
 #include <glaze/glaze.hpp>
