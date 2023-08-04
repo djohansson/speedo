@@ -28,7 +28,7 @@ void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 	myViewBuffer = std::make_unique<Buffer<Vk>>(
 		getDevice(),
 		BufferCreateDesc<Vk>{
-			myConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
+			myConfig.swapchainConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 
@@ -302,9 +302,9 @@ void Window<Vk>::draw(
 template <>
 void Window<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 {
-	myConfig.extent = framebufferExtent;
+	myConfig.swapchainConfig.extent = framebufferExtent;
 
-	internalCreateSwapchain(myConfig, *this);
+	internalCreateSwapchain(myConfig.swapchainConfig, *this);
 	internalCreateFrameObjects(framebufferExtent);
 }
 
@@ -420,7 +420,7 @@ Window<Vk>::Window(
 	WindowConfiguration<Vk>&& defaultConfig)
 	: Swapchain(
 		device,
-		defaultConfig,
+		defaultConfig.swapchainConfig,
 		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig(AutoSaveFileObject<WindowConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "window.json",
@@ -428,7 +428,7 @@ Window<Vk>::Window(
 {
 	ZoneScopedN("Window()");
 
-	internalCreateFrameObjects(myConfig.extent);
+	internalCreateFrameObjects(myConfig.swapchainConfig.extent);
 
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 }

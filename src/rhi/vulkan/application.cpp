@@ -103,8 +103,8 @@ void Application<Vk>::initIMGUI(
 	initInfo.Queue = gfx().myGraphicsQueues.get();
 	initInfo.PipelineCache = gfx().myPipeline->getCache();
 	initInfo.DescriptorPool = gfx().myPipeline->getDescriptorPool();
-	initInfo.MinImageCount = gfx().myMainWindow->getConfig().imageCount;
-	initInfo.ImageCount = gfx().myMainWindow->getConfig().imageCount;
+	initInfo.MinImageCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &gfx().myDevice->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = checkResult;
 	// initInfo.DeleteBufferFn = [](void* user_data,
@@ -160,7 +160,7 @@ void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExten
 		gfx().myDevice,
 		ImageCreateDesc<Vk>{
 			{{frameBufferExtent}},
-			gfx().myMainWindow->getConfig().surfaceFormat.format,
+			gfx().myMainWindow->getConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -368,7 +368,7 @@ Application<Vk>::Application(const WindowState& window)
 			{1ul, 1ul}});
 
 	{
-		uint32_t frameCount = gfx().myMainWindow->getConfig().imageCount;
+		uint32_t frameCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
 
 		auto& primaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary];
 		auto& secondaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary];
@@ -444,7 +444,7 @@ Application<Vk>::Application(const WindowState& window)
 		}
 	}
 
-	createWindowDependentObjects(gfx().myMainWindow->getConfig().extent);
+	createWindowDependentObjects(gfx().myMainWindow->getConfig().swapchainConfig.extent);
 
 	// todo: create some resource global storage
 	gfx().myPipeline->resources().black = std::make_shared<Image<Vk>>(

@@ -23,12 +23,13 @@
 #include <vector>
 
 template <GraphicsBackend B>
-struct WindowConfiguration : SwapchainConfiguration<B>
+struct WindowConfiguration
 {
+	SwapchainConfiguration<B> swapchainConfig{};
 	Extent2d<B> windowExtent{};
 	Extent2d<B> splitScreenGrid{1, 1};
 
-	GLZ_LOCAL_META(WindowConfiguration<B>, windowExtent, splitScreenGrid);
+	GLZ_LOCAL_META(WindowConfiguration<B>, swapchainConfig, windowExtent, splitScreenGrid);
 };
 
 template <GraphicsBackend B>

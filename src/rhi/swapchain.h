@@ -6,6 +6,9 @@
 #include "rendertarget.h"
 #include "types.h"
 
+#include <glaze/glaze.hpp>
+#include <glaze/core/macros.hpp>
+
 #include <memory>
 
 template <GraphicsBackend B>
@@ -15,6 +18,8 @@ struct SwapchainConfiguration
 	SurfaceFormat<B> surfaceFormat{};
 	PresentMode<B> presentMode{};
 	uint8_t imageCount = 0;
+
+	GLZ_LOCAL_META(SwapchainConfiguration<B>, extent, surfaceFormat, presentMode, imageCount);
 };
 
 template <GraphicsBackend B>
