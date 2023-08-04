@@ -20,7 +20,7 @@
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
-	.LLVMVersionMajor = '16'
+	.LLVMVersionMajor = '17'
 	.LLVMVersion = '$LLVMVersionMajor$.0.0'
 #endif // exists(LLVM_VERSION)
 	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
