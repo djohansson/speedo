@@ -479,7 +479,7 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::~Image()
 {
-	if (ImageHandle<Vk> image = *this; image)
+	if (ImageHandle<Vk> image = *this)
 		getDevice()->addTimelineCallback(
 			[allocator = getDevice()->getAllocator(), image, imageMemory = getImageMemory()](
 				uint64_t) { vmaDestroyImage(allocator, image, imageMemory); });
@@ -516,10 +516,10 @@ ImageView<Vk>::ImageView(
 template <>
 ImageView<Vk>::~ImageView()
 {
-	if (ImageViewHandle<Vk> view = *this; view)
+	if (ImageViewHandle<Vk> view = *this)
 		getDevice()->addTimelineCallback(
-			[device = getDevice(), view](uint64_t)
-			{ vkDestroyImageView(*device, view, &device->getInstance()->getHostAllocationCallbacks()); });
+			[device = static_cast<DeviceHandle<Vk>>(*getDevice()), view, callbacks = &getDevice()->getInstance()->getHostAllocationCallbacks()](uint64_t)
+			{ vkDestroyImageView(device, view, callbacks); });
 }
 
 template <>
