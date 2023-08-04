@@ -27,6 +27,8 @@ struct WindowConfiguration : SwapchainConfiguration<B>
 {
 	Extent2d<B> windowExtent{};
 	Extent2d<B> splitScreenGrid{1, 1};
+
+	GLZ_LOCAL_META(WindowConfiguration<B>, windowExtent, splitScreenGrid);
 };
 
 template <GraphicsBackend B>
@@ -75,11 +77,9 @@ private:
 		uint32_t secondaryContextCount,
 		const RenderPassBeginInfo<B>& renderPassInfo);
 
-	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig;
+	AutoSaveFileObject<WindowConfiguration<B>> myConfig;
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
 	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
 };
-
-#include "window.inl"

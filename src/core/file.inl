@@ -3,145 +3,109 @@
 
 #include <client/client.h> // TODO: eliminate this dependency
 
-#include <cereal/cereal.hpp>
-#include <cereal/types/array.hpp>
-#include <cereal/types/string.hpp>
-
 #include <mio/mmap_iostream.hpp>
 
 #include <picosha2.h>
 
-// template <class Archive>
-// void load(Archive& archive, FileInfo& info)
-// {
-// 	archive(cereal::make_nvp("path", info.path));
-// 	archive(cereal::make_nvp("size", info.size));
-// 	archive(cereal::make_nvp("timeStamp", info.timeStamp));
-// 	archive.loadBinaryValue(info.sha2.data(), info.sha2.size(), "sha2");
-// }
-
-// template <class Archive>
-// void save(Archive& archive, const FileInfo& info)
-// {
-// 	archive(cereal::make_nvp("path", info.path));
-// 	archive(cereal::make_nvp("size", info.size));
-// 	archive(cereal::make_nvp("timeStamp", info.timeStamp));
-// 	archive.saveBinaryValue(info.sha2.data(), info.sha2.size(), "sha2");
-// }
-
-template <typename T, typename Archive>
-T loadObject(std::istream& stream, std::string_view name)
+namespace mio_extra
 {
-	Archive archive(stream);
-	T outValue{};
-	archive(cereal::make_nvp(std::string(name), outValue));
-	return outValue;
+	struct stl_mmap_sink : public mio::mmap_sink
+	{
+		stl_mmap_sink(const std::string& path, const size_type offset = 0, const size_type length = mio::map_entire_file)
+			: mio::mmap_sink(path, offset, length)
+		{}
+
+		void resize(size_t size)
+		{
+			std::error_code error;
+			mio::mmap_sink::remap(0, size, error);
+			if (error)
+				throw std::system_error(std::move(error));
+		}
+	};
+}
+
+template <typename T>
+std::expected<T, bool> loadObject(std::string_view buffer)
+{
+	if (auto s = glz::read_json<T>(buffer))
+		return s.value();
+	else
+		std::cout << "Manifest parse error: " << glz::format_error(s.error(), buffer) << std::endl;
+	
+	return std::unexpected(false);
 };
 
-template <typename T, typename Archive>
-std::tuple<std::optional<T>, FileState>
-loadObject(const std::filesystem::path& filePath, std::string_view name)
+template <typename T>
+std::expected<T, FileState> loadObject(const std::filesystem::path& filePath)
 {
 	auto fileStatus = std::filesystem::status(filePath);
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return std::make_tuple(std::nullopt, FileState::Missing);
+		return std::unexpected(FileState::Missing);
 
-	auto fileStream = mio::mmap_istream(filePath.string());
+	auto file = mio::mmap_source(filePath.string());
+	
+	if (auto object = loadObject<T>(std::string_view(file.cbegin(), file.cend())))
+		return object.value();
 
-	return std::make_tuple(
-		std::make_optional(loadObject<T, Archive>(fileStream, name)), FileState::Valid);
+	return std::unexpected(FileState::Corrupted);
 }
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
+FileObject<T, Mode, SaveOnClose>::FileObject(
 	const std::filesystem::path& filePath, T&& defaultObject)
-	: T(std::get<0>(loadObject<T, InputArchive>(filePath, getTypeName<std::decay_t<T>>()))
-			.value_or(std::forward<T>(defaultObject)))
+	: T(loadObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::FileObject(
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
+FileObject<T, Mode, SaveOnClose>::FileObject(
 	FileObject&& other) noexcept
 	: T(std::forward<FileObject>(other))
 	, myInfo(std::exchange(other.myInfo, {}))
 {}
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::~FileObject()
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
+FileObject<T, Mode, SaveOnClose>::~FileObject()
 {
 	if constexpr (SaveOnClose)
 		if (!myInfo.path.empty())
 			save();
 }
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>&
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::operator=(
-	FileObject&& other) noexcept
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
+FileObject<T, Mode, SaveOnClose>&
+FileObject<T, Mode, SaveOnClose>::operator=(FileObject&& other) noexcept
 {
 	myInfo = std::exchange(other.myInfo, {});
 	return *this;
 }
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
-void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::swap(FileObject& rhs) noexcept
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
+void FileObject<T, Mode, SaveOnClose>::swap(FileObject& rhs) noexcept
 {
 	std::swap<T>(*this, rhs);
 	std::swap(myInfo, rhs.myInfo);
 }
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
-void FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::reload()
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
+void FileObject<T, Mode, SaveOnClose>::reload()
 {
-	static_cast<T&>(*this) =
-		std::get<0>(loadObject<T, InputArchive>(myInfo.path, getTypeName<std::decay_t<T>>()))
-			.value_or(std::move(static_cast<T&>(*this)));
+	static_cast<T&>(*this) = loadObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive,
-	bool SaveOnClose>
+template <typename T, FileAccessMode Mode, bool SaveOnClose>
 template <FileAccessMode M>
 typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type
-FileObject<T, Mode, InputArchive, OutputArchive, SaveOnClose>::save() const
+FileObject<T, Mode, SaveOnClose>::save() const
 {
-	auto fileStream = mio::mmap_ostream(myInfo.path);
-	OutputArchive archive(fileStream);
-	archive(cereal::make_nvp(std::string(getTypeName<std::decay_t<T>>()), static_cast<const T&>(*this))); 
+	auto file = mio_extra::stl_mmap_sink(myInfo.path);
+
+	std::error_code error;
+	file.truncate(glz::write<glz::opts{.prettify = true}>(*this, file), error);
+
+	if (error)
+		throw std::system_error(std::move(error));
 }
 
 template <bool Sha256ChecksumEnable>
@@ -179,27 +143,30 @@ std::expected<ManifestInfo, ManifestState> loadManifest(std::string_view buffer,
 
 	auto manifestInfo = loadManifestInfoFn(buffer);
 
-	if (std::string_view(LoaderType).compare(manifestInfo.loaderType) != 0 ||
-		std::string_view(LoaderVersion).compare(manifestInfo.loaderVersion) != 0)
+	if (!manifestInfo)
+		return std::unexpected(ManifestState::Corrupted);
+
+	if (std::string_view(LoaderType).compare(manifestInfo->loaderType) != 0 ||
+		std::string_view(LoaderVersion).compare(manifestInfo->loaderVersion) != 0)
 		return std::unexpected(ManifestState::InvalidVersion);
 
-	auto sourceFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo.sourceFileInfo.path);
+	auto sourceFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo->sourceFileInfo.path);
 
 	if (!sourceFileInfo ||
-		sourceFileInfo->size != manifestInfo.sourceFileInfo.size ||
-		sourceFileInfo->timeStamp.compare(manifestInfo.sourceFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? sourceFileInfo->sha2 != manifestInfo.sourceFileInfo.sha2 : false)
+		sourceFileInfo->size != manifestInfo->sourceFileInfo.size ||
+		sourceFileInfo->timeStamp.compare(manifestInfo->sourceFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? sourceFileInfo->sha2 != manifestInfo->sourceFileInfo.sha2 : false)
 		return std::unexpected(ManifestState::InvalidSourceFile);
 
-	auto cacheFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo.cacheFileInfo.path);
+	auto cacheFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
 
 	if (!cacheFileInfo ||
-		cacheFileInfo->size != manifestInfo.cacheFileInfo.size ||
-		cacheFileInfo->timeStamp.compare(manifestInfo.cacheFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? cacheFileInfo->sha2 != manifestInfo.cacheFileInfo.sha2 : false)
+		cacheFileInfo->size != manifestInfo->cacheFileInfo.size ||
+		cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2 : false)
 		return std::unexpected(ManifestState::InvalidCacheFile);
 
-	return manifestInfo;
+	return manifestInfo.value();
 }
 
 template <bool Sha256ChecksumEnable>
@@ -250,19 +217,11 @@ void loadCachedSourceFile(
 	{
 		ZoneScopedN("loadCachedSourceFile::loadManifest");
 
-		auto loadManifestInfoFn = [](std::string_view buffer)
-		{
-			if (auto s = glz::read_json<ManifestInfo>(buffer); s)
-				return s.value();
-			else
-				std::cout << "Manifest parse error: " << glz::format_error(s.error(), buffer) << std::endl;
-			
-			return ManifestInfo{};
-		};
-
 		auto manifestFile = mio::mmap_source(manifestPath.string());
 
-		manifest = loadManifest<LoaderType, LoaderVersion, false>(std::string_view(manifestFile.cbegin(), manifestFile.cend()), loadManifestInfoFn);
+		manifest = loadManifest<LoaderType, LoaderVersion, false>(
+			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
+			[](std::string_view buffer){ return loadObject<ManifestInfo>(buffer); });
 	}
 	else
 	{
@@ -282,22 +241,7 @@ void loadCachedSourceFile(
 		auto id = uuids::uuid_system_generator{}();
 		auto idStr = uuids::to_string(id);
 
-		struct mio_mmap_sink : public mio::mmap_sink
-		{
-			mio_mmap_sink(const std::string& path, const size_type offset = 0, const size_type length = mio::map_entire_file)
-				: mio::mmap_sink(path, offset, length)
-			{}
-
-			void resize(size_t size)
-			{
-				std::error_code error;
-				mio::mmap_sink::remap(0, size, error);
-				if (error)
-					throw std::system_error(std::move(error));
-			}
-		};
-
-		auto manifestFile = mio_mmap_sink(manifestPath.string());
+		auto manifestFile = mio_extra::stl_mmap_sink(manifestPath.string());
 
 		std::error_code error;
 		manifestFile.truncate(

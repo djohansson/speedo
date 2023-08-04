@@ -1,10 +1,5 @@
 #include "inputoutputnode.h"
 
-#include <cereal/archives/json.hpp>
-#include <cereal/types/polymorphic.hpp>
-
-CEREAL_REGISTER_POLYMORPHIC_RELATION(INode, InputOutputNode)
-
 InputOutputNode::InputOutputNode(int id, std::string&& name)
 : myId(id)
 , myName(std::forward<std::string>(name))

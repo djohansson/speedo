@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../utils.h"
+#include <core/file.h>
 
 #include <optional>
 #include <string>
@@ -19,10 +19,12 @@ struct Attribute
     std::string name;
 };
 
+GLZ_META(Attribute, id, name);
+
 struct Link
 {
     int fromId = 0;
     int toId = 0;
 };
 
-#include "nodecommon.inl"
+GLZ_META(Link, fromId, toId);

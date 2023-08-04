@@ -9,8 +9,6 @@
 #include <optional>
 #include <tuple>
 
-#include <cereal/archives/json.hpp>
-
 #include <glaze/glaze.hpp>
 #include <glaze/core/macros.hpp>
 
@@ -23,6 +21,7 @@ enum class FileAccessMode : uint8_t
 enum class FileState : uint8_t
 {
 	Missing,
+	Corrupted,
 	Valid,
 };
 
@@ -39,11 +38,13 @@ GLZ_META(FileInfo, path, size, timeStamp, sha2);
 enum class ManifestState : uint8_t
 {
 	Missing,
+	Corrupted,
 	InvalidVersion,
 	InvalidSourceFile,
 	InvalidCacheFile,
 	Valid,
 };
+
 struct ManifestInfo
 {
 	std::string loaderType;
@@ -59,7 +60,7 @@ std::string getFileTimeStamp(const std::filesystem::path& filePath);
 template <bool Sha256ChecksumEnable>
 std::expected<FileInfo, FileState> getFileInfo(const std::filesystem::path& filePath);
 
-using LoadManifestInfoFn = std::function<ManifestInfo(std::string_view)>;
+using LoadManifestInfoFn = std::function<std::expected<ManifestInfo, bool>(std::string_view)>;
 
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<ManifestInfo, ManifestState> loadManifest(std::string_view buffer, LoadManifestInfoFn loadManifestInfoFn);
@@ -80,22 +81,14 @@ void loadCachedSourceFile(
 	LoadFileFn loadBinaryCacheFn,
 	SaveFileFn saveBinaryCacheFn);
 
-template <typename T, typename Archive>
-T loadObject(std::istream& stream, std::string_view name);
+template <typename T>
+std::expected<T, bool> loadObject(std::string_view buffer);
 
-template <typename T, typename Archive>
-std::tuple<std::optional<T>, FileState>
-loadObject(const std::filesystem::path& filePath, std::string_view name);
+template <typename T>
+std::expected<T, FileState> loadObject(const std::filesystem::path& filePath);
 
-template <
-	typename T,
-	FileAccessMode Mode,
-	typename InputArchive,
-	typename OutputArchive, // todo: make this more watertight by using conditional
-	bool SaveOnClose = false>
-class FileObject
-	: public Noncopyable
-	, public T
+template <typename T, FileAccessMode Mode, bool SaveOnClose = false>
+class FileObject : public Noncopyable, public T
 {
 	// todo: implement mechanism to only write changes when contents have changed.
 	// todo: implement mechanism to update contents if an external process has changed the file.
@@ -121,19 +114,12 @@ private:
 };
 
 template <typename T>
-using ReadOnlyJSONFileObject =
-	FileObject<T, FileAccessMode::ReadOnly, cereal::JSONInputArchive, cereal::JSONOutputArchive>;
+using ReadOnlyFileObject = FileObject<T, FileAccessMode::ReadOnly>;
 
 template <typename T>
-using ReadWriteJSONFileObject =
-	FileObject<T, FileAccessMode::ReadWrite, cereal::JSONInputArchive, cereal::JSONOutputArchive>;
+using ReadWriteFileObject = FileObject<T, FileAccessMode::ReadWrite>;
 
 template <typename T>
-using AutoSaveJSONFileObject = FileObject<
-	T,
-	FileAccessMode::ReadWrite,
-	cereal::JSONInputArchive,
-	cereal::JSONOutputArchive,
-	true>;
+using AutoSaveFileObject = FileObject<T, FileAccessMode::ReadWrite, true>;
 
 #include "file.inl"

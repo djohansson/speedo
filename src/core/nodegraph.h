@@ -14,4 +14,4 @@ struct NodeGraph
 	int uniqueId = 0;
 };
 
-#include "nodegraph.inl"
+GLZ_META(NodeGraph, nodes, links, layout, uniqueId);

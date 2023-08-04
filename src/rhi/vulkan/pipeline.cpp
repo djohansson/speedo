@@ -803,7 +803,7 @@ Pipeline<Vk>::Pipeline(
 	const std::shared_ptr<Device<Vk>>& device,
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
-	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
+	, myConfig(AutoSaveFileObject<PipelineConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 	, myDescriptorPool(

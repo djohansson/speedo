@@ -29,6 +29,8 @@ struct DeviceConfiguration
 	// std::optional<bool> useHostQueryReset;
 	// std::optional<bool> useTimelineSemaphores;
 	// std::optional<bool> useBufferDeviceAddress;
+
+	GLZ_LOCAL_META(DeviceConfiguration<B>, physicalDeviceIndex);
 };
 
 enum QueueFamilyFlagBits
@@ -102,7 +104,7 @@ public:
 
 private:
 	std::shared_ptr<Instance<B>> myInstance;
-	AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
+	AutoSaveFileObject<DeviceConfiguration<B>> myConfig;
 	DeviceHandle<B> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
 
@@ -168,5 +170,3 @@ private:
 	DeviceObjectCreateDesc myDesc{};
 	uuids::uuid myUid{};
 };
-
-#include "device.inl"

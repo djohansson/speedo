@@ -419,8 +419,10 @@ Window<Vk>::Window(
 	SurfaceHandle<Vk>&& surface,
 	WindowConfiguration<Vk>&& defaultConfig)
 	: Swapchain(
-		  device, defaultConfig, std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
-	, myConfig(AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
+		device,
+		defaultConfig,
+		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
+	, myConfig(AutoSaveFileObject<WindowConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "window.json",
 		  std::forward<WindowConfiguration<Vk>>(defaultConfig)))
 {

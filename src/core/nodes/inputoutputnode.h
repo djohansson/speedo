@@ -33,5 +33,3 @@ private:
     std::vector<Attribute> myInputAttributes;
     std::vector<Attribute> myOutputAttributes;
 };
-
-#include "inputoutputnode.inl"

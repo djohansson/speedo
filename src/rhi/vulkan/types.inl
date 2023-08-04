@@ -1,10 +1,14 @@
 #include <cereal/cereal.hpp>
 
+#include <glaze/glaze.hpp>
+#include <glaze/core/macros.hpp>
+
 template <GraphicsBackend B>
 using AllocationCallbacks = std::conditional_t<B == Vk, VkAllocationCallbacks, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using ApplicationInfo = std::conditional_t<B == Vk, VkApplicationInfo, std::nullptr_t>;
+GLZ_META(VkApplicationInfo, applicationVersion, engineVersion, apiVersion);
 
 template <GraphicsBackend B>
 using SystemAllocationScope  = std::conditional_t<B == Vk, VkSystemAllocationScope, std::nullptr_t>;;
@@ -23,6 +27,7 @@ using DeviceSize = std::conditional_t<B == Vk, VkDeviceSize, std::nullptr_t>;
 
 template <GraphicsBackend B>
 using Extent2d = std::conditional_t<B == Vk, VkExtent2D, std::nullptr_t>;
+GLZ_META(VkExtent2D, width, height);
 
 template <GraphicsBackend B>
 using Extent3d = std::conditional_t<B == Vk, VkExtent3D, std::nullptr_t>;

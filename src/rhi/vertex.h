@@ -8,8 +8,6 @@
 #include <stack>
 #include <vector>
 
-#include <cereal/cereal.hpp>
-
 #include <xxhash.h>
 
 // todo: delete this whole file - use gltf instead

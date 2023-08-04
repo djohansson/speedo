@@ -17,9 +17,6 @@
 #include <vector>
 #include <version>
 
-#include <cereal/cereal.hpp>
-#include <cereal/types/string.hpp>
-
 #include <robin_hood.h>
 
 #if __cpp_reflection >= 201902
@@ -125,27 +122,7 @@ struct overloaded : Ts... { using Ts::operator()...; };
 template <typename... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
 
-namespace filesystem
-{
-
-template <class Archive>
-void CEREAL_LOAD_MINIMAL_FUNCTION_NAME(const Archive&, path& out, const std::string& in)
-{
-	out = in;
-}
-
-template <class Archive>
-std::string CEREAL_SAVE_MINIMAL_FUNCTION_NAME(const Archive& ar, const path& p)
-{
-	return p.generic_string();
-}
-
-} // namespace filesystem
-
 } // namespace std
-
-CEREAL_SPECIALIZE_FOR_ALL_ARCHIVES(
-	std::filesystem::path, cereal::specialization::non_member_load_save_minimal);
 
 template <typename T, typename Handle>
 struct HandleHash : robin_hood::hash<Handle>

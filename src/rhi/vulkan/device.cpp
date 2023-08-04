@@ -219,7 +219,7 @@ Device<Vk>::Device(
 	const std::shared_ptr<Instance<Vk>>& instance,
 	DeviceConfiguration<Vk>&& defaultConfig)
 	: myInstance(instance)
-	, myConfig(AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
+	, myConfig(AutoSaveFileObject<DeviceConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "device.json",
 		  std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)

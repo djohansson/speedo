@@ -26,5 +26,3 @@ private:
 
     std::filesystem::path myPath;
 };
-
-#include "slangshadernode.inl"

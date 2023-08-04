@@ -1,12 +1,3 @@
-#include <cereal/archives/json.hpp>
-#include <cereal/cereal.hpp>
-
-template <class Archive, GraphicsBackend B>
-void serialize(Archive& archive, PipelineConfiguration<B>& config)
-{
-	archive(cereal::make_nvp("cachePath", config.cachePath));
-}
-
 template <GraphicsBackend B>
 const DescriptorSetLayout<B>& PipelineLayout<B>::getDescriptorSetLayout(uint32_t set) const noexcept
 {

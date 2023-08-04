@@ -73,7 +73,9 @@ struct PipelineCacheHeader
 template <GraphicsBackend B>
 struct PipelineConfiguration
 {
-	std::filesystem::path cachePath;
+	std::string cachePath;
+
+	GLZ_LOCAL_META(PipelineConfiguration<B>, cachePath);
 };
 
 // todo: create single-thread / multi-thread interface:
@@ -205,7 +207,7 @@ private:
 	PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
 	PipelineHandle<B> internalGetPipeline();
 
-	AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
+	AutoSaveFileObject<PipelineConfiguration<B>> myConfig;
 
 	DescriptorMapType myDescriptorMap;
 	

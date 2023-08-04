@@ -357,7 +357,7 @@ Application<Vk>::Application(const WindowState& window)
 	};
 
 	gfx().myPipeline = std::make_shared<Pipeline<Vk>>(
-		gfx().myDevice, PipelineConfiguration<Vk>{userProfilePath / "pipeline.cache"});
+		gfx().myDevice, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
 
 	gfx().myMainWindow = std::make_shared<Window<Vk>>(
 		gfx().myDevice,
@@ -1140,8 +1140,7 @@ Application<Vk>::Application(const WindowState& window)
 		ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
 	};
 
-	myNodeGraph = std::filesystem::path(client_getUserProfilePath()) /
-				  "nodegraph.json"; // temp - this should be stored in the resource path
+	//myNodeGraph = std::filesystem::path(client_getUserProfilePath()) / "nodegraph.json"; // temp - this should be stored in the resource path
 }
 
 template <>

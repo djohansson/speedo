@@ -103,5 +103,3 @@ private:
 	uint32_t myFrameIndex = 0;
 	uint32_t myLastFrameIndex = 0;
 };
-
-#include "swapchain.inl"

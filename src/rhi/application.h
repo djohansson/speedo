@@ -8,7 +8,6 @@
 // todo: clustered forward shading
 // todo: shader graph
 // todo: migrate out of slang into own root and clean up folder structure
-// todo: replace cereal with zpp::bits
 // todo: implement interprocess distributed task system using cppzmq & zpp::bits
 // todo: split and clean up concurrency-utils
 // todo: make Application & Window class graphics independent (if possible)
@@ -18,6 +17,7 @@
 
 // in progress: replace all external deps with vcpkg packages
 // in progress: streamlined project setup process on all platforms.
+// in progress: replace cereal with glaze & zpp::bits
 
 // done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata
 // 		 members where possible
@@ -151,7 +151,7 @@ private:
 
 	Future<void> myPresentFuture;
 
-	AutoSaveJSONFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
+	//AutoSaveFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
 
 	bool myRequestExit = false;
 };

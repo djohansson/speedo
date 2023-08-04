@@ -179,7 +179,7 @@ Instance<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk
 
 template <>
 Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
-	: myConfig(AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
+	: myConfig(AutoSaveFileObject<InstanceConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "instance.json",
 		  std::forward<InstanceConfiguration<Vk>>(defaultConfig)))
 	, myHostAllocationCallbacks{
