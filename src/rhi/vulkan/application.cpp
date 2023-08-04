@@ -1148,6 +1148,9 @@ Application<Vk>::~Application()
 {
 	ZoneScopedN("~Application()");
 
+	auto device = gfx().myDevice;
+	auto instance = gfx().myInstance;
+
 	{
 		ZoneScopedN("~Application()::waitCPU");
 
@@ -1157,10 +1160,15 @@ Application<Vk>::~Application()
 	{
 		ZoneScopedN("~Application()::waitGPU");
 
-		gfx().myDevice->waitIdle();
+		device->waitIdle();
 	}
 
 	shutdownIMGUI();
+
+	myGraphicsContext = {};
+
+	assert(device.use_count() == 1);
+	assert(instance.use_count() == 2);
 }
 
 template <>
