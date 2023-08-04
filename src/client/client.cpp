@@ -2,6 +2,7 @@
 
 #include <rhi/application.h>
 
+#include <cassert>
 #include <filesystem>
 #include <memory>
 #include <string>
