@@ -5,9 +5,8 @@ endif()
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO djohansson/glaze
-    REF ce5ecf1
-    SHA512 968c5c699038fd6275b68d602ed9793ac26b56fce6c578f628a82b6b6e04b3bbc9e818cbba52fac4aff2b9c334d212e2027a9a30566196d607831f771e36012d
-    HEAD_REF master
+    REF e061c7e4737e1fe408663e218599acce0e78aea0
+    SHA512 e4d813124b7f84a6b668886f74c945dd7550ad1d25a5726fa90d11b1f569895511499b6431463b3dab06288e8b82d06bfee971fc4bd323bc8ad7c043b2fd7f25
 )
 
 vcpkg_cmake_configure(
