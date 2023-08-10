@@ -12,9 +12,9 @@
 .DllSuffix = '.dll'
 .ExeSuffix = '.exe'
 
-#if exists(VISUAL_STUDIO)
-#import VISUAL_STUDIO
-.VisualStudioPath = '$VISUAL_STUDIO$'
+#if exists(VISUAL_STUDIO_PATH)
+#import VISUAL_STUDIO_PATH
+.VisualStudioPath = '$VISUAL_STUDIO_PATH$'
 #else
 .VisualStudioPath = 'C:/Program Files/Microsoft Visual Studio/2022/Community'
 #endif
@@ -23,7 +23,7 @@
 #import VISUAL_STUDIO_TOOLCHAIN_VERSION
 .VisualStudioToolchainVersion = '$VISUAL_STUDIO_TOOLCHAIN_VERSION$'
 #else
-.VisualStudioToolchainVersion = '14.35.32215'
+.VisualStudioToolchainVersion = '14.37.32822'
 #endif
 
 .VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VisualStudioToolchainVersion$'
@@ -48,7 +48,7 @@
 .WindowsUcrtIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/ucrt'
 .WindowsSharedIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/shared'
 .VisualStudioIncludePath = '$VisualStudioToolchainPath$/include'
-.VisualStudioATLMFCIncludePath = '$VisualStudioToolchainPath$/ATLMFC/include'
+//.VisualStudioATLMFCIncludePath = '$VisualStudioToolchainPath$/ATLMFC/include'
 .VisualStudioLibPath = '$VisualStudioToolchainPath$/lib/x64'
 .VisualStudioBinPath = '$VisualStudioToolchainPath$/bin/Hostx64/x64'
 
@@ -64,7 +64,7 @@ Settings
 	.CachePath = '$TMP$/.fbuild.cache'
 }
 .PlatformIncludePaths = ' -isystem "$VisualStudioIncludePath$"'
-	+ ' -isystem "$VisualStudioATLMFCIncludePath$"'
+//	+ ' -isystem "$VisualStudioATLMFCIncludePath$"'
 	+ ' -isystem "$WindowsIncludePath$"'
 	+ ' -isystem "$WindowsUcrtIncludePath$"'
 	+ ' -isystem "$WindowsSharedIncludePath$"'

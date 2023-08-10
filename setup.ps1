@@ -41,15 +41,24 @@ else
 	return
 }
 
+. $PSScriptRoot/env.ps1
+
+$myEnvFile = "$PSScriptRoot/env.json"
+$myEnv = New-Object -TypeName PSObject
+
+if (Test-Path $myEnvFile)
+{
+	$myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json
+}
+
 # TODO: use targeted versions of all these winget packages.
 if ($IsWindows)
 {
-	$myEnvFile = "./env.json"
-	$myEnv = New-Object -TypeName PSObject
-
-	if (Test-Path $myEnvFile)
+	if (-not (Get-InstalledModule Microsoft.WinGet.Client -ErrorAction SilentlyContinue))
 	{
-		$myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json
+		Write-Host "Installing Microsoft.WinGet.Client package..."
+	
+		Install-Package Microsoft.WinGet.Client -Scope CurrentUser -Force -Confirm:$False
 	}
 
 	$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
@@ -58,7 +67,7 @@ if ($IsWindows)
 	{ 
 		Write-Host "Installing Powershell Core..."
 
-		winget install -e -h --id Microsoft.PowerShell
+		Install-WinGetPackage -Mode Silent -Id Microsoft.PowerShell
 
 		$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
 	}
@@ -70,7 +79,7 @@ if ($IsWindows)
 	{ 
 		Write-Host "Installing Python 3.11..."
 
-		winget install -e -h --id Python.Python.3.11
+		Install-WinGetPackage -Mode Silent -Id Python.Python.3.11
 
 		$pythonCmd = Get-Command "python" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.11.0.0")
 	}
@@ -82,27 +91,36 @@ if ($IsWindows)
 	{
 		Write-Host "Installing Git..."
 
-		winget install -e -h --id Git.Git
+		Install-WinGetPackage -Mode Silent -Id Git.Git
 
 		$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
 	}
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName GIT_PATH -NotePropertyValue (Split-Path -Path $gitCmd.Source) | Out-Null
-	
-	winget list --id KhronosGroup.VulkanSDK -e | Out-Null
 
-	if ($LASTEXITCODE)
+	$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
+
+	if (-not ($vulkanSdkInfo) -or ($vulkanSdkInfo.InstalledVersion -lt ([System.Version]"1.3.231.1")))
 	{
 		Write-Host "Installing VulkanSDK (requires process elevation)..."
 
-		Start-Process pwsh -Verb runas -ArgumentList "-c winget install -e -h --id KhronosGroup.VulkanSDK"
-
-		# load VULKAN_SDK environment variable into current powershell session
-		#$env:VULKAN_SDK = [System.Environment]::GetEnvironmentVariable('VULKAN_SDK','Machine')
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id KhronosGroup.VulkanSDK"
 	}
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue "C:\VulkanSDK\1.3.231.1" | Out-Null
+
+	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
+
+	if (-not ($windowsSdkInfo))
+	{
+		Write-Host "Installing WindowsSDK 10.0.22621 (requires process elevation)..."
+
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621"
+	}
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK -NotePropertyValue "C:\Program Files (x86)\Windows Kits\10" | Out-Null
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK_VERSION -NotePropertyValue "10.0.22621.0" | Out-Null
 
 	if (-not (Get-InstalledModule VSSetup -ErrorAction SilentlyContinue))
 	{
-		Write-Host "Installing VSSetup powershell module..."
+		Write-Host "Installing VSSetup module..."
 	
 		Install-Module VSSetup -Scope CurrentUser -Confirm:$False -Force
 	}
@@ -118,10 +136,12 @@ if ($IsWindows)
 
 		$VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools","Microsoft.VisualStudio.Component.VC.Llvm.Clang","Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset"
 	}
-	$myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue (Split-Path -Path ($VSSetupInstance.InstallationPath + "\VC\Tools\Llvm\bin")) | Out-Null
-	
-	$myEnv | ConvertTo-Json | Out-File $myEnvFile
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName VISUAL_STUDIO_PATH -NotePropertyValue $VSSetupInstance.InstallationPath | Out-Null
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName VISUAL_STUDIO_TOOLCHAIN_VERSION -NotePropertyValue "14.37.32822" | Out-Null
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue ($VSSetupInstance.InstallationPath + "\VC\Tools\Llvm") | Out-Null
 }
+
+$myEnv | ConvertTo-Json | Out-File $myEnvFile
 
 Write-Host "Setting up vcpkg environment..."
 

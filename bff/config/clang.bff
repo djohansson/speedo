@@ -2,9 +2,9 @@
 
 .Clang_BaseConfig =
 [
-#if exists(LLVM)
-#import LLVM
-	.LLVMPath = '$LLVM$'
+#if exists(LLVM_PATH)
+#import LLVM_PATH
+	.LLVMPath = '$LLVM_PATH$'
 #else
 #if __WINDOWS__
 	.LLVMPath = 'C:/Program Files/LLVM'
