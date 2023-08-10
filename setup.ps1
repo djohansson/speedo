@@ -44,53 +44,83 @@ else
 # TODO: use targeted versions of all these winget packages.
 if ($IsWindows)
 {
-	$gitListResult = winget list --id Git.Git -e
+	$myEnvFile = "./env.json"
+	$myEnv = New-Object -TypeName PSObject
+
+	if (Test-Path $myEnvFile)
+	{
+		$myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json
+	}
+
+	$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
+
+	if (-not ($pwshCmd))
+	{ 
+		Write-Host "Installing Powershell Core..."
+
+		winget install -e -h --id Microsoft.PowerShell
+
+		$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
+	}
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue (Split-Path -Path $pwshCmd.Source) | Out-Null
 	
-	if ($LASTEXITCODE)
+	$pythonCmd = Get-Command "python" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.11.0.0")
+
+	if (-not ($pythonCmd))
+	{ 
+		Write-Host "Installing Python 3.11..."
+
+		winget install -e -h --id Python.Python.3.11
+
+		$pythonCmd = Get-Command "python" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.11.0.0")
+	}
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName PYTHON_PATH -NotePropertyValue (Split-Path -Path $pythonCmd.Source) | Out-Null
+	
+	$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
+	
+	if (-not ($gitCmd))
 	{
 		Write-Host "Installing Git..."
 
 		winget install -e -h --id Git.Git
+
+		$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
 	}
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName GIT_PATH -NotePropertyValue (Split-Path -Path $gitCmd.Source) | Out-Null
 	
-	$gitVersion = (-split $gitListResult[-1])[-2]
+	winget list --id KhronosGroup.VulkanSDK -e | Out-Null
 
-	if (-not (Get-Command "git.exe" -ErrorAction SilentlyContinue))
-	{ 
-		Write-Host "Unable to find git in your PATH"
-
-		return
-	}
-	elseif (-not $(git --version) -like $gitVersion)
-	{
-		Write-Warning "Git avaliable from PATH does not match the installed version by this script."
-	}
-
-	winget list --id LLVM.LLVM -e | Out-Null
-	
 	if ($LASTEXITCODE)
 	{
-		Write-Host "Installing LLVM..."
+		Write-Host "Installing VulkanSDK (requires process elevation)..."
 
-		winget install -e -h --id LLVM.LLVM
+		Start-Process pwsh -Verb runas -ArgumentList "-c winget install -e -h --id KhronosGroup.VulkanSDK"
+
+		# load VULKAN_SDK environment variable into current powershell session
+		#$env:VULKAN_SDK = [System.Environment]::GetEnvironmentVariable('VULKAN_SDK','Machine')
 	}
 
-	if (-not (Get-InstalledModule VSSetup -ErrorAction 'SilentlyContinue'))
+	if (-not (Get-InstalledModule VSSetup -ErrorAction SilentlyContinue))
 	{
 		Write-Host "Installing VSSetup powershell module..."
 	
 		Install-Module VSSetup -Scope CurrentUser -Confirm:$False -Force
 	}
 
-	$VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools"
+	$VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools","Microsoft.VisualStudio.Component.VC.Llvm.Clang","Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset"
 
 	if (-not ($VSSetupInstance))
 	{
 		Write-Host "Installing VisualStudio 2022 VC BuildTools..."
 
 		# --force is required to circumvent the fact that Microsoft.VisualStudio.2022.BuildTools could already be installed without the VCTools workload
-		winget install -e -h --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --wait" --force
+		winget install -e -h --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --add Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset --wait" --force
+
+		$VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools","Microsoft.VisualStudio.Component.VC.Llvm.Clang","Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset"
 	}
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue (Split-Path -Path ($VSSetupInstance.InstallationPath + "\VC\Tools\Llvm\bin")) | Out-Null
+	
+	$myEnv | ConvertTo-Json | Out-File $myEnvFile
 }
 
 Write-Host "Setting up vcpkg environment..."
