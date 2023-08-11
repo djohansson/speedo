@@ -14,6 +14,7 @@
 // todo: (maybe) use Scatter/Gather I/O
 // todo: untangle client dependencies
 // todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
+// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 
 // in progress: replace all external deps with vcpkg packages
 // in progress: streamlined project setup process on all platforms.
