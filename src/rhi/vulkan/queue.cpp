@@ -109,43 +109,39 @@ void Queue<Vk>::swap(Queue& rhs) noexcept
 	std::swap(myUserData, rhs.myUserData);
 }
 
-template <>
-void Queue<Vk>::traceCollect(CommandBufferHandle<Vk> cmd)
-{
 #if PROFILING_ENABLED
+template <>
+void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
+{
 	{
 		if (myDesc.tracingEnableInitCmd)
 			TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
 	}
-#endif
 }
 
 template <>
 std::shared_ptr<void>
-Queue<Vk>::internalTrace(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
+Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
-#if PROFILING_ENABLED
-	{
-		static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
-		// static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
-		// static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
-		// static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
-		// static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
-		// static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
+	static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
+	static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
+	static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
+	static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
+	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
+	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-		if (myDesc.tracingEnableInitCmd)
-		{
-			return std::make_shared<tracy::VkCtxScope>(tracy::VkCtxScope(
-				std::any_cast<queue::UserData>(&myUserData)->tracyContext,
-				reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-				cmd,
-				true));
-		}
+	if (myDesc.tracingEnableInitCmd)
+	{
+		return std::make_shared<tracy::VkCtxScope>(
+			std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+			cmd,
+			true);
 	}
-#endif
 
 	return {};
 }
+#endif
 
 template <>
 uint64_t Queue<Vk>::submit()

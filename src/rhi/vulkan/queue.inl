@@ -19,22 +19,13 @@ void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 		enqueuePresent(std::forward<Ts>(rest)...);
 }
 
+
+#if PROFILING_ENABLED
 template <>
-template <typename T, uint32_t Line>
-std::shared_ptr<void>
-Queue<Vk>::trace(CommandBufferHandle<Vk> cmd, const char* function, const char* file)
+template <SourceLocationData Location>
+std::shared_ptr<void> Queue<Vk>::gpuScope(CommandBufferHandle<Vk> cmd)
 {
-	ZoneScopedN("Queue::trace");
-
-	if constexpr (PROFILING_ENABLED)
-	{
-		if (!myDesc.tracingEnableInitCmd)
-			return {};
-
-		static const auto srcLoc = SourceLocationData{T::getTypeName(), function, file, Line};
-
-		return internalTrace(cmd, srcLoc);
-	}
-
-	return {};
+	static const auto location = Location;
+	return internalGpuScope(cmd, location);
 }
+#endif

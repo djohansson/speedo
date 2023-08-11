@@ -19,6 +19,12 @@
 
 #include <robin_hood.h>
 
+#ifdef _MSC_VER
+#define FORCE_INLINE __forceinline
+#else
+#define FORCE_INLINE inline __attribute__((always_inline))
+#endif
+
 #if __cpp_reflection >= 201902
 static_assert(false, "Please let Daniel know that the reflection TS is supported.")
 #include <experimental/reflect>
@@ -369,3 +375,17 @@ private:
 
 	IndexT myHead{};
 };
+
+template<size_t N>
+struct StringLiteral
+{
+	constexpr StringLiteral(const char (&str)[N]) { std::copy_n(str, N, value); }
+
+	char value[N];
+};
+
+template <StringLiteral S>
+constexpr const char* string_literal()
+{
+	return S.value;
+}

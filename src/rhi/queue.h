@@ -48,9 +48,9 @@ struct QueueCreateDesc
 
 struct SourceLocationData
 {
-	const char* name = nullptr;
-	const char* function = nullptr;
-	const char* file = nullptr;
+	const char* name{};
+	const char* function{};
+	const char* file{};
 	uint32_t line = 0ul;
 	uint32_t color = 0ul;
 };
@@ -84,18 +84,21 @@ public:
 
 	void waitIdle() const;
 
-	template <typename T, uint32_t Line>
-	std::shared_ptr<void> trace(CommandBufferHandle<B> cmd, const char* function, const char* file);
-
-	void traceCollect(CommandBufferHandle<B> cmd);
+#if PROFILING_ENABLED
+	template <SourceLocationData Location>
+	FORCE_INLINE std::shared_ptr<void> gpuScope(CommandBufferHandle<B> cmd);
+	void gpuScopeCollect(CommandBufferHandle<B> cmd);
+#endif
 
 private:
 	Queue(
 		const std::shared_ptr<Device<B>>& device,
 		std::tuple<QueueCreateDesc<B>, QueueHandle<B>>&& descAndHandle);
 
+#if PROFILING_ENABLED
 	std::shared_ptr<void>
-	internalTrace(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
+	internalGpuScope(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
+#endif
 
 	QueueCreateDesc<B> myDesc{};
 	QueueHandle<B> myQueue{};
@@ -107,17 +110,17 @@ private:
 	std::any myUserData;
 };
 
-#if 0 // PROFILING_ENABLED
-#	define GPU_SCOPE(cmd, queue, name)                                                            \
-		struct name##__struct                                                                      \
-		{                                                                                          \
-			static constexpr const char* getTypeName() { return #name; }                           \
-		};                                                                                         \
-		auto name##__scope =                                                                       \
-			queue.trace<name##__struct, __LINE__>(cmd, __PRETTY_FUNCTION__, __FILE__);
+#if PROFILING_ENABLED
+#	define GPU_SCOPE(cmd, queue, tag)										\
+		auto tag##__scope =													\
+			queue.gpuScope<													\
+				SourceLocationData{											\
+					.name = string_literal<#tag>(),  						\
+					.function = string_literal<__PRETTY_FUNCTION__>(),		\
+					.file = string_literal<__FILE__>(),						\
+					.line = __LINE__}>(cmd);
 #else
-#	define GPU_SCOPE(cmd, queue, name)                                                            \
-		{}
+#	define GPU_SCOPE(cmd, queue, tag) {}
 #endif
 
 #include "queue.inl"
