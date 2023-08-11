@@ -119,8 +119,10 @@ private:
 					.function = string_literal<__PRETTY_FUNCTION__>(),		\
 					.file = string_literal<__FILE__>(),						\
 					.line = __LINE__}>(cmd);
+#	define GPU_SCOPE_COLLECT(cmd, queue) { queue.gpuScopeCollect(cmd); }
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}
+#	define GPU_SCOPE_COLLECT(cmd, queue) {}
 #endif
 
 #include "queue.inl"

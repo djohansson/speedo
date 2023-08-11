@@ -1250,7 +1250,7 @@ bool Application<Vk>::tick()
 
 			auto cmd = primaryContext.commands();
 
-			graphicsQueue.gpuScopeCollect(cmd);
+			GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
 			{
 				GPU_SCOPE(cmd, graphicsQueue, clear);
