@@ -12,3 +12,5 @@ build.*/*
 slang-stdlib.bin
 slang.dll
 slang.pdb
+
+env.json
