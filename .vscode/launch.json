@@ -9,10 +9,39 @@
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"environment": [
-				{ "name": "_NO_DEBUG_HEAP", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/bin"}
+			],
+			"symbolOptions": {
+				"searchPaths": [],
+				"searchMicrosoftSymbolServer": true,
+				"cachePath": "${env:TEMP}/symbolcache",
+				"moduleFilter": {
+					"mode": "loadAllButExcluded",
+					"excludedModules": []
+				}
+			},
+			"console": "internalConsole",
+			"logging": {
+				"exceptions": true,
+				"engineLogging": false,
+				"processExit": true,
+				"programOutput": true,
+				"moduleLoad": true,
+				"trace": true,
+				"threadExit": true
+			}
+		},
+		{
+			"name": "(Windows) profile/client",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/client.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
 				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
