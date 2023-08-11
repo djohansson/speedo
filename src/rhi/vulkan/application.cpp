@@ -1217,127 +1217,129 @@ bool Application<Vk>::tick()
 
 	TaskGraph frameGraph;
 
-	auto [drawTask, drawFuture] = frameGraph.createTask(
-		[this]
+	auto [drawTask, drawFuture] = frameGraph.createTask([this]
+	{
+		ZoneScopedN("Application::draw");
+
+		auto [flipSuccess, lastPresentTimelineValue] = gfx().myMainWindow->flip();
+
+		if (flipSuccess)
 		{
-			ZoneScopedN("Application::draw");
+			ZoneScopedN("Application::draw::submit");
 
-			auto [flipSuccess, lastPresentTimelineValue] = gfx().myMainWindow->flip();
+			auto& primaryContext = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary].fetchAdd();
+			constexpr uint32_t secondaryContextCount = 4;
+			auto secondaryContexts = &gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary].fetchAdd(
+				secondaryContextCount);
 
-			if (flipSuccess)
-			{
-				ZoneScopedN("Application::draw::submit");
-
-				auto& primaryContext = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary].fetchAdd();
-				constexpr uint32_t secondaryContextCount = 4;
-				auto secondaryContexts = &gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary].fetchAdd(
-					secondaryContextCount);
-
-				auto& graphicsQueue = gfx().myGraphicsQueues.fetchAdd();
-
-				if (lastPresentTimelineValue)
-				{
-					{
-						ZoneScopedN("Application::draw::waitFrame");
-
-						gfx().myDevice->wait(lastPresentTimelineValue);
-					}
-
-					primaryContext.reset();
-
-					for (uint32_t secIt = 0; secIt < secondaryContextCount; secIt++)
-						secondaryContexts[secIt].reset();
-				}
-
-				auto cmd = primaryContext.commands();
-
-				{
-					GPU_SCOPE(cmd, graphicsQueue, collect);
-					graphicsQueue.traceCollect(cmd);
-				}
-				{
-					GPU_SCOPE(cmd, graphicsQueue, clear);
-					gfx().myRenderImageSet->clearDepthStencil(cmd, {1.0f, 0});
-				}
-				{
-					GPU_SCOPE(cmd, graphicsQueue, transition);
-					gfx().myRenderImageSet->transitionColor(
-						cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-					gfx().myRenderImageSet->transitionDepthStencil(
-						cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-				}
-				{
-					GPU_SCOPE(cmd, graphicsQueue, update);
-
-					// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
-					using namespace ImGui;
-
-					auto& io = GetIO();
-					if (!io.WantCaptureMouse)
-						gfx().myMainWindow->updateInput(myInput);
-				}
-				{
-					GPU_SCOPE(cmd, graphicsQueue, draw);
-					gfx().myMainWindow->draw(
-						myExecutor,
-						*gfx().myPipeline,
-						primaryContext,
-						secondaryContexts,
-						secondaryContextCount);
-				}
-				{
-					GPU_SCOPE(cmd, graphicsQueue, imgui);
-					gfx().myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-
-					myIMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
-					myIMGUIDrawFunction(cmd);
-
-					gfx().myMainWindow->end(cmd);
-				}
-				{
-					GPU_SCOPE(cmd, graphicsQueue, transitionColor);
-					gfx().myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
-				}
-
-				cmd.end();
-
-				auto [imageAquired, renderComplete] = gfx().myMainWindow->getFrameSyncSemaphores();
-
-				graphicsQueue.enqueueSubmit(primaryContext.prepareSubmit(
-					{{gfx().myDevice->getTimelineSemaphore(), imageAquired},
-					 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-					  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-					 {graphicsQueue.getLastSubmitTimelineValue().value_or(0), 1},
-					 {gfx().myDevice->getTimelineSemaphore(), renderComplete},
-					 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
-
-				graphicsQueue.enqueuePresent(
-					gfx().myMainWindow->preparePresent(graphicsQueue.submit()));
-			}
+			auto& graphicsQueue = gfx().myGraphicsQueues.fetchAdd();
 
 			if (lastPresentTimelineValue)
 			{
-				ZoneScopedN("Application::draw::processTimelineCallbacks");
+				{
+					ZoneScopedN("Application::draw::waitFrame");
 
-				// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-				gfx().myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
+					gfx().myDevice->wait(lastPresentTimelineValue);
+				}
+
+				primaryContext.reset();
+
+				for (uint32_t secIt = 0; secIt < secondaryContextCount; secIt++)
+					secondaryContexts[secIt].reset();
 			}
+
+			auto cmd = primaryContext.commands();
+
+			graphicsQueue.gpuScopeCollect(cmd);
 
 			{
-				if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
-				{
-					ZoneScopedN("Application::draw::openFileCallback");
+				GPU_SCOPE(cmd, graphicsQueue, clear);
 
-					const auto& [openFileResult, openFilePath, onCompletionCallback] =
-						myOpenFileFuture.get();
-					if (openFileResult == NFD_OKAY)
-					{
-						onCompletionCallback(openFilePath);
-						std::free(openFilePath);
-					}
+				gfx().myRenderImageSet->clearDepthStencil(cmd, {1.0f, 0});
+			}
+			{
+				GPU_SCOPE(cmd, graphicsQueue, transition);
+				
+				gfx().myRenderImageSet->transitionColor(
+					cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+				gfx().myRenderImageSet->transitionDepthStencil(
+					cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+			}
+			{
+				GPU_SCOPE(cmd, graphicsQueue, update);
+
+				// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
+				using namespace ImGui;
+
+				auto& io = GetIO();
+				if (!io.WantCaptureMouse)
+					gfx().myMainWindow->updateInput(myInput);
+			}
+			{
+				GPU_SCOPE(cmd, graphicsQueue, draw);
+				
+				gfx().myMainWindow->draw(
+					myExecutor,
+					*gfx().myPipeline,
+					primaryContext,
+					secondaryContexts,
+					secondaryContextCount);
+			}
+			{
+				GPU_SCOPE(cmd, graphicsQueue, imgui);
+				
+				gfx().myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+
+				myIMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
+				myIMGUIDrawFunction(cmd);
+
+				gfx().myMainWindow->end(cmd);
+			}
+			{
+				GPU_SCOPE(cmd, graphicsQueue, transitionColor);
+				
+				gfx().myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+			}
+
+			cmd.end();
+
+			auto [imageAquired, renderComplete] = gfx().myMainWindow->getFrameSyncSemaphores();
+
+			graphicsQueue.enqueueSubmit(primaryContext.prepareSubmit(
+				{{gfx().myDevice->getTimelineSemaphore(), imageAquired},
+					{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+					{graphicsQueue.getLastSubmitTimelineValue().value_or(0), 1},
+					{gfx().myDevice->getTimelineSemaphore(), renderComplete},
+					{1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
+
+			graphicsQueue.enqueuePresent(
+				gfx().myMainWindow->preparePresent(graphicsQueue.submit()));
+		}
+
+		if (lastPresentTimelineValue)
+		{
+			ZoneScopedN("Application::draw::processTimelineCallbacks");
+
+			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
+			gfx().myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
+		}
+
+		{
+			if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
+			{
+				ZoneScopedN("Application::draw::openFileCallback");
+
+				const auto& [openFileResult, openFilePath, onCompletionCallback] =
+					myOpenFileFuture.get();
+				if (openFileResult == NFD_OKAY)
+				{
+					onCompletionCallback(openFilePath);
+					std::free(openFilePath);
 				}
 			}
-		});
+		}
+	});
 
 	auto [presentTask, presentFuture] = frameGraph.createTask(
 		[](Queue<Vk>* queue) { queue->present(); }, &gfx().myGraphicsQueues.get());
