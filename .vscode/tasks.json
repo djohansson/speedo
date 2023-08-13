@@ -7,8 +7,7 @@
 			"command": "fbuild",
 			"args": [
 				"-cache",
-				//"all"
-				"debug"
+				"all"
 			],
 			"group": {
 				"kind": "build",
