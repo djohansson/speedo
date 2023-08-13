@@ -20,6 +20,7 @@
 			+ ' -I$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
+			+ ' -Wno-unused-variable'
 			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -Wno-unknown-attributes'
 			+ ' -DUUID_SYSTEM_GENERATOR'
