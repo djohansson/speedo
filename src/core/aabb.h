@@ -6,8 +6,6 @@
 #include <array>
 #include <limits>
 
-#include <cereal/cereal.hpp>
-
 template <typename T, size_t N = 3>
 class AABB
 {
@@ -21,6 +19,8 @@ class AABB
 	static constexpr size_t CornerCount = 1 << N;
 
 public:
+	friend zpp::bits::access;
+
 	constexpr AABB() noexcept
 		: myMin(std::numeric_limits<ScalarType>::max())
 		, myMax(std::numeric_limits<ScalarType>::lowest())
@@ -138,13 +138,6 @@ public:
 				somePointsOut[i][j] = (i & (1 << j)) ? myMax[j] : myMin[j];
 
 		return somePointsOut;
-	}
-
-	template <class Archive>
-	void serialize(Archive& archive)
-	{
-		archive(myMin);
-		archive(myMax);
 	}
 
 private:

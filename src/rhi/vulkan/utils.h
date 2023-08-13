@@ -143,16 +143,6 @@ VkImageView createImageView2D(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels);
 
-VkSampler createSampler(
-	VkDevice device,
-	const VkAllocationCallbacks* hostAllocator,
-	const VkSamplerCreateInfo& createInfo);
-
-std::vector<VkSampler> createSamplers(
-	VkDevice device,
-	const VkAllocationCallbacks* hostAllocator,
-	const std::vector<VkSamplerCreateInfo>& createInfos);
-
 VkFramebuffer createFramebuffer(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,

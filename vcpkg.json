@@ -1,7 +1,6 @@
 {
   "name": "speedo",
   "dependencies": [
-    "cereal",
     "concurrentqueue",
     "fastbuild",
     "glaze",

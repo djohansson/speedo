@@ -1,8 +1,6 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
-#include <cereal/cereal.hpp>
-
 #include <glaze/glaze.hpp>
 #include <glaze/core/macros.hpp>
 
@@ -361,17 +359,3 @@ using PushConstantRange = std::conditional_t<B == Vk, VkPushConstantRange, std::
 template <GraphicsBackend B>
 using DescriptorBindingFlags =
 	std::conditional_t<B == Vk, VkDescriptorBindingFlags, std::nullptr_t>;
-
-template <typename Archive>
-void serialize(Archive& archive, Extent2d<Vk>& obj)
-{
-	archive(cereal::make_nvp("width", obj.width));
-	archive(cereal::make_nvp("height", obj.height));
-}
-
-template <typename Archive>
-void serialize(Archive& archive, SurfaceFormat<Vk>& obj)
-{
-	archive(cereal::make_nvp("format", obj.format));
-	archive(cereal::make_nvp("colorSpace", obj.colorSpace));
-}

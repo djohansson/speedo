@@ -14,7 +14,6 @@
 #include <thread>
 #include <tuple>
 
-#define STBI_NO_STDIO
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -24,7 +23,7 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb_image_resize.h>
 
-#include <cereal/archives/binary.hpp>
+#include <zpp_bits.h>
 
 namespace stbi_istream_callbacks
 {
@@ -97,13 +96,12 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](std::istream&& stream)
+	auto loadBin = [&descAndInitialData, &device](auto& in)
 	{
 		ZoneScopedN("image::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::BinaryInputArchive bin(stream);
-		bin(desc);
+		in(desc).or_throw();
 
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
@@ -118,20 +116,19 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-		bin(cereal::binary_data(data, size));
+		in(std::span(static_cast<const char*>(data), size)).or_throw();
 		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 	};
 
-	auto saveBin = [&descAndInitialData, &device](std::ostream&& stream)
+	auto saveBin = [&descAndInitialData, &device](auto& out)
 	{
 		ZoneScopedN("image::saveBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::BinaryOutputArchive bin(stream);
-		bin(desc);
+		out(desc).or_throw();
 
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
@@ -139,24 +136,18 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		bin(cereal::binary_data(data, size));
+		out(std::span(static_cast<const char*>(data), size)).or_throw();
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
 	};
 
-	auto loadImage = [&descAndInitialData, &device](std::istream&& stream)
+	auto loadImage = [&descAndInitialData, &device, &imageFile](auto& in)
 	{
 		ZoneScopedN("image::loadImage");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-		stbi_io_callbacks callbacks;
-		callbacks.read = &stbi_istream_callbacks::read;
-		callbacks.skip = &stbi_istream_callbacks::skip;
-		callbacks.eof = &stbi_istream_callbacks::eof;
-
 		int width, height, channelCount;
-		stbi_uc* stbiImageData = stbi_load_from_callbacks(
-			&callbacks, &stream, &width, &height, &channelCount, STBI_rgb_alpha);
+		stbi_uc* stbiImageData = stbi_load(imageFile.string().c_str(), &width, &height, &channelCount, STBI_rgb_alpha);
 
 		uint32_t mipCount =
 			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;

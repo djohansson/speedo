@@ -4,8 +4,6 @@
 
 #include <client/client.h> // TODO: eliminate this dependency
 
-#include <cereal/archives/binary.hpp>
-
 #include <stb_sprintf.h>
 
 #pragma pack(push, 1)
@@ -42,10 +40,9 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](std::istream&& stream)
+	auto loadCacheOp = [&device, &cacheData](auto& in)
 	{
-		cereal::BinaryInputArchive bin(stream);
-		bin(cacheData);
+		in(cacheData).or_throw();
 
 		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
@@ -95,7 +92,7 @@ std::expected<FileInfo, FileState> savePipelineCache(
 	PipelineCacheHandle<Vk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](std::ostream&& stream)
+	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](auto& out)
 	{
 		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
 		{
@@ -103,8 +100,7 @@ std::expected<FileInfo, FileState> savePipelineCache(
 
 			if (isCacheValid(*header, physicalDeviceProperties))
 			{
-				cereal::BinaryOutputArchive bin(stream);
-				bin(cacheData);
+				out(cacheData).or_throw();
 			}
 			else
 			{

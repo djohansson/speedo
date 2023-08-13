@@ -50,5 +50,3 @@ private:
 	ModelCreateDesc<B> myDesc{};
 	std::vector<VertexInputBindingDescription<B>> myBindings;
 };
-
-#include "model.inl"

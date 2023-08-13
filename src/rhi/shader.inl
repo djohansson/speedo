@@ -1,8 +1,6 @@
 #include <core/file.h>
 
-#include <cereal/archives/binary.hpp>
-//#include <cereal/archives/json.hpp>
-
+#include <zpp_bits.h>
 namespace shader
 {
 
@@ -28,23 +26,21 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<B>{};
 
-	auto loadBin = [&shaderSet](std::istream&& stream)
+	auto loadBin = [&shaderSet](auto& in)
 	{
-		cereal::BinaryInputArchive bin(stream);
-		bin(shaderSet);
+		in(shaderSet).or_throw();
 	};
 
-	auto saveBin = [&shaderSet](std::ostream&& stream)
+	auto saveBin = [&shaderSet](auto& out)
 	{
-		cereal::BinaryOutputArchive bin(stream);
-		bin(shaderSet);
+		out(shaderSet).or_throw();
 	};
 
 	auto loadSlang = [slangSession = myCompilerSession.get(),
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
-					  &slangFile](std::istream&& stream)
+					  &slangFile](auto& in)
 	{
 		constexpr bool useGLSL = true;
 
@@ -216,5 +212,3 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 	return shaderSet;
 }
-
-#include "vulkan/shader.inl"

@@ -24,8 +24,6 @@
 #	include <tiny_obj_loader.h>
 #endif
 
-#include <cereal/archives/binary.hpp>
-
 namespace model
 {
 
@@ -82,13 +80,12 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](std::istream&& stream)
+	auto loadBin = [&descAndInitialData, &device](auto& in)
 	{
 		ZoneScopedN("model::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::BinaryInputArchive bin(stream);
-		bin(desc);
+		in(desc).or_throw();
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
@@ -104,7 +101,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 			void* data;
 			VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-			bin(cereal::binary_data(data, size));
+			in(std::span(static_cast<std::byte*>(data), size)).or_throw();
 			vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
@@ -112,23 +109,22 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		}
 	};
 
-	auto saveBin = [&descAndInitialData, &device](std::ostream&& stream)
+	auto saveBin = [&descAndInitialData, &device](auto& out)
 	{
 		ZoneScopedN("model::saveBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		cereal::BinaryOutputArchive bin(stream);
-		bin(desc);
+		out(desc).or_throw();
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		bin(cereal::binary_data(data, size));
+		out(std::span(static_cast<std::byte*>(data), size)).or_throw();
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device](std::istream&& stream)
+	auto loadOBJ = [&descAndInitialData, &device, &modelFile](auto& in)
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -151,7 +147,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			throw std::runtime_error("Failed to load model.");
 #else
 		std::string warn, err;
-		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, &stream))
+		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()))
 			throw std::runtime_error(err);
 #endif
 

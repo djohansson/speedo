@@ -2,11 +2,7 @@
 
 #include "utils.h"
 
-#include <memory>
-
-#include <xxhash.h>
-
-//char (*__kaboom)[sizeof(BindingVariant<Vk>)] = 1;
+#include <utility>
 
 template <>
 DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept

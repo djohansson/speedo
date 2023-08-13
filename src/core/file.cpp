@@ -1,6 +1,7 @@
 #include "file.h"
 
-#include <stduuid/uuid.h>
+#include <ctime>
+#include <chrono>
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath)
 {

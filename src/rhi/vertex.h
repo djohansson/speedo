@@ -154,5 +154,3 @@ private:
 	VertexAllocator& myAllocatorRef;
 	ScopedVertexAllocation* const myPrevScope = nullptr;
 };
-
-#include "vertex.inl"

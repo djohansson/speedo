@@ -732,26 +732,6 @@ VkImageView createImageView2D(
 	return outImageView;
 }
 
-VkSampler createSampler(VkDevice device, const VkAllocationCallbacks* hostAllocator, const VkSamplerCreateInfo& createInfo)
-{
-	VkSampler outSampler;
-	VK_CHECK(vkCreateSampler(device, &createInfo, hostAllocator, &outSampler));
-
-	return outSampler;
-}
-
-std::vector<VkSampler>
-createSamplers(VkDevice device, const VkAllocationCallbacks* hostAllocator, const std::vector<VkSamplerCreateInfo>& createInfos)
-{
-	std::vector<VkSampler> outSamplers;
-	outSamplers.reserve(createInfos.size());
-
-	for (const auto& createInfo : createInfos)
-		outSamplers.emplace_back(createSampler(device, hostAllocator, createInfo));
-
-	return outSamplers;
-}
-
 VkFramebuffer createFramebuffer(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,

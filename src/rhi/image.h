@@ -119,5 +119,3 @@ private:
 
 	ImageViewHandle<B> myView{};
 };
-
-#include "image.inl"

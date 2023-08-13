@@ -3,27 +3,9 @@
 
 #include <client/client.h> // TODO: eliminate this dependency
 
-#include <mio/mmap_iostream.hpp>
+#include <stduuid/uuid.h>
 
 #include <picosha2.h>
-
-namespace mio_extra
-{
-	struct stl_mmap_sink : public mio::mmap_sink
-	{
-		stl_mmap_sink(const std::string& path, const size_type offset = 0, const size_type length = mio::map_entire_file)
-			: mio::mmap_sink(path, offset, length)
-		{}
-
-		void resize(size_t size)
-		{
-			std::error_code error;
-			mio::mmap_sink::remap(0, size, error);
-			if (error)
-				throw std::system_error(std::move(error));
-		}
-	};
-}
 
 template <typename T>
 std::expected<T, bool> loadObject(std::string_view buffer)
@@ -99,7 +81,7 @@ template <FileAccessMode M>
 typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type
 FileObject<T, Mode, SaveOnClose>::save() const
 {
-	auto file = mio_extra::stl_mmap_sink(myInfo.path);
+	auto file = mio_extra::resizeable_mmap_sink(myInfo.path);
 
 	std::error_code error;
 	file.truncate(glz::write<glz::opts{.prettify = true}>(*this, file), error);
@@ -177,7 +159,14 @@ std::expected<FileInfo, FileState> loadBinaryFile(const std::filesystem::path& f
 	auto fileInfo = getFileInfo<Sha256ChecksumEnable>(filePath);
 
 	if (fileInfo)
-		loadOp(mio::mmap_istream(fileInfo->path));
+	{
+		auto file = mio::mmap_source(fileInfo->path);
+		auto in = zpp::bits::in(file);
+
+		loadOp(in);
+
+		//assert(in.position() == file.size());
+	}
 
 	return fileInfo;
 }
@@ -190,7 +179,16 @@ std::expected<FileInfo, FileState> saveBinaryFile(const std::filesystem::path& f
 	// todo: check if file exist and prompt for overwrite?
 	// intended scope - file needs to be closed before we call getFileInfo (due to internal call to std::filesystem::file_size)
 	{
-		saveOp(mio::mmap_ostream(filePath.string()));
+		auto file = mio_extra::resizeable_mmap_sink(filePath.string());
+		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{});
+		
+		saveOp(out);
+		
+		std::error_code error;
+		file.truncate(out.position(), error);
+
+		if (error)
+			throw std::system_error(std::move(error));
 	}
 
 	return getFileInfo<Sha256ChecksumEnable>(filePath);
@@ -241,7 +239,7 @@ void loadCachedSourceFile(
 		auto id = uuids::uuid_system_generator{}();
 		auto idStr = uuids::to_string(id);
 
-		auto manifestFile = mio_extra::stl_mmap_sink(manifestPath.string());
+		auto manifestFile = mio_extra::resizeable_mmap_sink(manifestPath.string());
 
 		std::error_code error;
 		manifestFile.truncate(

@@ -21,10 +21,21 @@ SamplerVector<Vk>::SamplerVector(
 	const std::vector<SamplerCreateInfo<Vk>>& createInfos)
 	: SamplerVector<Vk>(
 		device,
-		createSamplers(
-			*device,
-			&device->getInstance()->getHostAllocationCallbacks(),
-			createInfos))
+		[&device, &createInfos]
+		{
+			std::vector<SamplerHandle<Vk>> outSamplers;
+			outSamplers.reserve(createInfos.size());
+
+			for (const auto& createInfo : createInfos)
+			{
+				SamplerHandle<Vk> outSampler;
+				VK_CHECK(vkCreateSampler(*device, &createInfo, &device->getInstance()->getHostAllocationCallbacks(), &outSampler));
+
+				outSamplers.emplace_back(std::move(outSampler));
+			}
+
+			return outSamplers;
+		}())
 {}
 
 template <>

@@ -1,36 +1,59 @@
-#include <cereal/cereal.hpp>
-#include <cereal/types/optional.hpp>
-#include <cereal/types/string.hpp>
-#include <cereal/types/vector.hpp>
-
-template <class Archive>
-void serialize(Archive& archive, DescriptorSetLayoutBinding<Vk>& dsb)
+constexpr auto serialize(auto& archive, DescriptorSetLayoutBinding<Vk>& desc)
 {
-	archive(
-		cereal::make_nvp("binding", dsb.binding),
-		cereal::make_nvp("descriptorType", dsb.descriptorType),
-		cereal::make_nvp("descriptorCount", dsb.descriptorCount),
-		cereal::make_nvp("stageFlags", dsb.stageFlags));
+	return archive(
+		desc.binding,
+		desc.descriptorType,
+		desc.descriptorCount,
+		desc.stageFlags);
 }
 
-template <class Archive>
-void serialize(Archive& archive, PushConstantRange<Vk>& pcr)
+constexpr auto serialize(auto& archive, const DescriptorSetLayoutBinding<Vk>& desc)
 {
-	archive(
-		cereal::make_nvp("stageFlags", pcr.stageFlags),
-		cereal::make_nvp("offset", pcr.offset),
-		cereal::make_nvp("size", pcr.size));
+	return archive(
+		desc.binding,
+		desc.descriptorType,
+		desc.descriptorCount,
+		desc.stageFlags);
 }
 
-template <class Archive>
-void serialize(Archive& archive, DescriptorSetLayoutCreateDesc<Vk>& desc)
+constexpr auto serialize(auto& archive, SamplerCreateInfo<Vk>& desc)
 {
-	archive(
-		cereal::make_nvp("bindings", desc.bindings),
-		cereal::make_nvp("bindingFlags", desc.bindingFlags),
-		cereal::make_nvp("variableNames", desc.variableNames),
-		cereal::make_nvp("variableNameHashes", desc.variableNameHashes),
-		cereal::make_nvp("immutableSamplers", desc.immutableSamplers),
-		cereal::make_nvp("pushConstantRange", desc.pushConstantRange),
-		cereal::make_nvp("flags", desc.flags));
+	return archive(
+		desc.flags,
+		desc.magFilter,
+		desc.minFilter,
+		desc.mipmapMode,
+		desc.addressModeU,
+		desc.addressModeV,
+		desc.addressModeW,
+		desc.mipLodBias,
+		desc.anisotropyEnable,
+		desc.maxAnisotropy,
+		desc.compareEnable,
+		desc.compareOp,
+		desc.minLod,
+		desc.maxLod,
+		desc.borderColor,
+		desc.unnormalizedCoordinates);
+}
+
+constexpr auto serialize(auto& archive, const SamplerCreateInfo<Vk>& desc)
+{
+	return archive(
+		desc.flags,
+		desc.magFilter,
+		desc.minFilter,
+		desc.mipmapMode,
+		desc.addressModeU,
+		desc.addressModeV,
+		desc.addressModeW,
+		desc.mipLodBias,
+		desc.anisotropyEnable,
+		desc.maxAnisotropy,
+		desc.compareEnable,
+		desc.compareOp,
+		desc.minLod,
+		desc.maxLod,
+		desc.borderColor,
+		desc.unnormalizedCoordinates);
 }
