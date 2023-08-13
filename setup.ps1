@@ -72,19 +72,7 @@ if ($IsWindows)
 		$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
 	}
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue (Split-Path -Path $pwshCmd.Source) | Out-Null
-	
-	$pythonCmd = Get-Command "python" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.11.0.0")
-
-	if (-not ($pythonCmd))
-	{ 
-		Write-Host "Installing Python 3.11..."
-
-		Install-WinGetPackage -Mode Silent -Id Python.Python.3.11
-
-		$pythonCmd = Get-Command "python" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.11.0.0")
-	}
-	$myEnv | Add-Member -Force -PassThru -NotePropertyName PYTHON_PATH -NotePropertyValue (Split-Path -Path $pythonCmd.Source) | Out-Null
-	
+		
 	$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
 	
 	if (-not ($gitCmd))

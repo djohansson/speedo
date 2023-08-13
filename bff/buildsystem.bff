@@ -3,7 +3,6 @@
 #include "config/platform.bff"
 #include "config/clang.bff"
 #include "config/powershell.bff"
-#include "config/python.bff"
 #include "config/vulkan.bff"
 
 .BuildRootPath = '$_CURRENT_BFF_DIR_$/../'
