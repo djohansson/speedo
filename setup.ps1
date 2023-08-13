@@ -58,7 +58,7 @@ if ($IsWindows)
 	{
 		Write-Host "Installing Microsoft.WinGet.Client package..."
 	
-		Install-Package Microsoft.WinGet.Client -Scope CurrentUser -Force -Confirm:$False
+		Install-Package Microsoft.WinGet.Client -Scope CurrentUser -Force -Confirm:$False | Out-Null
 	}
 
 	$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
