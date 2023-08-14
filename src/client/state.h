@@ -1,7 +1,8 @@
 #pragma once
 
-#include <core/glm.h>
 #include <core/utils.h>
+
+#include <gfx/glm.h>
 
 // this is old temp crap that should be reviewed/refactored/obliterated. in that order.
 // original idea was that this would be pure c and part of the base application api.

@@ -1,9 +1,9 @@
 // TODO: remove vertex.h/inl/cpp
 #pragma once
 
-#include "types.h"
-
 #include <core/utils.h>
+
+#include <rhi/types.h>
 
 #include <stack>
 #include <vector>

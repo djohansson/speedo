@@ -10,9 +10,10 @@
 #include "../client/state.h" // temp - remove & clean up
 
 #include <core/file.h>
-#include <core/glm.h>
 #include <core/utils.h>
-#include <core/view.h>
+
+#include <gfx/glm.h>
+#include <gfx/view.h>
 
 #include <array>
 #include <chrono>

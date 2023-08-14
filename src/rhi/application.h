@@ -7,10 +7,10 @@
 // todo: frame graph
 // todo: clustered forward shading
 // todo: shader graph
-// todo: migrate out of slang into own root and clean up folder structure
-// todo: implement interprocess distributed task system using cppzmq & zpp::bits
+// todo: implement interprocess distributed task system using cppzmq &| zpp::bits
 // todo: split and clean up concurrency-utils
 // todo: make Application & Window class graphics independent (if possible)
+// todo: refactor GraphicsContext into separate class
 // todo: (maybe) use Scatter/Gather I/O
 // todo: untangle client dependencies
 // todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
@@ -29,6 +29,7 @@
 // done: extract descriptor sets
 // done: port slang into vcpkg package
 // done: move volcano into own github repo and rename to something else (speedo)
+// done: migrate out of slang into own root and clean up folder structure
 
 // cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 

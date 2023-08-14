@@ -2,9 +2,9 @@
 
 #include "buffer.h"
 #include "device.h"
-#include "vertex.h"
 
-#include <core/aabb.h>
+#include <gfx/aabb.h>
+#include <gfx/vertex.h>
 
 #include <memory>
 #include <tuple>

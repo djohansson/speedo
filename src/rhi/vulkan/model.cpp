@@ -1,10 +1,9 @@
 #include "../model.h"
-#include "../vertex.h"
 
-#include "utils.h"
-
-#include <core/aabb.h>
 #include <core/file.h>
+#include <gfx/aabb.h>
+#include <gfx/vertex.h>
+#include <rhi/utils.h>
 
 #include <algorithm>
 #include <cstdint>
