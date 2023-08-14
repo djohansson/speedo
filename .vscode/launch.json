@@ -12,7 +12,7 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/bin"}
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -42,7 +42,7 @@
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"environment": [
-				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/bin"}
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -72,7 +72,7 @@
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"environment": [
-				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/bin"}
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],

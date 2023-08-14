@@ -17,7 +17,7 @@
 		.Name = 'client'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-unused-variable'
@@ -46,7 +46,7 @@
 		.Name = 'client'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DGLFW_INCLUDE_NONE'
 		.CompilerInputPath = '$ProjectBasePath$'
@@ -74,7 +74,7 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
-			+ ' -L$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/lib'
+			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
 			+ ' -lmimalloc'
 			+ ' -lglfw3dll'
 			+ ' -lGLTFSDK'
