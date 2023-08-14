@@ -4,44 +4,31 @@
 		{
 			"label": "FastBuild (Cache)",
 			"type": "shell",
-			"command": "fbuild",
-			"args": [
-				"-cache",
-				"all"
-			],
+			"command": "pwsh.exe -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -cache}'",
 			"group": {
 				"kind": "build",
 				"isDefault": true
 			},
 			"options": {
-				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
+				"env": { "Path": "${env:Path}" }
 			}
 		},
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
-			"command": "fbuild",
-			"args": [
-				"-clean",
-				"-cache",
-				"all"
-			],
+			"command": "pwsh.exe -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean -cache}'",
 			"group": "build",
 			"options": {
-				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
+				"env": { "Path": "${env:Path}" }
 			}
 		},
 		{
 			"label": "FastBuild (Clean, No Cache)",
 			"type": "shell",
-			"command": "fbuild",
-			"args": [
-				"-clean",
-				"all"
-			],
+			"command": "pwsh.exe -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean}'",
 			"group": "build",
 			"options": {
-				"env": { "Path": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/tools/fastbuild" }
+				"env": { "Path": "${env:Path}" }
 			}
 		}
 	]

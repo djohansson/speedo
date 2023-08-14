@@ -19,14 +19,14 @@
 .VisualStudioPath = 'C:/Program Files/Microsoft Visual Studio/2022/Community'
 #endif
 
-#if exists(VISUAL_STUDIO_TOOLCHAIN_VERSION)
-#import VISUAL_STUDIO_TOOLCHAIN_VERSION
-.VisualStudioToolchainVersion = '$VISUAL_STUDIO_TOOLCHAIN_VERSION$'
+#if exists(VISUAL_STUDIO_VCTOOLS_VERSION)
+#import VISUAL_STUDIO_VCTOOLS_VERSION
+.VCToolchainVersion = '$VISUAL_STUDIO_VCTOOLS_VERSION$'
 #else
-.VisualStudioToolchainVersion = '14.37.32822'
+.VCToolchainVersion = '14.37.32822'
 #endif
 
-.VisualStudioToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VisualStudioToolchainVersion$'
+.VCToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VCToolchainVersion$'
 
 #if exists(WINDOWS_SDK)
 #import WINDOWS_SDK
@@ -47,10 +47,9 @@
 .WindowsUcrtLibPath = '$WindowsSDKPath$/Lib/$WindowsSDKVersion$/ucrt/x64'
 .WindowsUcrtIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/ucrt'
 .WindowsSharedIncludePath = '$WindowsSDKPath$/Include/$WindowsSDKVersion$/shared'
-.VisualStudioIncludePath = '$VisualStudioToolchainPath$/include'
-//.VisualStudioATLMFCIncludePath = '$VisualStudioToolchainPath$/ATLMFC/include'
-.VisualStudioLibPath = '$VisualStudioToolchainPath$/lib/x64'
-.VisualStudioBinPath = '$VisualStudioToolchainPath$/bin/Hostx64/x64'
+.VisualStudioIncludePath = '$VCToolchainPath$/include'
+.VisualStudioLibPath = '$VCToolchainPath$/lib/x64'
+.VisualStudioBinPath = '$VCToolchainPath$/bin/Hostx64/x64'
 
 Settings
 {
@@ -64,7 +63,6 @@ Settings
 	.CachePath = '$TMP$/.fbuild.cache'
 }
 .PlatformIncludePaths = ' -isystem "$VisualStudioIncludePath$"'
-//	+ ' -isystem "$VisualStudioATLMFCIncludePath$"'
 	+ ' -isystem "$WindowsIncludePath$"'
 	+ ' -isystem "$WindowsUcrtIncludePath$"'
 	+ ' -isystem "$WindowsSharedIncludePath$"'

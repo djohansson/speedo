@@ -15,13 +15,12 @@
 #if __LINUX__
 	.LLVMPath = '/usr'
 #endif
-#endif // exists(LLVM)
+#endif // exists(LLVM_PATH)
 #if exists(LLVM_VERSION)
 #import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
-	.LLVMVersionMajor = '17'
-	.LLVMVersion = '$LLVMVersionMajor$.0.0'
+	.LLVMVersion = '17'
 #endif // exists(LLVM_VERSION)
 	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
 	.CompilerInfo = 'Clang'
@@ -41,8 +40,7 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -Wall'
-		+ ' -isystem $LLVMPath$/include'
-		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
+		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersion$/include'
 		+ .PlatformIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'

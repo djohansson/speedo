@@ -63,6 +63,36 @@
 				"trace": true,
 				"threadExit": true
 			}
+		},
+		{
+			"name": "(Windows) release/client",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/client.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg-installed/x64-windows-clang/bin"}
+			],
+			"symbolOptions": {
+				"searchPaths": [],
+				"searchMicrosoftSymbolServer": true,
+				"cachePath": "${env:TEMP}/symbolcache",
+				"moduleFilter": {
+					"mode": "loadAllButExcluded",
+					"excludedModules": []
+				}
+			},
+			"console": "internalConsole",
+			"logging": {
+				"exceptions": true,
+				"engineLogging": false,
+				"processExit": true,
+				"programOutput": true,
+				"moduleLoad": true,
+				"trace": true,
+				"threadExit": true
+			}
 		}
 	]
 }
