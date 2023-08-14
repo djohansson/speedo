@@ -9,6 +9,8 @@
 #	include <GLFW/glfw3native.h>
 #endif
 
+#include <mimalloc.h>
+
 static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
 static KeyboardState g_keyboard = {0, 0, 0, 0};
 static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
@@ -155,6 +157,8 @@ const char* getCmdOption(char** begin, char** end, const char* option)
 
 int main(int argc, char* argv[], char* env[])
 {
+	printf("mi_version(): %d\n", mi_version());
+
 	// Setup window
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
