@@ -99,11 +99,14 @@
 	#endif
 	]
 
+	.VisualStudioFilesDir = '$BuildRootPath$/build.visualstudio'
+
 	.AllProject =
 	[
 		Using(.ProjectCommon)
-		
+
 		.Name = 'all'
+		.ProjectBasePath = '$VisualStudioFilesDir$'
 		.ProjectBuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache ^$(Configuration)'
 		.ProjectRebuildCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide -dist -cache -clean ^$(Configuration)'
 		.ProjectCleanCommand = 'cd ^$(SolutionDir) &amp; fbuild -ide clean-all-^$(Configuration)'
@@ -114,6 +117,7 @@
 		Using(.ProjectCommon)
 		
 		.Name = 'none'
+		.ProjectBasePath = '$VisualStudioFilesDir$'
 	]
 
 	.AllSolution =
@@ -121,6 +125,7 @@
 		Using(.SolutionCommon)
 		
 		.Name = '$FBuildProjectName$'
+		.ProjectBasePath = '$VisualStudioFilesDir$'
 	]
 
 	{
@@ -180,12 +185,12 @@
 				AddProjectConfig(.ArchitectureName .CompilerConfig)
 			}
 
-			AddProject(.AllProject .ProjectConfigs)
-			AddProject(.NoneProject .ProjectConfigs)
+			AddProject(.AllProject .ProjectConfigs .VisualStudioFilesDir)
+			AddProject(.NoneProject .ProjectConfigs .VisualStudioFilesDir)
 
-			AddProject(.ClientExecutable .ProjectConfigs)
+			AddProject(.ClientExecutable .ProjectConfigs .VisualStudioFilesDir)
 
-			AddSolution(.AllSolution .ProjectConfigs .ProjectNames)
+			AddSolution(.AllSolution .ProjectConfigs .ProjectNames .VisualStudioFilesDir)
 
 			.Targets + .ProjectNames
 			.Targets + .SolutionNames

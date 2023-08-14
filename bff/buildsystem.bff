@@ -463,7 +463,7 @@ function AddProjectConfig(.ArchitectureName .CompilerConfig)
     ^ReturnValues = { '$ProjectConfigName$' }
 }
 
-function AddProject(.Project .ProjectConfigs)
+function AddProject(.Project .ProjectConfigs .ProjectDir)
 {
     .LocalProject = 
     [
@@ -472,7 +472,7 @@ function AddProject(.Project .ProjectConfigs)
         .ProjectName = '$Name$-$ProjectType$'
         .ProjectInputPaths = .UnityInputPath + .CompilerInputPath
         .ProjectFiles = .UnityInputFiles + .CompilerInputFiles
-        .ProjectOutput = '$BuildRootPath$/$ProjectName$.vcxproj'
+        .ProjectOutput = '$ProjectDir$/$ProjectName$.vcxproj'
         .Output = '$BuildOutputPath$/^$(Configuration)/$OutputFilePrefix$$Name$$OutputFilePrefix$'
         .ProjectConfigs = .ProjectConfigs
     ]
@@ -501,21 +501,21 @@ function AddProject(.Project .ProjectConfigs)
         ForEach(.ObjectList in .DependencyObjectLists)
 		{
             ^ReturnValues = { }
-            AddProject(.ObjectList .ProjectConfigs)
+            AddProject(.ObjectList .ProjectConfigs .ProjectDir)
             //^Dependencies + .ReturnValues
 		}
 
 		ForEach(.Library in .DependencyLibraries)
 		{
             ^ReturnValues = { }
-            AddProject(.Library .ProjectConfigs)
+            AddProject(.Library .ProjectConfigs .ProjectDir)
             //^Dependencies + .ReturnValues
 		}
 
 		ForEach(.DLL in .DependencyDLLs)
 		{
             ^ReturnValues = { }
-            AddProject(.DLL .ProjectConfigs)
+            AddProject(.DLL .ProjectConfigs .ProjectDir)
             //^Dependencies + .ReturnValues
 		}
 
@@ -527,14 +527,14 @@ function AddProject(.Project .ProjectConfigs)
     ^ReturnValues = { '$ProjectName$' }
 }
 
-function AddSolution(.Solution .ProjectConfigs .ProjectNames)
+function AddSolution(.Solution .ProjectConfigs .ProjectNames .SolutionDir)
 {
     .LocalSolution = 
     [
         Using(.Solution)
 
         .SolutionName = '$Name$-$ProjectType$'
-        .SolutionOutput = '$BuildRootPath$/$Name$.sln'
+        .SolutionOutput = '$SolutionDir$/$Name$.sln'
         .SolutionProjects = .ProjectNames
         .SolutionConfigs = .ProjectConfigs
         //.SolutionFolders = .AllSolutionFolders
