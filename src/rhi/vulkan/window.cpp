@@ -344,9 +344,9 @@ void Window<Vk>::updateInput(const InputState& input)
 		float dx = 0.f;
 		float dz = 0.f;
 
-		for (const auto& [key, pressed] : input.keysPressed)
+		for (unsigned key = 0; key < std::ssize(input.keysPressed); key++)
 		{
-			if (pressed)
+			if (input.keysPressed[key])
 			{
 				switch (key)
 				{
@@ -392,12 +392,12 @@ void Window<Vk>::updateInput(const InputState& input)
 		{
 			constexpr auto rotSpeed = 0.00000001f;
 
-			auto dM = input.mousePosition[1] - input.mousePosition[0];
+			float dM[2] = {input.mousePosition[1][0] - input.mousePosition[0][0], input.mousePosition[1][1] - input.mousePosition[0][1]};
 
 			view.desc().cameraRotation +=
 				dt *
 				glm::vec3(
-					dM.y / view.desc().viewport.height, dM.x / view.desc().viewport.width, 0.0f) *
+					dM[1] / view.desc().viewport.height, dM[0] / view.desc().viewport.width, 0.0f) *
 				rotSpeed;
 
 			// std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<

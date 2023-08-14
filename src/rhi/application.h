@@ -43,8 +43,6 @@
 #include "types.h"
 #include "window.h"
 
-#include "../client/state.h" // temp - remove & clean up
-
 #include <core/concurrency-utils.h>
 #include <core/file.h>
 #include <core/nodegraph.h>

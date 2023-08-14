@@ -7,8 +7,6 @@
 #include "pipeline.h"
 #include "swapchain.h"
 
-#include "../client/state.h" // temp - remove & clean up
-
 #include <core/file.h>
 #include <core/utils.h>
 

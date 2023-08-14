@@ -3,16 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #if __WINDOWS__
 #	define GLFW_EXPOSE_NATIVE_WIN32
 #	include <GLFW/glfw3native.h>
 #endif
 
-static MouseState g_mouse{-1.0, -1.0, 0, 0, 0, false};
-static KeyboardState g_keyboard{0, 0, 0, 0};
-static WindowState g_window{nullptr, nullptr, 0, 0, 1920, 1080, 0, 0, 0, false};
+static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
+static KeyboardState g_keyboard = {0, 0, 0, 0};
+static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
 
 static void onError(int error, const char* description)
 {
@@ -52,18 +51,22 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 		{
 			fullscreenChangeTriggered = true;
 
-			if (GLFWmonitor* monitor = glfwGetWindowMonitor(window))
+			GLFWmonitor* windowMonitor = glfwGetWindowMonitor(window);
+
+			if (windowMonitor)
 			{
 				g_window.fullscreenEnabled = false;
 
 				glfwSetWindowMonitor(
-					window, nullptr, g_window.x, g_window.y, g_window.width, g_window.height, 0);
+					window, NULL, g_window.x, g_window.y, g_window.width, g_window.height, 0);
 			}
 			else
 			{
-				if (GLFWmonitor* monitor = glfwGetPrimaryMonitor())
+				GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+
+				if (primaryMonitor)
 				{
-					const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+					const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
 
 					g_window.fullscreenWidth = mode->width;
 					g_window.fullscreenHeight = mode->height;
@@ -81,7 +84,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 
 					glfwSetWindowMonitor(
 						window,
-						monitor,
+						primaryMonitor,
 						0,
 						0,
 						g_window.fullscreenWidth,
@@ -104,7 +107,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 	client_keyboard(&g_keyboard);
 }
 
-static void onFramebufferResize(GLFWwindow*, int w, int h)
+static void onFramebufferResize(GLFWwindow* window, int w, int h)
 {
 	if (w == 0 || h == 0)
 		return;
@@ -112,7 +115,7 @@ static void onFramebufferResize(GLFWwindow*, int w, int h)
 	client_resizeFramebuffer(w, h);
 }
 
-static void onWindowResize(GLFWwindow*, int w, int h)
+static void onWindowResize(GLFWwindow* window, int w, int h)
 {
 	if (!g_window.fullscreenEnabled)
 	{
@@ -139,7 +142,7 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 	}
 }
 
-const char* getCmdOption(const char* const* begin, const char* const* end, const char* option)
+const char* getCmdOption(char** begin, char** end, const char* option)
 {
 	while (begin != end)
 	{
@@ -147,7 +150,7 @@ const char* getCmdOption(const char* const* begin, const char* const* end, const
 			return *begin;
 	}
 
-	return nullptr;
+	return NULL;
 }
 
 int main(int argc, char* argv[], char* env[])
@@ -178,7 +181,7 @@ int main(int argc, char* argv[], char* env[])
 
 	g_window.handle = window;
 #if __WINDOWS__
-	auto nativeHandle = glfwGetWin32Window(window);
+	HWND nativeHandle = glfwGetWin32Window(window);
 	g_window.nativeHandle = &nativeHandle;
 #else
 	g_window.nativeHandle = window;
@@ -187,8 +190,8 @@ int main(int argc, char* argv[], char* env[])
 	client_create(
 		&g_window,
 		"./",
-		getCmdOption(argv, argv + argc, R"(-r)"),
-		getCmdOption(argv, argv + argc, R"(-u)"));
+		getCmdOption(argv, argv + argc, "(-r)"),
+		getCmdOption(argv, argv + argc, "(-u)"));
 
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);

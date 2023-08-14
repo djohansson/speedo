@@ -1179,11 +1179,19 @@ void Application<Vk>::onMouse(const MouseState& mouse)
 
 	auto screenPos = glm::vec2(mouse.xpos, mouse.ypos);
 
-	myInput.mousePosition[0] =
-		glm::vec2{static_cast<float>(screenPos.x), static_cast<float>(screenPos.y)};
-	myInput.mousePosition[1] = leftPressed && !myInput.mouseButtonsPressed[0]
-								   ? myInput.mousePosition[0]
-								   : myInput.mousePosition[1];
+	myInput.mousePosition[0][0] = static_cast<float>(screenPos.x);
+	myInput.mousePosition[0][1] = static_cast<float>(screenPos.y);
+	
+	if (leftPressed && !myInput.mouseButtonsPressed[0])
+	{
+		myInput.mousePosition[1][0] = myInput.mousePosition[0][0];
+		myInput.mousePosition[1][1] = myInput.mousePosition[0][1]; 
+	}
+	else
+	{
+		myInput.mousePosition[1][0] = myInput.mousePosition[1][0];
+		myInput.mousePosition[1][1] = myInput.mousePosition[1][1];
+	}
 
 	myInput.mouseButtonsPressed[0] = leftPressed;
 	myInput.mouseButtonsPressed[1] = rightPressed;

@@ -8,14 +8,14 @@
 {
 	Using(.CompilerBaseConfig)
 
-	.ClientObjectList =
+	.ClientLibrary =
 	[
-		Using(.ObjectListCommon)
+		Using(.LibraryCommon)
 
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'client'
-		.ObjectListCompilerOptions = .CompilerOptionsCpp
+		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
@@ -28,6 +28,29 @@
 			+ ' -DTRACY_ENABLE'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 		.CompilerInputPath = '$ProjectBasePath$'
+		.CompilerInputPattern = "*.cpp"
+	//	.CompilerInputUnity = '$Name$-unity'
+	// 	.UnityInputPath = '$ProjectBasePath$'
+	// 	.UnityInputPattern = "*.cpp"
+	// 	.UnityInputExcludedFiles = { }
+	// 	.UnityOutputPath + '/examples/client'
+	// 	.UnityOutputPattern = 'client-unity*.cpp'
+	]
+
+	.ClientObjectList =
+	[
+		Using(.ObjectListCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'client'
+		.ObjectListCompilerOptions = .CompilerOptionsC
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg-installed/x64-windows-clang/include'
+			+ ' -I$VulkanSDKPath$/include'
+			+ ' -DGLFW_INCLUDE_NONE'
+		.CompilerInputPath = '$ProjectBasePath$'
+		.CompilerInputPattern = "*.c"
 	//	.CompilerInputUnity = '$Name$-unity'
 	// 	.UnityInputPath = '$ProjectBasePath$'
 	// 	.UnityInputPattern = "*.cpp"
@@ -45,6 +68,7 @@
 			.ClientObjectList,
 		}
 		.DependencyLibraries = {
+			.ClientLibrary,
 		}
 		.DependencyDLLs = {
 		}
