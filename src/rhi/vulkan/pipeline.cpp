@@ -40,7 +40,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](auto& in)
+	auto loadCacheOp = [&device, &cacheData](InputBuffer& in)
 	{
 		in(cacheData).or_throw();
 
@@ -92,7 +92,7 @@ std::expected<FileInfo, FileState> savePipelineCache(
 	PipelineCacheHandle<Vk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](auto& out)
+	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](OutputBuffer& out)
 	{
 		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
 		{

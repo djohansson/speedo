@@ -26,12 +26,12 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<B>{};
 
-	auto loadBin = [&shaderSet](auto& in)
+	auto loadBin = [&shaderSet](InputBuffer& in)
 	{
 		in(shaderSet).or_throw();
 	};
 
-	auto saveBin = [&shaderSet](auto& out)
+	auto saveBin = [&shaderSet](OutputBuffer& out)
 	{
 		out(shaderSet).or_throw();
 	};
@@ -40,7 +40,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
-					  &slangFile](auto& in)
+					  &slangFile](InputBuffer& in)
 	{
 		constexpr bool useGLSL = true;
 

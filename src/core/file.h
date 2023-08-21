@@ -69,8 +69,10 @@ using LoadManifestInfoFn = std::function<std::expected<ManifestInfo, bool>(std::
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<ManifestInfo, ManifestState> loadManifest(std::string_view buffer, LoadManifestInfoFn loadManifestInfoFn);
 
-using LoadFileFn = std::function<void(zpp::bits::in<mio::mmap_source>&)>;
-using SaveFileFn = std::function<void(zpp::bits::out<mio_extra::resizeable_mmap_sink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>&)>;
+using InputBuffer = zpp::bits::in<mio::mmap_source>;
+using LoadFileFn = std::function<void(InputBuffer&)>;
+using OutputBuffer = zpp::bits::out<mio_extra::resizeable_mmap_sink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
+using SaveFileFn = std::function<void(OutputBuffer&)>;
 
 template <bool Sha256ChecksumEnable>
 std::expected<FileInfo, FileState> loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp);

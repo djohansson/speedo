@@ -79,11 +79,12 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](auto& in)
+	auto loadBin = [&descAndInitialData, &device](InputBuffer& in)
 	{
 		ZoneScopedN("model::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		
 		in(desc).or_throw();
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
@@ -100,7 +101,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 			void* data;
 			VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-			in(std::span(static_cast<std::byte*>(data), size)).or_throw();
+			in(std::span(static_cast<char*>(data), size)).or_throw();
 			vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 			bufferHandle = locBufferHandle;
@@ -108,22 +109,23 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		}
 	};
 
-	auto saveBin = [&descAndInitialData, &device](auto& out)
+	auto saveBin = [&descAndInitialData, &device](OutputBuffer& out)
 	{
 		ZoneScopedN("model::saveBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		
 		out(desc).or_throw();
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		out(std::span(static_cast<std::byte*>(data), size)).or_throw();
+		out(std::span(static_cast<const char*>(data), size)).or_throw();
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device, &modelFile](auto& in)
+	auto loadOBJ = [&descAndInitialData, &device, &modelFile](InputBuffer& in)
 	{
 		ZoneScopedN("model::loadOBJ");
 

@@ -73,11 +73,12 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](auto& in)
+	auto loadBin = [&descAndInitialData, &device](InputBuffer& in)
 	{
 		ZoneScopedN("image::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		
 		in(desc).or_throw();
 
 		size_t size = 0;
@@ -93,14 +94,14 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-		in(std::span(static_cast<const char*>(data), size)).or_throw();
+		in(std::span(static_cast<InputBuffer::byte_type*>(data), size)).or_throw();
 		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 	};
 
-	auto saveBin = [&descAndInitialData, &device](auto& out)
+	auto saveBin = [&descAndInitialData, &device](OutputBuffer& out)
 	{
 		ZoneScopedN("image::saveBin");
 
@@ -113,11 +114,11 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		out(std::span(static_cast<const char*>(data), size)).or_throw();
+		out(std::span(static_cast<const OutputBuffer::byte_type*>(data), size)).or_throw();
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
 	};
 
-	auto loadImage = [&descAndInitialData, &device, &imageFile](auto& in)
+	auto loadImage = [&descAndInitialData, &device, &imageFile](InputBuffer& in)
 	{
 		ZoneScopedN("image::loadImage");
 
@@ -257,9 +258,8 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 					{
 						ZoneScopedN("image::loadImage::mip::resize::thread");
 
-						uint32_t threadRowCountRest =
-							(threadId == (threadCount - 1) ? previousExtent.height % threadCount
-														   : 0);
+						uint32_t threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
+
 
 						stbir_resize_uint8(
 							src + threadId * threadRowCount * previousExtent.width * 4,
