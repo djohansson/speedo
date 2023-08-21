@@ -1,5 +1,10 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 #if defined(SHADERTYPES_H_CPU_TARGET)
 #include <glm/glm.hpp>
 #define float4x4 glm::mat4x4
@@ -60,3 +65,7 @@ struct PushConstants
     alignas(4) uint viewAndMaterialId;
     alignas(4) uint objectBufferAndInstanceId;
 };
+
+#ifdef __cplusplus
+}
+#endif
