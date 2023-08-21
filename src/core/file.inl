@@ -180,7 +180,7 @@ std::expected<FileInfo, FileState> saveBinaryFile(const std::filesystem::path& f
 	// intended scope - file needs to be closed before we call getFileInfo (due to internal call to std::filesystem::file_size)
 	{
 		auto file = mio_extra::resizeable_mmap_sink(filePath.string());
-		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{});
+		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 		
 		saveOp(out);
 		
