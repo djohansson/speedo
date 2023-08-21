@@ -4,7 +4,7 @@
 		{
 			"label": "FastBuild (Cache)",
 			"type": "shell",
-			"command": "pwsh.exe -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -cache}'",
+			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -cache}'",
 			"group": {
 				"kind": "build",
 				"isDefault": true
@@ -16,7 +16,7 @@
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
-			"command": "pwsh.exe -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean -cache}'",
+			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean -cache}'",
 			"group": "build",
 			"options": {
 				"env": { "Path": "${env:Path}" }
@@ -25,7 +25,7 @@
 		{
 			"label": "FastBuild (Clean, No Cache)",
 			"type": "shell",
-			"command": "pwsh.exe -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean}'",
+			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean}'",
 			"group": "build",
 			"options": {
 				"env": { "Path": "${env:Path}" }
