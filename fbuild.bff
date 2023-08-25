@@ -25,7 +25,6 @@
 			+ ' -Wno-unknown-attributes'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
-			+ ' -DTRACY_ENABLE'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 		.CompilerInputPath = '$ProjectBasePath$'
 		.CompilerInputPattern = "*.cpp"
