@@ -410,6 +410,3 @@ namespace mio_extra
 		}
 	};
 }
-
-template<>
-inline constexpr bool std::ranges::enable_borrowed_range<mio_extra::resizeable_mmap_sink> = true;
