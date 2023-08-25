@@ -207,7 +207,7 @@ private:
 	PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
 	PipelineHandle<B> internalGetPipeline();
 
-	AutoSaveFileObject<PipelineConfiguration<B>> myConfig;
+	AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
 
 	DescriptorMapType myDescriptorMap;
 	

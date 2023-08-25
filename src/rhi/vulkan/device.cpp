@@ -7,6 +7,7 @@
 #include <algorithm>
 //#include <format>
 #include <list>
+#include <iostream>
 #include <shared_mutex>
 #include <utility>
 
@@ -219,7 +220,7 @@ Device<Vk>::Device(
 	const std::shared_ptr<Instance<Vk>>& instance,
 	DeviceConfiguration<Vk>&& defaultConfig)
 	: myInstance(instance)
-	, myConfig(AutoSaveFileObject<DeviceConfiguration<Vk>>(
+	, myConfig(AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "device.json",
 		  std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)

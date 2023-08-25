@@ -151,7 +151,7 @@ private:
 
 	Future<void> myPresentFuture;
 
-	//AutoSaveFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
+	//AutoSaveJSONFileObject<NodeGraph> myNodeGraph; // temp - should be stored elsewhere
 
 	bool myRequestExit = false;
 };

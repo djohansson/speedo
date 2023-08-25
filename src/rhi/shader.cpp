@@ -1,5 +1,7 @@
 #include "shader.h"
 
+#include <iostream>
+
 ShaderLoader::ShaderLoader(
 	std::vector<std::filesystem::path>&& includePaths,
 	std::vector<DownstreamCompiler>&& downstreamCompilers,

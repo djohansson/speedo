@@ -73,13 +73,14 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](InputBuffer& in)
+	auto loadBin = [&descAndInitialData, &device](InputSerializer& in) -> std::error_code
 	{
 		ZoneScopedN("image::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		
-		in(desc).or_throw();
+
+		if (auto result = in(desc); failure(result))
+			return std::make_error_code(result);
 
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
@@ -94,19 +95,25 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-		in(std::span(static_cast<InputBuffer::byte_type*>(data), size)).or_throw();
+		auto result = in(std::span(static_cast<char*>(data), size));
 		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		if (failure(result))
+			return std::make_error_code(result);
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
+
+		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device](OutputBuffer& out)
+	auto saveBin = [&descAndInitialData, &device](OutputSerializer& out) -> std::error_code
 	{
 		ZoneScopedN("image::saveBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-		out(desc).or_throw();
+		
+		if (auto result = out(desc); failure(result))
+			return std::make_error_code(result);
 
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
@@ -114,11 +121,15 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		out(std::span(static_cast<const OutputBuffer::byte_type*>(data), size)).or_throw();
+		auto result = out(std::span(static_cast<const char*>(data), size));
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
+		if (failure(result))
+			return std::make_error_code(result);
+
+		return {};
 	};
 
-	auto loadImage = [&descAndInitialData, &device, &imageFile](InputBuffer& in)
+	auto loadImage = [&descAndInitialData, &device, &imageFile](InputSerializer& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("image::loadImage");
 
@@ -300,11 +311,13 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
+
+		return {};
 	};
 
 	static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
 	static constexpr char loaderVersion[] = "2.26|0.96|1.10";
-	loadCachedSourceFile<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
+	loadAsset<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load image.");

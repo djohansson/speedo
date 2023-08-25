@@ -2,12 +2,11 @@
 
 #include "utils.h"
 
-#include <array>
+#include <expected>
 #include <filesystem>
 #include <functional>
-#include <iostream>
-#include <optional>
-#include <tuple>
+#include <string>
+#include <variant>
 
 #include <glaze/glaze.hpp>
 #include <glaze/core/macros.hpp>
@@ -22,13 +21,6 @@ enum class FileAccessMode : uint8_t
 	ReadWrite
 };
 
-enum class FileState : uint8_t
-{
-	Missing,
-	Corrupted,
-	Valid,
-};
-
 struct FileInfo
 {
 	std::string path;
@@ -39,76 +31,71 @@ struct FileInfo
 
 GLZ_META(FileInfo, path, size, timeStamp, sha2);
 
-enum class ManifestState : uint8_t
+enum class AssetManifestErrorCode : uint8_t
 {
 	Missing,
-	Corrupted,
 	InvalidVersion,
 	InvalidSourceFile,
 	InvalidCacheFile,
-	Valid,
 };
 
-struct ManifestInfo
+using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
+
+struct AssetManifestInfo
 {
 	std::string loaderType;
 	std::string loaderVersion;
-	FileInfo sourceFileInfo{};
+	FileInfo assetFileInfo{};
 	FileInfo cacheFileInfo{};
 };
 
-GLZ_META(ManifestInfo, loaderType, loaderVersion, sourceFileInfo, cacheFileInfo);
+GLZ_META(AssetManifestInfo, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
+
+using InputSerializer = zpp::bits::in<mio::mmap_source>;
+using LoadFileFn = std::function<std::error_code(InputSerializer&)>;
+using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
+using SaveFileFn = std::function<std::error_code(OutputSerializer&)>;
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
-std::expected<FileInfo, FileState> getFileInfo(const std::filesystem::path& filePath);
-
-using LoadManifestInfoFn = std::function<std::expected<ManifestInfo, bool>(std::string_view)>;
-
-template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
-std::expected<ManifestInfo, ManifestState> loadManifest(std::string_view buffer, LoadManifestInfoFn loadManifestInfoFn);
-
-using InputBuffer = zpp::bits::in<mio::mmap_source>;
-using LoadFileFn = std::function<void(InputBuffer&)>;
-using OutputBuffer = zpp::bits::out<mio_extra::resizeable_mmap_sink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
-using SaveFileFn = std::function<void(OutputBuffer&)>;
+std::expected<FileInfo, std::error_code> getFileInfo(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
-std::expected<FileInfo, FileState> loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp);
+std::expected<FileInfo, std::error_code> loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp);
 
 template <bool Sha256ChecksumEnable>
-std::expected<FileInfo, FileState> saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp);
-
-template <const char* LoaderType, const char* LoaderVersion>
-void loadCachedSourceFile(
-	const std::filesystem::path& sourceFilePath,
-	LoadFileFn loadSourceFileFn,
-	LoadFileFn loadBinaryCacheFn,
-	SaveFileFn saveBinaryCacheFn);
+std::expected<FileInfo, std::error_code> saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp);
 
 template <typename T>
-std::expected<T, bool> loadObject(std::string_view buffer);
+std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& filePath);
 
 template <typename T>
-std::expected<T, FileState> loadObject(const std::filesystem::path& filePath);
+std::expected<T, std::error_code> loadJSONObject(std::string_view buffer);
+
+template <typename T>
+std::expected<T, std::error_code> loadJSONObject(const std::filesystem::path& filePath);
+
+template <typename T>
+std::expected<void, std::error_code> saveJSONObject(const T& object, const std::string& filePath);
 
 template <typename T, FileAccessMode Mode, bool SaveOnClose = false>
-class FileObject : public Noncopyable, public T
+class JSONFileObject : public Noncopyable, public T
 {
 	// todo: implement mechanism to only write changes when contents have changed.
 	// todo: implement mechanism to update contents if an external process has changed the file.
+	// todo: construct or cast directly on mapped memory.
 
 public:
-	constexpr FileObject() noexcept = default;
-	FileObject(const std::filesystem::path& filePath, T&& defaultObject = T{});
-	FileObject(FileObject&& other) noexcept;
-	~FileObject();
+	constexpr JSONFileObject() noexcept = default;
+	JSONFileObject(const std::filesystem::path& filePath, T&& defaultObject = T{});
+	JSONFileObject(JSONFileObject&& other) noexcept;
+	~JSONFileObject();
 
-	FileObject& operator=(FileObject&& other) noexcept;
+	JSONFileObject& operator=(JSONFileObject&& other) noexcept;
 
-	void swap(FileObject& rhs) noexcept;
-	friend void swap(FileObject& lhs, FileObject& rhs) noexcept { lhs.swap(rhs); }
+	void swap(JSONFileObject& rhs) noexcept;
+	friend void swap(JSONFileObject& lhs, JSONFileObject& rhs) noexcept { lhs.swap(rhs); }
 
 	void reload();
 
@@ -120,12 +107,20 @@ private:
 };
 
 template <typename T>
-using ReadOnlyFileObject = FileObject<T, FileAccessMode::ReadOnly>;
+using ReadOnlyJSONFileObject = JSONFileObject<T, FileAccessMode::ReadOnly>;
 
 template <typename T>
-using ReadWriteFileObject = FileObject<T, FileAccessMode::ReadWrite>;
+using ReadWriteJSONFileObject = JSONFileObject<T, FileAccessMode::ReadWrite>;
 
 template <typename T>
-using AutoSaveFileObject = FileObject<T, FileAccessMode::ReadWrite, true>;
+using AutoSaveJSONFileObject = JSONFileObject<T, FileAccessMode::ReadWrite, true>;
+
+using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifestInfo, std::error_code>(std::string_view)>;
+
+template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
+std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn);
+
+template <const char* LoaderType, const char* LoaderVersion>
+void loadAsset(const std::filesystem::path& assetFilePath, LoadFileFn loadFileFn, LoadFileFn loadBinaryCacheFn, SaveFileFn saveBinaryCacheFn);
 
 #include "file.inl"

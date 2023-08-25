@@ -79,13 +79,14 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](InputBuffer& in)
+	auto loadBin = [&descAndInitialData, &device](InputSerializer& in) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		
-		in(desc).or_throw();
+		if (auto result = in(desc); failure(result))
+			return std::make_error_code(result);
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
@@ -96,36 +97,41 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		{
-			ZoneScopedN("model::loadBin::buffers");
+		void* data;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
+		auto result = in(std::span(static_cast<char*>(data), size));
+		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		if (failure(result))
+			return std::make_error_code(result);
 
-			void* data;
-			VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-			in(std::span(static_cast<char*>(data), size)).or_throw();
-			vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		bufferHandle = locBufferHandle;
+		memoryHandle = locMemoryHandle;
 
-			bufferHandle = locBufferHandle;
-			memoryHandle = locMemoryHandle;
-		}
+		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device](OutputBuffer& out)
+	auto saveBin = [&descAndInitialData, &device](OutputSerializer& out) -> std::error_code
 	{
 		ZoneScopedN("model::saveBin");
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		
-		out(desc).or_throw();
+		if (auto result = out(desc); failure(result))
+			return std::make_error_code(result);
 
 		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		out(std::span(static_cast<const char*>(data), size)).or_throw();
+		auto result = out(std::span(static_cast<const char*>(data), size));
 		vmaUnmapMemory(device->getAllocator(), memoryHandle);
+		if (failure(result))
+			return std::make_error_code(result);
+
+		return {};
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device, &modelFile](InputBuffer& in)
+	auto loadOBJ = [&descAndInitialData, &device, &modelFile](InputSerializer& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -290,26 +296,24 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		{
-			ZoneScopedN("model::loadObj::buffers");
+		void* data;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
+		memcpy(data, indices.data(), desc.indexBufferSize);
+		memcpy(
+			static_cast<std::byte*>(data) + desc.indexBufferSize,
+			vertices.data(),
+			desc.vertexBufferSize);
+		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
 
-			void* data;
-			VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-			memcpy(data, indices.data(), desc.indexBufferSize);
-			memcpy(
-				static_cast<std::byte*>(data) + desc.indexBufferSize,
-				vertices.data(),
-				desc.vertexBufferSize);
-			vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		bufferHandle = locBufferHandle;
+		memoryHandle = locMemoryHandle;
 
-			bufferHandle = locBufferHandle;
-			memoryHandle = locMemoryHandle;
-		}
+		return {};
 	};
 
 	static constexpr char loaderType[] = "tinyobjloader";
 	static constexpr char loaderVersion[] = "2.0.1";
-	loadCachedSourceFile<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
+	loadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");

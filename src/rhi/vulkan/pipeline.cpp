@@ -40,9 +40,10 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](InputBuffer& in)
+	auto loadCacheOp = [&device, &cacheData](InputSerializer& in) -> std::error_code
 	{
-		in(cacheData).or_throw();
+		if (auto result = in(cacheData); failure(result))
+			return std::make_error_code(result);
 
 		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
@@ -51,6 +52,8 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 			std::cout << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
 		}
+
+		return {};
 	};
 
 	if (auto fileInfo = getFileInfo<false>(cacheFilePath); fileInfo)
@@ -85,14 +88,14 @@ getPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCa
 	return cacheData;
 };
 
-std::expected<FileInfo, FileState> savePipelineCache(
+std::expected<FileInfo, std::error_code> savePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<Vk> device,
 	PhysicalDeviceProperties<Vk> physicalDeviceProperties,
 	PipelineCacheHandle<Vk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](OutputBuffer& out)
+	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](OutputSerializer& out) -> std::error_code
 	{
 		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
 		{
@@ -100,7 +103,8 @@ std::expected<FileInfo, FileState> savePipelineCache(
 
 			if (isCacheValid(*header, physicalDeviceProperties))
 			{
-				out(cacheData).or_throw();
+				if (auto result = out(cacheData); failure(result))
+					return std::make_error_code(result);
 			}
 			else
 			{
@@ -112,6 +116,8 @@ std::expected<FileInfo, FileState> savePipelineCache(
 		{
 			std::cout << "Failed to get pipeline cache." << '\n';
 		}
+
+		return {};
 	};
 
 	return saveBinaryFile<true>(cacheFilePath, saveCacheOp);
@@ -799,7 +805,7 @@ Pipeline<Vk>::Pipeline(
 	const std::shared_ptr<Device<Vk>>& device,
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
-	, myConfig(AutoSaveFileObject<PipelineConfiguration<Vk>>(
+	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
 		  std::filesystem::path(client_getUserProfilePath()) / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 	, myDescriptorPool(

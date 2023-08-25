@@ -104,7 +104,7 @@ public:
 
 private:
 	std::shared_ptr<Instance<B>> myInstance;
-	AutoSaveFileObject<DeviceConfiguration<B>> myConfig;
+	AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
 	DeviceHandle<B> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
 

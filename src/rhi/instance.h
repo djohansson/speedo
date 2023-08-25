@@ -62,7 +62,7 @@ public:
 	void updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface);
 
 private:
-	AutoSaveFileObject<InstanceConfiguration<B>> myConfig;
+	AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
 	InstanceHandle<B> myInstance{};
 	AllocationCallbacks<B> myHostAllocationCallbacks{};
 	std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;
