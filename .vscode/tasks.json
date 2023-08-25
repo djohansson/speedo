@@ -30,6 +30,15 @@
 			"options": {
 				"env": { "Path": "${env:Path}" }
 			}
+		},
+		{
+			"label": "Clang-Format (All)",
+			"type": "shell",
+			"command": "pwsh -c '& {. ./env.ps1 ; Initialize-DevEnv ; Get-ChildItem ${workspaceFolder}/src -Include *.cpp,*.h -Recurs -File | Foreach {& \"C:\\Program Files\\LLVM\\bin\\clang-format\" $_.fullname} -i -style=file}'",
+			"group": "build",
+			"options": {
+				"env": { "Path": "${env:Path}" }
+			}
 		}
 	]
 }
