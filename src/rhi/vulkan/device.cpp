@@ -437,13 +437,14 @@ Device<Vk>::~Device()
 
 	vkDestroySemaphore(myDevice, myTimelineSemaphore, &myInstance->getHostAllocationCallbacks());
 
-	if constexpr (PROFILING_ENABLED)
+#if PROFILING_ENABLED
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, true);
 		std::cout << allocatorStatsJSON << std::endl;
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
+#endif
 
 	vmaDestroyAllocator(myAllocator);
 	vkDestroyDevice(myDevice, &myInstance->getHostAllocationCallbacks());
