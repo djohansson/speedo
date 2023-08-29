@@ -23,23 +23,35 @@
 #include <mio/mmap.hpp>
 
 #ifdef _MSC_VER
-#define FORCE_INLINE __forceinline
+#	define FORCE_INLINE __forceinline
 #else
-#define FORCE_INLINE inline __attribute__((always_inline))
+#	define FORCE_INLINE inline __attribute__((always_inline))
 #endif
 
 #if __cpp_reflection >= 201902
 static_assert(false, "Please let Daniel know that the reflection TS is supported.")
-#include <experimental/reflect>
+#	include <experimental/reflect>
 #endif
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
-#define log_error(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, clean_errno(), ##__VA_ARGS__)
+#define log_error(M, ...)                                                                          \
+	fprintf(                                                                                       \
+		stderr,                                                                                    \
+		"[ERROR] (%s:%d: errno: %s) " M "\n",                                                      \
+		__FILE__,                                                                                  \
+		__LINE__,                                                                                  \
+		clean_errno(),                                                                             \
+		##__VA_ARGS__)
 
 #if PROFILING_ENABLED
-#define assertf(A, M, ...) if(!(A)) { log_error(M, ##__VA_ARGS__); assert(A); }
+#	define assertf(A, M, ...)                                                                     \
+		if (!(A))                                                                                  \
+		{                                                                                          \
+			log_error(M, ##__VA_ARGS__);                                                           \
+			assert(A);                                                                             \
+		}
 #else
-#define assertf(A, M, ...)
+#	define assertf(A, M, ...)
 #endif
 
 //#define compile_assert() char (*__kaboom)[sizeof( YourTypeHere )] = 1;
@@ -64,37 +76,8 @@ public:
 	~Nondynamic() = default;
 
 private:
-	void *operator new(size_t);
-    void *operator new[](size_t);
-};
-
-template <typename T>
-class ArrayDeleter : Noncopyable
-{
-	using DeleteFcn = std::function<void(T*, size_t)>;
-
-public:
-
-	constexpr ArrayDeleter() = default;
-	ArrayDeleter(DeleteFcn&& deleter)
-		: myDeleter(std::forward<DeleteFcn>(deleter))
-	{}
-	ArrayDeleter(DeleteFcn&& deleter, size_t size)
-		: myDeleter(std::forward<DeleteFcn>(deleter))
-		, mySize(size)
-	{}
-
-	void operator()(T* array) const
-	{
-		myDeleter(array, mySize);
-	}
-
-	size_t getSize() const { return mySize; }
-
-private:
-
-	DeleteFcn myDeleter = [](T* data, size_t){ delete [] data; };
-	size_t mySize = 0;
+	void* operator new(size_t);
+	void* operator new[](size_t);
 };
 
 namespace std
@@ -103,33 +86,15 @@ namespace std
 template <class T0, class... Ts>
 auto make_vector(T0&& first, Ts&&... args)
 {
-    using first_type = std::decay_t<T0>;
-    return std::vector<first_type>{
-        std::forward<T0>(first),
-        std::forward<Ts>(args)...
-    };
+	using first_type = std::decay_t<T0>;
+	return std::vector<first_type>{std::forward<T0>(first), std::forward<Ts>(args)...};
 }
 
 template <class T>
 auto make_vector(size_t size)
 {
-    return std::vector<std::decay_t<T>>(size);
+	return std::vector<std::decay_t<T>>(size);
 }
-
-template <typename>
-struct is_tuple : std::false_type {};
-
-template <typename... T>
-struct is_tuple<std::tuple<T...>> : std::true_type {};
-
-template <typename... T>
-inline constexpr bool is_tuple_v = is_tuple<T...>::value;
-
-template <typename... Ts>
-struct overloaded : Ts... { using Ts::operator()...; };
-
-template <typename... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
 
 } // namespace std
 
@@ -138,12 +103,12 @@ struct HandleHash : robin_hood::hash<Handle>
 {
 	size_t operator()(const T& obj) const
 	{
-        return robin_hood::hash<Handle>::operator()(static_cast<Handle>(obj));
-    }
+		return robin_hood::hash<Handle>::operator()(static_cast<Handle>(obj));
+	}
 	size_t operator()(const Handle& handle) const
 	{
-        return robin_hood::hash<Handle>::operator()(handle);
-    }
+		return robin_hood::hash<Handle>::operator()(handle);
+	}
 };
 
 template <typename T, typename Handle>
@@ -151,12 +116,12 @@ struct HandleHash<std::shared_ptr<T>, Handle> : robin_hood::hash<Handle>
 {
 	size_t operator()(const std::shared_ptr<T>& ptr) const
 	{
-        return robin_hood::hash<Handle>::operator()(static_cast<Handle>(*ptr));
-    }
+		return robin_hood::hash<Handle>::operator()(static_cast<Handle>(*ptr));
+	}
 	size_t operator()(const Handle& handle) const
 	{
-        return robin_hood::hash<Handle>::operator()(handle);
-    }
+		return robin_hood::hash<Handle>::operator()(handle);
+	}
 
 	using is_transparent = int;
 };
@@ -204,53 +169,64 @@ class TupleHash
 	struct Component
 	{
 		Component(const T& value) : value(value) {}
-		
+
 		uintmax_t operator,(uintmax_t n) const
 		{
 			n ^= std::hash<T>()(value);
 			n ^= n << (sizeof(uintmax_t) * 4 - 1);
 			return n ^ std::hash<uintmax_t>()(n);
 		}
-		
+
 		const T& value;
 	};
 
 public:
-
 	template <typename Tuple>
 	size_t operator()(const Tuple& tuple) const
 	{
-		return std::hash<uintmax_t>()(std::apply([](const auto&... xs) { return (Component(xs), ..., 0); }, tuple));
+		return std::hash<uintmax_t>()(
+			std::apply([](const auto&... xs) { return (Component(xs), ..., 0); }, tuple));
 	}
 };
 
-template <typename Key, typename Value, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
+template <
+	typename Key,
+	typename Value,
+	typename KeyHash = robin_hood::hash<Key>,
+	typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedMap = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
-template <typename Key, typename KeyHash = robin_hood::hash<Key>, typename KeyEqualTo = std::equal_to<Key>>
+template <
+	typename Key,
+	typename KeyHash = robin_hood::hash<Key>,
+	typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedSet = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
 
 template <typename Key, typename T, typename ContainerT = std::vector<std::pair<Key, T>>>
 class FlatMap : public ContainerT
 {
 public:
-
 	using container_type = ContainerT;
 	using key_type = Key;
 	using mapped_type = T;
 	using value_type = typename container_type::value_type;
-	using iterator = typename container_type::iterator; 
+	using iterator = typename container_type::iterator;
 	using container_type::begin;
-	using container_type::end;
 	using container_type::empty;
+	using container_type::end;
 
 	template <typename... Args>
 	std::pair<iterator, bool> emplace(const Key& key, Args&&... args)
 	{
-		auto elementIt = std::lower_bound(begin(), end(), key, [](const value_type& a, const key_type& b){ return a.first < b; });
+		auto elementIt = std::lower_bound(
+			begin(),
+			end(),
+			key,
+			[](const value_type& a, const key_type& b) { return a.first < b; });
 
 		std::pair<iterator, bool> result(elementIt, false);
 		if (elementIt == end() || key != elementIt->first)
-			result = std::make_pair(container_type::emplace(elementIt, key, std::forward<Args>(args)...), true);
+			result = std::make_pair(
+				container_type::emplace(elementIt, key, std::forward<Args>(args)...), true);
 
 		return result;
 	}
@@ -260,20 +236,20 @@ template <typename Key, typename ContainerT = std::vector<Key>>
 class FlatSet : public ContainerT
 {
 public:
-
 	using container_type = ContainerT;
 	using key_type = Key;
 	using value_type = typename container_type::value_type;
-	using iterator = typename container_type::iterator; 
+	using iterator = typename container_type::iterator;
 	using container_type::begin;
-	using container_type::end;
 	using container_type::empty;
+	using container_type::end;
 
 	template <typename... Args>
 	std::pair<iterator, bool> emplace(Args&&... args)
 	{
 		auto key = Key(std::forward<Args>(args)...);
-		auto elementIt = std::lower_bound(begin(), end(), key, [](const value_type& a, const value_type& b){ return a < b; });
+		auto elementIt = std::lower_bound(
+			begin(), end(), key, [](const value_type& a, const value_type& b) { return a < b; });
 
 		std::pair<iterator, bool> result(elementIt, false);
 		if (elementIt == end() || key != *elementIt)
@@ -287,15 +263,14 @@ template <typename T, typename ContainerT = FlatMap<T, T>>
 class RangeSet : private ContainerT
 {
 public:
-
 	using container_type = ContainerT;
 	using key_type = T;
 	using mapped_type = T;
 	using value_type = typename container_type::value_type;
-	using iterator = typename container_type::iterator; 
+	using iterator = typename container_type::iterator;
 	using container_type::begin;
-	using container_type::end;
 	using container_type::empty;
+	using container_type::end;
 
 	auto insert(value_type&& range)
 	{
@@ -311,15 +286,12 @@ public:
 		auto [low, high] = range;
 
 		auto afterIt = std::upper_bound(
-			begin(),
-			end(),
-			low,
-			[](const T& a, const value_type& b){ return a < b.first; });
+			begin(), end(), low, [](const T& a, const value_type& b) { return a < b.first; });
 		auto isBegin = afterIt == begin();
 		auto prevIt = isBegin ? afterIt : std::prev(afterIt);
-		
+
 		iterator insertRangeIt;
-		
+
 		if (isBegin || prevIt->second < low)
 		{
 			insertRangeIt = container_type::insert(afterIt, std::forward<value_type>(range));
@@ -350,22 +322,15 @@ template <typename T, typename ContainerT = std::vector<T>, typename IndexT = ui
 class CircularContainer : private ContainerT
 {
 public:
-
 	using value_type = T;
 	using container_type = ContainerT;
 	using container_type::begin;
-	using container_type::end;
 	using container_type::emplace_back;
+	using container_type::end;
 
-	T& get()
-	{
-		return container_type::at(myHead);
-	}
+	T& get() { return container_type::at(myHead); }
 
-	const T& get() const
-	{
-		return container_type::at(myHead);
-	}
+	const T& get() const { return container_type::at(myHead); }
 
 	T& fetchAdd(IndexT offset = 1u)
 	{
@@ -375,11 +340,10 @@ public:
 	}
 
 private:
-
 	IndexT myHead{};
 };
 
-template<size_t N>
+template <size_t N>
 struct StringLiteral
 {
 	constexpr StringLiteral(const char (&str)[N]) { std::copy_n(str, N, value); }
