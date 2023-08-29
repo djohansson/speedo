@@ -3,8 +3,6 @@
 
 #include <core/utils.h>
 
-#include <rhi/types.h>
-
 #include <stack>
 #include <vector>
 
