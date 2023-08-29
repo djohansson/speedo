@@ -8,6 +8,72 @@
 {
 	Using(.CompilerBaseConfig)
 
+	// .StdModule =
+	// [
+	// 	Using(.LibraryCommon)
+
+	// 	.ProjectBasePath = '$BuildRootPath$/src'
+		
+	// 	.Name = 'core'
+	// 	.LibraryCompilerOptions = .CompilerOptionsCpp
+	// 		+ ' -I$ProjectBasePath$'
+	// 		+ ' -fprebuilt-module-path=$IntermediatePath$'
+	// 	.CompilerInputFiles = {
+	// 		'$ProjectBasePath$/core/std.cpp',
+	// 	}
+	// ]
+
+	.CoreLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'core'
+		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-unknown-attributes'
+		.CompilerInputPath = '$ProjectBasePath$/core'
+		.CompilerInputPattern = "*.cpp"
+	]
+
+	.RhiLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'rhi'
+		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$VulkanSDKPath$/include'
+			+ ' -DUUID_SYSTEM_GENERATOR'
+			+ ' -DSHADERTYPES_H_CPU_TARGET'
+			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-unknown-attributes'
+			+ ' -Wno-unused-function'
+			+ ' -Wno-unused-variable'
+		.CompilerInputPath = '$ProjectBasePath$/rhi'
+		.CompilerInputPattern = "*.cpp"
+	]
+
+	.GfxLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'gfx'
+		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+		.CompilerInputPath = '$ProjectBasePath$/gfx'
+		.CompilerInputPattern = "*.cpp"
+	]
+
 	.ClientLibrary =
 	[
 		Using(.LibraryCommon)
@@ -19,21 +85,9 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
-			+ ' -Wno-unused-function'
-			+ ' -Wno-unused-variable'
-			+ ' -Wno-ambiguous-reversed-operator'
 			+ ' -Wno-unknown-attributes'
-			+ ' -DUUID_SYSTEM_GENERATOR'
-			+ ' -DSHADERTYPES_H_CPU_TARGET'
-			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
-		.CompilerInputPath = '$ProjectBasePath$'
+		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = "*.cpp"
-	//	.CompilerInputUnity = '$Name$-unity'
-	// 	.UnityInputPath = '$ProjectBasePath$'
-	// 	.UnityInputPattern = "*.cpp"
-	// 	.UnityInputExcludedFiles = { }
-	// 	.UnityOutputPath + '/examples/client'
-	// 	.UnityOutputPattern = 'client-unity*.cpp'
 	]
 
 	.ClientObjectList =
@@ -46,16 +100,9 @@
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
-			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DGLFW_INCLUDE_NONE'
-		.CompilerInputPath = '$ProjectBasePath$'
+		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = "*.c"
-	//	.CompilerInputUnity = '$Name$-unity'
-	// 	.UnityInputPath = '$ProjectBasePath$'
-	// 	.UnityInputPattern = "*.cpp"
-	// 	.UnityInputExcludedFiles = { }
-	// 	.UnityOutputPath + '/examples/client'
-	// 	.UnityOutputPattern = 'client-unity*.cpp'
 	]
 
 	.ClientExecutable = 
@@ -67,6 +114,9 @@
 			.ClientObjectList,
 		}
 		.DependencyLibraries = {
+			.CoreLibrary,
+			.RhiLibrary,
+			.GfxLibrary
 			.ClientLibrary,
 		}
 		.DependencyDLLs = {
@@ -96,6 +146,50 @@
 			+ ' -framework CoreVideo'
 		//	+ ' -rpath @executable_path/bin/osx-x64/'
 	#endif
+	]
+
+	.CoreTestsObjectList =
+	[
+		Using(.ObjectListCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/tests'
+		
+		.Name = 'core-tests'
+		.ObjectListCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$BuildRootPath$/src'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+		.CompilerInputPath = '$ProjectBasePath$/core'
+		.CompilerInputPattern = "*.cpp"
+	]
+
+	.CoreTestsExecutable = 
+	[
+		Using(.ExecutableCommon)
+
+		.Name = 'core-tests'
+		.DependencyObjectLists = {
+			.CoreTestsObjectList,
+		}
+		.DependencyLibraries = {
+			.CoreLibrary,
+		}
+		.DependencyDLLs = {
+		}
+		.ExecutableLinkerOptions = .LinkerOptionsCpp
+			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
+			+ ' -lmimalloc'
+			+ ' -lCatch2'
+	]
+
+	.CoreTests =
+	[
+		Using(.TestCommon)
+
+		.Name = 'core-tests'
+		.DependencyExecutables = {
+			.CoreTestsExecutable,
+		}
+		.TestOutputName = 'core-tests'
 	]
 
 	.VisualStudioFilesDir = '$BuildRootPath$/build.visualstudio'
@@ -154,6 +248,8 @@
 			Using(.CompilerConfig)
 			
 			AddExecutable(.ClientExecutable .CompilerConfig)
+			
+			AddTest(.CoreTests .CompilerConfig)
 
 			.Targets + .Unities
 			.Targets + .BuildTargets
@@ -188,6 +284,8 @@
 			AddProject(.NoneProject .ProjectConfigs .VisualStudioFilesDir)
 
 			AddProject(.ClientExecutable .ProjectConfigs .VisualStudioFilesDir)
+			
+			AddProject(.CoreTests .ProjectConfigs .VisualStudioFilesDir)
 
 			AddSolution(.AllSolution .ProjectConfigs .ProjectNames .VisualStudioFilesDir)
 
