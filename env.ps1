@@ -58,14 +58,14 @@ function Read-EnvFile
 
 function Initialize-DevEnv
 {
+	$triplet = Get-Triplet
+
 	#Write-Host "Adding installed vcpkg packages to env:Path..."
 
 	$BinDirectory = "$PSScriptRoot\build.vcpkg\$triplet\bin"
 	$env:Path += ";$BinDirectory"
 
 	#Write-Host $BinDirectory
-
-	$triplet = Get-Triplet
 
 	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot\build.vcpkg\$triplet\tools -Directory)
 	{
