@@ -76,7 +76,6 @@
 		+ .PlatformLibPaths
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
-		+ ' -Xlinker /subsystem:console'
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 #if !__WINDOWS__
