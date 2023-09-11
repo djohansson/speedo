@@ -77,6 +77,8 @@ function Initialize-DevEnv
 	#Write-Host "Setting environment variables..."
 
 	Read-EnvFile "$PSScriptRoot/env.json"
+
+	$env:Path += ";$env:LLVM_PATH/bin"
 }
 
 function Invoke-DevEnv
