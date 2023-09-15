@@ -96,6 +96,7 @@
 		"resumable": "cpp",
 		"*.ipp": "cpp",
 		"cfenv": "cpp",
-		"expected": "cpp"
+		"expected": "cpp",
+		"source_location": "cpp"
 	}
 }
