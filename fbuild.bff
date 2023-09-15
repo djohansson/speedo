@@ -57,7 +57,7 @@
 			+ ' -Wno-unused-function'
 			+ ' -Wno-unused-variable'
 		.CompilerInputPath = '$ProjectBasePath$/rhi'
-		.CompilerInputPattern = "*.cpp"
+		.CompilerInputPattern = '*.cpp'
 	]
 
 	.GfxLibrary =
@@ -67,11 +67,11 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'gfx'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
+		.LibraryCompilerOptions = .CompilerOptionsCpp + ' -v'
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
-		.CompilerInputPattern = "*.cpp"
+		.CompilerInputPattern = '*.cpp'
 	]
 
 	.ClientLibrary =
@@ -87,7 +87,7 @@
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/client'
-		.CompilerInputPattern = "*.cpp"
+		.CompilerInputPattern = '*.cpp'
 	]
 
 	.ClientObjectList =
@@ -102,7 +102,7 @@
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 			+ ' -DGLFW_INCLUDE_NONE'
 		.CompilerInputPath = '$ProjectBasePath$/client'
-		.CompilerInputPattern = "*.c"
+		.CompilerInputPattern = '*.c'
 	]
 
 	.ClientExecutable = 
@@ -159,7 +159,7 @@
 			+ ' -I$BuildRootPath$/src'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 		.CompilerInputPath = '$ProjectBasePath$/core'
-		.CompilerInputPattern = "*.cpp"
+		.CompilerInputPattern = '*.cpp'
 	]
 
 	.CoreTestsExecutable = 
