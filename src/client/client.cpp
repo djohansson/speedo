@@ -1,13 +1,13 @@
 #include "client.h"
 
-#include <rhi/application.h>
+#include <rhi/graphicsapplication.h>
 
 #include <cassert>
 #include <filesystem>
 #include <memory>
 #include <string>
 
-static std::unique_ptr<Application<Vk>> g_app;
+static std::unique_ptr<GraphicsApplication<Vk>> g_app;
 static std::filesystem::path g_rootPath;
 static std::filesystem::path g_resourcePath;
 static std::filesystem::path g_userProfilePath;
@@ -42,7 +42,7 @@ int client_create(
 	g_rootPath = client::getCanonicalPath(resourcePath, "./");
 	g_resourcePath = client::getCanonicalPath(resourcePath, "./resources/");
 	g_userProfilePath = client::getCanonicalPath(userProfilePath, "./.profile/", true);
-	g_app = std::make_unique<Application<Vk>>(*window);
+	g_app = std::make_unique<GraphicsApplication<Vk>>(*window);
 
 	return EXIT_SUCCESS;
 }
@@ -96,7 +96,7 @@ const char* client_getAppName(void)
 {
 	assert(g_app);
 
-	return g_app->getName();
+	return g_app->getName().data();
 }
 
 const char* client_getRootPath(void)

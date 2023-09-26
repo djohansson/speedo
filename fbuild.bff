@@ -179,6 +179,7 @@
 			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
 			+ ' -lmimalloc'
 			+ ' -lCatch2'
+			+ ' -lTracyClient'
 	]
 
 	.CoreTests =
@@ -190,6 +191,9 @@
 			.CoreTestsExecutable,
 		}
 		.TestOutputName = 'core-tests'
+		.Environment = {
+			'Path=$_WORKING_DIR_$/build.vcpkg/x64-windows-clang/bin'
+		}
 	]
 
 	.VisualStudioFilesDir = '$BuildRootPath$/build.visualstudio'

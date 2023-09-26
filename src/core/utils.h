@@ -1,5 +1,7 @@
 #pragma once
 
+#include "profiling.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cerrno>

@@ -1,4 +1,4 @@
-#include "../application.h"
+#include "../graphicsapplication.h"
 #include "../shaders/shadertypes.h"
 
 #include "utils.h"
@@ -8,7 +8,6 @@
 #include <core/gltfstream.h>
 #include <core/nodes/inputoutputnode.h>
 #include <core/nodes/slangshadernode.h>
-#include <core/profiling.h>
 
 #define STB_SPRINTF_IMPLEMENTATION // TODO: move this somewhere else
 #include <stb_sprintf.h>
@@ -25,7 +24,7 @@
 //#include <imnodes.h>
 
 template <>
-void Application<Vk>::initIMGUI(
+void GraphicsApplication<Vk>::initIMGUI(
 	const WindowState& window,
 	const std::shared_ptr<Device<Vk>>& device,
 	CommandBufferHandle<Vk> commands,
@@ -33,7 +32,7 @@ void Application<Vk>::initIMGUI(
 	SurfaceHandle<Vk> surface,
 	const std::filesystem::path& userProfilePath) const
 {
-	ZoneScopedN("Application::initIMGUI");
+	ZoneScopedN("GraphicsApplication::initIMGUI");
 
 	using namespace ImGui;
 
@@ -139,7 +138,7 @@ void Application<Vk>::initIMGUI(
 }
 
 template <>
-void Application<Vk>::shutdownIMGUI()
+void GraphicsApplication<Vk>::shutdownIMGUI()
 {
 	// size_t count;
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
@@ -152,9 +151,9 @@ void Application<Vk>::shutdownIMGUI()
 }
 
 template <>
-void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExtent)
+void GraphicsApplication<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExtent)
 {
-	ZoneScopedN("Application::createWindowDependentObjects");
+	ZoneScopedN("GraphicsApplication::createWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<Vk>>(
 		gfx().myDevice,
@@ -188,10 +187,10 @@ void Application<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExten
 }
 
 template <>
-Application<Vk>::Application(const WindowState& window)
-	: Application()
+GraphicsApplication<Vk>::GraphicsApplication(const WindowState& window)
+	: GraphicsApplication()
 {
-	ZoneScopedN("Application()");
+	ZoneScopedN("GraphicsApplication()");
 
 	auto rootPath = std::filesystem::path(client_getRootPath());
 	auto resourcePath = std::filesystem::path(client_getResourcePath());
@@ -712,7 +711,7 @@ Application<Vk>::Application(const WindowState& window)
 	myIMGUIPrepareDrawFunction =
 		[this, openFileDialogue, loadModel, loadImage, loadGlTF, resourcePath]
 	{
-		ZoneScopedN("Application::IMGUIPrepareDraw");
+		ZoneScopedN("GraphicsApplication::IMGUIPrepareDraw");
 
 		using namespace ImGui;
 
@@ -1133,7 +1132,7 @@ Application<Vk>::Application(const WindowState& window)
 
 	myIMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
 	{
-		ZoneScopedN("Application::IMGUIDraw");
+		ZoneScopedN("GraphicsApplication::IMGUIDraw");
 
 		using namespace ImGui;
 
@@ -1144,21 +1143,21 @@ Application<Vk>::Application(const WindowState& window)
 }
 
 template <>
-Application<Vk>::~Application()
+GraphicsApplication<Vk>::~GraphicsApplication()
 {
-	ZoneScopedN("~Application()");
+	ZoneScopedN("~GraphicsApplication()");
 
 	auto device = gfx().myDevice;
 	auto instance = gfx().myInstance;
 
 	{
-		ZoneScopedN("~Application()::waitCPU");
+		ZoneScopedN("~GraphicsApplication()::waitCPU");
 
 		myExecutor.join(std::move(myPresentFuture));
 	}
 
 	{
-		ZoneScopedN("~Application()::waitGPU");
+		ZoneScopedN("~GraphicsApplication()::waitGPU");
 
 		device->waitIdle();
 	}
@@ -1172,7 +1171,7 @@ Application<Vk>::~Application()
 }
 
 template <>
-void Application<Vk>::onMouse(const MouseState& mouse)
+void GraphicsApplication<Vk>::onMouse(const MouseState& mouse)
 {
 	bool leftPressed = mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS;
 	bool rightPressed = mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS;
@@ -1203,7 +1202,7 @@ void Application<Vk>::onMouse(const MouseState& mouse)
 }
 
 template <>
-void Application<Vk>::onKeyboard(const KeyboardState& keyboard)
+void GraphicsApplication<Vk>::onKeyboard(const KeyboardState& keyboard)
 {
 	if (keyboard.action == GLFW_PRESS)
 		myInput.keysPressed[keyboard.key] = true;
@@ -1212,7 +1211,7 @@ void Application<Vk>::onKeyboard(const KeyboardState& keyboard)
 }
 
 template <>
-bool Application<Vk>::tick()
+bool GraphicsApplication<Vk>::tick()
 {
 	FrameMark;
 
@@ -1227,13 +1226,13 @@ bool Application<Vk>::tick()
 
 	auto [drawTask, drawFuture] = frameGraph.createTask([this]
 	{
-		ZoneScopedN("Application::draw");
+		ZoneScopedN("GraphicsApplication::draw");
 
 		auto [flipSuccess, lastPresentTimelineValue] = gfx().myMainWindow->flip();
 
 		if (flipSuccess)
 		{
-			ZoneScopedN("Application::draw::submit");
+			ZoneScopedN("GraphicsApplication::draw::submit");
 
 			auto& primaryContext = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary].fetchAdd();
 			constexpr uint32_t secondaryContextCount = 4;
@@ -1245,7 +1244,7 @@ bool Application<Vk>::tick()
 			if (lastPresentTimelineValue)
 			{
 				{
-					ZoneScopedN("Application::draw::waitFrame");
+					ZoneScopedN("GraphicsApplication::draw::waitFrame");
 
 					gfx().myDevice->wait(lastPresentTimelineValue);
 				}
@@ -1327,7 +1326,7 @@ bool Application<Vk>::tick()
 
 		if (lastPresentTimelineValue)
 		{
-			ZoneScopedN("Application::draw::processTimelineCallbacks");
+			ZoneScopedN("GraphicsApplication::draw::processTimelineCallbacks");
 
 			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 			gfx().myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
@@ -1336,7 +1335,7 @@ bool Application<Vk>::tick()
 		{
 			if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
 			{
-				ZoneScopedN("Application::draw::openFileCallback");
+				ZoneScopedN("GraphicsApplication::draw::openFileCallback");
 
 				const auto& [openFileResult, openFilePath, onCompletionCallback] =
 					myOpenFileFuture.get();
@@ -1355,7 +1354,7 @@ bool Application<Vk>::tick()
 	frameGraph.addDependency(drawTask, presentTask);
 
 	{
-		ZoneScopedN("Application::tick::waitPresent");
+		ZoneScopedN("GraphicsApplication::tick::waitPresent");
 
 		myExecutor.join(std::move(myPresentFuture));
 	}
@@ -1368,12 +1367,12 @@ bool Application<Vk>::tick()
 }
 
 template <>
-void Application<Vk>::resizeFramebuffer(int, int)
+void GraphicsApplication<Vk>::resizeFramebuffer(int, int)
 {
-	ZoneScopedN("Application::resizeFramebuffer");
+	ZoneScopedN("GraphicsApplication::resizeFramebuffer");
 
 	{
-		ZoneScopedN("Application::resizeFramebuffer::waitGPU");
+		ZoneScopedN("GraphicsApplication::resizeFramebuffer::waitGPU");
 
 		gfx().myDevice->wait(gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
 	}
