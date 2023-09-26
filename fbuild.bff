@@ -67,7 +67,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'gfx'
-		.LibraryCompilerOptions = .CompilerOptionsCpp + ' -v'
+		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
