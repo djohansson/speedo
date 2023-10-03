@@ -11,15 +11,3 @@ void GraphicsApplication<B>::resizeWindow(const WindowState& state)
 	}
 }
 
-template <GraphicsBackend B>
-std::string_view GraphicsApplication<B>::getName() const
-{
-	return gfx().myInstance->getConfig().applicationName;
-}
-
-template <GraphicsBackend B>
-GraphicsApplication<B>::GraphicsApplication()
-: ApplicationBase()
-, myGraphicsContext{std::make_shared<Instance<B>>()}
-{
-}

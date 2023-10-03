@@ -1,8 +1,7 @@
 #include "../pipeline.h"
+#include "../graphicsapplication.h"
 
 #include "utils.h"
-
-#include <client/client.h> // TODO: eliminate this dependency
 
 #include <stb_sprintf.h>
 
@@ -484,7 +483,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 			stringBuffer,
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(pipelineStr.size()),
 			pipelineStr.data(),
 			static_cast<unsigned int>(hashKey));
@@ -806,7 +805,7 @@ Pipeline<Vk>::Pipeline(
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
 	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
-		  std::filesystem::path(client_getUserProfilePath()) / "pipeline.json",
+		  Application::get().lock()->state().userProfilePath / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)
@@ -859,7 +858,7 @@ Pipeline<Vk>::Pipeline(
 			stringBuffer,
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(pipelineCacheStr.size()),
 			pipelineCacheStr.data());
 

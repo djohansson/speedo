@@ -2,10 +2,9 @@
 
 #include "utils.h"
 
-#include <client/client.h> // TODO: eliminate this dependency
-
 #include <algorithm>
 #include <vector>
+#include <iostream>
 
 #include <mimalloc.h>
 
@@ -143,20 +142,6 @@ VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCallbackCreateInfo{
 } // namespace instance
 
 template <>
-InstanceConfiguration<Vk>::InstanceConfiguration()
-	: applicationName("client")
-	, engineName("speedo")
-	, appInfo{
-		  VK_STRUCTURE_TYPE_APPLICATION_INFO,
-		  nullptr,
-		  nullptr,
-		  VK_MAKE_VERSION(1, 0, 0),
-		  nullptr,
-		  VK_MAKE_VERSION(1, 0, 0),
-		  VK_API_VERSION_1_3}
-{}
-
-template <>
 void Instance<Vk>::updateSurfaceCapabilities(
 	PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
@@ -179,25 +164,23 @@ Instance<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk
 
 template <>
 Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
-	: myConfig(AutoSaveJSONFileObject<InstanceConfiguration<Vk>>(
-		  std::filesystem::path(client_getUserProfilePath()) / "instance.json",
-		  std::forward<InstanceConfiguration<Vk>>(defaultConfig)))
-	, myHostAllocationCallbacks{
-		nullptr,
-		[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
-		{
-			return mi_malloc_aligned(size, alignment);
-		},
-		[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
-		{
-			return mi_realloc_aligned(pOriginal, size, alignment);
-		},
-		[](void* /*pUserData*/, void* pMemory)
-		{
-			mi_free(pMemory);
-		},
-		nullptr,
-		nullptr}
+: myConfig(std::forward<InstanceConfiguration<Vk>>(defaultConfig))
+, myHostAllocationCallbacks{
+	nullptr,
+	[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	{
+		return mi_malloc_aligned(size, alignment);
+	},
+	[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	{
+		return mi_realloc_aligned(pOriginal, size, alignment);
+	},
+	[](void* /*pUserData*/, void* pMemory)
+	{
+		mi_free(pMemory);
+	},
+	nullptr,
+	nullptr}
 {
 	ZoneScopedN("Instance()");
 

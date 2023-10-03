@@ -1,10 +1,9 @@
+#include "application.h"
 #include "profiling.h"
 #include "typeinfo.h"
 
 #include <array>
 #include <iostream>
-
-#include <client/client.h> // TODO: eliminate this dependency
 
 #include <glaze/glaze.hpp>
 #include <glaze/core/macros.hpp>
@@ -309,7 +308,7 @@ void loadAsset(
 	{
 		ZoneScopedN("loadAsset::importSourceFile");
 
-		auto cacheDir = std::filesystem::path(client_getUserProfilePath()) / ".cache";
+		auto cacheDir = Application::get().lock()->state().userProfilePath / ".cache";
 		auto cacheDirStatus = std::filesystem::status(cacheDir);
 		if (!std::filesystem::exists(cacheDirStatus) ||
 			!std::filesystem::is_directory(cacheDirStatus))

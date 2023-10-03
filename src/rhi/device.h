@@ -142,7 +142,7 @@ class DeviceObject : public Noncopyable
 public:
 	virtual ~DeviceObject();
 
-	const auto& getName() const noexcept { return myDesc.name; }
+	std::string_view getName() const noexcept { return myDesc.name; }
 	const uuids::uuid& getUid() const noexcept { return myUid; }
 	bool isValid() const noexcept { return !myUid.is_nil(); }
 

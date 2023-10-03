@@ -2,7 +2,6 @@
 
 #include "types.h"
 
-#include <core/file.h>
 #include <core/utils.h>
 
 #include <any>
@@ -13,13 +12,9 @@
 template <GraphicsBackend B>
 struct InstanceConfiguration
 {
-	InstanceConfiguration();
-
 	std::string applicationName;
 	std::string engineName;
 	ApplicationInfo<B> appInfo{};
-
-	GLZ_LOCAL_META(InstanceConfiguration<B>, applicationName, engineName, appInfo);
 };
 
 template <GraphicsBackend B>
@@ -62,7 +57,7 @@ public:
 	void updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface);
 
 private:
-	AutoSaveJSONFileObject<InstanceConfiguration<B>> myConfig;
+	InstanceConfiguration<B> myConfig{};
 	InstanceHandle<B> myInstance{};
 	AllocationCallbacks<B> myHostAllocationCallbacks{};
 	std::vector<PhysicalDeviceHandle<B>> myPhysicalDevices;

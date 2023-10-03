@@ -28,13 +28,10 @@
 #include <nfd.h>
 
 template <GraphicsBackend B>
-class GraphicsApplication : public ApplicationBase
-{
+class GraphicsApplication : public Application
+{	
 public:
-	GraphicsApplication(const WindowState& window);
-	~GraphicsApplication();
-
-	std::string_view getName() const final;
+	virtual ~GraphicsApplication();
 
 	bool tick();
 
@@ -44,10 +41,13 @@ public:
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
 
-	void setGraphicsBackend(GraphicsBackend backend);
+	//void setGraphicsBackend(GraphicsBackend backend);
+	void createDevice(const WindowState& window);
+
+protected:
+	GraphicsApplication(Application::State&& state);
 
 private:
-	GraphicsApplication();
 
 	void initIMGUI(
 		const WindowState& window,

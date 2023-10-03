@@ -1,19 +1,13 @@
-#include "client.h"
+#include "capi.h"
 
 #include <rhi/graphicsapplication.h>
 
 #include <cassert>
-#include <filesystem>
-#include <memory>
-#include <string>
-
-static std::unique_ptr<GraphicsApplication<Vk>> g_app;
-static std::filesystem::path g_rootPath;
-static std::filesystem::path g_resourcePath;
-static std::filesystem::path g_userProfilePath;
 
 namespace client
 {
+
+static std::shared_ptr<GraphicsApplication<Vk>> s_application{};
 
 std::filesystem::path
 getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
@@ -30,7 +24,7 @@ getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 
 } // namespace client
 
-int client_create(
+void client_create(
 	const WindowState* window,
 	const char* rootPath,
 	const char* resourcePath,
@@ -39,83 +33,71 @@ int client_create(
 	assert(window != nullptr);
 	assert(window->handle != nullptr);
 
-	g_rootPath = client::getCanonicalPath(resourcePath, "./");
-	g_resourcePath = client::getCanonicalPath(resourcePath, "./resources/");
-	g_userProfilePath = client::getCanonicalPath(userProfilePath, "./.profile/", true);
-	g_app = std::make_unique<GraphicsApplication<Vk>>(*window);
+	client::s_application = Application::create<GraphicsApplication<Vk>>(
+		Application::State{
+			"client",
+			client::getCanonicalPath(rootPath, "./"),
+			client::getCanonicalPath(resourcePath, "./resources/"),
+			client::getCanonicalPath(userProfilePath, "./.profile/", true)
+		});
 
-	return EXIT_SUCCESS;
+	assert(client::s_application);
+
+	client::s_application->createDevice(*window);
 }
 
 bool client_tick()
 {
-	assert(g_app);
+	assert(client::s_application);
 
-	return g_app->tick();
+	return client::s_application->tick();
 }
 
 void client_resizeWindow(const WindowState* state)
 {
-	assert(g_app);
 	assert(state != nullptr);
-
-	g_app->resizeWindow(*state);
+	assert(client::s_application);
+	
+	client::s_application->resizeWindow(*state);
 }
 
 void client_resizeFramebuffer(int width, int height)
 {
-	assert(g_app);
-
-	g_app->resizeFramebuffer(width, height);
+	assert(width > 0);
+	assert(height > 0);
+	assert(width <= 16384);
+	assert(height <= 16384);
+	assert(client::s_application);
+	
+	client::s_application->resizeFramebuffer(width, height);
 }
 
 void client_mouse(const MouseState* state)
 {
-	assert(g_app);
 	assert(state != nullptr);
-
-	g_app->onMouse(*state);
+	assert(client::s_application);
+	
+	client::s_application->onMouse(*state);
 }
 
 void client_keyboard(const KeyboardState* state)
 {
-	assert(g_app);
 	assert(state != nullptr);
-
-	g_app->onKeyboard(*state);
+	assert(client::s_application);
+	
+	client::s_application->onKeyboard(*state);
 }
 
 void client_destroy()
 {
-	assert(g_app);
-
-	g_app.reset();
+	assert(client::s_application);
+	
+	client::s_application.reset();
 }
 
 const char* client_getAppName(void)
 {
-	assert(g_app);
+	assert(client::s_application);
 
-	return g_app->getName().data();
-}
-
-const char* client_getRootPath(void)
-{
-	static std::string rootPath;
-	rootPath = g_rootPath.string();
-	return rootPath.c_str();
-}
-
-const char* client_getResourcePath(void)
-{
-	static std::string resourcePath;
-	resourcePath = g_resourcePath.string();
-	return resourcePath.c_str();
-}
-
-const char* client_getUserProfilePath(void)
-{
-	static std::string userProfilePath;
-	userProfilePath = g_userProfilePath.string();
-	return userProfilePath.c_str();
+	return client::s_application->state().name.data();
 }

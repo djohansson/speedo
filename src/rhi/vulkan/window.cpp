@@ -1,9 +1,8 @@
 #include "../window.h"
+#include "../graphicsapplication.h"
 #include "../shaders/shadertypes.h"
 
 #include "utils.h"
-
-#include <client/client.h> // TODO: eliminate this dependency
 
 #include <stb_sprintf.h>
 
@@ -423,7 +422,7 @@ Window<Vk>::Window(
 		defaultConfig.swapchainConfig,
 		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig(AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
-		  std::filesystem::path(client_getUserProfilePath()) / "window.json",
+		  Application::get().lock()->state().userProfilePath / "window.json",
 		  std::forward<WindowConfiguration<Vk>>(defaultConfig)))
 {
 	ZoneScopedN("Window()");

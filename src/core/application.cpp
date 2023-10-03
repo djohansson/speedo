@@ -1,10 +1,13 @@
 #include "application.h"
 
-#include <locale>
-
 #include <mimalloc-new-delete.h>
 
-ApplicationBase::ApplicationBase()
+#include <locale>
+
+std::weak_ptr<Application> Application::theApplication{};
+
+Application::Application(State&& state)
+: myState(std::forward<State>(state))
 {
 	ZoneScoped;
 	

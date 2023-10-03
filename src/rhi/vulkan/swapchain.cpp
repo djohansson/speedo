@@ -209,7 +209,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 			stringBuffer,
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(swapchainStr.size()),
 			swapchainStr.data());
 

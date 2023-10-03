@@ -7,6 +7,7 @@
 #include "pipeline.h"
 #include "swapchain.h"
 
+#include <core/capi.h>
 #include <core/file.h>
 #include <core/utils.h>
 

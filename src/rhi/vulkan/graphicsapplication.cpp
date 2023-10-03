@@ -3,8 +3,7 @@
 
 #include "utils.h"
 
-#include <client/client.h> // TODO: eliminate this dependency
-
+#include <core/application.h>
 #include <core/gltfstream.h>
 #include <core/nodes/inputoutputnode.h>
 #include <core/nodes/slangshadernode.h>
@@ -68,7 +67,7 @@ void GraphicsApplication<Vk>::initIMGUI(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(client_getResourcePath());
+	std::filesystem::path fontPath(state().resourcePath);
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -187,405 +186,26 @@ void GraphicsApplication<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBuf
 }
 
 template <>
-GraphicsApplication<Vk>::GraphicsApplication(const WindowState& window)
-	: GraphicsApplication()
+GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
+: Application(std::forward<Application::State>(state))
+, myGraphicsContext{std::make_shared<Instance<Vk>>(
+	InstanceConfiguration<Vk>{
+		this->state().name,
+		"speedo",
+		ApplicationInfo<Vk>{
+			VK_STRUCTURE_TYPE_APPLICATION_INFO,
+			nullptr,
+			nullptr,
+			VK_MAKE_VERSION(1, 0, 0),
+			nullptr,
+			VK_MAKE_VERSION(1, 0, 0),
+			VK_API_VERSION_1_3}})}
 {
 	ZoneScopedN("GraphicsApplication()");
 
-	auto rootPath = std::filesystem::path(client_getRootPath());
-	auto resourcePath = std::filesystem::path(client_getResourcePath());
-	auto userProfilePath = std::filesystem::path(client_getUserProfilePath());
-
-	auto shaderIncludePath = rootPath / "src/rhi/shaders";
-	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
-
-	auto vkSDKPathEnv = std::getenv("VK_SDK_PATH");
-	auto vkSDKPath = vkSDKPathEnv ? std::filesystem::path(vkSDKPathEnv) : rootPath;
-	auto vkSDKBinPath = vkSDKPath / "bin";
-
-	ShaderLoader shaderLoader(
-		{shaderIncludePath},
-		{/*std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)*/},
-		shaderIntermediatePath);
-
-	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
-
-	auto surface = createSurface(*gfx().myInstance, &gfx().myInstance->getHostAllocationCallbacks(), window.nativeHandle);
-
-	auto detectSuitableGraphicsDevice = [](auto instance, auto surface)
-	{
-		const auto& physicalDevices = instance->getPhysicalDevices();
-
-		std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
-		graphicsDeviceCandidates.reserve(physicalDevices.size());
-
-		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << std::endl;
-
-		for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
-			 physicalDeviceIt++)
-		{
-			auto physicalDevice = physicalDevices[physicalDeviceIt];
-
-			const auto& physicalDeviceInfo = instance->getPhysicalDeviceInfo(physicalDevice);
-			const auto& swapchainInfo = instance->getSwapchainInfo(physicalDevice, surface);
-
-			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << std::endl;
-
-			for (uint32_t queueFamilyIt = 0;
-				 queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
-				 queueFamilyIt++)
-			{
-				const auto& queueFamilyProperties =
-					physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
-				const auto& queueFamilyPresentSupport =
-					swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
-
-				if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-					queueFamilyPresentSupport)
-					graphicsDeviceCandidates.emplace_back(
-						std::make_tuple(physicalDeviceIt, queueFamilyIt));
-			}
-		}
-
-		std::sort(
-			graphicsDeviceCandidates.begin(),
-			graphicsDeviceCandidates.end(),
-			[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
-			{
-				constexpr uint32_t deviceTypePriority[]{
-					4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
-					1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
-					0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
-					2,		   //VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
-					3,		   //VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
-					0x7FFFFFFF //VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
-				};
-				const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
-				const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
-
-				auto lhsDeviceType =
-					instance->getPhysicalDeviceInfo(physicalDevices[lhsPhysicalDeviceIndex])
-						.deviceProperties.properties.deviceType;
-				auto rhsDeviceType =
-					instance->getPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex])
-						.deviceProperties.properties.deviceType;
-
-				return deviceTypePriority[lhsDeviceType] < deviceTypePriority[rhsDeviceType];
-			});
-
-		if (graphicsDeviceCandidates.empty())
-			throw std::runtime_error("failed to find a suitable GPU!");
-
-		return std::get<0>(graphicsDeviceCandidates.front());
-	};
-
-	gfx().myDevice = std::make_shared<Device<Vk>>(
-		gfx().myInstance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(gfx().myInstance, surface)});
-
-	auto detectSuitableSwapchain = [](auto instance, auto device, auto surface)
-	{
-		const auto& swapchainInfo =
-			instance->getSwapchainInfo(device->getPhysicalDevice(), surface);
-
-		SwapchainConfiguration<Vk> config{swapchainInfo.capabilities.currentExtent};
-
-		constexpr Format<Vk> requestSurfaceImageFormat[]{
-			VK_FORMAT_B8G8R8A8_UNORM,
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_FORMAT_B8G8R8_UNORM,
-			VK_FORMAT_R8G8B8_UNORM};
-		constexpr ColorSpace<Vk> requestSurfaceColorSpace =
-			VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		constexpr PresentMode<Vk> requestPresentMode[]{
-			VK_PRESENT_MODE_MAILBOX_KHR,
-			VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-			VK_PRESENT_MODE_FIFO_KHR,
-			VK_PRESENT_MODE_IMMEDIATE_KHR};
-
-		// Request several formats, the first found will be used
-		// If none of the requested image formats could be found, use the first available
-		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestSurfaceImageFormat);
-			 requestIt++)
-		{
-			SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
-
-			auto formatIt = std::find_if(
-				swapchainInfo.formats.begin(),
-				swapchainInfo.formats.end(),
-				[&requestedFormat](VkSurfaceFormatKHR format)
-				{
-					return requestedFormat.format == format.format &&
-						   requestedFormat.colorSpace == format.colorSpace;
-				});
-
-			if (formatIt != swapchainInfo.formats.end())
-			{
-				config.surfaceFormat = *formatIt;
-				break;
-			}
-		}
-
-		// Request a certain mode and confirm that it is available. If not use
-		// VK_PRESENT_MODE_FIFO_KHR which is mandatory
-		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestPresentMode); requestIt++)
-		{
-			auto modeIt = std::find(
-				swapchainInfo.presentModes.begin(),
-				swapchainInfo.presentModes.end(),
-				requestPresentMode[requestIt]);
-
-			if (modeIt != swapchainInfo.presentModes.end())
-			{
-				config.presentMode = *modeIt;
-
-				switch (config.presentMode)
-				{
-				case VK_PRESENT_MODE_MAILBOX_KHR:
-					config.imageCount = 3;
-					break;
-				default:
-					config.imageCount = 2;
-					break;
-				}
-
-				break;
-			}
-		}
-
-		return config;
-	};
-
-	gfx().myPipeline = std::make_shared<Pipeline<Vk>>(
-		gfx().myDevice, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
-
-	gfx().myMainWindow = std::make_shared<Window<Vk>>(
-		gfx().myDevice,
-		std::move(surface),
-		WindowConfiguration<Vk>{
-			detectSuitableSwapchain(gfx().myInstance, gfx().myDevice, surface),
-			{window.width, window.height},
-			{1ul, 1ul}});
-
-	{
-		uint32_t frameCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
-
-		auto& primaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary];
-		auto& secondaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary];
-		auto& generalTransferContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer];
-		auto& dedicatedComputeContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedCompute];
-		auto& dedicatedTransferContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer];
-
-		auto& graphicsQueues = gfx().myGraphicsQueues;
-		auto& computeQueues = gfx().myComputeQueues;
-		auto& transferQueues = gfx().myTransferQueues;
-
-		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-
-		constexpr bool useCommandBufferCreateReset = true;
-		if (useCommandBufferCreateReset)
-			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-
-		const auto& queueFamilies = gfx().myDevice->getQueueFamilies();
-		for (auto queueFamilyIt = queueFamilies.begin(); queueFamilyIt != queueFamilies.end();
-			 queueFamilyIt++)
-		{
-			const auto& queueFamily = *queueFamilyIt;
-			auto queueFamilyIndex =
-				static_cast<uint32_t>(std::distance(queueFamilies.begin(), queueFamilyIt));
-
-			if (queueFamily.flags & QueueFamilyFlagBits_Graphics)
-			{
-				for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
-				{
-					primaryContexts.emplace_back(CommandPoolContext<Vk>(
-						gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-					for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4;
-						 secondaryContextIt++)
-					{
-						secondaryContexts.emplace_back(CommandPoolContext<Vk>(
-							gfx().myDevice,
-							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-					}
-				}
-
-				generalTransferContexts.emplace_back(CommandPoolContext<Vk>(
-					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-				graphicsQueues.emplace_back(Queue<Vk>(
-					gfx().myDevice,
-					QueueCreateDesc<Vk>{
-						0,
-						queueFamilyIndex,
-						primaryContexts.get().commands(
-							CommandBufferAccessScopeDesc<Vk>(false))}));
-			}
-			else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
-			{
-				// only need one for now..
-
-				dedicatedComputeContexts.emplace_back(CommandPoolContext<Vk>(
-					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-				computeQueues.emplace_back(
-					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
-			}
-			else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
-			{
-				// only need one for now..
-
-				dedicatedTransferContexts.emplace_back(CommandPoolContext<Vk>(
-					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-				transferQueues.emplace_back(
-					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
-			}
-		}
-	}
-
-	createWindowDependentObjects(gfx().myMainWindow->getConfig().swapchainConfig.extent);
-
-	// todo: create some resource global storage
-	gfx().myPipeline->resources().black = std::make_shared<Image<Vk>>(
-		gfx().myDevice,
-		ImageCreateDesc<Vk>{
-			std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_TILING_LINEAR,
-			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-
-	gfx().myPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
-		gfx().myDevice, *gfx().myPipeline->resources().black, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
-	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
-		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		nullptr,
-		0u,
-		VK_FILTER_LINEAR,
-		VK_FILTER_LINEAR,
-		VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0f,
-		VK_TRUE,
-		16.f,
-		VK_FALSE,
-		VK_COMPARE_OP_ALWAYS,
-		0.0f,
-		1000.0f,
-		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-		VK_FALSE});
-	gfx().myPipeline->resources().samplers =
-		std::make_shared<SamplerVector<Vk>>(gfx().myDevice, std::move(samplerCreateInfos));
-	//
-
-	// initialize stuff on general transfer queue
-	{
-		auto& generalTransferContext = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer].fetchAdd();
-		auto cmd = generalTransferContext.commands();
-
-		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		gfx().myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
-		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		initIMGUI(
-			window,
-			gfx().myDevice,
-			cmd,
-			gfx().myMainWindow->getRenderPass(),
-			gfx().myMainWindow->getSurface(),
-			userProfilePath);
-
-		cmd.end();
-
-		gfx().myGraphicsQueues.get().enqueueSubmit(generalTransferContext.prepareSubmit(
-			{{gfx().myDevice->getTimelineSemaphore()},
-			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0)},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-		gfx().myGraphicsQueues.get().submit();
-	}
-
-	constexpr uint32_t textureId = 1;
-	constexpr uint32_t samplerId = 2;
-	static_assert(textureId < ShaderTypes_GlobalTextureCount);
-	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
-	{
-		auto& dedicatedTransferContext =
-			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
-
-		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
-
-		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
-		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
-		materialData[0].textureAndSamplerId =
-			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
-		gfx().myMaterials = std::make_unique<Buffer<Vk>>(
-			gfx().myDevice,
-			dedicatedTransferContext,
-			BufferCreateDesc<Vk>{
-				ShaderTypes_MaterialCount * sizeof(MaterialData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-			materialData.get());
-
-		auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
-		auto identityMatrix = glm::mat4x4(1.0f);
-		objectData[666].modelTransform = identityMatrix;
-		objectData[666].inverseTransposeModelTransform =
-			glm::transpose(glm::inverse(identityMatrix));
-		gfx().myObjects = std::make_unique<Buffer<Vk>>(
-			gfx().myDevice,
-			dedicatedTransferContext,
-			BufferCreateDesc<Vk>{
-				ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-			objectData.get());
-
-		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
-			{{},
-			 {},
-			 {},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-		transferQueue.submit();
-	}
-
-	// set global descriptor set data
-
-	auto [layoutIt, insertResult] =
-		gfx().myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(gfx().myDevice, shaderReflection));
-	assert(insertResult);
-	gfx().myPipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	gfx().myPipeline->setDescriptorData(
-		"g_viewData",
-		DescriptorBufferInfo<Vk>{gfx().myMainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_View);
-
-	gfx().myPipeline->setDescriptorData(
-		"g_materialData",
-		DescriptorBufferInfo<Vk>{*gfx().myMaterials, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_Material);
-
-	gfx().myPipeline->setDescriptorData(
-		"g_objectData",
-		DescriptorBufferInfo<Vk>{*gfx().myObjects, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_Object,
-		42);
-
-	gfx().myPipeline->setDescriptorData(
-		"g_samplers",
-		DescriptorImageInfo<Vk>{(*gfx().myPipeline->resources().samplers)[0]},
-		DescriptorSetCategory_GlobalSamplers,
-		samplerId);
+	auto rootPath = this->state().rootPath;
+	auto resourcePath = this->state().resourcePath;
+	auto userProfilePath = this->state().userProfilePath;
 
 	// GUI + misc callbacks
 
@@ -1140,6 +760,405 @@ GraphicsApplication<Vk>::GraphicsApplication(const WindowState& window)
 	};
 
 	//myNodeGraph = std::filesystem::path(client_getUserProfilePath()) / "nodegraph.json"; // temp - this should be stored in the resource path
+}
+
+template <>
+void GraphicsApplication<Vk>::createDevice(const WindowState& window)
+{
+	auto rootPath = state().rootPath;
+	auto resourcePath = state().resourcePath;
+	auto userProfilePath = state().userProfilePath;
+
+	auto shaderIncludePath = rootPath / "src/rhi/shaders";
+	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
+
+	auto vkSDKPathEnv = std::getenv("VK_SDK_PATH");
+	auto vkSDKPath = vkSDKPathEnv ? std::filesystem::path(vkSDKPathEnv) : rootPath;
+	auto vkSDKBinPath = vkSDKPath / "bin";
+
+	ShaderLoader shaderLoader(
+		{shaderIncludePath},
+		{std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)},
+		shaderIntermediatePath);
+
+	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
+	
+	auto surface = createSurface(*gfx().myInstance, &gfx().myInstance->getHostAllocationCallbacks(), window.nativeHandle);
+
+	auto detectSuitableGraphicsDevice = [](auto instance, auto surface)
+	{
+		const auto& physicalDevices = instance->getPhysicalDevices();
+
+		std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
+		graphicsDeviceCandidates.reserve(physicalDevices.size());
+
+		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << std::endl;
+
+		for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
+			 physicalDeviceIt++)
+		{
+			auto physicalDevice = physicalDevices[physicalDeviceIt];
+
+			const auto& physicalDeviceInfo = instance->getPhysicalDeviceInfo(physicalDevice);
+			const auto& swapchainInfo = instance->getSwapchainInfo(physicalDevice, surface);
+
+			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << std::endl;
+
+			for (uint32_t queueFamilyIt = 0;
+				 queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
+				 queueFamilyIt++)
+			{
+				const auto& queueFamilyProperties =
+					physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
+				const auto& queueFamilyPresentSupport =
+					swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
+
+				if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+					queueFamilyPresentSupport)
+					graphicsDeviceCandidates.emplace_back(
+						std::make_tuple(physicalDeviceIt, queueFamilyIt));
+			}
+		}
+
+		std::sort(
+			graphicsDeviceCandidates.begin(),
+			graphicsDeviceCandidates.end(),
+			[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
+			{
+				constexpr uint32_t deviceTypePriority[]{
+					4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
+					1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
+					0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
+					2,		   //VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
+					3,		   //VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
+					0x7FFFFFFF //VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
+				};
+				const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
+				const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
+
+				auto lhsDeviceType =
+					instance->getPhysicalDeviceInfo(physicalDevices[lhsPhysicalDeviceIndex])
+						.deviceProperties.properties.deviceType;
+				auto rhsDeviceType =
+					instance->getPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex])
+						.deviceProperties.properties.deviceType;
+
+				return deviceTypePriority[lhsDeviceType] < deviceTypePriority[rhsDeviceType];
+			});
+
+		if (graphicsDeviceCandidates.empty())
+			throw std::runtime_error("failed to find a suitable GPU!");
+
+		return std::get<0>(graphicsDeviceCandidates.front());
+	};
+
+	gfx().myDevice = std::make_shared<Device<Vk>>(
+		gfx().myInstance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(gfx().myInstance, surface)});
+
+	auto detectSuitableSwapchain = [](auto instance, auto device, auto surface)
+	{
+		const auto& swapchainInfo =
+			instance->getSwapchainInfo(device->getPhysicalDevice(), surface);
+
+		SwapchainConfiguration<Vk> config{swapchainInfo.capabilities.currentExtent};
+
+		constexpr Format<Vk> requestSurfaceImageFormat[]{
+			VK_FORMAT_B8G8R8A8_UNORM,
+			VK_FORMAT_R8G8B8A8_UNORM,
+			VK_FORMAT_B8G8R8_UNORM,
+			VK_FORMAT_R8G8B8_UNORM};
+		constexpr ColorSpace<Vk> requestSurfaceColorSpace =
+			VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		constexpr PresentMode<Vk> requestPresentMode[]{
+			VK_PRESENT_MODE_MAILBOX_KHR,
+			VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+			VK_PRESENT_MODE_FIFO_KHR,
+			VK_PRESENT_MODE_IMMEDIATE_KHR};
+
+		// Request several formats, the first found will be used
+		// If none of the requested image formats could be found, use the first available
+		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestSurfaceImageFormat);
+			 requestIt++)
+		{
+			SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
+
+			auto formatIt = std::find_if(
+				swapchainInfo.formats.begin(),
+				swapchainInfo.formats.end(),
+				[&requestedFormat](VkSurfaceFormatKHR format)
+				{
+					return requestedFormat.format == format.format &&
+						   requestedFormat.colorSpace == format.colorSpace;
+				});
+
+			if (formatIt != swapchainInfo.formats.end())
+			{
+				config.surfaceFormat = *formatIt;
+				break;
+			}
+		}
+
+		// Request a certain mode and confirm that it is available. If not use
+		// VK_PRESENT_MODE_FIFO_KHR which is mandatory
+		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestPresentMode); requestIt++)
+		{
+			auto modeIt = std::find(
+				swapchainInfo.presentModes.begin(),
+				swapchainInfo.presentModes.end(),
+				requestPresentMode[requestIt]);
+
+			if (modeIt != swapchainInfo.presentModes.end())
+			{
+				config.presentMode = *modeIt;
+
+				switch (config.presentMode)
+				{
+				case VK_PRESENT_MODE_MAILBOX_KHR:
+					config.imageCount = 3;
+					break;
+				default:
+					config.imageCount = 2;
+					break;
+				}
+
+				break;
+			}
+		}
+
+		return config;
+	};
+
+	gfx().myPipeline = std::make_shared<Pipeline<Vk>>(
+		gfx().myDevice, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
+
+	gfx().myMainWindow = std::make_shared<Window<Vk>>(
+		gfx().myDevice,
+		std::move(surface),
+		WindowConfiguration<Vk>{
+			detectSuitableSwapchain(gfx().myInstance, gfx().myDevice, surface),
+			{window.width, window.height},
+			{1ul, 1ul}});
+
+	{
+		uint32_t frameCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
+
+		auto& primaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary];
+		auto& secondaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary];
+		auto& generalTransferContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer];
+		auto& dedicatedComputeContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedCompute];
+		auto& dedicatedTransferContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer];
+
+		auto& graphicsQueues = gfx().myGraphicsQueues;
+		auto& computeQueues = gfx().myComputeQueues;
+		auto& transferQueues = gfx().myTransferQueues;
+
+		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+		constexpr bool useCommandBufferCreateReset = true;
+		if (useCommandBufferCreateReset)
+			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+		const auto& queueFamilies = gfx().myDevice->getQueueFamilies();
+		for (auto queueFamilyIt = queueFamilies.begin(); queueFamilyIt != queueFamilies.end();
+			 queueFamilyIt++)
+		{
+			const auto& queueFamily = *queueFamilyIt;
+			auto queueFamilyIndex =
+				static_cast<uint32_t>(std::distance(queueFamilies.begin(), queueFamilyIt));
+
+			if (queueFamily.flags & QueueFamilyFlagBits_Graphics)
+			{
+				for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
+				{
+					primaryContexts.emplace_back(CommandPoolContext<Vk>(
+						gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
+					for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4;
+						 secondaryContextIt++)
+					{
+						secondaryContexts.emplace_back(CommandPoolContext<Vk>(
+							gfx().myDevice,
+							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+					}
+				}
+
+				generalTransferContexts.emplace_back(CommandPoolContext<Vk>(
+					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
+				graphicsQueues.emplace_back(Queue<Vk>(
+					gfx().myDevice,
+					QueueCreateDesc<Vk>{
+						0,
+						queueFamilyIndex,
+						primaryContexts.get().commands(
+							CommandBufferAccessScopeDesc<Vk>(false))}));
+			}
+			else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
+			{
+				// only need one for now..
+
+				dedicatedComputeContexts.emplace_back(CommandPoolContext<Vk>(
+					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
+				computeQueues.emplace_back(
+					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
+			}
+			else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
+			{
+				// only need one for now..
+
+				dedicatedTransferContexts.emplace_back(CommandPoolContext<Vk>(
+					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+
+				transferQueues.emplace_back(
+					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
+			}
+		}
+	}
+
+	createWindowDependentObjects(gfx().myMainWindow->getConfig().swapchainConfig.extent);
+
+	// todo: create some resource global storage
+	gfx().myPipeline->resources().black = std::make_shared<Image<Vk>>(
+		gfx().myDevice,
+		ImageCreateDesc<Vk>{
+			std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
+			VK_FORMAT_R8G8B8A8_UNORM,
+			VK_IMAGE_TILING_LINEAR,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+
+	gfx().myPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
+		gfx().myDevice, *gfx().myPipeline->resources().black, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
+	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr,
+		0u,
+		VK_FILTER_LINEAR,
+		VK_FILTER_LINEAR,
+		VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		0.0f,
+		VK_TRUE,
+		16.f,
+		VK_FALSE,
+		VK_COMPARE_OP_ALWAYS,
+		0.0f,
+		1000.0f,
+		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		VK_FALSE});
+	gfx().myPipeline->resources().samplers =
+		std::make_shared<SamplerVector<Vk>>(gfx().myDevice, std::move(samplerCreateInfos));
+	//
+
+	// initialize stuff on general transfer queue
+	{
+		auto& generalTransferContext = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer].fetchAdd();
+		auto cmd = generalTransferContext.commands();
+
+		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		gfx().myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
+		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		initIMGUI(
+			window,
+			gfx().myDevice,
+			cmd,
+			gfx().myMainWindow->getRenderPass(),
+			gfx().myMainWindow->getSurface(),
+			userProfilePath);
+
+		cmd.end();
+
+		gfx().myGraphicsQueues.get().enqueueSubmit(generalTransferContext.prepareSubmit(
+			{{gfx().myDevice->getTimelineSemaphore()},
+			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
+			 {gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0)},
+			 {gfx().myDevice->getTimelineSemaphore()},
+			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+		gfx().myGraphicsQueues.get().submit();
+	}
+
+	constexpr uint32_t textureId = 1;
+	constexpr uint32_t samplerId = 2;
+	static_assert(textureId < ShaderTypes_GlobalTextureCount);
+	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
+	{
+		auto& dedicatedTransferContext =
+			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
+
+		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
+
+		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
+		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
+		materialData[0].textureAndSamplerId =
+			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
+		gfx().myMaterials = std::make_unique<Buffer<Vk>>(
+			gfx().myDevice,
+			dedicatedTransferContext,
+			BufferCreateDesc<Vk>{
+				ShaderTypes_MaterialCount * sizeof(MaterialData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+			materialData.get());
+
+		auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
+		auto identityMatrix = glm::mat4x4(1.0f);
+		objectData[666].modelTransform = identityMatrix;
+		objectData[666].inverseTransposeModelTransform =
+			glm::transpose(glm::inverse(identityMatrix));
+		gfx().myObjects = std::make_unique<Buffer<Vk>>(
+			gfx().myDevice,
+			dedicatedTransferContext,
+			BufferCreateDesc<Vk>{
+				ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+			objectData.get());
+
+		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+			{{},
+			 {},
+			 {},
+			 {gfx().myDevice->getTimelineSemaphore()},
+			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+		transferQueue.submit();
+	}
+
+	// set global descriptor set data
+
+	auto [layoutIt, insertResult] =
+		gfx().myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(gfx().myDevice, shaderReflection));
+	assert(insertResult);
+	gfx().myPipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+	gfx().myPipeline->setDescriptorData(
+		"g_viewData",
+		DescriptorBufferInfo<Vk>{gfx().myMainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+		DescriptorSetCategory_View);
+
+	gfx().myPipeline->setDescriptorData(
+		"g_materialData",
+		DescriptorBufferInfo<Vk>{*gfx().myMaterials, 0, VK_WHOLE_SIZE},
+		DescriptorSetCategory_Material);
+
+	gfx().myPipeline->setDescriptorData(
+		"g_objectData",
+		DescriptorBufferInfo<Vk>{*gfx().myObjects, 0, VK_WHOLE_SIZE},
+		DescriptorSetCategory_Object,
+		42);
+
+	gfx().myPipeline->setDescriptorData(
+		"g_samplers",
+		DescriptorImageInfo<Vk>{(*gfx().myPipeline->resources().samplers)[0]},
+		DescriptorSetCategory_GlobalSamplers,
+		samplerId);
 }
 
 template <>

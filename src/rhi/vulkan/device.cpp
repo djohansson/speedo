@@ -1,8 +1,7 @@
 #include "../device.h"
+#include "../graphicsapplication.h"
 
 #include "utils.h"
-
-#include <client/client.h> // TODO: eliminate this dependency
 
 #include <algorithm>
 //#include <format>
@@ -221,7 +220,7 @@ Device<Vk>::Device(
 	DeviceConfiguration<Vk>&& defaultConfig)
 	: myInstance(instance)
 	, myConfig(AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
-		  std::filesystem::path(client_getUserProfilePath()) / "device.json",
+		  Application::get().lock()->state().userProfilePath / "device.json",
 		  std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
@@ -492,7 +491,7 @@ DeviceObject<Vk>::DeviceObject(
 				stringBuffer,
 				"%.*s%.*u",
 				static_cast<int>(getName().size()),
-				getName().c_str(),
+				getName().data(),
 				2,
 				objectIt);
 
