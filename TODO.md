@@ -11,16 +11,15 @@
 * todo: shader graph
 * todo: implement interprocess distributed task system using cppzmq &| zpp::bits
 * todo: split and clean up concurrency-utils
-* todo: make GraphicsApplication & Window class graphics independent (if possible)
 * todo: refactor GraphicsContext into separate class
 * todo: (maybe) use Scatter/Gather I/O
-* todo: untangle client dependencies
 * todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
 * todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 * todo: remove all use of preprocessor macros, and replace with constexpr functions so that we can migrate to using modules.
 
 * in progress: clean up utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
 * in progress: streamlined project setup process on all platforms.
+* in progress: make GraphicsApplication & Window class graphics independent (if possible)
 
 * done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible
 * done: instrumentation and timing information
@@ -33,5 +32,6 @@
 * done: migrate out of slang into own root and clean up folder structure
 * done: replace all external deps with vcpkg packages
 * done: replace cereal with glaze & zpp::bits
+* done: untangle client dependencies
 
 * cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
