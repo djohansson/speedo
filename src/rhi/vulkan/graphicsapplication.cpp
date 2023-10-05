@@ -877,7 +877,7 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 
 		// Request several formats, the first found will be used
 		// If none of the requested image formats could be found, use the first available
-		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestSurfaceImageFormat);
+		for (unsigned requestIt = 0; requestIt < std::size(requestSurfaceImageFormat);
 			 requestIt++)
 		{
 			SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
@@ -900,7 +900,7 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 
 		// Request a certain mode and confirm that it is available. If not use
 		// VK_PRESENT_MODE_FIFO_KHR which is mandatory
-		for (uint32_t requestIt = 0ul; requestIt < std::ssize(requestPresentMode); requestIt++)
+		for (unsigned requestIt = 0; requestIt < std::size(requestPresentMode); requestIt++)
 		{
 			auto modeIt = std::find(
 				swapchainInfo.presentModes.begin(),

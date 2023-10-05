@@ -897,9 +897,9 @@ VkDescriptorPool createDescriptorPool(VkDevice device)
 		{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, maxInlineBlockSizeBytes}};
 
 	VkDescriptorPoolCreateInfo poolInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-	poolInfo.poolSizeCount = static_cast<uint32_t>(std::ssize(poolSizes));
+	poolInfo.poolSizeCount = std::size(poolSizes);
 	poolInfo.pPoolSizes = poolSizes;
-	poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(std::ssize(poolSizes));
+	poolInfo.maxSets = maxDescriptorCount * std::size(poolSizes);
 	poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 	// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 	// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT

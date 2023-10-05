@@ -124,10 +124,10 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 			static_cast<int>(errorStr.size()),
 			errorStr.data());
 
-		ZoneName(failedStr, std::ssize(failedStr));
+		ZoneName(failedStr, std::size(failedStr));
 
 		// todo: print error code
-		//ZoneText(failedStr, std::ssize(failedStr));
+		//ZoneText(failedStr, std::size(failedStr));
 
 		return std::make_tuple(false, lastFrame.getLastPresentTimelineValue());
 	}
@@ -140,7 +140,7 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 		flipFrameStr.data(),
 		myFrameIndex);
 
-	ZoneName(flipFrameWithNumberStr, std::ssize(flipFrameWithNumberStr));
+	ZoneName(flipFrameWithNumberStr, std::size(flipFrameWithNumberStr));
 
 	const auto& frame = myFrames[myFrameIndex];
 

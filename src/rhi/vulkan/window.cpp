@@ -123,7 +123,7 @@ uint32_t Window<Vk>::internalDrawViews(
 					drawPartitionStr.data(),
 					threadIt);
 
-				ZoneName(drawPartitionWithNumberStr, std::ssize(drawPartitionWithNumberStr));
+				ZoneName(drawPartitionWithNumberStr, std::size(drawPartitionWithNumberStr));
 
 				CommandBufferInheritanceInfo<Vk> inheritInfo{
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
@@ -343,7 +343,7 @@ void Window<Vk>::updateInput(const InputState& input)
 		float dx = 0.f;
 		float dz = 0.f;
 
-		for (unsigned key = 0; key < std::ssize(input.keysPressed); key++)
+		for (unsigned key = 0; key < std::size(input.keysPressed); key++)
 		{
 			if (input.keysPressed[key])
 			{
