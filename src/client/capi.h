@@ -2,6 +2,9 @@
 
 #include <core/capi.h>
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -15,7 +18,7 @@ void client_create(
 void client_destroy(void);
 bool client_tick();
 void client_resizeWindow(const WindowState* state);
-void client_resizeFramebuffer(int width, int height);
+void client_resizeFramebuffer(uint32_t width, uint32_t height);
 void client_mouse(const MouseState* state);
 void client_keyboard(const KeyboardState* state);
 const char* client_getAppName(void);

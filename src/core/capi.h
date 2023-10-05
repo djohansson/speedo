@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -15,7 +14,7 @@ typedef struct _MouseState
 	uint32_t mods;
 	uint8_t button;
 	uint8_t action;
-	bool insideWindow;
+	uint8_t insideWindow : 1;
 } MouseState;
 
 typedef struct _KeyboardState
@@ -37,15 +36,8 @@ typedef struct _WindowState
 	uint32_t fullscreenWidth;
 	uint32_t fullscreenHeight;
 	uint32_t fullscreenRefresh;
-	bool fullscreenEnabled;
+	uint8_t fullscreenEnabled : 1;
 } WindowState;
-
-typedef struct _InputState
-{
-	float mousePosition[2][2];
-	bool keysPressed[512];
-	bool mouseButtonsPressed[4];
-} InputState;
 
 #ifdef __cplusplus
 }

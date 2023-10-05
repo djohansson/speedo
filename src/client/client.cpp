@@ -61,12 +61,8 @@ void client_resizeWindow(const WindowState* state)
 	client::s_application->resizeWindow(*state);
 }
 
-void client_resizeFramebuffer(int width, int height)
+void client_resizeFramebuffer(uint32_t width, uint32_t height)
 {
-	assert(width > 0);
-	assert(height > 0);
-	assert(width <= 16384);
-	assert(height <= 16384);
 	assert(client::s_application);
 	
 	client::s_application->resizeFramebuffer(width, height);

@@ -36,6 +36,18 @@ template <GraphicsBackend B>
 class Window : public Swapchain<B>
 {
 public:
+	struct InputState
+	{
+		bool keysPressed[512]; // todo: rewite to bitfield array
+		struct MouseState
+		{
+			float position[2][2];
+			uint8_t leftPressed : 1;
+			uint8_t rightPressed : 1;
+			uint8_t hoverScreen : 1;
+		} mouse;
+	};
+	
 	constexpr Window() noexcept = default;
 	Window(
 		const std::shared_ptr<Device<B>>& device,

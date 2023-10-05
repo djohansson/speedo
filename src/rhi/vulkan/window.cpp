@@ -317,19 +317,19 @@ void Window<Vk>::updateInput(const InputState& input)
 
 	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
-	if (input.mouseButtonsPressed[2])
+	if (input.mouse.hoverScreen)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = input.mousePosition[0][0] /
+		size_t viewIdx = input.mouse.position[0][0] /
 						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-		size_t viewIdy = input.mousePosition[0][1] /
+		size_t viewIdy = input.mouse.position[0][1] /
 						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
 		myActiveView =
 			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-		//std::cout << *myActiveView << ":[" << input.mousePosition[0][0] << ", " << input.mousePosition[0][1] << "]" << '\n';
+		//std::cout << *myActiveView << ":[" << input.mouse.position[0][0] << ", " << input.mouse.position[0][1] << "]" << '\n';
 	}
-	else if (!input.mouseButtonsPressed[0])
+	else if (!input.mouse.leftPressed)
 	{
 		myActiveView.reset();
 
@@ -387,11 +387,11 @@ void Window<Vk>::updateInput(const InputState& input)
 			doUpdateViewMatrix = true;
 		}
 
-		if (input.mouseButtonsPressed[0])
+		if (input.mouse.leftPressed)
 		{
 			constexpr auto rotSpeed = 0.00000001f;
 
-			float dM[2] = {input.mousePosition[1][0] - input.mousePosition[0][0], input.mousePosition[1][1] - input.mousePosition[0][1]};
+			float dM[2] = {input.mouse.position[1][0] - input.mouse.position[0][0], input.mouse.position[1][1] - input.mouse.position[0][1]};
 
 			view.desc().cameraRotation +=
 				dt *

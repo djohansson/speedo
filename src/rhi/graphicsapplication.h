@@ -36,7 +36,7 @@ public:
 	bool tick();
 
 	void resizeWindow(const WindowState& window);
-	void resizeFramebuffer(int width, int height);
+	void resizeFramebuffer(uint32_t width, uint32_t height);
 
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
@@ -65,7 +65,7 @@ private:
 
 	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
 
-	InputState myInput{};
+	Window<B>::InputState myInput{};
 
 	struct GraphicsContext
 	{

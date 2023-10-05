@@ -1197,23 +1197,23 @@ void GraphicsApplication<Vk>::onMouse(const MouseState& mouse)
 
 	auto screenPos = glm::vec2(mouse.xpos, mouse.ypos);
 
-	myInput.mousePosition[0][0] = static_cast<float>(screenPos.x);
-	myInput.mousePosition[0][1] = static_cast<float>(screenPos.y);
+	myInput.mouse.position[0][0] = static_cast<float>(screenPos.x);
+	myInput.mouse.position[0][1] = static_cast<float>(screenPos.y);
 	
-	if (leftPressed && !myInput.mouseButtonsPressed[0])
+	if (leftPressed && !myInput.mouse.leftPressed)
 	{
-		myInput.mousePosition[1][0] = myInput.mousePosition[0][0];
-		myInput.mousePosition[1][1] = myInput.mousePosition[0][1]; 
+		myInput.mouse.position[1][0] = myInput.mouse.position[0][0];
+		myInput.mouse.position[1][1] = myInput.mouse.position[0][1]; 
 	}
 	else
 	{
-		myInput.mousePosition[1][0] = myInput.mousePosition[1][0];
-		myInput.mousePosition[1][1] = myInput.mousePosition[1][1];
+		myInput.mouse.position[1][0] = myInput.mouse.position[1][0];
+		myInput.mouse.position[1][1] = myInput.mouse.position[1][1];
 	}
 
-	myInput.mouseButtonsPressed[0] = leftPressed;
-	myInput.mouseButtonsPressed[1] = rightPressed;
-	myInput.mouseButtonsPressed[2] = mouse.insideWindow && !myInput.mouseButtonsPressed[0];
+	myInput.mouse.leftPressed = leftPressed;
+	myInput.mouse.rightPressed = rightPressed;
+	myInput.mouse.hoverScreen = mouse.insideWindow && !myInput.mouse.leftPressed;
 
 	ImGuiIO& io = ImGui::GetIO();
 	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, leftPressed);
@@ -1223,6 +1223,8 @@ void GraphicsApplication<Vk>::onMouse(const MouseState& mouse)
 template <>
 void GraphicsApplication<Vk>::onKeyboard(const KeyboardState& keyboard)
 {
+	assert(keyboard.key < std::size(myInput.keysPressed));
+	
 	if (keyboard.action == GLFW_PRESS)
 		myInput.keysPressed[keyboard.key] = true;
 	else if (keyboard.action == GLFW_RELEASE)
@@ -1386,7 +1388,7 @@ bool GraphicsApplication<Vk>::tick()
 }
 
 template <>
-void GraphicsApplication<Vk>::resizeFramebuffer(int, int)
+void GraphicsApplication<Vk>::resizeFramebuffer(uint32_t, uint32_t)
 {
 	ZoneScopedN("GraphicsApplication::resizeFramebuffer");
 
