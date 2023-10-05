@@ -199,7 +199,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 			VK_MAKE_VERSION(1, 0, 0),
 			nullptr,
 			VK_MAKE_VERSION(1, 0, 0),
-			VK_API_VERSION_1_3}})}
+			VK_API_VERSION_1_2}})}
 {
 	ZoneScopedN("GraphicsApplication()");
 
