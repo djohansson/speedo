@@ -51,7 +51,7 @@ if ($IsWindows)
 
 		$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
 	}
-	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue "C:\VulkanSDK\1.3.231.1" | Out-Null
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue ("C:\VulkanSDK\" + $vulkanSdkInfo.InstalledVersion) | Out-Null
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK_VERSION -NotePropertyValue $vulkanSdkInfo.InstalledVersion | Out-Null
 
 	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
