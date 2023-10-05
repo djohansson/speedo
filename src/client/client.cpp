@@ -12,6 +12,8 @@ static std::shared_ptr<GraphicsApplication<Vk>> s_application{};
 std::filesystem::path
 getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
 {
+	assert(defaultPathStr != nullptr);
+	
 	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
 
 	if (createIfMissing && !std::filesystem::exists(path))
