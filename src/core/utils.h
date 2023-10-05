@@ -71,6 +71,17 @@ private:
 	Noncopyable& operator=(const Noncopyable&) = delete;
 };
 
+class Nonmovable
+{
+public:
+	constexpr Nonmovable() = default;
+	~Nonmovable() = default;
+
+private:
+	Nonmovable(Nonmovable&&) = delete;
+	Nonmovable& operator=(Nonmovable&&) = delete;
+};
+
 class Nondynamic
 {
 public:

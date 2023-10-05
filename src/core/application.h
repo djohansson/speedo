@@ -7,7 +7,7 @@
 
 #include <core/utils.h>
 
-class Application : public Noncopyable
+class Application : public Noncopyable, Nonmovable
 {
 public:
 	virtual ~Application() = default;
