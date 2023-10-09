@@ -120,6 +120,6 @@ else
 
 Write-Host "Installing vcpkg packages for $myTriplet using manifest..."
 
-vcpkg install --x-install-root="build.vcpkg" --overlay-triplets=$PSScriptRoot --triplet $myTriplet --x-feature=client --x-feature=server --x-feature=tests --no-print-usage
+vcpkg install --x-install-root="build.vcpkg" --overlay-triplets=$PSScriptRoot --triplet $myTriplet --x-feature=client --x-feature=server --no-print-usage
 
 Initialize-DevEnv
