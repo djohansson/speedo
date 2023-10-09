@@ -49,8 +49,9 @@
 		+ ' -DUNICODE'
 		+ ' -D_UNICODE'
 		+ ' -D_CRT_SECURE_NO_WARNINGS'
-		+ ' -D_WIN32_LEAN_AND_MEAN'
+		+ ' -DVC_EXTRALEAN'
 		+ ' -DNOMINMAX'
+		+ ' -D_WINSOCKAPI_' // stops windows.h including winsock.h
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -gcodeview'
@@ -76,6 +77,7 @@
 		+ .PlatformLibPaths
 #if __WINDOWS__
 		+ ' -fuse-ld=lld'
+		+ ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 #if !__WINDOWS__
