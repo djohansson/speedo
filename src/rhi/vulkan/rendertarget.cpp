@@ -2,11 +2,11 @@
 
 #include "utils.h"
 
-#include <memory>
-
 #include <stb_sprintf.h>
 
 #include <xxhash.h>
+
+#include <memory>
 
 template <>
 void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)

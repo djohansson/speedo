@@ -3,16 +3,16 @@
 
 #include "utils.h"
 
+#include <stb_sprintf.h>
+
+#include <xxhash.h>
+
 #include <algorithm>
 //#include <format>
 #include <list>
 #include <iostream>
 #include <shared_mutex>
 #include <utility>
-
-#include <stb_sprintf.h>
-
-#include <xxhash.h>
 
 namespace device
 {
