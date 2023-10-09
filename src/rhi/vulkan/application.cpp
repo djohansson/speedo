@@ -206,7 +206,7 @@ Application<Vk>::Application(const WindowState& window)
 
 	ShaderLoader shaderLoader(
 		{shaderIncludePath},
-		{/*std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)*/},
+		{std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)},
 		shaderIntermediatePath);
 
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
@@ -357,7 +357,7 @@ Application<Vk>::Application(const WindowState& window)
 	};
 
 	gfx().myPipeline = std::make_shared<Pipeline<Vk>>(
-		gfx().myDevice, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
+		gfx().myDevice, PipelineConfiguration<Vk>{(userProfilePath / ".cache" / "pipeline").string()});
 
 	gfx().myMainWindow = std::make_shared<Window<Vk>>(
 		gfx().myDevice,
