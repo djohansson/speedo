@@ -47,7 +47,7 @@ if ($IsWindows)
 	{
 		Write-Host "Installing VulkanSDK (requires process elevation)..."
 
-		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id KhronosGroup.VulkanSDK | Out-Null"
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id KhronosGroup.VulkanSDK | Out-Null" -Wait
 
 		$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
 	}
@@ -59,7 +59,7 @@ if ($IsWindows)
 	{
 		Write-Host "Installing WindowsSDK 10.0.22621 (requires process elevation)..."
 
-		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null"
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null" -Wait
 
 		$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
 	}
