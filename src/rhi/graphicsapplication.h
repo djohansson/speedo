@@ -33,16 +33,17 @@ class GraphicsApplication : public Application
 public:
 	virtual ~GraphicsApplication();
 
-	bool tick();
+	virtual bool tick();
 
-	void resizeWindow(const WindowState& window);
-	void resizeFramebuffer(uint32_t width, uint32_t height);
+	void onResizeWindow(const WindowState& window);
+	void onResizeFramebuffer(uint32_t width, uint32_t height);
 
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
 
 	//void setGraphicsBackend(GraphicsBackend backend);
 	void createDevice(const WindowState& window);
+	const WindowState& createWindow();
 
 protected:
 	GraphicsApplication(Application::State&& state);
@@ -64,8 +65,6 @@ private:
 	const auto& gfx() const noexcept { return myGraphicsContext; }
 
 	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
-
-	Window<B>::InputState myInput{};
 
 	struct GraphicsContext
 	{

@@ -4,6 +4,10 @@
 
 #include "utils.h"
 
+#include <GLFW/glfw3.h>
+
+#include <imgui.h>
+
 #include <stb_sprintf.h>
 
 #if defined(__WINDOWS__)
@@ -14,10 +18,6 @@
 #include <numeric>
 #include <string>
 #include <string_view>
-
-#define GLFW_INCLUDE_NONE
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 
 template <>
 void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
@@ -259,46 +259,6 @@ uint32_t Window<Vk>::internalDrawViews(
 }
 
 template <>
-void Window<Vk>::draw(
-	TaskExecutor& executor,
-	Pipeline<Vk>& pipeline,
-	CommandPoolContext<Vk>& primaryContext,
-	CommandPoolContext<Vk>* secondaryContexts,
-	uint32_t secondaryContextCount)
-{
-	ZoneScopedN("Window::draw");
-
-	TaskGraph graph;
-	auto [task, updateViewBufferFuture] = graph.createTask([this]{ internalUpdateViewBuffer(); });
-	executor.submit(std::move(graph));
-
-	auto& renderTarget = pipeline.getRenderTarget();
-
-	auto cmd = primaryContext.commands();
-	auto renderPassInfo = renderTarget.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
-	uint32_t drawThreadCount = internalDrawViews(
-		pipeline, secondaryContexts, secondaryContextCount, renderPassInfo.value());
-
-	for (uint32_t contextIt = 0ul; contextIt < drawThreadCount; contextIt++)
-		primaryContext.execute(secondaryContexts[contextIt]);
-
-	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-	renderTarget.end(cmd);
-	renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-
-	blit(
-		cmd,
-		renderTarget,
-		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		0,
-		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		0);
-
-	executor.join(std::move(updateViewBufferFuture));
-}
-
-template <>
 void Window<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 {
 	myConfig.swapchainConfig.extent = framebufferExtent;
@@ -308,28 +268,70 @@ void Window<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
 }
 
 template <>
-void Window<Vk>::updateInput(const InputState& input)
+void Window<Vk>::onMouse(const MouseState& mouse)
 {
-	ZoneScopedN("Window::updateInput");
+	bool leftPressed = mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS;
+	bool rightPressed = mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS;
+
+	auto screenPos = glm::vec2(mouse.xpos, mouse.ypos);
+
+	myInput.mouse.position[0][0] = static_cast<float>(screenPos.x);
+	myInput.mouse.position[0][1] = static_cast<float>(screenPos.y);
+	
+	if (leftPressed && !myInput.mouse.leftPressed)
+	{
+		myInput.mouse.position[1][0] = myInput.mouse.position[0][0];
+		myInput.mouse.position[1][1] = myInput.mouse.position[0][1]; 
+	}
+	else
+	{
+		myInput.mouse.position[1][0] = myInput.mouse.position[1][0];
+		myInput.mouse.position[1][1] = myInput.mouse.position[1][1];
+	}
+
+	myInput.mouse.leftPressed = leftPressed;
+	myInput.mouse.rightPressed = rightPressed;
+	myInput.mouse.hoverScreen = mouse.insideWindow && !myInput.mouse.leftPressed;
+
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, leftPressed);
+	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, rightPressed);
+}
+
+template <>
+void Window<Vk>::onKeyboard(const KeyboardState& keyboard)
+{
+	assert(keyboard.key < std::size(myInput.keysPressed));
+	
+	if (keyboard.action == GLFW_PRESS)
+		myInput.keysPressed[keyboard.key] = true;
+	else if (keyboard.action == GLFW_RELEASE)
+		myInput.keysPressed[keyboard.key] = false;
+}
+
+template <>
+void Window<Vk>::internalUpdateInput()
+{
+	ZoneScopedN("Window::internalUpdateInput");
 
 	myTimestamps[1] = myTimestamps[0];
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
 	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
-	if (input.mouse.hoverScreen)
+	if (myInput.mouse.hoverScreen)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = input.mouse.position[0][0] /
+		size_t viewIdx = myInput.mouse.position[0][0] /
 						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-		size_t viewIdy = input.mouse.position[0][1] /
+		size_t viewIdy = myInput.mouse.position[0][1] /
 						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
 		myActiveView =
 			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-		//std::cout << *myActiveView << ":[" << input.mouse.position[0][0] << ", " << input.mouse.position[0][1] << "]" << '\n';
+		//std::cout << *myActiveView << ":[" << myInput.mouse.position[0][0] << ", " << myInput.mouse.position[0][1] << "]" << '\n';
 	}
-	else if (!input.mouse.leftPressed)
+	else if (!myInput.mouse.leftPressed)
 	{
 		myActiveView.reset();
 
@@ -343,9 +345,9 @@ void Window<Vk>::updateInput(const InputState& input)
 		float dx = 0.f;
 		float dz = 0.f;
 
-		for (unsigned key = 0; key < std::size(input.keysPressed); key++)
+		for (unsigned key = 0; key < std::size(myInput.keysPressed); key++)
 		{
-			if (input.keysPressed[key])
+			if (myInput.keysPressed[key])
 			{
 				switch (key)
 				{
@@ -387,11 +389,11 @@ void Window<Vk>::updateInput(const InputState& input)
 			doUpdateViewMatrix = true;
 		}
 
-		if (input.mouse.leftPressed)
+		if (myInput.mouse.leftPressed)
 		{
 			constexpr auto rotSpeed = 0.00000001f;
 
-			float dM[2] = {input.mouse.position[1][0] - input.mouse.position[0][0], input.mouse.position[1][1] - input.mouse.position[0][1]};
+			float dM[2] = {myInput.mouse.position[1][0] - myInput.mouse.position[0][0], myInput.mouse.position[1][1] - myInput.mouse.position[0][1]};
 
 			view.desc().cameraRotation +=
 				dt *
@@ -410,6 +412,49 @@ void Window<Vk>::updateInput(const InputState& input)
 			myViews[*myActiveView].updateViewMatrix();
 		}
 	}
+}
+
+template <>
+void Window<Vk>::draw(
+	TaskExecutor& executor,
+	Pipeline<Vk>& pipeline,
+	CommandPoolContext<Vk>& primaryContext,
+	CommandPoolContext<Vk>* secondaryContexts,
+	uint32_t secondaryContextCount)
+{
+	ZoneScopedN("Window::draw");
+
+	if (!ImGui::GetIO().WantCaptureMouse)
+		internalUpdateInput();
+
+	TaskGraph graph;
+	auto [task, updateViewBufferFuture] = graph.createTask([this]{ internalUpdateViewBuffer(); });
+	executor.submit(std::move(graph));
+
+	auto& renderTarget = pipeline.getRenderTarget();
+
+	auto cmd = primaryContext.commands();
+	auto renderPassInfo = renderTarget.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+
+	uint32_t drawThreadCount = internalDrawViews(
+		pipeline, secondaryContexts, secondaryContextCount, renderPassInfo.value());
+
+	for (uint32_t contextIt = 0ul; contextIt < drawThreadCount; contextIt++)
+		primaryContext.execute(secondaryContexts[contextIt]);
+
+	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+	renderTarget.end(cmd);
+	renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+
+	blit(
+		cmd,
+		renderTarget,
+		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		0,
+		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		0);
+
+	executor.join(std::move(updateViewBufferFuture));
 }
 
 template <>

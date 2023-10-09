@@ -127,6 +127,7 @@
 			+ ' -lmimalloc'
 			+ ' -lglfw3dll'
 			+ ' -lGLTFSDK'
+			+ ' -lhv'
 			+ ' -lTracyClient'
 			+ ' -limgui'
 			+ ' -lnfd'
@@ -146,6 +147,55 @@
 			+ ' -framework CoreVideo'
 		//	+ ' -rpath @executable_path/bin/osx-x64/'
 	#endif
+	]
+
+	.ServerLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'server'
+		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+		.CompilerInputPath = '$ProjectBasePath$/server'
+		.CompilerInputPattern = '*.cpp'
+	]
+
+	.ServerObjectList =
+	[
+		Using(.ObjectListCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'server'
+		.ObjectListCompilerOptions = .CompilerOptionsC
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+		.CompilerInputPath = '$ProjectBasePath$/server'
+		.CompilerInputPattern = '*.c'
+	]
+
+	.ServerExecutable = 
+	[
+		Using(.ExecutableCommon)
+
+		.Name = 'server'
+		.DependencyObjectLists = {
+			.ServerObjectList,
+		}
+		.DependencyLibraries = {
+			.CoreLibrary,
+			.ServerLibrary,
+		}
+		.DependencyDLLs = {
+		}
+		.ExecutableLinkerOptions = .LinkerOptionsCpp
+			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
+			+ ' -lmimalloc'
+			+ ' -lhv'
+			+ ' -lTracyClient'
 	]
 
 	.CoreTestsObjectList =
@@ -252,6 +302,7 @@
 			Using(.CompilerConfig)
 			
 			AddExecutable(.ClientExecutable .CompilerConfig)
+			AddExecutable(.ServerExecutable .CompilerConfig)
 			
 			AddTest(.CoreTests .CompilerConfig)
 
@@ -288,6 +339,7 @@
 			AddProject(.NoneProject .ProjectConfigs .VisualStudioFilesDir)
 
 			AddProject(.ClientExecutable .ProjectConfigs .VisualStudioFilesDir)
+			AddProject(.ServerExecutable .ProjectConfigs .VisualStudioFilesDir)
 			
 			AddProject(.CoreTests .ProjectConfigs .VisualStudioFilesDir)
 

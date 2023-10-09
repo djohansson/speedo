@@ -5,14 +5,9 @@
 
 #include <core/application.h>
 #include <core/gltfstream.h>
-#include <core/nodes/inputoutputnode.h>
-#include <core/nodes/slangshadernode.h>
+// #include <core/nodes/inputoutputnode.h>
+// #include <core/nodes/slangshadernode.h>
 
-#define STB_SPRINTF_IMPLEMENTATION // TODO: move this somewhere else
-#include <stb_sprintf.h>
-
-#define GLFW_INCLUDE_NONE
-#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include <imgui.h>
@@ -1192,43 +1187,13 @@ GraphicsApplication<Vk>::~GraphicsApplication()
 template <>
 void GraphicsApplication<Vk>::onMouse(const MouseState& mouse)
 {
-	bool leftPressed = mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS;
-	bool rightPressed = mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS;
-
-	auto screenPos = glm::vec2(mouse.xpos, mouse.ypos);
-
-	myInput.mouse.position[0][0] = static_cast<float>(screenPos.x);
-	myInput.mouse.position[0][1] = static_cast<float>(screenPos.y);
-	
-	if (leftPressed && !myInput.mouse.leftPressed)
-	{
-		myInput.mouse.position[1][0] = myInput.mouse.position[0][0];
-		myInput.mouse.position[1][1] = myInput.mouse.position[0][1]; 
-	}
-	else
-	{
-		myInput.mouse.position[1][0] = myInput.mouse.position[1][0];
-		myInput.mouse.position[1][1] = myInput.mouse.position[1][1];
-	}
-
-	myInput.mouse.leftPressed = leftPressed;
-	myInput.mouse.rightPressed = rightPressed;
-	myInput.mouse.hoverScreen = mouse.insideWindow && !myInput.mouse.leftPressed;
-
-	ImGuiIO& io = ImGui::GetIO();
-	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, leftPressed);
-	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, rightPressed);
+	gfx().myMainWindow->onMouse(mouse);
 }
 
 template <>
 void GraphicsApplication<Vk>::onKeyboard(const KeyboardState& keyboard)
 {
-	assert(keyboard.key < std::size(myInput.keysPressed));
-	
-	if (keyboard.action == GLFW_PRESS)
-		myInput.keysPressed[keyboard.key] = true;
-	else if (keyboard.action == GLFW_RELEASE)
-		myInput.keysPressed[keyboard.key] = false;
+	gfx().myMainWindow->onKeyboard(keyboard);
 }
 
 template <>
@@ -1292,16 +1257,6 @@ bool GraphicsApplication<Vk>::tick()
 					cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 				gfx().myRenderImageSet->transitionDepthStencil(
 					cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-			}
-			{
-				GPU_SCOPE(cmd, graphicsQueue, update);
-
-				// todo: unify all keyboard and mouse input. rely on imgui instead of glfw internally.
-				using namespace ImGui;
-
-				auto& io = GetIO();
-				if (!io.WantCaptureMouse)
-					gfx().myMainWindow->updateInput(myInput);
 			}
 			{
 				GPU_SCOPE(cmd, graphicsQueue, draw);
@@ -1384,16 +1339,16 @@ bool GraphicsApplication<Vk>::tick()
 
 	myExecutor.submit(std::move(frameGraph));
 
-	return myRequestExit;
+	return !myRequestExit;
 }
 
 template <>
-void GraphicsApplication<Vk>::resizeFramebuffer(uint32_t, uint32_t)
+void GraphicsApplication<Vk>::onResizeFramebuffer(uint32_t, uint32_t)
 {
-	ZoneScopedN("GraphicsApplication::resizeFramebuffer");
+	ZoneScopedN("GraphicsApplication::onResizeFramebuffer");
 
 	{
-		ZoneScopedN("GraphicsApplication::resizeFramebuffer::waitGPU");
+		ZoneScopedN("GraphicsApplication::onResizeFramebuffer::waitGPU");
 
 		gfx().myDevice->wait(gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
 	}

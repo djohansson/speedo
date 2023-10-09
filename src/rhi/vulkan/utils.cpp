@@ -14,10 +14,6 @@
 #ifdef __WINDOWS__
 #	include <windows.h>
 #	include <vulkan/vulkan_win32.h>
-#else
-#	define GLFW_INCLUDE_NONE
-#	define GLFW_INCLUDE_VULKAN
-#	include <GLFW/glfw3.h>
 #endif
 
 #include "utils.h"

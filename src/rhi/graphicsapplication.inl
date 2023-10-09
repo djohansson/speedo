@@ -1,5 +1,5 @@
 template <GraphicsBackend B>
-void GraphicsApplication<B>::resizeWindow(const WindowState& state)
+void GraphicsApplication<B>::onResizeWindow(const WindowState& state)
 {
 	if (state.fullscreenEnabled)
 	{

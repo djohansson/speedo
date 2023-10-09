@@ -190,7 +190,6 @@ int main(int argc, char* argv[], char* env[])
 	
 	printf("mi_version(): %d\n", mi_version());
 
-	// Setup window
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
 		return EXIT_FAILURE;
@@ -203,7 +202,6 @@ int main(int argc, char* argv[], char* env[])
 		return EXIT_FAILURE;
 	}
 
-	// Setup Vulkan
 	if (!glfwVulkanSupported())
 	{
 		printf("GLFW: Vulkan Not Supported\n");
@@ -238,7 +236,7 @@ int main(int argc, char* argv[], char* env[])
 	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetWindowTitle(window, client_getAppName());
 
-	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && !client_tick());
+	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick());
 
 	client_destroy();
 
