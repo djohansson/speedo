@@ -1,16 +1,8 @@
 .profile/*
-
 .vs/*
-
-*.vcxproj*
-*.sln
-
-*.fdb
-
 build.*/*
 
-slang-stdlib.bin
-slang.dll
-slang.pdb
+*.fdb
+*.log
 
 env.json
