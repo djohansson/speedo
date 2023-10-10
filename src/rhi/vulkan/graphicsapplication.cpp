@@ -62,7 +62,7 @@ void GraphicsApplication<Vk>::initIMGUI(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(state().resourcePath);
+	std::filesystem::path fontPath(getState().resourcePath);
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -185,7 +185,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 : Application(std::forward<Application::State>(state))
 , myGraphicsContext{std::make_shared<Instance<Vk>>(
 	InstanceConfiguration<Vk>{
-		this->state().name,
+		this->getState().name,
 		"speedo",
 		ApplicationInfo<Vk>{
 			VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -198,9 +198,9 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 {
 	ZoneScopedN("GraphicsApplication()");
 
-	auto rootPath = this->state().rootPath;
-	auto resourcePath = this->state().resourcePath;
-	auto userProfilePath = this->state().userProfilePath;
+	auto rootPath = this->getState().rootPath;
+	auto resourcePath = this->getState().resourcePath;
+	auto userProfilePath = this->getState().userProfilePath;
 
 	// GUI + misc callbacks
 
@@ -760,9 +760,9 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 template <>
 void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 {
-	auto rootPath = state().rootPath;
-	auto resourcePath = state().resourcePath;
-	auto userProfilePath = state().userProfilePath;
+	auto rootPath = getState().rootPath;
+	auto resourcePath = getState().resourcePath;
+	auto userProfilePath = getState().userProfilePath;
 
 	auto shaderIncludePath = rootPath / "src/rhi/shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";

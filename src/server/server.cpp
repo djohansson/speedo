@@ -19,9 +19,9 @@ using namespace hv;
 class ServerApplication : public Application
 {	
 public:
-	virtual ~ServerApplication() = default;
+	~ServerApplication() = default;
 
-	bool tick()
+	bool tick() override
 	{
 		auto c = getchar();
 		printf("getchar(): %c\n", c);
@@ -134,5 +134,5 @@ const char* server_getAppName(void)
 
 	assert(s_application);
 
-	return s_application->state().name.data();
+	return s_application->getState().name.data();
 }

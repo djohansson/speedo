@@ -31,9 +31,9 @@ template <GraphicsBackend B>
 class GraphicsApplication : public Application
 {	
 public:
-	virtual ~GraphicsApplication();
+	~GraphicsApplication() override;
 
-	virtual bool tick();
+	bool tick() override;
 
 	void onResizeWindow(const WindowState& window);
 	void onResizeFramebuffer(uint32_t width, uint32_t height);

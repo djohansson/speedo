@@ -12,6 +12,8 @@ class Application : public Noncopyable, Nonmovable
 public:
 	virtual ~Application() = default;
 
+	virtual bool tick() = 0;
+
 	struct State
 	{
 		std::string name;
@@ -20,8 +22,7 @@ public:
 		std::filesystem::path userProfilePath;
 	};
 
-	auto& state() noexcept { return myState; }
-	const auto& state() const noexcept { return myState; }
+	const auto& getState() const noexcept { return myState; }
 
 	template <typename T, typename... Args>
 	static std::shared_ptr<T> create(Args&&... args)
@@ -33,7 +34,7 @@ public:
 		return app;
 	}
 
-	static auto& get() noexcept { return theApplication; }
+	static auto& instance() noexcept { return theApplication; }
 
 protected:
 	Application(State&& state);

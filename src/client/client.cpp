@@ -15,9 +15,9 @@ namespace client
 class ClientApplication : public GraphicsApplication<Vk>
 {	
 public:
-	virtual ~ClientApplication() = default;
+	~ClientApplication() = default;
 
-	bool tick() final
+	bool tick() override
 	{
 		++myTickCount;
 		
@@ -163,5 +163,5 @@ const char* client_getAppName(void)
 
 	assert(s_application);
 
-	return s_application->state().name.data();
+	return s_application->getState().name.data();
 }
