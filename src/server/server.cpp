@@ -31,7 +31,7 @@ public:
 protected:
 	ServerApplication(Application::State&& state)
 	 : Application(std::forward<Application::State>(state))
-	 , myRouter([]
+	 , myRouter([&exec = executor()]
 	 {
 		HttpService router;
 		router.GET("/ping", [](HttpRequest* req, HttpResponse* resp) {
@@ -55,8 +55,14 @@ protected:
 			return 200;
 		});
 
-		router.POST("/echo", [](const HttpContextPtr& ctx) {
-			return ctx->send(ctx->body(), ctx->type());
+		router.POST("/echo", [&exec](const HttpContextPtr& ctx) {
+			TaskGraph graph;
+			auto [task, result] = graph.createTask([ctx]
+			{
+				return ctx->send(ctx->body(), ctx->type());
+			});
+			exec.submit(std::move(graph));
+			return 0;
 		});
 
 		return router;
@@ -64,7 +70,7 @@ protected:
 	 , myServer(&myRouter)
 	{
 		myServer.setPort(8080);
-		myServer.setThreadNum(std::max(1u, std::thread::hardware_concurrency() - 1));
+		myServer.setThreadNum(1);
 		myServer.run(false);
 	}
 
