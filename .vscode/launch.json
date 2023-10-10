@@ -116,7 +116,7 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
+			"console": "externalTerminal",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -146,7 +146,7 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
+			"console": "externalTerminal",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -176,7 +176,7 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
+			"console": "externalTerminal",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
