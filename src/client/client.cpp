@@ -1,6 +1,6 @@
 #include "capi.h"
 
-#include <rhi/graphicsapplication.h>
+#include <rhi/rhiapplication.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
@@ -12,7 +12,7 @@
 namespace client
 {
 
-class ClientApplication : public GraphicsApplication<Vk>
+class ClientApplication : public RhiApplication
 {	
 public:
 	~ClientApplication() = default;
@@ -24,12 +24,12 @@ public:
 		if (myTickCount % 1000)
 			printf("client says: tick! %llu\n", myTickCount);
 		
-		return GraphicsApplication<Vk>::tick();
+		return RhiApplication::tick();
 	}
 
 protected:
 	ClientApplication(Application::State&& state)
-	 : GraphicsApplication<Vk>(std::forward<Application::State>(state))
+	 : RhiApplication(std::forward<Application::State>(state))
 	{
 		using namespace hv;
 

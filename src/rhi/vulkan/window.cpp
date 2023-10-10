@@ -1,5 +1,5 @@
 #include "../window.h"
-#include "../graphicsapplication.h"
+#include "../rhiapplication.h"
 #include "../shaders/shadertypes.h"
 
 #include "utils.h"

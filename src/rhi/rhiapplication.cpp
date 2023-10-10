@@ -1,5 +1,6 @@
-template <GraphicsBackend B>
-void GraphicsApplication<B>::onResizeWindow(const WindowState& state)
+#include "rhiapplication.h"
+
+void RhiApplication::onResizeWindow(const WindowState& state)
 {
 	if (state.fullscreenEnabled)
 	{
@@ -10,4 +11,3 @@ void GraphicsApplication<B>::onResizeWindow(const WindowState& state)
 		gfx().myMainWindow->onResizeWindow({state.width, state.height});
 	}
 }
-

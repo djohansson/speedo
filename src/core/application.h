@@ -1,19 +1,17 @@
 #pragma once
 
+#include <core/concurrency-utils.h>
+#include <core/utils.h>
+
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <type_traits>
-
-#include <core/utils.h>
 
 class Application : public Noncopyable, Nonmovable
 {
 public:
-	virtual ~Application() = default;
-
-	virtual bool tick() = 0;
-
 	struct State
 	{
 		std::string name;
@@ -21,6 +19,10 @@ public:
 		std::filesystem::path resourcePath;
 		std::filesystem::path userProfilePath;
 	};
+
+	virtual ~Application() = default;
+
+	virtual bool tick() = 0;
 
 	const auto& getState() const noexcept { return myState; }
 
@@ -34,6 +36,9 @@ public:
 		return app;
 	}
 
+	auto& executor() noexcept { return myExecutor; }
+	const auto& executor() const noexcept { return myExecutor; }
+
 	static auto& instance() noexcept { return theApplication; }
 
 protected:
@@ -41,5 +46,6 @@ protected:
 
 private:
 	State myState{};
+	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
 	static std::weak_ptr<Application> theApplication;
 };

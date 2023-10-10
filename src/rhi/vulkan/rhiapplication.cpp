@@ -1,4 +1,4 @@
-#include "../graphicsapplication.h"
+#include "../rhiapplication.h"
 #include "../shaders/shadertypes.h"
 
 #include "utils.h"
@@ -17,16 +17,17 @@
 
 //#include <imnodes.h>
 
-template <>
-void GraphicsApplication<Vk>::initIMGUI(
-	const WindowState& window,
-	const std::shared_ptr<Device<Vk>>& device,
-	CommandBufferHandle<Vk> commands,
-	RenderPassHandle<Vk> renderPass,
-	SurfaceHandle<Vk> surface,
-	const std::filesystem::path& userProfilePath) const
+namespace rhiapplication
 {
-	ZoneScopedN("GraphicsApplication::initIMGUI");
+
+static void initIMGUI(
+	const std::filesystem::path& resourcePath,
+	const std::filesystem::path& userProfilePath,
+	const WindowState& window,
+	const RhiBackend<Vk>& gfx,
+	CommandBufferHandle<Vk> cmd)
+{
+	ZoneScopedN("RhiApplication::initIMGUI");
 
 	using namespace ImGui;
 
@@ -42,16 +43,15 @@ void GraphicsApplication<Vk>::initIMGUI(
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	auto& platformIo = ImGui::GetPlatformIO();
 	platformIo.Platform_CreateVkSurface =
-		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(
-			*gfx().myInstance, "vkCreateWin32SurfaceKHR");
+		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*gfx.myInstance, "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
-		gfx().myInstance->getSwapchainInfo(gfx().myDevice->getPhysicalDevice(), surface).capabilities;
+		gfx.myInstance->getSwapchainInfo(gfx.myDevice->getPhysicalDevice(), gfx.myMainWindow->getSurface()).capabilities;
 
 	float dpiScaleX = static_cast<float>(surfaceCapabilities.currentExtent.width) /
-					  gfx().myMainWindow->getConfig().windowExtent.width;
+					  gfx.myMainWindow->getConfig().windowExtent.width;
 	float dpiScaleY = static_cast<float>(surfaceCapabilities.currentExtent.height) /
-					  gfx().myMainWindow->getConfig().windowExtent.height;
+					  gfx.myMainWindow->getConfig().windowExtent.height;
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -62,7 +62,7 @@ void GraphicsApplication<Vk>::initIMGUI(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(getState().resourcePath);
+	std::filesystem::path fontPath(resourcePath);
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -89,16 +89,16 @@ void GraphicsApplication<Vk>::initIMGUI(
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
-	initInfo.Instance = *gfx().myInstance;
-	initInfo.PhysicalDevice = gfx().myDevice->getPhysicalDevice();
-	initInfo.Device = *gfx().myDevice;
-	initInfo.QueueFamily = gfx().myGraphicsQueues.get().getDesc().queueFamilyIndex;
-	initInfo.Queue = gfx().myGraphicsQueues.get();
-	initInfo.PipelineCache = gfx().myPipeline->getCache();
-	initInfo.DescriptorPool = gfx().myPipeline->getDescriptorPool();
-	initInfo.MinImageCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
-	initInfo.ImageCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
-	initInfo.Allocator = &gfx().myDevice->getInstance()->getHostAllocationCallbacks();
+	initInfo.Instance = *gfx.myInstance;
+	initInfo.PhysicalDevice = gfx.myDevice->getPhysicalDevice();
+	initInfo.Device = *gfx.myDevice;
+	initInfo.QueueFamily = gfx.myGraphicsQueues.get().getDesc().queueFamilyIndex;
+	initInfo.Queue = gfx.myGraphicsQueues.get();
+	initInfo.PipelineCache = gfx.myPipeline->getCache();
+	initInfo.DescriptorPool = gfx.myPipeline->getDescriptorPool();
+	initInfo.MinImageCount = gfx.myMainWindow->getConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = gfx.myMainWindow->getConfig().swapchainConfig.imageCount;
+	initInfo.Allocator = &gfx.myDevice->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = checkResult;
 	// initInfo.DeleteBufferFn = [](void* user_data,
 	// 							 VkBuffer buffer,
@@ -116,14 +116,14 @@ void GraphicsApplication<Vk>::initIMGUI(
 	// 		});
 	// };
 	// initInfo.UserData = device.get();
-	ImGui_ImplVulkan_Init(&initInfo, renderPass);
+	ImGui_ImplVulkan_Init(&initInfo, gfx.myMainWindow->getRenderPass());
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
 	// Upload Fonts
-	ImGui_ImplVulkan_CreateFontsTexture(commands);
+	ImGui_ImplVulkan_CreateFontsTexture(cmd);
 
-	device->addTimelineCallback(std::make_tuple(
-		1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
+	gfx.myDevice->addTimelineCallback(std::make_tuple(
+		1 + gfx.myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[](uint64_t) { ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
 
 	// IMNODES_NAMESPACE::CreateContext();
@@ -131,8 +131,7 @@ void GraphicsApplication<Vk>::initIMGUI(
 	//	myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
 }
 
-template <>
-void GraphicsApplication<Vk>::shutdownIMGUI()
+static void shutdownIMGUI()
 {
 	// size_t count;
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
@@ -144,27 +143,26 @@ void GraphicsApplication<Vk>::shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-template <>
-void GraphicsApplication<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBufferExtent)
+static void createWindowDependentObjects(RhiBackend<Vk>& gfx)
 {
-	ZoneScopedN("GraphicsApplication::createWindowDependentObjects");
+	ZoneScopedN("RhiApplication::createWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<Vk>>(
-		gfx().myDevice,
+		gfx.myDevice,
 		ImageCreateDesc<Vk>{
-			{{frameBufferExtent}},
-			gfx().myMainWindow->getConfig().swapchainConfig.surfaceFormat.format,
+			{{gfx.myMainWindow->getConfig().swapchainConfig.extent}},
+			gfx.myMainWindow->getConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
 	auto depthStencilImage = std::make_shared<Image<Vk>>(
-		gfx().myDevice,
+		gfx.myDevice,
 		ImageCreateDesc<Vk>{
-			{{frameBufferExtent}},
+			{{gfx.myMainWindow->getConfig().swapchainConfig.extent}},
 			findSupportedFormat(
-				gfx().myDevice->getPhysicalDevice(),
+				gfx.myDevice->getPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
@@ -174,29 +172,32 @@ void GraphicsApplication<Vk>::createWindowDependentObjects(Extent2d<Vk> frameBuf
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-	gfx().myRenderImageSet =
-		std::make_shared<RenderImageSet<Vk>>(gfx().myDevice, make_vector(colorImage), depthStencilImage);
+	gfx.myRenderImageSet =
+		std::make_shared<RenderImageSet<Vk>>(gfx.myDevice, make_vector(colorImage), depthStencilImage);
 
-	gfx().myPipeline->setRenderTarget(gfx().myRenderImageSet);
+	gfx.myPipeline->setRenderTarget(gfx.myRenderImageSet);
 }
 
-template <>
-GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
+} // namespace rhiapplication
+
+RhiApplication::RhiApplication(Application::State&& state)
 : Application(std::forward<Application::State>(state))
-, myGraphicsContext{std::make_shared<Instance<Vk>>(
-	InstanceConfiguration<Vk>{
-		this->getState().name,
-		"speedo",
-		ApplicationInfo<Vk>{
-			VK_STRUCTURE_TYPE_APPLICATION_INFO,
-			nullptr,
-			nullptr,
-			VK_MAKE_VERSION(1, 0, 0),
-			nullptr,
-			VK_MAKE_VERSION(1, 0, 0),
-			VK_API_VERSION_1_2}})}
 {
-	ZoneScopedN("GraphicsApplication()");
+	ZoneScopedN("RhiApplication()");
+
+	myGraphicsContext = RhiBackend<Vk>{
+		std::make_shared<Instance<Vk>>(
+			InstanceConfiguration<Vk>{
+				this->getState().name,
+				"speedo",
+				ApplicationInfo<Vk>{
+					VK_STRUCTURE_TYPE_APPLICATION_INFO,
+					nullptr,
+					nullptr,
+					VK_MAKE_VERSION(1, 0, 0),
+					nullptr,
+					VK_MAKE_VERSION(1, 0, 0),
+					VK_API_VERSION_1_2}})};
 
 	auto rootPath = this->getState().rootPath;
 	auto resourcePath = this->getState().resourcePath;
@@ -219,7 +220,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 	auto loadModel = [this](nfdchar_t* openFilePath)
 	{
 		auto& dedicatedTransferContext =
-			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
+			gfx().myCommands[CommandType_DedicatedTransfer].fetchAdd();
 
 		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
 
@@ -243,7 +244,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 	auto loadImage = [this](nfdchar_t* openFilePath)
 	{
 		auto& dedicatedTransferContext =
-			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
+			gfx().myCommands[CommandType_DedicatedTransfer].fetchAdd();
 
 		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
 
@@ -267,7 +268,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 
 		///////////
 
-		auto& generalTransferContext = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer].fetchAdd();
+		auto& generalTransferContext = gfx().myCommands[CommandType_GeneralTransfer].fetchAdd();
 		auto cmd = generalTransferContext.commands();
 
 		auto& graphicsQueue = gfx().myGraphicsQueues.get();
@@ -326,7 +327,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 	myIMGUIPrepareDrawFunction =
 		[this, openFileDialogue, loadModel, loadImage, loadGlTF, resourcePath]
 	{
-		ZoneScopedN("GraphicsApplication::IMGUIPrepareDraw");
+		ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
 
 		using namespace ImGui;
 
@@ -688,7 +689,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 					auto [task, openFileFuture] = graph.createTask(
 						[&openFileDialogue, &resourcePath, &loadModel]
 						{ return openFileDialogue(resourcePath, "obj", loadModel); });
-					myExecutor.submit(std::move(graph));
+					executor().submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}
 				if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
@@ -697,7 +698,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 					auto [task, openFileFuture] = graph.createTask(
 						[&openFileDialogue, &resourcePath, &loadImage]
 						{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
-					myExecutor.submit(std::move(graph));
+					executor().submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}
 				if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
@@ -706,7 +707,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 					auto [task, openFileFuture] = graph.createTask(
 						[&openFileDialogue, &resourcePath, &loadGlTF]
 						{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
-					myExecutor.submit(std::move(graph));
+					executor().submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}
 				Separator();
@@ -747,7 +748,7 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 
 	myIMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
 	{
-		ZoneScopedN("GraphicsApplication::IMGUIDraw");
+		ZoneScopedN("RhiApplication::IMGUIDraw");
 
 		using namespace ImGui;
 
@@ -757,9 +758,10 @@ GraphicsApplication<Vk>::GraphicsApplication(Application::State&& state)
 	//myNodeGraph = std::filesystem::path(client_getUserProfilePath()) / "nodegraph.json"; // temp - this should be stored in the resource path
 }
 
-template <>
-void GraphicsApplication<Vk>::createDevice(const WindowState& window)
+void RhiApplication::createDevice(const WindowState& window)
 {
+	using namespace rhiapplication;
+
 	auto rootPath = getState().rootPath;
 	auto resourcePath = getState().resourcePath;
 	auto userProfilePath = getState().userProfilePath;
@@ -937,11 +939,11 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 	{
 		uint32_t frameCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
 
-		auto& primaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary];
-		auto& secondaryContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary];
-		auto& generalTransferContexts = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer];
-		auto& dedicatedComputeContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedCompute];
-		auto& dedicatedTransferContexts = gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer];
+		auto& primaryContexts = gfx().myCommands[CommandType_GeneralPrimary];
+		auto& secondaryContexts = gfx().myCommands[CommandType_GeneralSecondary];
+		auto& generalTransferContexts = gfx().myCommands[CommandType_GeneralTransfer];
+		auto& dedicatedComputeContexts = gfx().myCommands[CommandType_DedicatedCompute];
+		auto& dedicatedTransferContexts = gfx().myCommands[CommandType_DedicatedTransfer];
 
 		auto& graphicsQueues = gfx().myGraphicsQueues;
 		auto& computeQueues = gfx().myComputeQueues;
@@ -1011,7 +1013,7 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 		}
 	}
 
-	createWindowDependentObjects(gfx().myMainWindow->getConfig().swapchainConfig.extent);
+	createWindowDependentObjects(gfx());
 
 	// todo: create some resource global storage
 	gfx().myPipeline->resources().black = std::make_shared<Image<Vk>>(
@@ -1052,20 +1054,14 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 
 	// initialize stuff on general transfer queue
 	{
-		auto& generalTransferContext = gfx().myCommands[GraphicsContext::CommandType_GeneralTransfer].fetchAdd();
+		auto& generalTransferContext = gfx().myCommands[CommandType_GeneralTransfer].fetchAdd();
 		auto cmd = generalTransferContext.commands();
 
 		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		gfx().myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
 		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		initIMGUI(
-			window,
-			gfx().myDevice,
-			cmd,
-			gfx().myMainWindow->getRenderPass(),
-			gfx().myMainWindow->getSurface(),
-			userProfilePath);
+		initIMGUI(resourcePath, userProfilePath, window, gfx(), cmd);
 
 		cmd.end();
 
@@ -1085,7 +1081,7 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
 		auto& dedicatedTransferContext =
-			gfx().myCommands[GraphicsContext::CommandType_DedicatedTransfer].fetchAdd();
+			gfx().myCommands[CommandType_DedicatedTransfer].fetchAdd();
 
 		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
 
@@ -1156,22 +1152,23 @@ void GraphicsApplication<Vk>::createDevice(const WindowState& window)
 		samplerId);
 }
 
-template <>
-GraphicsApplication<Vk>::~GraphicsApplication()
+RhiApplication::~RhiApplication()
 {
-	ZoneScopedN("~GraphicsApplication()");
+	using namespace rhiapplication;
+
+	ZoneScopedN("~RhiApplication()");
 
 	auto device = gfx().myDevice;
 	auto instance = gfx().myInstance;
 
 	{
-		ZoneScopedN("~GraphicsApplication()::waitCPU");
+		ZoneScopedN("~RhiApplication()::waitCPU");
 
-		myExecutor.join(std::move(myPresentFuture));
+		executor().join(std::move(myPresentFuture));
 	}
 
 	{
-		ZoneScopedN("~GraphicsApplication()::waitGPU");
+		ZoneScopedN("~RhiApplication()::waitGPU");
 
 		device->waitIdle();
 	}
@@ -1184,20 +1181,17 @@ GraphicsApplication<Vk>::~GraphicsApplication()
 	assert(instance.use_count() == 2);
 }
 
-template <>
-void GraphicsApplication<Vk>::onMouse(const MouseState& mouse)
+void RhiApplication::onMouse(const MouseState& mouse)
 {
 	gfx().myMainWindow->onMouse(mouse);
 }
 
-template <>
-void GraphicsApplication<Vk>::onKeyboard(const KeyboardState& keyboard)
+void RhiApplication::onKeyboard(const KeyboardState& keyboard)
 {
 	gfx().myMainWindow->onKeyboard(keyboard);
 }
 
-template <>
-bool GraphicsApplication<Vk>::tick()
+bool RhiApplication::tick()
 {
 	FrameMark;
 
@@ -1212,17 +1206,17 @@ bool GraphicsApplication<Vk>::tick()
 
 	auto [drawTask, drawFuture] = frameGraph.createTask([this]
 	{
-		ZoneScopedN("GraphicsApplication::draw");
+		ZoneScopedN("RhiApplication::draw");
 
 		auto [flipSuccess, lastPresentTimelineValue] = gfx().myMainWindow->flip();
 
 		if (flipSuccess)
 		{
-			ZoneScopedN("GraphicsApplication::draw::submit");
+			ZoneScopedN("RhiApplication::draw::submit");
 
-			auto& primaryContext = gfx().myCommands[GraphicsContext::CommandType_GeneralPrimary].fetchAdd();
+			auto& primaryContext = gfx().myCommands[CommandType_GeneralPrimary].fetchAdd();
 			constexpr uint32_t secondaryContextCount = 4;
-			auto secondaryContexts = &gfx().myCommands[GraphicsContext::CommandType_GeneralSecondary].fetchAdd(
+			auto secondaryContexts = &gfx().myCommands[CommandType_GeneralSecondary].fetchAdd(
 				secondaryContextCount);
 
 			auto& graphicsQueue = gfx().myGraphicsQueues.fetchAdd();
@@ -1230,7 +1224,7 @@ bool GraphicsApplication<Vk>::tick()
 			if (lastPresentTimelineValue)
 			{
 				{
-					ZoneScopedN("GraphicsApplication::draw::waitFrame");
+					ZoneScopedN("RhiApplication::draw::waitFrame");
 
 					gfx().myDevice->wait(lastPresentTimelineValue);
 				}
@@ -1262,7 +1256,7 @@ bool GraphicsApplication<Vk>::tick()
 				GPU_SCOPE(cmd, graphicsQueue, draw);
 				
 				gfx().myMainWindow->draw(
-					myExecutor,
+					executor(),
 					*gfx().myPipeline,
 					primaryContext,
 					secondaryContexts,
@@ -1302,7 +1296,7 @@ bool GraphicsApplication<Vk>::tick()
 
 		if (lastPresentTimelineValue)
 		{
-			ZoneScopedN("GraphicsApplication::draw::processTimelineCallbacks");
+			ZoneScopedN("RhiApplication::draw::processTimelineCallbacks");
 
 			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 			gfx().myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
@@ -1311,7 +1305,7 @@ bool GraphicsApplication<Vk>::tick()
 		{
 			if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
 			{
-				ZoneScopedN("GraphicsApplication::draw::openFileCallback");
+				ZoneScopedN("RhiApplication::draw::openFileCallback");
 
 				const auto& [openFileResult, openFilePath, onCompletionCallback] =
 					myOpenFileFuture.get();
@@ -1330,25 +1324,26 @@ bool GraphicsApplication<Vk>::tick()
 	frameGraph.addDependency(drawTask, presentTask);
 
 	{
-		ZoneScopedN("GraphicsApplication::tick::waitPresent");
+		ZoneScopedN("RhiApplication::tick::waitPresent");
 
-		myExecutor.join(std::move(myPresentFuture));
+		executor().join(std::move(myPresentFuture));
 	}
 
 	myPresentFuture = std::move(presentFuture);
 
-	myExecutor.submit(std::move(frameGraph));
+	executor().submit(std::move(frameGraph));
 
 	return !myRequestExit;
 }
 
-template <>
-void GraphicsApplication<Vk>::onResizeFramebuffer(uint32_t, uint32_t)
+void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 {
-	ZoneScopedN("GraphicsApplication::onResizeFramebuffer");
+	using namespace rhiapplication;
+
+	ZoneScopedN("RhiApplication::onResizeFramebuffer");
 
 	{
-		ZoneScopedN("GraphicsApplication::onResizeFramebuffer::waitGPU");
+		ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
 
 		gfx().myDevice->wait(gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
 	}
@@ -1366,5 +1361,5 @@ void GraphicsApplication<Vk>::onResizeFramebuffer(uint32_t, uint32_t)
 		DescriptorBufferInfo<Vk>{gfx().myMainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_View);
 
-	createWindowDependentObjects(framebufferExtent);
+	createWindowDependentObjects(gfx());
 }

@@ -1,5 +1,5 @@
-template <GraphicsBackend B>
-QueuePresentInfo<B>& QueuePresentInfo<B>::operator|=(QueuePresentInfo<B>&& other)
+template <GraphicsApi G>
+QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other)
 {
 	waitSemaphores.insert(
 		waitSemaphores.end(),
@@ -21,10 +21,10 @@ QueuePresentInfo<B>& QueuePresentInfo<B>::operator|=(QueuePresentInfo<B>&& other
 	return *this;
 }
 
-template <GraphicsBackend B>
-QueuePresentInfo<B> operator|(QueuePresentInfo<B>&& lhs, QueuePresentInfo<B>&& rhs)
+template <GraphicsApi G>
+QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs)
 {
-	return std::forward<QueuePresentInfo<B>>(lhs |= std::forward<QueuePresentInfo<B>>(rhs));
+	return std::forward<QueuePresentInfo<G>>(lhs |= std::forward<QueuePresentInfo<G>>(rhs));
 }
 
 #include "vulkan/queue.inl"

@@ -8,42 +8,42 @@
 //#include <source_location>
 #include <vector>
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct QueueSyncInfo
 {
-	std::vector<SemaphoreHandle<B>> waitSemaphores;
-	std::vector<Flags<B>> waitDstStageMasks;
+	std::vector<SemaphoreHandle<G>> waitSemaphores;
+	std::vector<Flags<G>> waitDstStageMasks;
 	std::vector<uint64_t> waitSemaphoreValues;
-	std::vector<SemaphoreHandle<B>> signalSemaphores;
+	std::vector<SemaphoreHandle<G>> signalSemaphores;
 	std::vector<uint64_t> signalSemaphoreValues;
 };
 
-template <GraphicsBackend B>
-struct QueueSubmitInfo : QueueSyncInfo<B>
+template <GraphicsApi G>
+struct QueueSubmitInfo : QueueSyncInfo<G>
 {
-	std::vector<CommandBufferHandle<B>> commandBuffers;
+	std::vector<CommandBufferHandle<G>> commandBuffers;
 	uint64_t timelineValue = 0ull;
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct QueuePresentInfo
 {
-	std::vector<SemaphoreHandle<B>> waitSemaphores;
-	std::vector<SwapchainHandle<B>> swapchains;
+	std::vector<SemaphoreHandle<G>> waitSemaphores;
+	std::vector<SwapchainHandle<G>> swapchains;
 	std::vector<uint32_t> imageIndices;
-	std::vector<Result<B>> results;
+	std::vector<Result<G>> results;
 	uint64_t timelineValue = 0ull;
 
-	QueuePresentInfo<B>& operator|=(QueuePresentInfo<B>&& other);
-	friend QueuePresentInfo<B> operator|(QueuePresentInfo<B>&& lhs, QueuePresentInfo<B>&& rhs);
+	QueuePresentInfo<G>& operator|=(QueuePresentInfo<G>&& other);
+	friend QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs);
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct QueueCreateDesc
 {
 	uint32_t queueIndex = 0ul;
 	uint32_t queueFamilyIndex = 0ul;
-	std::optional<CommandBufferHandle<B>> tracingEnableInitCmd;
+	std::optional<CommandBufferHandle<G>> tracingEnableInitCmd;
 };
 
 struct SourceLocationData
@@ -55,14 +55,14 @@ struct SourceLocationData
 	uint32_t color = 0ul;
 };
 
-template <GraphicsBackend B>
-class Queue : public DeviceObject<B>
+template <GraphicsApi G>
+class Queue final : public DeviceObject<G>
 {
 public:
 	constexpr Queue() noexcept = default;
 	Queue(
-		const std::shared_ptr<Device<B>>& device, QueueCreateDesc<B>&& desc);
-	Queue(Queue<B>&& other) noexcept;
+		const std::shared_ptr<Device<G>>& device, QueueCreateDesc<G>&& desc);
+	Queue(Queue<G>&& other) noexcept;
 	~Queue();
 
 	Queue& operator=(Queue&& other) noexcept;
@@ -86,26 +86,26 @@ public:
 
 #if PROFILING_ENABLED
 	template <SourceLocationData Location>
-	FORCE_INLINE std::shared_ptr<void> gpuScope(CommandBufferHandle<B> cmd);
-	void gpuScopeCollect(CommandBufferHandle<B> cmd);
+	FORCE_INLINE std::shared_ptr<void> gpuScope(CommandBufferHandle<G> cmd);
+	void gpuScopeCollect(CommandBufferHandle<G> cmd);
 #endif
 
 private:
 	Queue(
-		const std::shared_ptr<Device<B>>& device,
-		std::tuple<QueueCreateDesc<B>, QueueHandle<B>>&& descAndHandle);
+		const std::shared_ptr<Device<G>>& device,
+		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
 
 #if PROFILING_ENABLED
 	std::shared_ptr<void>
-	internalGpuScope(CommandBufferHandle<B> cmd, const SourceLocationData& srcLoc);
+	internalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 #endif
 
-	QueueCreateDesc<B> myDesc{};
-	QueueHandle<B> myQueue{};
-	std::vector<QueueSubmitInfo<B>> myPendingSubmits;
-	QueuePresentInfo<B> myPendingPresent{};
+	QueueCreateDesc<G> myDesc{};
+	QueueHandle<G> myQueue{};
+	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
+	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	FenceHandle<B> myFence{};
+	FenceHandle<G> myFence{};
 	std::optional<uint64_t> myLastSubmitTimelineValue;
 	std::any myUserData;
 };

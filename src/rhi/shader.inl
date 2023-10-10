@@ -4,27 +4,27 @@
 namespace shader
 {
 
-template <GraphicsBackend B>
-ShaderStageFlagBits<B> getStageFlags(SlangStage stage);
+template <GraphicsApi G>
+ShaderStageFlagBits<G> getStageFlags(SlangStage stage);
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 DescriptorType<Vk> getDescriptorType(
 	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access);
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 uint32_t createLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>>& layouts,
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>>& layouts,
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr);
 
 } // namespace shader
 
-template <GraphicsBackend B>
-ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
+template <GraphicsApi G>
+ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
-	auto shaderSet = ShaderSet<B>{};
+	auto shaderSet = ShaderSet<G>{};
 
 	auto loadBin = [&shaderSet](InputSerializer& in) -> std::error_code
 	{
@@ -113,7 +113,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 		static_assert(std::size(epStrings) == std::size(epStages));
 
-		std::vector<EntryPoint<B>> entryPoints;
+		std::vector<EntryPoint<G>> entryPoints;
 		for (unsigned i = 0; i < std::size(epStrings); i++)
 		{
 			int index =
@@ -123,7 +123,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 				throw std::runtime_error("Failed to add entry point.");
 
 			entryPoints.push_back(std::make_pair(
-				useGLSL ? "main" : epStrings[i], shader::getStageFlags<B>(epStages[i])));
+				useGLSL ? "main" : epStrings[i], shader::getStageFlags<G>(epStages[i])));
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);
@@ -191,7 +191,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount();
 			 parameterIndex++)
-			shader::createLayoutBindings<B>(
+			shader::createLayoutBindings<G>(
 				shaderReflection->getParameterByIndex(parameterIndex),
 				genericParameterIndices,
 				shaderSet.layouts);
@@ -203,7 +203,7 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		// epReflection->getComputeThreadGruopSize(3, &threadGroupSize[0]);
 
 		// 	for (unsigned parameterIndex = 0; parameterIndex < epReflection->getParameterCount(); parameterIndex++)
-		// 		shader::createLayoutBindings<B>(epReflection->getParameterByIndex(pp), shaderSet->layouts);
+		// 		shader::createLayoutBindings<G>(epReflection->getParameterByIndex(pp), shaderSet->layouts);
 		// }
 
 		spDestroyCompileRequest(slangRequest);

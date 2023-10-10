@@ -1,5 +1,5 @@
 #include "../device.h"
-#include "../graphicsapplication.h"
+#include "../rhiapplication.h"
 
 #include "utils.h"
 
