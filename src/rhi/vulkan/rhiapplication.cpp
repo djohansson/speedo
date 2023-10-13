@@ -24,7 +24,7 @@ static void initIMGUI(
 	const std::filesystem::path& resourcePath,
 	const std::filesystem::path& userProfilePath,
 	const WindowState& window,
-	const RhiBackend<Vk>& gfx,
+	const Rhi<Vk>& rhi,
 	CommandBufferHandle<Vk> cmd)
 {
 	ZoneScopedN("RhiApplication::initIMGUI");
@@ -43,15 +43,15 @@ static void initIMGUI(
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	auto& platformIo = ImGui::GetPlatformIO();
 	platformIo.Platform_CreateVkSurface =
-		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*gfx.myInstance, "vkCreateWin32SurfaceKHR");
+		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
-		gfx.myInstance->getSwapchainInfo(gfx.myDevice->getPhysicalDevice(), gfx.myMainWindow->getSurface()).capabilities;
+		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.mainWindow->getSurface()).capabilities;
 
 	float dpiScaleX = static_cast<float>(surfaceCapabilities.currentExtent.width) /
-					  gfx.myMainWindow->getConfig().windowExtent.width;
+					  rhi.mainWindow->getConfig().windowExtent.width;
 	float dpiScaleY = static_cast<float>(surfaceCapabilities.currentExtent.height) /
-					  gfx.myMainWindow->getConfig().windowExtent.height;
+					  rhi.mainWindow->getConfig().windowExtent.height;
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -89,16 +89,16 @@ static void initIMGUI(
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
-	initInfo.Instance = *gfx.myInstance;
-	initInfo.PhysicalDevice = gfx.myDevice->getPhysicalDevice();
-	initInfo.Device = *gfx.myDevice;
-	initInfo.QueueFamily = gfx.myGraphicsQueues.get().getDesc().queueFamilyIndex;
-	initInfo.Queue = gfx.myGraphicsQueues.get();
-	initInfo.PipelineCache = gfx.myPipeline->getCache();
-	initInfo.DescriptorPool = gfx.myPipeline->getDescriptorPool();
-	initInfo.MinImageCount = gfx.myMainWindow->getConfig().swapchainConfig.imageCount;
-	initInfo.ImageCount = gfx.myMainWindow->getConfig().swapchainConfig.imageCount;
-	initInfo.Allocator = &gfx.myDevice->getInstance()->getHostAllocationCallbacks();
+	initInfo.Instance = *rhi.instance;
+	initInfo.PhysicalDevice = rhi.device->getPhysicalDevice();
+	initInfo.Device = *rhi.device;
+	initInfo.QueueFamily = rhi.graphicsQueues.get().getDesc().queueFamilyIndex;
+	initInfo.Queue = rhi.graphicsQueues.get();
+	initInfo.PipelineCache = rhi.pipeline->getCache();
+	initInfo.DescriptorPool = rhi.pipeline->getDescriptorPool();
+	initInfo.MinImageCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
+	initInfo.Allocator = &rhi.device->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = checkResult;
 	// initInfo.DeleteBufferFn = [](void* user_data,
 	// 							 VkBuffer buffer,
@@ -116,14 +116,14 @@ static void initIMGUI(
 	// 		});
 	// };
 	// initInfo.UserData = device.get();
-	ImGui_ImplVulkan_Init(&initInfo, gfx.myMainWindow->getRenderPass());
+	ImGui_ImplVulkan_Init(&initInfo, rhi.mainWindow->getRenderPass());
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
 	// Upload Fonts
 	ImGui_ImplVulkan_CreateFontsTexture(cmd);
 
-	gfx.myDevice->addTimelineCallback(std::make_tuple(
-		1 + gfx.myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed),
+	rhi.device->addTimelineCallback(std::make_tuple(
+		1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[](uint64_t) { ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
 
 	// IMNODES_NAMESPACE::CreateContext();
@@ -143,26 +143,26 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-static void createWindowDependentObjects(RhiBackend<Vk>& gfx)
+static void createWindowDependentObjects(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("RhiApplication::createWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<Vk>>(
-		gfx.myDevice,
+		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{gfx.myMainWindow->getConfig().swapchainConfig.extent}},
-			gfx.myMainWindow->getConfig().swapchainConfig.surfaceFormat.format,
+			{{rhi.mainWindow->getConfig().swapchainConfig.extent}},
+			rhi.mainWindow->getConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
 	auto depthStencilImage = std::make_shared<Image<Vk>>(
-		gfx.myDevice,
+		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{gfx.myMainWindow->getConfig().swapchainConfig.extent}},
+			{{rhi.mainWindow->getConfig().swapchainConfig.extent}},
 			findSupportedFormat(
-				gfx.myDevice->getPhysicalDevice(),
+				rhi.device->getPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
@@ -172,23 +172,32 @@ static void createWindowDependentObjects(RhiBackend<Vk>& gfx)
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-	gfx.myRenderImageSet =
-		std::make_shared<RenderImageSet<Vk>>(gfx.myDevice, make_vector(colorImage), depthStencilImage);
+	rhi.renderImageSet =
+		std::make_shared<RenderImageSet<Vk>>(rhi.device, make_vector(colorImage), depthStencilImage);
 
-	gfx.myPipeline->setRenderTarget(gfx.myRenderImageSet);
+	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
 
 } // namespace rhiapplication
 
-RhiApplication::RhiApplication(Application::State&& state)
-: Application(std::forward<Application::State>(state))
+template <>
+Rhi<Vk>& RhiApplication::rhi<Vk>()
 {
-	ZoneScopedN("RhiApplication()");
+	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
+}
 
-	myGraphicsContext = RhiBackend<Vk>{
+template <>
+const Rhi<Vk>& RhiApplication::rhi<Vk>() const
+{
+	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
+}
+
+RhiApplication::RhiApplication(std::string_view name, Environment&& env)
+: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
+, myRhi(std::make_shared<Rhi<Vk>>(
 		std::make_shared<Instance<Vk>>(
 			InstanceConfiguration<Vk>{
-				this->getState().name,
+				this->name(),
 				"speedo",
 				ApplicationInfo<Vk>{
 					VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -197,11 +206,13 @@ RhiApplication::RhiApplication(Application::State&& state)
 					VK_MAKE_VERSION(1, 0, 0),
 					nullptr,
 					VK_MAKE_VERSION(1, 0, 0),
-					VK_API_VERSION_1_2}})};
+					VK_API_VERSION_1_2}})))
+{
+	ZoneScopedN("RhiApplication()");
 
-	auto rootPath = this->getState().rootPath;
-	auto resourcePath = this->getState().resourcePath;
-	auto userProfilePath = this->getState().userProfilePath;
+	auto rootPath = this->environment().rootPath;
+	auto resourcePath = this->environment().resourcePath;
+	auto userProfilePath = this->environment().userProfilePath;
 
 	// GUI + misc callbacks
 
@@ -220,23 +231,23 @@ RhiApplication::RhiApplication(Application::State&& state)
 	auto loadModel = [this](nfdchar_t* openFilePath)
 	{
 		auto& dedicatedTransferContext =
-			gfx().myCommands[CommandType_DedicatedTransfer].fetchAdd();
+			rhi<Vk>().commands[CommandType_DedicatedTransfer].fetchAdd();
 
-		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
+		auto& transferQueue = rhi<Vk>().transferQueues.fetchAdd();
 
-		gfx().myDevice->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
+		rhi<Vk>().device->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
 
 		dedicatedTransferContext.reset();
 
-		gfx().myPipeline->setModel(
-			std::make_shared<Model<Vk>>(gfx().myDevice, dedicatedTransferContext, openFilePath));
+		rhi<Vk>().pipeline->setModel(
+			std::make_shared<Model<Vk>>(rhi<Vk>().device, dedicatedTransferContext, openFilePath));
 
 		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+			 {rhi<Vk>().device->getTimelineSemaphore()},
+			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
 		return transferQueue.submit();
 	};
@@ -244,52 +255,52 @@ RhiApplication::RhiApplication(Application::State&& state)
 	auto loadImage = [this](nfdchar_t* openFilePath)
 	{
 		auto& dedicatedTransferContext =
-			gfx().myCommands[CommandType_DedicatedTransfer].fetchAdd();
+			rhi<Vk>().commands[CommandType_DedicatedTransfer].fetchAdd();
 
-		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
+		auto& transferQueue = rhi<Vk>().transferQueues.fetchAdd();
 
-		gfx().myDevice->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
+		rhi<Vk>().device->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
 
 		dedicatedTransferContext.reset();
 
-		gfx().myPipeline->resources().image =
-			std::make_shared<Image<Vk>>(gfx().myDevice, dedicatedTransferContext, openFilePath);
-		gfx().myPipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
-			gfx().myDevice, *gfx().myPipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
+		rhi<Vk>().pipeline->resources().image =
+			std::make_shared<Image<Vk>>(rhi<Vk>().device, dedicatedTransferContext, openFilePath);
+		rhi<Vk>().pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
+			rhi<Vk>().device, *rhi<Vk>().pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
 		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+			 {rhi<Vk>().device->getTimelineSemaphore()},
+			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
 		transferQueue.submit();
 
 		///////////
 
-		auto& generalTransferContext = gfx().myCommands[CommandType_GeneralTransfer].fetchAdd();
+		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
 		auto cmd = generalTransferContext.commands();
 
-		auto& graphicsQueue = gfx().myGraphicsQueues.get();
+		auto& graphicsQueue = rhi<Vk>().graphicsQueues.get();
 
-		gfx().myPipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		rhi<Vk>().pipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 		cmd.end();
 
 		graphicsQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
-			{{gfx().myDevice->getTimelineSemaphore()},
+			{{rhi<Vk>().device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
 			 {transferQueue.getLastSubmitTimelineValue().value_or(0)},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+			 {rhi<Vk>().device->getTimelineSemaphore()},
+			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		gfx().myPipeline->setDescriptorData(
+		rhi<Vk>().pipeline->setDescriptorData(
 			"g_textures",
 			DescriptorImageInfo<Vk>{
 				{},
-				*gfx().myPipeline->resources().imageView,
-				gfx().myPipeline->resources().image->getImageLayout()},
+				*rhi<Vk>().pipeline->resources().imageView,
+				rhi<Vk>().pipeline->resources().image->getImageLayout()},
 			DescriptorSetCategory_GlobalTextures,
 			1);
 
@@ -412,49 +423,49 @@ RhiApplication::RhiApplication(Application::State&& state)
 			{
 				if (Begin("Statistics", &showStatistics))
 				{
-					Text("Unknowns: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
-					Text("Instances: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
+					Text("Unknowns: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
+					Text("Instances: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
 					Text(
 						"Physical Devices: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
-					Text("Devices: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE));
-					Text("Queues: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_QUEUE));
-					Text("Semaphores: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
+					Text("Devices: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_DEVICE));
+					Text("Queues: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_QUEUE));
+					Text("Semaphores: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
 					Text(
 						"Command Buffers: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
-					Text("Fences: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_FENCE));
-					Text("Device Memory: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_DEVICE_MEMORY));
-					Text("Buffers: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER));
-					Text("Images: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE));
-					Text("Events: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_EVENT));
-					Text("Query Pools: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_QUERY_POOL));
-					Text("Buffer Views: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
-					Text("Image Views: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+					Text("Fences: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_FENCE));
+					Text("Device Memory: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_DEVICE_MEMORY));
+					Text("Buffers: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_BUFFER));
+					Text("Images: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_IMAGE));
+					Text("Events: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_EVENT));
+					Text("Query Pools: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_QUERY_POOL));
+					Text("Buffer Views: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
+					Text("Image Views: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
 					Text(
-						"Shader Modules: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
+						"Shader Modules: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
 					Text(
 						"Pipeline Caches: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
 					Text(
 						"Pipeline Layouts: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
-					Text("Render Passes: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
-					Text("Pipelines: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_PIPELINE));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
+					Text("Render Passes: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
+					Text("Pipelines: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_PIPELINE));
 					Text(
 						"Descriptor Set Layouts: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
-					Text("Samplers: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_SAMPLER));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
+					Text("Samplers: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_SAMPLER));
 					Text(
 						"Descriptor Pools: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
 					Text(
 						"Descriptor Sets: %u",
-						gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
-					Text("Framebuffers: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
-					Text("Command Pools: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
-					Text("Surfaces: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
-					Text("Swapchains: %u", gfx().myDevice->getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
+						rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
+					Text("Framebuffers: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
+					Text("Command Pools: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
+					Text("Surfaces: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
+					Text("Swapchains: %u", rhi<Vk>().device->getTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
 				}
 				End();
 			}
@@ -762,9 +773,9 @@ void RhiApplication::createDevice(const WindowState& window)
 {
 	using namespace rhiapplication;
 
-	auto rootPath = getState().rootPath;
-	auto resourcePath = getState().resourcePath;
-	auto userProfilePath = getState().userProfilePath;
+	auto rootPath = environment().rootPath;
+	auto resourcePath = environment().resourcePath;
+	auto userProfilePath = environment().userProfilePath;
 
 	auto shaderIncludePath = rootPath / "src/rhi/shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
@@ -780,7 +791,7 @@ void RhiApplication::createDevice(const WindowState& window)
 
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
 	
-	auto surface = createSurface(*gfx().myInstance, &gfx().myInstance->getHostAllocationCallbacks(), window.nativeHandle);
+	auto surface = createSurface(*rhi<Vk>().instance, &rhi<Vk>().instance->getHostAllocationCallbacks(), window.nativeHandle);
 
 	auto detectSuitableGraphicsDevice = [](auto instance, auto surface)
 	{
@@ -849,8 +860,8 @@ void RhiApplication::createDevice(const WindowState& window)
 		return std::get<0>(graphicsDeviceCandidates.front());
 	};
 
-	gfx().myDevice = std::make_shared<Device<Vk>>(
-		gfx().myInstance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(gfx().myInstance, surface)});
+	rhi<Vk>().device = std::make_shared<Device<Vk>>(
+		rhi<Vk>().instance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(rhi<Vk>().instance, surface)});
 
 	auto detectSuitableSwapchain = [](auto instance, auto device, auto surface)
 	{
@@ -925,29 +936,29 @@ void RhiApplication::createDevice(const WindowState& window)
 		return config;
 	};
 
-	gfx().myPipeline = std::make_shared<Pipeline<Vk>>(
-		gfx().myDevice, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
+	rhi<Vk>().pipeline = std::make_shared<Pipeline<Vk>>(
+		rhi<Vk>().device, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
 
-	gfx().myMainWindow = std::make_shared<Window<Vk>>(
-		gfx().myDevice,
+	rhi<Vk>().mainWindow = std::make_shared<Window<Vk>>(
+		rhi<Vk>().device,
 		std::move(surface),
 		WindowConfiguration<Vk>{
-			detectSuitableSwapchain(gfx().myInstance, gfx().myDevice, surface),
+			detectSuitableSwapchain(rhi<Vk>().instance, rhi<Vk>().device, surface),
 			{window.width, window.height},
 			{1ul, 1ul}});
 
 	{
-		uint32_t frameCount = gfx().myMainWindow->getConfig().swapchainConfig.imageCount;
+		uint32_t frameCount = rhi<Vk>().mainWindow->getConfig().swapchainConfig.imageCount;
 
-		auto& primaryContexts = gfx().myCommands[CommandType_GeneralPrimary];
-		auto& secondaryContexts = gfx().myCommands[CommandType_GeneralSecondary];
-		auto& generalTransferContexts = gfx().myCommands[CommandType_GeneralTransfer];
-		auto& dedicatedComputeContexts = gfx().myCommands[CommandType_DedicatedCompute];
-		auto& dedicatedTransferContexts = gfx().myCommands[CommandType_DedicatedTransfer];
+		auto& primaryContexts = rhi<Vk>().commands[CommandType_GeneralPrimary];
+		auto& secondaryContexts = rhi<Vk>().commands[CommandType_GeneralSecondary];
+		auto& generalTransferContexts = rhi<Vk>().commands[CommandType_GeneralTransfer];
+		auto& dedicatedComputeContexts = rhi<Vk>().commands[CommandType_DedicatedCompute];
+		auto& dedicatedTransferContexts = rhi<Vk>().commands[CommandType_DedicatedTransfer];
 
-		auto& graphicsQueues = gfx().myGraphicsQueues;
-		auto& computeQueues = gfx().myComputeQueues;
-		auto& transferQueues = gfx().myTransferQueues;
+		auto& graphicsQueues = rhi<Vk>().graphicsQueues;
+		auto& computeQueues = rhi<Vk>().computeQueues;
+		auto& transferQueues = rhi<Vk>().transferQueues;
 
 		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
@@ -955,7 +966,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		if (useCommandBufferCreateReset)
 			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-		const auto& queueFamilies = gfx().myDevice->getQueueFamilies();
+		const auto& queueFamilies = rhi<Vk>().device->getQueueFamilies();
 		for (auto queueFamilyIt = queueFamilies.begin(); queueFamilyIt != queueFamilies.end();
 			 queueFamilyIt++)
 		{
@@ -968,22 +979,22 @@ void RhiApplication::createDevice(const WindowState& window)
 				for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
 				{
 					primaryContexts.emplace_back(CommandPoolContext<Vk>(
-						gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+						rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
 					for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4;
 						 secondaryContextIt++)
 					{
 						secondaryContexts.emplace_back(CommandPoolContext<Vk>(
-							gfx().myDevice,
+							rhi<Vk>().device,
 							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 					}
 				}
 
 				generalTransferContexts.emplace_back(CommandPoolContext<Vk>(
-					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+					rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
 				graphicsQueues.emplace_back(Queue<Vk>(
-					gfx().myDevice,
+					rhi<Vk>().device,
 					QueueCreateDesc<Vk>{
 						0,
 						queueFamilyIndex,
@@ -995,29 +1006,29 @@ void RhiApplication::createDevice(const WindowState& window)
 				// only need one for now..
 
 				dedicatedComputeContexts.emplace_back(CommandPoolContext<Vk>(
-					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+					rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
 				computeQueues.emplace_back(
-					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
+					Queue<Vk>(rhi<Vk>().device, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 			else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
 			{
 				// only need one for now..
 
 				dedicatedTransferContexts.emplace_back(CommandPoolContext<Vk>(
-					gfx().myDevice, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+					rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
 
 				transferQueues.emplace_back(
-					Queue<Vk>(gfx().myDevice, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
+					Queue<Vk>(rhi<Vk>().device, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 		}
 	}
 
-	createWindowDependentObjects(gfx());
+	createWindowDependentObjects(rhi<Vk>());
 
 	// todo: create some resource global storage
-	gfx().myPipeline->resources().black = std::make_shared<Image<Vk>>(
-		gfx().myDevice,
+	rhi<Vk>().pipeline->resources().black = std::make_shared<Image<Vk>>(
+		rhi<Vk>().device,
 		ImageCreateDesc<Vk>{
 			std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
 			VK_FORMAT_R8G8B8A8_UNORM,
@@ -1025,8 +1036,8 @@ void RhiApplication::createDevice(const WindowState& window)
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-	gfx().myPipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
-		gfx().myDevice, *gfx().myPipeline->resources().black, VK_IMAGE_ASPECT_COLOR_BIT);
+	rhi<Vk>().pipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
+		rhi<Vk>().device, *rhi<Vk>().pipeline->resources().black, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
 	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
@@ -1048,31 +1059,31 @@ void RhiApplication::createDevice(const WindowState& window)
 		1000.0f,
 		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 		VK_FALSE});
-	gfx().myPipeline->resources().samplers =
-		std::make_shared<SamplerVector<Vk>>(gfx().myDevice, std::move(samplerCreateInfos));
+	rhi<Vk>().pipeline->resources().samplers =
+		std::make_shared<SamplerVector<Vk>>(rhi<Vk>().device, std::move(samplerCreateInfos));
 	//
 
 	// initialize stuff on general transfer queue
 	{
-		auto& generalTransferContext = gfx().myCommands[CommandType_GeneralTransfer].fetchAdd();
+		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
 		auto cmd = generalTransferContext.commands();
 
-		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		gfx().myPipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
-		gfx().myPipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		rhi<Vk>().pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		rhi<Vk>().pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
+		rhi<Vk>().pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		initIMGUI(resourcePath, userProfilePath, window, gfx(), cmd);
+		initIMGUI(resourcePath, userProfilePath, window, rhi<Vk>(), cmd);
 
 		cmd.end();
 
-		gfx().myGraphicsQueues.get().enqueueSubmit(generalTransferContext.prepareSubmit(
-			{{gfx().myDevice->getTimelineSemaphore()},
+		rhi<Vk>().graphicsQueues.get().enqueueSubmit(generalTransferContext.prepareSubmit(
+			{{rhi<Vk>().device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0)},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+			 {rhi<Vk>().graphicsQueues.get().getLastSubmitTimelineValue().value_or(0)},
+			 {rhi<Vk>().device->getTimelineSemaphore()},
+			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		gfx().myGraphicsQueues.get().submit();
+		rhi<Vk>().graphicsQueues.get().submit();
 	}
 
 	constexpr uint32_t textureId = 1;
@@ -1081,16 +1092,16 @@ void RhiApplication::createDevice(const WindowState& window)
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
 		auto& dedicatedTransferContext =
-			gfx().myCommands[CommandType_DedicatedTransfer].fetchAdd();
+			rhi<Vk>().commands[CommandType_DedicatedTransfer].fetchAdd();
 
-		auto& transferQueue = gfx().myTransferQueues.fetchAdd();
+		auto& transferQueue = rhi<Vk>().transferQueues.fetchAdd();
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
 		materialData[0].textureAndSamplerId =
 			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
-		gfx().myMaterials = std::make_unique<Buffer<Vk>>(
-			gfx().myDevice,
+		rhi<Vk>().materials = std::make_shared<Buffer<Vk>>(
+			rhi<Vk>().device,
 			dedicatedTransferContext,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_MaterialCount * sizeof(MaterialData),
@@ -1103,8 +1114,8 @@ void RhiApplication::createDevice(const WindowState& window)
 		objectData[666].modelTransform = identityMatrix;
 		objectData[666].inverseTransposeModelTransform =
 			glm::transpose(glm::inverse(identityMatrix));
-		gfx().myObjects = std::make_unique<Buffer<Vk>>(
-			gfx().myDevice,
+		rhi<Vk>().objects = std::make_shared<Buffer<Vk>>(
+			rhi<Vk>().device,
 			dedicatedTransferContext,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
@@ -1116,8 +1127,8 @@ void RhiApplication::createDevice(const WindowState& window)
 			{{},
 			 {},
 			 {},
-			 {gfx().myDevice->getTimelineSemaphore()},
-			 {1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+			 {rhi<Vk>().device->getTimelineSemaphore()},
+			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
 		transferQueue.submit();
 	}
@@ -1125,29 +1136,29 @@ void RhiApplication::createDevice(const WindowState& window)
 	// set global descriptor set data
 
 	auto [layoutIt, insertResult] =
-		gfx().myLayouts.emplace(std::make_shared<PipelineLayout<Vk>>(gfx().myDevice, shaderReflection));
+		rhi<Vk>().layouts.emplace(std::make_shared<PipelineLayout<Vk>>(rhi<Vk>().device, shaderReflection));
 	assert(insertResult);
-	gfx().myPipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
+	rhi<Vk>().pipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	gfx().myPipeline->setDescriptorData(
+	rhi<Vk>().pipeline->setDescriptorData(
 		"g_viewData",
-		DescriptorBufferInfo<Vk>{gfx().myMainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<Vk>{rhi<Vk>().mainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_View);
 
-	gfx().myPipeline->setDescriptorData(
+	rhi<Vk>().pipeline->setDescriptorData(
 		"g_materialData",
-		DescriptorBufferInfo<Vk>{*gfx().myMaterials, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<Vk>{*rhi<Vk>().materials, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_Material);
 
-	gfx().myPipeline->setDescriptorData(
+	rhi<Vk>().pipeline->setDescriptorData(
 		"g_objectData",
-		DescriptorBufferInfo<Vk>{*gfx().myObjects, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<Vk>{*rhi<Vk>().objects, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_Object,
 		42);
 
-	gfx().myPipeline->setDescriptorData(
+	rhi<Vk>().pipeline->setDescriptorData(
 		"g_samplers",
-		DescriptorImageInfo<Vk>{(*gfx().myPipeline->resources().samplers)[0]},
+		DescriptorImageInfo<Vk>{(*rhi<Vk>().pipeline->resources().samplers)[0]},
 		DescriptorSetCategory_GlobalSamplers,
 		samplerId);
 }
@@ -1158,8 +1169,8 @@ RhiApplication::~RhiApplication()
 
 	ZoneScopedN("~RhiApplication()");
 
-	auto device = gfx().myDevice;
-	auto instance = gfx().myInstance;
+	auto device = rhi<Vk>().device;
+	auto instance = rhi<Vk>().instance;
 
 	{
 		ZoneScopedN("~RhiApplication()::waitCPU");
@@ -1175,7 +1186,7 @@ RhiApplication::~RhiApplication()
 
 	shutdownIMGUI();
 
-	myGraphicsContext = {};
+	myRhi.reset();
 
 	assert(device.use_count() == 1);
 	assert(instance.use_count() == 2);
@@ -1183,12 +1194,12 @@ RhiApplication::~RhiApplication()
 
 void RhiApplication::onMouse(const MouseState& mouse)
 {
-	gfx().myMainWindow->onMouse(mouse);
+	rhi<Vk>().mainWindow->onMouse(mouse);
 }
 
 void RhiApplication::onKeyboard(const KeyboardState& keyboard)
 {
-	gfx().myMainWindow->onKeyboard(keyboard);
+	rhi<Vk>().mainWindow->onKeyboard(keyboard);
 }
 
 bool RhiApplication::tick()
@@ -1208,25 +1219,25 @@ bool RhiApplication::tick()
 	{
 		ZoneScopedN("RhiApplication::draw");
 
-		auto [flipSuccess, lastPresentTimelineValue] = gfx().myMainWindow->flip();
+		auto [flipSuccess, lastPresentTimelineValue] = rhi<Vk>().mainWindow->flip();
 
 		if (flipSuccess)
 		{
 			ZoneScopedN("RhiApplication::draw::submit");
 
-			auto& primaryContext = gfx().myCommands[CommandType_GeneralPrimary].fetchAdd();
+			auto& primaryContext = rhi<Vk>().commands[CommandType_GeneralPrimary].fetchAdd();
 			constexpr uint32_t secondaryContextCount = 4;
-			auto secondaryContexts = &gfx().myCommands[CommandType_GeneralSecondary].fetchAdd(
+			auto secondaryContexts = &rhi<Vk>().commands[CommandType_GeneralSecondary].fetchAdd(
 				secondaryContextCount);
 
-			auto& graphicsQueue = gfx().myGraphicsQueues.fetchAdd();
+			auto& graphicsQueue = rhi<Vk>().graphicsQueues.fetchAdd();
 
 			if (lastPresentTimelineValue)
 			{
 				{
 					ZoneScopedN("RhiApplication::draw::waitFrame");
 
-					gfx().myDevice->wait(lastPresentTimelineValue);
+					rhi<Vk>().device->wait(lastPresentTimelineValue);
 				}
 
 				primaryContext.reset();
@@ -1242,22 +1253,22 @@ bool RhiApplication::tick()
 			{
 				GPU_SCOPE(cmd, graphicsQueue, clear);
 
-				gfx().myRenderImageSet->clearDepthStencil(cmd, {1.0f, 0});
+				rhi<Vk>().renderImageSet->clearDepthStencil(cmd, {1.0f, 0});
 			}
 			{
 				GPU_SCOPE(cmd, graphicsQueue, transition);
 				
-				gfx().myRenderImageSet->transitionColor(
+				rhi<Vk>().renderImageSet->transitionColor(
 					cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-				gfx().myRenderImageSet->transitionDepthStencil(
+				rhi<Vk>().renderImageSet->transitionDepthStencil(
 					cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 			}
 			{
 				GPU_SCOPE(cmd, graphicsQueue, draw);
 				
-				gfx().myMainWindow->draw(
+				rhi<Vk>().mainWindow->draw(
 					executor(),
-					*gfx().myPipeline,
+					*rhi<Vk>().pipeline,
 					primaryContext,
 					secondaryContexts,
 					secondaryContextCount);
@@ -1265,33 +1276,33 @@ bool RhiApplication::tick()
 			{
 				GPU_SCOPE(cmd, graphicsQueue, imgui);
 				
-				gfx().myMainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+				rhi<Vk>().mainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
 				myIMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 				myIMGUIDrawFunction(cmd);
 
-				gfx().myMainWindow->end(cmd);
+				rhi<Vk>().mainWindow->end(cmd);
 			}
 			{
 				GPU_SCOPE(cmd, graphicsQueue, transitionColor);
 				
-				gfx().myMainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+				rhi<Vk>().mainWindow->transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
 			}
 
 			cmd.end();
 
-			auto [imageAquired, renderComplete] = gfx().myMainWindow->getFrameSyncSemaphores();
+			auto [imageAquired, renderComplete] = rhi<Vk>().mainWindow->getFrameSyncSemaphores();
 
 			graphicsQueue.enqueueSubmit(primaryContext.prepareSubmit(
-				{{gfx().myDevice->getTimelineSemaphore(), imageAquired},
+				{{rhi<Vk>().device->getTimelineSemaphore(), imageAquired},
 					{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
 					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 					{graphicsQueue.getLastSubmitTimelineValue().value_or(0), 1},
-					{gfx().myDevice->getTimelineSemaphore(), renderComplete},
-					{1 + gfx().myDevice->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
+					{rhi<Vk>().device->getTimelineSemaphore(), renderComplete},
+					{1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
 
 			graphicsQueue.enqueuePresent(
-				gfx().myMainWindow->preparePresent(graphicsQueue.submit()));
+				rhi<Vk>().mainWindow->preparePresent(graphicsQueue.submit()));
 		}
 
 		if (lastPresentTimelineValue)
@@ -1299,7 +1310,7 @@ bool RhiApplication::tick()
 			ZoneScopedN("RhiApplication::draw::processTimelineCallbacks");
 
 			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-			gfx().myDevice->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
+			rhi<Vk>().device->processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
 		}
 
 		{
@@ -1319,7 +1330,7 @@ bool RhiApplication::tick()
 	});
 
 	auto [presentTask, presentFuture] = frameGraph.createTask(
-		[](Queue<Vk>* queue) { queue->present(); }, &gfx().myGraphicsQueues.get());
+		[](Queue<Vk>* queue) { queue->present(); }, &rhi<Vk>().graphicsQueues.get());
 
 	frameGraph.addDependency(drawTask, presentTask);
 
@@ -1345,21 +1356,33 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 	{
 		ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
 
-		gfx().myDevice->wait(gfx().myGraphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
+		rhi<Vk>().device->wait(rhi<Vk>().graphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
 	}
 
-	auto physicalDevice = gfx().myDevice->getPhysicalDevice();
-	gfx().myInstance->updateSurfaceCapabilities(physicalDevice, gfx().myMainWindow->getSurface());
+	auto physicalDevice = rhi<Vk>().device->getPhysicalDevice();
+	rhi<Vk>().instance->updateSurfaceCapabilities(physicalDevice, rhi<Vk>().mainWindow->getSurface());
 	auto framebufferExtent =
-		gfx().myInstance->getSwapchainInfo(physicalDevice, gfx().myMainWindow->getSurface())
+		rhi<Vk>().instance->getSwapchainInfo(physicalDevice, rhi<Vk>().mainWindow->getSurface())
 			.capabilities.currentExtent;
 
-	gfx().myMainWindow->onResizeFramebuffer(framebufferExtent);
+	rhi<Vk>().mainWindow->onResizeFramebuffer(framebufferExtent);
 
-	gfx().myPipeline->setDescriptorData(
+	rhi<Vk>().pipeline->setDescriptorData(
 		"g_viewData",
-		DescriptorBufferInfo<Vk>{gfx().myMainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<Vk>{rhi<Vk>().mainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_View);
 
-	createWindowDependentObjects(gfx());
+	createWindowDependentObjects(rhi<Vk>());
+}
+
+void RhiApplication::onResizeWindow(const WindowState& state)
+{
+	if (state.fullscreenEnabled)
+	{
+		rhi<Vk>().mainWindow->onResizeWindow({state.fullscreenWidth, state.fullscreenHeight});
+	}
+	else
+	{
+		rhi<Vk>().mainWindow->onResizeWindow({state.width, state.height});
+	}
 }

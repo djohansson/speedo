@@ -6,8 +6,9 @@
 
 std::weak_ptr<Application> Application::theApplication{};
 
-Application::Application(State&& state)
-: myState(std::forward<State>(state))
+Application::Application(std::string_view name, Environment&& env)
+: myName(name)
+, myEnvironment(std::forward<Environment>(env))
 {
 	ZoneScoped;
 	

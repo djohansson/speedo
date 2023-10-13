@@ -5,16 +5,12 @@
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
 
-#include <hv/HttpServer.h>
-
 #include <cassert>
 #include <cstdio>
 #include <thread>
 
 namespace server
 {
-
-using namespace hv;
 
 class ServerApplication : public Application
 {	
@@ -29,54 +25,9 @@ public:
 	}
 
 protected:
-	ServerApplication(Application::State&& state)
-	 : Application(std::forward<Application::State>(state))
-	 , myRouter([&exec = executor()]
-	 {
-		HttpService router;
-		router.GET("/ping", [](HttpRequest* req, HttpResponse* resp) {
-			return resp->String("pong");
-		});
-
-		router.GET("/data", [](HttpRequest* req, HttpResponse* resp) {
-			static char data[] = "0123456789";
-			return resp->Data(data, 10);
-		});
-
-		router.GET("/paths", [&router](HttpRequest* req, HttpResponse* resp) {
-			return resp->Json(router.Paths());
-		});
-
-		router.GET("/get", [](HttpRequest* req, HttpResponse* resp) {
-			resp->json["origin"] = req->client_addr.ip;
-			resp->json["url"] = req->url;
-			resp->json["args"] = req->query_params;
-			resp->json["headers"] = req->headers;
-			return 200;
-		});
-
-		router.POST("/echo", [&exec](const HttpContextPtr& ctx) {
-			TaskGraph graph;
-			auto [task, result] = graph.createTask([ctx]
-			{
-				return ctx->send(ctx->body(), ctx->type());
-			});
-			exec.submit(std::move(graph));
-			return 0;
-		});
-
-		return router;
-	 }())
-	 , myServer(&myRouter)
-	{
-		myServer.setPort(8080);
-		myServer.setThreadNum(1);
-		myServer.run(false);
-	}
-
-private:
-	HttpService myRouter;
-	HttpServer myServer;
+	ServerApplication(std::string_view name, Environment&& env)
+	: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
+	{ }
 };
 
 static std::shared_ptr<ServerApplication> s_application{};
@@ -106,8 +57,8 @@ void server_create(
 	using namespace server;
 
 	s_application = Application::create<server::ServerApplication>(
-		Application::State{
-			"server",
+		"server",
+		Environment{
 			getCanonicalPath(rootPath, "./"),
 			getCanonicalPath(resourcePath, "./resources/"),
 			getCanonicalPath(userProfilePath, "./.profile/", true)
@@ -140,5 +91,5 @@ const char* server_getAppName(void)
 
 	assert(s_application);
 
-	return s_application->getState().name.data();
+	return s_application->name().data();
 }
