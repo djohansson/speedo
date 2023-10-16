@@ -86,6 +86,7 @@
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -Wno-unknown-attributes'
+			+ ' -D_SILENCE_ALL_CXX23_DEPRECATION_WARNINGS'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -158,6 +159,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -D_SILENCE_ALL_CXX23_DEPRECATION_WARNINGS'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -193,7 +195,26 @@
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
 			+ ' -lmimalloc'
+			+ ' -labseil_dll'
+			+ ' -laddress_sorting'
+			+ ' -lcares'
+			+ ' -llibcrypto'
+			+ ' -lgpr'
+			+ ' -lgrpc'
+			+ ' -lgrpc++'
+			+ ' -lre2'
+			+ ' -lupb'
+			+ ' -lupb_collections'
+			+ ' -lupb_extension_registry'
+			// + ' -lupb_fastdecode'
+			+ ' -lupb_json'
+			// + ' -lupb_mini_table'
+			+ ' -lupb_reflection'
+			+ ' -lupb_textformat'
+			+ ' -lupb_utf8_range'
+			+ ' -llibssl'
 			+ ' -lTracyClient'
+			+ ' -lzlib'
 	]
 
 	.CoreTestsObjectList =
