@@ -5,12 +5,19 @@
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
 
+#include <grpc/support/log.h>
+#include <grpcpp/grpcpp.h>
+
 #include <cassert>
 #include <cstdio>
+#include <format>
+#include <memory>
 #include <thread>
 
 namespace server
 {
+
+using namespace grpc;
 
 class ServerApplication : public Application
 {	
@@ -27,7 +34,21 @@ public:
 protected:
 	ServerApplication(std::string_view name, Environment&& env)
 	: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
-	{ }
+	{
+		constexpr int cx_port = 50051;
+		static const std::string sc_serverAddress = std::format("0.0.0.0:%d", cx_port);
+
+		ServerBuilder builder;
+		builder.AddListeningPort(sc_serverAddress, grpc::InsecureServerCredentials());
+		myCq = builder.AddCompletionQueue();
+		myServer = builder.BuildAndStart();
+		
+		std::cout << "Server listening on " << sc_serverAddress << std::endl;
+	}
+
+private:
+	std::unique_ptr<ServerCompletionQueue> myCq;
+  	std::unique_ptr<Server> myServer;
 };
 
 static std::shared_ptr<ServerApplication> s_application{};
