@@ -4,41 +4,29 @@
 		{
 			"label": "FastBuild (Cache)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -cache}'",
+			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -cache} 2>&1'",
 			"group": {
 				"kind": "build",
 				"isDefault": true
-			},
-			"options": {
-				"env": { "Path": "${env:Path}" }
 			}
 		},
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean -cache}'",
-			"group": "build",
-			"options": {
-				"env": { "Path": "${env:Path}" }
-			}
+			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean -cache} 2>&1'",
+			"group": "build"
 		},
 		{
 			"label": "FastBuild (Clean, No Cache)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean}'",
-			"group": "build",
-			"options": {
-				"env": { "Path": "${env:Path}" }
-			}
+			"command": "pwsh -c '& {. ./env.ps1 ; Invoke-DevEnv fbuild all -clean} 2>&1'",
+			"group": "build"
 		},
 		{
-			"label": "Clang-Format (All)",
+			"label": "(WIP) Clang-Format (All)",
 			"type": "shell",
 			"command": "pwsh -c '& {. ./env.ps1 ; Initialize-DevEnv ; Get-ChildItem ${workspaceFolder}/src -Include *.cpp,*.h -Recurs -File | Foreach {& \"C:\\Program Files\\LLVM\\bin\\clang-format\" $_.fullname} -i -style=file}'",
-			"group": "build",
-			"options": {
-				"env": { "Path": "${env:Path}" }
-			}
+			"group": "build"
 		}
 	]
 }

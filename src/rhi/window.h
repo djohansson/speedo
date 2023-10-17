@@ -7,6 +7,7 @@
 #include "pipeline.h"
 #include "swapchain.h"
 
+#include <core/capi.h>
 #include <core/file.h>
 #include <core/utils.h>
 
@@ -35,6 +36,18 @@ template <GraphicsBackend B>
 class Window : public Swapchain<B>
 {
 public:
+	struct InputState
+	{
+		bool keysPressed[512]; // todo: rewite to bitfield array
+		struct MouseState
+		{
+			float position[2][2];
+			uint8_t leftPressed : 1;
+			uint8_t rightPressed : 1;
+			uint8_t hoverScreen : 1;
+		} mouse;
+	};
+	
 	constexpr Window() noexcept = default;
 	Window(
 		const std::shared_ptr<Device<B>>& device,
@@ -56,7 +69,8 @@ public:
 	void onResizeWindow(Extent2d<B> windowExtent) { myConfig.windowExtent = windowExtent; }
 	void onResizeFramebuffer(Extent2d<B> framebufferExtent);
 
-	void updateInput(const InputState& input);
+	void onMouse(const MouseState& mouse);
+	void onKeyboard(const KeyboardState& keyboard);
 
 	// todo: generalize, move out of window. use sorted draw call lists.
 	void draw(
@@ -70,6 +84,7 @@ public:
 private:
 	void internalUpdateViewBuffer() const;
 	void internalCreateFrameObjects(Extent2d<B> frameBufferExtent);
+	void internalUpdateInput();
 
 	uint32_t internalDrawViews(
 		Pipeline<B>& pipeline,
@@ -78,6 +93,7 @@ private:
 		const RenderPassBeginInfo<B>& renderPassInfo);
 
 	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig;
+	InputState myInput{};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;

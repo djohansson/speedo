@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils.h"
+#include "concurrency-utils.h"
 #include "mio_extra.h"
 
 #include <expected>
@@ -8,9 +9,6 @@
 #include <functional>
 #include <string>
 #include <variant>
-
-#include <glaze/glaze.hpp>
-#include <glaze/core/macros.hpp>
 
 #include <zpp_bits.h>
 
@@ -28,31 +26,10 @@ struct FileInfo
 	uint64_t size = 0;
 };
 
-GLZ_META(FileInfo, path, size, timeStamp, sha2);
-
-enum class AssetManifestErrorCode : uint8_t
-{
-	Missing,
-	InvalidVersion,
-	InvalidSourceFile,
-	InvalidCacheFile,
-};
-
-using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
-
-struct AssetManifestInfo
-{
-	std::string loaderType;
-	std::string loaderVersion;
-	FileInfo assetFileInfo{};
-	FileInfo cacheFileInfo{};
-};
-
-GLZ_META(AssetManifestInfo, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
-
 using InputSerializer = zpp::bits::in<mio::mmap_source>;
-using LoadFileFn = std::function<std::error_code(InputSerializer&)>;
 using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
+
+using LoadFileFn = std::function<std::error_code(InputSerializer&)>;
 using SaveFileFn = std::function<std::error_code(OutputSerializer&)>;
 
 std::string getFileTimeStamp(const std::filesystem::path& filePath);
@@ -114,12 +91,7 @@ using ReadWriteJSONFileObject = JSONFileObject<T, FileAccessMode::ReadWrite>;
 template <typename T>
 using AutoSaveJSONFileObject = JSONFileObject<T, FileAccessMode::ReadWrite, true>;
 
-using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifestInfo, std::error_code>(std::string_view)>;
-
-template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
-std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn);
-
 template <const char* LoaderType, const char* LoaderVersion>
-void loadAsset(const std::filesystem::path& assetFilePath, LoadFileFn loadFileFn, LoadFileFn loadBinaryCacheFn, SaveFileFn saveBinaryCacheFn);
+void loadAsset(const std::filesystem::path& filePath, LoadFileFn loadFileFn, LoadFileFn loadBinaryCacheFn, SaveFileFn saveBinaryCacheFn);
 
 #include "file.inl"

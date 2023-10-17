@@ -2,11 +2,11 @@
 
 #include "utils.h"
 
-#include <memory>
-
 #include <stb_sprintf.h>
 
 #include <xxhash.h>
+
+#include <memory>
 
 template <>
 void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)
@@ -36,7 +36,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 				stringBuffer,
 				"%.*s%.*s%.*u",
 				static_cast<int>(getName().size()),
-				getName().c_str(),
+				getName().data(),
 				static_cast<int>(colorImageViewStr.size()),
 				colorImageViewStr.data(),
 				1,
@@ -89,7 +89,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 				stringBuffer,
 				"%.*s%.*s",
 				static_cast<int>(getName().size()),
-				getName().c_str(),
+				getName().data(),
 				static_cast<int>(depthImageViewStr.size()),
 				depthImageViewStr.data());
 
@@ -252,7 +252,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 			stringBuffer,
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(renderPassStr.size()),
 			renderPassStr.data(),
 			static_cast<unsigned int>(hashKey));
@@ -267,7 +267,7 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 			stringBuffer,
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(framebufferStr.size()),
 			framebufferStr.data(),
 			static_cast<unsigned int>(hashKey));

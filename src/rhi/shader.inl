@@ -111,10 +111,10 @@ ShaderSet<B> ShaderLoader::load(const std::filesystem::path& slangFile)
 		};
 		// end temp
 
-		static_assert(std::ssize(epStrings) == std::ssize(epStages));
+		static_assert(std::size(epStrings) == std::size(epStages));
 
 		std::vector<EntryPoint<B>> entryPoints;
-		for (int i = 0; i < std::ssize(epStrings); i++)
+		for (unsigned i = 0; i < std::size(epStrings); i++)
 		{
 			int index =
 				spAddEntryPoint(slangRequest, translationUnitIndex, epStrings[i], epStages[i]);

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "profiling.h"
 #include "utils.h"
 
 #include <array>

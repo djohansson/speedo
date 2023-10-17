@@ -93,6 +93,99 @@
 				"trace": true,
 				"threadExit": true
 			}
+		},
+		{
+			"name": "(Windows) debug/server",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/server.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
+				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
+				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+			],
+			"symbolOptions": {
+				"searchPaths": [],
+				"searchMicrosoftSymbolServer": true,
+				"cachePath": "${env:TEMP}/symbolcache",
+				"moduleFilter": {
+					"mode": "loadAllButExcluded",
+					"excludedModules": []
+				}
+			},
+			"console": "internalConsole",
+			"logging": {
+				"exceptions": true,
+				"engineLogging": false,
+				"processExit": true,
+				"programOutput": true,
+				"moduleLoad": true,
+				"trace": true,
+				"threadExit": true
+			}
+		},
+		{
+			"name": "(Windows) profile/server",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/server.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+			],
+			"symbolOptions": {
+				"searchPaths": [],
+				"searchMicrosoftSymbolServer": true,
+				"cachePath": "${env:TEMP}/symbolcache",
+				"moduleFilter": {
+					"mode": "loadAllButExcluded",
+					"excludedModules": []
+				}
+			},
+			"console": "internalConsole",
+			"logging": {
+				"exceptions": true,
+				"engineLogging": false,
+				"processExit": true,
+				"programOutput": true,
+				"moduleLoad": true,
+				"trace": true,
+				"threadExit": true
+			}
+		},
+		{
+			"name": "(Windows) release/server",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/server.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "Path", "value": "${env:Path};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+			],
+			"symbolOptions": {
+				"searchPaths": [],
+				"searchMicrosoftSymbolServer": true,
+				"cachePath": "${env:TEMP}/symbolcache",
+				"moduleFilter": {
+					"mode": "loadAllButExcluded",
+					"excludedModules": []
+				}
+			},
+			"console": "internalConsole",
+			"logging": {
+				"exceptions": true,
+				"engineLogging": false,
+				"processExit": true,
+				"programOutput": true,
+				"moduleLoad": true,
+				"trace": true,
+				"threadExit": true
+			}
 		}
 	]
 }

@@ -19,12 +19,8 @@ struct Attribute
     std::string name;
 };
 
-GLZ_META(Attribute, id, name);
-
 struct Link
 {
     int fromId = 0;
     int toId = 0;
 };
-
-GLZ_META(Link, fromId, toId);

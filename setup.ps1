@@ -47,11 +47,11 @@ if ($IsWindows)
 	{
 		Write-Host "Installing VulkanSDK (requires process elevation)..."
 
-		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id KhronosGroup.VulkanSDK | Out-Null"
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id KhronosGroup.VulkanSDK | Out-Null" -Wait
 
 		$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
 	}
-	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue "C:\VulkanSDK\1.3.231.1" | Out-Null
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue ("C:\VulkanSDK\" + $vulkanSdkInfo.InstalledVersion) | Out-Null
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK_VERSION -NotePropertyValue $vulkanSdkInfo.InstalledVersion | Out-Null
 
 	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
@@ -59,7 +59,7 @@ if ($IsWindows)
 	{
 		Write-Host "Installing WindowsSDK 10.0.22621 (requires process elevation)..."
 
-		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null"
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null" -Wait
 
 		$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
 	}

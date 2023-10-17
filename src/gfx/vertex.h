@@ -64,13 +64,6 @@ public:
 
 	void clear();
 
-	template <class Archive>
-	void serialize(Archive& archive)
-	{
-		archive(myData);
-		archive(myStride);
-	}
-
 private:
 	std::vector<char> myData;
 	size_t myStride = 0;

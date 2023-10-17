@@ -4,9 +4,9 @@
 
 #include "utils.h"
 
-#include <string_view>
-
 #include <stb_sprintf.h>
+
+#include <string_view>
 
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(
@@ -72,7 +72,7 @@ Frame<Vk>::Frame(
 			stringBuffer,
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(renderCompleteSemaphoreStr.size()),
 			renderCompleteSemaphoreStr.data());
 
@@ -86,7 +86,7 @@ Frame<Vk>::Frame(
 			stringBuffer,
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(newImageAcquiredSemaphoreStr.size()),
 			newImageAcquiredSemaphoreStr.data());
 

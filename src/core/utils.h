@@ -1,5 +1,7 @@
 #pragma once
 
+#include "profiling.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
@@ -67,6 +69,17 @@ public:
 private:
 	Noncopyable(const Noncopyable&) = delete;
 	Noncopyable& operator=(const Noncopyable&) = delete;
+};
+
+class Nonmovable
+{
+public:
+	constexpr Nonmovable() = default;
+	~Nonmovable() = default;
+
+private:
+	Nonmovable(Nonmovable&&) = delete;
+	Nonmovable& operator=(Nonmovable&&) = delete;
 };
 
 class Nondynamic

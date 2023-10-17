@@ -1,5 +1,6 @@
-#include "client.h"
+#include "capi.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -17,11 +18,15 @@ static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
 
 static void onError(int error, const char* description)
 {
+	assert(description != NULL);
+
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
 static void onMouseEnter(GLFWwindow* window, int entered)
 {
+	assert(window != NULL);
+
 	g_mouse.insideWindow = entered;
 
 	client_mouse(&g_mouse);
@@ -29,6 +34,8 @@ static void onMouseEnter(GLFWwindow* window, int entered)
 
 static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
+	assert(window != NULL);
+
 	g_mouse.button = button;
 	g_mouse.action = action;
 	g_mouse.mods = mods;
@@ -38,6 +45,8 @@ static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 
 static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
+	assert(window != NULL);
+
 	g_mouse.xpos = xpos;
 	g_mouse.ypos = ypos;
 
@@ -46,6 +55,8 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+	assert(window != NULL);
+
 	static bool fullscreenChangeTriggered = false;
 	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
 	{
@@ -111,14 +122,19 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 
 static void onFramebufferResize(GLFWwindow* window, int w, int h)
 {
-	if (w == 0 || h == 0)
-		return;
+	assert(window != NULL);
+	assert(w > 0);
+	assert(h > 0);
 
 	client_resizeFramebuffer(w, h);
 }
 
 static void onWindowResize(GLFWwindow* window, int w, int h)
 {
+	assert(window != NULL);
+	assert(w > 0);
+	assert(h > 0);
+
 	if (!g_window.fullscreenEnabled)
 	{
 		g_window.width = w;
@@ -128,12 +144,20 @@ static void onWindowResize(GLFWwindow* window, int w, int h)
 	client_resizeWindow(&g_window);
 }
 
-static void onWindowFocusChanged(GLFWwindow* window, int focused) {}
+static void onWindowFocusChanged(GLFWwindow* window, int focused)
+{
+	assert(window != NULL);
+}
 
-static void onWindowRefresh(GLFWwindow* window) {}
+static void onWindowRefresh(GLFWwindow* window)
+{
+	assert(window != NULL);
+}
 
 static void onMonitorChanged(GLFWmonitor* monitor, int event)
 {
+	assert(monitor != NULL);
+
 	if (event == GLFW_CONNECTED)
 	{
 		// The monitor was connected
@@ -146,6 +170,10 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 
 const char* getCmdOption(char** begin, char** end, const char* option)
 {
+	assert(begin != NULL);
+	assert(end != NULL);
+	assert(option != NULL);
+
 	while (begin != end)
 	{
 		if (strcmp(*begin++, option) == 0)
@@ -157,23 +185,23 @@ const char* getCmdOption(char** begin, char** end, const char* option)
 
 int main(int argc, char* argv[], char* env[])
 {
+	assert(argv != NULL);
+	assert(env != NULL);
+	
 	printf("mi_version(): %d\n", mi_version());
 
-	// Setup window
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
-		return 1;
+		return EXIT_FAILURE;
 
 	int monitorCount;
-	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-	(void)monitors;
+	glfwGetMonitors(&monitorCount);
 	if (monitorCount <= 0)
 	{
 		printf("GLFW: No monitor connected?\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
-	// Setup Vulkan
 	if (!glfwVulkanSupported())
 	{
 		printf("GLFW: Vulkan Not Supported\n");
@@ -208,12 +236,12 @@ int main(int argc, char* argv[], char* env[])
 	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetWindowTitle(window, client_getAppName());
 
-	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && !client_tick());
+	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick());
 
 	client_destroy();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
 
-	return 0;
+	return EXIT_SUCCESS;
 }

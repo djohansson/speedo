@@ -1,10 +1,12 @@
+#include "application.h"
 #include "profiling.h"
 #include "typeinfo.h"
 
 #include <array>
 #include <iostream>
 
-#include <client/client.h> // TODO: eliminate this dependency
+#include <glaze/glaze.hpp>
+#include <glaze/core/macros.hpp>
 
 #include <stduuid/uuid.h>
 
@@ -213,6 +215,30 @@ JSONFileObject<T, Mode, SaveOnClose>::save() const
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
 }
 
+enum class AssetManifestErrorCode : uint8_t
+{
+	Missing,
+	InvalidVersion,
+	InvalidLocation,
+	InvalidSourceFile,
+	InvalidCacheFile,
+};
+
+using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
+
+struct AssetManifestInfo
+{
+	std::string loaderType;
+	std::string loaderVersion;
+	FileInfo assetFileInfo{};
+	FileInfo cacheFileInfo{};
+};
+
+GLZ_META(FileInfo, path, size, timeStamp, sha2);
+GLZ_META(AssetManifestInfo, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
+
+using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifestInfo, std::error_code>(std::string_view)>;
+
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
 {
@@ -282,7 +308,7 @@ void loadAsset(
 	{
 		ZoneScopedN("loadAsset::importSourceFile");
 
-		auto cacheDir = std::filesystem::path(client_getUserProfilePath()) / ".cache";
+		auto cacheDir = Application::get().lock()->state().userProfilePath / ".cache";
 		auto cacheDirStatus = std::filesystem::status(cacheDir);
 		if (!std::filesystem::exists(cacheDirStatus) ||
 			!std::filesystem::is_directory(cacheDirStatus))

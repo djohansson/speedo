@@ -1,8 +1,7 @@
 #include "../pipeline.h"
+#include "../graphicsapplication.h"
 
 #include "utils.h"
-
-#include <client/client.h> // TODO: eliminate this dependency
 
 #include <stb_sprintf.h>
 
@@ -484,7 +483,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 			stringBuffer,
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(pipelineStr.size()),
 			pipelineStr.data(),
 			static_cast<unsigned int>(hashKey));
@@ -806,7 +805,7 @@ Pipeline<Vk>::Pipeline(
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
 	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
-		  std::filesystem::path(client_getUserProfilePath()) / "pipeline.json",
+		  Application::get().lock()->state().userProfilePath / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)
@@ -829,9 +828,9 @@ Pipeline<Vk>::Pipeline(
 				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, maxInlineBlockSizeBytes}};
 
 			VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-			poolInfo.poolSizeCount = static_cast<uint32_t>(std::ssize(poolSizes));
+			poolInfo.poolSizeCount = std::size(poolSizes);
 			poolInfo.pPoolSizes = poolSizes;
-			poolInfo.maxSets = maxDescriptorCount * static_cast<uint32_t>(std::ssize(poolSizes));
+			poolInfo.maxSets = maxDescriptorCount * std::size(poolSizes);
 			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
@@ -859,7 +858,7 @@ Pipeline<Vk>::Pipeline(
 			stringBuffer,
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
-			getName().c_str(),
+			getName().data(),
 			static_cast<int>(pipelineCacheStr.size()),
 			pipelineCacheStr.data());
 

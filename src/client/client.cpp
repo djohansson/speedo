@@ -1,23 +1,69 @@
-#include "client.h"
+#include "capi.h"
 
-#include <rhi/application.h>
+#include <rhi/graphicsapplication.h>
+
+#define STB_SPRINTF_IMPLEMENTATION
+#include <stb_sprintf.h>
 
 #include <cassert>
-#include <filesystem>
-#include <memory>
-#include <string>
 
-static std::unique_ptr<Application<Vk>> g_app;
-static std::filesystem::path g_rootPath;
-static std::filesystem::path g_resourcePath;
-static std::filesystem::path g_userProfilePath;
+#include <hv/HttpClient.h>
 
 namespace client
 {
 
+class ClientApplication : public GraphicsApplication<Vk>
+{	
+public:
+	virtual ~ClientApplication() = default;
+
+	bool tick() final
+	{
+		++myTickCount;
+		
+		if (myTickCount % 1000)
+			printf("client says: tick! %llu\n", myTickCount);
+		
+		return GraphicsApplication<Vk>::tick();
+	}
+
+protected:
+	ClientApplication(Application::State&& state)
+	 : GraphicsApplication<Vk>(std::forward<Application::State>(state))
+	{
+		using namespace hv;
+
+		HttpClient sync_client;
+		HttpRequest req;
+		req.method = HTTP_POST;
+		req.url = "http://127.0.0.1:8080/echo";
+		req.headers["Connection"] = "keep-alive";
+		req.body = "This is a sync request.";
+		req.timeout = 10;
+		HttpResponse resp;
+		int ret = sync_client.send(&req, &resp);
+		if (ret != 0)
+		{
+			printf("request failed!\n");
+		}
+		else
+		{
+			printf("%d %s\r\n", resp.status_code, resp.status_message());
+			printf("%s\n", resp.body.c_str());
+		}
+	}
+
+private:
+	uint64_t myTickCount = false;
+};
+
+static std::shared_ptr<ClientApplication> s_application{};
+
 std::filesystem::path
 getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
 {
+	assert(defaultPathStr != nullptr);
+	
 	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
 
 	if (createIfMissing && !std::filesystem::exists(path))
@@ -30,92 +76,92 @@ getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 
 } // namespace client
 
-int client_create(
+void client_create(
 	const WindowState* window,
 	const char* rootPath,
 	const char* resourcePath,
 	const char* userProfilePath)
 {
+	using namespace client;
+
 	assert(window != nullptr);
 	assert(window->handle != nullptr);
 
-	g_rootPath = client::getCanonicalPath(resourcePath, "./");
-	g_resourcePath = client::getCanonicalPath(resourcePath, "./resources/");
-	g_userProfilePath = client::getCanonicalPath(userProfilePath, "./.profile/", true);
-	g_app = std::make_unique<Application<Vk>>(*window);
+	s_application = Application::create<ClientApplication>(
+		Application::State{
+			"client",
+			getCanonicalPath(rootPath, "./"),
+			getCanonicalPath(resourcePath, "./resources/"),
+			getCanonicalPath(userProfilePath, "./.profile/", true)
+		});
 
-	return EXIT_SUCCESS;
+	assert(s_application);
+
+	s_application->createDevice(*window);
 }
 
 bool client_tick()
 {
-	assert(g_app);
+	using namespace client;
 
-	return g_app->tick();
+	assert(s_application);
+
+	return s_application->tick();
 }
 
 void client_resizeWindow(const WindowState* state)
 {
-	assert(g_app);
-	assert(state != nullptr);
+	using namespace client;
 
-	g_app->resizeWindow(*state);
+	assert(state != nullptr);
+	assert(s_application);
+	
+	s_application->onResizeWindow(*state);
 }
 
-void client_resizeFramebuffer(int width, int height)
+void client_resizeFramebuffer(uint32_t width, uint32_t height)
 {
-	assert(g_app);
+	using namespace client;
 
-	g_app->resizeFramebuffer(width, height);
+	assert(s_application);
+	
+	s_application->onResizeFramebuffer(width, height);
 }
 
 void client_mouse(const MouseState* state)
 {
-	assert(g_app);
-	assert(state != nullptr);
+	using namespace client;
 
-	g_app->onMouse(*state);
+	assert(state != nullptr);
+	assert(s_application);
+	
+	s_application->onMouse(*state);
 }
 
 void client_keyboard(const KeyboardState* state)
 {
-	assert(g_app);
-	assert(state != nullptr);
+	using namespace client;
 
-	g_app->onKeyboard(*state);
+	assert(state != nullptr);
+	assert(s_application);
+	
+	s_application->onKeyboard(*state);
 }
 
 void client_destroy()
 {
-	assert(g_app);
+	using namespace client;
 
-	g_app.reset();
+	assert(s_application);
+	
+	s_application.reset();
 }
 
 const char* client_getAppName(void)
 {
-	assert(g_app);
+	using namespace client;
 
-	return g_app->getName();
-}
+	assert(s_application);
 
-const char* client_getRootPath(void)
-{
-	static std::string rootPath;
-	rootPath = g_rootPath.string();
-	return rootPath.c_str();
-}
-
-const char* client_getResourcePath(void)
-{
-	static std::string resourcePath;
-	resourcePath = g_resourcePath.string();
-	return resourcePath.c_str();
-}
-
-const char* client_getUserProfilePath(void)
-{
-	static std::string userProfilePath;
-	userProfilePath = g_userProfilePath.string();
-	return userProfilePath.c_str();
+	return s_application->state().name.data();
 }
