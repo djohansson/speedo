@@ -127,7 +127,6 @@
 			+ ' -lmimalloc'
 			+ ' -lglfw3dll'
 			+ ' -lGLTFSDK'
-			+ ' -lhv'
 			+ ' -lTracyClient'
 			+ ' -limgui'
 			+ ' -lnfd'
@@ -194,7 +193,6 @@
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
 			+ ' -lmimalloc'
-			+ ' -lhv'
 			+ ' -lTracyClient'
 	]
 

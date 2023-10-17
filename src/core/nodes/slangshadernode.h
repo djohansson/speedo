@@ -4,10 +4,9 @@
 
 #include <filesystem>
 
-class SlangShaderNode : public InputOutputNode
+class SlangShaderNode final : public InputOutputNode
 {
 public:
-
     SlangShaderNode() noexcept = default;
     SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path);
     SlangShaderNode(const SlangShaderNode&) = default;
@@ -23,6 +22,5 @@ public:
     std::filesystem::path& path();
 
 private:
-
     std::filesystem::path myPath;
 };

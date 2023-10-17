@@ -11,30 +11,28 @@
 
 #include <memory>
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct SwapchainConfiguration
 {
-	Extent2d<B> extent{};
-	SurfaceFormat<B> surfaceFormat{};
-	PresentMode<B> presentMode{};
+	Extent2d<G> extent{};
+	SurfaceFormat<G> surfaceFormat{};
+	PresentMode<G> presentMode{};
 	uint8_t imageCount = 0;
 
-	GLZ_LOCAL_META(SwapchainConfiguration<B>, extent, surfaceFormat, presentMode, imageCount);
+	GLZ_LOCAL_META(SwapchainConfiguration<G>, extent, surfaceFormat, presentMode, imageCount);
 };
 
-template <GraphicsBackend B>
-class Swapchain
-	: public IRenderTarget<B>
-	, public DeviceObject<B>
+template <GraphicsApi G>
+class Swapchain : public IRenderTarget<G>, public DeviceObject<G>
 {
 public:
 	constexpr Swapchain() noexcept = default;
 	Swapchain(Swapchain&& other) noexcept;
 	Swapchain(
-		const std::shared_ptr<Device<B>>& device,
-		const SwapchainConfiguration<B>& config,
-		SurfaceHandle<B>&& surface, // takes ownership
-		SwapchainHandle<B> previous);
+		const std::shared_ptr<Device<G>>& device,
+		const SwapchainConfiguration<G>& config,
+		SurfaceHandle<G>&& surface, // takes ownership
+		SwapchainHandle<G> previous);
 	~Swapchain();
 
 	Swapchain& operator=(Swapchain&& other) noexcept;
@@ -43,45 +41,45 @@ public:
 	void swap(Swapchain& rhs) noexcept;
 	friend void swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.swap(rhs); }
 
-	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const final;
+	virtual const RenderTargetCreateDesc<G>& getRenderTargetDesc() const final;
 
-	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
-	virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+	virtual ImageLayout<G> getColorImageLayout(uint32_t index) const final;
+	virtual ImageLayout<G> getDepthStencilImageLayout() const final;
 
 	virtual void blit(
-		CommandBufferHandle<B> cmd,
+		CommandBufferHandle<G> cmd,
 		const IRenderTarget<Vk>& srcRenderTarget,
-		const ImageSubresourceLayers<B>& srcSubresource,
+		const ImageSubresourceLayers<G>& srcSubresource,
 		uint32_t srcIndex,
-		const ImageSubresourceLayers<B>& dstSubresource,
+		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<B> filter = {}) final;
+		Filter<G> filter = {}) final;
 
 	virtual void clearSingleAttachment(
-		CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const final;
+		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const final;
 	virtual void clearAllAttachments(
-		CommandBufferHandle<B> cmd,
-		const ClearColorValue<B>& color = {},
-		const ClearDepthStencilValue<B>& depthStencil = {}) const final;
+		CommandBufferHandle<G> cmd,
+		const ClearColorValue<G>& color = {},
+		const ClearDepthStencilValue<G>& depthStencil = {}) const final;
 
 	virtual void
-	clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
+	clearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
 	virtual void clearDepthStencil(
-		CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
+		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
 
 	virtual void
-	transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
-	virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+	transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
+	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
 
-	virtual const std::optional<RenderPassBeginInfo<B>>&
-	begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
-	virtual void end(CommandBufferHandle<B> cmd) final;
+	virtual const std::optional<RenderPassBeginInfo<G>>&
+	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	virtual void end(CommandBufferHandle<G> cmd) final;
 
 	auto getSurface() const noexcept { return mySurface; }
-	auto getRenderPass() { return static_cast<RenderPassHandle<B>>(myFrames[myFrameIndex]); }
+	auto getRenderPass() { return static_cast<RenderPassHandle<G>>(myFrames[myFrameIndex]); }
 
 	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
-	std::tuple<SemaphoreHandle<B>, SemaphoreHandle<B>> getFrameSyncSemaphores() const noexcept
+	std::tuple<SemaphoreHandle<G>, SemaphoreHandle<G>> getFrameSyncSemaphores() const noexcept
 	{
 		const auto& lastFrame = myFrames[myLastFrameIndex];
 		const auto& frame = myFrames[myFrameIndex];
@@ -92,19 +90,19 @@ public:
 	//
 
 	std::tuple<bool, uint64_t> flip();
-	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
+	QueuePresentInfo<G> preparePresent(uint64_t timelineValue);
 
 protected:
 	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }
 
 	void
-	internalCreateSwapchain(const SwapchainConfiguration<B>& config, SwapchainHandle<B> previous);
+	internalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);
 
 private:
-	RenderTargetCreateDesc<B> myDesc{};
-	SurfaceHandle<B> mySurface{};
-	SwapchainHandle<B> mySwapchain{};
-	std::vector<Frame<B>> myFrames;
+	RenderTargetCreateDesc<G> myDesc{};
+	SurfaceHandle<G> mySurface{};
+	SwapchainHandle<G> mySwapchain{};
+	std::vector<Frame<G>> myFrames;
 	uint32_t myFrameIndex = 0;
 	uint32_t myLastFrameIndex = 0;
 };

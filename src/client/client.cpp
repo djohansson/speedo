@@ -1,60 +1,34 @@
 #include "capi.h"
 
-#include <rhi/graphicsapplication.h>
+#include <rhi/rhiapplication.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
 
 #include <cassert>
 
-#include <hv/HttpClient.h>
-
 namespace client
 {
 
-class ClientApplication : public GraphicsApplication<Vk>
+class ClientApplication : public RhiApplication
 {	
 public:
-	virtual ~ClientApplication() = default;
+	~ClientApplication() = default;
 
-	bool tick() final
+	bool tick() override
 	{
 		++myTickCount;
 		
-		if (myTickCount % 1000)
-			printf("client says: tick! %llu\n", myTickCount);
-		
-		return GraphicsApplication<Vk>::tick();
+		return RhiApplication::tick();
 	}
 
 protected:
-	ClientApplication(Application::State&& state)
-	 : GraphicsApplication<Vk>(std::forward<Application::State>(state))
-	{
-		using namespace hv;
-
-		HttpClient sync_client;
-		HttpRequest req;
-		req.method = HTTP_POST;
-		req.url = "http://127.0.0.1:8080/echo";
-		req.headers["Connection"] = "keep-alive";
-		req.body = "This is a sync request.";
-		req.timeout = 10;
-		HttpResponse resp;
-		int ret = sync_client.send(&req, &resp);
-		if (ret != 0)
-		{
-			printf("request failed!\n");
-		}
-		else
-		{
-			printf("%d %s\r\n", resp.status_code, resp.status_message());
-			printf("%s\n", resp.body.c_str());
-		}
-	}
+	ClientApplication(std::string_view name, Environment&& env)
+	: RhiApplication(std::forward<std::string_view>(name), std::forward<Environment>(env))
+	{ }
 
 private:
-	uint64_t myTickCount = false;
+	uint64_t myTickCount = 0;
 };
 
 static std::shared_ptr<ClientApplication> s_application{};
@@ -88,8 +62,8 @@ void client_create(
 	assert(window->handle != nullptr);
 
 	s_application = Application::create<ClientApplication>(
-		Application::State{
-			"client",
+		"client",
+		Environment{
 			getCanonicalPath(rootPath, "./"),
 			getCanonicalPath(resourcePath, "./resources/"),
 			getCanonicalPath(userProfilePath, "./.profile/", true)
@@ -163,5 +137,5 @@ const char* client_getAppName(void)
 
 	assert(s_application);
 
-	return s_application->state().name.data();
+	return s_application->name().data();
 }

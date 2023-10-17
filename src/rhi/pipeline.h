@@ -15,14 +15,14 @@
 #include <optional>
 #include <string>
 
-template <GraphicsBackend B>
-class PipelineLayout : public DeviceObject<B>
+template <GraphicsApi G>
+class PipelineLayout final : public DeviceObject<G>
 {
 public:
 	constexpr PipelineLayout() noexcept = default;
-	PipelineLayout(PipelineLayout<B>&& other) noexcept;
+	PipelineLayout(PipelineLayout<G>&& other) noexcept;
 	PipelineLayout(
-		const std::shared_ptr<Device<B>>& device, const ShaderSet<B>& shaderSet);
+		const std::shared_ptr<Device<G>>& device, const ShaderSet<G>& shaderSet);
 	~PipelineLayout();
 
 	PipelineLayout& operator=(PipelineLayout&& other) noexcept;
@@ -35,47 +35,47 @@ public:
 
 	const auto& getShaderModules() const noexcept { return myShaderModules; }
 	const auto& getDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
-	const DescriptorSetLayout<B>& getDescriptorSetLayout(uint32_t set) const noexcept;
+	const DescriptorSetLayout<G>& getDescriptorSetLayout(uint32_t set) const noexcept;
 
 private:
 	PipelineLayout( // takes ownership over provided handles
-		const std::shared_ptr<Device<B>>& device,
-		std::vector<ShaderModule<B>>&& shaderModules,
-		DescriptorSetLayoutFlatMap<B>&& descriptorSetLayouts);
+		const std::shared_ptr<Device<G>>& device,
+		std::vector<ShaderModule<G>>&& shaderModules,
+		DescriptorSetLayoutFlatMap<G>&& descriptorSetLayouts);
 	PipelineLayout( // takes ownership over provided handles
-		const std::shared_ptr<Device<B>>& device,
-		std::vector<ShaderModule<B>>&& shaderModules,
-		DescriptorSetLayoutFlatMap<B>&& descriptorSetLayouts,
-		PipelineLayoutHandle<B>&& layout);
+		const std::shared_ptr<Device<G>>& device,
+		std::vector<ShaderModule<G>>&& shaderModules,
+		DescriptorSetLayoutFlatMap<G>&& descriptorSetLayouts,
+		PipelineLayoutHandle<G>&& layout);
 
-	std::vector<ShaderModule<B>> myShaderModules;
-	DescriptorSetLayoutFlatMap<B> myDescriptorSetLayouts;
-	PipelineLayoutHandle<B> myLayout{};
+	std::vector<ShaderModule<G>> myShaderModules;
+	DescriptorSetLayoutFlatMap<G> myDescriptorSetLayouts;
+	PipelineLayoutHandle<G> myLayout{};
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct PipelineResourceView
 {
 	// begin temp
-	std::shared_ptr<Model<B>> model;
-	std::shared_ptr<Image<B>> black;
-	std::shared_ptr<ImageView<B>> blackImageView;
-	std::shared_ptr<Image<B>> image;
-	std::shared_ptr<ImageView<B>> imageView;
-	std::shared_ptr<SamplerVector<B>> samplers;
+	std::shared_ptr<Model<G>> model;
+	std::shared_ptr<Image<G>> black;
+	std::shared_ptr<ImageView<G>> blackImageView;
+	std::shared_ptr<Image<G>> image;
+	std::shared_ptr<ImageView<G>> imageView;
+	std::shared_ptr<SamplerVector<G>> samplers;
 	// end temp
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct PipelineCacheHeader
 {};
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct PipelineConfiguration
 {
 	std::string cachePath;
 
-	GLZ_LOCAL_META(PipelineConfiguration<B>, cachePath);
+	GLZ_LOCAL_META(PipelineConfiguration<G>, cachePath);
 };
 
 // todo: create single-thread / multi-thread interface:
@@ -83,23 +83,22 @@ struct PipelineConfiguration
 //         * descriptor pools created in groups for each thread instance
 //         * pipeline map/cache shared across thread instances
 //         * descriptor data shared across thread instances (if possible. avoids excessive copying...)
-template <GraphicsBackend B>
-class Pipeline : public DeviceObject<B>
+template <GraphicsApi G>
+class Pipeline : public DeviceObject<G>
 {
 	using PipelineMapType = UnorderedMap<
 		uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
-		CopyableAtomic<PipelineHandle<B>>,
+		CopyableAtomic<PipelineHandle<G>>,
 		IdentityHash<uint64_t>>;
 
 	using DescriptorMapType = UnorderedMap<
-		DescriptorSetLayoutHandle<
-			B>, // todo: hash DescriptorSetData into this key? monitor mem useage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
-		DescriptorSetState<B>>;
+		DescriptorSetLayoutHandle<G>, // todo: hash DescriptorSetData into this key? monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
+		DescriptorSetState<G>>;
 
 public:
 	Pipeline(
-		const std::shared_ptr<Device<B>>& device,
-		PipelineConfiguration<B>&& defaultConfig = {});
+		const std::shared_ptr<Device<G>>& device,
+		PipelineConfiguration<G>&& defaultConfig = {});
 	~Pipeline();
 
 	const auto& getConfig() const noexcept { return myConfig; }
@@ -110,28 +109,28 @@ public:
 	// "manual" api
 
 	void bindPipeline(
-		CommandBufferHandle<B> cmd, PipelineBindPoint<B> bindPoint, PipelineHandle<B> handle) const;
+		CommandBufferHandle<G> cmd, PipelineBindPoint<G> bindPoint, PipelineHandle<G> handle) const;
 
 	void bindDescriptorSet(
-		CommandBufferHandle<B> cmd,
-		DescriptorSetHandle<B> handle,
-		PipelineBindPoint<B> bindPoint,
-		PipelineLayoutHandle<B> layoutHandle,
+		CommandBufferHandle<G> cmd,
+		DescriptorSetHandle<G> handle,
+		PipelineBindPoint<G> bindPoint,
+		PipelineLayoutHandle<G> layoutHandle,
 		uint32_t set,
 		std::optional<uint32_t> bufferOffset = std::nullopt) const;
 
 	// "auto" api
 
-	void bindPipelineAuto(CommandBufferHandle<B> cmd);
+	void bindPipelineAuto(CommandBufferHandle<G> cmd);
 
 	void bindDescriptorSetAuto(
-		CommandBufferHandle<B> cmd,
+		CommandBufferHandle<G> cmd,
 		uint32_t set,
 		std::optional<uint32_t> bufferOffset = std::nullopt);
 
 	template <typename T>
 	void setDescriptorData(
-		uint64_t shaderVariableNameHash, const DescriptorSetLayout<B>& layout, T&& data);
+		uint64_t shaderVariableNameHash, const DescriptorSetLayout<G>& layout, T&& data);
 
 	template <typename T>
 	void setDescriptorData(std::string_view shaderVariableName, T&& data, uint32_t set);
@@ -139,7 +138,7 @@ public:
 	template <typename T>
 	void setDescriptorData(
 		uint64_t shaderVariableNameHash,
-		const DescriptorSetLayout<B>& layout,
+		const DescriptorSetLayout<G>& layout,
 		const std::vector<T>& data);
 
 	template <typename T>
@@ -149,7 +148,7 @@ public:
 	template <typename T>
 	void setDescriptorData(
 		uint64_t shaderVariableNameHash,
-		const DescriptorSetLayout<B>& layout,
+		const DescriptorSetLayout<G>& layout,
 		T&& data,
 		uint32_t index);
 
@@ -170,9 +169,9 @@ public:
 	}
 
 	void
-	setLayout(const std::shared_ptr<PipelineLayout<B>>& layout, PipelineBindPoint<B> bindPoint);
-	void setRenderTarget(const std::shared_ptr<RenderTarget<B>>& renderTarget);
-	void setModel(const std::shared_ptr<Model<B>>&
+	setLayout(const std::shared_ptr<PipelineLayout<G>>& layout, PipelineBindPoint<G> bindPoint);
+	void setRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
+	void setModel(const std::shared_ptr<Model<G>>&
 					  model); // todo: rewrite to use generic draw call structures / buffers
 
 	auto& resources() noexcept { return myGraphicsState.resources; }
@@ -191,57 +190,57 @@ private:
 	//
 
 	void internalUpdateDescriptorSet(
-		const DescriptorSetLayout<B>& setLayout,
-		const BindingsData<B>& bindingsData,
-		const DescriptorUpdateTemplate<B>& setTemplate,
-		DescriptorSetArrayList<B>& setArrayList);
+		const DescriptorSetLayout<G>& setLayout,
+		const BindingsData<G>& bindingsData,
+		const DescriptorUpdateTemplate<G>& setTemplate,
+		DescriptorSetArrayList<G>& setArrayList);
 	void internalPushDescriptorSet(
-		CommandBufferHandle<B> cmd,
-		const BindingsData<B>& bindingsData,
-		const DescriptorUpdateTemplate<B>& setTemplate) const;
+		CommandBufferHandle<G> cmd,
+		const BindingsData<G>& bindingsData,
+		const DescriptorUpdateTemplate<G>& setTemplate) const;
 
 	static void internalUpdateDescriptorSetTemplate(
-		const BindingsMap<B>& bindingsMap, DescriptorUpdateTemplate<B>& setTemplate);
+		const BindingsMap<G>& bindingsMap, DescriptorUpdateTemplate<G>& setTemplate);
 
 	uint64_t internalCalculateHashKey() const;
-	PipelineHandle<B> internalCreateGraphicsPipeline(uint64_t hashKey);
-	PipelineHandle<B> internalGetPipeline();
+	PipelineHandle<G> internalCreateGraphicsPipeline(uint64_t hashKey);
+	PipelineHandle<G> internalGetPipeline();
 
-	AutoSaveJSONFileObject<PipelineConfiguration<B>> myConfig;
+	AutoSaveJSONFileObject<PipelineConfiguration<G>> myConfig;
 
 	DescriptorMapType myDescriptorMap;
 	
 	// todo: should be handled differently to cater for multithread and explicit binds.
-	DescriptorPoolHandle<B> myDescriptorPool{};
+	DescriptorPoolHandle<G> myDescriptorPool{};
 
 	// todo: move pipeline map & cache to its own class, and pass in reference to it.
 	PipelineMapType myPipelineMap; 
-	PipelineCacheHandle<B> myCache{};
+	PipelineCacheHandle<G> myCache{};
 
 	// shared state
-	PipelineBindPoint<B> myBindPoint{};
-	std::shared_ptr<PipelineLayout<B>> myLayout;
-	std::shared_ptr<RenderTarget<B>> myRenderTarget;
+	PipelineBindPoint<G> myBindPoint{};
+	std::shared_ptr<PipelineLayout<G>> myLayout;
+	std::shared_ptr<RenderTarget<G>> myRenderTarget;
 	// end shared state
 
 	struct GraphicsState
 	{
-		std::vector<PipelineShaderStageCreateInfo<B>> shaderStages;
+		std::vector<PipelineShaderStageCreateInfo<G>> shaderStages;
 		uint32_t shaderStageFlags{};
-		PipelineVertexInputStateCreateInfo<B> vertexInput{};
-		PipelineInputAssemblyStateCreateInfo<B> inputAssembly{};
-		std::vector<Viewport<B>> viewports;
-		std::vector<Rect2D<B>> scissorRects;
-		PipelineViewportStateCreateInfo<B> viewport{};
-		PipelineRasterizationStateCreateInfo<B> rasterization{};
-		PipelineMultisampleStateCreateInfo<B> multisample{};
-		PipelineDepthStencilStateCreateInfo<B> depthStencil{};
-		std::vector<PipelineColorBlendAttachmentState<B>> colorBlendAttachments{};
-		PipelineColorBlendStateCreateInfo<B> colorBlend{};
-		std::vector<DynamicState<B>> dynamicStateDescs;
-		PipelineDynamicStateCreateInfo<B> dynamicState{};
+		PipelineVertexInputStateCreateInfo<G> vertexInput{};
+		PipelineInputAssemblyStateCreateInfo<G> inputAssembly{};
+		std::vector<Viewport<G>> viewports;
+		std::vector<Rect2D<G>> scissorRects;
+		PipelineViewportStateCreateInfo<G> viewport{};
+		PipelineRasterizationStateCreateInfo<G> rasterization{};
+		PipelineMultisampleStateCreateInfo<G> multisample{};
+		PipelineDepthStencilStateCreateInfo<G> depthStencil{};
+		std::vector<PipelineColorBlendAttachmentState<G>> colorBlendAttachments{};
+		PipelineColorBlendStateCreateInfo<G> colorBlend{};
+		std::vector<DynamicState<G>> dynamicStateDescs;
+		PipelineDynamicStateCreateInfo<G> dynamicState{};
 		// temp
-		PipelineResourceView<B> resources;
+		PipelineResourceView<G> resources;
 		//
 	} myGraphicsState{};
 

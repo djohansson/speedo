@@ -7,64 +7,62 @@
 #include <tuple>
 #include <vector>
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct RenderTargetCreateDesc
 {
-	Extent2d<B> extent{};
-	std::vector<Format<B>> colorImageFormats;
-	std::vector<ImageLayout<B>> colorImageLayouts;
-	std::vector<ImageHandle<B>> colorImages;
-	Format<B> depthStencilImageFormat{};
-	ImageLayout<B> depthStencilImageLayout{};
-	ImageHandle<B> depthStencilImage{}; // optional
+	Extent2d<G> extent{};
+	std::vector<Format<G>> colorImageFormats;
+	std::vector<ImageLayout<G>> colorImageLayouts;
+	std::vector<ImageHandle<G>> colorImages;
+	Format<G> depthStencilImageFormat{};
+	ImageLayout<G> depthStencilImageLayout{};
+	ImageHandle<G> depthStencilImage{}; // optional
 	uint32_t layerCount = 1;
 	bool useDefaultInitialization = true; // create default render passes & framebuffer objects
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct IRenderTarget
 {
-	virtual const RenderTargetCreateDesc<B>& getRenderTargetDesc() const = 0;
+	virtual const RenderTargetCreateDesc<G>& getRenderTargetDesc() const = 0;
 
-	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const = 0;
-	virtual ImageLayout<B> getDepthStencilImageLayout() const = 0;
+	virtual ImageLayout<G> getColorImageLayout(uint32_t index) const = 0;
+	virtual ImageLayout<G> getDepthStencilImageLayout() const = 0;
 
-	virtual const std::optional<RenderPassBeginInfo<B>>&
-	begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) = 0;
-	virtual void end(CommandBufferHandle<B> cmd) = 0;
+	virtual const std::optional<RenderPassBeginInfo<G>>&
+	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
+	virtual void end(CommandBufferHandle<G> cmd) = 0;
 
 	virtual void blit(
-		CommandBufferHandle<B> cmd,
-		const IRenderTarget<B>& srcRenderTarget,
-		const ImageSubresourceLayers<B>& srcSubresource,
+		CommandBufferHandle<G> cmd,
+		const IRenderTarget<G>& srcRenderTarget,
+		const ImageSubresourceLayers<G>& srcSubresource,
 		uint32_t srcIndex,
-		const ImageSubresourceLayers<B>& dstSubresource,
+		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<B> filter = {}) = 0;
+		Filter<G> filter = {}) = 0;
 
 	virtual void clearSingleAttachment(
-		CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const = 0;
+		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const = 0;
 	virtual void clearAllAttachments(
-		CommandBufferHandle<B> cmd,
-		const ClearColorValue<B>& color = {},
-		const ClearDepthStencilValue<B>& depthStencil = {}) const = 0;
+		CommandBufferHandle<G> cmd,
+		const ClearColorValue<G>& color = {},
+		const ClearDepthStencilValue<G>& depthStencil = {}) const = 0;
 
 	virtual void
-	clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) = 0;
+	clearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) = 0;
 	virtual void clearDepthStencil(
-		CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) = 0;
+		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) = 0;
 
 	virtual void
-	transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) = 0;
-	virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) = 0;
+	transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) = 0;
+	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) = 0;
 };
 
-template <GraphicsBackend B>
-class RenderTarget
-	: public IRenderTarget<B>
-	, public DeviceObject<B>
+template <GraphicsApi G>
+class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>
 {
-	using ValueType = std::tuple<RenderPassHandle<B>, FramebufferHandle<B>>;
+	using ValueType = std::tuple<RenderPassHandle<G>, FramebufferHandle<G>>;
 	using ValueMapType = UnorderedMap<uint64_t, ValueType>;
 
 public:
@@ -72,30 +70,30 @@ public:
 
 	operator auto() { return std::get<0>(internalGetValues()); };
 
-	virtual const std::optional<RenderPassBeginInfo<B>>&
-	begin(CommandBufferHandle<B> cmd, SubpassContents<B> contents) final;
-	virtual void end(CommandBufferHandle<B> cmd) override;
+	virtual const std::optional<RenderPassBeginInfo<G>>&
+	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	virtual void end(CommandBufferHandle<G> cmd) override;
 
 	virtual void blit(
-		CommandBufferHandle<B> cmd,
-		const IRenderTarget<B>& srcRenderTarget,
-		const ImageSubresourceLayers<B>& srcSubresource,
+		CommandBufferHandle<G> cmd,
+		const IRenderTarget<G>& srcRenderTarget,
+		const ImageSubresourceLayers<G>& srcSubresource,
 		uint32_t srcIndex,
-		const ImageSubresourceLayers<B>& dstSubresource,
+		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<B> filter = {}) final;
+		Filter<G> filter = {}) final;
 
 	virtual void clearSingleAttachment(
-		CommandBufferHandle<B> cmd, const ClearAttachment<B>& clearAttachment) const final;
+		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const final;
 	virtual void clearAllAttachments(
-		CommandBufferHandle<B> cmd,
-		const ClearColorValue<B>& color = {},
-		const ClearDepthStencilValue<B>& depthStencil = {}) const final;
+		CommandBufferHandle<G> cmd,
+		const ClearColorValue<G>& color = {},
+		const ClearDepthStencilValue<G>& depthStencil = {}) const final;
 
 	virtual void
-	clearColor(CommandBufferHandle<B> cmd, const ClearColorValue<B>& color, uint32_t index) final;
+	clearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
 	virtual void clearDepthStencil(
-		CommandBufferHandle<B> cmd, const ClearDepthStencilValue<B>& depthStencil) final;
+		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
 
 	auto getAttachment(uint32_t index) const noexcept { return myAttachments[index]; }
 	const auto& getAttachmentDesc(uint32_t index) const noexcept
@@ -104,22 +102,22 @@ public:
 	}
 	const auto& getSubpass() const noexcept { return myCurrentSubpass; }
 
-	void addSubpassDescription(SubpassDescription<B>&& description);
-	void addSubpassDependency(SubpassDependency<B>&& dependency);
-	void nextSubpass(CommandBufferHandle<B> cmd, SubpassContents<B> contents);
+	void addSubpassDescription(SubpassDescription<G>&& description);
+	void addSubpassDependency(SubpassDependency<G>&& dependency);
+	void nextSubpass(CommandBufferHandle<G> cmd, SubpassContents<G> contents);
 	void resetSubpasses();
 
-	void setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<B> op);
-	void setColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<B> op);
-	void setDepthStencilAttachmentLoadOp(AttachmentLoadOp<B> op);
-	void setDepthStencilAttachmentStoreOp(AttachmentStoreOp<B> op);
+	void setColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> op);
+	void setColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> op);
+	void setDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> op);
+	void setDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> op);
 
 protected:
 	constexpr RenderTarget() noexcept = default;
-	RenderTarget(RenderTarget<B>&& other) noexcept;
+	RenderTarget(RenderTarget<G>&& other) noexcept;
 	RenderTarget(
-		const std::shared_ptr<Device<B>>& device,
-		const RenderTargetCreateDesc<B>& desc);
+		const std::shared_ptr<Device<G>>& device,
+		const RenderTargetCreateDesc<G>& desc);
 
 	RenderTarget& operator=(RenderTarget&& other) noexcept;
 
@@ -131,24 +129,24 @@ private:
 	ValueType internalCreateRenderPassAndFrameBuffer(
 		uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc);
 
-	void internalInitializeAttachments(const RenderTargetCreateDesc<B>& desc);
-	void internalInitializeDefaultRenderPass(const RenderTargetCreateDesc<B>& desc);
+	void internalInitializeAttachments(const RenderTargetCreateDesc<G>& desc);
+	void internalInitializeDefaultRenderPass(const RenderTargetCreateDesc<G>& desc);
 
-	void internalUpdateAttachments(const RenderTargetCreateDesc<B>& desc);
-	void internalUpdateRenderPasses(const RenderTargetCreateDesc<B>& desc);
+	void internalUpdateAttachments(const RenderTargetCreateDesc<G>& desc);
+	void internalUpdateRenderPasses(const RenderTargetCreateDesc<G>& desc);
 
-	const ValueType& internalUpdateMap(const RenderTargetCreateDesc<B>& desc);
+	const ValueType& internalUpdateMap(const RenderTargetCreateDesc<G>& desc);
 	const ValueType& internalGetValues();
 
-	std::vector<ImageViewHandle<B>> myAttachments;
-	std::vector<AttachmentDescription<B>> myAttachmentDescs;
-	std::vector<AttachmentReference<B>> myAttachmentsReferences;
-	std::vector<SubpassDescription<B>> mySubPassDescs;
-	std::vector<SubpassDependency<B>> mySubPassDependencies;
+	std::vector<ImageViewHandle<G>> myAttachments;
+	std::vector<AttachmentDescription<G>> myAttachmentDescs;
+	std::vector<AttachmentReference<G>> myAttachmentsReferences;
+	std::vector<SubpassDescription<G>> mySubPassDescs;
+	std::vector<SubpassDependency<G>> mySubPassDependencies;
 
 	ValueMapType myMap;
 
-	std::optional<RenderPassBeginInfo<B>> myCurrentPass;
+	std::optional<RenderPassBeginInfo<G>> myCurrentPass;
 	std::optional<uint32_t> myCurrentSubpass;
 };
 

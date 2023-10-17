@@ -1,12 +1,12 @@
 namespace renderimageset
 {
 
-template <GraphicsBackend B>
-RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
-	const std::vector<std::shared_ptr<Image<B>>>& colorImages,
-	const std::shared_ptr<Image<B>>& depthStencilImage)
+template <GraphicsApi G>
+RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
+	const std::vector<std::shared_ptr<Image<G>>>& colorImages,
+	const std::shared_ptr<Image<G>>& depthStencilImage)
 {
-	RenderTargetCreateDesc<B> outDesc{};
+	RenderTargetCreateDesc<G> outDesc{};
 
 	assertf(colorImages.size(), "colorImages cannot be empty");
 
@@ -45,11 +45,11 @@ RenderTargetCreateDesc<B> createRenderTargetCreateDesc(
 
 } // namespace renderimageset
 
-template <GraphicsBackend B>
-RenderImageSet<B>::RenderImageSet(
-	const std::shared_ptr<Device<B>>& device,
-	const std::vector<std::shared_ptr<Image<B>>>& colorImages,
-	const std::shared_ptr<Image<B>>& depthStencilImage)
+template <GraphicsApi G>
+RenderImageSet<G>::RenderImageSet(
+	const std::shared_ptr<Device<G>>& device,
+	const std::vector<std::shared_ptr<Image<G>>>& colorImages,
+	const std::shared_ptr<Image<G>>& depthStencilImage)
 	: BaseType(
 		  device,
 		  renderimageset::createRenderTargetCreateDesc(colorImages, depthStencilImage))
@@ -57,19 +57,19 @@ RenderImageSet<B>::RenderImageSet(
 	, myDepthStencilImage(depthStencilImage)
 {}
 
-template <GraphicsBackend B>
-RenderImageSet<B>::RenderImageSet(RenderImageSet&& other) noexcept
+template <GraphicsApi G>
+RenderImageSet<G>::RenderImageSet(RenderImageSet&& other) noexcept
 	: BaseType(std::forward<RenderImageSet>(other))
 	, myColorImages(std::exchange(other.myColorImages, {}))
 	, myDepthStencilImage(std::exchange(other.myDepthStencilImage, {}))
 {}
 
-template <GraphicsBackend B>
-RenderImageSet<B>::~RenderImageSet()
+template <GraphicsApi G>
+RenderImageSet<G>::~RenderImageSet()
 {}
 
-template <GraphicsBackend B>
-RenderImageSet<B>& RenderImageSet<B>::operator=(RenderImageSet&& other) noexcept
+template <GraphicsApi G>
+RenderImageSet<G>& RenderImageSet<G>::operator=(RenderImageSet&& other) noexcept
 {
 	BaseType::operator=(std::forward<RenderImageSet>(other));
 	myColorImages = std::exchange(other.myColorImages, {});
@@ -77,30 +77,30 @@ RenderImageSet<B>& RenderImageSet<B>::operator=(RenderImageSet&& other) noexcept
 	return *this;
 }
 
-template <GraphicsBackend B>
-void RenderImageSet<B>::swap(RenderImageSet& rhs) noexcept
+template <GraphicsApi G>
+void RenderImageSet<G>::swap(RenderImageSet& rhs) noexcept
 {
 	BaseType::swap(rhs);
 	std::swap(myColorImages, rhs.myColorImages);
 	std::swap(myDepthStencilImage, rhs.myDepthStencilImage);
 }
 
-template <GraphicsBackend B>
-ImageLayout<B> RenderImageSet<B>::getColorImageLayout(uint32_t index) const
+template <GraphicsApi G>
+ImageLayout<G> RenderImageSet<G>::getColorImageLayout(uint32_t index) const
 {
 	return myColorImages[index]->getImageLayout();
 }
 
-template <GraphicsBackend B>
-ImageLayout<B> RenderImageSet<B>::getDepthStencilImageLayout() const
+template <GraphicsApi G>
+ImageLayout<G> RenderImageSet<G>::getDepthStencilImageLayout() const
 {
 	return myDepthStencilImage->getImageLayout();
 }
 
-template <GraphicsBackend B>
-void RenderImageSet<B>::end(CommandBufferHandle<B> cmd)
+template <GraphicsApi G>
+void RenderImageSet<G>::end(CommandBufferHandle<G> cmd)
 {
-	RenderTarget<B>::end(cmd);
+	RenderTarget<G>::end(cmd);
 
 	uint32_t imageIt = 0ul;
 	for (; imageIt < myColorImages.size(); imageIt++)
@@ -110,15 +110,15 @@ void RenderImageSet<B>::end(CommandBufferHandle<B> cmd)
 		myDepthStencilImage->setImageLayout(this->getAttachmentDesc(imageIt).finalLayout);
 }
 
-template <GraphicsBackend B>
-void RenderImageSet<B>::transitionColor(
-	CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index)
+template <GraphicsApi G>
+void RenderImageSet<G>::transitionColor(
+	CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index)
 {
 	myColorImages[index]->transition(cmd, layout);
 }
 
-template <GraphicsBackend B>
-void RenderImageSet<B>::transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout)
+template <GraphicsApi G>
+void RenderImageSet<G>::transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout)
 {
 	myDepthStencilImage->transition(cmd, layout);
 }

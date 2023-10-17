@@ -1,5 +1,5 @@
-template <GraphicsBackend B>
-const DescriptorSetLayout<B>& PipelineLayout<B>::getDescriptorSetLayout(uint32_t set) const noexcept
+template <GraphicsApi G>
+const DescriptorSetLayout<G>& PipelineLayout<G>::getDescriptorSetLayout(uint32_t set) const noexcept
 {
 	const auto& setLayouts = getDescriptorSetLayouts();
 	auto setLayoutIt = std::lower_bound(

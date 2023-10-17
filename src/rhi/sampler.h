@@ -5,14 +5,14 @@
 
 #include <memory>
 
-template <GraphicsBackend B>
-class SamplerVector : public DeviceObject<B>
+template <GraphicsApi G>
+class SamplerVector final : public DeviceObject<G>
 {
 public:
 	constexpr SamplerVector() noexcept = default;
 	SamplerVector(
-		const std::shared_ptr<Device<B>>& device,
-		const std::vector<SamplerCreateInfo<B>>& createInfos);
+		const std::shared_ptr<Device<G>>& device,
+		const std::vector<SamplerCreateInfo<G>>& createInfos);
 	SamplerVector(SamplerVector&& other) noexcept;
 	~SamplerVector();
 
@@ -27,8 +27,8 @@ public:
 
 private:
 	SamplerVector( // takes ownership of provided handle
-		const std::shared_ptr<Device<B>>& device,
-		std::vector<SamplerHandle<B>>&& samplers);
+		const std::shared_ptr<Device<G>>& device,
+		std::vector<SamplerHandle<G>>&& samplers);
 
-	std::vector<SamplerHandle<B>> mySamplers;
+	std::vector<SamplerHandle<G>> mySamplers;
 };

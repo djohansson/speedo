@@ -1,5 +1,5 @@
 #include "../pipeline.h"
-#include "../graphicsapplication.h"
+#include "../rhiapplication.h"
 
 #include "utils.h"
 
@@ -805,7 +805,7 @@ Pipeline<Vk>::Pipeline(
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
 	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
-		  Application::get().lock()->state().userProfilePath / "pipeline.json",
+		  Application::instance().lock()->environment().userProfilePath / "pipeline.json",
 		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)

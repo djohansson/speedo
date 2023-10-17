@@ -6,21 +6,21 @@
 
 #include <memory>
 
-template <GraphicsBackend B>
-struct FrameCreateDesc : RenderTargetCreateDesc<B>
+template <GraphicsApi G>
+struct FrameCreateDesc : RenderTargetCreateDesc<G>
 {
 	uint32_t index = 0;
 };
 
-template <GraphicsBackend B>
-class Frame : public RenderTargetImpl<FrameCreateDesc<B>, B>
+template <GraphicsApi G>
+class Frame final : public RenderTargetImpl<FrameCreateDesc<G>, G>
 {
-	using BaseType = RenderTargetImpl<FrameCreateDesc<B>, B>;
+	using BaseType = RenderTargetImpl<FrameCreateDesc<G>, G>;
 
 public:
 	constexpr Frame() noexcept = default;
-	Frame(const std::shared_ptr<Device<B>>& device, FrameCreateDesc<B>&& desc);
-	Frame(Frame<B>&& other) noexcept;
+	Frame(const std::shared_ptr<Device<G>>& device, FrameCreateDesc<G>&& desc);
+	Frame(Frame<G>&& other) noexcept;
 	virtual ~Frame();
 
 	Frame& operator=(Frame&& other) noexcept;
@@ -28,23 +28,23 @@ public:
 	void swap(Frame& rhs) noexcept;
 	friend void swap(Frame& lhs, Frame& rhs) noexcept { lhs.swap(rhs); }
 
-	virtual ImageLayout<B> getColorImageLayout(uint32_t index) const final;
-	virtual ImageLayout<B> getDepthStencilImageLayout() const final;
+	virtual ImageLayout<G> getColorImageLayout(uint32_t index) const;
+	virtual ImageLayout<G> getDepthStencilImageLayout() const;
 
-	virtual void end(CommandBufferHandle<B> cmd) final;
+	virtual void end(CommandBufferHandle<G> cmd);
 
-	virtual void transitionColor(CommandBufferHandle<B> cmd, ImageLayout<B> layout, uint32_t index) final;
-	virtual void transitionDepthStencil(CommandBufferHandle<B> cmd, ImageLayout<B> layout) final;
+	virtual void transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
+	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
 	const auto& getRenderCompleteSemaphore() const noexcept { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const noexcept { return myNewImageAcquiredSemaphore; }
 	const auto& getLastPresentTimelineValue() const noexcept { return myLastPresentTimelineValue; }
 
-	QueuePresentInfo<B> preparePresent(uint64_t timelineValue);
+	QueuePresentInfo<G> preparePresent(uint64_t timelineValue);
 
 private:
-	SemaphoreHandle<B> myRenderCompleteSemaphore{};
-	SemaphoreHandle<B> myNewImageAcquiredSemaphore{};
-	ImageLayout<B> myImageLayout{};
+	SemaphoreHandle<G> myRenderCompleteSemaphore{};
+	SemaphoreHandle<G> myNewImageAcquiredSemaphore{};
+	ImageLayout<G> myImageLayout{};
 	uint64_t myLastPresentTimelineValue = 0;
 };

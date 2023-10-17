@@ -1,5 +1,5 @@
 #include "../window.h"
-#include "../graphicsapplication.h"
+#include "../rhiapplication.h"
 #include "../shaders/shadertypes.h"
 
 #include "utils.h"
@@ -467,7 +467,7 @@ Window<Vk>::Window(
 		defaultConfig.swapchainConfig,
 		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig(AutoSaveJSONFileObject<WindowConfiguration<Vk>>(
-		  Application::get().lock()->state().userProfilePath / "window.json",
+		  Application::instance().lock()->environment().userProfilePath / "window.json",
 		  std::forward<WindowConfiguration<Vk>>(defaultConfig)))
 {
 	ZoneScopedN("Window()");

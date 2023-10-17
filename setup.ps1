@@ -54,19 +54,21 @@ if ($IsWindows)
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue ("C:\VulkanSDK\" + $vulkanSdkInfo.InstalledVersion) | Out-Null
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK_VERSION -NotePropertyValue $vulkanSdkInfo.InstalledVersion | Out-Null
 
-	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
+	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22000
 	if (-not ($windowsSdkInfo))
 	{
 		Write-Host "Installing WindowsSDK 10.0.22621 (requires process elevation)..."
 
-		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null" -Wait
+		Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22000 | Out-Null" -Wait
 
-		$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
+		$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22000
 	}
-	$windowsSdkVersion = $windowsSdkInfo.InstalledVersion
-	$windowsSdkVersionShort = $windowsSdkVersion.SubString(0, $windowsSdkVersion.LastIndexOf('.')) + ".0" #workaround for paths not matching the full version number
+	$winSDKManifest = [xml](Get-Content -Path "C:\Program Files (x86)\Windows Kits\10\SDKManifest.xml")
+	$platformIndentityStr = $winSDKManifest.FileList.PlatformIdentity
+	$s0i = $platformIndentityStr.LastIndexOf("Version=") + 8
+	$windowsSdkVersion = $platformIndentityStr.SubString($s0i)
 	$myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK -NotePropertyValue "C:\Program Files (x86)\Windows Kits\10" | Out-Null
-	$myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK_VERSION -NotePropertyValue $windowsSdkVersionShort | Out-Null
+	$myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK_VERSION -NotePropertyValue $windowsSdkVersion | Out-Null
 
 	if (-not (Get-InstalledModule VSSetup -ErrorAction SilentlyContinue))
 	{

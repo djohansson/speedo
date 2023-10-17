@@ -22,18 +22,18 @@
 #include <utility>
 #include <vector>
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct WindowConfiguration
 {
-	SwapchainConfiguration<B> swapchainConfig{};
-	Extent2d<B> windowExtent{};
-	Extent2d<B> splitScreenGrid{1, 1};
+	SwapchainConfiguration<G> swapchainConfig{};
+	Extent2d<G> windowExtent{};
+	Extent2d<G> splitScreenGrid{1, 1};
 
-	GLZ_LOCAL_META(WindowConfiguration<B>, swapchainConfig, windowExtent, splitScreenGrid);
+	GLZ_LOCAL_META(WindowConfiguration<G>, swapchainConfig, windowExtent, splitScreenGrid);
 };
 
-template <GraphicsBackend B>
-class Window : public Swapchain<B>
+template <GraphicsApi G>
+class Window final : public Swapchain<G>
 {
 public:
 	struct InputState
@@ -50,9 +50,9 @@ public:
 	
 	constexpr Window() noexcept = default;
 	Window(
-		const std::shared_ptr<Device<B>>& device,
-		SurfaceHandle<B>&& surface, // swapchain base class takes ownership of surface
-		WindowConfiguration<B>&& defaultConfig = {});
+		const std::shared_ptr<Device<G>>& device,
+		SurfaceHandle<G>&& surface, // swapchain base class takes ownership of surface
+		WindowConfiguration<G>&& defaultConfig = {});
 	Window(Window&& other) noexcept;
 	~Window();
 
@@ -66,8 +66,8 @@ public:
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer() const noexcept { return *myViewBuffer; }
 
-	void onResizeWindow(Extent2d<B> windowExtent) { myConfig.windowExtent = windowExtent; }
-	void onResizeFramebuffer(Extent2d<B> framebufferExtent);
+	void onResizeWindow(Extent2d<G> windowExtent) { myConfig.windowExtent = windowExtent; }
+	void onResizeFramebuffer(Extent2d<G> framebufferExtent);
 
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
@@ -75,27 +75,27 @@ public:
 	// todo: generalize, move out of window. use sorted draw call lists.
 	void draw(
 		TaskExecutor& executor,
-		Pipeline<B>& pipeline,
-		CommandPoolContext<B>& primaryContext,
+		Pipeline<G>& pipeline,
+		CommandPoolContext<G>& primaryContext,
 		CommandPoolContext<Vk>* secondaryContexts,
 		uint32_t secondaryContextCount);
 	//
 
 private:
 	void internalUpdateViewBuffer() const;
-	void internalCreateFrameObjects(Extent2d<B> frameBufferExtent);
+	void internalCreateFrameObjects(Extent2d<G> frameBufferExtent);
 	void internalUpdateInput();
 
 	uint32_t internalDrawViews(
-		Pipeline<B>& pipeline,
+		Pipeline<G>& pipeline,
 		CommandPoolContext<Vk>* secondaryContexts,
 		uint32_t secondaryContextCount,
-		const RenderPassBeginInfo<B>& renderPassInfo);
+		const RenderPassBeginInfo<G>& renderPassInfo);
 
-	AutoSaveJSONFileObject<WindowConfiguration<B>> myConfig;
+	AutoSaveJSONFileObject<WindowConfiguration<G>> myConfig;
 	InputState myInput{};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
-	std::unique_ptr<Buffer<B>> myViewBuffer; // cbuffer data for all views
+	std::unique_ptr<Buffer<G>> myViewBuffer; // cbuffer data for all views
 };

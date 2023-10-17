@@ -13,32 +13,32 @@
 #include <variant>
 #include <vector>
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct DescriptorSetLayoutCreateDesc
 {
-	std::vector<DescriptorSetLayoutBinding<B>> bindings;
-	std::vector<DescriptorBindingFlags<B>> bindingFlags;
+	std::vector<DescriptorSetLayoutBinding<G>> bindings;
+	std::vector<DescriptorBindingFlags<G>> bindingFlags;
 	std::vector<std::string> variableNames;
 	std::vector<uint64_t> variableNameHashes;
-	std::vector<SamplerCreateInfo<B>> immutableSamplers;
-	std::optional<PushConstantRange<B>> pushConstantRange;
-	DescriptorSetLayoutCreateFlags<B> flags{};
+	std::vector<SamplerCreateInfo<G>> immutableSamplers;
+	std::optional<PushConstantRange<G>> pushConstantRange;
+	DescriptorSetLayoutCreateFlags<G> flags{};
 };
 
-template <GraphicsBackend B>
-class DescriptorSetLayout : public DeviceObject<B>
+template <GraphicsApi G>
+class DescriptorSetLayout final : public DeviceObject<G>
 {
 public:
 	using ShaderVariableBindingsMap = UnorderedMap<
 		uint64_t,
-		std::tuple<uint32_t, DescriptorType<B>, uint32_t>,
+		std::tuple<uint32_t, DescriptorType<G>, uint32_t>,
 		IdentityHash<uint64_t>>;
 
 	constexpr DescriptorSetLayout() noexcept = default;
 	DescriptorSetLayout(DescriptorSetLayout&& other) noexcept;
 	DescriptorSetLayout(
-		const std::shared_ptr<Device<B>>& device,
-		DescriptorSetLayoutCreateDesc<B>&& desc);
+		const std::shared_ptr<Device<G>>& device,
+		DescriptorSetLayoutCreateDesc<G>&& desc);
 	~DescriptorSetLayout();
 
 	DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
@@ -59,39 +59,39 @@ public:
 
 private:
 	using ValueType =
-		std::tuple<DescriptorSetLayoutHandle<B>, SamplerVector<B>, ShaderVariableBindingsMap>;
+		std::tuple<DescriptorSetLayoutHandle<G>, SamplerVector<G>, ShaderVariableBindingsMap>;
 
 	DescriptorSetLayout( // takes ownership of provided handle
-		const std::shared_ptr<Device<B>>& device,
-		DescriptorSetLayoutCreateDesc<B>&& desc,
+		const std::shared_ptr<Device<G>>& device,
+		DescriptorSetLayoutCreateDesc<G>&& desc,
 		ValueType&& layout);
 
-	DescriptorSetLayoutCreateDesc<B> myDesc{};
+	DescriptorSetLayoutCreateDesc<G> myDesc{};
 	ValueType myLayout{};
 };
 
-template <GraphicsBackend B>
-using DescriptorSetLayoutFlatMap = FlatMap<uint32_t, DescriptorSetLayout<B>>;
+template <GraphicsApi G>
+using DescriptorSetLayoutFlatMap = FlatMap<uint32_t, DescriptorSetLayout<G>>;
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct DescriptorSetArrayCreateDesc
 {
-	DescriptorPoolHandle<B> pool{};
+	DescriptorPoolHandle<G> pool{};
 };
 
-template <GraphicsBackend B>
-class DescriptorSetArray : public DeviceObject<B>
+template <GraphicsApi G>
+class DescriptorSetArray final : public DeviceObject<G>
 {
 	static constexpr size_t kDescriptorSetCount = 16;
-	using ArrayType = std::array<DescriptorSetHandle<B>, kDescriptorSetCount>;
+	using ArrayType = std::array<DescriptorSetHandle<G>, kDescriptorSetCount>;
 
 public:
 	constexpr DescriptorSetArray() noexcept = default;
 	DescriptorSetArray(DescriptorSetArray&& other) noexcept;
 	DescriptorSetArray( // allocates array of descriptor set handles using single layout
-		const std::shared_ptr<Device<B>>& device,
-		const DescriptorSetLayout<B>& layout,
-		DescriptorSetArrayCreateDesc<B>&& desc);
+		const std::shared_ptr<Device<G>>& device,
+		const DescriptorSetLayout<G>& layout,
+		DescriptorSetArrayCreateDesc<G>&& desc);
 	~DescriptorSetArray();
 
 	DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
@@ -106,39 +106,39 @@ public:
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles
-		const std::shared_ptr<Device<B>>& device,
-		DescriptorSetArrayCreateDesc<B>&& desc,
+		const std::shared_ptr<Device<G>>& device,
+		DescriptorSetArrayCreateDesc<G>&& desc,
 		ArrayType&& descriptorSetHandles);
 
-	DescriptorSetArrayCreateDesc<B> myDesc{};
+	DescriptorSetArrayCreateDesc<G> myDesc{};
 	ArrayType myDescriptorSets;
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 using DescriptorSetArrayList = std::list<std::tuple<
-	DescriptorSetArray<B>,		// descriptor set array
+	DescriptorSetArray<G>,		// descriptor set array
 	uint8_t,					// current array index. move out from here perhaps?
 	CopyableAtomic<uint32_t>>>; // reference count.
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct DescriptorUpdateTemplateCreateDesc
 {
-	DescriptorUpdateTemplateType<B> templateType{};
-	DescriptorSetLayoutHandle<B> descriptorSetLayout{};
-	PipelineBindPoint<B> pipelineBindPoint{};
-	PipelineLayoutHandle<B> pipelineLayout{};
+	DescriptorUpdateTemplateType<G> templateType{};
+	DescriptorSetLayoutHandle<G> descriptorSetLayout{};
+	PipelineBindPoint<G> pipelineBindPoint{};
+	PipelineLayoutHandle<G> pipelineLayout{};
 	uint32_t set = 0ul;
 };
 
-template <GraphicsBackend B>
-class DescriptorUpdateTemplate : public DeviceObject<B>
+template <GraphicsApi G>
+class DescriptorUpdateTemplate final : public DeviceObject<G>
 {
 public:
 	constexpr DescriptorUpdateTemplate() noexcept = default;
 	DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept;
 	DescriptorUpdateTemplate(
-		const std::shared_ptr<Device<B>>& device,
-		DescriptorUpdateTemplateCreateDesc<B>&& desc);
+		const std::shared_ptr<Device<G>>& device,
+		DescriptorUpdateTemplateCreateDesc<G>&& desc);
 	~DescriptorUpdateTemplate();
 
 	DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
@@ -157,40 +157,40 @@ public:
 	const auto& getDesc() const noexcept { return myDesc; }
 	const auto& getEntries() const noexcept { return myEntries; }
 
-	void setEntries(std::vector<DescriptorUpdateTemplateEntry<B>>&& entries);
+	void setEntries(std::vector<DescriptorUpdateTemplateEntry<G>>&& entries);
 
 private:
 	void internalDestroyTemplate();
 	DescriptorUpdateTemplate( // takes ownership of provided handle
-		const std::shared_ptr<Device<B>>& device,
-		DescriptorUpdateTemplateCreateDesc<B>&& desc,
-		DescriptorUpdateTemplateHandle<B>&& handle);
+		const std::shared_ptr<Device<G>>& device,
+		DescriptorUpdateTemplateCreateDesc<G>&& desc,
+		DescriptorUpdateTemplateHandle<G>&& handle);
 
-	DescriptorUpdateTemplateCreateDesc<B> myDesc{};
-	std::vector<DescriptorUpdateTemplateEntry<B>> myEntries;
-	DescriptorUpdateTemplateHandle<B> myHandle{};
+	DescriptorUpdateTemplateCreateDesc<G> myDesc{};
+	std::vector<DescriptorUpdateTemplateEntry<G>> myEntries;
+	DescriptorUpdateTemplateHandle<G> myHandle{};
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 using BindingVariant = std::variant<
-	DescriptorBufferInfo<B>,
-	DescriptorImageInfo<B>,
-	BufferViewHandle<B>,
-	AccelerationStructureHandle<B>,
+	DescriptorBufferInfo<G>,
+	DescriptorImageInfo<G>,
+	BufferViewHandle<G>,
+	AccelerationStructureHandle<G>,
 	std::tuple<const void*, uint32_t>>; // InlineUniformBlock
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 using BindingValue = std::tuple<
 	uint32_t,			 // offset
 	uint32_t,			 // count
-	DescriptorType<B>,	 // type
+	DescriptorType<G>,	 // type
 	RangeSet<uint32_t>>; // array ranges
 
-template <GraphicsBackend B>
-using BindingsMap = FlatMap<uint32_t, BindingValue<B>>;
+template <GraphicsApi G>
+using BindingsMap = FlatMap<uint32_t, BindingValue<G>>;
 
-template <GraphicsBackend B>
-using BindingsData = std::vector<BindingVariant<B>>;
+template <GraphicsApi G>
+using BindingsData = std::vector<BindingVariant<G>>;
 
 enum class DescriptorSetStatus : uint8_t
 {
@@ -198,13 +198,13 @@ enum class DescriptorSetStatus : uint8_t
 	Ready
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 using DescriptorSetState = std::tuple<
 	UpgradableSharedMutex<>,
 	DescriptorSetStatus,
-	BindingsMap<B>,
-	BindingsData<B>,
-	DescriptorUpdateTemplate<B>,
-	std::optional<DescriptorSetArrayList<B>>>; // if std::nullopt -> uses push descriptors
+	BindingsMap<G>,
+	BindingsData<G>,
+	DescriptorUpdateTemplate<G>,
+	std::optional<DescriptorSetArrayList<G>>>; // if std::nullopt -> uses push descriptors
 
 #include "descriptorset.inl"

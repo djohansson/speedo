@@ -18,20 +18,20 @@
 
 using ShaderBinary = std::vector<char>;
 
-template <GraphicsBackend B>
-using EntryPoint = std::tuple<std::string, ShaderStageFlagBits<B>>;
+template <GraphicsApi G>
+using EntryPoint = std::tuple<std::string, ShaderStageFlagBits<G>>;
 
-template <GraphicsBackend B>
-using Shader = std::tuple<ShaderBinary, EntryPoint<B>>;
+template <GraphicsApi G>
+using Shader = std::tuple<ShaderBinary, EntryPoint<G>>;
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct ShaderSet
 {
-	std::vector<Shader<B>> shaders;
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<B>> layouts;
+	std::vector<Shader<G>> shaders;
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>> layouts;
 };
 
-class ShaderLoader
+class ShaderLoader final : public Noncopyable, public Nonmovable
 {
 public:
 	using DownstreamCompiler =
@@ -42,8 +42,8 @@ public:
 		std::vector<DownstreamCompiler>&& downstreamCompilers,
 		std::optional<std::filesystem::path>&& intermediatePath = std::nullopt);
 
-	template <GraphicsBackend B>
-	ShaderSet<B> load(const std::filesystem::path& slangFile);
+	template <GraphicsApi G>
+	ShaderSet<G> load(const std::filesystem::path& slangFile);
 
 private:
 	std::vector<std::filesystem::path> myIncludePaths;
@@ -52,12 +52,12 @@ private:
 	std::unique_ptr<SlangSession, void (*)(SlangSession*)> myCompilerSession;
 };
 
-template <GraphicsBackend B>
-class ShaderModule : public DeviceObject<B>
+template <GraphicsApi G>
+class ShaderModule final : public DeviceObject<G>
 {
 public:
 	constexpr ShaderModule() noexcept = default;
-	ShaderModule(const std::shared_ptr<Device<B>>& device, const Shader<B>& shader);
+	ShaderModule(const std::shared_ptr<Device<G>>& device, const Shader<G>& shader);
 	ShaderModule(ShaderModule&& other) noexcept;
 	~ShaderModule();
 
@@ -71,12 +71,12 @@ public:
 
 private:
 	ShaderModule( // takes ownership of provided handle
-		const std::shared_ptr<Device<B>>& device,
-		ShaderModuleHandle<B>&& shaderModule,
-		const EntryPoint<B>& entryPoint);
+		const std::shared_ptr<Device<G>>& device,
+		ShaderModuleHandle<G>&& shaderModule,
+		const EntryPoint<G>& entryPoint);
 
-	ShaderModuleHandle<B> myShaderModule{};
-	EntryPoint<B> myEntryPoint{};
+	ShaderModuleHandle<G> myShaderModule{};
+	EntryPoint<G> myEntryPoint{};
 };
 
 #include "shader.inl"

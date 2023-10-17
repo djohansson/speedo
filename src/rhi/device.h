@@ -17,7 +17,7 @@
 
 #include <stduuid/uuid.h>
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct DeviceConfiguration
 {
 	constexpr std::string_view getName() const { return "device"; }
@@ -30,7 +30,7 @@ struct DeviceConfiguration
 	// std::optional<bool> useTimelineSemaphores;
 	// std::optional<bool> useBufferDeviceAddress;
 
-	GLZ_LOCAL_META(DeviceConfiguration<B>, physicalDeviceIndex);
+	GLZ_LOCAL_META(DeviceConfiguration<G>, physicalDeviceIndex);
 };
 
 enum QueueFamilyFlagBits
@@ -42,7 +42,7 @@ enum QueueFamilyFlagBits
 	QueueFamilyFlagBits_All = (1 << 4) - 1,
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 struct QueueFamilyDesc
 {
 	uint32_t queueCount = 0ul;
@@ -51,13 +51,13 @@ struct QueueFamilyDesc
 
 using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
 
-template <GraphicsBackend B>
-class Device : public Noncopyable
+template <GraphicsApi G>
+class Device final : public Noncopyable, public Nonmovable
 {
 public:
 	Device(
-		const std::shared_ptr<Instance<B>>& instance,
-		DeviceConfiguration<B>&& defaultConfig = {});
+		const std::shared_ptr<Instance<G>>& instance,
+		DeviceConfiguration<G>&& defaultConfig = {});
 	~Device();
 
 	operator auto() const noexcept { return myDevice; }
@@ -94,31 +94,31 @@ public:
 #if GRAPHICS_VALIDATION_ENABLED
 	void addOwnedObjectHandle(
 		const uuids::uuid& ownerId,
-		ObjectType<B> objectType,
+		ObjectType<G> objectType,
 		uint64_t objectHandle,
 		const char* objectName);
 	void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
 	void clearOwnedObjectHandles(const uuids::uuid& ownerId);
-	uint32_t getTypeCount(ObjectType<B> type);
+	uint32_t getTypeCount(ObjectType<G> type);
 #endif
 
 private:
-	std::shared_ptr<Instance<B>> myInstance;
-	AutoSaveJSONFileObject<DeviceConfiguration<B>> myConfig;
-	DeviceHandle<B> myDevice{};
+	std::shared_ptr<Instance<G>> myInstance;
+	AutoSaveJSONFileObject<DeviceConfiguration<G>> myConfig;
+	DeviceHandle<G> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
 
-	std::vector<QueueFamilyDesc<B>> myQueueFamilyDescs;
+	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
 
-	AllocatorHandle<B> myAllocator{};
+	AllocatorHandle<G> myAllocator{};
 
-	SemaphoreHandle<B> myTimelineSemaphore{};
+	SemaphoreHandle<G> myTimelineSemaphore{};
 	std::atomic_uint64_t myTimelineValue;
 
 	moodycamel::ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
 #if GRAPHICS_VALIDATION_ENABLED
-	struct ObjectNameInfo : ObjectInfo<B>
+	struct ObjectNameInfo : ObjectInfo<G>
 	{
 		std::string name;
 	};
@@ -127,7 +127,7 @@ private:
 	std::shared_mutex
 		myObjectMutex; // protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
 	UnorderedMap<uint64_t, ObjectInfos, IdentityHash<uint64_t>> myOwnerToDeviceObjectInfoMap;
-	UnorderedMap<ObjectType<B>, uint32_t> myObjectTypeToCountMap;
+	UnorderedMap<ObjectType<G>, uint32_t> myObjectTypeToCountMap;
 #endif
 };
 
@@ -136,7 +136,7 @@ struct DeviceObjectCreateDesc
 	std::string name;
 };
 
-template <GraphicsBackend B>
+template <GraphicsApi G>
 class DeviceObject : public Noncopyable
 {
 public:
@@ -148,15 +148,15 @@ public:
 
 protected:
 	constexpr DeviceObject() noexcept = default;
-	DeviceObject(DeviceObject<B>&& other) noexcept;
+	DeviceObject(DeviceObject<G>&& other) noexcept;
 	DeviceObject( // no object names are set
-		const std::shared_ptr<Device<B>>& device,
+		const std::shared_ptr<Device<G>>& device,
 		DeviceObjectCreateDesc&& desc);
 	DeviceObject( // uses desc.name and one objectType for all objectHandles
-		const std::shared_ptr<Device<B>>& device,
+		const std::shared_ptr<Device<G>>& device,
 		DeviceObjectCreateDesc&& desc,
 		uint32_t objectCount,
-		ObjectType<B> objectType,
+		ObjectType<G> objectType,
 		const uint64_t* objectHandles);
 
 	DeviceObject& operator=(DeviceObject&& other) noexcept;
@@ -166,7 +166,7 @@ protected:
 	const auto& getDevice() const noexcept { return myDevice; }
 
 private:
-	std::shared_ptr<Device<B>> myDevice;
+	std::shared_ptr<Device<G>> myDevice;
 	DeviceObjectCreateDesc myDesc{};
 	uuids::uuid myUid{};
 };
