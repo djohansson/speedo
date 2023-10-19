@@ -1,6 +1,7 @@
 {
   "name": "speedo",
   "dependencies": [
+    "catch2",
     "concurrentqueue",
     "cppzmq",
     "fastbuild",
@@ -18,7 +19,6 @@
     "client": {
       "description": "Game Client Executable",
       "dependencies": [
-        "directx-dxc",
         "glfw3",
         "glm",
         {"name": "imgui", "features": ["docking-experimental", "glfw-binding", "vulkan-binding"]},
@@ -35,13 +35,6 @@
     "server": {
       "description": "Game Server Executable",
       "dependencies": [
-        {"name": "tracy", "features": ["cli-tools", "crash-handler"]}
-      ]
-    },
-    "tests": {
-      "description": "Build tests",
-      "dependencies": [
-        "catch2",
         {"name": "tracy", "features": ["cli-tools", "crash-handler"]}
       ]
     }
