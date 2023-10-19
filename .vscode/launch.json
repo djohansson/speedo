@@ -196,6 +196,22 @@
 				"(Windows) debug/client"
 			],
 			"stopAll": true
+		},
+		{
+			"name": "(Windows) profile server/client",
+			"configurations": [
+				"(Windows) profile/server",
+				"(Windows) profile/client"
+			],
+			"stopAll": true
+		},
+		{
+			"name": "(Windows) release server/client",
+			"configurations": [
+				"(Windows) release/server",
+				"(Windows) release/client"
+			],
+			"stopAll": true
 		}
 	]
 }
