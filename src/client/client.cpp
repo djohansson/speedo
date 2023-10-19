@@ -1,14 +1,23 @@
 #include "capi.h"
 
+#include <core/rpc.h>
 #include <rhi/rhiapplication.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
 
 #include <cassert>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <system_error>
 
 namespace client
 {
+
+using namespace std::literals;
+using namespace core;
 
 class ClientApplication : public RhiApplication
 {	
@@ -17,18 +26,65 @@ public:
 
 	bool tick() override
 	{
-		++myTickCount;
+		std::array<std::byte, 64> responseData{};
+		std::array<std::byte, 64> requestData{};
+
+		zpp::bits::in in{responseData};
+		zpp::bits::out out{requestData};
+
+		rpc::client client{in, out};
+
+		static const std::string cs_helloStr = "hello"s;
+
+		if (auto result = client.request<"say"_sha256_int>(cs_helloStr); failure(result))
+		{
+			std::cout << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
 		
+			return false;
+		}
+		else
+		{
+			std::cout << "client.request(): " << cs_helloStr << std::endl;
+		}
+
+		mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
+		
+		if (auto recvResult = mySocket.recv(zmq::buffer(responseData), zmq::recv_flags::none))
+		{
+			std::cout << "received " << recvResult.value().size << " bytes." << std::endl;
+			
+			auto result = client.response<"say"_sha256_int>(); 
+
+			if (failure(result))
+			{
+				std::cout << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
+			
+				return false;
+			}
+			else
+			{
+				std::cout << "client.response(): " << result.value() << std::endl;
+			}
+		}
+
 		return RhiApplication::tick();
 	}
 
 protected:
 	ClientApplication(std::string_view name, Environment&& env)
 	: RhiApplication(std::forward<std::string_view>(name), std::forward<Environment>(env))
-	{ }
+	, myContext(1)
+	, mySocket(myContext, zmq::socket_type::req)
+	{
+		constexpr uint16_t cx_port = 5555;
+		std::string serverAddress = std::format("tcp://localhost:{}", cx_port);
+
+		mySocket.connect(serverAddress);
+	}
 
 private:
-	uint64_t myTickCount = 0;
+	zmq::context_t myContext;
+	zmq::socket_t mySocket;
 };
 
 static std::shared_ptr<ClientApplication> s_application{};

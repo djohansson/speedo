@@ -85,8 +85,8 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
 			+ ' -I$VulkanSDKPath$/include'
+			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 			+ ' -Wno-unknown-attributes'
-			+ ' -D_SILENCE_ALL_CXX23_DEPRECATION_WARNINGS'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -125,11 +125,12 @@
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
 			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
-			+ ' -lmimalloc'
+			+ ' -lmimalloc' // should be first
 			+ ' -lglfw3dll'
 			+ ' -lGLTFSDK'
 			+ ' -lTracyClient'
 			+ ' -limgui'
+			+ ' -llibzmq-mt-4_3_5'
 			+ ' -lnfd'
 			+ ' -lslang'
 			+ ' -lxxhash'
@@ -159,7 +160,8 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
-			+ ' -D_SILENCE_ALL_CXX23_DEPRECATION_WARNINGS'
+			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -194,25 +196,8 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
-			+ ' -lmimalloc'
-			+ ' -labseil_dll'
-			+ ' -laddress_sorting'
-			+ ' -lcares'
-			+ ' -llibcrypto'
-			+ ' -lgpr'
-			+ ' -lgrpc'
-			+ ' -lgrpc++'
-			+ ' -lre2'
-			+ ' -lupb'
-			+ ' -lupb_collections'
-			+ ' -lupb_extension_registry'
-			// + ' -lupb_fastdecode'
-			+ ' -lupb_json'
-			// + ' -lupb_mini_table'
-			+ ' -lupb_reflection'
-			+ ' -lupb_textformat'
-			+ ' -lupb_utf8_range'
-			+ ' -llibssl'
+			+ ' -lmimalloc' // should be first
+			+ ' -llibzmq-mt-4_3_5'
 			+ ' -lTracyClient'
 			+ ' -lzlib'
 	]
@@ -246,7 +231,7 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
-			+ ' -lmimalloc'
+			+ ' -lmimalloc' // should be first
 			+ ' -lCatch2'
 			+ ' -lTracyClient'
 	]

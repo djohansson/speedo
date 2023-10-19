@@ -187,5 +187,15 @@
 				"threadExit": true
 			}
 		}
+	],
+	"compounds": [
+		{
+			"name": "(Windows) debug server/client",
+			"configurations": [
+				"(Windows) debug/server",
+				"(Windows) debug/client"
+			],
+			"stopAll": true
+		}
 	]
 }

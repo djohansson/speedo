@@ -2,16 +2,17 @@
   "name": "speedo",
   "dependencies": [
     "concurrentqueue",
+    "cppzmq",
     "fastbuild",
     "glaze",
-    "grpc",
     "mimalloc",
     "mio",
     "picosha2",
     "robin-hood-hashing",
     "stduuid",
     "xxhash",
-    "zpp-bits"
+    "zpp-bits",
+    "zeromq"
   ],
   "features": {
     "client": {

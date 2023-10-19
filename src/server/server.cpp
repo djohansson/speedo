@@ -1,23 +1,26 @@
 #include "capi.h"
 
 #include <core/application.h>
+#include <core/rpc.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
 #include <stb_sprintf.h>
 
-#include <grpc/support/log.h>
-#include <grpcpp/grpcpp.h>
-
 #include <cassert>
-#include <cstdio>
+#include <chrono>
 #include <format>
+#include <iostream>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 
 namespace server
 {
 
-using namespace grpc;
+using namespace std::chrono_literals;
+using namespace core;
 
 class ServerApplication : public Application
 {	
@@ -26,29 +29,51 @@ public:
 
 	bool tick() override
 	{
-		auto c = getchar();
-		printf("getchar(): %c\n", c);
-		return c != '\n';
+		std::array<std::byte, 64> requestData{};
+		std::array<std::byte, 64> responseData{};
+
+		zpp::bits::in in{requestData};
+		zpp::bits::out out{responseData};
+
+		rpc::server server{in, out};
+
+		if (auto recvResult = mySocket.recv(zmq::buffer(requestData), zmq::recv_flags::none))
+		{
+			std::cout << "received " << recvResult.value().size << " bytes." << std::endl;
+			
+			if (auto result = server.serve(); failure(result))
+			{
+				std::cout << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
+			
+				return false;
+			}
+
+			mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
+		}
+
+		// simulate work
+		std::this_thread::sleep_for(100ms);
+
+		return true;
 	}
 
 protected:
 	ServerApplication(std::string_view name, Environment&& env)
 	: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
+	, myContext(1)
+	, mySocket(myContext, zmq::socket_type::rep)
 	{
-		constexpr int cx_port = 50051;
-		static const std::string sc_serverAddress = std::format("0.0.0.0:%d", cx_port);
+		constexpr uint16_t cx_port = 5555;
+		std::string serverAddress = std::format("tcp://*:{}", cx_port);
 
-		ServerBuilder builder;
-		builder.AddListeningPort(sc_serverAddress, grpc::InsecureServerCredentials());
-		myCq = builder.AddCompletionQueue();
-		myServer = builder.BuildAndStart();
-		
-		std::cout << "Server listening on " << sc_serverAddress << std::endl;
+		mySocket.bind(serverAddress);
+			
+		std::cout << "Server listening on " << serverAddress << std::endl;
 	}
 
 private:
-	std::unique_ptr<ServerCompletionQueue> myCq;
-  	std::unique_ptr<Server> myServer;
+	zmq::context_t myContext;
+	zmq::socket_t mySocket;
 };
 
 static std::shared_ptr<ServerApplication> s_application{};
