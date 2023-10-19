@@ -1204,11 +1204,10 @@ void RhiApplication::onKeyboard(const KeyboardState& keyboard)
 
 bool RhiApplication::tick()
 {
-	FrameMark;
+	ZoneScopedN("RhiApplication::tick");
 
 	{
-
-		ZoneScopedN("ImGui_ImplGlfw_NewFrame");
+		ZoneScopedN("RhiApplication::tick::imgui_newframe");
 
 		ImGui_ImplGlfw_NewFrame();
 	}

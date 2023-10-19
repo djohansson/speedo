@@ -2,6 +2,9 @@
 
 #include <mimalloc-new-delete.h>
 
+#define STB_SPRINTF_IMPLEMENTATION
+#include <stb_sprintf.h>
+
 #include <locale>
 
 std::weak_ptr<Application> Application::theApplication{};

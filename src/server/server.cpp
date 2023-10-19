@@ -3,72 +3,68 @@
 #include <core/application.h>
 #include <core/rpc.h>
 
-#define STB_SPRINTF_IMPLEMENTATION
-#include <stb_sprintf.h>
-
+#include <array>
 #include <cassert>
-#include <chrono>
-#include <format>
 #include <iostream>
 #include <memory>
-#include <string>
 #include <string_view>
 #include <system_error>
-#include <thread>
 
 namespace server
 {
 
-using namespace std::chrono_literals;
-using namespace core;
+using namespace std::literals;
+using namespace zpp::bits::literals;
 
-class ServerApplication : public Application
+class Server : public Application
 {	
 public:
-	~ServerApplication() = default;
+	~Server() = default;
 
 	bool tick() override
 	{
-		std::array<std::byte, 64> requestData{};
-		std::array<std::byte, 64> responseData{};
+		FrameMark;
+		
+		ZoneScopedN("Server::tick");
 
-		zpp::bits::in in{requestData};
-		zpp::bits::out out{responseData};
-
-		rpc::server server{in, out};
-
-		if (auto recvResult = mySocket.recv(zmq::buffer(requestData), zmq::recv_flags::none))
 		{
-			std::cout << "received " << recvResult.value().size << " bytes." << std::endl;
-			
-			if (auto result = server.serve(); failure(result))
+			ZoneScopedN("Server::tick::rpc");
+
+			std::array<std::byte, 64> requestData;
+			std::array<std::byte, 64> responseData;
+
+			zpp::bits::in in{requestData};
+			zpp::bits::out out{responseData};
+
+			core::rpc::server server{in, out};
+
+			if (auto recvResult = mySocket.recv(zmq::buffer(requestData), zmq::recv_flags::none))
 			{
-				std::cout << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
-			
-				return false;
+				if (auto result = server.serve(); failure(result))
+				{
+					std::cout << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
+				
+					return false;
+				}
+
+				mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
 			}
-
-			mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
 		}
-
-		// simulate work
-		std::this_thread::sleep_for(100ms);
 
 		return true;
 	}
 
 protected:
-	ServerApplication(std::string_view name, Environment&& env)
+	Server(std::string_view name, Environment&& env)
 	: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::rep)
 	{
-		constexpr uint16_t cx_port = 5555;
-		std::string serverAddress = std::format("tcp://*:{}", cx_port);
+		constexpr std::string_view cx_serverAddress = "tcp://*:5555"sv;
 
-		mySocket.bind(serverAddress);
+		mySocket.bind(cx_serverAddress.data());
 			
-		std::cout << "Server listening on " << serverAddress << std::endl;
+		std::cout << "Server listening on " << cx_serverAddress << std::endl;
 	}
 
 private:
@@ -76,7 +72,7 @@ private:
 	zmq::socket_t mySocket;
 };
 
-static std::shared_ptr<ServerApplication> s_application{};
+static std::shared_ptr<Server> s_application{};
 
 std::filesystem::path
 getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
@@ -102,7 +98,7 @@ void server_create(
 {
 	using namespace server;
 
-	s_application = Application::create<server::ServerApplication>(
+	s_application = Application::create<Server>(
 		"server",
 		Environment{
 			getCanonicalPath(rootPath, "./"),

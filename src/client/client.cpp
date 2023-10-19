@@ -3,67 +3,58 @@
 #include <core/rpc.h>
 #include <rhi/rhiapplication.h>
 
-#define STB_SPRINTF_IMPLEMENTATION
-#include <stb_sprintf.h>
-
+#include <array>
 #include <cassert>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <system_error>
 
 namespace client
 {
 
 using namespace std::literals;
-using namespace core;
+using namespace zpp::bits::literals;
 
-class ClientApplication : public RhiApplication
+class Client : public RhiApplication
 {	
 public:
-	~ClientApplication() = default;
+	~Client() = default;
 
 	bool tick() override
 	{
-		std::array<std::byte, 64> responseData{};
-		std::array<std::byte, 64> requestData{};
-
-		zpp::bits::in in{responseData};
-		zpp::bits::out out{requestData};
-
-		rpc::client client{in, out};
-
-		static const std::string cs_helloStr = "hello"s;
-
-		if (auto result = client.request<"say"_sha256_int>(cs_helloStr); failure(result))
-		{
-			std::cout << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
+		FrameMark;
 		
-			return false;
-		}
-		else
-		{
-			std::cout << "client.request(): " << cs_helloStr << std::endl;
-		}
+		ZoneScopedN("Client::tick");
 
-		mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
-		
-		if (auto recvResult = mySocket.recv(zmq::buffer(responseData), zmq::recv_flags::none))
 		{
-			std::cout << "received " << recvResult.value().size << " bytes." << std::endl;
-			
-			auto result = client.response<"say"_sha256_int>(); 
+			ZoneScopedN("Client::tick::rpc");
 
-			if (failure(result))
+			std::array<std::byte, 64> responseData;
+			std::array<std::byte, 64> requestData;
+
+			zpp::bits::in in{responseData};
+			zpp::bits::out out{requestData};
+
+			core::rpc::client client{in, out};
+
+			if (auto result = client.request<"say"_sha256_int>("hello"s); failure(result))
 			{
-				std::cout << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
+				std::cout << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
 			
 				return false;
 			}
-			else
+
+			mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
+			
+			if (auto recvResult = mySocket.recv(zmq::buffer(responseData), zmq::recv_flags::none))
 			{
-				std::cout << "client.response(): " << result.value() << std::endl;
+				if (auto result = client.response<"say"_sha256_int>(); failure(result))
+				{
+					std::cout << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
+				
+					return false;
+				}
 			}
 		}
 
@@ -71,15 +62,12 @@ public:
 	}
 
 protected:
-	ClientApplication(std::string_view name, Environment&& env)
+	Client(std::string_view name, Environment&& env)
 	: RhiApplication(std::forward<std::string_view>(name), std::forward<Environment>(env))
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::req)
 	{
-		constexpr uint16_t cx_port = 5555;
-		std::string serverAddress = std::format("tcp://localhost:{}", cx_port);
-
-		mySocket.connect(serverAddress);
+		mySocket.connect("tcp://localhost:5555");
 	}
 
 private:
@@ -87,7 +75,7 @@ private:
 	zmq::socket_t mySocket;
 };
 
-static std::shared_ptr<ClientApplication> s_application{};
+static std::shared_ptr<Client> s_application{};
 
 std::filesystem::path
 getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
@@ -117,7 +105,7 @@ void client_create(
 	assert(window != nullptr);
 	assert(window->handle != nullptr);
 
-	s_application = Application::create<ClientApplication>(
+	s_application = Application::create<Client>(
 		"client",
 		Environment{
 			getCanonicalPath(rootPath, "./"),
