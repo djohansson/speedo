@@ -206,7 +206,7 @@ private:
 	PipelineHandle<G> internalCreateGraphicsPipeline(uint64_t hashKey);
 	PipelineHandle<G> internalGetPipeline();
 
-	AutoSaveJSONFileObject<PipelineConfiguration<G>> myConfig;
+	file::Object<PipelineConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
 
 	DescriptorMapType myDescriptorMap;
 	

@@ -3,7 +3,10 @@
 #include <ctime>
 #include <chrono>
 
-std::string getFileTimeStamp(const std::filesystem::path& filePath)
+namespace file
+{
+
+std::string getTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
@@ -14,3 +17,5 @@ std::string getFileTimeStamp(const std::filesystem::path& filePath)
 
 	return std::string(std::asctime(std::localtime(&timestamp)));
 }
+
+} // namespace file

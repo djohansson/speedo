@@ -20,6 +20,8 @@ struct PipelineCacheHeader<Vk>
 namespace pipeline
 {
 
+using namespace file;
+
 bool isCacheValid(
 	const PipelineCacheHeader<Vk>& header,
 	const PhysicalDeviceProperties<Vk>& physicalDeviceProperties)
@@ -39,7 +41,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](InputSerializer& in) -> std::error_code
+	auto loadCacheOp = [&device, &cacheData](auto& in) -> std::error_code
 	{
 		if (auto result = in(cacheData); failure(result))
 			return std::make_error_code(result);
@@ -55,8 +57,8 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 		return {};
 	};
 
-	if (auto fileInfo = getFileInfo<false>(cacheFilePath); fileInfo)
-		fileInfo = loadBinaryFile<false>(cacheFilePath, loadCacheOp);
+	if (auto fileInfo = getRecord<false>(cacheFilePath); fileInfo)
+		fileInfo = loadBinary<false>(cacheFilePath, loadCacheOp);
 
 	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
 	createInfo.initialDataSize = cacheData.size();
@@ -87,14 +89,14 @@ getPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCa
 	return cacheData;
 };
 
-std::expected<FileInfo, std::error_code> savePipelineCache(
+std::expected<Record, std::error_code> savePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<Vk> device,
 	PhysicalDeviceProperties<Vk> physicalDeviceProperties,
 	PipelineCacheHandle<Vk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](OutputSerializer& out) -> std::error_code
+	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](auto& out) -> std::error_code
 	{
 		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
 		{
@@ -119,7 +121,7 @@ std::expected<FileInfo, std::error_code> savePipelineCache(
 		return {};
 	};
 
-	return saveBinaryFile<true>(cacheFilePath, saveCacheOp);
+	return saveBinary<true>(cacheFilePath, saveCacheOp);
 }
 
 static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTemplateKHR{};
@@ -804,9 +806,9 @@ Pipeline<Vk>::Pipeline(
 	const std::shared_ptr<Device<Vk>>& device,
 	PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
-	, myConfig(AutoSaveJSONFileObject<PipelineConfiguration<Vk>>(
-		  Application::instance().lock()->environment().userProfilePath / "pipeline.json",
-		  std::forward<PipelineConfiguration<Vk>>(defaultConfig)))
+	, myConfig{
+		Application::instance().lock()->environment().userProfilePath / "pipeline.json",
+		std::forward<PipelineConfiguration<Vk>>(defaultConfig)}
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)
 		{

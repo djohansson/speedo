@@ -12,8 +12,35 @@
 
 #include <picosha2.h>
 
+enum class AssetManifestErrorCode : uint8_t
+{
+	Missing,
+	InvalidVersion,
+	InvalidLocation,
+	InvalidSourceFile,
+	InvalidCacheFile,
+};
+
+using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
+
+struct AssetManifest
+{
+	std::string loaderType;
+	std::string loaderVersion;
+	file::Record assetFileInfo{};
+	file::Record cacheFileInfo{};
+};
+
+GLZ_META(file::Record, path, size, timeStamp, sha2);
+GLZ_META(AssetManifest, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
+
+using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::string_view)>;
+
+namespace file
+{
+
 template <bool Sha256ChecksumEnable>
-std::expected<FileInfo, std::error_code> getFileInfo(const std::filesystem::path& filePath)
+std::expected<Record, std::error_code> getRecord(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
@@ -26,15 +53,15 @@ std::expected<FileInfo, std::error_code> getFileInfo(const std::filesystem::path
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
-	auto fileInfo = FileInfo{
+	auto fileInfo = Record{
 		filePath.string(),
-		getFileTimeStamp(filePath),
+		getTimeStamp(filePath),
 		{},
 		std::filesystem::file_size(filePath)};
 
 	if constexpr (Sha256ChecksumEnable)
 	{
-		ZoneScopedN("getFileInfo::sha2");
+		ZoneScopedN("getRecord::sha2");
 
 		std::array<uint8_t, 32> sha2;
 		mio::mmap_source file(filePath.string());
@@ -119,11 +146,11 @@ std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& 
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<FileInfo, std::error_code> loadBinaryFile(const std::filesystem::path& filePath, LoadFileFn loadOp)
+std::expected<Record, std::error_code> loadBinary(const std::filesystem::path& filePath, LoadFn loadOp)
 {
 	ZoneScoped;
 
-	auto fileInfo = getFileInfo<Sha256ChecksumEnable>(filePath);
+	auto fileInfo = getRecord<Sha256ChecksumEnable>(filePath);
 
 	if (fileInfo)
 	{
@@ -140,12 +167,12 @@ std::expected<FileInfo, std::error_code> loadBinaryFile(const std::filesystem::p
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<FileInfo, std::error_code> saveBinaryFile(const std::filesystem::path& filePath, SaveFileFn saveOp)
+std::expected<Record, std::error_code> saveBinary(const std::filesystem::path& filePath, SaveFn saveOp)
 {
 	ZoneScoped;
 
 	// todo: check if file exist and prompt for overwrite?
-	// intended scope - file needs to be closed before we call getFileInfo (due to internal call to std::filesystem::file_size)
+	// intended scope - file needs to be closed before we call getRecord (due to internal call to std::filesystem::file_size)
 	{
 		auto file = mio_extra::resizeable_mmap_sink(filePath.string());
 		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
@@ -160,87 +187,63 @@ std::expected<FileInfo, std::error_code> saveBinaryFile(const std::filesystem::p
 			return std::unexpected(error);
 	}
 
-	return getFileInfo<Sha256ChecksumEnable>(filePath);
+	return getRecord<Sha256ChecksumEnable>(filePath);
 }
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-JSONFileObject<T, Mode, SaveOnClose>::JSONFileObject(
+template <typename T, AccessMode Mode, bool SaveOnClose>
+Object<T, Mode, SaveOnClose>::Object(
 	const std::filesystem::path& filePath, T&& defaultObject)
 	: T(loadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-JSONFileObject<T, Mode, SaveOnClose>::JSONFileObject(
-	JSONFileObject&& other) noexcept
-	: T(std::forward<JSONFileObject>(other))
+template <typename T, AccessMode Mode, bool SaveOnClose>
+Object<T, Mode, SaveOnClose>::Object(
+	Object&& other) noexcept
+	: T(std::forward<Object>(other))
 	, myInfo(std::exchange(other.myInfo, {}))
 {}
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-JSONFileObject<T, Mode, SaveOnClose>::~JSONFileObject()
+template <typename T, AccessMode Mode, bool SaveOnClose>
+Object<T, Mode, SaveOnClose>::~Object()
 {
 	if constexpr (SaveOnClose)
 		if (!myInfo.path.empty())
 			save();
 }
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-JSONFileObject<T, Mode, SaveOnClose>&
-JSONFileObject<T, Mode, SaveOnClose>::operator=(JSONFileObject&& other) noexcept
+template <typename T, AccessMode Mode, bool SaveOnClose>
+Object<T, Mode, SaveOnClose>&
+Object<T, Mode, SaveOnClose>::operator=(Object&& other) noexcept
 {
 	myInfo = std::exchange(other.myInfo, {});
 	return *this;
 }
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-void JSONFileObject<T, Mode, SaveOnClose>::swap(JSONFileObject& rhs) noexcept
+template <typename T, AccessMode Mode, bool SaveOnClose>
+void Object<T, Mode, SaveOnClose>::swap(Object& rhs) noexcept
 {
 	std::swap<T>(*this, rhs);
 	std::swap(myInfo, rhs.myInfo);
 }
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-void JSONFileObject<T, Mode, SaveOnClose>::reload()
+template <typename T, AccessMode Mode, bool SaveOnClose>
+void Object<T, Mode, SaveOnClose>::reload()
 {
 	static_cast<T&>(*this) = loadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
-template <typename T, FileAccessMode Mode, bool SaveOnClose>
-template <FileAccessMode M>
-typename std::enable_if<M == FileAccessMode::ReadWrite, void>::type
-JSONFileObject<T, Mode, SaveOnClose>::save() const
+template <typename T, AccessMode Mode, bool SaveOnClose>
+template <AccessMode M>
+typename std::enable_if<M == AccessMode::ReadWrite, void>::type
+Object<T, Mode, SaveOnClose>::save() const
 {
 	if (!saveJSONObject(*this, myInfo.path))
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
 }
 
-enum class AssetManifestErrorCode : uint8_t
-{
-	Missing,
-	InvalidVersion,
-	InvalidLocation,
-	InvalidSourceFile,
-	InvalidCacheFile,
-};
-
-using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
-
-struct AssetManifestInfo
-{
-	std::string loaderType;
-	std::string loaderVersion;
-	FileInfo assetFileInfo{};
-	FileInfo cacheFileInfo{};
-};
-
-GLZ_META(FileInfo, path, size, timeStamp, sha2);
-GLZ_META(AssetManifestInfo, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
-
-using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifestInfo, std::error_code>(std::string_view)>;
-
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
-std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
+std::expected<AssetManifest, AssetManifestError> loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
 {
 	ZoneScoped;
 
@@ -253,7 +256,7 @@ std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::
 		std::string_view(LoaderVersion).compare(manifestInfo->loaderVersion) != 0)
 		return std::unexpected(AssetManifestErrorCode::InvalidVersion);
 
-	auto assetFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
+	auto assetFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
 
 	if (!assetFileInfo ||
 		assetFileInfo->size != manifestInfo->assetFileInfo.size ||
@@ -261,7 +264,7 @@ std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::
 		Sha256ChecksumEnable ? assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2 : false)
 		return std::unexpected(AssetManifestErrorCode::InvalidSourceFile);
 
-	auto cacheFileInfo = getFileInfo<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
+	auto cacheFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
 
 	if (!cacheFileInfo ||
 		cacheFileInfo->size != manifestInfo->cacheFileInfo.size ||
@@ -275,16 +278,16 @@ std::expected<AssetManifestInfo, AssetManifestError> loadJSONAssetManifest(std::
 template <const char* LoaderType, const char* LoaderVersion>
 void loadAsset(
 	const std::filesystem::path& assetFilePath,
-	LoadFileFn loadSourceFileFn,
-	LoadFileFn loadBinaryCacheFn,
-	SaveFileFn saveBinaryCacheFn)
+	LoadFn loadSourceFileFn,
+	LoadFn loadBinaryCacheFn,
+	SaveFn saveBinaryCacheFn)
 {
 	ZoneScoped;
 	
 	std::filesystem::path manifestPath(assetFilePath);
 	manifestPath += ".json";
 	
-	std::expected<AssetManifestInfo, AssetManifestError> manifest;
+	std::expected<AssetManifest, AssetManifestError> manifest;
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
@@ -296,7 +299,7 @@ void loadAsset(
 
 		manifest = loadJSONAssetManifest<LoaderType, LoaderVersion, false>(
 			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
-			[](std::string_view buffer){ return loadJSONObject<AssetManifestInfo>(buffer); });
+			[](std::string_view buffer){ return loadJSONObject<AssetManifest>(buffer); });
 	}
 	else
 	{
@@ -319,16 +322,16 @@ void loadAsset(
 
 		auto manifestFile = mio_extra::resizeable_mmap_sink(manifestPath.string());
 
-		auto asset = loadBinaryFile<true>(assetFilePath, loadSourceFileFn);
+		auto asset = loadBinary<true>(assetFilePath, loadSourceFileFn);
 		if (!asset)
 			throw std::system_error(asset.error());
 
-		auto cache = saveBinaryFile<true>(cacheDir / idStr, saveBinaryCacheFn);
+		auto cache = saveBinary<true>(cacheDir / idStr, saveBinaryCacheFn);
 		if (!cache)
 			throw std::system_error(cache.error());
 
 		auto jsonSize = glz::write<glz::opts{.prettify = true}>(
-			AssetManifestInfo{LoaderType, LoaderVersion, asset.value(), cache.value()}, manifestFile);
+			AssetManifest{LoaderType, LoaderVersion, asset.value(), cache.value()}, manifestFile);
 
 		std::error_code error;
 		manifestFile.truncate(jsonSize, error);
@@ -344,9 +347,11 @@ void loadAsset(
 	{
 		ZoneScopedN("loadAsset::load");
 
-		auto cacheFileInfo = loadBinaryFile<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
+		auto cacheFileInfo = loadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
 		
 		if (!cacheFileInfo)
 			throw std::system_error(cacheFileInfo.error());
 	}
 }
+
+} // namespace file

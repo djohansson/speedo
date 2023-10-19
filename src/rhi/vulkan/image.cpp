@@ -73,7 +73,7 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](InputSerializer& in) -> std::error_code
+	auto loadBin = [&descAndInitialData, &device](auto& in) -> std::error_code
 	{
 		ZoneScopedN("image::loadBin");
 
@@ -106,7 +106,7 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device](OutputSerializer& out) -> std::error_code
+	auto saveBin = [&descAndInitialData, &device](auto& out) -> std::error_code
 	{
 		ZoneScopedN("image::saveBin");
 
@@ -129,7 +129,7 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		return {};
 	};
 
-	auto loadImage = [&descAndInitialData, &device, &imageFile](InputSerializer& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&descAndInitialData, &device, &imageFile](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("image::loadImage");
 
@@ -317,7 +317,7 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
 	static constexpr char loaderVersion[] = "2.26|0.96|1.10";
-	loadAsset<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
+	file::loadAsset<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load image.");

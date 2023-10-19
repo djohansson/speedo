@@ -79,7 +79,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](InputSerializer& in) -> std::error_code
+	auto loadBin = [&descAndInitialData, &device](auto& in) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
@@ -110,7 +110,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device](OutputSerializer& out) -> std::error_code
+	auto saveBin = [&descAndInitialData, &device](auto& out) -> std::error_code
 	{
 		ZoneScopedN("model::saveBin");
 
@@ -131,7 +131,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 		return {};
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device, &modelFile](InputSerializer& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&descAndInitialData, &device, &modelFile](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -313,7 +313,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 	static constexpr char loaderType[] = "tinyobjloader";
 	static constexpr char loaderVersion[] = "2.0.1";
-	loadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
+	file::loadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
 	if (!bufferHandle)
 		throw std::runtime_error("Failed to load model.");

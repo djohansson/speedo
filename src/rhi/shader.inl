@@ -26,7 +26,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<G>{};
 
-	auto loadBin = [&shaderSet](InputSerializer& in) -> std::error_code
+	auto loadBin = [&shaderSet](auto& in) -> std::error_code
 	{
 		if (auto result = in(shaderSet); failure(result))
 			return std::make_error_code(result);
@@ -34,7 +34,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 		return {};
 	};
 
-	auto saveBin = [&shaderSet](OutputSerializer& out) -> std::error_code
+	auto saveBin = [&shaderSet](auto& out) -> std::error_code
 	{
 		if (auto result = out(shaderSet); failure(result))
 			return std::make_error_code(result);
@@ -46,7 +46,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
-					  &slangFile](InputSerializer& /*todo: use me: in*/) -> std::error_code
+					  &slangFile](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		constexpr bool useGLSL = true;
 
@@ -213,7 +213,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 	static constexpr char loaderTypeStr[] = "slang";
 	static constexpr char loaderVersionStr[] = "0.9.1-dev";
-	loadAsset<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
+	file::loadAsset<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");

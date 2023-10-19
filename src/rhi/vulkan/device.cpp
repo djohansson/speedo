@@ -219,9 +219,9 @@ Device<Vk>::Device(
 	const std::shared_ptr<Instance<Vk>>& instance,
 	DeviceConfiguration<Vk>&& defaultConfig)
 	: myInstance(instance)
-	, myConfig(AutoSaveJSONFileObject<DeviceConfiguration<Vk>>(
-		  Application::instance().lock()->environment().userProfilePath / "device.json",
-		  std::forward<DeviceConfiguration<Vk>>(defaultConfig)))
+	, myConfig{
+		Application::instance().lock()->environment().userProfilePath / "device.json",
+		std::forward<DeviceConfiguration<Vk>>(defaultConfig)}
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
 	ZoneScopedN("Device()");

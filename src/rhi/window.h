@@ -92,7 +92,7 @@ private:
 		uint32_t secondaryContextCount,
 		const RenderPassBeginInfo<G>& renderPassInfo);
 
-	AutoSaveJSONFileObject<WindowConfiguration<G>> myConfig;
+	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
 	InputState myInput{};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
