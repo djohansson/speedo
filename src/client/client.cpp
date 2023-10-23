@@ -19,7 +19,16 @@ using namespace zpp::bits::literals;
 class Client : public RhiApplication
 {	
 public:
-	~Client() = default;
+	~Client()
+	{
+		ZoneScopedN("Client::~Client");
+
+		mySocket.close();
+		myContext.shutdown();
+		myContext.close();
+
+		std::cout << "Client shutting down, goodbye." << std::endl;
+	}
 
 	bool tick() override
 	{
