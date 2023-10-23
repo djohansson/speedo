@@ -21,7 +21,14 @@ using namespace zpp::bits::literals;
 class Server : public Application
 {	
 public:
-	~Server() = default;
+	~Server()
+	{
+		ZoneScopedN("Server::~Server");
+
+		mySocket.close();
+		myContext.shutdown();
+		myContext.close();
+	}
 
 	bool tick() override
 	{
