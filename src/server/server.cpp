@@ -28,6 +28,8 @@ public:
 		mySocket.close();
 		myContext.shutdown();
 		myContext.close();
+
+		std::cout << "Server shutting down, goodbye." << std::endl;
 	}
 
 	bool tick() override

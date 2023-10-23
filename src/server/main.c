@@ -9,11 +9,16 @@
 
 #include <mimalloc.h>
 
-static volatile bool s_exit = false;
+static volatile bool s_isAborted = false;
 
-void exitHandler(int /*sig_num*/) 
+void exitHandler(void) 
 {
-	s_exit = true;
+	server_destroy();
+}
+
+void sigintHandler(int /*sig*/) 
+{
+	s_isAborted = true;
 }
 
 const char* getCmdOption(char** begin, char** end, const char* option)
@@ -36,7 +41,7 @@ int main(int argc, char* argv[], char* env[])
 	assert(argv != NULL);
 	assert(env != NULL);
 
-	signal(SIGINT, exitHandler);
+	signal(SIGINT, sigintHandler);
 
 	printf("mi_version(): %d\n", mi_version());
 
@@ -45,9 +50,7 @@ int main(int argc, char* argv[], char* env[])
 		getCmdOption(argv, argv + argc, "(-r)"),
 		getCmdOption(argv, argv + argc, "(-u)"));
 
-	while (server_tick() && !s_exit) {};
-
-	server_destroy();
+	while (server_tick() && !s_isAborted) {};
 
 	return EXIT_SUCCESS;
 }
