@@ -16,6 +16,14 @@ namespace server
 using namespace std::literals;
 using namespace zpp::bits::literals;
 
+std::string say(std::string s)
+{
+	if (s == "hello"s)
+		return "world"s;
+	
+	return "nothing"s;
+}
+
 class Server : public Application
 {	
 public:
