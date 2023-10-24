@@ -21,9 +21,17 @@ static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
 
 static volatile bool g_isAborted = false;
 
-void onSigint(int /*sig*/) 
+void onExit(void) 
 {
-	g_isAborted = true;
+	client_destroy();
+
+	glfwTerminate();
+}
+
+void onSignal(int signal)
+{
+	if (signal == SIGINT)
+		g_isAborted = true;
 }
 
 static void onError(int error, const char* description)
@@ -198,13 +206,17 @@ int main(int argc, char* argv[], char* env[])
 	assert(argv != NULL);
 	assert(env != NULL);
 
-	signal(SIGINT, onSigint);
+	atexit(onExit);
+	signal(SIGINT, onSignal);
 	
 	printf("mi_version(): %d\n", mi_version());
 
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
+	{
+		printf("GLFW: Failed to initialize.\n");
 		return EXIT_FAILURE;
+	}
 
 	int monitorCount;
 	glfwGetMonitors(&monitorCount);
@@ -216,7 +228,7 @@ int main(int argc, char* argv[], char* env[])
 
 	if (!glfwVulkanSupported())
 	{
-		printf("GLFW: Vulkan Not Supported\n");
+		printf("GLFW: Vulkan Not Supported.\n");
 		return 1;
 	}
 
@@ -250,10 +262,7 @@ int main(int argc, char* argv[], char* env[])
 
 	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isAborted);
 
-	client_destroy();
-
 	glfwDestroyWindow(window);
-	glfwTerminate();
 
 	return EXIT_SUCCESS;
 }
