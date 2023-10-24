@@ -9,11 +9,13 @@
 #include <memory>
 #include <string_view>
 #include <system_error>
+#include <thread>
 
 namespace server
 {
 
 using namespace std::literals;
+using namespace std::literals::chrono_literals;
 using namespace zpp::bits::literals;
 
 std::string say(std::string s)
@@ -27,10 +29,21 @@ std::string say(std::string s)
 class Server : public Application
 {	
 public:
-	~Server() = default;
+	~Server()
+	{
+		ZoneScopedN("Server::~Server");
+
+		mySocket.close();
+		myContext.shutdown();
+		myContext.close();
+
+		std::cout << "Server shutting down, goodbye." << std::endl;
+	}
 
 	bool tick() override
 	{
+		auto frameStart = std::chrono::steady_clock::now();
+
 		FrameMark;
 		
 		ZoneScopedN("Server::tick");
@@ -46,7 +59,7 @@ public:
 
 			core::rpc::server server{in, out};
 
-			if (auto recvResult = mySocket.recv(zmq::buffer(requestData), zmq::recv_flags::none))
+			if (auto recvResult = mySocket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
 			{
 				if (auto result = server.serve(); failure(result))
 				{
@@ -58,6 +71,13 @@ public:
 				mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
 			}
 		}
+
+		auto timeElapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - frameStart);
+
+		if (timeElapsed < 16666us)
+			std::this_thread::sleep_for(16666us - timeElapsed);
+
+		std::cout << "RPC time (us):" << timeElapsed << std::endl;
 
 		return true;
 	}

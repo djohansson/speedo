@@ -1,11 +1,25 @@
 #include "capi.h"
 
 #include <assert.h>
+#include <signal.h> 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <mimalloc.h>
+
+static volatile bool g_isAborted = false;
+
+void onExit(void) 
+{
+	server_destroy();
+}
+
+void onSigint(int /*sig*/) 
+{
+	g_isAborted = true;
+}
 
 const char* getCmdOption(char** begin, char** end, const char* option)
 {
@@ -26,7 +40,10 @@ int main(int argc, char* argv[], char* env[])
 {
 	assert(argv != NULL);
 	assert(env != NULL);
-	
+
+	atexit(onExit);
+	signal(SIGINT, onSigint);
+
 	printf("mi_version(): %d\n", mi_version());
 
 	server_create(
@@ -34,9 +51,7 @@ int main(int argc, char* argv[], char* env[])
 		getCmdOption(argv, argv + argc, "(-r)"),
 		getCmdOption(argv, argv + argc, "(-u)"));
 
-	while (server_tick()) {};
-
-	server_destroy();
+	while (server_tick() && !g_isAborted) {};
 
 	return EXIT_SUCCESS;
 }

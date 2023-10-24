@@ -67,7 +67,7 @@
 		+ ' -D__linux__'
 		+ ' -fPIC'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c17 -nostdinc'
+	.CompilerOptionsC = ' -std=c2x -nostdinc'
 	.CompilerOptionsCpp = ' -std=c++23 -nostdinc++'
 #if !__WINDOWS__
 		+ ' -stdlib=libc++'

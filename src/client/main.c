@@ -1,8 +1,11 @@
 #include "capi.h"
 
 #include <assert.h>
+#include <signal.h> 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <GLFW/glfw3.h>
 #if __WINDOWS__
@@ -15,6 +18,13 @@
 static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
 static KeyboardState g_keyboard = {0, 0, 0, 0};
 static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
+
+static volatile bool g_isAborted = false;
+
+void onSigint(int /*sig*/) 
+{
+	g_isAborted = true;
+}
 
 static void onError(int error, const char* description)
 {
@@ -187,6 +197,8 @@ int main(int argc, char* argv[], char* env[])
 {
 	assert(argv != NULL);
 	assert(env != NULL);
+
+	signal(SIGINT, onSigint);
 	
 	printf("mi_version(): %d\n", mi_version());
 
@@ -236,7 +248,7 @@ int main(int argc, char* argv[], char* env[])
 	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetWindowTitle(window, client_getAppName());
 
-	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick());
+	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isAborted);
 
 	client_destroy();
 
