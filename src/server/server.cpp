@@ -51,15 +51,12 @@ public:
 		{
 			ZoneScopedN("Server::tick::rpc");
 
-			std::array<std::byte, 64> requestData;
-			std::array<std::byte, 64> responseData;
-
-			zpp::bits::in in{requestData};
-			zpp::bits::out out{responseData};
+			zpp::bits::in in{myRequestData};
+			zpp::bits::out out{myResponseData};
 
 			core::rpc::server server{in, out};
 
-			if (auto recvResult = mySocket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
+			if (auto recvResult = mySocket.recv(zmq::buffer(myRequestData), zmq::recv_flags::dontwait))
 			{
 				if (auto result = server.serve(); failure(result))
 				{
@@ -77,7 +74,7 @@ public:
 		if (timeElapsed < 16666us)
 			std::this_thread::sleep_for(16666us - timeElapsed);
 
-		std::cout << "RPC time (us):" << timeElapsed << std::endl;
+		std::cout << "Server::tick() time (us):" << timeElapsed << std::endl;
 
 		return true;
 	}
@@ -98,6 +95,8 @@ protected:
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
+	std::array<std::byte, 64> myRequestData;
+	std::array<std::byte, 64> myResponseData;
 };
 
 static std::shared_ptr<Server> s_application{};

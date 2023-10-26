@@ -16,9 +16,10 @@ void onExit(void)
 	server_destroy();
 }
 
-void onSigint(int /*sig*/) 
+void onSignal(int signal)
 {
-	g_isAborted = true;
+	if (signal == SIGINT)
+		g_isAborted = true;
 }
 
 const char* getCmdOption(char** begin, char** end, const char* option)
@@ -42,7 +43,7 @@ int main(int argc, char* argv[], char* env[])
 	assert(env != NULL);
 
 	atexit(onExit);
-	signal(SIGINT, onSigint);
+	signal(SIGINT, onSignal);
 
 	printf("mi_version(): %d\n", mi_version());
 

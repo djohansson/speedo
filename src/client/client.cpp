@@ -19,7 +19,16 @@ using namespace zpp::bits::literals;
 class Client : public RhiApplication
 {	
 public:
-	~Client() = default;
+	~Client()
+	{
+		ZoneScopedN("Client::~Client");
+
+		mySocket.close();
+		myContext.shutdown();
+		myContext.close();
+
+		std::cout << "Client shutting down, goodbye." << std::endl;
+	}
 
 	bool tick() override
 	{
@@ -30,11 +39,8 @@ public:
 		{
 			ZoneScopedN("Client::tick::rpc");
 
-			std::array<std::byte, 64> responseData;
-			std::array<std::byte, 64> requestData;
-
-			zpp::bits::in in{responseData};
-			zpp::bits::out out{requestData};
+			zpp::bits::in in{myResponseData};
+			zpp::bits::out out{myRequestData};
 
 			core::rpc::client client{in, out};
 
@@ -47,14 +53,18 @@ public:
 
 			mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
 			
-			if (auto recvResult = mySocket.recv(zmq::buffer(responseData), zmq::recv_flags::none))
+			if (auto recvResult = mySocket.recv(zmq::buffer(myResponseData), zmq::recv_flags::none))
 			{
-				if (auto result = client.response<"say"_sha256_int>(); failure(result))
+				auto result = client.response<"say"_sha256_int>();
+				
+				if (failure(result))
 				{
 					std::cout << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
 				
 					return false;
 				}
+
+				std::cout << "say(\"hello\") returned: " << result.value() << std::endl;
 			}
 		}
 
@@ -73,6 +83,8 @@ protected:
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
+	std::array<std::byte, 64> myResponseData;
+	std::array<std::byte, 64> myRequestData;
 };
 
 static std::shared_ptr<Client> s_application{};
