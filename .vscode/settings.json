@@ -99,6 +99,8 @@
 		"expected": "cpp",
 		"source_location": "cpp",
 		"cinttypes": "cpp",
-		"string_view": "cpp"
+		"string_view": "cpp",
+		"signal.h": "c",
+		"mimalloc.h": "c"
 	}
 }
