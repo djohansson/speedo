@@ -51,7 +51,12 @@ public:
 				return false;
 			}
 
-			mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none);
+			if (auto sendResult = mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
+			{
+				std::cout << "mySocket.send() failed" << std::endl;
+			
+				return false;
+			}
 			
 			if (auto recvResult = mySocket.recv(zmq::buffer(myResponseData), zmq::recv_flags::none))
 			{
