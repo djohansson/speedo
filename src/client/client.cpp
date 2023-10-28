@@ -1,7 +1,9 @@
 #include "capi.h"
 
-#include <core/rpc.h>
 #include <rhi/rhiapplication.h>
+#include <server/rpc.h>
+
+#include <zmq.hpp>
 
 #include <array>
 #include <cassert>
@@ -42,7 +44,7 @@ public:
 			zpp::bits::in in{myResponseData};
 			zpp::bits::out out{myRequestData};
 
-			core::rpc::client client{in, out};
+			server::rpc::client client{in, out};
 
 			if (auto result = client.request<"say"_sha256_int>("hello"s); failure(result))
 			{

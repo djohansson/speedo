@@ -74,9 +74,65 @@
 		.CompilerInputPattern = '*.cpp'
 	]
 
+	.ServerLibrary =
+	[
+		Using(.LibraryCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'server'
+		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-unknown-attributes'
+		.CompilerInputPath = '$ProjectBasePath$/server'
+		.CompilerInputPattern = '*.cpp'
+	]
+
+	.ServerObjectList =
+	[
+		Using(.ObjectListCommon)
+
+		.ProjectBasePath = '$BuildRootPath$/src'
+		
+		.Name = 'server'
+		.ObjectListCompilerOptions = .CompilerOptionsC
+			+ ' -I$ProjectBasePath$'
+			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+		.CompilerInputPath = '$ProjectBasePath$/server'
+		.CompilerInputPattern = '*.c'
+	]
+
+	.ServerExecutable = 
+	[
+		Using(.ExecutableCommon)
+
+		.Name = 'server'
+		.DependencyObjectLists = {
+			.ServerObjectList,
+		}
+		.DependencyLibraries = {
+			.CoreLibrary,
+			.ServerLibrary,
+		}
+		.DependencyDLLs = {
+		}
+		.ExecutableLinkerOptions = .LinkerOptionsCpp
+			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
+			+ ' -lmimalloc' // should be first
+			+ ' -llibzmq-mt-4_3_5'
+			+ ' -lTracyClient'
+			+ ' -lzlib'
+	]
+
 	.ClientLibrary =
 	[
 		Using(.LibraryCommon)
+
+		.DependencyLibraries = {
+			.ServerLibrary,
+		}
 
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
@@ -148,58 +204,6 @@
 			+ ' -framework CoreVideo'
 		//	+ ' -rpath @executable_path/bin/osx-x64/'
 	#endif
-	]
-
-	.ServerLibrary =
-	[
-		Using(.LibraryCommon)
-
-		.ProjectBasePath = '$BuildRootPath$/src'
-		
-		.Name = 'server'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
-			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
-			+ ' -Wno-unknown-attributes'
-		.CompilerInputPath = '$ProjectBasePath$/server'
-		.CompilerInputPattern = '*.cpp'
-	]
-
-	.ServerObjectList =
-	[
-		Using(.ObjectListCommon)
-
-		.ProjectBasePath = '$BuildRootPath$/src'
-		
-		.Name = 'server'
-		.ObjectListCompilerOptions = .CompilerOptionsC
-			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
-		.CompilerInputPath = '$ProjectBasePath$/server'
-		.CompilerInputPattern = '*.c'
-	]
-
-	.ServerExecutable = 
-	[
-		Using(.ExecutableCommon)
-
-		.Name = 'server'
-		.DependencyObjectLists = {
-			.ServerObjectList,
-		}
-		.DependencyLibraries = {
-			.CoreLibrary,
-			.ServerLibrary,
-		}
-		.DependencyDLLs = {
-		}
-		.ExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
-			+ ' -lmimalloc' // should be first
-			+ ' -llibzmq-mt-4_3_5'
-			+ ' -lTracyClient'
-			+ ' -lzlib'
 	]
 
 	.CoreTestsObjectList =

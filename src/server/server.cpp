@@ -1,7 +1,9 @@
 #include "capi.h"
+#include "rpc.h"
 
 #include <core/application.h>
-#include <core/rpc.h>
+
+#include <zmq.hpp>
 
 #include <array>
 #include <cassert>
@@ -54,7 +56,7 @@ public:
 			zpp::bits::in in{myRequestData};
 			zpp::bits::out out{myResponseData};
 
-			core::rpc::server server{in, out};
+			server::rpc::server server{in, out};
 
 			if (auto recvResult = mySocket.recv(zmq::buffer(myRequestData), zmq::recv_flags::dontwait))
 			{
