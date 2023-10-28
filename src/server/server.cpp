@@ -1,7 +1,9 @@
 #include "capi.h"
+#include "rpc.h"
 
 #include <core/application.h>
-#include <core/rpc.h>
+
+#include <zmq.hpp>
 
 #include <array>
 #include <cassert>
@@ -17,6 +19,14 @@ namespace server
 using namespace std::literals;
 using namespace std::literals::chrono_literals;
 using namespace zpp::bits::literals;
+
+std::string say(std::string s)
+{
+	if (s == "hello"s)
+		return "world"s;
+	
+	return "nothing"s;
+}
 
 class Server : public Application
 {	
@@ -46,7 +56,7 @@ public:
 			zpp::bits::in in{myRequestData};
 			zpp::bits::out out{myResponseData};
 
-			core::rpc::server server{in, out};
+			server::rpc::server server{in, out};
 
 			if (auto recvResult = mySocket.recv(zmq::buffer(myRequestData), zmq::recv_flags::dontwait))
 			{

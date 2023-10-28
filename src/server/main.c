@@ -9,7 +9,7 @@
 
 #include <mimalloc.h>
 
-static volatile bool g_isAborted = false;
+static volatile bool g_isInterrupted = false;
 
 void onExit(void) 
 {
@@ -18,8 +18,8 @@ void onExit(void)
 
 void onSignal(int signal)
 {
-	if (signal == SIGINT)
-		g_isAborted = true;
+	if (signal == SIGINT || signal == SIGTERM)
+		g_isInterrupted = true;
 }
 
 const char* getCmdOption(char** begin, char** end, const char* option)
@@ -44,6 +44,7 @@ int main(int argc, char* argv[], char* env[])
 
 	atexit(onExit);
 	signal(SIGINT, onSignal);
+	signal(SIGTERM, onSignal);
 
 	printf("mi_version(): %d\n", mi_version());
 
@@ -52,7 +53,7 @@ int main(int argc, char* argv[], char* env[])
 		getCmdOption(argv, argv + argc, "(-r)"),
 		getCmdOption(argv, argv + argc, "(-u)"));
 
-	while (server_tick() && !g_isAborted) {};
+	while (server_tick() && !g_isInterrupted) {};
 
 	return EXIT_SUCCESS;
 }
