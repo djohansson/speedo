@@ -19,10 +19,12 @@ static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
 static KeyboardState g_keyboard = {0, 0, 0, 0};
 static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
 
-static volatile bool g_isAborted = false;
+static volatile bool g_isInterrupted = false;
 
 void onExit(void) 
 {
+	glfwDestroyWindow(g_window.handle);
+
 	client_destroy();
 
 	glfwTerminate();
@@ -30,8 +32,8 @@ void onExit(void)
 
 void onSignal(int signal)
 {
-	if (signal == SIGINT)
-		g_isAborted = true;
+	if (signal == SIGINT || signal == SIGTERM)
+		g_isInterrupted = true;
 }
 
 static void onError(int error, const char* description)
@@ -206,11 +208,13 @@ int main(int argc, char* argv[], char* env[])
 	assert(argv != NULL);
 	assert(env != NULL);
 
-	atexit(onExit);
-	signal(SIGINT, onSignal);
-	
 	printf("mi_version(): %d\n", mi_version());
 
+	atexit(onExit);
+
+	signal(SIGINT, &onSignal);
+	signal(SIGTERM, &onSignal);
+	
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
 	{
@@ -260,9 +264,7 @@ int main(int argc, char* argv[], char* env[])
 	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetWindowTitle(window, client_getAppName());
 
-	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isAborted);
-
-	glfwDestroyWindow(window);
+	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isInterrupted);
 
 	return EXIT_SUCCESS;
 }
