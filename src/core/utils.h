@@ -46,7 +46,7 @@ static_assert(false, "Please let Daniel know that the reflection TS is supported
 		##__VA_ARGS__)
 
 #if PROFILING_ENABLED
-#	define assertf(A, M, ...)                                                                     \
+#	define assertf(A, M, ...)                                                                      \
 		if (!(A))                                                                                  \
 		{                                                                                          \
 			log_error(M, ##__VA_ARGS__);                                                           \
