@@ -210,9 +210,9 @@ RhiApplication::RhiApplication(std::string_view name, Environment&& env)
 {
 	ZoneScopedN("RhiApplication()");
 
-	auto rootPath = this->environment().rootPath;
-	auto resourcePath = this->environment().resourcePath;
-	auto userProfilePath = this->environment().userProfilePath;
+	auto rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
+	auto resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
+	auto userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
 
 	// GUI + misc callbacks
 

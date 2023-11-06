@@ -9,13 +9,14 @@
 #include <string_view>
 #include <thread>
 #include <type_traits>
+#include <variant>
 
 
 struct Environment
 {
-	std::filesystem::path rootPath;
-	std::filesystem::path resourcePath;
-	std::filesystem::path userProfilePath;
+	using VariableValue = std::variant<std::string, std::filesystem::path, int64_t, float, bool>;
+
+	UnorderedMap<std::string, VariableValue> variables;
 };
 
 class Application : public Noncopyable, public Nonmovable

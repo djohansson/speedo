@@ -134,11 +134,11 @@ void server_create(
 
 	s_application = Application::create<Server>(
 		"server",
-		Environment{
-			getCanonicalPath(rootPath, "./"),
-			getCanonicalPath(resourcePath, "./resources/"),
-			getCanonicalPath(userProfilePath, "./.profile/", true)
-		});
+		Environment{{
+			{"RootPath", getCanonicalPath(rootPath, "./")},
+			{"ResourcePath", getCanonicalPath(resourcePath, "./resources/")},
+			{"UserProfilePath", getCanonicalPath(userProfilePath, "./.profile/", true)}
+		}});
 
 	assert(s_application);
 }

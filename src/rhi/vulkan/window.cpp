@@ -467,7 +467,7 @@ Window<Vk>::Window(
 		defaultConfig.swapchainConfig,
 		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig{
-		Application::instance().lock()->environment().userProfilePath / "window.json",
+		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json",
 		std::forward<WindowConfiguration<Vk>>(defaultConfig)}
 {
 	ZoneScopedN("Window()");

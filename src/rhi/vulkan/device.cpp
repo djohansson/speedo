@@ -220,7 +220,7 @@ Device<Vk>::Device(
 	DeviceConfiguration<Vk>&& defaultConfig)
 	: myInstance(instance)
 	, myConfig{
-		Application::instance().lock()->environment().userProfilePath / "device.json",
+		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "device.json",
 		std::forward<DeviceConfiguration<Vk>>(defaultConfig)}
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
