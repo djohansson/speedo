@@ -1,6 +1,5 @@
 #include "application.h"
 #include "profiling.h"
-#include "typeinfo.h"
 
 #include <array>
 #include <iostream>
@@ -11,6 +10,12 @@
 #include <stduuid/uuid.h>
 
 #include <picosha2.h>
+
+namespace file
+{
+
+namespace detail
+{
 
 enum class AssetManifestErrorCode : uint8_t
 {
@@ -31,13 +36,43 @@ struct AssetManifest
 	file::Record cacheFileInfo{};
 };
 
-GLZ_META(file::Record, path, size, timeStamp, sha2);
-GLZ_META(AssetManifest, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
-
 using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::string_view)>;
 
-namespace file
+template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
+std::expected<AssetManifest, AssetManifestError>
+loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
 {
+	ZoneScoped;
+
+	auto manifestInfo = loadManifestInfoFn(buffer);
+
+	if (!manifestInfo)
+		return std::unexpected(manifestInfo.error());
+
+	if (std::string_view(LoaderType).compare(manifestInfo->loaderType) != 0 ||
+		std::string_view(LoaderVersion).compare(manifestInfo->loaderVersion) != 0)
+		return std::unexpected(AssetManifestErrorCode::InvalidVersion);
+
+	auto assetFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
+
+	if (!assetFileInfo ||
+		assetFileInfo->size != manifestInfo->assetFileInfo.size ||
+		assetFileInfo->timeStamp.compare(manifestInfo->assetFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2 : false)
+		return std::unexpected(AssetManifestErrorCode::InvalidSourceFile);
+
+	auto cacheFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
+
+	if (!cacheFileInfo ||
+		cacheFileInfo->size != manifestInfo->cacheFileInfo.size ||
+		cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp) != 0 ||
+		Sha256ChecksumEnable ? cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2 : false)
+		return std::unexpected(AssetManifestErrorCode::InvalidCacheFile);
+
+	return manifestInfo.value();
+}
+
+} // namespace detail
 
 template <bool Sha256ChecksumEnable>
 std::expected<Record, std::error_code> getRecord(const std::filesystem::path& filePath)
@@ -242,39 +277,6 @@ Object<T, Mode, SaveOnClose>::save() const
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
 }
 
-template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
-std::expected<AssetManifest, AssetManifestError> loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
-{
-	ZoneScoped;
-
-	auto manifestInfo = loadManifestInfoFn(buffer);
-
-	if (!manifestInfo)
-		return std::unexpected(manifestInfo.error());
-
-	if (std::string_view(LoaderType).compare(manifestInfo->loaderType) != 0 ||
-		std::string_view(LoaderVersion).compare(manifestInfo->loaderVersion) != 0)
-		return std::unexpected(AssetManifestErrorCode::InvalidVersion);
-
-	auto assetFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
-
-	if (!assetFileInfo ||
-		assetFileInfo->size != manifestInfo->assetFileInfo.size ||
-		assetFileInfo->timeStamp.compare(manifestInfo->assetFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2 : false)
-		return std::unexpected(AssetManifestErrorCode::InvalidSourceFile);
-
-	auto cacheFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
-
-	if (!cacheFileInfo ||
-		cacheFileInfo->size != manifestInfo->cacheFileInfo.size ||
-		cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2 : false)
-		return std::unexpected(AssetManifestErrorCode::InvalidCacheFile);
-
-	return manifestInfo.value();
-}
-
 template <const char* LoaderType, const char* LoaderVersion>
 void loadAsset(
 	const std::filesystem::path& assetFilePath,
@@ -282,6 +284,8 @@ void loadAsset(
 	LoadFn loadBinaryCacheFn,
 	SaveFn saveBinaryCacheFn)
 {
+	using namespace detail;
+	
 	ZoneScoped;
 	
 	std::filesystem::path manifestPath(assetFilePath);
@@ -305,7 +309,6 @@ void loadAsset(
 	{
 		manifest = std::unexpected(AssetManifestErrorCode::Missing);
 	}
-
 	
 	if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
 	{
@@ -355,3 +358,6 @@ void loadAsset(
 }
 
 } // namespace file
+
+GLZ_META(file::Record, path, size, timeStamp, sha2);
+GLZ_META(file::detail::AssetManifest, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);
