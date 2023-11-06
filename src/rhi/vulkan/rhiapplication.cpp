@@ -192,12 +192,12 @@ const Rhi<Vk>& RhiApplication::rhi<Vk>() const
 	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
 }
 
-RhiApplication::RhiApplication(std::string_view name, Environment&& env)
-: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
+RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
+: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
 , myRhi(std::make_shared<Rhi<Vk>>(
 		std::make_shared<Instance<Vk>>(
 			InstanceConfiguration<Vk>{
-				this->name(),
+				name(),
 				"speedo",
 				ApplicationInfo<Vk>{
 					VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -773,9 +773,9 @@ void RhiApplication::createDevice(const WindowState& window)
 {
 	using namespace rhiapplication;
 
-	auto rootPath = environment().rootPath;
-	auto resourcePath = environment().resourcePath;
-	auto userProfilePath = environment().userProfilePath;
+	auto rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
+	auto resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
+	auto userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
 
 	auto shaderIncludePath = rootPath / "src/rhi/shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
