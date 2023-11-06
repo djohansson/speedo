@@ -4,6 +4,8 @@
 #include "sampler.h"
 #include "types.h"
 
+#include <core/upgradeablesharedmutex.h>
+
 #include <array>
 #include <list>
 #include <memory>
