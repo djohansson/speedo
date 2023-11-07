@@ -172,11 +172,11 @@ std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& 
 	auto result = in(object);
 
 	if (result.failure())
-		return std::unexpected(std::make_error_code(std::errc::illegal_byte_sequence));
+		return std::unexpected(result.error().code);
 
 	if (in.position() != file.size())
 		return std::unexpected(std::make_error_code(std::errc::illegal_byte_sequence));
-		
+
 	return object;
 }
 
