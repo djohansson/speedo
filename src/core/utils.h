@@ -1,6 +1,8 @@
 #pragma once
 
+#include "assert.h"
 #include "profiling.h"
+#include "math.h"
 
 #include <algorithm>
 #include <cassert>
@@ -24,41 +26,7 @@
 
 #include <mio/mmap.hpp>
 
-#ifdef _MSC_VER
-#	define FORCE_INLINE __forceinline
-#else
-#	define FORCE_INLINE inline __attribute__((always_inline))
-#endif
 
-#if __cpp_reflection >= 201902
-static_assert(false, "Please let Daniel know that the reflection TS is supported.")
-#	include <experimental/reflect>
-#endif
-
-#define clean_errno() (errno == 0 ? "None" : strerror(errno))
-#define log_error(M, ...)                                                                          \
-	fprintf(                                                                                       \
-		stderr,                                                                                    \
-		"[ERROR] (%s:%d: errno: %s) " M "\n",                                                      \
-		__FILE__,                                                                                  \
-		__LINE__,                                                                                  \
-		clean_errno(),                                                                             \
-		##__VA_ARGS__)
-
-#if PROFILING_ENABLED
-#	define assertf(A, M, ...)                                                                      \
-		if (!(A))                                                                                  \
-		{                                                                                          \
-			log_error(M, ##__VA_ARGS__);                                                           \
-			assert(A);                                                                             \
-		}
-#else
-#	define assertf(A, M, ...)
-#endif
-
-//#define compile_assert() char (*__kaboom)[sizeof( YourTypeHere )] = 1;
-
-uint32_t roundUp(uint32_t numToRound, uint32_t multiple);
 
 class Noncopyable
 {
@@ -92,24 +60,6 @@ private:
 	void* operator new(size_t);
 	void* operator new[](size_t);
 };
-
-namespace std
-{
-
-template <class T0, class... Ts>
-auto make_vector(T0&& first, Ts&&... args)
-{
-	using first_type = std::decay_t<T0>;
-	return std::vector<first_type>{std::forward<T0>(first), std::forward<Ts>(args)...};
-}
-
-template <class T>
-auto make_vector(size_t size)
-{
-	return std::vector<std::decay_t<T>>(size);
-}
-
-} // namespace std
 
 template <typename T, typename Handle>
 struct HandleHash : robin_hood::hash<Handle>

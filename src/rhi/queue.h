@@ -86,7 +86,7 @@ public:
 
 #if PROFILING_ENABLED
 	template <SourceLocationData Location>
-	FORCE_INLINE std::shared_ptr<void> gpuScope(CommandBufferHandle<G> cmd);
+	inline std::shared_ptr<void> gpuScope(CommandBufferHandle<G> cmd);
 	void gpuScopeCollect(CommandBufferHandle<G> cmd);
 #endif
 

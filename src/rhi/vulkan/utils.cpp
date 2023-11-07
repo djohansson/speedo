@@ -841,8 +841,8 @@ VkRenderPass createRenderPass(
 		device,
 		hostAllocator,
 		attachments,
-		std::make_vector(subpass),
-		std::make_vector(dependency));
+		{subpass},
+		{dependency});
 }
 
 VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)

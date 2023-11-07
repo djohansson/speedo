@@ -173,7 +173,7 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
 	rhi.renderImageSet =
-		std::make_shared<RenderImageSet<Vk>>(rhi.device, make_vector(colorImage), depthStencilImage);
+		std::make_shared<RenderImageSet<Vk>>(rhi.device, std::vector{colorImage}, depthStencilImage);
 
 	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
@@ -1030,7 +1030,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	rhi<Vk>().pipeline->resources().black = std::make_shared<Image<Vk>>(
 		rhi<Vk>().device,
 		ImageCreateDesc<Vk>{
-			std::make_vector(ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}),
+			{ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}},
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_IMAGE_TILING_LINEAR,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
