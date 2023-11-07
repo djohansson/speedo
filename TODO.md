@@ -17,7 +17,7 @@
 * todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 * todo: remove all use of preprocessor macros, and replace with constexpr functions so that we can migrate to using modules.
 
-* in progress: clean up utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
+* in progress: clean up (concurrency-)utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
 * in progress: streamlined project setup process on all platforms.
 * in progress: make RhiApplication & Window class graphics independent (if possible)
 
