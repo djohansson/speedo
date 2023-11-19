@@ -301,7 +301,7 @@ void Window<Vk>::onMouse(const MouseState& mouse)
 template <>
 void Window<Vk>::onKeyboard(const KeyboardState& keyboard)
 {
-	assert(keyboard.key < std::size(myInput.keysPressed));
+	assert(keyboard.key < myInput.keysPressed.size());
 	
 	if (keyboard.action == GLFW_PRESS)
 		myInput.keysPressed[keyboard.key] = true;
@@ -345,7 +345,7 @@ void Window<Vk>::internalUpdateInput()
 		float dx = 0.f;
 		float dz = 0.f;
 
-		for (unsigned key = 0; key < std::size(myInput.keysPressed); key++)
+		for (unsigned key = 0; key < myInput.keysPressed.size(); key++)
 		{
 			if (myInput.keysPressed[key])
 			{
