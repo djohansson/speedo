@@ -239,6 +239,12 @@ void PipelineLayout<Vk>::swap(PipelineLayout& rhs) noexcept
 }
 
 template <>
+const PipelineLayout<Vk>& Pipeline<Vk>::internalGetLayout()
+{
+	return myGraphicsState.layouts[myLayout];
+}
+
+template <>
 uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 {
 	ZoneScopedN("Pipeline::internalCalculateHashKey");
@@ -253,7 +259,7 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 	result = XXH3_64bits_update(threadXXHState.get(), &myBindPoint, sizeof(myBindPoint));
 	assert(result != XXH_ERROR);
 
-	auto layoutHandle = static_cast<PipelineLayoutHandle<Vk>>(getLayout());
+	auto layoutHandle = getLayout();
 	result = XXH3_64bits_update(threadXXHState.get(), &layoutHandle, sizeof(layoutHandle));
 	assert(result != XXH_ERROR);
 
@@ -272,7 +278,7 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 template <>
 void Pipeline<Vk>::internalPrepareDescriptorSets()
 {
-	const auto& layout = getLayout();
+	const auto& layout = internalGetLayout();
 
 	for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
 	{
@@ -447,7 +453,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 {
 	ZoneScopedN("Pipeline::internalCreateGraphicsPipeline");
 
-	const auto& layout = getLayout();
+	const auto& layout = internalGetLayout();
 	auto& renderTarget = getRenderTarget();
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -555,15 +561,23 @@ void Pipeline<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
 }
 
 template <>
-void Pipeline<Vk>::setLayout(
-	const std::shared_ptr<PipelineLayout<Vk>>& layout, PipelineBindPoint<Vk> bindPoint)
+PipelineLayoutHandle<Vk> Pipeline<Vk>::createLayout(const ShaderSet<Vk>& shaderSet)
 {
-	assert(layout);
+	auto layout = PipelineLayout<Vk>(getDevice(), shaderSet);
+	auto handle = static_cast<PipelineLayoutHandle<Vk>>(layout);
+	
+	myGraphicsState.layouts.emplace(handle, std::move(layout));
+	
+	return handle;
+}
 
+template <>
+void Pipeline<Vk>::bindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindPoint<Vk> bindPoint)
+{
 	myLayout = layout;
 	myBindPoint = bindPoint;
 
-	const auto& shaderModules = myLayout->getShaderModules();
+	const auto& shaderModules = internalGetLayout().getShaderModules();
 
 	assert(!shaderModules.empty());
 
@@ -750,7 +764,7 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 {
 	ZoneScopedN("Pipeline::bindDescriptorSetAuto");
 
-	const auto& layout = getLayout();
+	const auto& layout = internalGetLayout();
 	const auto& setLayout = layout.getDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);

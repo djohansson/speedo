@@ -1133,12 +1133,9 @@ void RhiApplication::createDevice(const WindowState& window)
 		transferQueue.submit();
 	}
 
-	// set global descriptor set data
+	auto layoutHandle = rhi<Vk>().pipeline->createLayout(shaderReflection);
 
-	auto [layoutIt, insertResult] =
-		rhi<Vk>().layouts.emplace(std::make_shared<PipelineLayout<Vk>>(rhi<Vk>().device, shaderReflection));
-	assert(insertResult);
-	rhi<Vk>().pipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
+	rhi<Vk>().pipeline->bindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 	rhi<Vk>().pipeline->setDescriptorData(
 		"g_viewData",

@@ -54,15 +54,7 @@ struct Rhi
 	std::shared_ptr<RenderImageSet<G>> renderImageSet;
 
 	std::shared_ptr<Buffer<G>> materials;
-	std::shared_ptr<Buffer<G>> objects;
-
-	template <
-		typename Key,
-		typename Handle,
-		typename KeyHash = HandleHash<Key, Handle>,
-		typename KeyEqualTo = SharedPtrEqualTo<>>
-	using HandleSet = UnorderedSet<Key, KeyHash, KeyEqualTo>;
-	HandleSet<std::shared_ptr<PipelineLayout<G>>, PipelineLayoutHandle<G>> layouts;
+	std::shared_ptr<Buffer<G>> objects;	
 };
 
 class RhiApplication : public Application
