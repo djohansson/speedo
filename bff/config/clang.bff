@@ -86,8 +86,6 @@
 #endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
-	.MemoryDebugEnabled = '0'
-	.MemorySecurityLevel = '0'
 	.ProfilingEnabled = '0'
 	.GraphicsValidationEnabled = '0'
 ]
@@ -104,8 +102,6 @@
 	Using(.Clang_x86_64_v3_BaseConfig)
 
 	.ConfigName = 'debug'
-	.MemoryDebugEnabled = '1'
-	.MemorySecurityLevel = '4'
 	.ProfilingEnabled = '1'
 	.GraphicsValidationEnabled = '1'
 	.CompilerOptions + ' -O0'
