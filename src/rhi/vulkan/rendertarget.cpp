@@ -220,7 +220,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
 }
 
 template <>
-RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
+RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 	uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc)
 {
 	ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
@@ -289,7 +289,7 @@ RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 {
 	ZoneScopedN("RenderTarget::internalUpdateMap");
 
-	auto [keyValIt, insertResult] = myMap.emplace(
+	auto [keyValIt, insertResult] = myCache.emplace(
 		internalCalculateHashKey(desc),
 		std::make_tuple(RenderPassHandle<Vk>{}, FramebufferHandle<Vk>{}));
 	auto& [key, renderPassAndFramebuffer] = *keyValIt;
@@ -531,7 +531,7 @@ RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
 	, myAttachmentsReferences(std::exchange(other.myAttachmentsReferences, {}))
 	, mySubPassDescs(std::exchange(other.mySubPassDescs, {}))
 	, mySubPassDependencies(std::exchange(other.mySubPassDependencies, {}))
-	, myMap(std::exchange(other.myMap, {}))
+	, myCache(std::exchange(other.myCache, {}))
 	, myCurrentPass(std::exchange(other.myCurrentPass, {}))
 	, myCurrentSubpass(std::exchange(other.myCurrentSubpass, {}))
 {}
@@ -541,7 +541,7 @@ RenderTarget<Vk>::~RenderTarget()
 {
 	ZoneScopedN("~RenderTarget()");
 
-	for (const auto& entry : myMap)
+	for (const auto& entry : myCache)
 	{
 		vkDestroyRenderPass(
 			*getDevice(),
@@ -569,7 +569,7 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 	myAttachmentsReferences = std::exchange(other.myAttachmentsReferences, {});
 	mySubPassDescs = std::exchange(other.mySubPassDescs, {});
 	mySubPassDependencies = std::exchange(other.mySubPassDependencies, {});
-	myMap = std::exchange(other.myMap, {});
+	myCache = std::exchange(other.myCache, {});
 	myCurrentPass = std::exchange(other.myCurrentPass, {});
 	myCurrentSubpass = std::exchange(other.myCurrentSubpass, {});
 	return *this;
@@ -584,7 +584,7 @@ void RenderTarget<Vk>::swap(RenderTarget& rhs) noexcept
 	std::swap(myAttachmentsReferences, rhs.myAttachmentsReferences);
 	std::swap(mySubPassDescs, rhs.mySubPassDescs);
 	std::swap(mySubPassDependencies, rhs.mySubPassDependencies);
-	std::swap(myMap, rhs.myMap);
+	std::swap(myCache, rhs.myCache);
 	std::swap(myCurrentPass, rhs.myCurrentPass);
 	std::swap(myCurrentSubpass, rhs.myCurrentSubpass);
 }

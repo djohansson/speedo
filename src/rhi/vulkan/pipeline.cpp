@@ -469,7 +469,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 	pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
-	pipelineInfo.renderPass = renderTarget;
+	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<Vk>>(renderTarget));
 	pipelineInfo.subpass = renderTarget.getSubpass().value_or(0);
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;

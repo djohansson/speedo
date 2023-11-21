@@ -76,7 +76,8 @@ public:
 	virtual void end(CommandBufferHandle<G> cmd) final;
 
 	auto getSurface() const noexcept { return mySurface; }
-	auto getRenderPass() { return static_cast<RenderPassHandle<G>>(myFrames[myFrameIndex]); }
+	auto getRenderPass() { return std::get<0>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
+	auto getFramebuffer() { return std::get<1>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
 
 	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
 	std::tuple<SemaphoreHandle<G>, SemaphoreHandle<G>> getFrameSyncSemaphores() const noexcept
