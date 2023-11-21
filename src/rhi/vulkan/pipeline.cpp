@@ -98,27 +98,28 @@ std::expected<Record, std::error_code> savePipelineCache(
 	// todo: move to gfx-vulkan.cpp
 	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](auto& out) -> std::error_code
 	{
-		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
-		{
-			auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+		auto cacheData = getPipelineCacheData(device, pipelineCache);
 
-			if (isCacheValid(*header, physicalDeviceProperties))
-			{
-				if (auto result = out(cacheData); failure(result))
-					return std::make_error_code(result);
-			}
-			else
-			{
-				std::cerr << "Invalid pipeline cache, will not save." << '\n';
-			}
-			
-		}
-		else
+		if (cacheData.empty())
 		{
-			std::cerr << "Failed to get pipeline cache." << '\n';
+			std::clog << "Failed to get pipeline cache." << '\n';
+		
+			return std::make_error_code(std::errc::invalid_argument);
+		}
+		
+		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+
+		if (!isCacheValid(*header, physicalDeviceProperties))
+		{
+			std::clog << "Invalid pipeline cache, will not save." << '\n';
+
+			return std::make_error_code(std::errc::invalid_argument);
 		}
 
-		return {};
+		if (auto result = out(cacheData); failure(result))
+			return std::make_error_code(result);
+
+		return {}; // success
 	};
 
 	return saveBinary<true>(cacheFilePath, saveCacheOp);
@@ -896,13 +897,18 @@ Pipeline<Vk>::Pipeline(
 template <>
 Pipeline<Vk>::~Pipeline()
 {
-	auto fileInfo = pipeline::savePipelineCache(
+	if (auto fileInfo = pipeline::savePipelineCache(
 		myConfig.cachePath,
 		*getDevice(),
 		getDevice()->getPhysicalDeviceInfo().deviceProperties,
-		myCache);
-
-	assert(fileInfo);
+		myCache); fileInfo)
+	{
+		std::cout << "Saved pipeline cache to " << fileInfo.value().path << '\n';
+	}
+	else
+	{
+		std::clog << "Failed to save pipeline cache, error: " << fileInfo.error() << '\n';
+	}
 
 	for (const auto& pipelineIt : myPipelineMap)
 		vkDestroyPipeline(
