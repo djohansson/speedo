@@ -48,14 +48,14 @@ public:
 
 			if (auto result = client.request<"say"_sha256_int>("hello"s); failure(result))
 			{
-				std::cout << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
+				std::cerr << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
 			
 				return false;
 			}
 
 			if (auto sendResult = mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
 			{
-				std::cout << "mySocket.send() failed" << std::endl;
+				std::cerr << "mySocket.send() failed" << std::endl;
 			
 				return false;
 			}
@@ -66,7 +66,7 @@ public:
 				
 				if (failure(result))
 				{
-					std::cout << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
+					std::cerr << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
 				
 					return false;
 				}

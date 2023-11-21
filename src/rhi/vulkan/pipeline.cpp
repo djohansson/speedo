@@ -50,7 +50,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 
 		if (cacheData.empty() || !isCacheValid(*header, device->getPhysicalDeviceInfo().deviceProperties))
 		{
-			std::cout << "Invalid pipeline cache, creating new." << '\n';
+			std::cerr << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
 		}
 
@@ -109,13 +109,13 @@ std::expected<Record, std::error_code> savePipelineCache(
 			}
 			else
 			{
-				std::cout << "Invalid pipeline cache, will not save." << '\n';
+				std::cerr << "Invalid pipeline cache, will not save." << '\n';
 			}
 			
 		}
 		else
 		{
-			std::cout << "Failed to get pipeline cache." << '\n';
+			std::cerr << "Failed to get pipeline cache." << '\n';
 		}
 
 		return {};
