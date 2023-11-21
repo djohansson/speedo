@@ -2,10 +2,9 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
-
 #include <xxhash.h>
 
+#include <format>
 #include <memory>
 
 template <>
@@ -32,8 +31,9 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			char stringBuffer[128];
 			static constexpr std::string_view colorImageViewStr = "_ColorImageView";
 
-			stbsp_sprintf(
+			std::format_to_n(
 				stringBuffer,
+				std::size(stringBuffer),
 				"%.*s%.*s%.*u",
 				static_cast<int>(getName().size()),
 				getName().data(),
@@ -85,8 +85,9 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			char stringBuffer[128];
 			static constexpr std::string_view depthImageViewStr = "_DepthImageView";
 
-			stbsp_sprintf(
+			std::format_to_n(
 				stringBuffer,
+				std::size(stringBuffer),
 				"%.*s%.*s",
 				static_cast<int>(getName().size()),
 				getName().data(),
@@ -248,8 +249,9 @@ RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 		static constexpr std::string_view renderPassStr = "_RenderPass";
 		static constexpr std::string_view framebufferStr = "_FrameBuffer";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -263,8 +265,9 @@ RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 			reinterpret_cast<uint64_t>(renderPass),
 			stringBuffer);
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
 			getName().data(),

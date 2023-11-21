@@ -501,7 +501,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 				IMNODES_NAMESPACE::BeginNode(node->id());
 
 				// title bar
-				stbsp_sprintf(buffer, "##node%.*u", 4, node->id());
+				std::format_to_n(buffer, std::size(buffer), "##node%.*u", 4, node->id());
 
 				IMNODES_NAMESPACE::BeginNodeTitleBar();
 
@@ -526,7 +526,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 						if (hasInputPin)
 						{
 							auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
-							stbsp_sprintf(buffer, "##inputattribute%.*u", 4, inputAttribute.id);
+							std::format_to_n(buffer, std::size(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
 
 							IMNODES_NAMESPACE::BeginInputAttribute(inputAttribute.id);
 
@@ -546,7 +546,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 						if (rowIt < inOutNode->outputAttributes().size())
 						{
 							auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
-							stbsp_sprintf(buffer, "##outputattribute%.*u", 4, outputAttribute.id);
+							std::format_to_n(buffer, std::size(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
 
 							if (hasInputPin)
 								SameLine();
@@ -589,8 +589,9 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 					{
 						if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
 						{
-							stbsp_sprintf(
+							std::format_to_n(
 								buffer,
+								std::size(buffer),
 								"In %u",
 								static_cast<unsigned>(inOutNode->inputAttributes().size()));
 							inOutNode->inputAttributes().emplace_back(
@@ -601,8 +602,9 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 					{
 						if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
 						{
-							stbsp_sprintf(
+							std::format_to_n(
 								buffer,
+								std::size(buffer),
 								"Out %u",
 								static_cast<unsigned>(inOutNode->outputAttributes().size()));
 							inOutNode->outputAttributes().emplace_back(
@@ -1187,6 +1189,12 @@ RhiApplication::~RhiApplication()
 
 	assert(device.use_count() == 1);
 	assert(instance.use_count() == 2);
+
+#ifdef TRACY_ENABLE
+	tracy::GetProfiler().RequestShutdown();
+	while (!tracy::GetProfiler().HasShutdownFinished())
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+#endif
 }
 
 void RhiApplication::onMouse(const MouseState& mouse)

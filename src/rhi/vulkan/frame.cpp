@@ -4,8 +4,7 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
-
+#include <format>
 #include <string_view>
 
 template <>
@@ -68,8 +67,9 @@ Frame<Vk>::Frame(
 		static constexpr std::string_view newImageAcquiredSemaphoreStr =
 			"_NewImageAcquiredSemaphore";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -82,8 +82,9 @@ Frame<Vk>::Frame(
 			reinterpret_cast<uint64_t>(myRenderCompleteSemaphore),
 			stringBuffer);
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
 			getName().data(),

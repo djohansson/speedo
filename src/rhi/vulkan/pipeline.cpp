@@ -3,7 +3,7 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
+#include <format>
 
 #pragma pack(push, 1)
 template <>
@@ -488,8 +488,9 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineStr = "_Pipeline";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -871,8 +872,9 @@ Pipeline<Vk>::Pipeline(
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
 			getName().data(),
