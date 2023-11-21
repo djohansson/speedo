@@ -247,6 +247,7 @@ private:
 		// temp?
 		PipelineResourceView<G> resources;
 		UnorderedMap<PipelineLayoutHandle<G>, PipelineLayout<G>> layouts;
+		//UnorderedSet<RenderTarget<G>> renderTargets;
 		//
 	} myGraphicsState{};
 
