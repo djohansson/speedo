@@ -208,17 +208,17 @@ int main(int argc, char* argv[], char* env[])
 	assert(argv != NULL);
 	assert(env != NULL);
 
-	printf("mi_version(): %d\n", mi_version());
-
 	atexit(onExit);
 
 	signal(SIGINT, &onSignal);
 	signal(SIGTERM, &onSignal);
+
+	printf("mi_version(): %d\n", mi_version());
 	
 	glfwSetErrorCallback(onError);
 	if (!glfwInit())
 	{
-		printf("GLFW: Failed to initialize.\n");
+		fprintf(stderr, "GLFW: Failed to initialize.\n");
 		return EXIT_FAILURE;
 	}
 
@@ -226,13 +226,13 @@ int main(int argc, char* argv[], char* env[])
 	glfwGetMonitors(&monitorCount);
 	if (monitorCount <= 0)
 	{
-		printf("GLFW: No monitor connected?\n");
+		fprintf(stderr, "GLFW: No monitor connected?\n");
 		return EXIT_FAILURE;
 	}
 
 	if (!glfwVulkanSupported())
 	{
-		printf("GLFW: Vulkan Not Supported.\n");
+		fprintf(stderr, "GLFW: Vulkan Not Supported.\n");
 		return 1;
 	}
 

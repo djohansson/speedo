@@ -109,18 +109,18 @@ VkBool32 debugUtilsMessengerCallback(
 {
 	for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
 	{
-		std::cout << "Object " << objectIt;
+		std::cerr << "Object " << objectIt;
 
 		if (pCallbackData->pObjects[objectIt].pObjectName)
-			std::cout << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
+			std::cerr << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
 
-		std::cout << ": ";
+		std::cerr << ": ";
 	}
 
 	if (pCallbackData->pMessageIdName)
-		std::cout << pCallbackData->pMessageIdName << ": ";
+		std::cerr << pCallbackData->pMessageIdName << ": ";
 
-	std::cout << pCallbackData->pMessage << std::endl;
+	std::cerr << pCallbackData->pMessage << std::endl;
 
 	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 		__debugbreak();

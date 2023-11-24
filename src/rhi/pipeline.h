@@ -16,13 +16,14 @@
 #include <string>
 
 template <GraphicsApi G>
+class Pipeline;
+
+template <GraphicsApi G>
 class PipelineLayout final : public DeviceObject<G>
 {
 public:
 	constexpr PipelineLayout() noexcept = default;
 	PipelineLayout(PipelineLayout<G>&& other) noexcept;
-	PipelineLayout(
-		const std::shared_ptr<Device<G>>& device, const ShaderSet<G>& shaderSet);
 	~PipelineLayout();
 
 	PipelineLayout& operator=(PipelineLayout&& other) noexcept;
@@ -38,6 +39,9 @@ public:
 	const DescriptorSetLayout<G>& getDescriptorSetLayout(uint32_t set) const noexcept;
 
 private:
+	friend Pipeline<G>;
+	PipelineLayout(
+		const std::shared_ptr<Device<G>>& device, const ShaderSet<G>& shaderSet);
 	PipelineLayout( // takes ownership over provided handles
 		const std::shared_ptr<Device<G>>& device,
 		std::vector<ShaderModule<G>>&& shaderModules,
@@ -105,6 +109,9 @@ public:
 	auto getCache() const noexcept { return myCache; }
 	auto getDescriptorPool() const noexcept { return myDescriptorPool; }
 	auto getBindPoint() const noexcept { return myBindPoint; }
+	auto getLayout() const noexcept { return myLayout; }
+
+	PipelineLayoutHandle<G> createLayout(const ShaderSet<G>& shaderSet);
 
 	// "manual" api
 
@@ -122,6 +129,8 @@ public:
 	// "auto" api
 
 	void bindPipelineAuto(CommandBufferHandle<G> cmd);
+
+	void bindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
 
 	void bindDescriptorSetAuto(
 		CommandBufferHandle<G> cmd,
@@ -153,31 +162,26 @@ public:
 		uint32_t index);
 
 	template <typename T>
-	void
-	setDescriptorData(std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index);
+	void setDescriptorData(
+		std::string_view shaderVariableName,
+		T&& data,
+		uint32_t set,
+		uint32_t index);	
 
 	// temp
-	const auto& getLayout() const noexcept
-	{
-		assert(myLayout);
-		return *myLayout;
-	}
 	auto& getRenderTarget() const noexcept
 	{
 		assert(myRenderTarget);
 		return *myRenderTarget;
 	}
 
-	void
-	setLayout(const std::shared_ptr<PipelineLayout<G>>& layout, PipelineBindPoint<G> bindPoint);
 	void setRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
-	void setModel(const std::shared_ptr<Model<G>>&
-					  model); // todo: rewrite to use generic draw call structures / buffers
+	void setModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
 
 	auto& resources() noexcept { return myGraphicsState.resources; }
 	//
 
-	// "auto" api end
+	// "auto" api end	
 
 private:
 	// todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
@@ -190,7 +194,7 @@ private:
 	//
 
 	void internalUpdateDescriptorSet(
-		const DescriptorSetLayout<G>& setLayout,
+		const DescriptorSetLayout<G>& bindLayoutAuto,
 		const BindingsData<G>& bindingsData,
 		const DescriptorUpdateTemplate<G>& setTemplate,
 		DescriptorSetArrayList<G>& setArrayList);
@@ -205,6 +209,7 @@ private:
 	uint64_t internalCalculateHashKey() const;
 	PipelineHandle<G> internalCreateGraphicsPipeline(uint64_t hashKey);
 	PipelineHandle<G> internalGetPipeline();
+	const PipelineLayout<G>& internalGetLayout();
 
 	file::Object<PipelineConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
 
@@ -219,7 +224,7 @@ private:
 
 	// shared state
 	PipelineBindPoint<G> myBindPoint{};
-	std::shared_ptr<PipelineLayout<G>> myLayout;
+	PipelineLayoutHandle<G> myLayout{};
 	std::shared_ptr<RenderTarget<G>> myRenderTarget;
 	// end shared state
 
@@ -239,8 +244,10 @@ private:
 		PipelineColorBlendStateCreateInfo<G> colorBlend{};
 		std::vector<DynamicState<G>> dynamicStateDescs;
 		PipelineDynamicStateCreateInfo<G> dynamicState{};
-		// temp
+		// temp?
 		PipelineResourceView<G> resources;
+		UnorderedMap<PipelineLayoutHandle<G>, PipelineLayout<G>> layouts;
+		//UnorderedSet<RenderTarget<G>> renderTargets;
 		//
 	} myGraphicsState{};
 

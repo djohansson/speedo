@@ -43,6 +43,7 @@ int main(int argc, char* argv[], char* env[])
 	assert(env != NULL);
 
 	atexit(onExit);
+	
 	signal(SIGINT, onSignal);
 	signal(SIGTERM, onSignal);
 

@@ -2,10 +2,9 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
-
 #include <xxhash.h>
 
+#include <format>
 #include <memory>
 
 template <>
@@ -32,8 +31,9 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			char stringBuffer[128];
 			static constexpr std::string_view colorImageViewStr = "_ColorImageView";
 
-			stbsp_sprintf(
+			std::format_to_n(
 				stringBuffer,
+				std::size(stringBuffer),
 				"%.*s%.*s%.*u",
 				static_cast<int>(getName().size()),
 				getName().data(),
@@ -85,8 +85,9 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			char stringBuffer[128];
 			static constexpr std::string_view depthImageViewStr = "_DepthImageView";
 
-			stbsp_sprintf(
+			std::format_to_n(
 				stringBuffer,
+				std::size(stringBuffer),
 				"%.*s%.*s",
 				static_cast<int>(getName().size()),
 				getName().data(),
@@ -220,7 +221,7 @@ uint64_t RenderTarget<Vk>::internalCalculateHashKey(const RenderTargetCreateDesc
 }
 
 template <>
-RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
+RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 	uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc)
 {
 	ZoneScopedN("RenderTarget::internalCreateRenderPassAndFrameBuffer");
@@ -248,8 +249,9 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 		static constexpr std::string_view renderPassStr = "_RenderPass";
 		static constexpr std::string_view framebufferStr = "_FrameBuffer";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -263,8 +265,9 @@ RenderTarget<Vk>::ValueType RenderTarget<Vk>::internalCreateRenderPassAndFrameBu
 			reinterpret_cast<uint64_t>(renderPass),
 			stringBuffer);
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -289,7 +292,7 @@ RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 {
 	ZoneScopedN("RenderTarget::internalUpdateMap");
 
-	auto [keyValIt, insertResult] = myMap.emplace(
+	auto [keyValIt, insertResult] = myCache.emplace(
 		internalCalculateHashKey(desc),
 		std::make_tuple(RenderPassHandle<Vk>{}, FramebufferHandle<Vk>{}));
 	auto& [key, renderPassAndFramebuffer] = *keyValIt;
@@ -531,7 +534,7 @@ RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
 	, myAttachmentsReferences(std::exchange(other.myAttachmentsReferences, {}))
 	, mySubPassDescs(std::exchange(other.mySubPassDescs, {}))
 	, mySubPassDependencies(std::exchange(other.mySubPassDependencies, {}))
-	, myMap(std::exchange(other.myMap, {}))
+	, myCache(std::exchange(other.myCache, {}))
 	, myCurrentPass(std::exchange(other.myCurrentPass, {}))
 	, myCurrentSubpass(std::exchange(other.myCurrentSubpass, {}))
 {}
@@ -541,7 +544,7 @@ RenderTarget<Vk>::~RenderTarget()
 {
 	ZoneScopedN("~RenderTarget()");
 
-	for (const auto& entry : myMap)
+	for (const auto& entry : myCache)
 	{
 		vkDestroyRenderPass(
 			*getDevice(),
@@ -569,7 +572,7 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 	myAttachmentsReferences = std::exchange(other.myAttachmentsReferences, {});
 	mySubPassDescs = std::exchange(other.mySubPassDescs, {});
 	mySubPassDependencies = std::exchange(other.mySubPassDependencies, {});
-	myMap = std::exchange(other.myMap, {});
+	myCache = std::exchange(other.myCache, {});
 	myCurrentPass = std::exchange(other.myCurrentPass, {});
 	myCurrentSubpass = std::exchange(other.myCurrentSubpass, {});
 	return *this;
@@ -584,7 +587,7 @@ void RenderTarget<Vk>::swap(RenderTarget& rhs) noexcept
 	std::swap(myAttachmentsReferences, rhs.myAttachmentsReferences);
 	std::swap(mySubPassDescs, rhs.mySubPassDescs);
 	std::swap(mySubPassDependencies, rhs.mySubPassDependencies);
-	std::swap(myMap, rhs.myMap);
+	std::swap(myCache, rhs.myCache);
 	std::swap(myCurrentPass, rhs.myCurrentPass);
 	std::swap(myCurrentSubpass, rhs.myCurrentSubpass);
 }

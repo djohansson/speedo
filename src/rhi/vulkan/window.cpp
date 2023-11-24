@@ -8,12 +8,11 @@
 
 #include <imgui.h>
 
-#include <stb_sprintf.h>
-
 #if defined(__WINDOWS__)
 #	include <execution>
 #endif
 #include <filesystem>
+#include <format>
 #include <future>
 #include <numeric>
 #include <string>
@@ -116,8 +115,9 @@ uint32_t Window<Vk>::internalDrawViews(
 
 				static constexpr std::string_view drawPartitionStr = "Window::drawPartition";
 				char drawPartitionWithNumberStr[drawPartitionStr.size() + 3];
-				stbsp_sprintf(
+				std::format_to_n(
 					drawPartitionWithNumberStr,
+					std::size(drawPartitionWithNumberStr),
 					"%.*s%u",
 					static_cast<int>(drawPartitionStr.size()),
 					drawPartitionStr.data(),

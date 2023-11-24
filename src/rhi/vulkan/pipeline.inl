@@ -61,7 +61,7 @@ void Pipeline<Vk>::setDescriptorData(
 {
 	setDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		getLayout().getDescriptorSetLayout(set),
+		internalGetLayout().getDescriptorSetLayout(set),
 		std::forward<T>(data));
 }
 
@@ -154,7 +154,7 @@ void Pipeline<Vk>::setDescriptorData(
 {
 	setDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		getLayout().getDescriptorSetLayout(set),
+		internalGetLayout().getDescriptorSetLayout(set),
 		data);
 }
 
@@ -251,7 +251,7 @@ void Pipeline<Vk>::setDescriptorData(
 {
 	setDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		getLayout().getDescriptorSetLayout(set),
+		internalGetLayout().getDescriptorSetLayout(set),
 		std::forward<T>(data),
 		index);
 }

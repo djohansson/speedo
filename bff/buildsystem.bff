@@ -160,8 +160,6 @@ function AddObjectList(.ObjectList .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 
-		.CompilerOptions + ' -DMI_DEBUG_FULL=$MemoryDebugEnabled$'
-		.CompilerOptions + ' -DMI_SECURE=$MemorySecurityLevel$'
 		.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
 		.CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
 		.CompilerOptions + .ObjectListCompilerOptions
@@ -214,8 +212,6 @@ function AddLibrary(.Library .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 
-		.CompilerOptions + ' -DMI_DEBUG_FULL=$MemoryDebugEnabled$'
-		.CompilerOptions + ' -DMI_SECURE=$MemorySecurityLevel$'
 		.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
 		.CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
 		.CompilerOptions + .LibraryCompilerOptions

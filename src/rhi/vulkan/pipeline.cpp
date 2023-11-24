@@ -3,7 +3,7 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
+#include <format>
 
 #pragma pack(push, 1)
 template <>
@@ -50,7 +50,7 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 
 		if (cacheData.empty() || !isCacheValid(*header, device->getPhysicalDeviceInfo().deviceProperties))
 		{
-			std::cout << "Invalid pipeline cache, creating new." << '\n';
+			std::cerr << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
 		}
 
@@ -98,27 +98,28 @@ std::expected<Record, std::error_code> savePipelineCache(
 	// todo: move to gfx-vulkan.cpp
 	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](auto& out) -> std::error_code
 	{
-		if (auto cacheData = getPipelineCacheData(device, pipelineCache); !cacheData.empty())
-		{
-			auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+		auto cacheData = getPipelineCacheData(device, pipelineCache);
 
-			if (isCacheValid(*header, physicalDeviceProperties))
-			{
-				if (auto result = out(cacheData); failure(result))
-					return std::make_error_code(result);
-			}
-			else
-			{
-				std::cout << "Invalid pipeline cache, will not save." << '\n';
-			}
-			
-		}
-		else
+		if (cacheData.empty())
 		{
-			std::cout << "Failed to get pipeline cache." << '\n';
+			std::clog << "Failed to get pipeline cache." << '\n';
+		
+			return std::make_error_code(std::errc::invalid_argument);
+		}
+		
+		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+
+		if (!isCacheValid(*header, physicalDeviceProperties))
+		{
+			std::clog << "Invalid pipeline cache, will not save." << '\n';
+
+			return std::make_error_code(std::errc::invalid_argument);
 		}
 
-		return {};
+		if (auto result = out(cacheData); failure(result))
+			return std::make_error_code(result);
+
+		return {}; // success
 	};
 
 	return saveBinary<true>(cacheFilePath, saveCacheOp);
@@ -239,6 +240,12 @@ void PipelineLayout<Vk>::swap(PipelineLayout& rhs) noexcept
 }
 
 template <>
+const PipelineLayout<Vk>& Pipeline<Vk>::internalGetLayout()
+{
+	return myGraphicsState.layouts[myLayout];
+}
+
+template <>
 uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 {
 	ZoneScopedN("Pipeline::internalCalculateHashKey");
@@ -253,7 +260,7 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 	result = XXH3_64bits_update(threadXXHState.get(), &myBindPoint, sizeof(myBindPoint));
 	assert(result != XXH_ERROR);
 
-	auto layoutHandle = static_cast<PipelineLayoutHandle<Vk>>(getLayout());
+	auto layoutHandle = getLayout();
 	result = XXH3_64bits_update(threadXXHState.get(), &layoutHandle, sizeof(layoutHandle));
 	assert(result != XXH_ERROR);
 
@@ -272,7 +279,7 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 template <>
 void Pipeline<Vk>::internalPrepareDescriptorSets()
 {
-	const auto& layout = getLayout();
+	const auto& layout = internalGetLayout();
 
 	for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
 	{
@@ -447,7 +454,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 {
 	ZoneScopedN("Pipeline::internalCreateGraphicsPipeline");
 
-	const auto& layout = getLayout();
+	const auto& layout = internalGetLayout();
 	auto& renderTarget = getRenderTarget();
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -462,7 +469,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 	pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
-	pipelineInfo.renderPass = renderTarget;
+	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<Vk>>(renderTarget));
 	pipelineInfo.subpass = renderTarget.getSubpass().value_or(0);
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -481,8 +488,9 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineStr = "_Pipeline";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s%u",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -555,15 +563,23 @@ void Pipeline<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
 }
 
 template <>
-void Pipeline<Vk>::setLayout(
-	const std::shared_ptr<PipelineLayout<Vk>>& layout, PipelineBindPoint<Vk> bindPoint)
+PipelineLayoutHandle<Vk> Pipeline<Vk>::createLayout(const ShaderSet<Vk>& shaderSet)
 {
-	assert(layout);
+	auto layout = PipelineLayout<Vk>(getDevice(), shaderSet);
+	auto handle = static_cast<PipelineLayoutHandle<Vk>>(layout);
+	
+	myGraphicsState.layouts.emplace(handle, std::move(layout));
+	
+	return handle;
+}
 
+template <>
+void Pipeline<Vk>::bindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindPoint<Vk> bindPoint)
+{
 	myLayout = layout;
 	myBindPoint = bindPoint;
 
-	const auto& shaderModules = myLayout->getShaderModules();
+	const auto& shaderModules = internalGetLayout().getShaderModules();
 
 	assert(!shaderModules.empty());
 
@@ -750,7 +766,7 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 {
 	ZoneScopedN("Pipeline::bindDescriptorSetAuto");
 
-	const auto& layout = getLayout();
+	const auto& layout = internalGetLayout();
 	const auto& setLayout = layout.getDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
@@ -856,8 +872,9 @@ Pipeline<Vk>::Pipeline(
 		char stringBuffer[128];
 		static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
 			getName().data(),
@@ -882,13 +899,18 @@ Pipeline<Vk>::Pipeline(
 template <>
 Pipeline<Vk>::~Pipeline()
 {
-	auto fileInfo = pipeline::savePipelineCache(
+	if (auto fileInfo = pipeline::savePipelineCache(
 		myConfig.cachePath,
 		*getDevice(),
 		getDevice()->getPhysicalDeviceInfo().deviceProperties,
-		myCache);
-
-	assert(fileInfo);
+		myCache); fileInfo)
+	{
+		std::cout << "Saved pipeline cache to " << fileInfo.value().path << '\n';
+	}
+	else
+	{
+		std::clog << "Failed to save pipeline cache, error: " << fileInfo.error() << '\n';
+	}
 
 	for (const auto& pipelineIt : myPipelineMap)
 		vkDestroyPipeline(

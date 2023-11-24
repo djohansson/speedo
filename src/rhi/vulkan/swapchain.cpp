@@ -2,7 +2,7 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
+#include <format>
 
 template <>
 const std::optional<RenderPassBeginInfo<Vk>>&
@@ -116,8 +116,9 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 		static constexpr std::string_view errorStr = " - ERROR: vkAcquireNextImageKHR failed";
 
 		char failedStr[flipFrameStr.size() + errorStr.size() + 1];
-		stbsp_sprintf(
+		std::format_to_n(
 			failedStr,
+			std::size(failedStr),
 			"%.*s%.*s",
 			static_cast<int>(flipFrameStr.size()),
 			flipFrameStr.data(),
@@ -133,8 +134,9 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 	}
 
 	char flipFrameWithNumberStr[flipFrameStr.size() + 2];
-	stbsp_sprintf(
+	std::format_to_n(
 		flipFrameWithNumberStr,
+		std::size(flipFrameWithNumberStr),
 		"%.*s%u",
 		static_cast<int>(flipFrameStr.size()),
 		flipFrameStr.data(),
@@ -205,8 +207,9 @@ void Swapchain<Vk>::internalCreateSwapchain(
 	{
 		char stringBuffer[32];
 		static constexpr std::string_view swapchainStr = "_Swapchain";
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%.*s%.*s",
 			static_cast<int>(getName().size()),
 			getName().data(),

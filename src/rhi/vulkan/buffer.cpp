@@ -2,7 +2,7 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
+#include <format>
 
 template <>
 Buffer<Vk>::Buffer(Buffer&& other) noexcept
