@@ -2,7 +2,7 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
+#include <format>
 
 namespace commandbufferarray
 {
@@ -248,8 +248,9 @@ void CommandPoolContext<Vk>::internalEnqueueOnePending(CommandBufferLevel<Vk> le
 	{
 		char stringBuffer[32];
 
-		stbsp_sprintf(
+		std::format_to_n(
 			stringBuffer,
+			std::size(stringBuffer),
 			"%s%s",
 			level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
 			"CommandBufferArray");

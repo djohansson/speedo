@@ -501,7 +501,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 				IMNODES_NAMESPACE::BeginNode(node->id());
 
 				// title bar
-				stbsp_sprintf(buffer, "##node%.*u", 4, node->id());
+				std::format_to_n(buffer, std::size(buffer), "##node%.*u", 4, node->id());
 
 				IMNODES_NAMESPACE::BeginNodeTitleBar();
 
@@ -526,7 +526,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 						if (hasInputPin)
 						{
 							auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
-							stbsp_sprintf(buffer, "##inputattribute%.*u", 4, inputAttribute.id);
+							std::format_to_n(buffer, std::size(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
 
 							IMNODES_NAMESPACE::BeginInputAttribute(inputAttribute.id);
 
@@ -546,7 +546,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 						if (rowIt < inOutNode->outputAttributes().size())
 						{
 							auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
-							stbsp_sprintf(buffer, "##outputattribute%.*u", 4, outputAttribute.id);
+							std::format_to_n(buffer, std::size(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
 
 							if (hasInputPin)
 								SameLine();
@@ -589,8 +589,9 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 					{
 						if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
 						{
-							stbsp_sprintf(
+							std::format_to_n(
 								buffer,
+								std::size(buffer),
 								"In %u",
 								static_cast<unsigned>(inOutNode->inputAttributes().size()));
 							inOutNode->inputAttributes().emplace_back(
@@ -601,8 +602,9 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 					{
 						if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
 						{
-							stbsp_sprintf(
+							std::format_to_n(
 								buffer,
+								std::size(buffer),
 								"Out %u",
 								static_cast<unsigned>(inOutNode->outputAttributes().size()));
 							inOutNode->outputAttributes().emplace_back(
@@ -1133,12 +1135,9 @@ void RhiApplication::createDevice(const WindowState& window)
 		transferQueue.submit();
 	}
 
-	// set global descriptor set data
+	auto layoutHandle = rhi<Vk>().pipeline->createLayout(shaderReflection);
 
-	auto [layoutIt, insertResult] =
-		rhi<Vk>().layouts.emplace(std::make_shared<PipelineLayout<Vk>>(rhi<Vk>().device, shaderReflection));
-	assert(insertResult);
-	rhi<Vk>().pipeline->setLayout(*layoutIt, VK_PIPELINE_BIND_POINT_GRAPHICS);
+	rhi<Vk>().pipeline->bindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 	rhi<Vk>().pipeline->setDescriptorData(
 		"g_viewData",
@@ -1190,6 +1189,12 @@ RhiApplication::~RhiApplication()
 
 	assert(device.use_count() == 1);
 	assert(instance.use_count() == 2);
+
+#ifdef TRACY_ENABLE
+	tracy::GetProfiler().RequestShutdown();
+	while (!tracy::GetProfiler().HasShutdownFinished())
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+#endif
 }
 
 void RhiApplication::onMouse(const MouseState& mouse)

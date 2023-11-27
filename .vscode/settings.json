@@ -101,6 +101,7 @@
 		"cinttypes": "cpp",
 		"string_view": "cpp",
 		"signal.h": "c",
-		"mimalloc.h": "c"
+		"mimalloc.h": "c",
+		"cassert": "cpp"
 	}
 }

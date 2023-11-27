@@ -23,7 +23,7 @@
 #import VISUAL_STUDIO_VCTOOLS_VERSION
 .VCToolchainVersion = '$VISUAL_STUDIO_VCTOOLS_VERSION$'
 #else
-.VCToolchainVersion = '14.37.32822'
+.VCToolchainVersion = '14.38.33130'
 #endif
 
 .VCToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VCToolchainVersion$'

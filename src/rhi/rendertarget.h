@@ -60,15 +60,15 @@ struct IRenderTarget
 };
 
 template <GraphicsApi G>
+using RenderTargetHandle = std::tuple<RenderPassHandle<G>, FramebufferHandle<G>>;
+
+template <GraphicsApi G>
 class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>
 {
-	using ValueType = std::tuple<RenderPassHandle<G>, FramebufferHandle<G>>;
-	using ValueMapType = UnorderedMap<uint64_t, ValueType>;
-
 public:
 	virtual ~RenderTarget();
 
-	operator auto() { return std::get<0>(internalGetValues()); };
+	operator auto() { return internalGetValues(); };
 
 	virtual const std::optional<RenderPassBeginInfo<G>>&
 	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
@@ -126,7 +126,7 @@ protected:
 private:
 	uint64_t internalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;
 
-	ValueType internalCreateRenderPassAndFrameBuffer(
+	RenderTargetHandle<G> internalCreateRenderPassAndFrameBuffer(
 		uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc);
 
 	void internalInitializeAttachments(const RenderTargetCreateDesc<G>& desc);
@@ -135,8 +135,8 @@ private:
 	void internalUpdateAttachments(const RenderTargetCreateDesc<G>& desc);
 	void internalUpdateRenderPasses(const RenderTargetCreateDesc<G>& desc);
 
-	const ValueType& internalUpdateMap(const RenderTargetCreateDesc<G>& desc);
-	const ValueType& internalGetValues();
+	const RenderTargetHandle<G>& internalUpdateMap(const RenderTargetCreateDesc<G>& desc);
+	const RenderTargetHandle<G>& internalGetValues();
 
 	std::vector<ImageViewHandle<G>> myAttachments;
 	std::vector<AttachmentDescription<G>> myAttachmentDescs;
@@ -144,7 +144,7 @@ private:
 	std::vector<SubpassDescription<G>> mySubPassDescs;
 	std::vector<SubpassDependency<G>> mySubPassDependencies;
 
-	ValueMapType myMap;
+	UnorderedMap<uint64_t, RenderTargetHandle<G>> myCache; // todo: consider making global
 
 	std::optional<RenderPassBeginInfo<G>> myCurrentPass;
 	std::optional<uint32_t> myCurrentSubpass;

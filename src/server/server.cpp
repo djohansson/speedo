@@ -62,14 +62,14 @@ public:
 			{
 				if (auto result = server.serve(); failure(result))
 				{
-					std::cout << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
+					std::cerr << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
 				
 					return false;
 				}
 
 				if (auto sendResult = mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
 				{
-					std::cout << "mySocket.send() failed" << std::endl;
+					std::cerr << "mySocket.send() failed" << std::endl;
 				
 					return false;
 				}

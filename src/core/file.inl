@@ -116,7 +116,7 @@ std::expected<T, std::error_code> loadJSONObject(std::string_view buffer)
 	{
 		std::cerr << "JSON parse error: " << glz::format_error(obj.error(), buffer) << std::endl;
 
-		return std::unexpected(std::make_error_code(std::errc::illegal_byte_sequence));
+		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
 	}
 
 	return obj.value();
@@ -175,7 +175,7 @@ std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& 
 		return std::unexpected(result.error().code);
 
 	if (in.position() != file.size())
-		return std::unexpected(std::make_error_code(std::errc::illegal_byte_sequence));
+		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
 
 	return object;
 }

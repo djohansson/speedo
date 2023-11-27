@@ -15,6 +15,7 @@
 #include <gfx/view.h>
 
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -36,18 +37,6 @@ template <GraphicsApi G>
 class Window final : public Swapchain<G>
 {
 public:
-	struct InputState
-	{
-		bool keysPressed[512]; // todo: rewite to bitfield array
-		struct MouseState
-		{
-			float position[2][2];
-			uint8_t leftPressed : 1;
-			uint8_t rightPressed : 1;
-			uint8_t hoverScreen : 1;
-		} mouse;
-	};
-	
 	constexpr Window() noexcept = default;
 	Window(
 		const std::shared_ptr<Device<G>>& device,
@@ -93,7 +82,17 @@ private:
 		const RenderPassBeginInfo<G>& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
-	InputState myInput{};
+	struct InputState
+	{
+		std::bitset<512> keysPressed;
+		struct MouseState
+		{
+			float position[2][2];
+			uint8_t leftPressed : 1;
+			uint8_t rightPressed : 1;
+			uint8_t hoverScreen : 1;
+		} mouse;
+	} myInput{};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;

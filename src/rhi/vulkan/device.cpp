@@ -3,12 +3,10 @@
 
 #include "utils.h"
 
-#include <stb_sprintf.h>
-
 #include <xxhash.h>
 
 #include <algorithm>
-//#include <format>
+#include <format>
 #include <list>
 #include <iostream>
 #include <shared_mutex>
@@ -326,8 +324,9 @@ Device<Vk>::Device(
 
 	//     static constexpr std::string_view physicalDeviceStr = "Instance_PhysicalDevice";
 
-	//     stbsp_sprintf(
+	//     std::format_to_n(
 	//         stringBuffer,
+	//         std::size(stringBuffer),
 	//         "%s_%u",
 	//         physicalDeviceStr.data(),
 	//         physicalDeviceIt);
@@ -478,19 +477,11 @@ DeviceObject<Vk>::DeviceObject(
 		char stringBuffer[256];
 		for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)
 		{
-			// std::format_to_n(
-			//     stringBuffer,
-			//     std::size(stringBuffer),
-			//     "%.*s%.*u",
-			//     getName().size(),
-			//     getName().c_str(),
-			//     2,
-			//     objectIt);
-
-			stbsp_sprintf(
+			std::format_to_n(
 				stringBuffer,
+				std::size(stringBuffer),
 				"%.*s%.*u",
-				static_cast<int>(getName().size()),
+				getName().size(),
 				getName().data(),
 				2,
 				objectIt);
