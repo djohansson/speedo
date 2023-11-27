@@ -222,18 +222,47 @@ int main(int argc, char* argv[], char* env[])
 		return EXIT_FAILURE;
 	}
 
+	if (!glfwVulkanSupported())
+	{
+		printf("GLFW: Vulkan Not Supported.\n");
+		return 1;
+	}
+
 	int monitorCount;
-	glfwGetMonitors(&monitorCount);
+	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
+	assert(monitors != NULL);
 	if (monitorCount <= 0)
 	{
 		printf("GLFW: No monitor connected?\n");
 		return EXIT_FAILURE;
 	}
 
-	if (!glfwVulkanSupported())
+	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
 	{
-		printf("GLFW: Vulkan Not Supported.\n");
-		return 1;
+		GLFWmonitor* monitor = monitors[monitorIt];
+		assert(monitor != NULL);
+
+		const char* name = glfwGetMonitorName(monitor);
+		assert(name != NULL);
+
+		int x, y;
+		glfwGetMonitorPos(monitor, &x, &y);
+		
+		int width, height;
+		glfwGetMonitorPhysicalSize(monitor, &width, &height);
+		
+		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+		assert(mode != NULL);
+		
+		float xscale, yscale;
+		glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+
+		printf("GLFW: Connected Monitor %i: %s, Position: %ix%i, Physical Size: %ix%i, Video Mode: %ix%i@%i[%i:%i:%i], Content Scale: %fx%f\n",
+			monitorIt, name,
+			x, y,
+			width, height,
+			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
+			xscale, yscale);
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
