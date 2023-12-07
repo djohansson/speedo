@@ -10,11 +10,7 @@ extern "C"
 {
 #endif
 
-void client_create(
-	const WindowState* window,
-	const char* rootPath,
-	const char* resourcePath,
-	const char* userProfilePath);
+void client_create(const WindowState* window, const PathConfig* paths);
 void client_destroy(void);
 bool client_tick();
 void client_resizeWindow(const WindowState* state);

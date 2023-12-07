@@ -1,23 +1,23 @@
-#pragma once
+// #pragma once
 
-#include <filesystem>
+// #include <filesystem>
 
-#include <GLTFSDK/Document.h>
-#include <GLTFSDK/IStreamReader.h>
+// #include <GLTFSDK/Document.h>
+// #include <GLTFSDK/IStreamReader.h>
 
-class GlTFStreamReader : public Microsoft::glTF::IStreamReader
-{
-public:
-	GlTFStreamReader(std::filesystem::path&& pathBase);
-	std::shared_ptr<std::istream> GetInputStream(const std::string& filename) const override;
+// class GlTFStreamReader : public Microsoft::glTF::IStreamReader
+// {
+// public:
+// 	GlTFStreamReader(std::filesystem::path&& pathBase);
+// 	std::shared_ptr<std::istream> GetInputStream(const std::string& filename) const override;
 
-private:
-	std::filesystem::path myPathBase;
-};
+// private:
+// 	std::filesystem::path myPathBase;
+// };
 
-namespace gltfstream
-{
+// namespace gltfstream
+// {
 
-void PrintInfo(const std::filesystem::path& path);
+// void PrintInfo(const std::filesystem::path& path);
 
-} // namespace gltfstream
+// } // namespace gltfstream

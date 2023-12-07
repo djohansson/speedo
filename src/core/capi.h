@@ -39,6 +39,12 @@ typedef struct _WindowState
 	uint8_t fullscreenEnabled : 1;
 } WindowState;
 
+typedef struct _PathConfig
+{
+	const char* userProfilePath;
+	const char* resourcePath;
+} PathConfig;
+
 #ifdef __cplusplus
 }
 #endif

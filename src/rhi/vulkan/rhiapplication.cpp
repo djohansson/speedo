@@ -4,7 +4,7 @@
 #include "utils.h"
 
 #include <core/application.h>
-#include <core/gltfstream.h>
+// #include <core/gltfstream.h>
 // #include <core/nodes/inputoutputnode.h>
 // #include <core/nodes/slangshadernode.h>
 
@@ -307,36 +307,36 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 		return graphicsQueue.submit();
 	};
 
-	auto loadGlTF = [](nfdchar_t* openFilePath)
-	{
-		try
-		{
-			std::filesystem::path path(openFilePath);
+	// auto loadGlTF = [](nfdchar_t* openFilePath)
+	// {
+	// 	try
+	// 	{
+	// 		std::filesystem::path path(openFilePath);
 
-			if (path.is_relative())
-				throw std::runtime_error("Command line argument path is not absolute");
+	// 		if (path.is_relative())
+	// 			throw std::runtime_error("Command line argument path is not absolute");
 
-			if (!path.has_filename())
-				throw std::runtime_error("Command line argument path has no filename");
+	// 		if (!path.has_filename())
+	// 			throw std::runtime_error("Command line argument path has no filename");
 
-			if (!path.has_extension())
-				throw std::runtime_error("Command line argument path has no filename extension");
+	// 		if (!path.has_extension())
+	// 			throw std::runtime_error("Command line argument path has no filename extension");
 
-			gltfstream::PrintInfo(path);
-		}
-		catch (const std::runtime_error& ex)
-		{
-			std::cerr << "Error! - ";
-			std::cerr << ex.what() << "\n";
+	// 		gltfstream::PrintInfo(path);
+	// 	}
+	// 	catch (const std::runtime_error& ex)
+	// 	{
+	// 		std::cerr << "Error! - ";
+	// 		std::cerr << ex.what() << "\n";
 
-			throw;
-		}
+	// 		throw;
+	// 	}
 
-		return 0;
-	};
+	// 	return 0;
+	// };
 
 	myIMGUIPrepareDrawFunction =
-		[this, openFileDialogue, loadModel, loadImage, loadGlTF, resourcePath]
+		[this, openFileDialogue, loadModel, loadImage/*, loadGlTF*/, resourcePath]
 	{
 		ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
 
@@ -714,15 +714,15 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 					executor().submit(std::move(graph));
 					myOpenFileFuture = std::move(openFileFuture);
 				}
-				if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
-				{
-					TaskGraph graph;
-					auto [task, openFileFuture] = graph.createTask(
-						[&openFileDialogue, &resourcePath, &loadGlTF]
-						{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
-					executor().submit(std::move(graph));
-					myOpenFileFuture = std::move(openFileFuture);
-				}
+				// if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
+				// {
+				// 	TaskGraph graph;
+				// 	auto [task, openFileFuture] = graph.createTask(
+				// 		[&openFileDialogue, &resourcePath, &loadGlTF]
+				// 		{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
+				// 	executor().submit(std::move(graph));
+				// 	myOpenFileFuture = std::move(openFileFuture);
+				// }
 				Separator();
 				if (MenuItem("Exit", "CTRL+Q"))
 					myRequestExit = true;

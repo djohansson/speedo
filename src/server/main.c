@@ -7,7 +7,35 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <cargs.h>
+
 #include <mimalloc.h>
+
+static struct cag_option g_cmdArgs[] =
+{
+	{
+		.identifier = 'r',
+		.access_letters = "r",
+		.access_name = "resourcePath",
+		.value_name = "VALUE",
+		.description = "Path to resource directory"
+	},
+	{
+		.identifier = 'u',
+		.access_letters = "u",
+		.access_name = "userProfilePath",
+		.value_name = "VALUE",
+		.description = "Path to user profile directory"
+	},
+	{
+		.identifier = 'h',
+		.access_letters = "h",
+		.access_name = "help",
+		.description = "Shows the command help"
+	}
+};
+
+static PathConfig g_paths = { NULL, NULL };
 
 static volatile bool g_isInterrupted = false;
 
@@ -37,10 +65,10 @@ const char* getCmdOption(char** begin, char** end, const char* option)
 	return NULL;
 }
 
-int main(int argc, char* argv[], char* env[])
+int main(int argc, char* argv[], char* envp[])
 {
 	assert(argv != NULL);
-	assert(env != NULL);
+	assert(envp != NULL);
 
 	atexit(onExit);
 	
@@ -49,10 +77,32 @@ int main(int argc, char* argv[], char* env[])
 
 	printf("mi_version(): %d\n", mi_version());
 
-	server_create(
-		"./",
-		getCmdOption(argv, argv + argc, "(-r)"),
-		getCmdOption(argv, argv + argc, "(-u)"));
+	for (char** env = envp; *env != NULL; ++env)
+		printf("%s\n", *env);
+
+	cag_option_context cagContext;
+	cag_option_prepare(&cagContext, g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), argc, argv);
+	
+	while (cag_option_fetch(&cagContext))
+	{
+		switch (cag_option_get(&cagContext))
+		{
+		case 'u':
+			g_paths.userProfilePath = cag_option_get_value(&cagContext);
+			break;
+		case 'r':
+			g_paths.resourcePath = cag_option_get_value(&cagContext);
+			break;
+		case 'h':
+			printf("Usage: client [OPTION]...\n");
+			cag_option_print(g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), stdout);
+			break;
+		default:
+			break;
+		}
+	}
+
+	server_create(&g_paths);
 
 	while (server_tick() && !g_isInterrupted) {};
 

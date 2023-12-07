@@ -9,10 +9,7 @@ extern "C"
 {
 #endif
 
-void server_create(
-	const char* rootPath,
-	const char* resourcePath,
-	const char* userProfilePath);
+void server_create(const PathConfig* paths);
 void server_destroy(void);
 bool server_tick();
 const char* server_getAppName(void);

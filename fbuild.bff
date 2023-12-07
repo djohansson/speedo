@@ -127,9 +127,10 @@
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc' // should be first
-			+ ' -llibzmq-mt-4_3_5'
+			+ ' -lcargs'
 			+ ' -lTracyClient'
-			+ ' -lzlib'
+			+ ' -lz'
+			+ ' -lzmq'
 	]
 
 	.ClientLibrary =
@@ -189,14 +190,15 @@
 			+ ' -L$VulkanSDKPath$/lib'
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc' // should be first
-			+ ' -lglfw3dll'
-			+ ' -lGLTFSDK'
+			+ ' -lcargs'
+			+ ' -lglfw'
 			+ ' -lTracyClient'
 			+ ' -limgui'
-			+ ' -llibzmq-mt-4_3_5'
 			+ ' -lnfd'
 			+ ' -lslang'
 			+ ' -lxxhash'
+			+ ' -lz'
+			+ ' -lzmq'
 	#if __WINDOWS__
 		.ExecutableLinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'

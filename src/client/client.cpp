@@ -113,23 +113,22 @@ getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 
 } // namespace client
 
-void client_create(
-	const WindowState* window,
-	const char* rootPath,
-	const char* resourcePath,
-	const char* userProfilePath)
+void client_create(const WindowState* window, const PathConfig* paths)
 {
 	using namespace client;
 
 	assert(window != nullptr);
 	assert(window->handle != nullptr);
+	assert(paths != nullptr);
+
+	auto root = getCanonicalPath(nullptr, "./");
 
 	s_application = Application::create<Client>(
 		"client",
 		Environment{{
-			{"RootPath", getCanonicalPath(rootPath, "./")},
-			{"ResourcePath", getCanonicalPath(resourcePath, "./resources/")},
-			{"UserProfilePath", getCanonicalPath(userProfilePath, "./.profile/", true)}
+			{"RootPath", root},
+			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").c_str())},
+			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".profile").c_str(), true)}
 		}});
 
 	assert(s_application);

@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <cargs.h>
+
 #include <GLFW/glfw3.h>
 #if __WINDOWS__
 #	define GLFW_EXPOSE_NATIVE_WIN32
@@ -15,18 +17,41 @@
 
 #include <mimalloc.h>
 
+static struct cag_option g_cmdArgs[] =
+{
+	{
+		.identifier = 'r',
+		.access_letters = "r",
+		.access_name = "resourcePath",
+		.value_name = "VALUE",
+		.description = "Path to resource directory"
+	},
+	{
+		.identifier = 'u',
+		.access_letters = "u",
+		.access_name = "userProfilePath",
+		.value_name = "VALUE",
+		.description = "Path to user profile directory"
+	},
+	{
+		.identifier = 'h',
+		.access_letters = "h",
+		.access_name = "help",
+		.description = "Shows the command help"
+	}
+};
+
 static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
 static KeyboardState g_keyboard = {0, 0, 0, 0};
 static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
+static PathConfig g_paths = { NULL, NULL };
 
 static volatile bool g_isInterrupted = false;
 
 void onExit(void) 
 {
 	glfwDestroyWindow(g_window.handle);
-
 	client_destroy();
-
 	glfwTerminate();
 }
 
@@ -188,25 +213,10 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 	}
 }
 
-const char* getCmdOption(char** begin, char** end, const char* option)
-{
-	assert(begin != NULL);
-	assert(end != NULL);
-	assert(option != NULL);
-
-	while (begin != end)
-	{
-		if (strcmp(*begin++, option) == 0)
-			return *begin;
-	}
-
-	return NULL;
-}
-
-int main(int argc, char* argv[], char* env[])
+int main(int argc, char* argv[], char* envp[])
 {
 	assert(argv != NULL);
-	assert(env != NULL);
+	assert(envp != NULL);
 
 	atexit(onExit);
 
@@ -214,8 +224,34 @@ int main(int argc, char* argv[], char* env[])
 	signal(SIGTERM, &onSignal);
 
 	printf("mi_version(): %d\n", mi_version());
+
+	for (char** env = envp; *env != NULL; ++env)
+		printf("%s\n", *env);
+
+	cag_option_context cagContext;
+	cag_option_prepare(&cagContext, g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), argc, argv);
 	
+	while (cag_option_fetch(&cagContext))
+	{
+		switch (cag_option_get(&cagContext))
+		{
+		case 'u':
+			g_paths.userProfilePath = cag_option_get_value(&cagContext);
+			break;
+		case 'r':
+			g_paths.resourcePath = cag_option_get_value(&cagContext);
+			break;
+		case 'h':
+			printf("Usage: client [OPTION]...\n");
+			cag_option_print(g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), stdout);
+			break;
+		default:
+			break;
+		}
+	}
+
 	glfwSetErrorCallback(onError);
+	
 	if (!glfwInit())
 	{
 		fprintf(stderr, "GLFW: Failed to initialize.\n");
@@ -276,11 +312,7 @@ int main(int argc, char* argv[], char* env[])
 	g_window.nativeHandle = window;
 #endif
 
-	client_create(
-		&g_window,
-		"./",
-		getCmdOption(argv, argv + argc, "(-r)"),
-		getCmdOption(argv, argv + argc, "(-u)"));
+	client_create(&g_window, &g_paths);
 
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);
