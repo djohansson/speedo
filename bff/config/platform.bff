@@ -87,14 +87,17 @@ Settings
 {
 	.CachePath = "/tmp/.fbuild.cache"
 }
-#if exists(SDK_PATH)
-#import SDK_PATH
-.SDKPath = '$SDK_PATH$'
+#if exists(MACOS_SDK_PATH)
+	#import MACOS_SDK_PATH
+	.MacOSSDKPath = '$MACOS_SDK_PATH$'
 #else
-.SDKPath = ''
+	Error('MACOS_SDK_PATH not set')
 #endif
-.PlatformIncludePaths = ' -isysroot $SDKPath$'
-.PlatformLibPaths = ''
+.PlatformIncludePaths = ' -isysroot $MacOSSDKPath$'
+	+ ' -isystem $MacOSSDKPath$/usr/include'
+	+ ' -isystem $MacOSSDKPath$/usr/include/c++/v1/'
+	+ ' -I /usr/local/include'
+.PlatformLibPaths = ' -L /usr/local/lib'
 #endif //__OSX__
 #if __LINUX__
 .LibPrefix = 'lib'
