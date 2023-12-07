@@ -11,9 +11,10 @@
 // #endif
 #include <vk_mem_alloc.h>
 
-#ifdef __WINDOWS__
-#	include <windows.h>
-#	include <vulkan/vulkan_win32.h>
+#include <GLFW/glfw3.h>
+#if __WINDOWS__
+#	define GLFW_EXPOSE_NATIVE_WIN32
+#	include <GLFW/glfw3native.h>
 #endif
 
 #include "utils.h"

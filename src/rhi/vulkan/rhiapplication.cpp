@@ -782,7 +782,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	auto shaderIncludePath = rootPath / "src/rhi/shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
 
-	auto vkSDKPathEnv = std::getenv("VK_SDK_PATH");
+	auto vkSDKPathEnv = std::getenv("VULKAN_SDK");
 	auto vkSDKPath = vkSDKPathEnv ? std::filesystem::path(vkSDKPathEnv) : rootPath;
 	auto vkSDKBinPath = vkSDKPath / "bin";
 

@@ -7,7 +7,7 @@
     Error('Vulkan not found. Please set the VULKAN_SDK environment variable to a path with a vulkan sdk in it.')
 #endif
 
-.VulkanDefines = '-D'
+.VulkanDefines = ' -D'
 #if __WINDOWS__
     + 'VK_USE_PLATFORM_WIN32_KHR=1'
 #endif //__WINDOWS__

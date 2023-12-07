@@ -50,6 +50,7 @@
 		
 		.Name = 'rhi'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ .VulkanDefines
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -I$VulkanSDKPath$/include'
@@ -147,7 +148,6 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
-			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
