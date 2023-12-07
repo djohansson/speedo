@@ -312,6 +312,7 @@ void loadAsset(
 	
 	if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
 	{
+loadAsset_importSourceFile:
 		ZoneScopedN("loadAsset::importSourceFile");
 
 		auto cacheDir = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]);
@@ -344,7 +345,11 @@ void loadAsset(
 	}
 	else if (std::holds_alternative<std::error_code>(manifest.error()))
 	{
-		throw std::system_error(std::get<std::error_code>(manifest.error()));
+		// manifest is invalid, delete it and re-import source file
+		std::cerr << "Asset manifest is invalid: " << manifestPath << '\n';
+		std::cerr << "Deleting manifest and reimporting source file\n";
+		std::filesystem::remove(manifestPath);
+		goto loadAsset_importSourceFile;
 	}
 	else
 	{
