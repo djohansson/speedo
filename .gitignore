@@ -6,3 +6,6 @@ build.*/*
 *.log
 
 env.json
+
+*.dmg
+*.DS_Store
