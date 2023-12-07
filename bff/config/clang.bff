@@ -3,24 +3,16 @@
 .Clang_BaseConfig =
 [
 #if exists(LLVM_PATH)
-#import LLVM_PATH
+	#import LLVM_PATH
 	.LLVMPath = '$LLVM_PATH$'
 #else
-#if __WINDOWS__
-	.LLVMPath = 'C:/Program Files/LLVM'
-#endif
-#if __OSX__
-	.LLVMPath = '/usr/local/opt/llvm'
-#endif
-#if __LINUX__
-	.LLVMPath = '/usr'
-#endif
+	Error('LLVM_PATH not set')
 #endif // exists(LLVM_PATH)
 #if exists(LLVM_VERSION)
-#import LLVM_VERSION
+	#import LLVM_VERSION
 	.LLVMVersion = '$LLVM_VERSION$'
 #else
-	.LLVMVersion = '17'
+	Error('LLVM_VERSION not set')
 #endif // exists(LLVM_VERSION)
 	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
 	.CompilerInfo = 'Clang'

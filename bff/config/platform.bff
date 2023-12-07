@@ -22,33 +22,33 @@
 .ExeSuffix = '.exe'
 
 #if exists(VISUAL_STUDIO_PATH)
-#import VISUAL_STUDIO_PATH
-.VisualStudioPath = '$VISUAL_STUDIO_PATH$'
+	#import VISUAL_STUDIO_PATH
+	.VisualStudioPath = '$VISUAL_STUDIO_PATH$'
 #else
-.VisualStudioPath = 'C:/Program Files/Microsoft Visual Studio/2022/Community'
+	Error('VISUAL_STUDIO_PATH not set')
 #endif
 
 #if exists(VISUAL_STUDIO_VCTOOLS_VERSION)
-#import VISUAL_STUDIO_VCTOOLS_VERSION
-.VCToolchainVersion = '$VISUAL_STUDIO_VCTOOLS_VERSION$'
+	#import VISUAL_STUDIO_VCTOOLS_VERSION
+	.VCToolchainVersion = '$VISUAL_STUDIO_VCTOOLS_VERSION$'
 #else
-.VCToolchainVersion = '14.38.33130'
+	Error('VISUAL_STUDIO_VCTOOLS_VERSION not set')
 #endif
 
 .VCToolchainPath = '$VisualStudioPath$/VC/Tools/MSVC/$VCToolchainVersion$'
 
 #if exists(WINDOWS_SDK)
-#import WINDOWS_SDK
-.WindowsSDKPath = '$WINDOWS_SDK$'
+	#import WINDOWS_SDK
+	.WindowsSDKPath = '$WINDOWS_SDK$'
 #else
-.WindowsSDKPath = 'C:/Program Files (x86)/Windows Kits/10'
+	Error('WINDOWS_SDK not set')
 #endif
 
 #if exists(WINDOWS_SDK_VERSION)
-#import WINDOWS_SDK_VERSION
-.WindowsSDKVersion = '$WINDOWS_SDK_VERSION$'
+	#import WINDOWS_SDK_VERSION
+	.WindowsSDKVersion = '$WINDOWS_SDK_VERSION$'
 #else
-.WindowsSDKVersion = '10.0.22621.0'
+	Error('WINDOWS_SDK_VERSION not set')
 #endif
 
 .WindowsLibPath = '$WindowsSDKPath$/Lib/$WindowsSDKVersion$/um/x64'
