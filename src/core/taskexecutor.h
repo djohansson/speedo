@@ -42,7 +42,7 @@ private:
 
 	void threadMain(uint32_t threadId);
 
-	std::vector<std::tuple<std::jthread, std::exception_ptr>> myThreads;
+	std::vector<std::tuple<std::thread, std::exception_ptr>> myThreads;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
 	// todo: use pool allocator for tasks, and just use pointer here

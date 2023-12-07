@@ -10,7 +10,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::jthread(&TaskExecutor::threadMain, this, threadIt), nullptr);
+		myThreads.emplace_back(std::thread(&TaskExecutor::threadMain, this, threadIt), nullptr);
 }
 
 TaskExecutor::~TaskExecutor()

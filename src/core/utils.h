@@ -223,7 +223,7 @@ public:
 };
 
 template <typename T, typename ContainerT = FlatMap<T, T>>
-class RangeSet : private ContainerT
+class RangeSet : public ContainerT
 {
 public:
 	using container_type = ContainerT;
@@ -282,7 +282,7 @@ public:
 };
 
 template <typename T, typename ContainerT = std::vector<T>, typename IndexT = uint32_t>
-class CircularContainer : private ContainerT
+class CircularContainer : public ContainerT
 {
 public:
 	using value_type = T;
