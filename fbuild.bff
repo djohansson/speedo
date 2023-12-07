@@ -262,7 +262,7 @@
 		}
 		.TestOutputName = 'core-tests'
 		.Environment = {
-			'Path=$_WORKING_DIR_$/build.vcpkg/$Triplet$/bin'
+			'Path=$BuildRootPath$/build.vcpkg/$Triplet$/bin'
 		}
 	]
 

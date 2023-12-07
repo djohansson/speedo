@@ -1,13 +1,13 @@
 #once
 
+.BuildRootPath = '$_CURRENT_BFF_DIR_$/../'
+.IntermediateFilePath = '$BuildRootPath$/build.intermediate'
+.BuildOutputPath = '$BuildRootPath$/build.output'
+
 #include "config/platform.bff"
 #include "config/clang.bff"
 #include "config/powershell.bff"
 #include "config/vulkan.bff"
-
-.BuildRootPath = '$_CURRENT_BFF_DIR_$/../'
-.IntermediateFilePath = '$BuildRootPath$/build.intermediate'
-.BuildOutputPath = '$BuildRootPath$/build.output'
 
 .ProjectCommon = 
 [
