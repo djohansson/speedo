@@ -127,7 +127,7 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
-			+ ' -lmimalloc' // should be first
+			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lz'
@@ -189,7 +189,7 @@
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
-			+ ' -lmimalloc' // should be first
+			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lglfw'
 			+ ' -lTracyClient'
@@ -244,7 +244,7 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
-			+ ' -lmimalloc' // should be first
+			+ ' -lmimalloc' 
 			+ ' -lCatch2'
 			+ ' -lTracyClient'
 	#if __OSX__
