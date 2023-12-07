@@ -1,54 +1,45 @@
-function Get-Triplet
+. $PSScriptRoot/platform.ps1
+
+function Add-EnvPath
 {
-	$Arch = $Env:PROCESSOR_ARCHITECTURE
-	$Triplet = ""
+	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
 
-	if ($Arch -eq "AMD64")
+	if (-not (Test-Path $path))
 	{
-		$Triplet += "x64-"
-	}
-	# TODO: Add support for other architectures
-	# elseif ($Arch -eq "x86")
-	# {
-	# 	$Triplet += "x86-"
-	# }
-	# elseif ($Arch -eq "ARM64")
-	# {
-	# 	$Triplet += "arm64-"
-	# }
-	else
-	{
-		Write-Error "Unsupported architecture: $Arch"
+		Write-Error "Path does not exist: $path"
+
+		return
 	}
 
+	if ("" -eq $env:PATH -or $null -eq $env:PATH)
+	{
+		$env:PATH = $path
+	}
+	
 	if ($IsWindows)
 	{
-		$Triplet += "windows-clang"
+		$env:PATH += ";$path"
 	}
-	# TODO: Add support for other operating systems
-	# elseif ($IsMacOS)
-	# {
-	# 	$Triplet += "osx-clang"
-	# }
-	# elseif ($IsLinux)
-	# {
-	# 	$Triplet += "linux-clang"
-	# }
 	else
 	{
-		Write-Error "Unsupported Operating System"
+		$env:PATH += ":$path"
 	}
-
-	return $Triplet
 }
 
 function Read-EnvFile
 {
 	param([Parameter(Mandatory = $True, Position = 0)] [string] $envFile)
 
+	if (-not (Test-Path $envFile))
+	{
+		Write-Error "$envFile does not exist"
+
+		return
+	}
+	
 	$localEnv = Get-Content -Path $envFile -Raw | ConvertFrom-Json
 
-	foreach( $property in $localEnv.psobject.properties)
+	foreach($property in $localEnv.psobject.properties)
 	{
 		[Environment]::SetEnvironmentVariable($property.Name, $property.Value)
 
@@ -58,27 +49,31 @@ function Read-EnvFile
 
 function Initialize-DevEnv
 {
-	$triplet = Get-Triplet
+	#Write-Host "Initializing development environment..."
+	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
+	$env:TARGET_OS = Get-NativeOS
+	$env:TARGET_COMPILER = Get-DefaultCompiler
+	
+	$triplet = Get-NativeTriplet
 
-	#Write-Host "Adding installed vcpkg packages to env:Path..."
+	#Write-Host "Adding installed vcpkg packages to env:PATH..."
 
-	$BinDirectory = "$PSScriptRoot\build.vcpkg\$triplet\bin"
-	$env:Path += ";$BinDirectory"
-
-	#Write-Host $BinDirectory
-
-	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot\build.vcpkg\$triplet\tools -Directory)
+	$BinDirectory = "$PSScriptRoot/build.vcpkg/$triplet/bin"
+	
+	if (Test-Path $BinDirectory)
 	{
-		$env:Path += ";$ToolsDirectory"
+		#Write-Host $BinDirectory
+		Add-EnvPath $BinDirectory
+	}
 
+	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/build.vcpkg/$triplet/tools -Directory)
+	{
 		#Write-Host $ToolsDirectory
+		Add-EnvPath $ToolsDirectory
 	}
 	
 	#Write-Host "Setting environment variables..."
-
 	Read-EnvFile "$PSScriptRoot/env.json"
-
-	$env:Path += ";$env:LLVM_PATH/bin"
 }
 
 function Invoke-DevEnv
@@ -91,6 +86,8 @@ function Invoke-DevEnv
 	Initialize-DevEnv
 
 	$arguments = Join-String -Separator " " -InputObject $argsList
+	$expr = ($command + " " + $arguments)
 
-	Invoke-Expression ($command + " " + $arguments)
+	#Write-Host $expr
+	Invoke-Expression $expr
 }

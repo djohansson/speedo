@@ -1,9 +1,18 @@
 #once
 
-.X86String = 'x86'
-.X64String = 'x64'
+#if exists(TARGET_ARCHITECTURE)
+	#import TARGET_ARCHITECTURE
+	.ArchitectureName = '$TARGET_ARCHITECTURE$'
+#else
+	Error('TARGET_ARCHITECTURE not set')
+#endif
 
-.ArchitectureName = '$X64String$'
+#if exists(TARGET_OS)
+	#import TARGET_OS
+	.OSName = '$TARGET_OS$'
+#else
+	Error('TARGET_OS not set')
+#endif
 
 #if __WINDOWS__
 .LibPrefix = ''

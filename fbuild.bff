@@ -3,7 +3,9 @@
 .FBuildProjectName = "speedo"
 
 .CompilerBaseConfig = .Clang_BaseConfig
-.CompilerConfigs = .Clang_x86_64_v3_Configs
+.CompilerConfigs = .Clang_Native_Configs
+
+.Triplet = '$ArchitectureName$-$OSName$-clang'
 
 {
 	Using(.CompilerBaseConfig)
@@ -32,7 +34,7 @@
 		.Name = 'core'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/core'
@@ -48,9 +50,8 @@
 		.Name = 'rhi'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -I$VulkanSDKPath$/include'
-			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 			+ ' -Wno-unknown-attributes'
@@ -69,7 +70,7 @@
 		.Name = 'gfx'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -83,7 +84,7 @@
 		.Name = 'server'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/server'
@@ -99,7 +100,7 @@
 		.Name = 'server'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.c'
 	]
@@ -119,7 +120,7 @@
 		.DependencyDLLs = {
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
+			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc' // should be first
 			+ ' -llibzmq-mt-4_3_5'
 			+ ' -lTracyClient'
@@ -139,7 +140,7 @@
 		.Name = 'client'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
 			+ ' -Wno-unknown-attributes'
@@ -156,7 +157,7 @@
 		.Name = 'client'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DGLFW_INCLUDE_NONE'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.c'
@@ -180,7 +181,7 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
-			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
+			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc' // should be first
 			+ ' -lglfw3dll'
 			+ ' -lGLTFSDK'
@@ -202,7 +203,7 @@
 			+ ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
-		//	+ ' -rpath @executable_path/bin/osx-x64/'
+			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 	#endif
 	]
 
@@ -215,7 +216,7 @@
 		.Name = 'core-tests'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/src'
-			+ ' -I$BuildRootPath$/build.vcpkg/x64-windows-clang/include'
+			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$/core'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -234,10 +235,13 @@
 		.DependencyDLLs = {
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -L$BuildRootPath$/build.vcpkg/x64-windows-clang/lib'
+			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc' // should be first
 			+ ' -lCatch2'
 			+ ' -lTracyClient'
+	#if __OSX__
+		.ExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
+	#endif
 	]
 
 	.CoreTests =
@@ -250,7 +254,7 @@
 		}
 		.TestOutputName = 'core-tests'
 		.Environment = {
-			'Path=$_WORKING_DIR_$/build.vcpkg/x64-windows-clang/bin'
+			'Path=$_WORKING_DIR_$/build.vcpkg/$Triplet$/bin'
 		}
 	]
 
