@@ -81,7 +81,7 @@ public:
 		if (timeElapsed < 16666us)
 			std::this_thread::sleep_for(16666us - timeElapsed);
 
-		std::cout << "Server::tick() time (us):" << timeElapsed << std::endl;
+		std::cout << "Server::tick() time (us):" << timeElapsed.count() << std::endl;
 
 		return true;
 	}
