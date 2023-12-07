@@ -6,7 +6,15 @@ if (VCPKG_TARGET_IS_WINDOWS)
 		ARCHIVE
 		URLS "https://github.com/djohansson/fastbuild/releases/download/v${VERSION}/FASTBuild-Windows-x64-v${VERSION}-djohansson.zip"
 		FILENAME "FASTBuild-Windows-x64-v${VERSION}-djohansson.zip"
-		SHA512 57FFB427EDF0ACBBD51DD76C5FC7E2F9E1802BA8EAF64BB4AC4E365E776D3F1CEDC740D3281B3075AF548B86B38955DA18577B7907FC12D708BCB9408DE3B79B
+		SHA512 0
+	)
+elseif (VCPKG_TARGET_IS_OSX)
+	set(FASTBUILD_EXE_SUFFIX "")
+	vcpkg_download_distfile(
+		ARCHIVE
+		URLS "https://github.com/djohansson/fastbuild/releases/download/v${VERSION}/FASTBuild-OSX-x64+ARM-v${VERSION}-djohansson.zip"
+		FILENAME "FASTBuild-OSX-x64+ARM-v${VERSION}-djohansson.zip"
+		SHA512 067aeb8289dd2c1e634c578499e6b6c0c1767a5b1b7776675e2d52677d9d138ebf20d9a0436e5ff3eac1a5548bf4a1b1d8cfb0c2b6256872278f6f897bb38320
 	)
 endif()
 
