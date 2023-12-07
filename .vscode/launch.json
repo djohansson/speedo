@@ -2,6 +2,45 @@
 	"version": "0.2.1",
 	"configurations": [
 		{
+			"name": "(lldb arm64) debug/client",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/client",
+			"args": ["-u ${userHome}"],
+			"stopAtEntry": false,
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
+				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
+				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
+				{ "name": "PATH", "value": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin"},
+				{ "name": "DYLD_LIBRARY_PATH", "value": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"}
+			],
+			"targetArchitecture": "arm64",
+			"externalConsole": false,
+			"MIMode": "lldb",
+			"additionalSOLibSearchPath": "${workspaceFolder}/build.vcpkg/$arm64-osx-clang/lib"
+		},
+		{
+			"name": "(lldb arm64) debug/server",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/server",
+			"args": ["-u ${userHome}"],
+			"stopAtEntry": false,
+			"cwd": "${workspaceFolder}",
+			"environment": [
+				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
+				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
+				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
+				{ "name": "PATH", "value": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin"},
+				{ "name": "DYLD_LIBRARY_PATH", "value": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"}
+			],
+			"targetArchitecture": "arm64",
+			"externalConsole": false,
+			"MIMode": "lldb"
+		},
+		{
 			"name": "(Windows) debug/client",
 			"type": "cppvsdbg",
 			"request": "launch",
@@ -189,6 +228,14 @@
 		}
 	],
 	"compounds": [
+		{
+			"name": "(lldb arm64) debug server/client",
+			"configurations": [
+				"(lldb arm64) debug/server",
+				"(lldb arm64) debug/client"
+			],
+			"stopAll": true
+		},
 		{
 			"name": "(Windows) debug server/client",
 			"configurations": [
