@@ -36,6 +36,7 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/core'
 		.CompilerInputPattern = "*.cpp"
@@ -54,9 +55,11 @@
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
 			+ ' -Wno-unused-function'
 			+ ' -Wno-unused-variable'
+			+ ' -Wno-unused-private-field'
 		.CompilerInputPath = '$ProjectBasePath$/rhi'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -71,6 +74,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -Wno-deprecated-builtins'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -86,6 +90,7 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.cpp'
@@ -143,6 +148,7 @@
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
+			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.cpp'
