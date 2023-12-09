@@ -37,14 +37,14 @@ if (-not ($vulkanSdkInfo) -or ($vulkanSdkInfo.InstalledVersion -lt ([System.Vers
 	$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
 }
 
-$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22000
+$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
 if (-not ($windowsSdkInfo))
 {
 	Write-Host "Installing WindowsSDK 10.0.22000 (requires process elevation)..."
 
-	Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22000 | Out-Null" -Wait
+	Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null" -Wait
 
-	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22000
+	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
 }
 $winSDKManifest = [xml](Get-Content -Path "C:\Program Files (x86)\Windows Kits\10\SDKManifest.xml")
 $platformIndentityStr = $winSDKManifest.FileList.PlatformIdentity
@@ -69,7 +69,7 @@ if (-not ($VSSetupInstance))
 }
 
 $llvmInfo = Get-WinGetPackage LLVM.LLVM
-if (-not ($llvmInfo) -or ($llvmInfo.InstalledVersion -lt ([System.Version]"16.0.6"))) # todo: set this to 17.0.0 once it's available
+if (-not ($llvmInfo) -or ($llvmInfo.InstalledVersion -lt ([System.Version]"17.0.0")))
 {
 	Write-Host "Installing LLVM (requires process elevation)..."
 
