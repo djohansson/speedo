@@ -218,15 +218,8 @@ int main(int argc, char* argv[], char* envp[])
 	assert(argv != NULL);
 	assert(envp != NULL);
 
-	atexit(onExit);
-
 	signal(SIGINT, &onSignal);
 	signal(SIGTERM, &onSignal);
-
-	printf("mi_version(): %d\n", mi_version());
-
-	for (char** env = envp; *env != NULL; ++env)
-		printf("%s\n", *env);
 
 	cag_option_context cagContext;
 	cag_option_prepare(&cagContext, g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), argc, argv);
@@ -244,11 +237,13 @@ int main(int argc, char* argv[], char* envp[])
 		case 'h':
 			printf("Usage: client [OPTION]...\n");
 			cag_option_print(g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), stdout);
-			break;
+			return EXIT_SUCCESS;
 		default:
 			break;
 		}
 	}
+
+	printf("mi_version(): %d\n", mi_version());
 
 	glfwSetErrorCallback(onError);
 	
@@ -313,6 +308,8 @@ int main(int argc, char* argv[], char* envp[])
 #endif
 
 	client_create(&g_window, &g_paths);
+
+	atexit(onExit);
 
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);
