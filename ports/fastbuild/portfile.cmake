@@ -6,7 +6,7 @@ if (VCPKG_TARGET_IS_WINDOWS)
 		ARCHIVE
 		URLS "https://github.com/djohansson/fastbuild/releases/download/v${VERSION}/FASTBuild-Windows-x64-v${VERSION}-djohansson.zip"
 		FILENAME "FASTBuild-Windows-x64-v${VERSION}-djohansson.zip"
-		SHA512 0
+		SHA512 a3a830f6b015ff89b66b2292e71ebc5bdfbef466a862d2715295c6f8689ecbac3eae14d4782ca30d0928791b30073d22d99a41683e433286649c9f44932631c4
 	)
 elseif (VCPKG_TARGET_IS_OSX)
 	set(FASTBUILD_EXE_SUFFIX "")
