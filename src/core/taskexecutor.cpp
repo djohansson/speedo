@@ -21,6 +21,9 @@ TaskExecutor::~TaskExecutor()
 	mySignal.release(mySignal.max());
 
 	processReadyQueue();
+
+	for (auto& [thread, exception] : myThreads)
+		thread.join();
 }
 
 void TaskExecutor::submit(TaskGraph&& graph)
