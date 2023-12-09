@@ -17,4 +17,4 @@ public:
 	CopyableAtomic& operator=(const CopyableAtomic& other) noexcept;
 };
 
-#include "CopyableAtomic.inl"
+#include "copyableatomic.inl"
