@@ -87,7 +87,7 @@ int main(int argc, char* argv[], char* envp[])
 			g_paths.resourcePath = cag_option_get_value(&cagContext);
 			break;
 		case 'h':
-			printf("Usage: client [OPTION]...\n");
+			printf("Usage: server [OPTION]...\n");
 			cag_option_print(g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), stdout);
 			return EXIT_SUCCESS;
 		default:
