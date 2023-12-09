@@ -7,7 +7,7 @@
     "cppzmq",
     "fastbuild",
     "glaze",
-    {"name": "mimalloc", "features": ["asm", "secure"]},
+    "mimalloc",
     "mio",
     "picosha2",
     "robin-hood-hashing",
@@ -39,5 +39,5 @@
       ]
     }
   },
-  "builtin-baseline": "9edb1b8e590cc086563301d735cae4b6e732d2d2"
+  "builtin-baseline": "72c441c62741ec5a5afe181d7a8d3e7af8fbc332"
 }
