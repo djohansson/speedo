@@ -137,8 +137,8 @@ void server_create(const PathConfig* paths)
 		"server",
 		Environment{{
 			{"RootPath", root},
-			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").c_str())},
-			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".profile").c_str(), true)}
+			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
+			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".profile").string().c_str(), true)}
 		}});
 	assert(s_application);
 }
