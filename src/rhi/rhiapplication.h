@@ -1,16 +1,11 @@
 #pragma once
 
-#include "command.h"
-#include "device.h"
-#include "instance.h"
-#include "pipeline.h"
-#include "renderimageset.h"
-#include "types.h"
-#include "window.h"
-
 #include <core/application.h>
+#include <core/capi.h>
 #include <core/file.h>
-#include <core/nodegraph.h>
+#include <core/future.h>
+
+#include "capi.h"
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
@@ -35,27 +30,7 @@ enum CommandType : uint8_t
 };
 
 template <GraphicsApi G>
-struct Rhi
-{
-	std::shared_ptr<Instance<G>> instance;
-	std::shared_ptr<Device<G>> device;
-
-	std::shared_ptr<Window<G>> mainWindow;
-	std::shared_ptr<Pipeline<G>> pipeline;
-
-	CircularContainer<Queue<G>> graphicsQueues;
-	CircularContainer<Queue<G>> computeQueues;
-	CircularContainer<Queue<G>> transferQueues;
-
-	std::array<CircularContainer<CommandPoolContext<G>>, CommandType_Count> commands;
-
-	//std::shared_ptr<ResourceContext<G>> resources;
-
-	std::shared_ptr<RenderImageSet<G>> renderImageSet;
-
-	std::shared_ptr<Buffer<G>> materials;
-	std::shared_ptr<Buffer<G>> objects;	
-};
+struct Rhi;
 
 class RhiApplication : public Application
 {	
@@ -87,11 +62,6 @@ private:
 	std::shared_ptr<void> myRhi;
 
 	Future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
-
-	std::function<void()> myIMGUIPrepareDrawFunction;
-	std::function<void(CommandBufferHandle<Vk> cmd)> myIMGUIDrawFunction; // todo: remove GraphicsApi specialization
-
-	Future<void> myPresentFuture;
 
 	bool myRequestExit = false;
 };

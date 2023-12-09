@@ -1,5 +1,40 @@
+#include "../command.h"
+#include "../device.h"
+#include "../instance.h"
+#include "../pipeline.h"
+#include "../renderimageset.h"
 #include "../rhiapplication.h"
+#include "../types.h"
+#include "../window.h"
+
 #include "../shaders/shadertypes.h"
+
+template <GraphicsApi G>
+struct Rhi
+{
+	std::shared_ptr<Instance<G>> instance;
+	std::shared_ptr<Device<G>> device;
+
+	std::shared_ptr<Window<G>> mainWindow;
+	std::shared_ptr<Pipeline<G>> pipeline;
+
+	CircularContainer<Queue<G>> graphicsQueues;
+	CircularContainer<Queue<G>> computeQueues;
+	CircularContainer<Queue<G>> transferQueues;
+
+	std::array<CircularContainer<CommandPoolContext<G>>, CommandType_Count> commands;
+
+	//std::shared_ptr<ResourceContext<G>> resources;
+
+	std::shared_ptr<RenderImageSet<G>> renderImageSet;
+
+	std::shared_ptr<Buffer<G>> materials;
+	std::shared_ptr<Buffer<G>> objects;
+
+	Future<void> presentFuture;
+	std::function<void()> IMGUIPrepareDrawFunction;
+	std::function<void(CommandBufferHandle<Vk> cmd)> IMGUIDrawFunction; // todo: remove GraphicsApi specialization
+};
 
 #include "utils.h"
 
@@ -335,7 +370,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 	// 	return 0;
 	// };
 
-	myIMGUIPrepareDrawFunction =
+	rhi<Vk>().IMGUIPrepareDrawFunction =
 		[this, openFileDialogue, loadModel, loadImage/*, loadGlTF*/, resourcePath]
 	{
 		ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
@@ -759,7 +794,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 		Render();
 	};
 
-	myIMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
+	rhi<Vk>().IMGUIDrawFunction = [](CommandBufferHandle<Vk> cmd)
 	{
 		ZoneScopedN("RhiApplication::IMGUIDraw");
 
@@ -1174,7 +1209,7 @@ RhiApplication::~RhiApplication()
 	{
 		ZoneScopedN("~RhiApplication()::waitCPU");
 
-		executor().join(std::move(myPresentFuture));
+		executor().join(std::move(rhi<Vk>().presentFuture));
 	}
 
 	{
@@ -1282,8 +1317,8 @@ bool RhiApplication::tick()
 				
 				rhi<Vk>().mainWindow->begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
-				myIMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
-				myIMGUIDrawFunction(cmd);
+				rhi<Vk>().IMGUIPrepareDrawFunction(); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
+				rhi<Vk>().IMGUIDrawFunction(cmd);
 
 				rhi<Vk>().mainWindow->end(cmd);
 			}
@@ -1341,10 +1376,10 @@ bool RhiApplication::tick()
 	{
 		ZoneScopedN("RhiApplication::tick::waitPresent");
 
-		executor().join(std::move(myPresentFuture));
+		executor().join(std::move(rhi<Vk>().presentFuture));
 	}
 
-	myPresentFuture = std::move(presentFuture);
+	rhi<Vk>().presentFuture = std::move(presentFuture);
 
 	executor().submit(std::move(frameGraph));
 

@@ -1,11 +1,8 @@
 #pragma once
 
+#include "capi.h"
+
 #include <cstdint>
 #include <type_traits>
-
-enum /*class*/ GraphicsApi : uint8_t
-{
-	Vk
-};
 
 #include "types.inl"
