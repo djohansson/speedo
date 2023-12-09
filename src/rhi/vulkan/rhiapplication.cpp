@@ -155,11 +155,7 @@ static void initIMGUI(
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
 	// Upload Fonts
-	ImGui_ImplVulkan_CreateFontsTexture(cmd);
-
-	rhi.device->addTimelineCallback(std::make_tuple(
-		1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
-		[](uint64_t) { ImGui_ImplVulkan_DestroyFontUploadObjects(); }));
+	ImGui_ImplVulkan_CreateFontsTexture();
 
 	// IMNODES_NAMESPACE::CreateContext();
 	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
@@ -171,6 +167,8 @@ static void shutdownIMGUI()
 	// size_t count;
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
 	// IMNODES_NAMESPACE::DestroyContext();
+
+	ImGui_ImplVulkan_DestroyFontsTexture();
 
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
