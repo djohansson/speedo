@@ -1,6 +1,6 @@
 #once
 
-.BuildRootPath = '$_CURRENT_BFF_DIR_$/../'
+.BuildRootPath = '$_WORKING_DIR_$'
 .IntermediateFilePath = '$BuildRootPath$/build.intermediate'
 .BuildOutputPath = '$BuildRootPath$/build.output'
 
