@@ -2,8 +2,6 @@
 
 #include <mimalloc-new-delete.h>
 
-#include <locale>
-
 std::weak_ptr<Application> Application::theApplication{};
 
 Application::Application(std::string_view name, Environment&& env)
@@ -11,7 +9,4 @@ Application::Application(std::string_view name, Environment&& env)
 , myEnvironment(std::forward<Environment>(env))
 {
 	assertf(theApplication.use_count() == 0, "There can only be one application at a time");
-	
-	std::locale utf8Locale("en_US.UTF-8");  	
-	std::locale::global(utf8Locale);
 }
