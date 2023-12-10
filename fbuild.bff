@@ -196,7 +196,7 @@
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -lcargs'
-			+ ' -lglfw'
+			+ ' -lglfw3'
 			+ ' -lTracyClient'
 			+ ' -limgui'
 			+ ' -lnfd'
