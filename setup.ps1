@@ -25,4 +25,4 @@ else
 
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile
 
-Initialize-Vcpkg $(Get-NativeTriplet)
+Get-NativeTriplet | Initialize-Vcpkg 

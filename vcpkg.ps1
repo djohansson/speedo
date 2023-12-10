@@ -1,6 +1,8 @@
+. $PSScriptRoot/env.ps1
+
 function Initialize-Vcpkg
 {
-	param([Parameter(Mandatory = $True, Position = 0)] [string] $triplet)
+	param([Parameter(Mandatory = $True, ValueFromPipeline=$True, Position = 0)] [string] $triplet)
 
 	Write-Host "Setting up vcpkg environment..."
 
@@ -16,6 +18,8 @@ function Initialize-Vcpkg
 	}
 
 	Write-Host "Installing vcpkg packages for $triplet using manifest..."
+
+	Initialize-DevEnv
 
 	vcpkg install --x-install-root="build.vcpkg" --overlay-triplets=$PSScriptRoot --triplet $triplet --x-feature=client --x-feature=server --no-print-usage
 }
