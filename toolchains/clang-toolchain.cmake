@@ -1,0 +1,4 @@
+set(LLVM_PATH $ENV{LLVM_PATH} CACHE STRING "LLVM root path")
+
+set(CMAKE_C_COMPILER ${LLVM_PATH}/bin/clang)
+set(CMAKE_CXX_COMPILER ${LLVM_PATH}/bin/clang++)
