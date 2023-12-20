@@ -1,10 +1,9 @@
 #pragma once
+
 #include <core/utils.h>
+#include <rhi/types.h>
 
 #include <vector>
-
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
 
 #if PROFILING_ENABLED
 #	define VK_CHECK(expr)                                                                         \

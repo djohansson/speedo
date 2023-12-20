@@ -275,6 +275,7 @@ Device<Vk>::Device(
 	std::vector<const char*> requiredDeviceExtensions = {
 		// must be sorted lexicographically for std::includes to work!
 		VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
+		VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
 		//VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
