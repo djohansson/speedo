@@ -31,8 +31,8 @@ struct AssetManifest
 {
 	std::string loaderType;
 	std::string loaderVersion;
-	file::Record assetFileInfo{};
-	file::Record cacheFileInfo{};
+	file::Record assetFileInfo;
+	file::Record cacheFileInfo;
 };
 
 using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::string_view)>;
