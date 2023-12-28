@@ -133,7 +133,6 @@
 			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
-			+ ' -lz'
 			+ ' -lzmq'
 	]
 
@@ -201,7 +200,6 @@
 			+ ' -lnfd'
 			+ ' -lslang'
 			+ ' -lxxhash'
-			+ ' -lz'
 			+ ' -lzmq'
 	#if __WINDOWS__
 		.ExecutableLinkerOptions + ' -ladvapi32'
