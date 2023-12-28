@@ -26,11 +26,9 @@
 template <GraphicsApi G>
 struct WindowConfiguration
 {
-	SwapchainConfiguration<G> swapchainConfig{};
-	Extent2d<G> windowExtent{};
-	Extent2d<G> splitScreenGrid{1, 1};
-
-	GLZ_LOCAL_META(WindowConfiguration<G>, swapchainConfig, windowExtent, splitScreenGrid);
+	SwapchainConfiguration<G> swapchainConfig;
+	Extent2d<G> windowExtent;
+	Extent2d<G> splitScreenGrid;
 };
 
 template <GraphicsApi G>

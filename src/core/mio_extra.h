@@ -13,11 +13,17 @@ struct resizeable_mmap_sink : public mio::mmap_sink
 
 	void resize(size_t size)
 	{
+		myHightWaterMark = std::max(myHightWaterMark, size);
+
 		std::error_code error;
 		mio::mmap_sink::remap(0, size, error);
 		if (error)
 			throw std::system_error(std::move(error));
 	}
+
+	size_t hightWaterMark() const noexcept { return myHightWaterMark; }
+
+	size_t myHightWaterMark = 0;
 };
 
 } // namespace mio_extra

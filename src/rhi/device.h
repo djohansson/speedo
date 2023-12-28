@@ -28,8 +28,6 @@ struct DeviceConfiguration
 	// std::optional<bool> useHostQueryReset;
 	// std::optional<bool> useTimelineSemaphores;
 	// std::optional<bool> useBufferDeviceAddress;
-
-	GLZ_LOCAL_META(DeviceConfiguration<G>, physicalDeviceIndex);
 };
 
 enum QueueFamilyFlagBits

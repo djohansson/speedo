@@ -6,20 +6,15 @@
 #include "rendertarget.h"
 #include "types.h"
 
-#include <glaze/glaze.hpp>
-#include <glaze/core/macros.hpp>
-
 #include <memory>
 
 template <GraphicsApi G>
 struct SwapchainConfiguration
 {
-	Extent2d<G> extent{};
-	SurfaceFormat<G> surfaceFormat{};
-	PresentMode<G> presentMode{};
-	uint8_t imageCount = 0;
-
-	GLZ_LOCAL_META(SwapchainConfiguration<G>, extent, surfaceFormat, presentMode, imageCount);
+	Extent2d<G> extent;
+	SurfaceFormat<G> surfaceFormat;
+	PresentMode<G> presentMode;
+	uint8_t imageCount;
 };
 
 template <GraphicsApi G>

@@ -5,7 +5,6 @@
 #include <iostream>
 
 #include <glaze/glaze.hpp>
-#include <glaze/core/macros.hpp>
 
 #include <stduuid/uuid.h>
 
@@ -144,8 +143,10 @@ std::expected<void, std::error_code> saveJSONObject(const T& object, const std::
 {
 	auto file = mio_extra::resizeable_mmap_sink(filePath);
 
+	glz::write<glz::opts{.prettify = true}>(object, file);
+
 	std::error_code error;
-	file.truncate(glz::write<glz::opts{.prettify = true}>(object, file), error);
+	file.truncate(file.hightWaterMark(), error);
 
 	if (error)
 		return std::unexpected(error);
@@ -273,7 +274,7 @@ template <AccessMode M>
 typename std::enable_if<M == AccessMode::ReadWrite, void>::type
 Object<T, Mode, SaveOnClose>::save() const
 {
-	if (!saveJSONObject(*this, myInfo.path))
+	if (!saveJSONObject(static_cast<const T&>(*this), myInfo.path))
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
 }
 
@@ -334,11 +335,11 @@ loadAsset_importSourceFile:
 		if (!cache)
 			throw std::system_error(cache.error());
 
-		auto jsonSize = glz::write<glz::opts{.prettify = true}>(
+		glz::write<glz::opts{.prettify = true}>(
 			AssetManifest{LoaderType, LoaderVersion, asset.value(), cache.value()}, manifestFile);
 
 		std::error_code error;
-		manifestFile.truncate(jsonSize, error);
+		manifestFile.truncate(manifestFile.hightWaterMark(), error);
 
 		if (error)
 			throw std::system_error(std::move(error));
@@ -363,6 +364,3 @@ loadAsset_importSourceFile:
 }
 
 } // namespace file
-
-GLZ_META(file::Record, path, size, timeStamp, sha2);
-GLZ_META(file::detail::AssetManifest, loaderType, loaderVersion, assetFileInfo, cacheFileInfo);

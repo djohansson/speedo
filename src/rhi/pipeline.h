@@ -78,8 +78,6 @@ template <GraphicsApi G>
 struct PipelineConfiguration
 {
 	std::string cachePath;
-
-	GLZ_LOCAL_META(PipelineConfiguration<G>, cachePath);
 };
 
 // todo: create single-thread / multi-thread interface:

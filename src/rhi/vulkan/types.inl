@@ -1,9 +1,6 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
-#include <glaze/glaze.hpp>
-#include <glaze/core/macros.hpp>
-
 template <GraphicsApi G>
 using AllocationCallbacks = std::conditional_t<G == Vk, VkAllocationCallbacks, std::nullptr_t>;
 
@@ -27,7 +24,6 @@ using DeviceSize = std::conditional_t<G == Vk, VkDeviceSize, std::nullptr_t>;
 
 template <GraphicsApi G>
 using Extent2d = std::conditional_t<G == Vk, VkExtent2D, std::nullptr_t>;
-GLZ_META(VkExtent2D, width, height);
 
 template <GraphicsApi G>
 using Extent3d = std::conditional_t<G == Vk, VkExtent3D, std::nullptr_t>;
@@ -73,7 +69,6 @@ using SurfaceHandle = std::conditional_t<G == Vk, VkSurfaceKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
 using SurfaceFormat = std::conditional_t<G == Vk, VkSurfaceFormatKHR, std::nullptr_t>;
-GLZ_META(VkSurfaceFormatKHR, format, colorSpace);
 
 template <GraphicsApi G>
 using Format = std::conditional_t<G == Vk, VkFormat, std::nullptr_t>;
