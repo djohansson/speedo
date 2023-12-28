@@ -191,10 +191,11 @@
 		}
 		.ExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -L$VulkanSDKPath$/lib'
+			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/bin'
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -lcargs'
-			+ ' -lglfw'
+			+ ' -lglfw3'
 			+ ' -lTracyClient'
 			+ ' -limgui'
 			+ ' -lnfd'

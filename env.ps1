@@ -47,6 +47,11 @@ function Read-EnvFile
 	}
 }
 
+function Invoke-Sudo
+{ 
+	& /usr/bin/env sudo pwsh -command "& $args" 
+}
+
 function Initialize-DevEnv
 {
 	#Write-Host "Initializing development environment..."
@@ -66,10 +71,20 @@ function Initialize-DevEnv
 		Add-EnvPath $BinDirectory
 	}
 
-	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/build.vcpkg/$triplet/tools -Directory)
+	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/build.vcpkg/$triplet/tools -Directory -ErrorAction SilentlyContinue)
 	{
-		#Write-Host $ToolsDirectory
+		#Write-Host "Adding " $ToolsDirectory " to env:PATH..."
 		Add-EnvPath $ToolsDirectory
+
+		if ($IsLinux -or $IsMacOS)
+		{
+			foreach ($Tool in Get-ChildItem $ToolsDirectory -File -Recurse -ErrorAction SilentlyContinue)
+			{
+				#Write-Host "Granting executable rights to " $Tool 
+				Invoke-Expression "chmod +x $Tool"
+				#Invoke-Sudo "chmod +x $Tool"
+			}
+		}
 	}
 	
 	#Write-Host "Setting environment variables..."

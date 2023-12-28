@@ -12,6 +12,12 @@ $vulkanPath = Get-Command "vulkaninfo" -ErrorAction SilentlyContinue | Select-Ob
 if (-not ($vulkanPath))
 {
 	# TODO: install vulkan sdk
+	#curl -O https://sdk.lunarg.com/sdk/download/latest/mac/vulkan_sdk.dmg
+	#hdiutil attach vulkan_sdk.dmg
+	#sudo ./InstallVulkan.app/Contents/MacOS/InstallVulkan --root $(mkdir build.vulkan; cd ./build.vulkan ; pwd) --accept-licenses --default-answer --confirm-command install
+	#hdiutil detach /Volumes/vulkansdk-macos-*
+	#rm vulkan_sdk.dmg
+	#sudo python3 ~/VulkanSDK/*/install_vulkan.py --install-json-location ~/VulkanSDK/*/
 }
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue $vulkanPath | Out-Null
 
@@ -20,6 +26,7 @@ Install-HomebrewPackage libxinerama
 Install-HomebrewPackage libxcursor
 Install-HomebrewPackage mesa-glu
 Install-HomebrewPackage python
+Install-HomebrewPackage patchelf
 
 Install-HomebrewPackage llvm
 $llvmPath = $(brew --prefix llvm)
