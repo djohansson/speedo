@@ -485,24 +485,11 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 
 #if GRAPHICS_VALIDATION_ENABLED
 	{
-		char stringBuffer[128];
-		static constexpr std::string_view pipelineStr = "_Pipeline";
-
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s%u",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(pipelineStr.size()),
-			pipelineStr.data(),
-			static_cast<unsigned int>(hashKey));
-
 		getDevice()->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_PIPELINE,
 			reinterpret_cast<uint64_t>(pipelineHandle),
-			stringBuffer);
+			std::format("{0}_Pipeline_{1}", getName(), hashKey));
 	}
 #endif
 
@@ -868,31 +855,17 @@ Pipeline<Vk>::Pipeline(
 	internalResetState();
 
 #if GRAPHICS_VALIDATION_ENABLED
-	{
-		char stringBuffer[128];
-		static constexpr std::string_view pipelineCacheStr = "_PipelineCache";
+	device->addOwnedObjectHandle(
+		getUid(),
+		VK_OBJECT_TYPE_PIPELINE_CACHE,
+		reinterpret_cast<uint64_t>(myCache),
+		std::format("{0}_PipelineCache", getName()));
 
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(pipelineCacheStr.size()),
-			pipelineCacheStr.data());
-
-		device->addOwnedObjectHandle(
-			getUid(),
-			VK_OBJECT_TYPE_PIPELINE_CACHE,
-			reinterpret_cast<uint64_t>(myCache),
-			stringBuffer);
-
-		device->addOwnedObjectHandle(
-			getUid(),
-			VK_OBJECT_TYPE_DESCRIPTOR_POOL,
-			reinterpret_cast<uint64_t>(myDescriptorPool),
-			"Device_DescriptorPool");
-	}
+	device->addOwnedObjectHandle(
+		getUid(),
+		VK_OBJECT_TYPE_DESCRIPTOR_POOL,
+		reinterpret_cast<uint64_t>(myDescriptorPool),
+		"Device_DescriptorPool");
 #endif
 }
 

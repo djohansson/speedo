@@ -97,7 +97,7 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 {
 	ZoneScoped;
 
-	static constexpr std::string_view flipFrameStr = "Swapchain::flip";
+	static constexpr std::string_view flipFrameStr = "";
 
 	const auto& lastFrame = myFrames[myLastFrameIndex];
 
@@ -110,39 +110,11 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 		&myFrameIndex));
 
 	if (flipResult != VK_SUCCESS)
-	{
-		//assert(lastFrameIndex == frameIndex); // just check that vkAcquireNextImageKHR is not messing up things
-
-		static constexpr std::string_view errorStr = " - ERROR: vkAcquireNextImageKHR failed";
-
-		char failedStr[flipFrameStr.size() + errorStr.size() + 1];
-		std::format_to_n(
-			failedStr,
-			std::size(failedStr),
-			"%.*s%.*s",
-			static_cast<int>(flipFrameStr.size()),
-			flipFrameStr.data(),
-			static_cast<int>(errorStr.size()),
-			errorStr.data());
-
-		ZoneName(failedStr, std::size(failedStr));
-
-		// todo: print error code
-		//ZoneText(failedStr, std::size(failedStr));
-
 		return std::make_tuple(false, lastFrame.getLastPresentTimelineValue());
-	}
 
-	char flipFrameWithNumberStr[flipFrameStr.size() + 2];
-	std::format_to_n(
-		flipFrameWithNumberStr,
-		std::size(flipFrameWithNumberStr),
-		"%.*s%u",
-		static_cast<int>(flipFrameStr.size()),
-		flipFrameStr.data(),
-		myFrameIndex);
+	auto zoneNameStr = std::format("Swapchain::flip frame:{0}", myFrameIndex);
 
-	ZoneName(flipFrameWithNumberStr, std::size(flipFrameWithNumberStr));
+	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
 	const auto& frame = myFrames[myFrameIndex];
 
@@ -204,24 +176,11 @@ void Swapchain<Vk>::internalCreateSwapchain(
 	}
 
 #if GRAPHICS_VALIDATION_ENABLED
-	{
-		char stringBuffer[32];
-		static constexpr std::string_view swapchainStr = "_Swapchain";
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(swapchainStr.size()),
-			swapchainStr.data());
-
-		getDevice()->addOwnedObjectHandle(
-			getUid(),
-			VK_OBJECT_TYPE_SWAPCHAIN_KHR,
-			reinterpret_cast<uint64_t>(mySwapchain),
-			stringBuffer);
-	}
+	getDevice()->addOwnedObjectHandle(
+		getUid(),
+		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
+		reinterpret_cast<uint64_t>(mySwapchain),
+		std::format("{0}_Swapchain", getName()));
 #endif
 
 	uint32_t frameCount = config.imageCount;

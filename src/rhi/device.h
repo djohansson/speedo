@@ -12,6 +12,7 @@
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <stduuid/uuid.h>
@@ -93,7 +94,7 @@ public:
 		const uuids::uuid& ownerId,
 		ObjectType<G> objectType,
 		uint64_t objectHandle,
-		const char* objectName);
+		std::string&& objectName);
 	void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
 	void clearOwnedObjectHandles(const uuids::uuid& ownerId);
 	uint32_t getTypeCount(ObjectType<G> type);

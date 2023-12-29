@@ -62,40 +62,17 @@ Frame<Vk>::Frame(
 
 #if GRAPHICS_VALIDATION_ENABLED
 	{
-		char stringBuffer[64];
-		static constexpr std::string_view renderCompleteSemaphoreStr = "_RenderCompleteSemaphore";
-		static constexpr std::string_view newImageAcquiredSemaphoreStr =
-			"_NewImageAcquiredSemaphore";
-
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(renderCompleteSemaphoreStr.size()),
-			renderCompleteSemaphoreStr.data());
-
 		device->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SEMAPHORE,
 			reinterpret_cast<uint64_t>(myRenderCompleteSemaphore),
-			stringBuffer);
-
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(newImageAcquiredSemaphoreStr.size()),
-			newImageAcquiredSemaphoreStr.data());
+			std::format("{0}_RenderCompleteSemaphore", getName()));
 
 		device->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SEMAPHORE,
 			reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
-			stringBuffer);
+			std::format("{0}_NewImageAcquiredSemaphore",getName()));
 	}
 #endif
 }
