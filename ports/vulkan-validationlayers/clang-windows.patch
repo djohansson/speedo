@@ -1,0 +1,14 @@
+diff --git a/layers/CMakeLists.txt b/layers/CMakeLists.txt
+index e204730..22c4037 100644
+--- a/layers/CMakeLists.txt
++++ b/layers/CMakeLists.txt
+@@ -279,6 +279,9 @@ set_target_properties(vvl PROPERTIES OUTPUT_NAME ${LAYER_NAME})
+ if(MSVC)
+     target_link_options(vvl PRIVATE /DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
+     target_compile_options(vvl PRIVATE /bigobj)
++elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++    target_sources(vvl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
++    target_compile_options(vvl PRIVATE -Wa,-mbig-obj)
+ elseif(MINGW)
+     target_sources(vvl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
+     target_compile_options(vvl PRIVATE -Wa,-mbig-obj)
