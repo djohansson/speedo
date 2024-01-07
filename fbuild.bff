@@ -195,7 +195,6 @@
 			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -lcargs'
-			+ ' -lglfw3'
 			+ ' -lTracyClient'
 			+ ' -limgui'
 			+ ' -lnfd'
@@ -205,16 +204,19 @@
 	#if __WINDOWS__
 		.ExecutableLinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'
+			+ ' -lglfw3dll'
 			+ ' -lshell32'
 			+ ' -lvulkan-1'
 			+ ' -lole32'
+	#else
+		.ExecutableLinkerOptions + ' -lglfw3'
+			+ ' -lvulkan'
 	#endif //__WINDOWS__
 	#if __OSX__
-		.ExecutableLinkerOptions + ' -lvulkan'
+		.ExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 			+ ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
-			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 	#endif
 	]
 
