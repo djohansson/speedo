@@ -14,4 +14,4 @@ set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
 
 set(VCPKG_FIXUP_ELF_RPATH ON)
 
-set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/toolchains/clang-toolchain.cmake)
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/toolchains/clang.toolchain.cmake)
