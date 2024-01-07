@@ -27,27 +27,11 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			1));
 
 	#if GRAPHICS_VALIDATION_ENABLED
-		{
-			char stringBuffer[128];
-			static constexpr std::string_view colorImageViewStr = "_ColorImageView";
-
-			std::format_to_n(
-				stringBuffer,
-				std::size(stringBuffer),
-				"%.*s%.*s%.*u",
-				static_cast<int>(getName().size()),
-				getName().data(),
-				static_cast<int>(colorImageViewStr.size()),
-				colorImageViewStr.data(),
-				1,
-				attachmentIt);
-
-			getDevice()->addOwnedObjectHandle(
-				getUid(),
-				VK_OBJECT_TYPE_IMAGE_VIEW,
-				reinterpret_cast<uint64_t>(myAttachments.back()),
-				stringBuffer);
-		}
+		getDevice()->addOwnedObjectHandle(
+			getUid(),
+			VK_OBJECT_TYPE_IMAGE_VIEW,
+			reinterpret_cast<uint64_t>(myAttachments.back()),
+			std::format("{0}_ColorImageView_{1}", getName(), attachmentIt));
 	#endif
 
 		auto& colorAttachment = myAttachmentDescs.emplace_back();
@@ -81,25 +65,11 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			1));
 
 	#if GRAPHICS_VALIDATION_ENABLED
-		{
-			char stringBuffer[128];
-			static constexpr std::string_view depthImageViewStr = "_DepthImageView";
-
-			std::format_to_n(
-				stringBuffer,
-				std::size(stringBuffer),
-				"%.*s%.*s",
-				static_cast<int>(getName().size()),
-				getName().data(),
-				static_cast<int>(depthImageViewStr.size()),
-				depthImageViewStr.data());
-
-			getDevice()->addOwnedObjectHandle(
-				getUid(),
-				VK_OBJECT_TYPE_IMAGE_VIEW,
-				reinterpret_cast<uint64_t>(myAttachments.back()),
-				stringBuffer);
-		}
+		getDevice()->addOwnedObjectHandle(
+			getUid(),
+			VK_OBJECT_TYPE_IMAGE_VIEW,
+			reinterpret_cast<uint64_t>(myAttachments.back()),
+			std::format("{0}_DepthImageView", getName()));
 	#endif
 
 		auto& depthStencilAttachment = myAttachmentDescs.emplace_back();
@@ -244,43 +214,17 @@ RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 		desc.layerCount);
 
 #if GRAPHICS_VALIDATION_ENABLED
-	{
-		char stringBuffer[128];
-		static constexpr std::string_view renderPassStr = "_RenderPass";
-		static constexpr std::string_view framebufferStr = "_FrameBuffer";
+	getDevice()->addOwnedObjectHandle(
+		getUid(),
+		VK_OBJECT_TYPE_RENDER_PASS,
+		reinterpret_cast<uint64_t>(renderPass),
+		std::format("{0}_RenderPass_{1}", getName(), hashKey));
 
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s%u",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(renderPassStr.size()),
-			renderPassStr.data(),
-			static_cast<unsigned int>(hashKey));
-
-		getDevice()->addOwnedObjectHandle(
-			getUid(),
-			VK_OBJECT_TYPE_RENDER_PASS,
-			reinterpret_cast<uint64_t>(renderPass),
-			stringBuffer);
-
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%.*s%.*s%u",
-			static_cast<int>(getName().size()),
-			getName().data(),
-			static_cast<int>(framebufferStr.size()),
-			framebufferStr.data(),
-			static_cast<unsigned int>(hashKey));
-
-		getDevice()->addOwnedObjectHandle(
-			getUid(),
-			VK_OBJECT_TYPE_FRAMEBUFFER,
-			reinterpret_cast<uint64_t>(frameBuffer),
-			stringBuffer);
-	}
+	getDevice()->addOwnedObjectHandle(
+		getUid(),
+		VK_OBJECT_TYPE_FRAMEBUFFER,
+		reinterpret_cast<uint64_t>(frameBuffer),
+		std::format("{0}_FrameBuffer_{1}", getName(), hashKey));
 #endif
 
 	return std::make_tuple(renderPass, frameBuffer);

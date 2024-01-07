@@ -534,7 +534,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 				IMNODES_NAMESPACE::BeginNode(node->id());
 
 				// title bar
-				std::format_to_n(buffer, std::size(buffer), "##node%.*u", 4, node->id());
+				std::format_to_n(buffer, std::size(buffer), "##node{0}", 4, node->id());
 
 				IMNODES_NAMESPACE::BeginNodeTitleBar();
 
@@ -559,7 +559,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 						if (hasInputPin)
 						{
 							auto& inputAttribute = inOutNode->inputAttributes()[rowIt];
-							std::format_to_n(buffer, std::size(buffer), "##inputattribute%.*u", 4, inputAttribute.id);
+							std::format_to_n(buffer, std::size(buffer), "##inputattribute{0}", 4, inputAttribute.id);
 
 							IMNODES_NAMESPACE::BeginInputAttribute(inputAttribute.id);
 
@@ -579,7 +579,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 						if (rowIt < inOutNode->outputAttributes().size())
 						{
 							auto& outputAttribute = inOutNode->outputAttributes()[rowIt];
-							std::format_to_n(buffer, std::size(buffer), "##outputattribute%.*u", 4, outputAttribute.id);
+							std::format_to_n(buffer, std::size(buffer), "##outputattribute{0}", 4, outputAttribute.id);
 
 							if (hasInputPin)
 								SameLine();
@@ -625,7 +625,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 							std::format_to_n(
 								buffer,
 								std::size(buffer),
-								"In %u",
+								"In {0}",
 								static_cast<unsigned>(inOutNode->inputAttributes().size()));
 							inOutNode->inputAttributes().emplace_back(
 								Attribute{++myNodeGraph.uniqueId, buffer});
@@ -638,7 +638,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 							std::format_to_n(
 								buffer,
 								std::size(buffer),
-								"Out %u",
+								"Out {0}",
 								static_cast<unsigned>(inOutNode->outputAttributes().size()));
 							inOutNode->outputAttributes().emplace_back(
 								Attribute{++myNodeGraph.uniqueId, buffer});

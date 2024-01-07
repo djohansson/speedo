@@ -103,7 +103,7 @@ void Device<Vk>::addOwnedObjectHandle(
 	const uuids::uuid& ownerId,
 	ObjectType<Vk> objectType,
 	uint64_t objectHandle,
-	const char* objectName)
+	std::string&& objectName)
 {
 	ZoneScopedN("Device::addOwnedObjectHandle");
 
@@ -127,8 +127,7 @@ void Device<Vk>::addOwnedObjectHandle(
 			{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
 			 nullptr,
 			 objectType,
-			 objectHandle}});
-		objectInfo.name = objectName;
+			 objectHandle}, std::forward<std::string>(objectName)});
 		objectInfo.pObjectName = objectInfo.name.c_str();
 
 		{
@@ -275,6 +274,7 @@ Device<Vk>::Device(
 	std::vector<const char*> requiredDeviceExtensions = {
 		// must be sorted lexicographically for std::includes to work!
 		VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
+		VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
 		//VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
@@ -327,7 +327,7 @@ Device<Vk>::Device(
 	//     std::format_to_n(
 	//         stringBuffer,
 	//         std::size(stringBuffer),
-	//         "%s_%u",
+	//         "{0}_{1}",
 	//         physicalDeviceStr.data(),
 	//         physicalDeviceIt);
 
@@ -473,23 +473,9 @@ DeviceObject<Vk>::DeviceObject(
 	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc))
 {
 #if GRAPHICS_VALIDATION_ENABLED
-	{
-		char stringBuffer[256];
-		for (uint32_t objectIt = 0ul; objectIt < objectCount; objectIt++)
-		{
-			std::format_to_n(
-				stringBuffer,
-				std::size(stringBuffer),
-				"%.*s%.*u",
-				getName().size(),
-				getName().data(),
-				2,
-				objectIt);
-
+		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
 			device->addOwnedObjectHandle(
-				getUid(), objectType, objectHandles[objectIt], stringBuffer);
-		}
-	}
+				getUid(), objectType, objectHandles[objectIt], std::format("{0}{1}", getName(), objectIt));
 #endif
 }
 

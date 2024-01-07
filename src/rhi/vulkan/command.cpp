@@ -246,14 +246,14 @@ void CommandPoolContext<Vk>::internalEnqueueOnePending(CommandBufferLevel<Vk> le
 	}
 	else
 	{
-		char stringBuffer[32];
+		// char stringBuffer[32];
 
-		std::format_to_n(
-			stringBuffer,
-			std::size(stringBuffer),
-			"%s%s",
-			level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
-			"CommandBufferArray");
+		// std::format_to_n(
+		// 	stringBuffer,
+		// 	std::size(stringBuffer),
+		// 	"{0}{1}",
+		// 	level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
+		// 	"CommandBufferArray");
 
 		myPendingCommands[level].emplace_back(std::make_tuple(
 			CommandBufferArray<Vk>(

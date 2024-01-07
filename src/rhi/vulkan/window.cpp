@@ -113,17 +113,9 @@ uint32_t Window<Vk>::internalDrawViews(
 				if (drawIt >= drawCount)
 					return;
 
-				static constexpr std::string_view drawPartitionStr = "Window::drawPartition";
-				char drawPartitionWithNumberStr[drawPartitionStr.size() + 3];
-				std::format_to_n(
-					drawPartitionWithNumberStr,
-					std::size(drawPartitionWithNumberStr),
-					"%.*s%u",
-					static_cast<int>(drawPartitionStr.size()),
-					drawPartitionStr.data(),
-					threadIt);
+				auto zoneNameStr = std::format("Window::drawPartition thread:{0}", threadIt);
 
-				ZoneName(drawPartitionWithNumberStr, std::size(drawPartitionWithNumberStr));
+				ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
 				CommandBufferInheritanceInfo<Vk> inheritInfo{
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};

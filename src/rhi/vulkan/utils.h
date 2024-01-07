@@ -1,5 +1,7 @@
 #pragma once
+
 #include <core/utils.h>
+#include <rhi/types.h>
 
 #include <vector>
 

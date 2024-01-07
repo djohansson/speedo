@@ -1,5 +1,6 @@
 #include <vma/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_beta.h>
 
 template <GraphicsApi G>
 using AllocationCallbacks = std::conditional_t<G == Vk, VkAllocationCallbacks, std::nullptr_t>;
