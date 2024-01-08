@@ -57,7 +57,7 @@ function Initialize-DevEnv
 	#Write-Host "Initializing development environment..."
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
-	$env:TARGET_COMPILER = Get-DefaultCompiler
+	$env:TARGET_COMPILER = Get-NativeDefaultCompiler
 	
 	$triplet = Get-NativeTriplet
 

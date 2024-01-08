@@ -52,7 +52,7 @@ function Get-NativeOS
 	return $OS
 }
 
-function Get-DefaultCompiler
+function Get-NativeDefaultCompiler
 {
 	$Compiler = ""
 
@@ -72,7 +72,7 @@ function Get-NativeTriplet
 {
 	$Arch = Get-NativeArchitecture
 	$OS = Get-NativeOS
-	$Compiler = Get-DefaultCompiler
+	$Compiler = Get-NativeDefaultCompiler
 
 	$Triplet = "$Arch-$OS"
 
