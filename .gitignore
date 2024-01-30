@@ -9,3 +9,5 @@ env.json
 
 *.dmg
 *.DS_Store
+
+tmp/*
