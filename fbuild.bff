@@ -213,10 +213,11 @@
 			+ ' -lvulkan'
 	#endif //__WINDOWS__
 	#if __OSX__
-		.ExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
-			+ ' -framework Cocoa'
+		.ExecutableLinkerOptions + ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
+			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/bin'
+			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 	#endif
 	]
 
