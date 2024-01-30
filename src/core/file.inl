@@ -143,7 +143,7 @@ std::expected<void, std::error_code> saveJSONObject(const T& object, const std::
 {
 	auto file = mio_extra::resizeable_mmap_sink(filePath);
 
-	glz::write<glz::opts{.prettify = true}>(object, file);
+	glz::write<glz::opts{.prettify = true}>(T{object}, file);
 
 	std::error_code error;
 	file.truncate(file.hightWaterMark(), error);
