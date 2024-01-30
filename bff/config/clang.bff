@@ -53,11 +53,15 @@
 		+ ' -D__APPLE__'
 		+ ' -D__OSX__'
 		+ ' -fPIC'
+		+ ' -fPIE'
+		+ ' -fno-plt'
 #endif //__OSX__
 #if __LINUX__
 		+ ' -D__LINUX__'
 		+ ' -D__linux__'
 		+ ' -fPIC'
+		+ ' -fPIE'
+		+ ' -fno-plt'
 #endif //__LINUX__
 	.CompilerOptionsC = ' -std=c2x -nostdinc'
 	.CompilerOptionsCpp = ' -std=c++23 -nostdinc++'
@@ -68,7 +72,16 @@
 	.LinkerOptions = '"%1" -o "%2" -g'
 		+ .PlatformLibPaths
 		+ ' -fuse-ld=lld'
-#if __WINDOWS__
+#if !__WINDOWS__
+		+ ' -fvisibility=hidden'
+		// + ' -fvisibility=inlines-hidden'
+		// + ' -fvisibility=ms-compat'
+		+ ' -Bsymbolic' // make sure to mark exports with __attribute__((visibility("protected")))
+		// + ' -ffunction-sections'
+		// + ' -fdata-sections'
+		// + ' -z now'
+		// + ' -z relro'
+#else
 		+ ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
