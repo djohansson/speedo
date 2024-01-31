@@ -1,0 +1,57 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 273c09f..6478aea 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -163,7 +163,7 @@ option(ENABLE_WERROR "Enable warnings as errors" ON)
+ # Set warnings as errors and the main diagnostic flags
+ # Must be set first so the warning silencing later on works properly
+ # Note that clang-cl.exe should use MSVC flavor flags, not GNU
+-if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC"))
++if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+     if (ENABLE_WERROR)
+         target_compile_options(loader_common_options INTERFACE /WX)
+     endif()
+@@ -180,7 +180,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
+     target_compile_options(loader_common_options INTERFACE -Wno-missing-field-initializers)
+ 
+     # need to prepend /clang: to compiler arguments when using clang-cl
+-    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC")
++    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+         target_compile_options(loader_common_options INTERFACE /clang:-fno-strict-aliasing /clang:-fno-builtin-memcmp)
+     else()
+         target_compile_options(loader_common_options INTERFACE -fno-strict-aliasing -fno-builtin-memcmp)
+@@ -200,7 +200,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
+     target_compile_options(loader_common_options INTERFACE -Wpointer-arith)
+ endif()
+ 
+-if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC" OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC"))
++if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC" OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+     # /GR-: Disable RTTI
+     # /guard:cf: Enable control flow guard
+     # /wd4152: Disable warning on conversion of a function pointer to a data pointer
+@@ -209,9 +209,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC" OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clan
+ 
+     # Enable control flow guard
+     target_link_options(loader_common_options INTERFACE "LINKER:/guard:cf")
+-
+-    # Prevent <windows.h> from polluting the code. guards against things like MIN and MAX
+-    target_compile_definitions(loader_common_options INTERFACE WIN32_LEAN_AND_MEAN)
++else()
++    # Disable RTTI
++    # Enable control flow guard
++    target_compile_options(loader_common_options INTERFACE
++        "SHELL:-Xclang -fno-rtti"
++        "SHELL:-Xclang -cfguard"
++    )
+ endif()
+ 
+ # DEBUG enables runtime loader ICD verification
+@@ -364,7 +368,7 @@ if(BUILD_TESTS)
+             endif()
+ 
+             # Silence errors found in clang-cl
+-            if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC")
++            if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+                 target_compile_options(detours PRIVATE -Wno-sizeof-pointer-memaccess -Wno-microsoft-goto -Wno-microsoft-cast)
+             endif()
+         endif()
