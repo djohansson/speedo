@@ -31,7 +31,7 @@ set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 23)
 
 #set(CMAKE_C_FLAGS "")
-#set(CMAKE_CXX_FLAGS "")
+set(CMAKE_CXX_FLAGS "-Wno-unsafe-buffer-usage") # temp fix for glm & clang 17+(?)
 
 set(CMAKE_C_COMPILER_FRONTEND_VARIANT "GNU")
 set(CMAKE_CXX_COMPILER_FRONTEND_VARIANT "GNU")
