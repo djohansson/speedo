@@ -1,0 +1,106 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 0bb0d42..2402262 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -312,7 +312,6 @@ source_set("glslang_default_resource_limits_sources") {
+ 
+ executable("glslang_validator") {
+   sources = [
+-    "StandAlone/DirStackFileIncluder.h",
+     "StandAlone/StandAlone.cpp",
+   ]
+   if (!is_win) {
+diff --git a/StandAlone/CMakeLists.txt b/StandAlone/CMakeLists.txt
+index 5ca185a..d674086 100644
+--- a/StandAlone/CMakeLists.txt
++++ b/StandAlone/CMakeLists.txt
+@@ -45,7 +45,7 @@ add_custom_command(
+     DEPENDS ${GLSLANG_INTRINSIC_PY}
+     COMMENT "Generating ${GLSLANG_INTRINSIC_H}")
+ 
+-set(SOURCES StandAlone.cpp DirStackFileIncluder.h  ${GLSLANG_INTRINSIC_H})
++set(SOURCES StandAlone.cpp ${GLSLANG_INTRINSIC_H})
+ 
+ add_executable(glslang-standalone ${SOURCES})
+ set_property(TARGET glslang-standalone PROPERTY FOLDER tools)
+diff --git a/StandAlone/StandAlone.cpp b/StandAlone/StandAlone.cpp
+index d6ef522..bd9c2db 100644
+--- a/StandAlone/StandAlone.cpp
++++ b/StandAlone/StandAlone.cpp
+@@ -42,8 +42,8 @@
+ #endif
+ 
+ #include "glslang/Public/ResourceLimits.h"
+-#include "Worklist.h"
+-#include "DirStackFileIncluder.h"
++#include "./../glslang/Include/Worklist.h"
++#include "./../glslang/Include/DirStackFileIncluder.h"
+ #include "./../glslang/Include/ShHandle.h"
+ #include "./../glslang/Public/ShaderLang.h"
+ #include "../SPIRV/GlslangToSpv.h"
+diff --git a/glslang/CInterface/glslang_c_interface.cpp b/glslang/CInterface/glslang_c_interface.cpp
+index 870698f..10cf3ec 100644
+--- a/glslang/CInterface/glslang_c_interface.cpp
++++ b/glslang/CInterface/glslang_c_interface.cpp
+@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ #include "glslang/Include/glslang_c_interface.h"
+ 
+-#include "StandAlone/DirStackFileIncluder.h"
++#include "glslang/Include/DirStackFileIncluder.h"
+ #include "glslang/Public/ResourceLimits.h"
+ #include "glslang/Include/ShHandle.h"
+ 
+diff --git a/glslang/CMakeLists.txt b/glslang/CMakeLists.txt
+index 57fb1b9..7d487f1 100644
+--- a/glslang/CMakeLists.txt
++++ b/glslang/CMakeLists.txt
+@@ -152,6 +152,7 @@ set(GLSLANG_HEADERS
+     Include/BaseTypes.h
+     Include/Common.h
+     Include/ConstantUnion.h
++    Include/DirStackFileIncluder.h
+     Include/glslang_c_interface.h
+     Include/glslang_c_shader_types.h
+     Include/InfoSink.h
+@@ -161,7 +162,8 @@ set(GLSLANG_HEADERS
+     Include/ResourceLimits.h
+     Include/ShHandle.h
+     Include/SpirvIntrinsics.h
+-    Include/Types.h)
++    Include/Types.h
++    Include/Worklist.h)
+ 
+ add_library(glslang ${LIB_TYPE} ${BISON_GLSLParser_OUTPUT_SOURCE} ${GLSLANG_SOURCES} ${GLSLANG_HEADERS})
+ set_target_properties(glslang PROPERTIES
+diff --git a/StandAlone/DirStackFileIncluder.h b/glslang/Include/DirStackFileIncluder.h
+similarity index 99%
+rename from StandAlone/DirStackFileIncluder.h
+rename to glslang/Include/DirStackFileIncluder.h
+index 5a33c78..f02d774 100644
+--- a/StandAlone/DirStackFileIncluder.h
++++ b/glslang/Include/DirStackFileIncluder.h
+@@ -42,7 +42,7 @@
+ #include <algorithm>
+ #include <set>
+ 
+-#include "./../glslang/Public/ShaderLang.h"
++#include "../Public/ShaderLang.h"
+ 
+ // Default include class for normal include convention of search backward
+ // through the stack of active include paths (for nested includes).
+diff --git a/StandAlone/Worklist.h b/glslang/Include/Worklist.h
+similarity index 98%
+rename from StandAlone/Worklist.h
+rename to glslang/Include/Worklist.h
+index 91b6f51..dc72627 100644
+--- a/StandAlone/Worklist.h
++++ b/glslang/Include/Worklist.h
+@@ -35,7 +35,6 @@
+ #ifndef WORKLIST_H_INCLUDED
+ #define WORKLIST_H_INCLUDED
+ 
+-#include "../glslang/OSDependent/osinclude.h"
+ #include <list>
+ #include <mutex>
+ #include <string>
