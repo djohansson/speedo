@@ -23,12 +23,16 @@ void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 {
 	ZoneScopedN("Window::internalCreateFrameObjects");
 
-	myViewBuffer = std::make_unique<Buffer<Vk>>(
-		getDevice(),
-		BufferCreateDesc<Vk>{
-			myConfig.swapchainConfig.imageCount * ShaderTypes_ViewBufferCount * sizeof(ViewData),
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
+	myViewBuffers = std::make_unique<Buffer<Vk>[]>(ShaderTypes_FrameCount);
+	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	{
+		myViewBuffers[i] = Buffer<Vk>(
+			getDevice(),
+			BufferCreateDesc<Vk>{
+				ShaderTypes_ViewCount * sizeof(ViewData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
+	}
 
 	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
@@ -50,10 +54,11 @@ void Window<Vk>::internalUpdateViewBuffer() const
 {
 	ZoneScopedN("Window::internalUpdateViewBuffer");
 
+	auto bufferMemory = myViewBuffers[internalGetFrameIndex()].getBufferMemory();
 	void* data;
-	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), myViewBuffer->getBufferMemory(), &data));
+	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), bufferMemory, &data));
 
-	ViewData* viewDataPtr = &static_cast<ViewData*>(data)[internalGetFrameIndex() * ShaderTypes_ViewCount];
+	ViewData* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 	assert(viewCount <= ShaderTypes_ViewCount);
 	for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
@@ -65,11 +70,11 @@ void Window<Vk>::internalUpdateViewBuffer() const
 
 	vmaFlushAllocation(
 		getDevice()->getAllocator(),
-		myViewBuffer->getBufferMemory(),
-		internalGetFrameIndex() * ShaderTypes_ViewCount * sizeof(ViewData),
+		bufferMemory,
+		0,
 		viewCount * sizeof(ViewData));
 
-	vmaUnmapMemory(getDevice()->getAllocator(), myViewBuffer->getBufferMemory());
+	vmaUnmapMemory(getDevice()->getAllocator(), bufferMemory);
 }
 
 template <>
@@ -158,12 +163,22 @@ uint32_t Window<Vk>::internalDrawViews(
 
 				bindState(cmd);
 
+				PushConstants pushConstants{.frameIndex = frameIndex};
+
+				vkCmdPushConstants(
+					cmd,
+					pipeline.getLayout(),
+					VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
+					0,
+					4,
+					&pushConstants);
+
 				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
 				uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&frameIndex, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
@@ -196,29 +211,27 @@ uint32_t Window<Vk>::internalDrawViews(
 
 						setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
-						auto drawModel = [&pipeline, &frameIndex, &viewIt](VkCommandBuffer cmd)
+						auto drawModel = [&pushConstants, &pipeline, &viewIt](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("drawModel");
 
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								uint16_t viewId = frameIndex * ShaderTypes_ViewCount + viewIt;
-								uint16_t materialId = 0ui16;
-								uint16_t objectBufferIndex = 42ui16;
-								uint16_t objectArrayIndex = 666ui16;
+								uint16_t viewIndex = viewIt;
+								uint16_t materialIndex = 0ui16;
+								uint16_t objectSetIndex = 42ui16;
+								uint16_t objectIndex = 666ui16;
 
-								PushConstants pushConstants{
-									(static_cast<uint32_t>(viewId) << 16ul) | materialId,
-									(static_cast<uint32_t>(objectBufferIndex) << 16ul) |
-										objectArrayIndex};
+								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << 16ul) | materialIndex;
+								pushConstants.objectId = (static_cast<uint32_t>(objectSetIndex) << 16ul) | objectIndex;
 
 								vkCmdPushConstants(
 									cmd,
 									pipeline.getLayout(),
 									VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-									0,
-									sizeof(PushConstants),
+									offsetof(PushConstants, viewAndMaterialId),
+									8,
 									&pushConstants);
 							}
 
@@ -476,7 +489,7 @@ Window<Vk>::Window(Window&& other) noexcept
 	, myTimestamps(std::exchange(other.myTimestamps, {}))
 	, myViews(std::exchange(other.myViews, {}))
 	, myActiveView(std::exchange(other.myActiveView, {}))
-	, myViewBuffer(std::exchange(other.myViewBuffer, {}))
+	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
 {}
 
 template <>
@@ -493,7 +506,7 @@ Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 	myTimestamps = std::exchange(other.myTimestamps, {});
 	myViews = std::exchange(other.myViews, {});
 	myActiveView = std::exchange(other.myActiveView, {});
-	myViewBuffer = std::exchange(other.myViewBuffer, {});
+	myViewBuffers = std::exchange(other.myViewBuffers, {});
 	return *this;
 }
 
@@ -505,5 +518,5 @@ void Window<Vk>::swap(Window& other) noexcept
 	std::swap(myTimestamps, other.myTimestamps);
 	std::swap(myViews, other.myViews);
 	std::swap(myActiveView, other.myActiveView);
-	std::swap(myViewBuffer, other.myViewBuffer);
+	std::swap(myViewBuffers, other.myViewBuffers);
 }

@@ -14,13 +14,13 @@ RWTexture2D g_rwtextures[ShaderTypes_GlobalRWTextureCount];
 SamplerState g_samplers[ShaderTypes_GlobalSamplerCount];
 
 [[vk::binding(0, DescriptorSetCategory_View)]]
-StructuredBuffer<ViewData> g_viewData;
+StructuredBuffer<ViewData> g_viewData[ShaderTypes_FrameCount];
 
 [[vk::binding(0, DescriptorSetCategory_Material)]]
 StructuredBuffer<MaterialData> g_materialData;
 
 [[vk::binding(0, DescriptorSetCategory_Object)]]
-StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectBufferCount];
+StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectSetCount];
 
 struct InputStream
 {
@@ -54,18 +54,19 @@ VSOutput vertexMain(InputStream input)
 {
 	VSOutput output = (VSOutput)0;
 
+	uint frameIndex = g_pushConstants.frameIndex;
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
 
 	uint viewId = viewAndMaterialId >> ShaderTypes_MaterialIndexBits;
 
-	ViewData view = g_viewData[viewId];
+	ViewData view = g_viewData[viewId][frameIndex];
 
-	uint objectBufferAndInstanceId = g_pushConstants.objectBufferAndInstanceId;
+	uint objectId = g_pushConstants.objectId;
 
-	uint objectBufferIndex = objectBufferAndInstanceId >> ShaderTypes_ObjectBufferInstanceIndexBits;
-	uint objectInstanceIndex = objectBufferAndInstanceId & (ShaderTypes_ObjectBufferInstanceCount - 1u);
+	uint objectSetIndex = objectId >> ShaderTypes_ObjectIndexBits;
+	uint objectIndex = objectId & (ShaderTypes_ObjectCount - 1u);
 
-	ObjectData object = g_objectData[objectBufferIndex][objectInstanceIndex];
+	ObjectData object = g_objectData[objectSetIndex][objectIndex];
 
 	float3 worldPosition = mul(object.modelTransform, float4(input.position, 1.0)).xyz;
 	float3 worldNormal = mul(object.inverseTransposeModelTransform, float4(input.normal, 0.0)).xyz;

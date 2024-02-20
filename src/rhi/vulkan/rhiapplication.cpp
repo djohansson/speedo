@@ -1144,7 +1144,7 @@ void RhiApplication::createDevice(const WindowState& window)
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			materialData.get());
 
-		auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectBufferInstanceCount);
+		auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectCount);
 		auto identityMatrix = glm::mat4x4(1.0f);
 		objectData[666].modelTransform = identityMatrix;
 		objectData[666].inverseTransposeModelTransform =
@@ -1153,7 +1153,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			rhi<Vk>().device,
 			generalTransferContext,
 			BufferCreateDesc<Vk>{
-				ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
+				ShaderTypes_ObjectCount * sizeof(ObjectData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			objectData.get());
@@ -1172,10 +1172,14 @@ void RhiApplication::createDevice(const WindowState& window)
 
 	rhi<Vk>().pipeline->bindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	rhi<Vk>().pipeline->setDescriptorData(
-		"g_viewData",
-		DescriptorBufferInfo<Vk>{rhi<Vk>().mainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_View);
+	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	{
+		rhi<Vk>().pipeline->setDescriptorData(
+			"g_viewData",
+			DescriptorBufferInfo<Vk>{rhi<Vk>().mainWindow->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorSetCategory_View,
+			i);
+	}
 
 	rhi<Vk>().pipeline->setDescriptorData(
 		"g_materialData",
@@ -1186,7 +1190,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		"g_objectData",
 		DescriptorBufferInfo<Vk>{*rhi<Vk>().objects, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_Object,
-		42);
+		5);
 
 	rhi<Vk>().pipeline->setDescriptorData(
 		"g_samplers",
@@ -1404,10 +1408,14 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 
 	rhi<Vk>().mainWindow->onResizeFramebuffer(framebufferExtent);
 
-	rhi<Vk>().pipeline->setDescriptorData(
-		"g_viewData",
-		DescriptorBufferInfo<Vk>{rhi<Vk>().mainWindow->getViewBuffer(), 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_View);
+	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	{
+		rhi<Vk>().pipeline->setDescriptorData(
+			"g_viewData",
+			DescriptorBufferInfo<Vk>{rhi<Vk>().mainWindow->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorSetCategory_View,
+			i);
+	}
 
 	createWindowDependentObjects(rhi<Vk>());
 }

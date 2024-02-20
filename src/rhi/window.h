@@ -51,7 +51,7 @@ public:
 	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getViews() const noexcept { return myViews; }
 	const auto& getActiveView() const noexcept { return myActiveView; }
-	const auto& getViewBuffer() const noexcept { return *myViewBuffer; }
+	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 
 	void onResizeWindow(Extent2d<G> windowExtent) { myConfig.windowExtent = windowExtent; }
 	void onResizeFramebuffer(Extent2d<G> framebufferExtent);
@@ -94,5 +94,5 @@ private:
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
-	std::unique_ptr<Buffer<G>> myViewBuffer; // cbuffer data for all views
+	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
 };
