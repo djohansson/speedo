@@ -27,7 +27,7 @@ extern "C"
 #define ShaderTypes_GlobalTextureIndexBits          19u
 #define ShaderTypes_GlobalTextureCount              (1u << ShaderTypes_GlobalTextureIndexBits)
 #define ShaderTypes_GlobalRWTextureIndexBits        19u
-#define ShaderTypes_GlobalRWTextureCount            (1u << ShaderTypes_GlobalTextureIndexBits)
+#define ShaderTypes_GlobalRWTextureCount            (1u << ShaderTypes_GlobalRWTextureIndexBits)
 #define ShaderTypes_GlobalSamplerIndexBits          13u
 #define ShaderTypes_GlobalSamplerCount              (1u << ShaderTypes_GlobalSamplerIndexBits)
 #define ShaderTypes_ViewIndexBits                   16u
