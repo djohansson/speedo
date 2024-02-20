@@ -179,6 +179,4 @@ VkRenderPass createRenderPass(
 
 VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
 
-VkDescriptorPool createDescriptorPool(VkDevice device);
-
 VkResult checkFlipOrPresentResult(VkResult result);
