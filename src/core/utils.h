@@ -287,9 +287,11 @@ class CircularContainer : public ContainerT
 public:
 	using value_type = T;
 	using container_type = ContainerT;
+	using container_type::back;
 	using container_type::begin;
 	using container_type::emplace_back;
 	using container_type::end;
+	using container_type::front;
 
 	T& get() { return container_type::at(myHead); }
 

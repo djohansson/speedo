@@ -1033,7 +1033,7 @@ void RhiApplication::createDevice(const WindowState& window)
 					QueueCreateDesc<Vk>{
 						0,
 						queueFamilyIndex,
-						primaryContexts.get().commands(
+						primaryContexts.back().commands(
 							CommandBufferAccessScopeDesc<Vk>(false))}));
 			}
 			else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
@@ -1101,6 +1101,8 @@ void RhiApplication::createDevice(const WindowState& window)
 	// initialize stuff on general transfer queue
 	{
 		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
+		auto& transferQueue = rhi<Vk>().graphicsQueues.fetchAdd();
+		
 		auto cmd = generalTransferContext.commands();
 
 		rhi<Vk>().pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -1111,14 +1113,14 @@ void RhiApplication::createDevice(const WindowState& window)
 
 		cmd.end();
 
-		rhi<Vk>().graphicsQueues.get().enqueueSubmit(generalTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
 			{{rhi<Vk>().device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {rhi<Vk>().graphicsQueues.get().getLastSubmitTimelineValue().value_or(0)},
+			 {transferQueue.getLastSubmitTimelineValue().value_or(0)},
 			 {rhi<Vk>().device->getTimelineSemaphore()},
 			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		rhi<Vk>().graphicsQueues.get().submit();
+		transferQueue.submit();
 	}
 
 	constexpr uint32_t textureId = 1;
@@ -1126,10 +1128,8 @@ void RhiApplication::createDevice(const WindowState& window)
 	static_assert(textureId < ShaderTypes_GlobalTextureCount);
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& dedicatedTransferContext =
-			rhi<Vk>().commands[CommandType_DedicatedTransfer].fetchAdd();
-
-		auto& transferQueue = rhi<Vk>().transferQueues.fetchAdd();
+		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
+		auto& transferQueue = rhi<Vk>().graphicsQueues.fetchAdd();
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
@@ -1137,7 +1137,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
 		rhi<Vk>().materials = std::make_shared<Buffer<Vk>>(
 			rhi<Vk>().device,
-			dedicatedTransferContext,
+			generalTransferContext,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_MaterialCount * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1151,14 +1151,14 @@ void RhiApplication::createDevice(const WindowState& window)
 			glm::transpose(glm::inverse(identityMatrix));
 		rhi<Vk>().objects = std::make_shared<Buffer<Vk>>(
 			rhi<Vk>().device,
-			dedicatedTransferContext,
+			generalTransferContext,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_ObjectBufferInstanceCount * sizeof(ObjectData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			objectData.get());
 
-		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
