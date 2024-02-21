@@ -220,7 +220,7 @@ uint32_t Window<Vk>::internalDrawViews(
 
 								uint16_t viewIndex = viewIt;
 								uint16_t materialIndex = 0ui16;
-								uint16_t objectSetIndex = 42ui16;
+								uint16_t objectSetIndex = 5ui16;
 								uint16_t objectIndex = 666ui16;
 
 								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << 16ul) | materialIndex;
