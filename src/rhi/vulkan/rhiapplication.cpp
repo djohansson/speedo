@@ -134,7 +134,7 @@ static void initIMGUI(
 	initInfo.MinImageCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
 	initInfo.ImageCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->getInstance()->getHostAllocationCallbacks();
-	initInfo.CheckVkResultFn = checkResult;
+	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	// initInfo.DeleteBufferFn = [](void* user_data,
 	// 							 VkBuffer buffer,
 	// 							 VkDeviceMemory buffer_memory,
