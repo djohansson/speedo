@@ -8,6 +8,7 @@ vcpkg_from_github(
 	HEAD_REF master
 	PATCHES
 		clang-windows.patch
+		clang-windows-2.patch
 		vcpkg.patch
 		spirv-tools-windows-link.patch
 )

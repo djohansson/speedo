@@ -1,0 +1,33 @@
+diff --git a/slang.h b/slang.h
+index 54466ca..cd46519 100644
+--- a/slang.h
++++ b/slang.h
+@@ -254,27 +254,16 @@ convention for interface methods.
+ 
+ // GCC Specific
+ #if SLANG_GCC_FAMILY
+-
+ #	define SLANG_NO_INLINE __attribute__((noinline))
+ #	define SLANG_FORCE_INLINE inline __attribute__((always_inline))
+ #   define SLANG_BREAKPOINT(id) __builtin_trap();
+ #	define SLANG_ALIGN_OF(T)	__alignof__(T)
+-
+-// Use the builtin directly so we don't need to have an include of stddef.h
+ #   define SLANG_OFFSET_OF(T, ELEMENT) __builtin_offsetof(T, ELEMENT) 
+-#endif // SLANG_GCC_FAMILY
+-
+-#ifndef SLANG_OFFSET_OF
+-#   define SLANG_OFFSET_OF(T, ELEMENT) (size_t(&((T*)1)->ELEMENT) - 1)
+-#endif
+-
+-// Microsoft VC specific
+-#if SLANG_MICROSOFT_FAMILY
++#elif SLANG_MICROSOFT_FAMILY
+ #	define SLANG_NO_INLINE __declspec(noinline)
+ #	define SLANG_FORCE_INLINE __forceinline
+ #	define SLANG_BREAKPOINT(id) __debugbreak();
+ #	define SLANG_ALIGN_OF(T) __alignof(T)
+-
+ #   define SLANG_INT64(x) (x##i64)
+ #   define SLANG_UINT64(x) (x##ui64)
+ #endif // SLANG_MICROSOFT_FAMILY
