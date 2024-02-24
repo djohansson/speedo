@@ -24,21 +24,22 @@ extern "C"
 #define DescriptorSetCategory_Material              5
 #define DescriptorSetCategory_Object                6
 
-#define ShaderTypes_GlobalTextureIndexBits          19u
+#define ShaderTypes_GlobalTextureIndexBits          7u
 #define ShaderTypes_GlobalTextureCount              (1u << ShaderTypes_GlobalTextureIndexBits)
-#define ShaderTypes_GlobalRWTextureIndexBits        19u
-#define ShaderTypes_GlobalRWTextureCount            (1u << ShaderTypes_GlobalTextureIndexBits)
-#define ShaderTypes_GlobalSamplerIndexBits          13u
+#define ShaderTypes_GlobalRWTextureIndexBits        3u
+#define ShaderTypes_GlobalRWTextureCount            (1u << ShaderTypes_GlobalRWTextureIndexBits)
+#define ShaderTypes_GlobalSamplerIndexBits          4u
 #define ShaderTypes_GlobalSamplerCount              (1u << ShaderTypes_GlobalSamplerIndexBits)
-#define ShaderTypes_ViewIndexBits                   16u
-#define ShaderTypes_ViewBufferCount                 (1u << ShaderTypes_ViewIndexBits)
-#define ShaderTypes_ViewCount                       (1u << (ShaderTypes_ViewIndexBits - 2u)) // frame buffered - needs at least three times as big buffer
-#define ShaderTypes_MaterialIndexBits               16u
+#define ShaderTypes_FrameIndexBits                  2u
+#define ShaderTypes_FrameCount                      (1u << ShaderTypes_FrameIndexBits)
+#define ShaderTypes_ViewIndexBits                   4u
+#define ShaderTypes_ViewCount                       (1u << ShaderTypes_ViewIndexBits)
+#define ShaderTypes_MaterialIndexBits               10u
 #define ShaderTypes_MaterialCount                   (1u << ShaderTypes_MaterialIndexBits)
-#define ShaderTypes_ObjectBufferIndexBits           16u
-#define ShaderTypes_ObjectBufferCount               (1u << ShaderTypes_ObjectBufferIndexBits)
-#define ShaderTypes_ObjectBufferInstanceIndexBits   16u
-#define ShaderTypes_ObjectBufferInstanceCount       (1u << ShaderTypes_ObjectBufferInstanceIndexBits) // 64 * 65536 = 4MB
+#define ShaderTypes_ObjectSetIndexBits              4u
+#define ShaderTypes_ObjectSetCount                  (1u << ShaderTypes_ObjectSetIndexBits)
+#define ShaderTypes_ObjectIndexBits                 19u
+#define ShaderTypes_ObjectCount                     (1u << ShaderTypes_ObjectIndexBits)
 
 // todo: all structs needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment.
 
@@ -62,8 +63,9 @@ struct ObjectData
 
 struct PushConstants
 {
+    alignas(4) uint frameIndex;
     alignas(4) uint viewAndMaterialId;
-    alignas(4) uint objectBufferAndInstanceId;
+    alignas(4) uint objectId;
 };
 
 #ifdef __cplusplus

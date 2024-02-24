@@ -1,6 +1,8 @@
 #include "../pipeline.h"
 #include "../rhiapplication.h"
 
+#include "../shaders/shadertypes.h"
+
 #include "utils.h"
 
 #include <format>
@@ -815,28 +817,25 @@ Pipeline<Vk>::Pipeline(
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)
 		{
-			constexpr uint32_t maxDescriptorCount = 128;
-			constexpr uint32_t maxInlineBlockSizeBytes = 64;
-
 			VkDescriptorPoolSize poolSizes[]{
-				{VK_DESCRIPTOR_TYPE_SAMPLER, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, maxDescriptorCount},
-				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, maxInlineBlockSizeBytes}};
+				{VK_DESCRIPTOR_TYPE_SAMPLER, 128 * ShaderTypes_GlobalSamplerCount},
+				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 * ShaderTypes_GlobalSamplerCount},
+				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 128 * ShaderTypes_GlobalTextureCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128 * ShaderTypes_GlobalRWTextureCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 128},
+				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 128},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 128},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 128},
+				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 128},
+				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, 128}};
 
 			VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 			poolInfo.poolSizeCount = std::size(poolSizes);
 			poolInfo.pPoolSizes = poolSizes;
-			poolInfo.maxSets = maxDescriptorCount * std::size(poolSizes);
-			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			poolInfo.maxSets = 3 * std::size(poolSizes);
+			poolInfo.flags = 0; //VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 

@@ -1,0 +1,13 @@
+diff --git a/public/tracy/TracyVulkan.hpp b/public/tracy/TracyVulkan.hpp
+index 2d079f7..e4f7390 100644
+--- a/public/tracy/TracyVulkan.hpp
++++ b/public/tracy/TracyVulkan.hpp
+@@ -87,7 +87,7 @@ class VkCtx
+ {
+     friend class VkCtxScope;
+ 
+-    enum { QueryCount = 64 * 1024 };
++    enum { QueryCount = 4 * 1024 };
+ 
+ public:
+ #if defined TRACY_VK_USE_SYMBOL_TABLE

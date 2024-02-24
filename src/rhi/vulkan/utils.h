@@ -7,22 +7,22 @@
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 #if PROFILING_ENABLED
 #	define VK_CHECK(expr)                                                                         \
 		do                                                                                         \
 		{                                                                                          \
 			VkResult __result = (expr);                                                            \
-			assertf(__result == VK_SUCCESS, "'%s' failed with %i\n", #expr, __result);             \
+			assertf(                                                                               \
+				__result == VK_SUCCESS,                                                            \
+				"'%s' failed with %s",                                                             \
+				#expr,                                                                             \
+				string_VkResult(__result));                                                        \
 		} while (0)
 #else
 #	define VK_CHECK(expr) static_cast<void>(expr);
 #endif
-
-static void checkResult(VkResult err)
-{
-	VK_CHECK(err);
-}
 
 uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor);
 uint32_t getFormatSize(VkFormat format);
@@ -178,7 +178,5 @@ VkRenderPass createRenderPass(
 	VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
 VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
-
-VkDescriptorPool createDescriptorPool(VkDevice device);
 
 VkResult checkFlipOrPresentResult(VkResult result);
