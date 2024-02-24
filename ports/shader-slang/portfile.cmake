@@ -6,6 +6,9 @@ vcpkg_from_github(
 	REF 55f1e5fcbbfa9fd64a0f4eef52e594fdbbab296d #v${VERSION}
 	SHA512 0f035c105d35f3a8d67d8003881463b181d95176489264726d43f790792abe492b8a1c90f6f9cfcd4287a9870f02804c22a68683712c210e0bd0013a78230790
 	HEAD_REF master
+	PATCHES
+		clang-windows.patch
+		vcpkg.patch
 )
 
 vcpkg_cmake_configure(
