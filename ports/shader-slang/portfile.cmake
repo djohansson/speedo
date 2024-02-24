@@ -9,6 +9,7 @@ vcpkg_from_github(
 	PATCHES
 		clang-windows.patch
 		vcpkg.patch
+		spirv-tools-windows-link.patch
 )
 
 vcpkg_cmake_configure(
