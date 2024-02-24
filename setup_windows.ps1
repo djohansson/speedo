@@ -28,7 +28,7 @@ if (-not ($gitCmd))
 }
 
 $vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
-if (-not ($vulkanSdkInfo) -or ($vulkanSdkInfo.InstalledVersion -lt ([System.Version]"1.3.246.0")))
+if (-not ($vulkanSdkInfo) -or ($vulkanSdkInfo.InstalledVersion -lt ([System.Version]"1.3.268.0")))
 {
 	Write-Host "Installing VulkanSDK (requires process elevation)..."
 
