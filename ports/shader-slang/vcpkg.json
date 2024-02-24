@@ -6,12 +6,26 @@
   "license": "MIT",
   "supports": "((x86 & windows) | (x64 & (windows | linux | osx)) | (arm64 & (linux | osx))) & !uwp & !static",
   "dependencies": [
-    { "name": "vcpkg-cmake", "host": true },
-    { "name": "vcpkg-cmake-config", "host": true },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
     "glslang",
     "tinyobjloader",
     "glm",
-    "imgui",
+    {
+      "name": "imgui",
+      "features": [
+        {
+          "name": "win32-binding",
+          "platform": "windows & !uwp"
+        }
+      ]
+    },
     "spirv-tools",
     "spirv-headers",
     "miniz",
