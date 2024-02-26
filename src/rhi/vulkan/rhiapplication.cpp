@@ -71,14 +71,13 @@ static void initIMGUI(
 	auto& io = GetIO();
 	static auto iniFilePath = (userProfilePath / "imgui.ini").generic_string();
 	io.IniFilename = iniFilePath.c_str();
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	io.FontGlobalScale = 1.0f;
 	//io.FontAllowUserScaling = true;
-
-	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-	auto& platformIo = ImGui::GetPlatformIO();
-	platformIo.Platform_CreateVkSurface =
-		(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
+	// auto& platformIo = ImGui::GetPlatformIO();
+	// platformIo.Platform_CreateVkSurface =
+	// 	(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
 		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.mainWindow->getSurface()).capabilities;
@@ -788,7 +787,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 		}
 
 		EndFrame();
-		UpdatePlatformWindows();
+		//UpdatePlatformWindows();
 		Render();
 	};
 

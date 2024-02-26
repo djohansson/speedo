@@ -22,12 +22,25 @@
       "dependencies": [
         "glfw3",
         "glm",
-        {"name": "imgui", "features": ["docking-experimental", "glfw-binding", "vulkan-binding"]},
+        {
+          "name": "imgui",
+          "features": [
+            "glfw-binding",
+            "vulkan-binding"
+          ]
+        },
         "nativefiledialog",
         "shader-slang",
         "stb",
         "tinyobjloader",
-        {"name": "tracy", "features": ["cli-tools", "crash-handler", "gui-tools"]},
+        {
+          "name": "tracy",
+          "features": [
+            "cli-tools",
+            "crash-handler",
+            "gui-tools"
+          ]
+        },
         "vulkan",
         "vulkan-memory-allocator"
       ]
@@ -35,7 +48,13 @@
     "server": {
       "description": "Game Server Executable",
       "dependencies": [
-        {"name": "tracy", "features": ["cli-tools", "crash-handler"]}
+        {
+          "name": "tracy",
+          "features": [
+            "cli-tools",
+            "crash-handler"
+          ]
+        }
       ]
     }
   },
