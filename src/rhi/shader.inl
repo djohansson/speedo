@@ -75,7 +75,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
 
-		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_MAXIMAL);
+		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_STANDARD);
 		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
 
 		//spAddPreprocessorDefine(slangRequest, "SHADERTYPES_H_CPU_TARGET", "false");
@@ -149,14 +149,12 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 		for (const auto& ep : entryPoints)
 		{
 			ISlangBlob* blob = nullptr;
-			//if (SLANG_FAILED(
-					spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob);
-			//))
-			//{
-			//	spDestroyCompileRequest(slangRequest);
+			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
+			{
+				spDestroyCompileRequest(slangRequest);
 
-			//	throw std::runtime_error("Failed to get slang blob.");
-			//}
+				throw std::runtime_error("Failed to get slang blob.");
+			}
 
 			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), ep));
 			std::copy(
