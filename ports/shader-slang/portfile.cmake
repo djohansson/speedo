@@ -11,6 +11,8 @@ vcpkg_from_github(
 		clang-windows-2.patch
 		vcpkg.patch
 		spirv-tools-windows-link.patch
+		slang-lookup-generator-vcpkg.patch
+		windows-link.patch
 )
 
 vcpkg_cmake_configure(

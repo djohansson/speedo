@@ -1,0 +1,319 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b2da0af..7e95819 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -45,12 +45,6 @@ include(LLVM)
+ include(SlangTarget)
+ include(AutoOption)
+ 
+-set(VCPKG_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+-set(VCPKG_LIB_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
+-
+-include_directories(${VCPKG_INCLUDE_DIR})
+-link_directories(${VCPKG_LIB_DIR})
+-
+ #
+ # Options
+ #
+@@ -173,6 +167,12 @@ find_package(Threads REQUIRED)
+ find_package(glslang CONFIG REQUIRED)
+ find_package(SPIRV-Tools CONFIG REQUIRED)
+ find_package(SPIRV-Tools-opt CONFIG REQUIRED)
++find_package(tinyobjloader CONFIG REQUIRED)
++find_package(miniz CONFIG REQUIRED)
++find_package(glm CONFIG REQUIRED)
++find_package(imgui CONFIG REQUIRED)
++find_package(lz4 CONFIG REQUIRED)
++find_package(unordered_dense CONFIG REQUIRED)
+ 
+ if(SLANG_SLANG_LLVM_FLAVOR STREQUAL "USE_SYSTEM_LLVM")
+     find_package(LLVM 13.0 REQUIRED CONFIG)
+@@ -188,8 +188,13 @@ slang_add_target(
+     STATIC
+     EXCLUDE_FROM_ALL
+     USE_EXTRA_WARNINGS
+-    LINK_WITH_PRIVATE miniz lz4 Threads::Threads ${CMAKE_DL_LIBS}
++    LINK_WITH_PRIVATE
++        miniz::miniz
++        lz4::lz4
++        Threads::Threads
++        ${CMAKE_DL_LIBS}
+     INCLUDE_DIRECTORIES_PUBLIC source
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+ )
+ 
+ slang_add_target(
+@@ -198,7 +203,12 @@ slang_add_target(
+     # This compiles 'core' again with the SLANG_RT_DYNAMIC_EXPORT macro defined
+     EXTRA_SOURCE_DIRS source/core
+     USE_EXTRA_WARNINGS
+-    LINK_WITH_PRIVATE miniz lz4 Threads::Threads ${CMAKE_DL_LIBS}
++    LINK_WITH_PRIVATE
++        miniz::miniz
++        lz4::lz4
++        Threads::Threads
++        ${CMAKE_DL_LIBS}
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     EXPORT_MACRO_PREFIX SLANG_RT
+     INSTALL
+ )
+@@ -210,6 +220,7 @@ slang_add_target(
+     USE_EXTRA_WARNINGS
+     LINK_WITH_PRIVATE core
+     INCLUDE_DIRECTORIES_PUBLIC source
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+ )
+ if(NOT MSVC)
+     # This is necessary to compile the DXC headers
+@@ -251,6 +262,7 @@ function(generator dir)
+             EXCLUDE_FROM_ALL
+             USE_FEWER_WARNINGS
+             LINK_WITH_PRIVATE core
++            INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+             OUTPUT_DIR generators
+             REQUIRED_BY all-generators
+             FOLDER generators
+@@ -289,6 +301,7 @@ slang_add_target(
+         slang-reflect-headers
+         slang-capability-defs
+         Threads::Threads
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     INSTALL
+ )
+ slang_add_target(
+@@ -299,6 +312,7 @@ slang_add_target(
+         core
+         slang
+         Threads::Threads
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     INSTALL
+ )
+ 
+@@ -405,7 +419,9 @@ elseif(SLANG_SLANG_LLVM_FLAVOR STREQUAL "USE_SYSTEM_LLVM")
+             llvm-dep
+             clang-dep
+         # We include slang.h, but don't need to link with it
+-        INCLUDE_FROM_PRIVATE slang
++        INCLUDE_FROM_PRIVATE
++            slang
++            unordered_dense::unordered_dense
+         # This uses the SLANG_DLL_EXPORT macro from slang.h, so make sure to set
+         # SLANG_DYNAMIC and SLANG_DYNAMIC_EXPORT
+         EXPORT_MACRO_PREFIX SLANG
+@@ -438,14 +454,17 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+         USE_FEWER_WARNINGS
+         LINK_WITH_PRIVATE
+             core
+-            imgui
++            imgui::imgui
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:X11::X11>
+             "-framework Cocoa"
+             "-framework QuartzCore"
+             ${CMAKE_DL_LIBS}
+         EXTRA_COMPILE_DEFINITIONS_PRIVATE
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:SLANG_ENABLE_XLIB>
+-        INCLUDE_FROM_PRIVATE gfx
++        INCLUDE_FROM_PRIVATE
++            gfx
++            glm::glm
++            tinyobjloader::tinyobjloader
+         INCLUDE_DIRECTORIES_PUBLIC tools/platform
+         EXPORT_MACRO_PREFIX SLANG_PLATFORM
+     )
+@@ -457,12 +476,15 @@ else()
+         USE_FEWER_WARNINGS
+         LINK_WITH_PRIVATE
+             core
+-            imgui
++            imgui::imgui
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:X11::X11>
+             ${CMAKE_DL_LIBS}
+         EXTRA_COMPILE_DEFINITIONS_PRIVATE
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:SLANG_ENABLE_XLIB>
+-        INCLUDE_FROM_PRIVATE gfx
++        INCLUDE_FROM_PRIVATE
++            gfx
++            glm::glm
++            tinyobjloader::tinyobjloader
+         INCLUDE_DIRECTORIES_PUBLIC tools/platform
+         EXPORT_MACRO_PREFIX SLANG_PLATFORM
+     )
+@@ -487,6 +509,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+             $<$<BOOL:${SLANG_ENABLE_OPTIX}>:GFX_OPTIX>
+             $<$<BOOL:${SLANG_ENABLE_NVAPI}>:GFX_NVAPI>
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:SLANG_ENABLE_XLIB>
++        INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+         # This is a shared library, so we need to set a preprocessor macro to mark
+         # exported symbols
+         EXPORT_MACRO_PREFIX SLANG_GFX
+@@ -512,6 +535,7 @@ else()
+             $<$<BOOL:${SLANG_ENABLE_OPTIX}>:GFX_OPTIX>
+             $<$<BOOL:${SLANG_ENABLE_NVAPI}>:GFX_NVAPI>
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:SLANG_ENABLE_XLIB>
++        INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+         # This is a shared library, so we need to set a preprocessor macro to mark
+         # exported symbols
+         EXPORT_MACRO_PREFIX SLANG_GFX
+@@ -547,7 +571,9 @@ slang_add_target(
+     tools/gfx-util
+     STATIC
+     LINK_WITH_PRIVATE core
+-    INCLUDE_FROM_PRIVATE gfx
++    INCLUDE_FROM_PRIVATE
++        gfx
++        unordered_dense::unordered_dense
+     # The headers are included with 'include "gfx-util/blah.h"' which is found
+     # in the tools directory
+     INCLUDE_DIRECTORIES_PUBLIC tools
+@@ -574,14 +600,15 @@ slang_add_target(
+     LINK_WITH_PRIVATE
+         compiler-core
+         slang
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     FOLDER test
+ )
+ slang_add_target(
+     tools/test-process
+     EXECUTABLE
+     EXCLUDE_FROM_ALL
+-    LINK_WITH_PRIVATE
+-        compiler-core
++    LINK_WITH_PRIVATE compiler-core
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     FOLDER test
+ )
+ 
+@@ -594,6 +621,7 @@ slang_add_target(
+         slang
+         ${CMAKE_DL_LIBS}
+         Threads::Threads
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     REQUIRES
+         # Shared libraries dlopened by slang-test
+         slang-reflection-test
+@@ -625,7 +653,9 @@ slang_add_target(
+     tools/unit-test
+     OBJECT
+     EXCLUDE_FROM_ALL
+-    INCLUDE_FROM_PRIVATE slang
++    INCLUDE_FROM_PRIVATE
++        slang
++        unordered_dense::unordered_dense
+     FOLDER test
+ )
+ 
+@@ -642,6 +672,7 @@ slang_add_target(
+         gfx
+         gfx-util
+         platform
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     OUTPUT_NAME gfx-unit-test-tool
+     FOLDER test/tools
+ )
+@@ -656,6 +687,7 @@ slang_add_target(
+         unit-test
+         slang
+         Threads::Threads
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     OUTPUT_NAME slang-unit-test-tool
+     FOLDER test/tools
+ )
+@@ -669,6 +701,7 @@ slang_add_target(
+         core
+         slang
+         Threads::Threads
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     OUTPUT_NAME slang-reflection-test-tool
+     FOLDER test/tools
+ )
+@@ -685,6 +718,7 @@ slang_add_target(
+         gfx-util
+         platform
+         $<$<BOOL:${SLANG_ENABLE_CUDA}>:CUDA::cudart;CUDA::cuda_driver>
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     EXTRA_COMPILE_DEFINITIONS_PRIVATE
+         $<$<BOOL:${SLANG_ENABLE_CUDA}>:RENDER_TEST_CUDA>
+         $<$<BOOL:${SLANG_ENABLE_OPTIX}>:RENDER_TEST_OPTIX>
+@@ -696,8 +730,8 @@ slang_add_target(
+     tools/slang-profile
+     EXECUTABLE
+     EXCLUDE_FROM_ALL
+-    LINK_WITH_PRIVATE
+-        slang
++    LINK_WITH_PRIVATE slang
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     FOLDER test
+ )
+ 
+@@ -714,6 +748,7 @@ slang_add_target(
+         gfx
+         platform
+         $<$<BOOL:${SLANG_ENABLE_CUDA}>:CUDA::cudart;CUDA::cuda_driver>
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     FOLDER examples
+ )
+ 
+@@ -735,6 +770,7 @@ function(example dir)
+             gfx-util
+             platform
+             $<$<BOOL:${SLANG_ENABLE_CUDA}>:CUDA::cudart;CUDA::cuda_driver>
++        INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+         EXTRA_COMPILE_DEFINITIONS_PRIVATE
+             $<$<BOOL:${SLANG_ENABLE_XLIB}>:SLANG_ENABLE_XLIB>
+         REQUIRED_BY all-examples
+diff --git a/prelude/CMakeLists.txt b/prelude/CMakeLists.txt
+index 1d41312..334291c 100644
+--- a/prelude/CMakeLists.txt
++++ b/prelude/CMakeLists.txt
+@@ -25,6 +25,7 @@ slang_add_target(
+     EXCLUDE_FROM_ALL
+     TARGET_NAME prelude
+     INCLUDE_DIRECTORIES_PUBLIC ${CMAKE_CURRENT_LIST_DIR}
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     PUBLIC_HEADERS ${CMAKE_CURRENT_LIST_DIR}/slang*.h
+     # It's an object library, so the install step only installs the headers
+     INSTALL
+diff --git a/source/slang/CMakeLists.txt b/source/slang/CMakeLists.txt
+index 11a4518..0acaf7a 100644
+--- a/source/slang/CMakeLists.txt
++++ b/source/slang/CMakeLists.txt
+@@ -80,6 +80,7 @@ slang_add_target(
+     INCLUDE_DIRECTORIES_PUBLIC
+         "${SLANG_CAPABILITY_OUTPUT_DIR}"
+         "${slang_SOURCE_DIR}/source/slang"
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     EXCLUDE_FROM_ALL
+     FOLDER generated
+ )
+@@ -88,6 +89,7 @@ slang_add_target(
+     OBJECT
+     EXPLICIT_SOURCE ${SLANG_CAPABILITY_GENERATED_SOURCE}
+     LINK_WITH_PRIVATE core slang-capability-defs
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     EXCLUDE_FROM_ALL
+     FOLDER generated
+ )
+@@ -176,6 +178,7 @@ slang_add_target(
+     OBJECT
+     EXPLICIT_SOURCE ${SLANG_LOOKUP_GENERATED_SOURCE}
+     LINK_WITH_PRIVATE core
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     EXCLUDE_FROM_ALL
+     FOLDER generated
+ )
+@@ -203,6 +206,7 @@ slang_add_target(
+         slang-meta-headers
+         slang-reflect-headers
+         slang-lookup-tables
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     FOLDER generators
+ )
+ target_compile_definitions(
+@@ -251,6 +255,7 @@ slang_add_target(
+         slang-capability-lookup
+         slang-reflect-headers
+         slang-lookup-tables        
++    INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
+     # slang.h is in the project root, so include that directory in the interface
+     # for slang
+     INCLUDE_DIRECTORIES_PUBLIC ${slang_SOURCE_DIR}
