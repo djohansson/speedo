@@ -169,8 +169,8 @@ uint32_t Window<Vk>::internalDrawViews(
 					cmd,
 					pipeline.getLayout(),
 					VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-					0,
-					4,
+					offsetof(PushConstants, frameIndex),
+					sizeof(pushConstants.frameIndex),
 					&pushConstants);
 
 				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
@@ -211,27 +211,37 @@ uint32_t Window<Vk>::internalDrawViews(
 
 						setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
-						auto drawModel = [&pushConstants, &pipeline, &viewIt](VkCommandBuffer cmd)
+						uint16_t viewIndex = viewIt;
+						uint16_t materialIndex = 0ui16;
+
+						pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << ShaderTypes_MaterialIndexBits) | materialIndex;
+
+						vkCmdPushConstants(
+							cmd,
+							pipeline.getLayout(),
+							VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
+							offsetof(PushConstants, viewAndMaterialId),
+							sizeof(pushConstants.viewAndMaterialId),
+							&pushConstants);
+
+						auto drawModel = [&pushConstants, &pipeline](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("drawModel");
 
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								uint16_t viewIndex = viewIt;
-								uint16_t materialIndex = 0ui16;
 								uint16_t objectSetIndex = 5ui16;
 								uint16_t objectIndex = 666ui16;
 
-								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << 16ul) | materialIndex;
-								pushConstants.objectId = (static_cast<uint32_t>(objectSetIndex) << 16ul) | objectIndex;
+								pushConstants.objectId = (static_cast<uint32_t>(objectSetIndex) << ShaderTypes_ObjectIndexBits) | objectIndex;
 
 								vkCmdPushConstants(
 									cmd,
 									pipeline.getLayout(),
 									VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-									offsetof(PushConstants, viewAndMaterialId),
-									8,
+									offsetof(PushConstants, objectId),
+									sizeof(pushConstants.objectId),
 									&pushConstants);
 							}
 

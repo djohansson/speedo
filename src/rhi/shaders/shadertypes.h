@@ -63,8 +63,12 @@ struct ObjectData
 
 struct PushConstants
 {
+    // per frame
     alignas(4) uint frameIndex;
+    // per view
+    // per material
     alignas(4) uint viewAndMaterialId;
+    // per object
     alignas(4) uint objectId;
 };
 
