@@ -238,16 +238,14 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 	std::vector<const char*> requiredExtensions = {
 	// must be sorted lexicographically for std::includes to work!
-#if defined(__APPLE__)
+#if defined(__OSX__)
 		"VK_EXT_metal_surface",
 		"VK_KHR_portability_enumeration",
 		"VK_KHR_surface",
 #elif defined(__WINDOWS__)
-		"VK_KHR_portability_enumeration",
 		"VK_KHR_surface",
 		"VK_KHR_win32_surface",
 #elif defined(__linux__)
-		"VK_KHR_portability_enumeration",
 		"VK_KHR_surface",
 #	if defined(VK_USE_PLATFORM_XCB_KHR)
 		"VK_KHR_xcb_surface",
@@ -286,7 +284,9 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
 	info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
 	info.ppEnabledExtensionNames = info.enabledExtensionCount ? requiredExtensions.data() : nullptr;
+#if defined(__OSX__)
 	info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 
 	VK_CHECK(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
 
