@@ -13,6 +13,7 @@ vcpkg_from_github(
 		spirv-tools-windows-link.patch
 		slang-lookup-generator-vcpkg.patch
 		windows-link.patch
+		slang-getEntryPointX-return-fix.patch
 )
 
 vcpkg_cmake_configure(
