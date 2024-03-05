@@ -646,7 +646,9 @@ void Pipeline<Vk>::internalUpdateDescriptorSet(
 	}
 
 	auto& [setArray, setIndex, setRefCount] = setArrayList.front();
-	auto setHandle = setArray[++setIndex];
+	++setIndex;
+	assert(setIndex < setArray.capacity());
+	auto setHandle = setArray[setIndex];
 
 	{
 		ZoneScopedN(
