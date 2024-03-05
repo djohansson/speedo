@@ -817,25 +817,26 @@ Pipeline<Vk>::Pipeline(
 	, myDescriptorPool(
 		[](const std::shared_ptr<Device<Vk>>& device)
 		{
+			const uint32_t descBaseCount = 1024;
 			VkDescriptorPoolSize poolSizes[]{
-				{VK_DESCRIPTOR_TYPE_SAMPLER, 128 * ShaderTypes_GlobalSamplerCount},
-				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 * ShaderTypes_GlobalSamplerCount},
-				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 128 * ShaderTypes_GlobalTextureCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128 * ShaderTypes_GlobalRWTextureCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 128},
-				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 128},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128},
-				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 128},
-				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 128},
-				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 128},
-				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, 128}};
+				{VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * ShaderTypes_GlobalSamplerCount},
+				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descBaseCount * ShaderTypes_GlobalSamplerCount},
+				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descBaseCount * ShaderTypes_GlobalTextureCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descBaseCount * ShaderTypes_GlobalRWTextureCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount},
+				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, descBaseCount}};
 
 			VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 			poolInfo.poolSizeCount = std::size(poolSizes);
 			poolInfo.pPoolSizes = poolSizes;
-			poolInfo.maxSets = 3 * std::size(poolSizes);
-			poolInfo.flags = 0; //VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			poolInfo.maxSets = descBaseCount * std::size(poolSizes);
+			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 
