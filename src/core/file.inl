@@ -55,17 +55,17 @@ loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 	auto assetFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
 
 	if (!assetFileInfo ||
-		assetFileInfo->size != manifestInfo->assetFileInfo.size ||
-		assetFileInfo->timeStamp.compare(manifestInfo->assetFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2 : false)
+		(assetFileInfo->size != manifestInfo->assetFileInfo.size) ||
+		(assetFileInfo->timeStamp.compare(manifestInfo->assetFileInfo.timeStamp)) != 0 ||
+		(Sha256ChecksumEnable ? (assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2) : false))
 		return std::unexpected(AssetManifestErrorCode::InvalidSourceFile);
 
 	auto cacheFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
 
 	if (!cacheFileInfo ||
-		cacheFileInfo->size != manifestInfo->cacheFileInfo.size ||
-		cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp) != 0 ||
-		Sha256ChecksumEnable ? cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2 : false)
+		(cacheFileInfo->size != manifestInfo->cacheFileInfo.size) ||
+		(cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp)) != 0 ||
+		(Sha256ChecksumEnable ? (cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2) : false))
 		return std::unexpected(AssetManifestErrorCode::InvalidCacheFile);
 
 	return manifestInfo.value();
