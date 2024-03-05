@@ -6,6 +6,25 @@
 namespace file
 {
 
+namespace detail
+{
+
+const char* to_string(AssetManifestErrorCode code)
+{
+	switch (code)
+	{
+	case AssetManifestErrorCode::Missing: return "Missing";
+	case AssetManifestErrorCode::InvalidVersion: return "InvalidVersion";
+	case AssetManifestErrorCode::InvalidLocation: return "InvalidLocation";
+	case AssetManifestErrorCode::InvalidSourceFile: return "InvalidSourceFile";
+	case AssetManifestErrorCode::InvalidCacheFile: return "InvalidCacheFile";
+	}
+
+	return "Unknown";
+}
+
+} // namespace detail
+
 std::string getTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;

@@ -25,6 +25,8 @@ enum class AssetManifestErrorCode : uint8_t
 	InvalidCacheFile,
 };
 
+const char* to_string(AssetManifestErrorCode code);
+
 using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
 
 struct AssetManifest
@@ -296,24 +298,8 @@ void loadAsset(
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
-	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
+	auto importSourceFile = [&]()
 	{
-		ZoneScopedN("loadAsset::loadJSONAssetManifest");
-
-		auto manifestFile = mio::mmap_source(manifestPath.string());
-
-		manifest = loadJSONAssetManifest<LoaderType, LoaderVersion, false>(
-			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
-			[](std::string_view buffer){ return loadJSONObject<AssetManifest>(buffer); });
-	}
-	else
-	{
-		manifest = std::unexpected(AssetManifestErrorCode::Missing);
-	}
-	
-	if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
-	{
-loadAsset_importSourceFile:
 		ZoneScopedN("loadAsset::importSourceFile");
 
 		auto cacheDir = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]);
@@ -343,16 +329,24 @@ loadAsset_importSourceFile:
 
 		if (error)
 			throw std::system_error(std::move(error));
-	}
-	else if (std::holds_alternative<std::error_code>(manifest.error()))
+	};
+
+	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
 	{
-		// manifest is invalid, delete it and re-import source file
-		std::cerr << "Asset manifest is invalid: " << manifestPath << '\n';
-		std::cerr << "Deleting manifest and reimporting source file\n";
-		std::filesystem::remove(manifestPath);
-		goto loadAsset_importSourceFile;
+		ZoneScopedN("loadAsset::loadJSONAssetManifest");
+
+		auto manifestFile = mio::mmap_source(manifestPath.string());
+
+		manifest = loadJSONAssetManifest<LoaderType, LoaderVersion, false>(
+			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
+			[](std::string_view buffer){ return loadJSONObject<AssetManifest>(buffer); });
 	}
 	else
+	{
+		manifest = std::unexpected(AssetManifestErrorCode::Missing);
+	}
+
+	if (manifest)
 	{
 		ZoneScopedN("loadAsset::load");
 
@@ -361,6 +355,21 @@ loadAsset_importSourceFile:
 		if (!cacheFileInfo)
 			throw std::system_error(cacheFileInfo.error());
 	}
+	else
+	{
+		if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
+			std::cerr << "Asset manifest is invalid: " << to_string(std::get<AssetManifestErrorCode>(manifest.error())) << ", Path: " << manifestPath << '\n';
+		else if (std::holds_alternative<std::error_code>(manifest.error()))
+			std::cerr << "Asset manifest is invalid: " << std::get<std::error_code>(manifest.error()).message() << ", Path: " << manifestPath << '\n';
+		else
+			std::cerr << "Asset manifest is invalid: Unknown error, Path: " << manifestPath << '\n';
+
+		std::filesystem::remove(manifestPath);
+		
+		std::cerr << "Reimporting source file\n";
+
+		importSourceFile();
+	}	
 }
 
 } // namespace file
