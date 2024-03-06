@@ -59,7 +59,7 @@ VSOutput vertexMain(InputStream input)
 
 	uint viewId = viewAndMaterialId >> ShaderTypes_MaterialIndexBits;
 
-	ViewData view = g_viewData[viewId][frameIndex];
+	ViewData view = g_viewData[frameIndex][viewId];
 
 	uint objectId = g_pushConstants.objectId;
 
