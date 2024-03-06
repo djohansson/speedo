@@ -314,7 +314,17 @@ function AddExecutable(.Executable .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 
-		.LinkerOptions + .ExecutableLinkerOptions
+		If (.ConfigName == 'debug')
+		{
+			^LinkerOptions + .DebugLinkerOptions
+			^LinkerOptions + .DebugExecutableLinkerOptions
+		}
+		If (.ConfigName != 'debug')
+		{
+			^LinkerOptions + .ReleaseLinkerOptions
+			^LinkerOptions + .ReleaseExecutableLinkerOptions
+		}
+		
 		.LinkerOutput = '$OutputDirectory$/$ConfigName$/$Name$$OutputFileSuffix$'
 	]
 
@@ -343,9 +353,9 @@ function AddExecutable(.Executable .CompilerConfig)
 			^Libraries + .ReturnValues
 		}
 
-		//Print('AddExecutable:$ExecutableName$')
-		//PrintArray('AddExecutable:Libraries:' .Libraries)
-		//PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
+		Print('AddExecutable:$ExecutableName$')
+		PrintArray('AddExecutable:Libraries:' .Libraries)
+		PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
 		Executable('$ExecutableName$') {}
 		^BuildTargets + .ExecutableName
 	}
@@ -369,9 +379,14 @@ function AddTest(.Test .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 				
-		If (.TestWorkingDir == .EmptyString)
+		If(.TestWorkingDir == .EmptyString)
 		{
 			^TestWorkingDir = '$IntermediateDirectory$/$Name$/$ConfigName$'
+		}
+
+		If (.ConfigName == 'debug')
+		{
+			^Environment = .DebugEnvironment
 		}
 
 		.TestExecutable = '$Name$-exe-$ConfigName$'

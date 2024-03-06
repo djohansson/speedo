@@ -69,7 +69,7 @@
 		+ ' -stdlib=libc++'
 		+ ' -I $LLVMPath$/include/c++/v1' // libc++ location
 #endif
-	.LinkerOptions = '"%1" -o "%2" -g'
+	.LinkerOptions = '"%1" -o "%2" -g -v'
 		+ .PlatformLibPaths
 		+ ' -fuse-ld=lld'
 #if !__WINDOWS__
@@ -82,7 +82,8 @@
 		// + ' -z now'
 		// + ' -z relro'
 #else
-		+ ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
+	.DebugLinkerOptions = ' -Wl,-nodefaultlib:libcmtd -lmsvcrtd'
+	.ReleaseLinkerOptions = ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 #if !__WINDOWS__
@@ -110,6 +111,7 @@
 	.ProfilingEnabled = '1'
 	.GraphicsValidationEnabled = '1'
 	.CompilerOptions + ' -O0'
+		+ ' -D_DEBUG'
 		+ ' -fno-omit-frame-pointer'
 	//	+ ' -fsanitize=undefined'
 	// 	+ ' -fsanitize=address'
