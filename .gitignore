@@ -4,10 +4,8 @@ build.*/*
 
 *.fdb
 *.log
-
-env.json
-
 *.dmg
 *.DS_Store
+*.cap
 
-tmp/*
+env.json
