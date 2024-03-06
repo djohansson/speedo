@@ -165,14 +165,6 @@ uint32_t Window<Vk>::internalDrawViews(
 
 				PushConstants pushConstants{.frameIndex = frameIndex};
 
-				vkCmdPushConstants(
-					cmd,
-					pipeline.getLayout(),
-					VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-					offsetof(PushConstants, frameIndex),
-					sizeof(pushConstants.frameIndex),
-					&pushConstants);
-
 				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
 				uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 
@@ -216,14 +208,6 @@ uint32_t Window<Vk>::internalDrawViews(
 
 						pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << ShaderTypes_MaterialIndexBits) | materialIndex;
 
-						vkCmdPushConstants(
-							cmd,
-							pipeline.getLayout(),
-							VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-							offsetof(PushConstants, viewAndMaterialId),
-							sizeof(pushConstants.viewAndMaterialId),
-							&pushConstants);
-
 						auto drawModel = [&pushConstants, &pipeline](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("drawModel");
@@ -231,7 +215,7 @@ uint32_t Window<Vk>::internalDrawViews(
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								uint16_t objectSetIndex = 5ui16;
+								uint16_t objectSetIndex = 0ui16;
 								uint16_t objectIndex = 666ui16;
 
 								pushConstants.objectId = (static_cast<uint32_t>(objectSetIndex) << ShaderTypes_ObjectIndexBits) | objectIndex;
@@ -240,8 +224,8 @@ uint32_t Window<Vk>::internalDrawViews(
 									cmd,
 									pipeline.getLayout(),
 									VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-									offsetof(PushConstants, objectId),
-									sizeof(pushConstants.objectId),
+									0,
+									sizeof(pushConstants),
 									&pushConstants);
 							}
 

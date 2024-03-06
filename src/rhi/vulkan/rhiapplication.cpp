@@ -28,8 +28,8 @@ struct Rhi
 
 	std::shared_ptr<RenderImageSet<G>> renderImageSet;
 
-	std::shared_ptr<Buffer<G>> materials;
-	std::shared_ptr<Buffer<G>> objects;
+	std::unique_ptr<Buffer<G>> materials;
+	std::unique_ptr<Buffer<G>[]> objects;
 
 	Future<void> presentFuture;
 	std::function<void()> IMGUIPrepareDrawFunction;
@@ -1134,7 +1134,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
 		materialData[0].textureAndSamplerId =
 			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
-		rhi<Vk>().materials = std::make_shared<Buffer<Vk>>(
+		rhi<Vk>().materials = std::make_unique<Buffer<Vk>>(
 			rhi<Vk>().device,
 			generalTransferContext,
 			BufferCreateDesc<Vk>{
@@ -1148,7 +1148,8 @@ void RhiApplication::createDevice(const WindowState& window)
 		objectData[666].modelTransform = identityMatrix;
 		objectData[666].inverseTransposeModelTransform =
 			glm::transpose(glm::inverse(identityMatrix));
-		rhi<Vk>().objects = std::make_shared<Buffer<Vk>>(
+		rhi<Vk>().objects = std::make_unique<Buffer<Vk>[]>(ShaderTypes_ObjectSetCount);
+		rhi<Vk>().objects[0] = Buffer<Vk>(
 			rhi<Vk>().device,
 			generalTransferContext,
 			BufferCreateDesc<Vk>{
@@ -1185,11 +1186,14 @@ void RhiApplication::createDevice(const WindowState& window)
 		DescriptorBufferInfo<Vk>{*rhi<Vk>().materials, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_Material);
 
-	rhi<Vk>().pipeline->setDescriptorData(
-		"g_objectData",
-		DescriptorBufferInfo<Vk>{*rhi<Vk>().objects, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_Object,
-		5);
+	for (uint8_t i = 0; i < ShaderTypes_ObjectSetCount; i++)
+	{
+		rhi<Vk>().pipeline->setDescriptorData(
+			"g_objectData",
+			DescriptorBufferInfo<Vk>{rhi<Vk>().objects[i], 0, VK_WHOLE_SIZE},
+			DescriptorSetCategory_Object,
+			i);
+	}
 
 	rhi<Vk>().pipeline->setDescriptorData(
 		"g_samplers",
