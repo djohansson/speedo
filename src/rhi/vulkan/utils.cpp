@@ -9,7 +9,11 @@
 // 		printf("\n"); \
 // 	} while(false)
 // #endif
+#if defined(__WINDOWS__)
 #include <vma/vk_mem_alloc.h>
+#else
+#include <vk_mem_alloc.h>
+#endif
 
 #include <GLFW/glfw3.h>
 #if __WINDOWS__

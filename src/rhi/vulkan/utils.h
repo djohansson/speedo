@@ -1,13 +1,18 @@
 #pragma once
 
+#include <vulkan/vulkan.h>
+#include <vulkan/vk_enum_string_helper.h>
+
+#if defined(__WINDOWS__)
+#include <vma/vk_mem_alloc.h>
+#else
+#include <vk_mem_alloc.h>
+#endif
+
 #include <core/utils.h>
 #include <rhi/types.h>
 
 #include <vector>
-
-#include <vma/vk_mem_alloc.h>
-#include <vulkan/vulkan.h>
-#include <vulkan/vk_enum_string_helper.h>
 
 #if PROFILING_ENABLED
 #	define VK_CHECK(expr)                                                                         \
