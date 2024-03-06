@@ -22,7 +22,7 @@
 #include <vector>
 #include <version>
 
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 
 #include <mio/mmap.hpp>
 
@@ -62,28 +62,28 @@ private:
 };
 
 template <typename T, typename Handle>
-struct HandleHash : robin_hood::hash<Handle>
+struct HandleHash : ankerl::unordered_dense::hash<Handle>
 {
 	size_t operator()(const T& obj) const
 	{
-		return robin_hood::hash<Handle>::operator()(static_cast<Handle>(obj));
+		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(obj));
 	}
 	size_t operator()(const Handle& handle) const
 	{
-		return robin_hood::hash<Handle>::operator()(handle);
+		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
 	}
 };
 
 template <typename T, typename Handle>
-struct HandleHash<std::shared_ptr<T>, Handle> : robin_hood::hash<Handle>
+struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Handle>
 {
 	size_t operator()(const std::shared_ptr<T>& ptr) const
 	{
-		return robin_hood::hash<Handle>::operator()(static_cast<Handle>(*ptr));
+		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(*ptr));
 	}
 	size_t operator()(const Handle& handle) const
 	{
-		return robin_hood::hash<Handle>::operator()(handle);
+		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
 	}
 
 	using is_transparent = int;
@@ -155,14 +155,14 @@ public:
 template <
 	typename Key,
 	typename Value,
-	typename KeyHash = robin_hood::hash<Key>,
+	typename KeyHash = ankerl::unordered_dense::hash<Key>,
 	typename KeyEqualTo = std::equal_to<Key>>
-using UnorderedMap = robin_hood::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
+using UnorderedMap = ankerl::unordered_dense::map<Key, Value, KeyHash, KeyEqualTo>;
 template <
 	typename Key,
-	typename KeyHash = robin_hood::hash<Key>,
+	typename KeyHash = ankerl::unordered_dense::hash<Key>,
 	typename KeyEqualTo = std::equal_to<Key>>
-using UnorderedSet = robin_hood::unordered_set<Key, KeyHash, KeyEqualTo>;
+using UnorderedSet = ankerl::unordered_dense::set<Key, KeyHash, KeyEqualTo>;
 
 template <typename Key, typename T, typename ContainerT = std::vector<std::pair<Key, T>>>
 class FlatMap : public ContainerT

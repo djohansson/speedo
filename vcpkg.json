@@ -10,8 +10,8 @@
     "mimalloc",
     "mio",
     "picosha2",
-    "robin-hood-hashing",
     "stduuid",
+    "unordered-dense",
     "xxhash",
     "zpp-bits",
     "zeromq"
