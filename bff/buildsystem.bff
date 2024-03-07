@@ -353,9 +353,9 @@ function AddExecutable(.Executable .CompilerConfig)
 			^Libraries + .ReturnValues
 		}
 
-		Print('AddExecutable:$ExecutableName$')
-		PrintArray('AddExecutable:Libraries:' .Libraries)
-		PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
+		//Print('AddExecutable:$ExecutableName$')
+		//PrintArray('AddExecutable:Libraries:' .Libraries)
+		//PrintArray('AddExecutable:PrebuildDependencies:' .PreBuildDependencies)
 		Executable('$ExecutableName$') {}
 		^BuildTargets + .ExecutableName
 	}

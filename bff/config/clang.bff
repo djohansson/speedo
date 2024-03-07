@@ -81,6 +81,8 @@
 		// + ' -fdata-sections'
 		// + ' -z now'
 		// + ' -z relro'
+	.DebugLinkerOptions = ''
+	.ReleaseLinkerOptions = ''
 #else
 	.DebugLinkerOptions = ' -Wl,-nodefaultlib:libcmtd -lmsvcrtd'
 	.ReleaseLinkerOptions = ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
