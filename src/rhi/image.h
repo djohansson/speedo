@@ -1,8 +1,7 @@
 #pragma once
 
-#include "command.h"
 #include "device.h"
-#include "types.h"
+#include "queue.h"
 
 #include <filesystem>
 #include <memory>
@@ -40,11 +39,11 @@ public:
 		ImageCreateDesc<G>&& desc);
 	Image( // loads a file into a buffer and creates a new image from it.
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolContext<G>& commandContext,
+		QueueContext<G>& queueContext,
 		const std::filesystem::path& imageFile);
 	Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolContext<G>& commandContext,
+		QueueContext<G>& queueContext,
 		ImageCreateDesc<G>&& desc,
 		const void* initialData,
 		size_t initialDataSize);
@@ -75,7 +74,7 @@ public:
 private:
 	Image( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolContext<G>& commandContext,
+		QueueContext<G>& queueContext,
 		std::tuple<ImageCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
 	Image( // takes ownership of provided image handle & allocation
 		const std::shared_ptr<Device<G>>& device,

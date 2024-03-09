@@ -240,10 +240,14 @@ Device<Vk>::Device(
 		queuePriorities.resize(queueFamilyProperty.queueCount);
 		std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0f);
 
+		std::cout << "Queue Family " << queueFamilyIt << 
+			", queueFlags: " << queueFamilyProperty.queueFlags <<
+			", queueCount: " << queueFamilyProperty.queueCount << '\n';
+
 		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
 			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
 			nullptr,
-			0, //queueFamilyProperty.queueFlags,
+			0, //VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT,
 			queueFamilyIt,
 			static_cast<uint32_t>(queuePriorities.size()),
 			queuePriorities.data()});

@@ -1,11 +1,11 @@
 #pragma once
 
+#include "capi.h"
+
 #include <core/application.h>
 #include <core/capi.h>
 #include <core/file.h>
 #include <core/future.h>
-
-#include "capi.h"
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
@@ -18,16 +18,6 @@
 #include <tuple>
 
 #include <nfd.h>
-
-enum CommandType : uint8_t
-{
-	CommandType_GeneralPrimary,
-	CommandType_GeneralSecondary,
-	CommandType_GeneralTransfer,
-	CommandType_DedicatedCompute,
-	CommandType_DedicatedTransfer,
-	CommandType_Count
-};
 
 template <GraphicsApi G>
 struct Rhi;

@@ -63,9 +63,7 @@ public:
 	void draw(
 		TaskExecutor& executor,
 		Pipeline<G>& pipeline,
-		CommandPoolContext<G>& primaryContext,
-		CommandPoolContext<Vk>* secondaryContexts,
-		uint32_t secondaryContextCount);
+		QueueContext<Vk>& queueContext);
 	//
 
 private:
@@ -75,8 +73,7 @@ private:
 
 	uint32_t internalDrawViews(
 		Pipeline<G>& pipeline,
-		CommandPoolContext<Vk>* secondaryContexts,
-		uint32_t secondaryContextCount,
+		QueueContext<Vk>& queueContext,
 		const RenderPassBeginInfo<G>& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;

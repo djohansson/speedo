@@ -80,13 +80,12 @@ void Window<Vk>::internalUpdateViewBuffer() const
 template <>
 uint32_t Window<Vk>::internalDrawViews(
 	Pipeline<Vk>& pipeline,
-	CommandPoolContext<Vk>* secondaryContexts,
-	uint32_t secondaryContextCount,
+	QueueContext<Vk>& queueContext,
 	const RenderPassBeginInfo<Vk>& renderPassInfo)
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
-	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, secondaryContextCount);
+	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, std::max(1, queueContext.getDesc().levelCount - 1));
 
 	std::atomic_uint32_t drawAtomic = 0ul;
 
@@ -105,7 +104,7 @@ uint32_t Window<Vk>::internalDrawViews(
 			seq.begin(),
 			drawThreadCount,
 			[&pipeline,
-			 &secondaryContexts,
+			 &queueContext,
 			 &renderPassInfo,
 			 frameIndex = internalGetFrameIndex(),
 			 &drawAtomic,
@@ -131,10 +130,9 @@ uint32_t Window<Vk>::internalDrawViews(
 				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
 								  VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 				beginInfo.pInheritanceInfo = &inheritInfo;
-				beginInfo.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+				beginInfo.level = threadIt + 1;
 
-				auto& commandContext = secondaryContexts[threadIt];
-				auto cmd = commandContext.commands(beginInfo);
+				auto cmd = queueContext.commands(beginInfo);
 
 				auto bindState = [&pipeline](VkCommandBuffer cmd)
 				{
@@ -417,9 +415,7 @@ template <>
 void Window<Vk>::draw(
 	TaskExecutor& executor,
 	Pipeline<Vk>& pipeline,
-	CommandPoolContext<Vk>& primaryContext,
-	CommandPoolContext<Vk>* secondaryContexts,
-	uint32_t secondaryContextCount)
+	QueueContext<Vk>& queueContext)
 {
 	ZoneScopedN("Window::draw");
 
@@ -432,14 +428,13 @@ void Window<Vk>::draw(
 
 	auto& renderTarget = pipeline.getRenderTarget();
 
-	auto cmd = primaryContext.commands();
+	auto cmd = queueContext.commands();
 	auto renderPassInfo = renderTarget.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
-	uint32_t drawThreadCount = internalDrawViews(
-		pipeline, secondaryContexts, secondaryContextCount, renderPassInfo.value());
+	uint32_t drawThreadCount = internalDrawViews(pipeline, queueContext, renderPassInfo.value());
 
-	for (uint32_t contextIt = 0ul; contextIt < drawThreadCount; contextIt++)
-		primaryContext.execute(secondaryContexts[contextIt]);
+	for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
+		queueContext.execute(threadIt);
 
 	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 	renderTarget.end(cmd);

@@ -1,8 +1,7 @@
 #pragma once
 
-#include "command.h"
 #include "device.h"
-#include "types.h"
+#include "queue.h"
 
 #include <memory>
 #include <tuple>
@@ -28,7 +27,7 @@ public:
 		BufferCreateDesc<G>&& desc);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolContext<G>& commandContext,
+		QueueContext<G>& queueContext,
 		BufferCreateDesc<G>&& desc,
 		const void* initialData);
 	~Buffer();
@@ -45,7 +44,7 @@ public:
 protected:
 	Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolContext<G>& commandContext,
+		QueueContext<G>& queueContext,
 		std::tuple<BufferCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
 
 private:

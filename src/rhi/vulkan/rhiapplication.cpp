@@ -1,41 +1,5 @@
-#include "../command.h"
-#include "../device.h"
-#include "../instance.h"
-#include "../pipeline.h"
-#include "../renderimageset.h"
+#include "../rhi.h"
 #include "../rhiapplication.h"
-#include "../types.h"
-#include "../window.h"
-
-#include "../shaders/shadertypes.h"
-
-template <GraphicsApi G>
-struct Rhi
-{
-	std::shared_ptr<Instance<G>> instance;
-	std::shared_ptr<Device<G>> device;
-
-	std::shared_ptr<Window<G>> mainWindow;
-	std::shared_ptr<Pipeline<G>> pipeline;
-
-	CircularContainer<Queue<G>> graphicsQueues;
-	CircularContainer<Queue<G>> computeQueues;
-	CircularContainer<Queue<G>> transferQueues;
-
-	std::array<CircularContainer<CommandPoolContext<G>>, CommandType_Count> commands;
-
-	//std::shared_ptr<ResourceContext<G>> resources;
-
-	std::shared_ptr<RenderImageSet<G>> renderImageSet;
-
-	std::unique_ptr<Buffer<G>> materials;
-	std::unique_ptr<Buffer<G>[]> objects;
-
-	Future<void> presentFuture;
-	std::function<void()> IMGUIPrepareDrawFunction;
-	std::function<void(CommandBufferHandle<Vk> cmd)> IMGUIDrawFunction; // todo: remove GraphicsApi specialization
-};
-
 #include "utils.h"
 
 #include <core/application.h>
@@ -121,13 +85,15 @@ static void initIMGUI(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
+	const auto& graphicsContext = rhi.queueContexts.at(QueueContextType_Graphics).get();
+
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
 	initInfo.Instance = *rhi.instance;
 	initInfo.PhysicalDevice = rhi.device->getPhysicalDevice();
 	initInfo.Device = *rhi.device;
-	initInfo.QueueFamily = rhi.graphicsQueues.get().getDesc().queueFamilyIndex;
-	initInfo.Queue = rhi.graphicsQueues.get();
+	initInfo.QueueFamily = graphicsContext.getDesc().queueFamilyIndex;
+	initInfo.Queue = graphicsContext.queue();
 	initInfo.PipelineCache = rhi.pipeline->getCache();
 	initInfo.DescriptorPool = rhi.pipeline->getDescriptorPool();
 	initInfo.MinImageCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
@@ -262,19 +228,17 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 
 	auto loadModel = [this](nfdchar_t* openFilePath)
 	{
-		auto& dedicatedTransferContext =
-			rhi<Vk>().commands[CommandType_DedicatedTransfer].fetchAdd();
-
-		auto& transferQueue = rhi<Vk>().transferQueues.fetchAdd();
+		auto& transferContext = rhi<Vk>().queueContexts[QueueContextType_Transfer].fetchAdd();
+		auto& transferQueue = transferContext.queue();
 
 		rhi<Vk>().device->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
 
-		dedicatedTransferContext.reset();
+		transferContext.reset();
 
 		rhi<Vk>().pipeline->setModel(
-			std::make_shared<Model<Vk>>(rhi<Vk>().device, dedicatedTransferContext, openFilePath));
+			std::make_shared<Model<Vk>>(rhi<Vk>().device, transferContext, openFilePath));
 
-		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(transferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
@@ -286,21 +250,19 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 
 	auto loadImage = [this](nfdchar_t* openFilePath)
 	{
-		auto& dedicatedTransferContext =
-			rhi<Vk>().commands[CommandType_DedicatedTransfer].fetchAdd();
-
-		auto& transferQueue = rhi<Vk>().transferQueues.fetchAdd();
+		auto& transferContext = rhi<Vk>().queueContexts[QueueContextType_Transfer].fetchAdd();
+		auto& transferQueue = transferContext.queue();
 
 		rhi<Vk>().device->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
 
-		dedicatedTransferContext.reset();
+		transferContext.reset();
 
 		rhi<Vk>().pipeline->resources().image =
-			std::make_shared<Image<Vk>>(rhi<Vk>().device, dedicatedTransferContext, openFilePath);
+			std::make_shared<Image<Vk>>(rhi<Vk>().device, transferContext, openFilePath);
 		rhi<Vk>().pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
 			rhi<Vk>().device, *rhi<Vk>().pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
-		transferQueue.enqueueSubmit(dedicatedTransferContext.prepareSubmit(
+		transferQueue.enqueueSubmit(transferContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
@@ -311,16 +273,16 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 
 		///////////
 
-		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
-		auto cmd = generalTransferContext.commands();
+		auto& graphicsContext = rhi<Vk>().queueContexts[QueueContextType_Graphics].fetchAdd();
+		auto& graphicsQueue = graphicsContext.queue();
 
-		auto& graphicsQueue = rhi<Vk>().graphicsQueues.get();
+		auto cmd = graphicsContext.commands();
 
 		rhi<Vk>().pipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 		cmd.end();
 
-		graphicsQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
+		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 			{{rhi<Vk>().device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
 			 {transferQueue.getLastSubmitTimelineValue().value_or(0)},
@@ -984,76 +946,37 @@ void RhiApplication::createDevice(const WindowState& window)
 	{
 		uint32_t frameCount = rhi<Vk>().mainWindow->getConfig().swapchainConfig.imageCount;
 
-		auto& primaryContexts = rhi<Vk>().commands[CommandType_GeneralPrimary];
-		auto& secondaryContexts = rhi<Vk>().commands[CommandType_GeneralSecondary];
-		auto& generalTransferContexts = rhi<Vk>().commands[CommandType_GeneralTransfer];
-		auto& dedicatedComputeContexts = rhi<Vk>().commands[CommandType_DedicatedCompute];
-		auto& dedicatedTransferContexts = rhi<Vk>().commands[CommandType_DedicatedTransfer];
-
-		auto& graphicsQueues = rhi<Vk>().graphicsQueues;
-		auto& computeQueues = rhi<Vk>().computeQueues;
-		auto& transferQueues = rhi<Vk>().transferQueues;
+		auto& queueContexts = rhi<Vk>().queueContexts;
 
 		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-		constexpr bool useCommandBufferCreateReset = true;
-		if (useCommandBufferCreateReset)
+		constexpr bool usePoolReset = true;
+		if (usePoolReset)
 			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
+		unsigned threadCount = std::max(1u, std::thread::hardware_concurrency());
+
 		const auto& queueFamilies = rhi<Vk>().device->getQueueFamilies();
-		for (auto queueFamilyIt = queueFamilies.begin(); queueFamilyIt != queueFamilies.end();
-			 queueFamilyIt++)
+		for (unsigned i = 0; i < queueFamilies.size(); i++)
 		{
-			const auto& queueFamily = *queueFamilyIt;
-			auto queueFamilyIndex =
-				static_cast<uint32_t>(std::distance(queueFamilies.begin(), queueFamilyIt));
+			const auto& queueFamily = queueFamilies[i];
 
-			if (queueFamily.flags & QueueFamilyFlagBits_Graphics)
+			for (uint8_t typeIt = 0; typeIt < QueueContextType_Count; typeIt++)
 			{
-				for (uint32_t frameIt = 0ul; frameIt < frameCount; frameIt++)
+				if (queueFamily.flags & (1 << typeIt))
 				{
-					primaryContexts.emplace_back(CommandPoolContext<Vk>(
-						rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-					for (uint32_t secondaryContextIt = 0ul; secondaryContextIt < 4;
-						 secondaryContextIt++)
+					auto [it, wasInserted] = queueContexts.emplace(static_cast<QueueContextType>(typeIt), CircularContainer<QueueContext<Vk>>());
+					it->second.reserve(it->second.size() + queueFamily.queueCount);
+					for (unsigned queueIt = 0; queueIt < queueFamily.queueCount; queueIt++)
 					{
-						secondaryContexts.emplace_back(CommandPoolContext<Vk>(
+						it->second.emplace_back(
 							rhi<Vk>().device,
-							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
+							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, i, typeIt == QueueContextType_Graphics ? threadCount : 1},
+							QueueCreateDesc<Vk>{queueIt, i});
 					}
+
+					break;
 				}
-
-				generalTransferContexts.emplace_back(CommandPoolContext<Vk>(
-					rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-				graphicsQueues.emplace_back(Queue<Vk>(
-					rhi<Vk>().device,
-					QueueCreateDesc<Vk>{
-						0,
-						queueFamilyIndex,
-						primaryContexts.back().commands(
-							CommandBufferAccessScopeDesc<Vk>(false))}));
-			}
-			else if (queueFamily.flags & QueueFamilyFlagBits_Compute)
-			{
-				// only need one for now..
-
-				dedicatedComputeContexts.emplace_back(CommandPoolContext<Vk>(
-					rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-				computeQueues.emplace_back(
-					Queue<Vk>(rhi<Vk>().device, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
-			}
-			else if (queueFamily.flags & QueueFamilyFlagBits_Transfer)
-			{
-				// only need one for now..
-
-				dedicatedTransferContexts.emplace_back(CommandPoolContext<Vk>(
-					rhi<Vk>().device, CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIndex}));
-
-				transferQueues.emplace_back(
-					Queue<Vk>(rhi<Vk>().device, QueueCreateDesc<Vk>{0, queueFamilyIndex}));
 			}
 		}
 	}
@@ -1097,12 +1020,12 @@ void RhiApplication::createDevice(const WindowState& window)
 		std::make_shared<SamplerVector<Vk>>(rhi<Vk>().device, std::move(samplerCreateInfos));
 	//
 
-	// initialize stuff on general transfer queue
+	// initialize stuff on graphics queue
 	{
-		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
-		auto& transferQueue = rhi<Vk>().graphicsQueues.fetchAdd();
+		auto& graphicsContext = rhi<Vk>().queueContexts[QueueContextType_Graphics].fetchAdd();
+		auto& graphicsQueue = graphicsContext.queue();
 		
-		auto cmd = generalTransferContext.commands();
+		auto cmd = graphicsContext.commands();
 
 		rhi<Vk>().pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		rhi<Vk>().pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
@@ -1112,14 +1035,14 @@ void RhiApplication::createDevice(const WindowState& window)
 
 		cmd.end();
 
-		transferQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
+		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 			{{rhi<Vk>().device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {transferQueue.getLastSubmitTimelineValue().value_or(0)},
+			 {graphicsQueue.getLastSubmitTimelineValue().value_or(0)},
 			 {rhi<Vk>().device->getTimelineSemaphore()},
 			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		transferQueue.submit();
+		graphicsQueue.submit();
 	}
 
 	constexpr uint32_t textureId = 1;
@@ -1127,8 +1050,8 @@ void RhiApplication::createDevice(const WindowState& window)
 	static_assert(textureId < ShaderTypes_GlobalTextureCount);
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& generalTransferContext = rhi<Vk>().commands[CommandType_GeneralTransfer].fetchAdd();
-		auto& transferQueue = rhi<Vk>().graphicsQueues.fetchAdd();
+		auto& graphicsContext = rhi<Vk>().queueContexts[QueueContextType_Graphics].fetchAdd();
+		auto& graphicsQueue = graphicsContext.queue();
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
@@ -1136,7 +1059,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
 		rhi<Vk>().materials = std::make_unique<Buffer<Vk>>(
 			rhi<Vk>().device,
-			generalTransferContext,
+			graphicsContext,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_MaterialCount * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1151,21 +1074,21 @@ void RhiApplication::createDevice(const WindowState& window)
 		rhi<Vk>().objects = std::make_unique<Buffer<Vk>[]>(ShaderTypes_ObjectSetCount);
 		rhi<Vk>().objects[0] = Buffer<Vk>(
 			rhi<Vk>().device,
-			generalTransferContext,
+			graphicsContext,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_ObjectCount * sizeof(ObjectData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			objectData.get());
 
-		transferQueue.enqueueSubmit(generalTransferContext.prepareSubmit(
+		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 			{{},
 			 {},
 			 {},
 			 {rhi<Vk>().device->getTimelineSemaphore()},
 			 {1 + rhi<Vk>().device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		transferQueue.submit();
+		graphicsQueue.submit();
 	}
 
 	auto layoutHandle = rhi<Vk>().pipeline->createLayout(shaderReflection);
@@ -1269,28 +1192,22 @@ bool RhiApplication::tick()
 		{
 			ZoneScopedN("RhiApplication::draw::submit");
 
-			auto& primaryContext = rhi<Vk>().commands[CommandType_GeneralPrimary].fetchAdd();
-			constexpr uint32_t secondaryContextCount = 4;
-			auto secondaryContexts = &rhi<Vk>().commands[CommandType_GeneralSecondary].fetchAdd(
-				secondaryContextCount);
-
-			auto& graphicsQueue = rhi<Vk>().graphicsQueues.fetchAdd();
+			auto& graphicsContext = rhi<Vk>().queueContexts[QueueContextType_Graphics].fetchAdd();
+			auto& graphicsQueue = graphicsContext.queue();
 
 			if (lastPresentTimelineValue)
 			{
 				{
 					ZoneScopedN("RhiApplication::draw::waitFrame");
 
-					rhi<Vk>().device->wait(lastPresentTimelineValue);
+					//rhi<Vk>().device->wait(lastPresentTimelineValue);
+					graphicsQueue.waitIdle();
 				}
 
-				primaryContext.reset();
-
-				for (uint32_t secIt = 0; secIt < secondaryContextCount; secIt++)
-					secondaryContexts[secIt].reset();
+				graphicsContext.reset();
 			}
 
-			auto cmd = primaryContext.commands();
+			auto cmd = graphicsContext.commands();
 
 			GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
@@ -1313,9 +1230,7 @@ bool RhiApplication::tick()
 				rhi<Vk>().mainWindow->draw(
 					executor(),
 					*rhi<Vk>().pipeline,
-					primaryContext,
-					secondaryContexts,
-					secondaryContextCount);
+					graphicsContext);
 			}
 			{
 				GPU_SCOPE(cmd, graphicsQueue, imgui);
@@ -1337,7 +1252,7 @@ bool RhiApplication::tick()
 
 			auto [imageAquired, renderComplete] = rhi<Vk>().mainWindow->getFrameSyncSemaphores();
 
-			graphicsQueue.enqueueSubmit(primaryContext.prepareSubmit(
+			graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 				{{rhi<Vk>().device->getTimelineSemaphore(), imageAquired},
 					{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
 					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
@@ -1374,7 +1289,7 @@ bool RhiApplication::tick()
 	});
 
 	auto [presentTask, presentFuture] = frameGraph.createTask(
-		[](Queue<Vk>* queue) { queue->present(); }, &rhi<Vk>().graphicsQueues.get());
+		[](Queue<Vk>* queue) { queue->present(); }, &rhi<Vk>().queueContexts[QueueContextType_Graphics].get().queue());
 
 	frameGraph.addDependency(drawTask, presentTask);
 
@@ -1400,7 +1315,9 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 	{
 		ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
 
-		rhi<Vk>().device->wait(rhi<Vk>().graphicsQueues.get().getLastSubmitTimelineValue().value_or(0));
+		auto& graphicsQueue = rhi<Vk>().queueContexts[QueueContextType_Graphics].get().queue();
+
+		rhi<Vk>().device->wait(graphicsQueue.getLastSubmitTimelineValue().value_or(0));
 	}
 
 	auto physicalDevice = rhi<Vk>().device->getPhysicalDevice();

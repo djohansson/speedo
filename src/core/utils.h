@@ -285,23 +285,14 @@ template <typename T, typename ContainerT = std::vector<T>, typename IndexT = ui
 class CircularContainer : public ContainerT
 {
 public:
-	using value_type = T;
-	using container_type = ContainerT;
-	using container_type::back;
-	using container_type::begin;
-	using container_type::emplace_back;
-	using container_type::end;
-	using container_type::front;
-
-	T& get() { return container_type::at(myHead); }
-
-	const T& get() const { return container_type::at(myHead); }
+	T& get() { return ContainerT::at(myHead); }
+	const T& get() const { return ContainerT::at(myHead); }
 
 	T& fetchAdd(IndexT offset = 1u)
 	{
 		auto index = myHead;
-		myHead = (myHead + offset) % container_type::size();
-		return container_type::at(index);
+		myHead = (myHead + offset) % ContainerT::size();
+		return ContainerT::at(index);
 	}
 
 private:

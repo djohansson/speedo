@@ -1,7 +1,6 @@
 #pragma once
 
 #include "device.h"
-#include "queue.h"
 #include "types.h"
 
 #include <array>
@@ -15,7 +14,7 @@ template <GraphicsApi G>
 struct CommandBufferArrayCreateDesc
 {
 	CommandPoolHandle<G> pool{};
-	CommandBufferLevel<G> level{};
+	uint8_t level = 0; // 0: primary, >= 1: secondary
 	bool useBufferReset = false;
 };
 
@@ -85,8 +84,8 @@ struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 	CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other);
 	bool operator==(const CommandBufferAccessScopeDesc<G>& other) const;
 
-	CommandBufferLevel<G> level{};
 	CommandBufferInheritanceInfo<Vk> inheritance{};
+	uint8_t level = 0; // 0: primary, >= 1: secondary
 	bool scopedBeginEnd = true;
 };
 
@@ -110,7 +109,7 @@ public:
 		lhs.swap(rhs);
 	}
 
-	const auto& getDesc() const { return myDesc; }
+	const auto& getDesc() const noexcept { return myDesc; }
 
 	void begin() { myIndex = myArray->begin(myDesc); }
 	void end() const { myArray->end(myIndex); }
@@ -123,11 +122,14 @@ private:
 };
 
 template <GraphicsApi G>
+using CommandBufferListType = std::list<std::tuple<CommandBufferArray<G>, uint64_t>>;
+
+template <GraphicsApi G>
 struct CommandPoolCreateDesc
 {
 	CommandPoolCreateFlags<G> flags{};
 	uint32_t queueFamilyIndex = 0ul;
-	bool usePoolReset = true;
+	uint8_t levelCount = 1;
 };
 
 template <GraphicsApi G>
@@ -143,12 +145,27 @@ public:
 	CommandPool& operator=(CommandPool&& other) noexcept;
 	operator auto() const noexcept { return myPool; }
 
+	const auto& getDesc() const noexcept { return myDesc; }
+
 	void swap(CommandPool& rhs) noexcept;
 	friend void swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	void reset();
 
-	virtual void reset();
+	CommandBufferAccessScope<G> commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
+
+protected:
+	CommandBufferAccessScope<G> internalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
+	CommandBufferAccessScope<G> internalCommands(const CommandBufferAccessScopeDesc<G>& beginInfo) const;
+	void internalEndCommands(uint8_t level);
+	void internalEnqueueOnePending(uint8_t level);
+	void internalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
+
+	auto& internalGetPendingCommands() noexcept { return myPendingCommands; }
+	const auto& internalGetPendingCommands() const noexcept { return myPendingCommands; }
+
+	auto& internalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
+	const auto& internalGetSubmittedCommands() const noexcept { return mySubmittedCommands; }
 
 private:
 	CommandPool(
@@ -157,56 +174,10 @@ private:
 
 	CommandPoolCreateDesc<G> myDesc{};
 	CommandPoolHandle<G> myPool{};
-};
-
-template <GraphicsApi G>
-class CommandPoolContext final : public CommandPool<G>
-{
-	static constexpr uint32_t kCommandBufferLevelCount = 2;
-
-	using CommandBufferListType = std::list<std::tuple<CommandBufferArray<G>, uint64_t>>;
-
-public:
-	constexpr CommandPoolContext() noexcept = default;
-	CommandPoolContext(
-		const std::shared_ptr<Device<G>>& device,
-		CommandPoolCreateDesc<G>&& poolDesc);
-	CommandPoolContext(CommandPoolContext&& other) noexcept;
-	~CommandPoolContext();
-
-	CommandPoolContext& operator=(CommandPoolContext&& other) noexcept;
-
-	virtual void reset();
-
-	void swap(CommandPoolContext& other) noexcept;
-	friend void swap(CommandPoolContext& lhs, CommandPoolContext& rhs) noexcept { lhs.swap(rhs); }
-
-	CommandBufferAccessScope<G> commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
-
-	uint64_t execute(CommandPoolContext<G>& callee);
-
-	QueueSubmitInfo<G> prepareSubmit(QueueSyncInfo<G>&& syncInfo);
-
-	// these will be called when the GPU has reached the timeline value of the submission (prepareSubmit).
-	// useful for ensuring that dependencies are respected when releasing resources. do not remove.
-	void addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback);
-
-private:
-	CommandBufferAccessScope<G>
-	internalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
-	CommandBufferAccessScope<G>
-	internalCommands(const CommandBufferAccessScopeDesc<G>& beginInfo) const;
-	void internalEndCommands(CommandBufferLevel<G> level);
-	void internalEnqueueOnePending(CommandBufferLevel<G> level);
-	void internalEnqueueSubmitted(
-		CommandBufferListType&& commands, CommandBufferLevel<G> level, uint64_t timelineValue);
-
-	std::array<CommandBufferListType, kCommandBufferLevelCount> myPendingCommands;
-	std::array<CommandBufferListType, kCommandBufferLevelCount> mySubmittedCommands;
-	std::array<CommandBufferListType, kCommandBufferLevelCount> myFreeCommands;
-	std::array<std::optional<CommandBufferAccessScope<G>>, kCommandBufferLevelCount>
-		myRecordingCommands;
-	std::list<TimelineCallback> myCommandsFinishedCallbacks;
+	std::vector<CommandBufferListType<G>> myPendingCommands;
+	std::vector<CommandBufferListType<G>> mySubmittedCommands;
+	std::vector<CommandBufferListType<G>> myFreeCommands;
+	std::vector<std::optional<CommandBufferAccessScope<G>>> myRecordingCommands;
 };
 
 #include "command.inl"

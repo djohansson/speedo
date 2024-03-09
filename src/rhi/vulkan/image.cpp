@@ -410,20 +410,20 @@ Image<Vk>::Image(const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&
 template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolContext<Vk>& commandContext,
+	QueueContext<Vk>& queueContext,
 	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Image(
 		  device,
 		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  std::tuple_cat(
 			  image::createImage2D(
-				  commandContext.commands(),
+				  queueContext.commands(),
 				  device->getAllocator(),
 				  std::get<1>(descAndInitialData),
 				  std::get<0>(descAndInitialData)),
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
-	commandContext.addCommandsFinishedCallback(
+	queueContext.addCommandsFinishedCallback(
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
@@ -436,13 +436,13 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolContext<Vk>& commandContext,
+	QueueContext<Vk>& queueContext,
 	ImageCreateDesc<Vk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
 		  device,
-		  commandContext,
+		  queueContext,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(
@@ -452,9 +452,9 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolContext<Vk>& commandContext,
+	QueueContext<Vk>& queueContext,
 	const std::filesystem::path& imageFile)
-	: Image(device, commandContext, image::load(imageFile, device))
+	: Image(device, queueContext, image::load(imageFile, device))
 {}
 
 template <>

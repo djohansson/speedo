@@ -20,7 +20,7 @@ static auto createArray(
 
 		VkCommandBufferAllocateInfo cmdInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 		cmdInfo.commandPool = desc.pool;
-		cmdInfo.level = desc.level;
+		cmdInfo.level = desc.level == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		cmdInfo.commandBufferCount = CommandBufferArray<Vk>::capacity();
 		VK_CHECK(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
 	}
@@ -160,7 +160,13 @@ CommandPool<Vk>::CommandPool(
 		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
 	, myDesc(std::forward<CommandPoolCreateDesc<Vk>>(std::get<0>(descAndData)))
 	, myPool(std::forward<CommandPoolHandle<Vk>>(std::get<1>(descAndData)))
-{}
+	, myPendingCommands(myDesc.levelCount)
+	, mySubmittedCommands(myDesc.levelCount)
+	, myFreeCommands(myDesc.levelCount)
+	, myRecordingCommands(myDesc.levelCount)
+{
+	assert(myDesc.levelCount > 0);
+}
 
 template <>
 CommandPool<Vk>::CommandPool(
@@ -191,6 +197,10 @@ CommandPool<Vk>::CommandPool(CommandPool&& other) noexcept
 	: DeviceObject(std::forward<CommandPool>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myPool(std::exchange(other.myPool, {}))
+	, myPendingCommands(std::exchange(other.myPendingCommands, {}))
+	, mySubmittedCommands(std::exchange(other.mySubmittedCommands, {}))
+	, myFreeCommands(std::exchange(other.myFreeCommands, {}))
+	, myRecordingCommands(std::exchange(other.myRecordingCommands, {}))
 {}
 
 template <>
@@ -209,6 +219,10 @@ CommandPool<Vk>& CommandPool<Vk>::operator=(CommandPool&& other) noexcept
 	DeviceObject::operator=(std::forward<CommandPool>(other));
 	myDesc = std::exchange(other.myDesc, {});
 	myPool = std::exchange(other.myPool, {});
+	myPendingCommands = std::exchange(other.myPendingCommands, {});
+	mySubmittedCommands = std::exchange(other.mySubmittedCommands, {});
+	myFreeCommands = std::exchange(other.myFreeCommands, {});
+	myRecordingCommands = std::exchange(other.myRecordingCommands, {});
 	return *this;
 }
 
@@ -218,6 +232,10 @@ void CommandPool<Vk>::swap(CommandPool& other) noexcept
 	DeviceObject::swap(other);
 	std::swap(myDesc, other.myDesc);
 	std::swap(myPool, other.myPool);
+	std::swap(myPendingCommands, other.myPendingCommands);
+	std::swap(mySubmittedCommands, other.mySubmittedCommands);
+	std::swap(myFreeCommands, other.myFreeCommands);
+	std::swap(myRecordingCommands, other.myRecordingCommands);
 }
 
 template <>
@@ -225,19 +243,31 @@ void CommandPool<Vk>::reset()
 {
 	ZoneScopedN("CommandPool::reset");
 
-	if (getDesc().usePoolReset)
+	if (getDesc().flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT)
 	{
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
 		VK_CHECK(vkResetCommandPool(
 			*getDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
 	}
+
+	for (uint32_t levelIt = 0ul; levelIt < mySubmittedCommands.size(); levelIt++)
+	{
+		auto& submittedCommandList = mySubmittedCommands[levelIt];
+
+		for (auto& commands : submittedCommandList)
+			std::get<0>(commands).reset();
+
+		auto& freeCommandList = myFreeCommands[levelIt];
+
+		freeCommandList.splice(freeCommandList.end(), std::move(submittedCommandList));
+	}
 }
 
 template <>
-void CommandPoolContext<Vk>::internalEnqueueOnePending(CommandBufferLevel<Vk> level)
+void CommandPool<Vk>::internalEnqueueOnePending(uint8_t level)
 {
-	ZoneScopedN("CommandPoolContext::internalEnqueueOnePending");
+	ZoneScopedN("CommandPool::internalEnqueueOnePending");
 
 	if (!myFreeCommands[level].empty())
 	{
@@ -263,11 +293,45 @@ void CommandPoolContext<Vk>::internalEnqueueOnePending(CommandBufferLevel<Vk> le
 }
 
 template <>
+CommandBufferAccessScope<Vk>
+CommandPool<Vk>::internalBeginScope(const CommandBufferAccessScopeDesc<Vk>& beginInfo)
+{
+	if (myPendingCommands[beginInfo.level].empty() ||
+		std::get<0>(myPendingCommands[beginInfo.level].back()).full())
+		internalEnqueueOnePending(beginInfo.level);
+
+	myRecordingCommands[beginInfo.level].emplace(CommandBufferAccessScope(
+		&std::get<0>(myPendingCommands[beginInfo.level].back()), beginInfo));
+
+	return myRecordingCommands[beginInfo.level].value();
+}
+
+template <>
+CommandBufferAccessScope<Vk>
+CommandPool<Vk>::internalCommands(const CommandBufferAccessScopeDesc<Vk>& beginInfo) const
+{
+	return myRecordingCommands[beginInfo.level].value();
+}
+
+template <>
+void CommandPool<Vk>::internalEnqueueSubmitted(
+	CommandBufferListType<Vk>&& cbList, uint8_t level, uint64_t timelineValue)
+{
+	ZoneScopedN("QueueContext::internalEnqueueSubmitted");
+
+	for (auto& [cmdArray, cmdTimelineValue] : cbList)
+		cmdTimelineValue = timelineValue;
+
+	mySubmittedCommands[level].splice(
+		mySubmittedCommands[level].end(), std::forward<CommandBufferListType<Vk>>(cbList));
+}
+
+template <>
 CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(bool scopedBeginEnd)
 	: CommandBufferBeginInfo<
 		  Vk>{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, &inheritance}
-	, level(VK_COMMAND_BUFFER_LEVEL_PRIMARY)
 	, inheritance{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO}
+	, level(0)
 	, scopedBeginEnd(scopedBeginEnd)
 {}
 
@@ -275,8 +339,8 @@ template <>
 CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(
 	const CommandBufferAccessScopeDesc& other)
 	: CommandBufferBeginInfo<Vk>(other)
-	, level(other.level)
 	, inheritance(other.inheritance)
+	, level(other.level)
 	, scopedBeginEnd(other.scopedBeginEnd)
 {
 	pInheritanceInfo = &inheritance;
@@ -287,8 +351,8 @@ CommandBufferAccessScopeDesc<Vk>&
 CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc& other)
 {
 	*static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
-	level = other.level;
 	inheritance = other.inheritance;
+	level = other.level;
 	scopedBeginEnd = other.scopedBeginEnd;
 	pInheritanceInfo = &inheritance;
 	return *this;
@@ -301,9 +365,8 @@ bool CommandBufferAccessScopeDesc<Vk>::operator==(const CommandBufferAccessScope
 
 	if (this != &other)
 	{
-		result =
-			other.flags == flags && other.level == level && scopedBeginEnd == other.scopedBeginEnd;
-		if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+		result = other.flags == flags && other.level == level && scopedBeginEnd == other.scopedBeginEnd;
+		if (result && level > VK_COMMAND_BUFFER_LEVEL_PRIMARY)
 		{
 			assert(pInheritanceInfo);
 			result &=
@@ -320,183 +383,3 @@ bool CommandBufferAccessScopeDesc<Vk>::operator==(const CommandBufferAccessScope
 	return result;
 }
 
-template <>
-CommandBufferAccessScope<Vk>
-CommandPoolContext<Vk>::internalBeginScope(const CommandBufferAccessScopeDesc<Vk>& beginInfo)
-{
-	if (myPendingCommands[beginInfo.level].empty() ||
-		std::get<0>(myPendingCommands[beginInfo.level].back()).full())
-		internalEnqueueOnePending(beginInfo.level);
-
-	myRecordingCommands[beginInfo.level].emplace(CommandBufferAccessScope(
-		&std::get<0>(myPendingCommands[beginInfo.level].back()), beginInfo));
-
-	return myRecordingCommands[beginInfo.level].value();
-}
-
-template <>
-CommandBufferAccessScope<Vk>
-CommandPoolContext<Vk>::internalCommands(const CommandBufferAccessScopeDesc<Vk>& beginInfo) const
-{
-	return myRecordingCommands[beginInfo.level].value();
-}
-
-template <>
-void CommandPoolContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback)
-{
-	myCommandsFinishedCallbacks.emplace_back(
-		std::make_tuple(0, std::forward<std::function<void(uint64_t)>>(callback)));
-}
-
-template <>
-void CommandPoolContext<Vk>::internalEnqueueSubmitted(
-	CommandBufferListType&& commands, CommandBufferLevel<Vk> level, uint64_t timelineValue)
-{
-	ZoneScopedN("CommandPoolContext::internalEnqueueSubmitted");
-
-	for (auto& [cmdArray, cmdTimelineValue] : commands)
-		cmdTimelineValue = timelineValue;
-
-	mySubmittedCommands[level].splice(
-		mySubmittedCommands[level].end(), std::forward<CommandBufferListType>(commands));
-
-	while (!myCommandsFinishedCallbacks.empty())
-	{
-		TimelineCallback& callback = myCommandsFinishedCallbacks.front();
-		std::get<0>(callback) = timelineValue;
-		getDevice()->addTimelineCallback(std::move(callback));
-		myCommandsFinishedCallbacks.pop_front();
-	}
-}
-
-template <>
-void CommandPoolContext<Vk>::reset()
-{
-	ZoneScopedN("CommandPoolContext::reset");
-
-	CommandPool<Vk>::reset();
-
-	for (uint32_t levelIt = 0ul; levelIt < kCommandBufferLevelCount; levelIt++)
-	{
-		auto& submittedCommandList = mySubmittedCommands[levelIt];
-
-		for (auto& commands : submittedCommandList)
-			std::get<0>(commands).reset();
-
-		auto& freeCommandList = myFreeCommands[levelIt];
-
-		freeCommandList.splice(freeCommandList.end(), std::move(submittedCommandList));
-	}
-}
-
-template <>
-QueueSubmitInfo<Vk> CommandPoolContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncInfo)
-{
-	ZoneScopedN("CommandPoolContext::prepareSubmit");
-
-	internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-
-	auto& pendingCommands = myPendingCommands[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
-
-	if (pendingCommands.empty())
-		return {};
-
-	QueueSubmitInfo<Vk> submitInfo{std::forward<QueueSyncInfo<Vk>>(syncInfo), {}, 0};
-	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
-
-	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
-	{
-		assert(!cmdArray.recordingFlags());
-		auto cmdCount = cmdArray.head();
-		std::copy_n(cmdArray.data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
-	}
-
-	const auto [minSignalValue, maxSignalValue] = std::minmax_element(
-		submitInfo.signalSemaphoreValues.begin(), submitInfo.signalSemaphoreValues.end());
-
-	submitInfo.timelineValue = *maxSignalValue;
-
-	internalEnqueueSubmitted(
-		std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
-
-	return submitInfo;
-}
-
-template <>
-uint64_t CommandPoolContext<Vk>::execute(CommandPoolContext<Vk>& callee)
-{
-	ZoneScopedN("CommandPoolContext::execute");
-
-	callee.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
-
-	for (const auto& [cmdArray, cmdTimelineValue] :
-		 callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY])
-		vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
-
-	auto timelineValue = getDevice()->timelineValue().load(std::memory_order_relaxed);
-
-	callee.internalEnqueueSubmitted(
-		std::move(callee.myPendingCommands[VK_COMMAND_BUFFER_LEVEL_SECONDARY]),
-		VK_COMMAND_BUFFER_LEVEL_SECONDARY,
-		timelineValue);
-
-	return timelineValue;
-}
-
-template <>
-CommandPoolContext<Vk>::CommandPoolContext(
-	const std::shared_ptr<Device<Vk>>& device, CommandPoolCreateDesc<Vk>&& poolDesc)
-	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(poolDesc))
-{
-	ZoneScopedN("CommandPoolContext()");
-}
-
-template <>
-CommandPoolContext<Vk>::CommandPoolContext(CommandPoolContext&& other) noexcept
-	: CommandPool(std::forward<CommandPoolContext>(other))
-	, myPendingCommands(std::exchange(other.myPendingCommands, {}))
-	, mySubmittedCommands(std::exchange(other.mySubmittedCommands, {}))
-	, myFreeCommands(std::exchange(other.myFreeCommands, {}))
-	, myRecordingCommands(std::exchange(other.myRecordingCommands, {}))
-	, myCommandsFinishedCallbacks(std::exchange(other.myCommandsFinishedCallbacks, {}))
-{}
-
-template <>
-CommandPoolContext<Vk>::~CommandPoolContext()
-{
-	ZoneScopedN("~CommandPoolContext()");
-
-	for (auto& submittedCommandList : mySubmittedCommands)
-	{
-		if (!submittedCommandList.empty())
-		{
-			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
-
-			getDevice()->wait(cmdTimelineValue);
-			getDevice()->processTimelineCallbacks(cmdTimelineValue);
-		}
-	}
-}
-
-template <>
-CommandPoolContext<Vk>& CommandPoolContext<Vk>::operator=(CommandPoolContext&& other) noexcept
-{
-	CommandPool::operator=(std::forward<CommandPoolContext>(other));
-	myPendingCommands = std::exchange(other.myPendingCommands, {});
-	mySubmittedCommands = std::exchange(other.mySubmittedCommands, {});
-	myFreeCommands = std::exchange(other.myFreeCommands, {});
-	myRecordingCommands = std::exchange(other.myRecordingCommands, {});
-	myCommandsFinishedCallbacks = std::exchange(other.myCommandsFinishedCallbacks, {});
-	return *this;
-}
-
-template <>
-void CommandPoolContext<Vk>::swap(CommandPoolContext& other) noexcept
-{
-	CommandPool::swap(other);
-	std::swap(myPendingCommands, other.myPendingCommands);
-	std::swap(mySubmittedCommands, other.mySubmittedCommands);
-	std::swap(myFreeCommands, other.myFreeCommands);
-	std::swap(myRecordingCommands, other.myRecordingCommands);
-	std::swap(myCommandsFinishedCallbacks, other.myCommandsFinishedCallbacks);
-}

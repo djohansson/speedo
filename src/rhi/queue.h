@@ -1,5 +1,6 @@
 #pragma once
 
+#include "command.h"
 #include "device.h"
 #include "types.h"
 
@@ -38,12 +39,21 @@ struct QueuePresentInfo
 	friend QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs);
 };
 
+enum QueueContextType : uint8_t
+{
+	QueueContextType_Graphics,
+	QueueContextType_Compute,
+	QueueContextType_Transfer,
+	
+	QueueContextType_Count
+};
+
 template <GraphicsApi G>
 struct QueueCreateDesc
 {
 	uint32_t queueIndex = 0ul;
 	uint32_t queueFamilyIndex = 0ul;
-	std::optional<CommandBufferHandle<G>> tracingEnableInitCmd;
+	bool tracingEnable = false;
 };
 
 struct SourceLocationData
@@ -108,6 +118,41 @@ private:
 	FenceHandle<G> myFence{};
 	std::optional<uint64_t> myLastSubmitTimelineValue;
 	std::any myUserData;
+};
+
+template <GraphicsApi G>
+class QueueContext final : public CommandPool<G>
+{
+public:
+	constexpr QueueContext() noexcept = default;
+	QueueContext(
+		const std::shared_ptr<Device<G>>& device,
+		CommandPoolCreateDesc<G>&& commandPoolDesc,
+		QueueCreateDesc<G>&& queueDesc);
+	QueueContext(QueueContext<G>&& other) noexcept;
+	~QueueContext();
+
+	QueueContext& operator=(QueueContext&& other) noexcept;
+
+	void swap(QueueContext& rhs) noexcept;
+	friend void swap(QueueContext& lhs, QueueContext& rhs) noexcept { lhs.swap(rhs); }
+
+	const auto& queue() const noexcept { return myQueue; }
+	auto& queue() noexcept { return myQueue; }
+
+	uint64_t execute(uint32_t index);
+
+	QueueSubmitInfo<G> prepareSubmit(QueueSyncInfo<G>&& syncInfo);
+
+	// these will be called when the GPU has reached the timeline value of the submission (prepareSubmit).
+	// useful for ensuring that dependencies are respected when releasing resources. do not remove.
+	void addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback);
+
+private:
+	void internalFlushCommandsFinishedCallbacks(uint32_t timelineValue);
+
+	Queue<G> myQueue;
+	std::list<TimelineCallback> myCommandsFinishedCallbacks;
 };
 
 #if PROFILING_ENABLED

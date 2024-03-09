@@ -1,6 +1,6 @@
 template <GraphicsApi G>
 CommandBufferAccessScope<G>
-CommandPoolContext<G>::commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
+CommandPool<G>::commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
 {
 	if (myRecordingCommands[beginInfo.level] &&
 		myRecordingCommands[beginInfo.level].value().getDesc() == beginInfo)
@@ -10,7 +10,7 @@ CommandPoolContext<G>::commands(const CommandBufferAccessScopeDesc<G>& beginInfo
 }
 
 template <GraphicsApi G>
-void CommandPoolContext<G>::internalEndCommands(CommandBufferLevel<G> level)
+void CommandPool<G>::internalEndCommands(uint8_t level)
 {
 	if (myRecordingCommands[level])
 		myRecordingCommands[level] = std::nullopt;

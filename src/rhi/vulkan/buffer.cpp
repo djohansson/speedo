@@ -43,13 +43,13 @@ Buffer<Vk>::Buffer(
 template <>
 Buffer<Vk>::Buffer(
 	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolContext<Vk>& commandContext,
+	QueueContext<Vk>& queueContext,
 	std::tuple<BufferCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
 		  device,
 		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  createBuffer(
-			  commandContext.commands(),
+			  queueContext.commands(),
 			  device->getAllocator(),
 			  std::get<1>(descAndInitialData),
 			  std::get<0>(descAndInitialData).size,
@@ -57,7 +57,7 @@ Buffer<Vk>::Buffer(
 			  std::get<0>(descAndInitialData).memoryFlags,
 			  "todo_insert_proper_name"))
 {
-	commandContext.addCommandsFinishedCallback(
+	queueContext.addCommandsFinishedCallback(
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
@@ -70,12 +70,12 @@ Buffer<Vk>::Buffer(
 template <>
 Buffer<Vk>::Buffer(
 	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolContext<Vk>& commandContext,
+	QueueContext<Vk>& queueContext,
 	BufferCreateDesc<Vk>&& desc,
 	const void* initialData)
 	: Buffer(
 		  device,
-		  commandContext,
+		  queueContext,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(

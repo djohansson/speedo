@@ -30,21 +30,21 @@ Queue<Vk>::Queue(
 	, myDesc(std::forward<QueueCreateDesc<Vk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
 {
-#if PROFILING_ENABLED
-	{
-		if (auto cmd =
-				myDesc.tracingEnableInitCmd.value_or(CommandBufferHandle<Vk>{VK_NULL_HANDLE}))
-		{
-			myUserData = queue::UserData{tracy::CreateVkContext(
-				device->getPhysicalDevice(),
-				*device,
-				myQueue,
-				cmd,
-				nullptr,
-				nullptr)};
-		}
-	}
-#endif
+// #if PROFILING_ENABLED
+// 	{
+// 		if (auto cmd =
+// 				myDesc.tracingEnableInitCmd.value_or(CommandBufferHandle<Vk>{VK_NULL_HANDLE}))
+// 		{
+// 			myUserData = queue::UserData{tracy::CreateVkContext(
+// 				device->getPhysicalDevice(),
+// 				*device,
+// 				myQueue,
+// 				cmd,
+// 				nullptr,
+// 				nullptr)};
+// 		}
+// 	}
+// #endif
 }
 
 template <>
@@ -76,12 +76,12 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 template <>
 Queue<Vk>::~Queue()
 {
-#if PROFILING_ENABLED
-	{
-		if (myDesc.tracingEnableInitCmd)
-			tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
-	}
-#endif
+// #if PROFILING_ENABLED
+// 	{
+// 		if (myDesc.tracingEnableInitCmd)
+// 			tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
+// 	}
+// #endif
 }
 
 template <>
@@ -113,10 +113,10 @@ void Queue<Vk>::swap(Queue& rhs) noexcept
 template <>
 void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
 {
-	{
-		if (myDesc.tracingEnableInitCmd)
-			TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
-	}
+	// {
+	// 	if (myDesc.tracingEnableInitCmd)
+	// 		TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
+	// }
 }
 
 template <>
@@ -130,14 +130,14 @@ Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-	if (myDesc.tracingEnableInitCmd)
-	{
-		return std::make_shared<tracy::VkCtxScope>(
-			std::any_cast<queue::UserData>(&myUserData)->tracyContext,
-			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-			cmd,
-			true);
-	}
+	// if (myDesc.tracingEnableInitCmd)
+	// {
+	// 	return std::make_shared<tracy::VkCtxScope>(
+	// 		std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+	// 		reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+	// 		cmd,
+	// 		true);
+	// }
 
 	return {};
 }
@@ -233,4 +233,124 @@ void Queue<Vk>::present()
 	checkFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
 	myPendingPresent = {};
+}
+
+template <>
+void QueueContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback)
+{
+	myCommandsFinishedCallbacks.emplace_back(
+		std::make_tuple(0, std::forward<std::function<void(uint64_t)>>(callback)));
+}
+
+template <>
+void QueueContext<Vk>::internalFlushCommandsFinishedCallbacks(uint32_t timelineValue)
+{
+	while (!myCommandsFinishedCallbacks.empty())
+	{
+		auto& callback = myCommandsFinishedCallbacks.front();
+		std::get<0>(callback) = timelineValue;
+		getDevice()->addTimelineCallback(std::move(callback));
+		myCommandsFinishedCallbacks.pop_front();
+	}
+}
+
+template <>
+QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncInfo)
+{
+	ZoneScopedN("QueueContext::prepareSubmit");
+
+	internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+
+	auto& pendingCommands = internalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
+
+	if (pendingCommands.empty())
+		return {};
+
+	QueueSubmitInfo<Vk> submitInfo{std::forward<QueueSyncInfo<Vk>>(syncInfo), {}, 0};
+	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
+
+	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
+	{
+		assert(!cmdArray.recordingFlags());
+		auto cmdCount = cmdArray.head();
+		std::copy_n(cmdArray.data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
+	}
+
+	const auto [minSignalValue, maxSignalValue] = std::minmax_element(
+		submitInfo.signalSemaphoreValues.begin(), submitInfo.signalSemaphoreValues.end());
+
+	submitInfo.timelineValue = *maxSignalValue;
+
+	internalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
+	internalFlushCommandsFinishedCallbacks(*maxSignalValue);
+
+	return submitInfo;
+}
+
+template <>
+uint64_t QueueContext<Vk>::execute(uint32_t index)
+{
+	ZoneScopedN("QueueContext::execute");
+
+	internalEndCommands(index);
+
+	auto& pendingCommands = internalGetPendingCommands()[index];
+
+	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
+		vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
+
+	auto timelineValue = getDevice()->timelineValue().load(std::memory_order_relaxed);
+
+	internalEnqueueSubmitted(std::move(pendingCommands), index, timelineValue);
+	internalFlushCommandsFinishedCallbacks(timelineValue);
+
+	return timelineValue;
+}
+
+template <>
+QueueContext<Vk>::QueueContext(
+	const std::shared_ptr<Device<Vk>>& device,
+	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
+	QueueCreateDesc<Vk>&& queueDesc)
+	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
+	, myQueue(device, std::forward<QueueCreateDesc<Vk>>(queueDesc))
+{}
+
+template <>
+QueueContext<Vk>::QueueContext(QueueContext&& other) noexcept
+	: CommandPool(std::forward<QueueContext>(other))
+	, myQueue(std::exchange(other.myQueue, {}))
+	, myCommandsFinishedCallbacks(std::exchange(other.myCommandsFinishedCallbacks, {}))
+{}
+
+template <>
+QueueContext<Vk>::~QueueContext()
+{
+	ZoneScopedN("~QueueContext()");
+
+	for (auto& submittedCommandList : internalGetSubmittedCommands())
+	{
+		if (!submittedCommandList.empty())
+		{
+			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
+
+			getDevice()->wait(cmdTimelineValue);
+			getDevice()->processTimelineCallbacks(cmdTimelineValue);
+		}
+	}
+}
+
+template <>
+QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext&& other) noexcept
+{
+	CommandPool::operator=(std::forward<QueueContext>(other));
+	myCommandsFinishedCallbacks = std::exchange(other.myCommandsFinishedCallbacks, {});
+	return *this;
+}
+
+template <>
+void QueueContext<Vk>::swap(QueueContext& other) noexcept
+{
+	CommandPool::swap(other);
+	std::swap(myCommandsFinishedCallbacks, other.myCommandsFinishedCallbacks);
 }
