@@ -51,9 +51,9 @@ public:
 	void swap(DescriptorSetLayout& rhs) noexcept;
 	friend void swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const { return myDesc; }
-	const auto& getImmutableSamplers() const { return std::get<1>(myLayout); }
-	const auto& getShaderVariableBindings() const { return std::get<2>(myLayout); }
+	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& getImmutableSamplers() const noexcept { return std::get<1>(myLayout); }
+	const auto& getShaderVariableBindings() const noexcept { return std::get<2>(myLayout); }
 	const auto& getShaderVariableBinding(uint64_t shaderVariableNameHash) const
 	{
 		return std::get<2>(myLayout).at(shaderVariableNameHash);
@@ -102,7 +102,7 @@ public:
 	void swap(DescriptorSetArray& rhs) noexcept;
 	friend void swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getDesc() const { return myDesc; }
+	const auto& getDesc() const noexcept { return myDesc; }
 
 	constexpr auto capacity() const noexcept { return kDescriptorSetCount; }
 
