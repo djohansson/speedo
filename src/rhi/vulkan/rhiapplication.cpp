@@ -935,10 +935,10 @@ void RhiApplication::createDevice(const WindowState& window)
 		return config;
 	};
 
-	rhi.pipeline = std::make_shared<Pipeline<Vk>>(
+	rhi.pipeline = std::make_unique<Pipeline<Vk>>(
 		rhi.device, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
 
-	rhi.mainWindow = std::make_shared<Window<Vk>>(
+	rhi.mainWindow = std::make_unique<Window<Vk>>(
 		rhi.device,
 		std::move(surface),
 		WindowConfiguration<Vk>{

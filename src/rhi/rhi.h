@@ -16,12 +16,12 @@ struct Rhi
 	std::shared_ptr<Instance<G>> instance;
 	std::shared_ptr<Device<G>> device;
 
-	std::shared_ptr<Window<G>> mainWindow;
-	std::shared_ptr<Pipeline<G>> pipeline;
+	std::unique_ptr<Window<G>> mainWindow;
+	std::unique_ptr<Pipeline<G>> pipeline;
 
 	UnorderedMap<QueueContextType, CircularContainer<QueueContext<G>>> queueContexts;
 
-	//std::shared_ptr<ResourceContext<G>> resources;
+	//std::unique_ptr<ResourceContext<G>> resources;
 
 	std::shared_ptr<RenderImageSet<G>> renderImageSet;
 
