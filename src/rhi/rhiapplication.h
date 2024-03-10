@@ -43,10 +43,10 @@ protected:
 	RhiApplication(std::string_view name, Environment&& env);
 
 	template <GraphicsApi G>
-	Rhi<G>& rhi();
+	Rhi<G>& internalRhi();
 
 	template <GraphicsApi G>
-	const Rhi<G>& rhi() const;
+	const Rhi<G>& internalRhi() const;
 
 private:
 	std::shared_ptr<void> myRhi;

@@ -29,6 +29,4 @@ struct Rhi
 	std::unique_ptr<Buffer<G>[]> objects;
 
 	Future<void> presentFuture;
-	std::function<void()> IMGUIPrepareDrawFunction;
-	std::function<void(CommandBufferHandle<Vk> cmd)> IMGUIDrawFunction; // todo: remove GraphicsApi specialization
 };
