@@ -27,16 +27,6 @@ if (-not ($gitCmd))
 	$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
 }
 
-$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
-if (-not ($vulkanSdkInfo) -or ($vulkanSdkInfo.InstalledVersion -lt ([System.Version]"1.3.268.0")))
-{
-	Write-Host "Installing VulkanSDK (requires process elevation)..."
-
-	Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id KhronosGroup.VulkanSDK | Out-Null" -Wait
-
-	$vulkanSdkInfo = Get-WinGetPackage KhronosGroup.VulkanSDK
-}
-
 $windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
 if (-not ($windowsSdkInfo))
 {
@@ -82,8 +72,6 @@ $llvmVersionShort = $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) #workar
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue (Split-Path -Path $pwshCmd.Source) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName GIT_PATH -NotePropertyValue (Split-Path -Path $gitCmd.Source) | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK -NotePropertyValue ("C:\VulkanSDK\" + $vulkanSdkInfo.InstalledVersion) | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName VULKAN_SDK_VERSION -NotePropertyValue $vulkanSdkInfo.InstalledVersion | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK -NotePropertyValue "C:\Program Files (x86)\Windows Kits\10" | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK_VERSION -NotePropertyValue $windowsSdkVersion | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName VISUAL_STUDIO_PATH -NotePropertyValue $VSSetupInstance.InstallationPath | Out-Null

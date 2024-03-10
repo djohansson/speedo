@@ -7,7 +7,6 @@
 #include "config/platform.bff"
 #include "config/clang.bff"
 #include "config/powershell.bff"
-#include "config/vulkan.bff"
 
 .ProjectCommon = 
 [

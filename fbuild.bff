@@ -51,10 +51,20 @@
 		
 		.Name = 'rhi'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ .VulkanDefines
+#if __WINDOWS__
+			+ ' -DVK_USE_PLATFORM_WIN32_KHR=1'
+#endif //__WINDOWS__
+#if __OSX__
+			//+ ' -DVK_USE_PLATFORM_MACOS_MVK=1'
+			+ ' -DVK_USE_PLATFORM_METAL_EXT=1'
+#endif //__OSX__
+#if __LINUX__
+			// + ' -DVK_USE_PLATFORM_WAYLAND_KHR=1'
+			// + ' -DVK_USE_PLATFORM_XCB_KHR=1'
+			+ ' -DVK_USE_PLATFORM_XLIB_KHR=1'
+#endif //__LINUX__
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
-			+ ' -I$VulkanSDKPath$/include'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZPP_BITS_AUTODETECT_MEMBERS_MODE=1'
@@ -132,12 +142,12 @@
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lzmq'
-		.ReleaseExecutableLinkerOptions = .CommonExecutableLinkerOptions
-			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
+		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
-		.DebugExecutableLinkerOptions = .CommonExecutableLinkerOptions
-			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
+			+ .CommonExecutableLinkerOptions
+		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
 			+ ' -lmimalloc-debug'
+			+ .CommonExecutableLinkerOptions
 	]
 
 	.ClientLibrary =
@@ -194,7 +204,6 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -L$VulkanSDKPath$/lib'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lslang'
@@ -211,27 +220,29 @@
 		.CommonExecutableLinkerOptions + ' -lglfw3'
 			+ ' -lvulkan'
 	#endif //__WINDOWS__
-		.ReleaseExecutableLinkerOptions = .CommonExecutableLinkerOptions
-			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
+		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -lnfd'
 			+ ' -limgui'
-		.DebugExecutableLinkerOptions = .CommonExecutableLinkerOptions
-			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
+			+ .CommonExecutableLinkerOptions
+		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
 			+ ' -lmimalloc-debug'
 			+ ' -lnfd_d'
 			+ ' -limguid'
+			+ .CommonExecutableLinkerOptions
 	#if __OSX__
 		.ReleaseExecutableLinkerOptions + ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/bin'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
-		.DebugExecutableLinkerOptions + ' -framework Cocoa'
+			+ .CommonExecutableLinkerOptions
+		.DebugExecutableLinkerOptions =
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/bin'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/lib'
+			+ .CommonExecutableLinkerOptions
 	#endif
 	]
 
@@ -264,14 +275,14 @@
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lTracyClient'
-		.ReleaseExecutableLinkerOptions = .CommonExecutableLinkerOptions
-			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib/'
+		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib/'
 			+ ' -lmimalloc'
 			+ ' -lCatch2'
-		.DebugExecutableLinkerOptions = .CommonExecutableLinkerOptions
-			+ ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib/'
+			+ .CommonExecutableLinkerOptions
+		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib/'
 			+ ' -lmimalloc-debug'
 			+ ' -lCatch2d'
+			+ .CommonExecutableLinkerOptions
 	#if __OSX__
 		.ReleaseExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 		.DebugExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/lib'
