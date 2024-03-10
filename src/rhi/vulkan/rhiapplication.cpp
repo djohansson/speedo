@@ -647,7 +647,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 					VK_MAKE_VERSION(1, 0, 0),
 					nullptr,
 					VK_MAKE_VERSION(1, 0, 0),
-					VK_API_VERSION_1_2}})))
+					VK_API_VERSION_1_3}})))
 {
 	ZoneScopedN("RhiApplication()");
 
