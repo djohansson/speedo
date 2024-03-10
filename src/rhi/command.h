@@ -129,7 +129,7 @@ struct CommandPoolCreateDesc
 {
 	CommandPoolCreateFlags<G> flags{};
 	uint32_t queueFamilyIndex = 0ul;
-	uint8_t levelCount = 1;
+	uint32_t levelCount = 1;
 };
 
 template <GraphicsApi G>
