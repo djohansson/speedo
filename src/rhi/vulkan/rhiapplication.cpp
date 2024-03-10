@@ -788,15 +788,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	auto shaderIncludePath = rootPath / "src/rhi/shaders";
 	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
 
-	auto vkSDKPathEnv = std::getenv("VULKAN_SDK");
-	auto vkSDKPath = vkSDKPathEnv ? std::filesystem::path(vkSDKPathEnv) : rootPath;
-	auto vkSDKBinPath = vkSDKPath / "bin";
-
-	ShaderLoader shaderLoader(
-		{shaderIncludePath},
-		{std::make_tuple(SLANG_SOURCE_LANGUAGE_HLSL, SLANG_PASS_THROUGH_DXC, vkSDKBinPath)},
-		shaderIntermediatePath);
-
+	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
 	
 	auto surface = createSurface(*rhi.instance, &rhi.instance->getHostAllocationCallbacks(), window.nativeHandle);
