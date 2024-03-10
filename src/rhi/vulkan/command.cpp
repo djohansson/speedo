@@ -206,6 +206,11 @@ CommandPool<Vk>::CommandPool(CommandPool&& other) noexcept
 template <>
 CommandPool<Vk>::~CommandPool()
 {
+	myPendingCommands.clear();
+	mySubmittedCommands.clear();
+	myFreeCommands.clear();
+	myRecordingCommands.clear();
+
 	if (myPool)
 		vkDestroyCommandPool(
 			*getDevice(),
