@@ -19,13 +19,22 @@
 namespace rhiapplication
 {
 
+void IMGUINewFrameFunction()
+{
+	ZoneScopedN("RhiApplication::IMGUINewFrame");
+
+	using namespace ImGui;
+
+	ImGui_ImplGlfw_NewFrame();
+	ImGui_ImplVulkan_NewFrame();
+}
+
 void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
 
 	using namespace ImGui;
 
-	ImGui_ImplVulkan_NewFrame();
 	NewFrame();
 
 	// todo: move elsewhere
@@ -1190,12 +1199,6 @@ bool RhiApplication::tick()
 	auto& rhi = internalRhi<Vk>();
 	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
 
-	{
-		ZoneScopedN("RhiApplication::tick::imgui_newframe");
-
-		ImGui_ImplGlfw_NewFrame();
-	}
-
 	auto [drawTask, drawFuture] = frameGraph.createTask([&rhi, &graphicsContext, &executor = executor()]
 	{
 		ZoneScopedN("RhiApplication::draw");
@@ -1207,6 +1210,8 @@ bool RhiApplication::tick()
 		auto& renderImageSet = *rhi.renderImageSet;
 
 		auto [flipSuccess, lastPresentTimelineValue] = mainWindow.flip();
+
+		IMGUINewFrameFunction();
 
 		if (flipSuccess)
 		{
