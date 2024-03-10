@@ -1139,9 +1139,14 @@ RhiApplication::~RhiApplication()
 	auto instance = rhi.instance;
 
 	{
-		ZoneScopedN("~RhiApplication()::waitCPU");
+		ZoneScopedN("~RhiApplication()::waitPresentQueue");
 
-		executor().join(std::move(rhi.presentFuture));
+		while (!rhi.presentQueue.empty())
+		{
+			auto& presentFuture = rhi.presentQueue.front();
+			executor().join(std::move(presentFuture));
+			rhi.presentQueue.pop();
+		}
 	}
 
 	{
@@ -1303,15 +1308,21 @@ bool RhiApplication::tick()
 
 	frameGraph.addDependency(drawTask, presentTask);
 
-	{ // todo: make rhi.presentFuture a laziliy deleted queue, and avoid waiting here
-		ZoneScopedN("RhiApplication::tick::waitPresent");
+	while (!rhi.presentQueue.empty())
+	{
+		ZoneScopedN("~RhiApplication()::waitPresentQueue");
 
-		executor().join(std::move(rhi.presentFuture));
+		auto& presentFuture = rhi.presentQueue.front();
+		executor().join(std::move(presentFuture));
+		rhi.presentQueue.pop();
 	}
 
-	rhi.presentFuture = std::move(presentFuture);
-
+	rhi.presentQueue.push(std::move(presentFuture));
+	
 	executor().submit(std::move(frameGraph));
+
+	// while (rhi.presentQueue.front().is_ready())
+	// 	rhi.presentQueue.pop();
 
 	return !myRequestExit;
 }

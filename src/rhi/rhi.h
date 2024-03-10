@@ -10,6 +10,8 @@
 #include "types.h"
 #include "window.h"
 
+#include <queue>
+
 template <GraphicsApi G>
 struct Rhi
 {
@@ -28,5 +30,5 @@ struct Rhi
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>[]> objects;
 
-	Future<void> presentFuture;
+	std::queue<Future<void>> presentQueue;
 };
