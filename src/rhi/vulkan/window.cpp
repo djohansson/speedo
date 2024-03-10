@@ -85,7 +85,7 @@ uint32_t Window<Vk>::internalDrawViews(
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
-	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, std::max(1, queueContext.getDesc().levelCount - 1));
+	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queueContext.getDesc().levelCount - 1));
 
 	std::atomic_uint32_t drawAtomic = 0ul;
 

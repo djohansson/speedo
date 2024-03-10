@@ -983,7 +983,7 @@ void RhiApplication::createDevice(const WindowState& window)
 					{
 						it->second.emplace_back(
 							rhi.device,
-							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, i, typeIt == QueueContextType_Graphics ? threadCount : 1},
+							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, i, static_cast<QueueContextType>(typeIt) == QueueContextType_Graphics ? threadCount : 1},
 							QueueCreateDesc<Vk>{queueIt, i});
 					}
 
