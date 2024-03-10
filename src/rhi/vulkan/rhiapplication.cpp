@@ -1213,7 +1213,9 @@ bool RhiApplication::tick()
 					ZoneScopedN("RhiApplication::draw::waitFrame");
 
 					device.wait(lastPresentTimelineValue);
+#if defined(__APPLE__)
 					graphicsQueue.waitIdle();
+#endif
 				}
 
 				graphicsContext.reset();
@@ -1278,7 +1280,7 @@ bool RhiApplication::tick()
 			ZoneScopedN("RhiApplication::draw::processTimelineCallbacks");
 
 			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-			device.processTimelineCallbacks(static_cast<uint64_t>(lastPresentTimelineValue));
+			device.processTimelineCallbacks(lastPresentTimelineValue);
 		}
 
 		// {
@@ -1301,7 +1303,7 @@ bool RhiApplication::tick()
 
 	frameGraph.addDependency(drawTask, presentTask);
 
-	{
+	{ // todo: make rhi.presentFuture a laziliy deleted queue, and avoid waiting here
 		ZoneScopedN("RhiApplication::tick::waitPresent");
 
 		executor().join(std::move(rhi.presentFuture));
