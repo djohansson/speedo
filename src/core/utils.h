@@ -24,6 +24,8 @@
 
 #include <ankerl/unordered_dense.h>
 
+#include <concurrentqueue/concurrentqueue.h>
+
 #include <mio/mmap.hpp>
 
 
@@ -163,6 +165,11 @@ template <
 	typename KeyHash = ankerl::unordered_dense::hash<Key>,
 	typename KeyEqualTo = std::equal_to<Key>>
 using UnorderedSet = ankerl::unordered_dense::set<Key, KeyHash, KeyEqualTo>;
+
+template <typename T>
+using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
+using ProducerToken = moodycamel::ProducerToken;
+using ConsumerToken = moodycamel::ConsumerToken;
 
 template <typename Key, typename T, typename ContainerT = std::vector<std::pair<Key, T>>>
 class FlatMap : public ContainerT

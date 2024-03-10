@@ -43,7 +43,7 @@ void TaskExecutor::submit(TaskGraph&& graph)
 	mySignal.release();
 }
 
-void TaskExecutor::scheduleAdjacent(moodycamel::ProducerToken& readyProducerToken, const Task& task)
+void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, const Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
@@ -119,8 +119,7 @@ void TaskExecutor::processReadyQueue()
 	}
 }
 
-void TaskExecutor::processReadyQueue(
-	moodycamel::ProducerToken& readyProducerToken, moodycamel::ConsumerToken& readyConsumerToken)
+void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
 {
 	Task task;
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
@@ -161,8 +160,8 @@ void TaskExecutor::threadMain(uint32_t threadId)
 {
 	try
 	{
-		moodycamel::ProducerToken readyProducerToken(myReadyQueue);
-		moodycamel::ConsumerToken readyConsumerToken(myReadyQueue);
+		ProducerToken readyProducerToken(myReadyQueue);
+		ConsumerToken readyConsumerToken(myReadyQueue);
 
 		while (!myStopSource.load(std::memory_order_relaxed))
 		{

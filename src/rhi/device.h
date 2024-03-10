@@ -113,7 +113,7 @@ private:
 	SemaphoreHandle<G> myTimelineSemaphore{};
 	std::atomic_uint64_t myTimelineValue;
 
-	moodycamel::ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
+	ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
 #if GRAPHICS_VALIDATION_ENABLED
 	struct ObjectNameInfo : ObjectInfo<G>
