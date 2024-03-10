@@ -15,7 +15,9 @@
 namespace device
 {
 
+#if GRAPHICS_VALIDATION_ENABLED
 static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT{};
+#endif
 
 }
 
@@ -309,8 +311,10 @@ Device<Vk>::Device(
 
 	VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, &myInstance->getHostAllocationCallbacks(), &myDevice));
 
+#if GRAPHICS_VALIDATION_ENABLED
 	device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
 		vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
+#endif
 
 	// addOwnedObjectHandle(
 	//     getUid(),
