@@ -149,6 +149,14 @@ using PhysicalDeviceRobustnessFeatures =
 	std::conditional_t<G == Vk, VkPhysicalDeviceRobustness2FeaturesEXT, std::nullptr_t>;
 
 template <GraphicsApi G>
+using PhysicalDeviceInlineUniformBlockFeatures =
+	std::conditional_t<G == Vk, VkPhysicalDeviceInlineUniformBlockFeatures, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceInlineUniformBlockProperties =
+	std::conditional_t<G == Vk, VkPhysicalDeviceInlineUniformBlockProperties, std::nullptr_t>;
+
+template <GraphicsApi G>
 using QueueHandle = std::conditional_t<G == Vk, VkQueue, std::nullptr_t>;
 
 template <GraphicsApi G>

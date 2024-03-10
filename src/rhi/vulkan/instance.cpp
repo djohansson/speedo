@@ -27,10 +27,14 @@ getPhysicalDeviceInfo(InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> devi
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
 
 	PhysicalDeviceInfo<Vk> deviceInfo{};
-	deviceInfo.deviceRobustnessFeatures.sType =
-		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
+	deviceInfo.deviceRobustnessFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
+	deviceInfo.inlineUniformBlockFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
+	deviceInfo.inlineUniformBlockFeatures.pNext = &deviceInfo.deviceRobustnessFeatures;
+	deviceInfo.inlineUniformBlockFeatures.inlineUniformBlock = true;
 	deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.deviceRobustnessFeatures;
+	deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.inlineUniformBlockFeatures;
+	deviceInfo.deviceFeaturesEx.timelineSemaphore = true;
+	
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeaturesEx;
 	vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
@@ -39,6 +43,9 @@ getPhysicalDeviceInfo(InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> devi
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
 
 	deviceInfo.devicePropertiesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+	deviceInfo.devicePropertiesEx.pNext = &deviceInfo.inlineUniformBlockProperties;
+	deviceInfo.inlineUniformBlockProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES;
+	deviceInfo.inlineUniformBlockProperties.maxDescriptorSetInlineUniformBlocks = 1;
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.devicePropertiesEx;
 	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
@@ -203,8 +210,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	std::cout << instanceLayerCount << " vulkan layer(s) found:" << '\n';
 	if (instanceLayerCount > 0)
 	{
-		std::unique_ptr<VkLayerProperties[]> instanceLayers(
-			new VkLayerProperties[instanceLayerCount]);
+		auto instanceLayers = std::make_unique<VkLayerProperties[]>(instanceLayerCount);
 		VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
 		for (uint32_t i = 0; i < instanceLayerCount; ++i)
 			std::cout << instanceLayers[i].layerName << '\n';
@@ -233,8 +239,32 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
 	std::vector<const char*> requiredLayers = {};
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
-		requiredLayers.emplace_back("VK_LAYER_KHRONOS_validation");
+#if GRAPHICS_VALIDATION_ENABLED
+	static constexpr std::string_view validationLayerName = "VK_LAYER_KHRONOS_validation";
+
+	requiredLayers.emplace_back(validationLayerName.data());
+
+	const VkBool32 settingValidateCore = VK_TRUE;
+	const VkBool32 settingValidateSync = VK_TRUE;
+	const VkBool32 settingThreadSafety = VK_TRUE;
+	const char* settingDebugAction[] = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
+	const char* settingReportFlags[] = {"info", "warn", "perf", "error", "debug"};
+	const VkBool32 settingEnableMessageLimit = VK_TRUE;
+	const int32_t settingDuplicateMessageLimit = 3;
+
+	const VkLayerSettingEXT settings[] = {
+		{validationLayerName.data(), "validate_core", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingValidateCore},
+		{validationLayerName.data(), "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingValidateSync},
+		{validationLayerName.data(), "thread_safety", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingThreadSafety},
+		{validationLayerName.data(), "debug_action", VK_LAYER_SETTING_TYPE_STRING_EXT, 1, settingDebugAction},
+		{validationLayerName.data(), "report_flags", VK_LAYER_SETTING_TYPE_STRING_EXT, static_cast<uint32_t>(std::size(settingReportFlags)), settingReportFlags},
+		{validationLayerName.data(), "enable_message_limit", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingEnableMessageLimit},
+		{validationLayerName.data(), "duplicate_message_limit", VK_LAYER_SETTING_TYPE_INT32_EXT, 1, &settingDuplicateMessageLimit}};
+
+	const VkLayerSettingsCreateInfoEXT layerSettingsCreateInfo = {
+		VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT, &instance::debugUtilsMessengerCallbackCreateInfo,
+		static_cast<uint32_t>(std::size(settings)), settings};
+#endif
 
 	std::vector<const char*> requiredExtensions = {
 	// must be sorted lexicographically for std::includes to work!
@@ -259,8 +289,9 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 #endif
 	};
 
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
-		requiredExtensions.emplace_back("VK_EXT_debug_utils");
+#if GRAPHICS_VALIDATION_ENABLED
+	requiredExtensions.emplace_back("VK_EXT_debug_utils");
+#endif
 
 	// must be sorted lexicographically for std::includes to work!
 	std::sort(
@@ -278,7 +309,9 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		"Can't find required Vulkan extensions.");
 
 	VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-	info.pNext = &instance::debugUtilsMessengerCallbackCreateInfo;
+#if GRAPHICS_VALIDATION_ENABLED
+	info.pNext = &layerSettingsCreateInfo;
+#endif
 	info.pApplicationInfo = &myConfig.appInfo;
 	info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
 	info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;

@@ -31,9 +31,11 @@ struct PhysicalDeviceInfo
 {
 	PhysicalDeviceProperties<G> deviceProperties{};
 	PhysicalDevicePropertiesEx<G> devicePropertiesEx{};
+	PhysicalDeviceInlineUniformBlockProperties<G> inlineUniformBlockProperties{};
 	PhysicalDeviceFeatures<G> deviceFeatures{};
 	PhysicalDeviceFeaturesEx<G> deviceFeaturesEx{};
 	PhysicalDeviceRobustnessFeatures<G> deviceRobustnessFeatures{};
+	PhysicalDeviceInlineUniformBlockFeatures<G> inlineUniformBlockFeatures{};
 	std::vector<QueueFamilyProperties<G>> queueFamilyProperties;
 };
 
