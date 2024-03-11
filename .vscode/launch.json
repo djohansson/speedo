@@ -14,8 +14,9 @@
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
 				{ "name": "PATH", "value": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin"},
-				{ "name": "DYLD_LIBRARY_PATH", "value": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/debug/lib:/usr/local/lib"}
-				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/debug/bin"}
+				{ "name": "DYLD_LIBRARY_PATH", "value": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/debug/lib:/usr/local/lib"},
+				{ "name": "VK_DRIVER_FILES", "value": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json"},
+				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d"}
 			],
 			"targetArchitecture": "arm64",
 			"externalConsole": false,
