@@ -85,7 +85,7 @@ uint32_t Window<Vk>::internalDrawViews(
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
-	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queueContext.getDesc().levelCount - 1));
+	uint32_t drawThreadCount = 0;
 
 	std::atomic_uint32_t drawAtomic = 0ul;
 
@@ -94,6 +94,8 @@ uint32_t Window<Vk>::internalDrawViews(
 	if (pipeline.resources().model)
 	{
 		ZoneScopedN("Window::drawViews");
+
+		drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queueContext.getDesc().levelCount - 1));
 
 		std::array<uint32_t, 128> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
@@ -438,15 +440,19 @@ void Window<Vk>::draw(
 
 	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 	renderTarget.end(cmd);
-	renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
 
-	blit(
-		cmd,
-		renderTarget,
-		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		0,
-		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		0);
+	if (drawThreadCount)
+	{
+		renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+
+		blit(
+			cmd,
+			renderTarget,
+			{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+			0,
+			{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+			0);
+	}
 
 	executor.join(std::move(updateViewBufferFuture));
 }

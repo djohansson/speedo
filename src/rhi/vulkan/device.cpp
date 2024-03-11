@@ -31,7 +31,7 @@ uint64_t Device<Vk>::getTimelineSemaphoreValue() const
 }
 
 template <>
-void Device<Vk>::wait(std::span<FenceHandle<G>> fences) const
+void Device<Vk>::wait(std::span<FenceHandle<Vk>> fences) const
 {
 	ZoneScopedN("Device::wait");
 

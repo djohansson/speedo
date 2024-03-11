@@ -69,7 +69,6 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 	, myQueue(std::exchange(other.myQueue, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
-	, myFence(std::exchange(other.myFence, {}))
 	, myUserData(std::exchange(other.myUserData, {}))
 {}
 
@@ -92,7 +91,6 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 	myQueue = std::exchange(other.myQueue, {});
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
 	myScratchMemory = std::exchange(other.myScratchMemory, {});
-	myFence = std::exchange(other.myFence, {});
 	myUserData = std::exchange(other.myUserData, {});
 	return *this;
 }
@@ -105,7 +103,6 @@ void Queue<Vk>::swap(Queue& rhs) noexcept
 	std::swap(myQueue, rhs.myQueue);
 	std::swap(myPendingSubmits, rhs.myPendingSubmits);
 	std::swap(myScratchMemory, rhs.myScratchMemory);
-	std::swap(myFence, rhs.myFence);
 	std::swap(myUserData, rhs.myUserData);
 }
 
@@ -144,12 +141,12 @@ Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 #endif
 
 template <>
-uint64_t Queue<Vk>::submit()
+QueueHostSyncInfo<Vk> Queue<Vk>::submit()
 {
 	ZoneScopedN("Queue::submit");
 
 	if (myPendingSubmits.empty())
-		return 0;
+		return {};
 
 	myScratchMemory.resize(
 		(sizeof(SubmitInfo<Vk>) + sizeof(TimelineSemaphoreSubmitInfo<Vk>)) *
@@ -193,17 +190,27 @@ uint64_t Queue<Vk>::submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
+	QueueHostSyncInfo<Vk> syncInfo{{VK_NULL_HANDLE}, maxTimelineValue};
+	// {
+	// 	ZoneScopedN("Queue::submit::vkCreateFence");
+
+	// 	VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+	// 	VK_CHECK(vkCreateFence(
+	// 		*getDevice(),
+	// 		&fenceInfo,
+	// 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+	// 		&syncInfo.fences.back()));
+	// }
+
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
-		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, myFence));
+		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, syncInfo.fences.back()));
 	}
 
 	myPendingSubmits.clear();
 
-	myLastSubmitTimelineValue = maxTimelineValue;
-
-	return maxTimelineValue;
+	return syncInfo;
 }
 
 template <>
@@ -215,12 +222,9 @@ void Queue<Vk>::waitIdle() const
 }
 
 template <>
-void Queue<Vk>::present()
+QueuePresentInfo<Vk> Queue<Vk>::present()
 {
 	ZoneScopedN("Queue::present");
-
-	if (myPendingPresent.swapchains.empty())
-		return;
 
 	PresentInfo<Vk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
@@ -232,7 +236,7 @@ void Queue<Vk>::present()
 
 	checkFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
-	myPendingPresent = {};
+	return std::move(myPendingPresent);
 }
 
 template <>
@@ -255,7 +259,7 @@ void QueueContext<Vk>::internalFlushCommandsFinishedCallbacks(uint32_t timelineV
 }
 
 template <>
-QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncInfo)
+QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueDeviceSyncInfo<Vk>&& syncInfo)
 {
 	ZoneScopedN("QueueContext::prepareSubmit");
 
@@ -266,7 +270,7 @@ QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueSyncInfo<Vk>&& syncInfo
 	if (pendingCommands.empty())
 		return {};
 
-	QueueSubmitInfo<Vk> submitInfo{std::forward<QueueSyncInfo<Vk>>(syncInfo), {}, 0};
+	QueueSubmitInfo<Vk> submitInfo{std::forward<QueueDeviceSyncInfo<Vk>>(syncInfo), {}, 0};
 	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)

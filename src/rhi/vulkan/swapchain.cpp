@@ -106,29 +106,28 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 		mySwapchain,
 		UINT64_MAX,
 		lastFrame.getNewImageAcquiredSemaphore(),
-		0,
+		VK_NULL_HANDLE,
 		&myFrameIndex));
 
-	if (flipResult != VK_SUCCESS)
-		return std::make_tuple(false, lastFrame.getLastPresentTimelineValue());
-
-	auto zoneNameStr = std::format("Swapchain::flip frame:{0}", myFrameIndex);
+	auto zoneNameStr = std::format(
+		"Swapchain::flip frame:{0}",
+		flipResult == VK_SUCCESS ? myFrameIndex : ~0u);
 
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
-	const auto& frame = myFrames[myFrameIndex];
-
-	return std::make_tuple(true, frame.getLastPresentTimelineValue());
+	return std::make_tuple(
+		flipResult == VK_SUCCESS,
+		lastFrame.getLastPresentSyncInfo().maxTimelineValue);
 }
 
 template <>
-QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(uint64_t timelineValue)
+QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& syncInfo)
 {
 	ZoneScopedN("Swapchain::preparePresent");
 
 	myLastFrameIndex = myFrameIndex;
 
-	auto presentInfo = myFrames[myFrameIndex].preparePresent(timelineValue);
+	auto presentInfo = myFrames[myFrameIndex].preparePresent(syncInfo);
 	presentInfo.swapchains.push_back(mySwapchain);
 
 	return presentInfo;

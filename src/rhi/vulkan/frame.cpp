@@ -83,7 +83,7 @@ Frame<Vk>::Frame(Frame<Vk>&& other) noexcept
 	, myRenderCompleteSemaphore(std::exchange(other.myRenderCompleteSemaphore, {}))
 	, myNewImageAcquiredSemaphore(std::exchange(other.myNewImageAcquiredSemaphore, {}))
 	, myImageLayout(std::exchange(other.myImageLayout, {}))
-	, myLastPresentTimelineValue(std::exchange(other.myLastPresentTimelineValue, {}))
+	, myLastPresentSyncInfo(std::exchange(other.myLastPresentSyncInfo, {}))
 {}
 
 template <>
@@ -111,7 +111,7 @@ Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
 	myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
 	myNewImageAcquiredSemaphore = std::exchange(other.myNewImageAcquiredSemaphore, {});
 	myImageLayout = std::exchange(other.myImageLayout, {});
-	myLastPresentTimelineValue = std::exchange(other.myLastPresentTimelineValue, {});
+	myLastPresentSyncInfo = std::exchange(other.myLastPresentSyncInfo, {});
 	return *this;
 }
 
@@ -122,13 +122,13 @@ void Frame<Vk>::swap(Frame& rhs) noexcept
 	std::swap(myRenderCompleteSemaphore, rhs.myRenderCompleteSemaphore);
 	std::swap(myNewImageAcquiredSemaphore, rhs.myNewImageAcquiredSemaphore);
 	std::swap(myImageLayout, rhs.myImageLayout);
-	std::swap(myLastPresentTimelineValue, rhs.myLastPresentTimelineValue);
+	std::swap(myLastPresentSyncInfo, rhs.myLastPresentSyncInfo);
 }
 
 template <>
 ImageLayout<Vk> Frame<Vk>::getColorImageLayout(uint32_t index) const
 {
-	assert(index == 0);
+	//assert(index == 0); // multiple layouts not supported
 
 	return myImageLayout;
 }
@@ -177,10 +177,13 @@ void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<
 }
 
 template <>
-QueuePresentInfo<Vk> Frame<Vk>::preparePresent(uint64_t timelineValue)
+QueuePresentInfo<Vk> Frame<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
 {
-	myLastPresentTimelineValue = timelineValue;
-
+	myLastPresentSyncInfo = hostSyncInfo;
+	
 	return QueuePresentInfo<Vk>{
-		{myRenderCompleteSemaphore}, {}, {getDesc().index}, {}, timelineValue};
+		{myRenderCompleteSemaphore},
+		{},
+		{getDesc().index},
+		{}};
 }

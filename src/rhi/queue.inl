@@ -17,7 +17,6 @@ QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other
 		results.end(),
 		std::make_move_iterator(other.results.begin()),
 		std::make_move_iterator(other.results.end()));
-	timelineValue = std::max(timelineValue, std::exchange(other.timelineValue, 0));
 	return *this;
 }
 

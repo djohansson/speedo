@@ -86,7 +86,7 @@ public:
 	//
 
 	std::tuple<bool, uint64_t> flip();
-	QueuePresentInfo<G> preparePresent(uint64_t timelineValue);
+	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& syncInfo);
 
 protected:
 	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }

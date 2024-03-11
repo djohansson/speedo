@@ -10,7 +10,7 @@
 #include <vector>
 
 template <GraphicsApi G>
-struct QueueSyncInfo
+struct QueueDeviceSyncInfo
 {
 	std::vector<SemaphoreHandle<G>> waitSemaphores;
 	std::vector<Flags<G>> waitDstStageMasks;
@@ -20,7 +20,14 @@ struct QueueSyncInfo
 };
 
 template <GraphicsApi G>
-struct QueueSubmitInfo : QueueSyncInfo<G>
+struct QueueHostSyncInfo
+{
+	std::vector<FenceHandle<G>> fences;
+	uint64_t maxTimelineValue = 0ull;
+};
+
+template <GraphicsApi G>
+struct QueueSubmitInfo : QueueDeviceSyncInfo<G>
 {
 	std::vector<CommandBufferHandle<G>> commandBuffers;
 	uint64_t timelineValue = 0ull;
@@ -33,7 +40,6 @@ struct QueuePresentInfo
 	std::vector<SwapchainHandle<G>> swapchains;
 	std::vector<uint32_t> imageIndices;
 	std::vector<Result<G>> results;
-	uint64_t timelineValue = 0ull;
 
 	QueuePresentInfo<G>& operator|=(QueuePresentInfo<G>&& other);
 	friend QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs);
@@ -82,16 +88,16 @@ public:
 	friend void swap(Queue& lhs, Queue& rhs) noexcept { lhs.swap(rhs); }
 
 	const auto& getDesc() const noexcept { return myDesc; }
-	const auto& getLastSubmitTimelineValue() const noexcept { return myLastSubmitTimelineValue; }
 
 	template <typename... Ts>
 	void enqueueSubmit(Ts&&... args);
-	uint64_t submit();
+	QueueHostSyncInfo<G> submit();
 
 	template <typename T, typename... Ts>
 	void enqueuePresent(T&& first, Ts&&... rest);
-	void present();
+	QueuePresentInfo<G> present();
 
+	void wait(QueueHostSyncInfo<G>&& syncInfo) const;
 	void waitIdle() const;
 
 #if PROFILING_ENABLED
@@ -115,8 +121,6 @@ private:
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	FenceHandle<G> myFence{};
-	std::optional<uint64_t> myLastSubmitTimelineValue;
 	std::any myUserData;
 };
 
@@ -142,7 +146,7 @@ public:
 
 	uint64_t execute(uint32_t index);
 
-	QueueSubmitInfo<G> prepareSubmit(QueueSyncInfo<G>&& syncInfo);
+	QueueSubmitInfo<G> prepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 
 	// these will be called when the GPU has reached the timeline value of the submission (prepareSubmit).
 	// useful for ensuring that dependencies are respected when releasing resources. do not remove.

@@ -5,6 +5,7 @@
 #include "device.h"
 #include "instance.h"
 #include "pipeline.h"
+#include "queue.h"
 #include "renderimageset.h"
 #include "shaders/shadertypes.h"
 #include "types.h"
@@ -30,5 +31,6 @@ struct Rhi
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>[]> objects;
 
+	QueueHostSyncInfo<Vk> lastQueueSubmitInfo{};
 	std::queue<Future<void>> presentQueue;
 };

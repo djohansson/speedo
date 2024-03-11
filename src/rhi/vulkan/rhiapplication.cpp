@@ -674,7 +674,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 		auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
 		auto& transferQueue = transferContext.queue();
 
-		rhi.device->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
+		rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
 
 		transferContext.reset();
 
@@ -696,7 +696,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 		auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
 		auto& transferQueue = transferContext.queue();
 
-		rhi.device->wait(transferQueue.getLastSubmitTimelineValue().value_or(0));
+		rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
 
 		transferContext.reset();
 
@@ -712,7 +712,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 			 {rhi.device->getTimelineSemaphore()},
 			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		transferQueue.submit();
+		auto syncInfo = transferQueue.submit();
 
 		///////////
 
@@ -728,7 +728,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 			{{rhi.device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {transferQueue.getLastSubmitTimelineValue().value_or(0)},
+			 {syncInfo.maxTimelineValue},
 			 {rhi.device->getTimelineSemaphore()},
 			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
@@ -971,7 +971,7 @@ void RhiApplication::createDevice(const WindowState& window)
 				{
 					auto [it, wasInserted] = queueContexts.emplace(static_cast<QueueContextType>(typeIt), CircularContainer<QueueContext<Vk>>());
 					it->second.reserve(it->second.size() + queueFamily.queueCount);
-					for (unsigned queueIt = 0; queueIt < queueFamily.queueCount; queueIt++)
+					for (unsigned queueIt = 0; queueIt < std::min(frameCount, queueFamily.queueCount); queueIt++)
 					{
 						it->second.emplace_back(
 							rhi.device,
@@ -1042,11 +1042,11 @@ void RhiApplication::createDevice(const WindowState& window)
 		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 			{{rhi.device->getTimelineSemaphore()},
 			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {graphicsQueue.getLastSubmitTimelineValue().value_or(0)},
+			 {rhi.lastQueueSubmitInfo.maxTimelineValue},
 			 {rhi.device->getTimelineSemaphore()},
 			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		graphicsQueue.submit();
+		rhi.lastQueueSubmitInfo = graphicsQueue.submit();
 	}
 
 	constexpr uint32_t textureId = 1;
@@ -1088,11 +1088,11 @@ void RhiApplication::createDevice(const WindowState& window)
 		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
 			{{},
 			 {},
-			 {},
+			 {rhi.lastQueueSubmitInfo.maxTimelineValue},
 			 {rhi.device->getTimelineSemaphore()},
 			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		graphicsQueue.submit();
+		rhi.lastQueueSubmitInfo = graphicsQueue.submit();
 	}
 
 	auto layoutHandle = rhi.pipeline->createLayout(shaderReflection);
@@ -1191,6 +1191,8 @@ bool RhiApplication::tick()
 	auto& rhi = internalRhi<Vk>();
 	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
 
+	ImGui_ImplGlfw_NewFrame();
+
 	auto [drawTask, drawFuture] = frameGraph.createTask([&rhi, &graphicsContext, &executor = executor()]
 	{
 		ZoneScopedN("RhiApplication::draw");
@@ -1201,9 +1203,9 @@ bool RhiApplication::tick()
 		auto& mainWindow = *rhi.mainWindow;
 		auto& renderImageSet = *rhi.renderImageSet;
 
-		auto [flipSuccess, lastPresentTimelineValue] = mainWindow.flip();
+		//IMGUINewFrameFunction();
 
-		IMGUINewFrameFunction();
+		auto [flipSuccess, lastPresentTimelineValue] = mainWindow.flip();
 
 		if (flipSuccess)
 		{
@@ -1243,6 +1245,7 @@ bool RhiApplication::tick()
 			{
 				GPU_SCOPE(cmd, graphicsQueue, draw);
 				
+				mainWindow.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
 				mainWindow.draw(executor, pipeline, graphicsContext);
 			}
 			{
@@ -1250,6 +1253,7 @@ bool RhiApplication::tick()
 				
 				mainWindow.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
+				ImGui_ImplVulkan_NewFrame();
 				IMGUIPrepareDrawFunction(rhi); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 				IMGUIDrawFunction(cmd);
 
@@ -1265,16 +1269,17 @@ bool RhiApplication::tick()
 
 			auto [imageAquired, renderComplete] = mainWindow.getFrameSyncSemaphores();
 
-			graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
-				{{device.getTimelineSemaphore(), imageAquired},
-					{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-					{graphicsQueue.getLastSubmitTimelineValue().value_or(0), 1},
-					{device.getTimelineSemaphore(), renderComplete},
-					{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed), 1}}));
+			graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
+				{device.getTimelineSemaphore(), imageAquired},
+				{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+				{rhi.lastQueueSubmitInfo.maxTimelineValue, 1},
+				{device.getTimelineSemaphore(), renderComplete},
+				{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed), 1}
+			}));
 
-			graphicsQueue.enqueuePresent(
-				mainWindow.preparePresent(graphicsQueue.submit()));
+			rhi.lastQueueSubmitInfo = graphicsQueue.submit();
+
+			graphicsQueue.enqueuePresent(mainWindow.preparePresent(rhi.lastQueueSubmitInfo));
 		}
 
 		if (lastPresentTimelineValue)
@@ -1300,8 +1305,8 @@ bool RhiApplication::tick()
 		// }
 	});
 
-	auto [presentTask, presentFuture] = frameGraph.createTask(
-		[](Queue<Vk>* queue) { queue->present(); }, &graphicsContext.queue());
+	auto [presentTask, presentFuture] =
+		frameGraph.createTask([](Queue<Vk>* queue) { queue->present(); }, &graphicsContext.queue());
 
 	frameGraph.addDependency(drawTask, presentTask);
 
@@ -1309,8 +1314,7 @@ bool RhiApplication::tick()
 	{
 		ZoneScopedN("~RhiApplication()::waitPresentQueue");
 
-		auto& presentFuture = rhi.presentQueue.front();
-		executor().join(std::move(presentFuture));
+		executor().join(std::move(rhi.presentQueue.front()));
 		rhi.presentQueue.pop();
 	}
 
@@ -1335,9 +1339,7 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 	{
 		ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
 
-		auto& graphicsQueue = rhi.queueContexts[QueueContextType_Graphics].get().queue();
-
-		rhi.device->wait(graphicsQueue.getLastSubmitTimelineValue().value_or(0));
+		rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
 	}
 
 	auto physicalDevice = rhi.device->getPhysicalDevice();

@@ -38,13 +38,13 @@ public:
 
 	const auto& getRenderCompleteSemaphore() const noexcept { return myRenderCompleteSemaphore; }
 	const auto& getNewImageAcquiredSemaphore() const noexcept { return myNewImageAcquiredSemaphore; }
-	const auto& getLastPresentTimelineValue() const noexcept { return myLastPresentTimelineValue; }
+	const auto& getLastPresentSyncInfo() const noexcept { return myLastPresentSyncInfo; }
 
-	QueuePresentInfo<G> preparePresent(uint64_t timelineValue);
+	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
 private:
 	SemaphoreHandle<G> myRenderCompleteSemaphore{};
 	SemaphoreHandle<G> myNewImageAcquiredSemaphore{};
 	ImageLayout<G> myImageLayout{};
-	uint64_t myLastPresentTimelineValue = 0;
+	QueueHostSyncInfo<G> myLastPresentSyncInfo{};
 };
