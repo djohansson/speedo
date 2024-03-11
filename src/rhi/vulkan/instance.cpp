@@ -200,9 +200,9 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	if (char* vkLayerPath = getenv(VK_LAYER_PATH_STR))
 		std::cout << VK_LAYER_PATH_STR << "=" << vkLayerPath << '\n';
 
-	static const char* VK_ICD_FILENAMES_STR = "VK_ICD_FILENAMES";
-	if (char* vkIcdFilenames = getenv(VK_ICD_FILENAMES_STR))
-		std::cout << VK_ICD_FILENAMES_STR << "=" << vkIcdFilenames << '\n';
+	static const char* VK_DRIVER_FILES_STR = "VK_DRIVER_FILES";
+	if (char* vkDriverFiles = getenv(VK_DRIVER_FILES_STR))
+		std::cout << VK_DRIVER_FILES_STR << "=" << vkDriverFiles << '\n';
 #endif
 
 	uint32_t instanceLayerCount;
