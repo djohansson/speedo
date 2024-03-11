@@ -237,7 +237,7 @@
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/bin'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 			+ .CommonExecutableLinkerOptions
-		.DebugExecutableLinkerOptions =
+		.DebugExecutableLinkerOptions + ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/bin'
