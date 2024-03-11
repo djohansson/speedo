@@ -831,10 +831,13 @@ Pipeline<Vk>::Pipeline(
 				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descBaseCount},
 				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, descBaseCount},
 				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, descBaseCount}};
+				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount}};
+
+			VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
+			inlineUniformBlockInfo.maxInlineUniformBlockBindings = descBaseCount;
 
 			VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+			poolInfo.pNext = &inlineUniformBlockInfo;
 			poolInfo.poolSizeCount = std::size(poolSizes);
 			poolInfo.pPoolSizes = poolSizes;
 			poolInfo.maxSets = descBaseCount * std::size(poolSizes);
