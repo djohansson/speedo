@@ -73,7 +73,7 @@ private:
 
 	uint32_t internalDrawViews(
 		Pipeline<G>& pipeline,
-		QueueContext<Vk>& queueContext,
+		QueueContext<G>& queueContext,
 		const RenderPassBeginInfo<G>& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
