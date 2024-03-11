@@ -83,6 +83,7 @@ public:
 	{
 		return timelineValue <= getTimelineSemaphoreValue();
 	}
+	void wait(const std::vector<FenceHandle<G>>& fences) const
 	void wait(uint64_t timelineValue) const;
 	void waitIdle() const;
 	uint64_t addTimelineCallback(std::function<void(uint64_t)>&& callback);

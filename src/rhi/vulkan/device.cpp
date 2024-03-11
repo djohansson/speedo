@@ -31,6 +31,14 @@ uint64_t Device<Vk>::getTimelineSemaphoreValue() const
 }
 
 template <>
+void Device<Vk>::wait(std::span<FenceHandle<G>> fences) const
+{
+	ZoneScopedN("Device::wait");
+
+	VK_CHECK(vkWaitForFences(myDevice, fences.size(), fences.data(), VK_TRUE, UINT64_MAX));
+}
+
+template <>
 void Device<Vk>::wait(uint64_t timelineValue) const
 {
 	ZoneScopedN("Device::wait");
