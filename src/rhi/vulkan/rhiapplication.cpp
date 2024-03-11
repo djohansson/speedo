@@ -1205,23 +1205,20 @@ bool RhiApplication::tick()
 
 		//IMGUINewFrameFunction();
 
-		auto [flipSuccess, lastPresentTimelineValue] = mainWindow.flip();
+		auto [flipSuccess, lastPresentSyncInfo] = mainWindow.flip();
 
 		if (flipSuccess)
 		{
 			ZoneScopedN("RhiApplication::draw::submit");
 
-			if (lastPresentTimelineValue)
+			if (lastPresentSyncInfo.maxTimelineValue)
 			{
-				{
-					ZoneScopedN("RhiApplication::draw::waitFrame");
+				ZoneScopedN("RhiApplication::draw::waitFrame");
 
-					device.wait(lastPresentTimelineValue);
+				device.wait(lastPresentSyncInfo.maxTimelineValue);
 #if defined(__APPLE__)
-					graphicsQueue.waitIdle();
+				graphicsQueue.waitIdle();
 #endif
-				}
-
 				graphicsContext.reset();
 			}
 
@@ -1282,12 +1279,12 @@ bool RhiApplication::tick()
 			graphicsQueue.enqueuePresent(mainWindow.preparePresent(rhi.lastQueueSubmitInfo));
 		}
 
-		if (lastPresentTimelineValue)
+		if (rhi.lastQueueSubmitInfo.maxTimelineValue)
 		{
 			ZoneScopedN("RhiApplication::draw::processTimelineCallbacks");
 
 			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-			device.processTimelineCallbacks(lastPresentTimelineValue);
+			device.processTimelineCallbacks(lastPresentSyncInfo.maxTimelineValue);
 		}
 
 		// {

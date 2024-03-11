@@ -85,7 +85,7 @@ public:
 	}
 	//
 
-	std::tuple<bool, uint64_t> flip();
+	std::tuple<bool, QueueHostSyncInfo<G>> flip();
 	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& syncInfo);
 
 protected:

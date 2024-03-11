@@ -93,7 +93,7 @@ void Swapchain<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLay
 }
 
 template <>
-std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
+std::tuple<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 {
 	ZoneScoped;
 
@@ -117,7 +117,7 @@ std::tuple<bool, uint64_t> Swapchain<Vk>::flip()
 
 	return std::make_tuple(
 		flipResult == VK_SUCCESS,
-		lastFrame.getLastPresentSyncInfo().maxTimelineValue);
+		lastFrame.getLastPresentSyncInfo());
 }
 
 template <>
