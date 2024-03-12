@@ -47,11 +47,31 @@ struct QueuePresentInfo
 
 enum QueueContextType : uint8_t
 {
+	QueueContextType_Graphics = 0,
+	QueueContextType_Compute = 1,
+	QueueContextType_Transfer = 2,
+	QueueContextType_SparseBinding = 3,
+	QueueContextType_VideoDecode = 5,
+	QueueContextType_VideoEncode = 6
+};
+
+constexpr std::array<QueueContextType, 6> AllQueueContextTypes{
 	QueueContextType_Graphics,
 	QueueContextType_Compute,
 	QueueContextType_Transfer,
-	
-	QueueContextType_Count
+	QueueContextType_SparseBinding,
+	QueueContextType_VideoDecode,
+	QueueContextType_VideoEncode
+};
+
+enum QueueFamilyFlagBits : uint32_t
+{
+	QueueFamilyFlagBits_Graphics = 1 << QueueContextType_Graphics,
+	QueueFamilyFlagBits_Compute = 1 << QueueContextType_Compute,
+	QueueFamilyFlagBits_Transfer = 1 << QueueContextType_Transfer,
+	QueueFamilyFlagBits_SparseBinding = 1 << QueueContextType_SparseBinding,
+	QueueFamilyFlagBits_VideoDecode = 1 << QueueContextType_VideoDecode,
+	QueueFamilyFlagBits_VideoEncode = 1 << QueueContextType_VideoEncode
 };
 
 template <GraphicsApi G>

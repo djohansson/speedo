@@ -31,15 +31,6 @@ struct DeviceConfiguration
 	// std::optional<bool> useBufferDeviceAddress;
 };
 
-enum QueueFamilyFlagBits
-{
-	QueueFamilyFlagBits_Graphics = 1 << 0,
-	QueueFamilyFlagBits_Compute = 1 << 1,
-	QueueFamilyFlagBits_Transfer = 1 << 2,
-	QueueFamilyFlagBits_Sparse = 1 << 3,
-	QueueFamilyFlagBits_All = (1 << 4) - 1,
-};
-
 template <GraphicsApi G>
 struct QueueFamilyDesc
 {

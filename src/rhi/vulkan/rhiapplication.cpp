@@ -948,7 +948,11 @@ void RhiApplication::createDevice(const WindowState& window)
 			{1ul, 1ul}});
 
 	{
-		uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
+		const uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
+		const uint32_t graphicsQueueCount = frameCount;
+		const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
+		const uint32_t computeQueueCount = 1u;
+		const uint32_t defaultThreadCount = 1u;
 
 		auto& queueContexts = rhi.queueContexts;
 
@@ -958,25 +962,43 @@ void RhiApplication::createDevice(const WindowState& window)
 		if (usePoolReset)
 			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-		unsigned threadCount = std::max(1u, std::thread::hardware_concurrency());
-
 		const auto& queueFamilies = rhi.device->getQueueFamilies();
-		for (unsigned i = 0; i < queueFamilies.size(); i++)
+		for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
 		{
-			const auto& queueFamily = queueFamilies[i];
+			const auto& queueFamily = queueFamilies[queueFamilyIt];
 
-			for (uint8_t typeIt = 0; typeIt < QueueContextType_Count; typeIt++)
+			for (auto type : AllQueueContextTypes)
 			{
-				if (queueFamily.flags & (1 << typeIt))
+				if (queueFamily.flags & (1 << static_cast<uint8_t>(type)))
 				{
-					auto [it, wasInserted] = queueContexts.emplace(static_cast<QueueContextType>(typeIt), CircularContainer<QueueContext<Vk>>());
-					it->second.reserve(it->second.size() + queueFamily.queueCount);
-					for (unsigned queueIt = 0; queueIt < std::min(frameCount, queueFamily.queueCount); queueIt++)
+					auto queueCount = queueFamily.queueCount;
+					auto threadCount = defaultThreadCount;
+
+					auto [it, wasInserted] = queueContexts.emplace(type, CircularContainer<QueueContext<Vk>>());
+
+					if (type == QueueContextType_Graphics)
+					{
+						if (it->second.size() >= graphicsQueueCount)
+							continue;
+
+						queueCount = std::min(queueCount, graphicsQueueCount);
+					}
+					else if (type == QueueContextType_Compute)
+					{
+						if (it->second.size() >= computeQueueCount)
+							continue;
+
+						queueCount = std::min(queueCount, computeQueueCount);
+					}
+
+					it->second.reserve(it->second.size() + queueCount);
+
+					for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 					{
 						it->second.emplace_back(
 							rhi.device,
-							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, i, static_cast<QueueContextType>(typeIt) == QueueContextType_Graphics ? threadCount : 1},
-							QueueCreateDesc<Vk>{queueIt, i});
+							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, threadCount},
+							QueueCreateDesc<Vk>{queueIt, queueFamilyIt});
 					}
 
 					break;

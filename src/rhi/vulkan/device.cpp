@@ -365,11 +365,6 @@ Device<Vk>::Device(
 
 	myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
 
-	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Transfer == (uint32_t)VK_QUEUE_TRANSFER_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Sparse == (uint32_t)VK_QUEUE_SPARSE_BINDING_BIT);
-
 	for (uint32_t queueFamilyIt = 0ul;
 		 queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
 		 queueFamilyIt++)

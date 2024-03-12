@@ -318,7 +318,14 @@ QueueContext<Vk>::QueueContext(
 	QueueCreateDesc<Vk>&& queueDesc)
 	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
 	, myQueue(device, std::forward<QueueCreateDesc<Vk>>(queueDesc))
-{}
+{
+	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_Transfer == (uint32_t)VK_QUEUE_TRANSFER_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_SparseBinding == (uint32_t)VK_QUEUE_SPARSE_BINDING_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_VideoDecode == (uint32_t)VK_QUEUE_VIDEO_DECODE_BIT_KHR);
+	static_assert((uint32_t)QueueFamilyFlagBits_VideoEncode == (uint32_t)VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
+}
 
 template <>
 QueueContext<Vk>::QueueContext(QueueContext&& other) noexcept
