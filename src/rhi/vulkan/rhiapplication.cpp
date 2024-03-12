@@ -584,6 +584,209 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
+static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHandle<Vk> surface)
+{
+	const auto& physicalDevices = instance.getPhysicalDevices();
+
+	std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
+	graphicsDeviceCandidates.reserve(physicalDevices.size());
+
+	std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << std::endl;
+
+	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
+			physicalDeviceIt++)
+	{
+		auto physicalDevice = physicalDevices[physicalDeviceIt];
+
+		const auto& physicalDeviceInfo = instance.getPhysicalDeviceInfo(physicalDevice);
+		const auto& swapchainInfo = instance.getSwapchainInfo(physicalDevice, surface);
+
+		std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << std::endl;
+
+		for (uint32_t queueFamilyIt = 0;
+				queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
+				queueFamilyIt++)
+		{
+			const auto& queueFamilyProperties =
+				physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
+			const auto& queueFamilyPresentSupport =
+				swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
+
+			if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+				queueFamilyPresentSupport)
+				graphicsDeviceCandidates.emplace_back(
+					std::make_tuple(physicalDeviceIt, queueFamilyIt));
+		}
+	}
+
+	std::sort(
+		graphicsDeviceCandidates.begin(),
+		graphicsDeviceCandidates.end(),
+		[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
+		{
+			constexpr uint32_t deviceTypePriority[]{
+				4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
+				1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
+				0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
+				2,		   //VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
+				3,		   //VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
+				0x7FFFFFFF //VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
+			};
+			const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
+			const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
+
+			auto lhsDeviceType =
+				instance.getPhysicalDeviceInfo(physicalDevices[lhsPhysicalDeviceIndex])
+					.deviceProperties.properties.deviceType;
+			auto rhsDeviceType =
+				instance.getPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex])
+					.deviceProperties.properties.deviceType;
+
+			return deviceTypePriority[lhsDeviceType] < deviceTypePriority[rhsDeviceType];
+		});
+
+	if (graphicsDeviceCandidates.empty())
+		throw std::runtime_error("failed to find a suitable GPU!");
+
+	return std::get<0>(graphicsDeviceCandidates.front());
+}
+
+static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, SurfaceHandle<Vk> surface)
+{
+	const auto& swapchainInfo =
+		device.getInstance()->getSwapchainInfo(device.getPhysicalDevice(), surface);
+
+	SwapchainConfiguration<Vk> config{swapchainInfo.capabilities.currentExtent};
+
+	constexpr Format<Vk> requestSurfaceImageFormat[]{
+		VK_FORMAT_B8G8R8A8_UNORM,
+		VK_FORMAT_R8G8B8A8_UNORM,
+		VK_FORMAT_B8G8R8_UNORM,
+		VK_FORMAT_R8G8B8_UNORM};
+	constexpr ColorSpace<Vk> requestSurfaceColorSpace =
+		VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	constexpr PresentMode<Vk> requestPresentMode[]{
+		VK_PRESENT_MODE_MAILBOX_KHR,
+		VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+		VK_PRESENT_MODE_FIFO_KHR,
+		VK_PRESENT_MODE_IMMEDIATE_KHR};
+
+	// Request several formats, the first found will be used
+	// If none of the requested image formats could be found, use the first available
+	for (unsigned requestIt = 0; requestIt < std::size(requestSurfaceImageFormat);
+			requestIt++)
+	{
+		SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
+
+		auto formatIt = std::find_if(
+			swapchainInfo.formats.begin(),
+			swapchainInfo.formats.end(),
+			[&requestedFormat](VkSurfaceFormatKHR format)
+			{
+				return requestedFormat.format == format.format &&
+						requestedFormat.colorSpace == format.colorSpace;
+			});
+
+		if (formatIt != swapchainInfo.formats.end())
+		{
+			config.surfaceFormat = *formatIt;
+			break;
+		}
+	}
+
+	// Request a certain mode and confirm that it is available. If not use
+	// VK_PRESENT_MODE_FIFO_KHR which is mandatory
+	for (unsigned requestIt = 0; requestIt < std::size(requestPresentMode); requestIt++)
+	{
+		auto modeIt = std::find(
+			swapchainInfo.presentModes.begin(),
+			swapchainInfo.presentModes.end(),
+			requestPresentMode[requestIt]);
+
+		if (modeIt != swapchainInfo.presentModes.end())
+		{
+			config.presentMode = *modeIt;
+
+			switch (config.presentMode)
+			{
+			case VK_PRESENT_MODE_MAILBOX_KHR:
+				config.imageCount = 3;
+				break;
+			default:
+				config.imageCount = 2;
+				break;
+			}
+
+			break;
+		}
+	}
+
+	return config;
+};
+
+static void createQueueContexts(Rhi<Vk>& rhi)
+{
+	ZoneScopedN("RhiApplication::createQueueContexts");
+
+	const uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
+	const uint32_t graphicsQueueCount = frameCount;
+	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
+	const uint32_t computeQueueCount = 1u;
+	const uint32_t defaultThreadCount = 1u;
+
+	auto& queueContexts = rhi.queueContexts;
+
+	VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+	constexpr bool usePoolReset = true;
+	if (usePoolReset)
+		cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+	const auto& queueFamilies = rhi.device->getQueueFamilies();
+	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
+	{
+		const auto& queueFamily = queueFamilies[queueFamilyIt];
+
+		for (auto type : AllQueueContextTypes)
+		{
+			if (queueFamily.flags & (1 << static_cast<uint8_t>(type)))
+			{
+				auto queueCount = queueFamily.queueCount;
+				auto threadCount = defaultThreadCount;
+
+				auto [it, wasInserted] = queueContexts.emplace(type, CircularContainer<QueueContext<Vk>>());
+
+				if (type == QueueContextType_Graphics)
+				{
+					if (it->second.size() >= graphicsQueueCount)
+						continue;
+
+					queueCount = std::min(queueCount, graphicsQueueCount);
+				}
+				else if (type == QueueContextType_Compute)
+				{
+					if (it->second.size() >= computeQueueCount)
+						continue;
+
+					queueCount = std::min(queueCount, computeQueueCount);
+				}
+
+				it->second.reserve(it->second.size() + queueCount);
+
+				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+				{
+					it->second.emplace_back(
+						rhi.device,
+						CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, threadCount},
+						QueueCreateDesc<Vk>{queueIt, queueFamilyIt});
+				}
+
+				break;
+			}
+		}
+	}
+}
+
 static void createWindowDependentObjects(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("RhiApplication::createWindowDependentObjects");
@@ -780,6 +983,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	using namespace rhiapplication;
 
 	auto& rhi = internalRhi<Vk>();
+	auto& instance = rhi.instance;
 
 	auto rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
 	auto resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
@@ -791,150 +995,9 @@ void RhiApplication::createDevice(const WindowState& window)
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
 	
-	auto surface = createSurface(*rhi.instance, &rhi.instance->getHostAllocationCallbacks(), window.nativeHandle);
+	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), window.nativeHandle);
 
-	auto detectSuitableGraphicsDevice = [](auto instance, auto surface)
-	{
-		const auto& physicalDevices = instance->getPhysicalDevices();
-
-		std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
-		graphicsDeviceCandidates.reserve(physicalDevices.size());
-
-		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << std::endl;
-
-		for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
-			 physicalDeviceIt++)
-		{
-			auto physicalDevice = physicalDevices[physicalDeviceIt];
-
-			const auto& physicalDeviceInfo = instance->getPhysicalDeviceInfo(physicalDevice);
-			const auto& swapchainInfo = instance->getSwapchainInfo(physicalDevice, surface);
-
-			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << std::endl;
-
-			for (uint32_t queueFamilyIt = 0;
-				 queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
-				 queueFamilyIt++)
-			{
-				const auto& queueFamilyProperties =
-					physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
-				const auto& queueFamilyPresentSupport =
-					swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
-
-				if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-					queueFamilyPresentSupport)
-					graphicsDeviceCandidates.emplace_back(
-						std::make_tuple(physicalDeviceIt, queueFamilyIt));
-			}
-		}
-
-		std::sort(
-			graphicsDeviceCandidates.begin(),
-			graphicsDeviceCandidates.end(),
-			[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
-			{
-				constexpr uint32_t deviceTypePriority[]{
-					4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
-					1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
-					0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
-					2,		   //VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
-					3,		   //VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
-					0x7FFFFFFF //VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
-				};
-				const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
-				const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
-
-				auto lhsDeviceType =
-					instance->getPhysicalDeviceInfo(physicalDevices[lhsPhysicalDeviceIndex])
-						.deviceProperties.properties.deviceType;
-				auto rhsDeviceType =
-					instance->getPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex])
-						.deviceProperties.properties.deviceType;
-
-				return deviceTypePriority[lhsDeviceType] < deviceTypePriority[rhsDeviceType];
-			});
-
-		if (graphicsDeviceCandidates.empty())
-			throw std::runtime_error("failed to find a suitable GPU!");
-
-		return std::get<0>(graphicsDeviceCandidates.front());
-	};
-
-	rhi.device = std::make_shared<Device<Vk>>(
-		rhi.instance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(rhi.instance, surface)});
-
-	auto detectSuitableSwapchain = [](auto instance, auto device, auto surface)
-	{
-		const auto& swapchainInfo =
-			instance->getSwapchainInfo(device->getPhysicalDevice(), surface);
-
-		SwapchainConfiguration<Vk> config{swapchainInfo.capabilities.currentExtent};
-
-		constexpr Format<Vk> requestSurfaceImageFormat[]{
-			VK_FORMAT_B8G8R8A8_UNORM,
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_FORMAT_B8G8R8_UNORM,
-			VK_FORMAT_R8G8B8_UNORM};
-		constexpr ColorSpace<Vk> requestSurfaceColorSpace =
-			VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		constexpr PresentMode<Vk> requestPresentMode[]{
-			VK_PRESENT_MODE_MAILBOX_KHR,
-			VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-			VK_PRESENT_MODE_FIFO_KHR,
-			VK_PRESENT_MODE_IMMEDIATE_KHR};
-
-		// Request several formats, the first found will be used
-		// If none of the requested image formats could be found, use the first available
-		for (unsigned requestIt = 0; requestIt < std::size(requestSurfaceImageFormat);
-			 requestIt++)
-		{
-			SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
-
-			auto formatIt = std::find_if(
-				swapchainInfo.formats.begin(),
-				swapchainInfo.formats.end(),
-				[&requestedFormat](VkSurfaceFormatKHR format)
-				{
-					return requestedFormat.format == format.format &&
-						   requestedFormat.colorSpace == format.colorSpace;
-				});
-
-			if (formatIt != swapchainInfo.formats.end())
-			{
-				config.surfaceFormat = *formatIt;
-				break;
-			}
-		}
-
-		// Request a certain mode and confirm that it is available. If not use
-		// VK_PRESENT_MODE_FIFO_KHR which is mandatory
-		for (unsigned requestIt = 0; requestIt < std::size(requestPresentMode); requestIt++)
-		{
-			auto modeIt = std::find(
-				swapchainInfo.presentModes.begin(),
-				swapchainInfo.presentModes.end(),
-				requestPresentMode[requestIt]);
-
-			if (modeIt != swapchainInfo.presentModes.end())
-			{
-				config.presentMode = *modeIt;
-
-				switch (config.presentMode)
-				{
-				case VK_PRESENT_MODE_MAILBOX_KHR:
-					config.imageCount = 3;
-					break;
-				default:
-					config.imageCount = 2;
-					break;
-				}
-
-				break;
-			}
-		}
-
-		return config;
-	};
+	rhi.device = std::make_shared<Device<Vk>>(instance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(*instance, surface)});
 
 	rhi.pipeline = std::make_unique<Pipeline<Vk>>(
 		rhi.device, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
@@ -943,70 +1006,11 @@ void RhiApplication::createDevice(const WindowState& window)
 		rhi.device,
 		std::move(surface),
 		WindowConfiguration<Vk>{
-			detectSuitableSwapchain(rhi.instance, rhi.device, surface),
+			detectSuitableSwapchain(*rhi.device, surface),
 			{window.width, window.height},
 			{1ul, 1ul}});
 
-	{
-		const uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
-		const uint32_t graphicsQueueCount = frameCount;
-		const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
-		const uint32_t computeQueueCount = 1u;
-		const uint32_t defaultThreadCount = 1u;
-
-		auto& queueContexts = rhi.queueContexts;
-
-		VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-
-		constexpr bool usePoolReset = true;
-		if (usePoolReset)
-			cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-
-		const auto& queueFamilies = rhi.device->getQueueFamilies();
-		for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
-		{
-			const auto& queueFamily = queueFamilies[queueFamilyIt];
-
-			for (auto type : AllQueueContextTypes)
-			{
-				if (queueFamily.flags & (1 << static_cast<uint8_t>(type)))
-				{
-					auto queueCount = queueFamily.queueCount;
-					auto threadCount = defaultThreadCount;
-
-					auto [it, wasInserted] = queueContexts.emplace(type, CircularContainer<QueueContext<Vk>>());
-
-					if (type == QueueContextType_Graphics)
-					{
-						if (it->second.size() >= graphicsQueueCount)
-							continue;
-
-						queueCount = std::min(queueCount, graphicsQueueCount);
-					}
-					else if (type == QueueContextType_Compute)
-					{
-						if (it->second.size() >= computeQueueCount)
-							continue;
-
-						queueCount = std::min(queueCount, computeQueueCount);
-					}
-
-					it->second.reserve(it->second.size() + queueCount);
-
-					for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-					{
-						it->second.emplace_back(
-							rhi.device,
-							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, threadCount},
-							QueueCreateDesc<Vk>{queueIt, queueFamilyIt});
-					}
-
-					break;
-				}
-			}
-		}
-	}
-
+	createQueueContexts(rhi);
 	createWindowDependentObjects(rhi);
 
 	// todo: create some resource global storage
