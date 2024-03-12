@@ -441,7 +441,7 @@ void Window<Vk>::draw(
 	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 	renderTarget.end(cmd);
 
-	if (drawThreadCount)
+	//if (drawThreadCount)
 	{
 		renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
 

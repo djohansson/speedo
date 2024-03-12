@@ -1213,8 +1213,6 @@ bool RhiApplication::tick()
 	auto& rhi = internalRhi<Vk>();
 	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
 
-	ImGui_ImplGlfw_NewFrame();
-
 	auto [drawTask, drawFuture] = frameGraph.createTask([&rhi, &graphicsContext, &executor = executor()]
 	{
 		ZoneScopedN("RhiApplication::draw");
@@ -1224,8 +1222,6 @@ bool RhiApplication::tick()
 		auto& graphicsQueue = graphicsContext.queue();
 		auto& mainWindow = *rhi.mainWindow;
 		auto& renderImageSet = *rhi.renderImageSet;
-
-		//IMGUINewFrameFunction();
 
 		auto [flipSuccess, lastPresentSyncInfo] = mainWindow.flip();
 
@@ -1244,6 +1240,8 @@ bool RhiApplication::tick()
 				graphicsContext.reset();
 			}
 
+			IMGUINewFrameFunction();
+
 			auto cmd = graphicsContext.commands();
 
 			GPU_SCOPE_COLLECT(cmd, graphicsQueue);
@@ -1252,6 +1250,7 @@ bool RhiApplication::tick()
 				GPU_SCOPE(cmd, graphicsQueue, clear);
 
 				renderImageSet.clearDepthStencil(cmd, {1.0f, 0});
+				renderImageSet.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
 			}
 			{
 				GPU_SCOPE(cmd, graphicsQueue, transition);
@@ -1264,7 +1263,6 @@ bool RhiApplication::tick()
 			{
 				GPU_SCOPE(cmd, graphicsQueue, draw);
 				
-				mainWindow.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
 				mainWindow.draw(executor, pipeline, graphicsContext);
 			}
 			{
@@ -1272,7 +1270,6 @@ bool RhiApplication::tick()
 				
 				mainWindow.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
-				ImGui_ImplVulkan_NewFrame();
 				IMGUIPrepareDrawFunction(rhi); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 				IMGUIDrawFunction(cmd);
 
