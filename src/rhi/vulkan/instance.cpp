@@ -20,13 +20,11 @@ getSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surfac
 	return capabilities;
 }
 
-PhysicalDeviceInfo<Vk>
-getPhysicalDeviceInfo(InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> device)
+void getPhysicalDeviceInfo(PhysicalDeviceInfo<Vk>& deviceInfo, InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> device)
 {
 	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
 
-	PhysicalDeviceInfo<Vk> deviceInfo{};
 	deviceInfo.deviceRobustnessFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
 	deviceInfo.inlineUniformBlockFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
 	deviceInfo.inlineUniformBlockFeatures.pNext = &deviceInfo.deviceRobustnessFeatures;
@@ -58,8 +56,6 @@ getPhysicalDeviceInfo(InstanceHandle<Vk> instance, PhysicalDeviceHandle<Vk> devi
 		vkGetPhysicalDeviceQueueFamilyProperties(
 			device, &queueFamilyCount, deviceInfo.queueFamilyProperties.data());
 	}
-
-	return deviceInfo;
 }
 
 SwapchainInfo<Vk>
@@ -239,32 +235,32 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
 	std::vector<const char*> requiredLayers = {};
-#if GRAPHICS_VALIDATION_ENABLED
-	static constexpr std::string_view validationLayerName = "VK_LAYER_KHRONOS_validation";
+// #if GRAPHICS_VALIDATION_ENABLED
+// 	static constexpr std::string_view validationLayerName = "VK_LAYER_KHRONOS_validation";
 
-	requiredLayers.emplace_back(validationLayerName.data());
+// 	requiredLayers.emplace_back(validationLayerName.data());
 
-	const VkBool32 settingValidateCore = VK_TRUE;
-	const VkBool32 settingValidateSync = VK_TRUE;
-	const VkBool32 settingThreadSafety = VK_TRUE;
-	const char* settingDebugAction[] = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
-	const char* settingReportFlags[] = {"info", "warn", "perf", "error", "debug"};
-	const VkBool32 settingEnableMessageLimit = VK_TRUE;
-	const int32_t settingDuplicateMessageLimit = 3;
+// 	const VkBool32 settingValidateCore = VK_TRUE;
+// 	const VkBool32 settingValidateSync = VK_TRUE;
+// 	const VkBool32 settingThreadSafety = VK_TRUE;
+// 	const char* settingDebugAction[] = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
+// 	const char* settingReportFlags[] = {"info", "warn", "perf", "error", "debug"};
+// 	const VkBool32 settingEnableMessageLimit = VK_TRUE;
+// 	const int32_t settingDuplicateMessageLimit = 3;
 
-	const VkLayerSettingEXT settings[] = {
-		{validationLayerName.data(), "validate_core", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingValidateCore},
-		{validationLayerName.data(), "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingValidateSync},
-		{validationLayerName.data(), "thread_safety", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingThreadSafety},
-		{validationLayerName.data(), "debug_action", VK_LAYER_SETTING_TYPE_STRING_EXT, 1, settingDebugAction},
-		{validationLayerName.data(), "report_flags", VK_LAYER_SETTING_TYPE_STRING_EXT, static_cast<uint32_t>(std::size(settingReportFlags)), settingReportFlags},
-		{validationLayerName.data(), "enable_message_limit", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingEnableMessageLimit},
-		{validationLayerName.data(), "duplicate_message_limit", VK_LAYER_SETTING_TYPE_INT32_EXT, 1, &settingDuplicateMessageLimit}};
+// 	const VkLayerSettingEXT settings[] = {
+// 		{validationLayerName.data(), "validate_core", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingValidateCore},
+// 		{validationLayerName.data(), "validate_sync", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingValidateSync},
+// 		{validationLayerName.data(), "thread_safety", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingThreadSafety},
+// 		{validationLayerName.data(), "debug_action", VK_LAYER_SETTING_TYPE_STRING_EXT, 1, settingDebugAction},
+// 		{validationLayerName.data(), "report_flags", VK_LAYER_SETTING_TYPE_STRING_EXT, static_cast<uint32_t>(std::size(settingReportFlags)), settingReportFlags},
+// 		{validationLayerName.data(), "enable_message_limit", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &settingEnableMessageLimit},
+// 		{validationLayerName.data(), "duplicate_message_limit", VK_LAYER_SETTING_TYPE_INT32_EXT, 1, &settingDuplicateMessageLimit}};
 
-	const VkLayerSettingsCreateInfoEXT layerSettingsCreateInfo = {
-		VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT, &instance::debugUtilsMessengerCallbackCreateInfo,
-		static_cast<uint32_t>(std::size(settings)), settings};
-#endif
+// 	const VkLayerSettingsCreateInfoEXT layerSettingsCreateInfo = {
+// 		VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT, &instance::debugUtilsMessengerCallbackCreateInfo,
+// 		static_cast<uint32_t>(std::size(settings)), settings};
+// #endif
 
 	std::vector<const char*> requiredExtensions = {
 	// must be sorted lexicographically for std::includes to work!
@@ -309,9 +305,9 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		"Can't find required Vulkan extensions.");
 
 	VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-#if GRAPHICS_VALIDATION_ENABLED
-	info.pNext = &layerSettingsCreateInfo;
-#endif
+// #if GRAPHICS_VALIDATION_ENABLED
+// 	info.pNext = &layerSettingsCreateInfo;
+// #endif
 	info.pApplicationInfo = &myConfig.appInfo;
 	info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
 	info.ppEnabledLayerNames = info.enabledLayerCount ? requiredLayers.data() : nullptr;
@@ -332,19 +328,11 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	VK_CHECK(
 		vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
 
-	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < myPhysicalDevices.size();
-		 physicalDeviceIt++)
+	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < myPhysicalDevices.size(); physicalDeviceIt++)
 	{
 		auto physicalDevice = myPhysicalDevices[physicalDeviceIt];
-		auto infoInsertNode = myPhysicalDeviceInfos.emplace(
-			physicalDevice, instance::getPhysicalDeviceInfo(myInstance, physicalDevice));
-
-		auto& physicalDeviceInfo = infoInsertNode.first->second;
-		// pointers set up in instance::getPhysicalDeviceInfo will be invalid (pointing to the stack), so patch these up here
-		physicalDeviceInfo.deviceProperties.pNext = &physicalDeviceInfo.devicePropertiesEx;
-		physicalDeviceInfo.deviceFeaturesEx.pNext = &physicalDeviceInfo.deviceRobustnessFeatures;
-		physicalDeviceInfo.deviceFeatures.pNext = &physicalDeviceInfo.deviceFeaturesEx;
-		//
+		auto infoInsertNode = myPhysicalDeviceInfos.emplace(physicalDevice, std::make_unique<PhysicalDeviceInfo<Vk>>());
+		instance::getPhysicalDeviceInfo(*infoInsertNode.first->second, myInstance, physicalDevice);
 	}
 
 	myUserData = instance::UserData();

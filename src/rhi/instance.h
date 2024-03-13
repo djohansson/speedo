@@ -51,7 +51,7 @@ public:
 	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getHostAllocationCallbacks() const noexcept { return myHostAllocationCallbacks; }
 	const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
-	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return myPhysicalDeviceInfos.at(device);	}
+	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
 
 	const SwapchainInfo<G>&
 	getSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
@@ -63,7 +63,7 @@ private:
 	InstanceHandle<G> myInstance{};
 	AllocationCallbacks<G> myHostAllocationCallbacks{};
 	std::vector<PhysicalDeviceHandle<G>> myPhysicalDevices;
-	UnorderedMap<PhysicalDeviceHandle<G>, PhysicalDeviceInfo<G>> myPhysicalDeviceInfos;
+	UnorderedMap<PhysicalDeviceHandle<G>, std::unique_ptr<PhysicalDeviceInfo<G>>> myPhysicalDeviceInfos;
 	UnorderedMap<std::tuple<PhysicalDeviceHandle<G>, SurfaceHandle<G>>, SwapchainInfo<G>, TupleHash>
 		myPhysicalDeviceSwapchainInfos;
 	std::any myUserData;
