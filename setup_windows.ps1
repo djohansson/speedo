@@ -30,7 +30,7 @@ if (-not ($gitCmd))
 $windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
 if (-not ($windowsSdkInfo))
 {
-	Write-Host "Installing WindowsSDK 10.0.22000 (requires process elevation)..."
+	Write-Host "Installing WindowsSDK 10.0.22621 (requires process elevation)..."
 
 	Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null" -Wait
 
