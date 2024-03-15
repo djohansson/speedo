@@ -116,6 +116,7 @@
 		"__tree": "cpp",
 		"__verbose_abort": "cpp",
 		"cwctype": "cpp",
-		"memory_resource": "cpp"
+		"memory_resource": "cpp",
+		"codecvt": "cpp"
 	}
 }
