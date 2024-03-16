@@ -23,6 +23,11 @@
 #	include <tiny_obj_loader.h>
 #endif
 
+#include <zpp_bits.h>
+
+auto serialize(const ModelCreateDesc<Vk>&) -> zpp::bits::members<5>;
+auto serialize(const AABB<float>&) -> zpp::bits::members<2>;
+
 namespace model
 {
 

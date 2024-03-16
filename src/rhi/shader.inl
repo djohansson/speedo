@@ -1,6 +1,10 @@
 #include <core/file.h>
 
 #include <zpp_bits.h>
+
+template <GraphicsApi G>
+auto serialize(const DescriptorSetLayoutCreateDesc<G>&) -> zpp::bits::members<7>;
+
 namespace shader
 {
 

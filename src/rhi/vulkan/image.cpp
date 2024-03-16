@@ -25,6 +25,8 @@
 
 #include <zpp_bits.h>
 
+auto serialize(const ImageCreateDesc<Vk>&) -> zpp::bits::members<6>;
+
 namespace image
 {
 
