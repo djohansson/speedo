@@ -12,6 +12,9 @@
 #include "window.h"
 #include "utils.h"
 
+#include <core/circularcontainer.h>
+#include <core/utils.h>
+
 template <GraphicsApi G>
 struct Rhi
 {

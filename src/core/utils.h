@@ -288,24 +288,6 @@ public:
 	}
 };
 
-template <typename T, typename ContainerT = std::vector<T>, typename IndexT = uint32_t>
-class CircularContainer : public ContainerT
-{
-public:
-	T& get() { return ContainerT::at(myHead); }
-	const T& get() const { return ContainerT::at(myHead); }
-
-	T& fetchAdd(IndexT offset = 1u)
-	{
-		auto index = myHead;
-		myHead = (myHead + offset) % ContainerT::size();
-		return ContainerT::at(index);
-	}
-
-private:
-	IndexT myHead{};
-};
-
 template <size_t N>
 struct StringLiteral
 {
