@@ -6,9 +6,9 @@
 
 #include <glaze/glaze.hpp>
 
-#include <stduuid/uuid.h>
-
 #include <picosha2.h>
+
+#include <stduuid/uuid.h>
 
 namespace file
 {
