@@ -53,9 +53,8 @@ public:
 	const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
 	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
 
-	const SwapchainInfo<G>&
-	getSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
-
+	const SwapchainInfo<G>& updateSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
+	const SwapchainInfo<G>& getSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface) const;
 	void updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface);
 
 private:

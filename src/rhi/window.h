@@ -60,10 +60,10 @@ public:
 	void onKeyboard(const KeyboardState& keyboard);
 
 	// todo: generalize, move out of window. use sorted draw call lists.
-	void draw(
-		TaskExecutor& executor,
-		Pipeline<G>& pipeline,
-		QueueContext<Vk>& queueContext);
+	uint32_t draw(
+		Pipeline<Vk>& pipeline,
+		QueueContext<Vk>& queueContext,
+		RenderPassBeginInfo<Vk>&& renderPassInfo);
 	//
 
 private:
@@ -74,7 +74,7 @@ private:
 	uint32_t internalDrawViews(
 		Pipeline<G>& pipeline,
 		QueueContext<G>& queueContext,
-		const RenderPassBeginInfo<G>& renderPassInfo);
+		RenderPassBeginInfo<G>&& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
 	struct InputState

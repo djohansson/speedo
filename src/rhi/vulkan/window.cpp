@@ -81,7 +81,7 @@ template <>
 uint32_t Window<Vk>::internalDrawViews(
 	Pipeline<Vk>& pipeline,
 	QueueContext<Vk>& queueContext,
-	const RenderPassBeginInfo<Vk>& renderPassInfo)
+	RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
@@ -414,47 +414,22 @@ void Window<Vk>::internalUpdateInput()
 }
 
 template <>
-void Window<Vk>::draw(
-	TaskExecutor& executor,
+uint32_t Window<Vk>::draw(
 	Pipeline<Vk>& pipeline,
-	QueueContext<Vk>& queueContext)
+	QueueContext<Vk>& queueContext,
+	RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	ZoneScopedN("Window::draw");
 
 	if (!ImGui::GetIO().WantCaptureMouse)
 		internalUpdateInput();
 
-	TaskGraph graph;
-	auto [task, updateViewBufferFuture] = graph.createTask([this]{ internalUpdateViewBuffer(); });
-	executor.submit(std::move(graph));
+	internalUpdateViewBuffer();
 
-	auto& renderTarget = pipeline.getRenderTarget();
-
-	auto cmd = queueContext.commands();
-	auto renderPassInfo = renderTarget.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
-	uint32_t drawThreadCount = internalDrawViews(pipeline, queueContext, renderPassInfo.value());
-
-	for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
-		queueContext.execute(threadIt);
-
-	//renderTarget.nextSubpass(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-	renderTarget.end(cmd);
-
-	//if (drawThreadCount)
-	{
-		renderTarget.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-
-		blit(
-			cmd,
-			renderTarget,
-			{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-			0,
-			{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-			0);
-	}
-
-	executor.join(std::move(updateViewBufferFuture));
+	return internalDrawViews(
+		pipeline,
+		queueContext,
+		std::forward<RenderPassBeginInfo<Vk>>(renderPassInfo));
 }
 
 template <>

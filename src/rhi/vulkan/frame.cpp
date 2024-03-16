@@ -177,11 +177,12 @@ void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<
 }
 
 template <>
-QueuePresentInfo<Vk> Frame<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
+QueuePresentInfo<Vk> Frame<Vk>::preparePresent(QueueHostSyncInfo<Vk>&& hostSyncInfo)
 {
-	myLastPresentSyncInfo = hostSyncInfo;
-	
+	myLastPresentSyncInfo = std::forward<QueueHostSyncInfo<Vk>>(hostSyncInfo);
+
 	return QueuePresentInfo<Vk>{
+		{myLastPresentSyncInfo},
 		{myRenderCompleteSemaphore},
 		{},
 		{getDesc().index},

@@ -24,6 +24,9 @@ struct QueueHostSyncInfo
 {
 	std::vector<FenceHandle<G>> fences;
 	uint64_t maxTimelineValue = 0ull;
+
+	QueueHostSyncInfo<G>& operator|=(QueueHostSyncInfo<G>&& other);
+	friend QueueHostSyncInfo<G> operator|(QueueHostSyncInfo<G>&& lhs, QueueHostSyncInfo<G>&& rhs);
 };
 
 template <GraphicsApi G>
@@ -34,7 +37,7 @@ struct QueueSubmitInfo : QueueDeviceSyncInfo<G>
 };
 
 template <GraphicsApi G>
-struct QueuePresentInfo
+struct QueuePresentInfo : QueueHostSyncInfo<G>
 {
 	std::vector<SemaphoreHandle<G>> waitSemaphores;
 	std::vector<SwapchainHandle<G>> swapchains;

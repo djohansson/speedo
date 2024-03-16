@@ -29,9 +29,10 @@ struct IRenderTarget
 	virtual ImageLayout<G> getColorImageLayout(uint32_t index) const = 0;
 	virtual ImageLayout<G> getDepthStencilImageLayout() const = 0;
 
-	virtual const std::optional<RenderPassBeginInfo<G>>&
-	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
+	 // TODO: make these two a single scoped call
+	virtual RenderPassBeginInfo<G> begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
 	virtual void end(CommandBufferHandle<G> cmd) = 0;
+	//
 
 	virtual void blit(
 		CommandBufferHandle<G> cmd,
@@ -70,8 +71,7 @@ public:
 
 	operator auto() { return internalGetValues(); };
 
-	virtual const std::optional<RenderPassBeginInfo<G>>&
-	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	virtual RenderPassBeginInfo<G> begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	virtual void end(CommandBufferHandle<G> cmd) override;
 
 	virtual void blit(
@@ -100,7 +100,6 @@ public:
 	{
 		return myAttachmentDescs[index];
 	}
-	const auto& getSubpass() const noexcept { return myCurrentSubpass; }
 
 	void addSubpassDescription(SubpassDescription<G>&& description);
 	void addSubpassDependency(SubpassDependency<G>&& dependency);
@@ -145,9 +144,6 @@ private:
 	std::vector<SubpassDependency<G>> mySubPassDependencies;
 
 	UnorderedMap<uint64_t, RenderTargetHandle<G>> myCache; // todo: consider making global
-
-	std::optional<RenderPassBeginInfo<G>> myCurrentPass;
-	std::optional<uint32_t> myCurrentSubpass;
 };
 
 #include "rendertarget.inl"

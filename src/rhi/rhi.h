@@ -10,8 +10,7 @@
 #include "shaders/shadertypes.h"
 #include "types.h"
 #include "window.h"
-
-#include <queue>
+#include "utils.h"
 
 template <GraphicsApi G>
 struct Rhi
@@ -31,6 +30,5 @@ struct Rhi
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>[]> objects;
 
-	QueueHostSyncInfo<Vk> lastQueueSubmitInfo{};
-	std::queue<Future<void>> presentQueue;
+	ConcurrentQueue<Future<void>> presentQueue;
 };

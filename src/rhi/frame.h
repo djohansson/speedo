@@ -40,7 +40,7 @@ public:
 	const auto& getNewImageAcquiredSemaphore() const noexcept { return myNewImageAcquiredSemaphore; }
 	const auto& getLastPresentSyncInfo() const noexcept { return myLastPresentSyncInfo; }
 
-	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
+	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& hostSyncInfo);
 
 private:
 	SemaphoreHandle<G> myRenderCompleteSemaphore{};

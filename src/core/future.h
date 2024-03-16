@@ -32,7 +32,7 @@ public:
 
 private:
 	friend class Task;
-	friend class TaskGraph;
+	friend class TaskExecutor;
 
 	struct FutureState : TaskState
 	{

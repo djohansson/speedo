@@ -1,49 +1,68 @@
 #pragma once
 
 #include "future.h"
+#include "memorypool.h"
 #include "task.h"
-#include "taskgraph.h"
 #include "utils.h"
 
 #include <atomic>
 #include <exception>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <semaphore>
 #include <vector>
 #include <thread>
 #include <tuple>
 
-class TaskExecutor : public Noncopyable
+using TaskHandleVector = std::vector<TaskHandle>;
+
+class TaskExecutor
 {
+	using TaskUniquePtr = std::unique_ptr<Task, std::function<void(Task*)>>;
+
 public:
+	
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	void submit(TaskGraph&& graph); // will invalidate all task handles allocated from graph
+	//void addDependency(TaskHandle a, TaskHandle b); // b will start after a has finished
+
+	template <
+		typename F,
+		typename CallableType = std::decay_t<F>,
+		typename... Args,
+		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
+	requires std::invocable<F&, Args...>
+	std::pair<TaskHandle, Future<ReturnType>> createTask(F&& f, Args&&... args);
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
+	void submit(TaskHandle handle);
+
 private:
-	void scheduleAdjacent(const Task& task);
-	void scheduleAdjacent(ProducerToken& readyProducerToken, const Task& task);
+
+	void initializeGraph();
+	void scheduleAdjacent(TaskHandle task);
+	void scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandle task);
 
 	template <typename ReturnType>
-	std::optional<typename Future<ReturnType>::value_t>
-	processReadyQueue(Future<ReturnType>&& future);
+	std::optional<typename Future<ReturnType>::value_t> processReadyQueue(Future<ReturnType>&& future);
+
 	void processReadyQueue();
 	void processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
-
-	void removeFinishedGraphs();
 
 	void threadMain(uint32_t threadId);
 
 	std::vector<std::tuple<std::thread, std::exception_ptr>> myThreads;
 	std::counting_semaphore<> mySignal;
 	std::atomic_bool myStopSource;
-	// todo: use pool allocator for tasks, and just use pointer here
-	ConcurrentQueue<Task> myReadyQueue;
-	ConcurrentQueue<TaskGraph> myWaitingQueue;
+	ConcurrentQueue<TaskHandle> myReadyQueue;
+	ConcurrentQueue<TaskHandle> myDeletionQueue;
+	UnorderedMap<TaskHandle, TaskUniquePtr> myTasks;
+	static constexpr uint32_t TaskPoolSize = (1 << 15);
+	static MemoryPool<Task, TaskPoolSize> ourTaskPool;
 };
 
 #include "taskexecutor.inl"

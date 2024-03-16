@@ -154,15 +154,24 @@ void Instance<Vk>::updateSurfaceCapabilities(
 
 template <>
 const SwapchainInfo<Vk>&
-Instance<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
+Instance<Vk>::updateSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
 {
+	ZoneScopedN("Instance::updateSwapchainInfo");
+	
 	auto infoInsertNode = myPhysicalDeviceSwapchainInfos.emplace(
 		std::make_tuple(device, surface),
 		instance::getPhysicalDeviceSwapchainInfo(device, surface));
+	
+	return infoInsertNode.first->second;
+}
 
-	auto& swapchainInfo = infoInsertNode.first->second;
+template <>
+const SwapchainInfo<Vk>&
+Instance<Vk>::getSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface) const
+{
+	ZoneScopedN("Instance::getSwapchainInfo");
 
-	return swapchainInfo;
+	return myPhysicalDeviceSwapchainInfos.at(std::make_tuple(device, surface));
 }
 
 template <>

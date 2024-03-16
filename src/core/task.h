@@ -9,7 +9,7 @@
 #include <type_traits>
 #include <vector>
 
-// TODO: (perhaps) dynamic memory allocation if larger tasks are created
+// TODO: Consider using dynamic memory allocation for callable and arguments if larger tasks are required. Currently, the maximum size is 56 bytes for the callable and 32 bytes for the arguments.
 class Task : public Noncopyable
 {
 public:
@@ -24,7 +24,6 @@ public:
 	void operator()(Args&&... args);
 
 private:
-	friend class TaskGraph;
 	friend class TaskExecutor;
 
 	template <
@@ -55,6 +54,7 @@ private:
 	std::shared_ptr<TaskState> myState;
 };
 
-//char (*__kaboom)[sizeof(Task)] = 1;
+static constexpr Task& handleToTaskRef(TaskHandle handle) noexcept { return *handle; }
+static constexpr TaskHandle taskRefToHandle(Task& task) noexcept { return &task; }
 
 #include "task.inl"

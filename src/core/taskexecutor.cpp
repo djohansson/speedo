@@ -1,5 +1,7 @@
 #include "taskexecutor.h"
 
+MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::ourTaskPool{};
+
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
 {
@@ -26,133 +28,102 @@ TaskExecutor::~TaskExecutor()
 		thread.join();
 }
 
-void TaskExecutor::submit(TaskGraph&& graph)
+// void TaskExecutor::addDependency(TaskHandle a, TaskHandle b)
+// {
+// 	handleToTaskRef(a).state()->adjacencies.emplace_back(b);
+// 	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_relaxed);
+// }
+
+void TaskExecutor::submit(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::submit");
 
-	removeFinishedGraphs();
+	auto dependencies = handleToTaskRef(handle).state()->latch.fetch_add(1, std::memory_order_relaxed);// self
+	if (dependencies == 0)
+		myReadyQueue.enqueue(handle);
 
-	graph.finalize();
-
-	for (auto& [task, adjacencies, dependencies] : graph.myNodes)
-		if (dependencies == 0)
-			myReadyQueue.enqueue(std::move(task));
-
-	myWaitingQueue.enqueue(std::forward<TaskGraph>(graph));
+	while (myDeletionQueue.try_dequeue(handle))
+	{
+		if (handleToTaskRef(handle).state()->latch.load(std::memory_order_relaxed) == 0)
+			myTasks.erase(handle);
+	}
 
 	mySignal.release();
 }
 
-void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, const Task& task)
+void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandle task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	std::vector<Task> next;
-
-	for (auto& adjacent : task.state()->adjacencies)
+	for (auto& adjacentAtomic : handleToTaskRef(task).state()->adjacencies)
 	{
-		auto adjacentPtr = adjacent.load(std::memory_order_relaxed);
+		auto adjacentPtr = adjacentAtomic.load(std::memory_order_relaxed);
 		if (!adjacentPtr)
 			continue;
 
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_relaxed) - 1;
+		Task& adjacent = *adjacentPtr;
+
+		auto counter = adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1;
 
 		if (counter == 1)
 		{
-			myReadyQueue.enqueue(readyProducerToken, std::move(*adjacentPtr));
-			adjacent.store(nullptr, std::memory_order_release);
+			myReadyQueue.enqueue(readyProducerToken, taskRefToHandle(adjacent));
+			adjacentAtomic.store(nullptr, std::memory_order_release);
 		}
-	}
-
-	if (!next.empty())
-	{
-		myReadyQueue.enqueue_bulk(
-			readyProducerToken, std::make_move_iterator(next.begin()), next.size());
-		
-		mySignal.release();
 	}
 }
 
-void TaskExecutor::scheduleAdjacent(const Task& task)
+void TaskExecutor::scheduleAdjacent(TaskHandle task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	std::vector<Task> next;
-
-	for (auto& adjacent : task.state()->adjacencies)
+	for (auto& adjacentAtomic : handleToTaskRef(task).state()->adjacencies)
 	{
-		auto adjacentPtr = adjacent.load(std::memory_order_relaxed);
+		auto adjacentPtr = adjacentAtomic.load(std::memory_order_relaxed);
 		if (!adjacentPtr)
 			continue;
 
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
-		auto counter = adjacentPtr->state()->latch.value().fetch_sub(1, std::memory_order_relaxed) - 1;
+		Task& adjacent = *adjacentPtr;
+
+		auto counter = adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1;
 
 		if (counter == 1)
 		{
-			myReadyQueue.enqueue(std::move(*adjacentPtr));
-			adjacent.store(nullptr, std::memory_order_release);
+			myReadyQueue.enqueue(taskRefToHandle(adjacent));
+			adjacentAtomic.store(nullptr, std::memory_order_release);
 		}
-	}
-
-	if (!next.empty())
-	{
-		myReadyQueue.enqueue_bulk(std::make_move_iterator(next.begin()), next.size());
-		
-		mySignal.release();
 	}
 }
 
 void TaskExecutor::processReadyQueue()
 {
-	Task task;
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
+	TaskHandle task;
 	while (myReadyQueue.try_dequeue(task))
 	{
-		task();
-
+		handleToTaskRef(task)();
 		scheduleAdjacent(task);
+		myDeletionQueue.enqueue(task);
 	}
 }
 
 void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
 {
-	Task task;
+	ZoneScopedN("TaskExecutor::processReadyQueue");
+
+	TaskHandle task;
 	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
 	{
-		task();
-
+		handleToTaskRef(task)();
 		scheduleAdjacent(readyProducerToken, task);
-	}
-}
-
-void TaskExecutor::removeFinishedGraphs()
-{
-	ZoneScopedN("TaskExecutor::removeFinishedGraphs");
-
-	std::vector<TaskGraph> notFinished;
-	TaskGraph graph;
-	while (myWaitingQueue.try_dequeue(graph))
-	{
-		for (auto& [task, adjacencies, dependencies] : graph.myNodes)
-		{
-			if (task)
-			{
-				notFinished.emplace_back(std::move(graph));
-				
-				break;
-			}
-		}
-	}
-
-	if (!notFinished.empty())
-	{
-		myWaitingQueue.enqueue_bulk(
-			std::make_move_iterator(notFinished.begin()), notFinished.size());
+		myDeletionQueue.enqueue(task);
 	}
 }
 

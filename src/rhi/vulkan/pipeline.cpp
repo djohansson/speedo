@@ -472,7 +472,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
 	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<Vk>>(renderTarget));
-	pipelineInfo.subpass = renderTarget.getSubpass().value_or(0);
+	pipelineInfo.subpass = 0; // TODO: loop through all subpasses?
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
 

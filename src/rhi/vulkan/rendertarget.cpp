@@ -403,8 +403,6 @@ void RenderTarget<Vk>::nextSubpass(CommandBufferHandle<Vk> cmd, SubpassContents<
 	ZoneScopedN("RenderTarget::nextSubpass");
 
 	vkCmdNextSubpass(cmd, contents);
-
-	(*myCurrentSubpass)++;
 }
 
 template <>
@@ -417,29 +415,26 @@ const std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>>& RenderTarget<Vk>:
 }
 
 template <>
-const std::optional<RenderPassBeginInfo<Vk>>&
-RenderTarget<Vk>::begin(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
+RenderPassBeginInfo<Vk> RenderTarget<Vk>::begin(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
 {
 	ZoneScopedN("RenderTarget::begin");
 
-	assert(myCurrentPass == std::nullopt);
-
 	const auto& [renderPass, frameBuffer] = internalGetValues();
 
-	myCurrentPass = std::make_optional(RenderPassBeginInfo<Vk>{
+	auto info = RenderPassBeginInfo<Vk>{
 		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		nullptr,
 		renderPass,
 		frameBuffer,
-		{{0, 0}, {getRenderTargetDesc().extent.width, getRenderTargetDesc().extent.height}}});
+		{{0, 0}, {getRenderTargetDesc().extent.width, getRenderTargetDesc().extent.height}}};
 
 	{
 		ZoneScopedN("RenderTarget::begin::vkCmdBeginRenderPass");
 
-		vkCmdBeginRenderPass(cmd, &myCurrentPass.value(), contents);
+		vkCmdBeginRenderPass(cmd, &info, contents);
 	}
 
-	return myCurrentPass;
+	return info;
 }
 
 template <>
@@ -447,11 +442,7 @@ void RenderTarget<Vk>::end(CommandBufferHandle<Vk> cmd)
 {
 	ZoneScopedN("RenderTarget::end");
 
-	assert(myCurrentPass != std::nullopt);
-
 	vkCmdEndRenderPass(cmd);
-
-	myCurrentPass = std::nullopt;
 }
 
 template <>
@@ -479,8 +470,6 @@ RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
 	, mySubPassDescs(std::exchange(other.mySubPassDescs, {}))
 	, mySubPassDependencies(std::exchange(other.mySubPassDependencies, {}))
 	, myCache(std::exchange(other.myCache, {}))
-	, myCurrentPass(std::exchange(other.myCurrentPass, {}))
-	, myCurrentSubpass(std::exchange(other.myCurrentSubpass, {}))
 {}
 
 template <>
@@ -517,8 +506,6 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 	mySubPassDescs = std::exchange(other.mySubPassDescs, {});
 	mySubPassDependencies = std::exchange(other.mySubPassDependencies, {});
 	myCache = std::exchange(other.myCache, {});
-	myCurrentPass = std::exchange(other.myCurrentPass, {});
-	myCurrentSubpass = std::exchange(other.myCurrentSubpass, {});
 	return *this;
 }
 
@@ -532,8 +519,6 @@ void RenderTarget<Vk>::swap(RenderTarget& rhs) noexcept
 	std::swap(mySubPassDescs, rhs.mySubPassDescs);
 	std::swap(mySubPassDependencies, rhs.mySubPassDependencies);
 	std::swap(myCache, rhs.myCache);
-	std::swap(myCurrentPass, rhs.myCurrentPass);
-	std::swap(myCurrentSubpass, rhs.myCurrentSubpass);
 }
 
 template <>

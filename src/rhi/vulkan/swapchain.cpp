@@ -5,8 +5,7 @@
 #include <format>
 
 template <>
-const std::optional<RenderPassBeginInfo<Vk>>&
-Swapchain<Vk>::begin(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
+RenderPassBeginInfo<Vk> Swapchain<Vk>::begin(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
 {
 	return myFrames[myFrameIndex].begin(cmd, contents);
 }
@@ -93,7 +92,7 @@ void Swapchain<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLay
 }
 
 template <>
-std::tuple<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
+std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 {
 	ZoneScoped;
 
@@ -121,13 +120,13 @@ std::tuple<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 }
 
 template <>
-QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& syncInfo)
+QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(QueueHostSyncInfo<Vk>&& syncInfo)
 {
 	ZoneScopedN("Swapchain::preparePresent");
 
 	myLastFrameIndex = myFrameIndex;
 
-	auto presentInfo = myFrames[myFrameIndex].preparePresent(syncInfo);
+	auto presentInfo = myFrames[myFrameIndex].preparePresent(std::forward<QueueHostSyncInfo<Vk>>(syncInfo));
 	presentInfo.swapchains.push_back(mySwapchain);
 
 	return presentInfo;
@@ -138,8 +137,6 @@ void Swapchain<Vk>::internalCreateSwapchain(
 	const SwapchainConfiguration<Vk>& config, SwapchainHandle<Vk> previous)
 {
 	ZoneScopedN("Swapchain::internalCreateSwapchain");
-
-	myDesc = {config.extent}; // more?
 
 	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
@@ -229,6 +226,7 @@ Swapchain<Vk>::Swapchain(
 	SurfaceHandle<Vk>&& surface,
 	SwapchainHandle<Vk> previous)
 	: DeviceObject(device, {})
+	, myDesc{config.extent} // more?
 	, mySurface(std::forward<SurfaceHandle<Vk>>(surface))
 {
 	ZoneScopedN("Swapchain()");

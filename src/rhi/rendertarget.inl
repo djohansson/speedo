@@ -6,8 +6,6 @@ template <GraphicsApi G>
 void RenderTarget<G>::addSubpassDescription(SubpassDescription<G>&& description)
 {
 	mySubPassDescs.emplace_back(std::forward<SubpassDescription<G>>(description));
-	if (!myCurrentSubpass)
-		myCurrentSubpass = std::make_optional<uint32_t>();
 }
 
 template <GraphicsApi G>
@@ -21,7 +19,6 @@ void RenderTarget<G>::resetSubpasses()
 {
 	mySubPassDescs.clear();
 	mySubPassDependencies.clear();
-	myCurrentSubpass.reset();
 }
 
 template <GraphicsApi G>

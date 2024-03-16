@@ -66,13 +66,14 @@ public:
 	transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
 	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
 
-	virtual const std::optional<RenderPassBeginInfo<G>>&
-	begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	virtual RenderPassBeginInfo<G> begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	virtual void end(CommandBufferHandle<G> cmd) final;
 
 	auto getSurface() const noexcept { return mySurface; }
 	auto getRenderPass() { return std::get<0>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
 	auto getFramebuffer() { return std::get<1>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
+	
+	const auto& getLastPresentSyncInfo() const noexcept { return myFrames[myLastFrameIndex].getLastPresentSyncInfo(); }
 
 	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
 	std::tuple<SemaphoreHandle<G>, SemaphoreHandle<G>> getFrameSyncSemaphores() const noexcept
@@ -85,8 +86,8 @@ public:
 	}
 	//
 
-	std::tuple<bool, QueueHostSyncInfo<G>> flip();
-	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& syncInfo);
+	std::pair<bool, QueueHostSyncInfo<G>> flip();
+	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& syncInfo);
 
 protected:
 	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }

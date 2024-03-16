@@ -34,19 +34,18 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 
 			auto& state = *static_cast<typename Future<ReturnType>::FutureState*>(returnPtr);
 
-			assertf(state.latch, "Latch needs to have been constructed!");
-
 			if constexpr (std::is_void_v<ReturnType>)
 				std::apply(callable, args);
 			else
 				state.value = std::apply(callable, args);
 
-			auto counter = state.latch.value().fetch_sub(1, std::memory_order_release) - 1;
+			auto counter = state.latch.fetch_sub(1, std::memory_order_release) - 1;
 			(void)counter;
 			assertf(counter == 0, "Latch counter should be zero!");
 
-			state.latch.value().notify_all();
+			state.latch.notify_all();
 
+			// TODO: continuations
 			//   if (continuation)
 			//   {
 			// 	  if constexpr (std::is_tuple_v<ReturnType>)
