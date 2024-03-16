@@ -17,8 +17,6 @@
 #include <memory>
 #include <tuple>
 
-#include <nfd.h>
-
 template <GraphicsApi G>
 struct Rhi;
 
@@ -50,8 +48,4 @@ protected:
 
 private:
 	std::shared_ptr<void> myRhi;
-
-	Future<std::tuple<nfdresult_t, nfdchar_t*, std::function<uint32_t(nfdchar_t*)>>> myOpenFileFuture;
-
-	bool myRequestExit = false;
 };

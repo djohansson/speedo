@@ -16,8 +16,106 @@
 
 //#include <imnodes.h>
 
+#include <nfd.h>
+
 namespace rhiapplication
 {
+
+static volatile bool g_requestExit = false;
+static std::filesystem::path g_rootPath{};
+static std::filesystem::path g_resourcePath{};
+static std::filesystem::path g_userProfilePath{};
+
+using OpenFileCompletionCallback = std::function<QueueHostSyncInfo<Vk>(Rhi<Vk>&, nfdchar_t*)>;
+using OpenFileReturnValue = std::tuple<nfdresult_t, nfdchar_t*, OpenFileCompletionCallback>;
+
+static OpenFileReturnValue openFileDialogue(
+	const std::filesystem::path& resourcePath,
+	const nfdchar_t* filterList,
+	OpenFileCompletionCallback&& onCompletionCallback)
+{
+	auto resourcePathStr = resourcePath.string();
+	nfdchar_t* openFilePath;
+	return std::make_tuple(
+		NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
+		openFilePath,
+		std::forward<OpenFileCompletionCallback>(onCompletionCallback));
+}
+
+static QueueHostSyncInfo<Vk> loadModel(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
+{
+	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
+	auto& transferQueue = transferContext.queue();
+
+	//rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
+
+	transferContext.reset();
+
+	rhi.pipeline->setModel(
+		std::make_shared<Model<Vk>>(rhi.device, transferContext, openFilePath));
+
+	transferQueue.enqueueSubmit(transferContext.prepareSubmit({
+		{},
+		{},
+		{},
+		{rhi.device->getTimelineSemaphore()},
+		{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+	return transferQueue.submit();
+}
+
+static QueueHostSyncInfo<Vk> loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
+{
+	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
+	auto& transferQueue = transferContext.queue();
+
+	//rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
+
+	transferContext.reset();
+
+	rhi.pipeline->resources().image =
+		std::make_shared<Image<Vk>>(rhi.device, transferContext, openFilePath);
+	rhi.pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
+		rhi.device, *rhi.pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	transferQueue.enqueueSubmit(transferContext.prepareSubmit({
+		{},
+		{},
+		{},
+		{rhi.device->getTimelineSemaphore()},
+		{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+	auto syncInfo = transferQueue.submit();
+
+	///////////
+
+	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
+	auto& graphicsQueue = graphicsContext.queue();
+
+	auto cmd = graphicsContext.commands();
+
+	rhi.pipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	cmd.end();
+
+	graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
+		{{rhi.device->getTimelineSemaphore()},
+			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
+			{syncInfo.maxTimelineValue},
+			{rhi.device->getTimelineSemaphore()},
+			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+
+	rhi.pipeline->setDescriptorData(
+		"g_textures",
+		DescriptorImageInfo<Vk>{
+			{},
+			*rhi.pipeline->resources().imageView,
+			rhi.pipeline->resources().image->getImageLayout()},
+		DescriptorSetCategory_GlobalTextures,
+		1);
+
+	return graphicsQueue.submit();
+}
 
 void IMGUINewFrameFunction()
 {
@@ -29,7 +127,7 @@ void IMGUINewFrameFunction()
 	ImGui_ImplVulkan_NewFrame();
 }
 
-void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi)
+void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
 	ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
 
@@ -386,30 +484,48 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi)
 
 	if (BeginMainMenuBar())
 	{
-		/*
 		if (BeginMenu("File"))
 		{
-			if (MenuItem("Open OBJ...") && !myOpenFileFuture.valid())
+			if (MenuItem("Open OBJ..."))
 			{
-				TaskGraph graph;
-				auto [task, openFileFuture] = graph.createTask(
-					[&openFileDialogue, &resourcePath, &loadModel]
-					{ return openFileDialogue(resourcePath, "obj", loadModel); });
-				executor().submit(std::move(graph));
-				myOpenFileFuture = std::move(openFileFuture);
+				auto [openFileTask, openFileFuture] = executor.createTask([]
+				{
+					return openFileDialogue(g_resourcePath, "obj", loadModel);
+				});
+
+				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi](auto openFileFuture)
+				{
+					ZoneScopedN("RhiApplication::draw::openFileCallback");
+
+					assert(openFileFuture.valid());
+					assert(openFileFuture.is_ready());
+
+					auto [openFileResult, openFilePath, completionCallback] = openFileFuture.get();
+					if (openFileResult == NFD_OKAY)
+					{
+						completionCallback(rhi, openFilePath);
+						std::free(openFilePath);
+					}
+				}, std::move(openFileFuture));
+				
+				executor.addDependency(openFileTask, openFileCallbackTask);
+				executor.submit(openFileTask);
 			}
-			if (MenuItem("Open Image...") && !myOpenFileFuture.valid())
-			{
-				TaskGraph graph;
-				auto [task, openFileFuture] = graph.createTask(
-					[&openFileDialogue, &resourcePath, &loadImage]
-					{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
-				executor().submit(std::move(graph));
-				myOpenFileFuture = std::move(openFileFuture);
-			}
+			
+			// if (MenuItem("Open Image..."))
+			// {
+			// 	auto [task, openFileFuture] = graph.createTask(
+			// 		[&openFileDialogue, &resourcePath, &loadImage]
+			// 		{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
+			// 	executor().submit(std::move(graph));
+			// 	myOpenFileFuture = std::move(openFileFuture);
+			// }
+
+
+
+
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
 			// {
-			// 	TaskGraph graph;
 			// 	auto [task, openFileFuture] = graph.createTask(
 			// 		[&openFileDialogue, &resourcePath, &loadGlTF]
 			// 		{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
@@ -418,11 +534,10 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi)
 			// }
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
-				myRequestExit = true;
+				g_requestExit = true;
 
 			ImGui::EndMenu();
 		}
-		*/
 		if (BeginMenu("View"))
 		{
 			// if (MenuItem("Node Editor..."))
@@ -462,21 +577,20 @@ void IMGUIDrawFunction(CommandBufferHandle<Vk> cmd)
 	ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
 }
 
-static void initIMGUI(
-	const std::filesystem::path& resourcePath,
-	const std::filesystem::path& userProfilePath,
+static void IMGUIInit(
 	const WindowState& window,
 	const Rhi<Vk>& rhi,
 	CommandBufferHandle<Vk> cmd)
 {
-	ZoneScopedN("RhiApplication::initIMGUI");
+	ZoneScopedN("RhiApplication::IMGUIInit");
 
 	using namespace ImGui;
+	using namespace rhiapplication;
 
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	static auto iniFilePath = (userProfilePath / "imgui.ini").generic_string();
+	static auto iniFilePath = (g_userProfilePath / "imgui.ini").generic_string();
 	io.IniFilename = iniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -503,7 +617,7 @@ static void initIMGUI(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(resourcePath);
+	std::filesystem::path fontPath(g_resourcePath);
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -822,6 +936,35 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
 
+// auto loadGlTF = [](nfdchar_t* openFilePath)
+// {
+// 	try
+// 	{
+// 		std::filesystem::path path(openFilePath);
+
+// 		if (path.is_relative())
+// 			throw std::runtime_error("Command line argument path is not absolute");
+
+// 		if (!path.has_filename())
+// 			throw std::runtime_error("Command line argument path has no filename");
+
+// 		if (!path.has_extension())
+// 			throw std::runtime_error("Command line argument path has no filename extension");
+
+// 		gltfstream::PrintInfo(path);
+// 	}
+// 	catch (const std::runtime_error& ex)
+// 	{
+// 		std::cerr << "Error! - ";
+// 		std::cerr << ex.what() << "\n";
+
+// 		throw;
+// 	}
+
+// 	return 0;
+// };
+
+
 } // namespace rhiapplication
 
 template <>
@@ -854,128 +997,13 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
 {
 	ZoneScopedN("RhiApplication()");
 
-	auto rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
-	auto resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
-	auto userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
+	using namespace rhiapplication;
 
-	// GUI + misc callbacks
+	g_rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
+	g_resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
+	g_userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
 
-	auto openFileDialogue = [](const std::filesystem::path& resourcePath,
-							   const nfdchar_t* filterList,
-							   std::function<uint32_t(nfdchar_t*)>&& onCompletionCallback)
-	{
-		auto resourcePathStr = resourcePath.string();
-		nfdchar_t* openFilePath;
-		return std::make_tuple(
-			NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
-			openFilePath,
-			std::forward<std::function<uint32_t(nfdchar_t*)>>(onCompletionCallback));
-	};
-
-	auto loadModel = [&rhi = internalRhi<Vk>()](nfdchar_t* openFilePath)
-	{
-		auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
-		auto& transferQueue = transferContext.queue();
-
-		//rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
-
-		transferContext.reset();
-
-		rhi.pipeline->setModel(
-			std::make_shared<Model<Vk>>(rhi.device, transferContext, openFilePath));
-
-		transferQueue.enqueueSubmit(transferContext.prepareSubmit(
-			{{},
-			 {},
-			 {},
-			 {rhi.device->getTimelineSemaphore()},
-			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-		return transferQueue.submit();
-	};
-
-	auto loadImage = [&rhi = internalRhi<Vk>()](nfdchar_t* openFilePath)
-	{
-		auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
-		auto& transferQueue = transferContext.queue();
-
-		//rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
-
-		transferContext.reset();
-
-		rhi.pipeline->resources().image =
-			std::make_shared<Image<Vk>>(rhi.device, transferContext, openFilePath);
-		rhi.pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
-			rhi.device, *rhi.pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
-
-		transferQueue.enqueueSubmit(transferContext.prepareSubmit(
-			{{},
-			 {},
-			 {},
-			 {rhi.device->getTimelineSemaphore()},
-			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-		auto syncInfo = transferQueue.submit();
-
-		///////////
-
-		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
-		auto& graphicsQueue = graphicsContext.queue();
-
-		auto cmd = graphicsContext.commands();
-
-		rhi.pipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		cmd.end();
-
-		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
-			{{rhi.device->getTimelineSemaphore()},
-			 {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			 {syncInfo.maxTimelineValue},
-			 {rhi.device->getTimelineSemaphore()},
-			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
-
-		rhi.pipeline->setDescriptorData(
-			"g_textures",
-			DescriptorImageInfo<Vk>{
-				{},
-				*rhi.pipeline->resources().imageView,
-				rhi.pipeline->resources().image->getImageLayout()},
-			DescriptorSetCategory_GlobalTextures,
-			1);
-
-		return graphicsQueue.submit();
-	};
-
-	// auto loadGlTF = [](nfdchar_t* openFilePath)
-	// {
-	// 	try
-	// 	{
-	// 		std::filesystem::path path(openFilePath);
-
-	// 		if (path.is_relative())
-	// 			throw std::runtime_error("Command line argument path is not absolute");
-
-	// 		if (!path.has_filename())
-	// 			throw std::runtime_error("Command line argument path has no filename");
-
-	// 		if (!path.has_extension())
-	// 			throw std::runtime_error("Command line argument path has no filename extension");
-
-	// 		gltfstream::PrintInfo(path);
-	// 	}
-	// 	catch (const std::runtime_error& ex)
-	// 	{
-	// 		std::cerr << "Error! - ";
-	// 		std::cerr << ex.what() << "\n";
-
-	// 		throw;
-	// 	}
-
-	// 	return 0;
-	// };
-
-	//myNodeGraph = std::filesystem::path(client_getUserProfilePath()) / "nodegraph.json"; // temp - this should be stored in the resource path
+	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
 }
 
 void RhiApplication::createDevice(const WindowState& window)
@@ -985,12 +1013,8 @@ void RhiApplication::createDevice(const WindowState& window)
 	auto& rhi = internalRhi<Vk>();
 	auto& instance = rhi.instance;
 
-	auto rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
-	auto resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
-	auto userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
-
-	auto shaderIncludePath = rootPath / "src/rhi/shaders";
-	auto shaderIntermediatePath = userProfilePath / ".slang.intermediate";
+	auto shaderIncludePath = g_rootPath / "src/rhi/shaders";
+	auto shaderIntermediatePath = g_userProfilePath / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
@@ -1000,7 +1024,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	rhi.device = std::make_shared<Device<Vk>>(instance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(*instance, surface)});
 
 	rhi.pipeline = std::make_unique<Pipeline<Vk>>(
-		rhi.device, PipelineConfiguration<Vk>{(userProfilePath / "pipeline.cache").string()});
+		rhi.device, PipelineConfiguration<Vk>{(g_userProfilePath / "pipeline.cache").string()});
 
 	rhi.mainWindow = std::make_unique<Window<Vk>>(
 		rhi.device,
@@ -1065,7 +1089,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		rhi.pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
 		rhi.pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		initIMGUI(resourcePath, userProfilePath, window, rhi, cmd);
+		IMGUIInit(window, rhi, cmd);
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
@@ -1151,12 +1175,12 @@ RhiApplication::~RhiApplication()
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
-	Future<void> oldDrawFuture;
-	while (rhi.presentQueue.try_dequeue(oldDrawFuture))
+	Future<void> drawFuture;
+	while (rhi.drawFutures.try_dequeue(drawFuture))
 	{
 		ZoneScopedN("RhiApplication::draw::waitPresent");
 
-		executor().join(std::move(oldDrawFuture));
+		executor().join(std::move(drawFuture));
 	}
 
 	{
@@ -1204,15 +1228,15 @@ bool RhiApplication::tick()
 		rhi.device->getPhysicalDevice(),
 		rhi.mainWindow->getSurface()).capabilities;
 
-	Future<void> oldDrawFuture;
-	while (rhi.presentQueue.size_approx() >= surfaceCapabilities.minImageCount && rhi.presentQueue.try_dequeue(oldDrawFuture))
+	Future<void> prevDrawFuture;
+	while (rhi.drawFutures.size_approx() >= surfaceCapabilities.minImageCount && rhi.drawFutures.try_dequeue(prevDrawFuture))
 	{
 		ZoneScopedN("RhiApplication::draw::waitPresent");
 
-		executive.join(std::move(oldDrawFuture));
+		executive.join(std::move(prevDrawFuture));
 	}
 
-	auto [drawTask, drawFuture] = executive.createTask([&rhi]
+	auto [drawTask, drawFuture] = executive.createTask([&rhi, &executive]
 	{
 		ZoneScopedN("RhiApplication::draw");
 
@@ -1288,7 +1312,7 @@ bool RhiApplication::tick()
 				mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 				mainWindow.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
-				IMGUIPrepareDrawFunction(rhi); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
+				IMGUIPrepareDrawFunction(rhi, executive); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 				IMGUIDrawFunction(cmd);
 
 				mainWindow.end(cmd);
@@ -1322,30 +1346,16 @@ bool RhiApplication::tick()
 			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 			device.processTimelineCallbacks(lastPresentSyncInfo.maxTimelineValue);
 		}
-
-		// {
-		// 	if (myOpenFileFuture.valid() && myOpenFileFuture.is_ready())
-		// 	{
-		// 		ZoneScopedN("RhiApplication::draw::openFileCallback");
-
-		// 		const auto& [openFileResult, openFilePath, onCompletionCallback] = myOpenFileFuture.get();
-		// 		if (openFileResult == NFD_OKAY)
-		// 		{
-		// 			onCompletionCallback(openFilePath);
-		// 			std::free(openFilePath);
-		// 		}
-		// 	}
-		// }
 	});
 
 	{
 		ZoneScopedN("RhiApplication::draw::submit");
 
-		rhi.presentQueue.enqueue(std::move(drawFuture));
+		rhi.drawFutures.enqueue(std::move(drawFuture));
 		executive.submit(drawTask);
 	}
 	
-	return !myRequestExit;
+	return !g_requestExit;
 }
 
 void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
