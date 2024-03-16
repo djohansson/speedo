@@ -10,7 +10,9 @@ namespace queue
 
 struct UserData
 {
+#if PROFILING_ENABLED
 	TracyVkCtx tracyContext{};
+#endif
 };
 
 } // namespace queue
@@ -20,7 +22,8 @@ struct UserData
 template <>
 Queue<Vk>::Queue(
 	const std::shared_ptr<Device<Vk>>& device,
-	std::tuple<QueueCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
+	std::tuple<QueueCreateDesc<Vk>,
+	QueueHandle<Vk>>&& descAndHandle)
 	: DeviceObject(
 		  device,
 		  {"_Queue"},
@@ -30,21 +33,16 @@ Queue<Vk>::Queue(
 	, myDesc(std::forward<QueueCreateDesc<Vk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
 {
-// #if PROFILING_ENABLED
-// 	{
-// 		if (auto cmd =
-// 				myDesc.tracingEnableInitCmd.value_or(CommandBufferHandle<Vk>{VK_NULL_HANDLE}))
-// 		{
-// 			myUserData = queue::UserData{tracy::CreateVkContext(
-// 				device->getPhysicalDevice(),
-// 				*device,
-// 				myQueue,
-// 				cmd,
-// 				nullptr,
-// 				nullptr)};
-// 		}
-// 	}
-// #endif
+#if PROFILING_ENABLED
+	if (myDesc.tracingInitCmd)
+		myUserData = queue::UserData{tracy::CreateVkContext(
+			device->getPhysicalDevice(),
+			*device,
+			myQueue,
+			myDesc.tracingInitCmd,
+			nullptr,
+			nullptr)};
+#endif
 }
 
 template <>
@@ -75,12 +73,10 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 template <>
 Queue<Vk>::~Queue()
 {
-// #if PROFILING_ENABLED
-// 	{
-// 		if (myDesc.tracingEnableInitCmd)
-// 			tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
-// 	}
-// #endif
+#if PROFILING_ENABLED
+	if (myDesc.tracingInitCmd)
+		tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
+#endif
 }
 
 template <>
@@ -110,10 +106,8 @@ void Queue<Vk>::swap(Queue& rhs) noexcept
 template <>
 void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
 {
-	// {
-	// 	if (myDesc.tracingEnableInitCmd)
-	// 		TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
-	// }
+	if (myDesc.tracingInitCmd)
+		TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
 }
 
 template <>
@@ -127,14 +121,14 @@ Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-	// if (myDesc.tracingEnableInitCmd)
-	// {
-	// 	return std::make_shared<tracy::VkCtxScope>(
-	// 		std::any_cast<queue::UserData>(&myUserData)->tracyContext,
-	// 		reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-	// 		cmd,
-	// 		true);
-	// }
+	if (myDesc.tracingInitCmd)
+	{
+		return std::make_shared<tracy::VkCtxScope>(
+			std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
+			cmd,
+			true);
+	}
 
 	return {};
 }
@@ -191,17 +185,6 @@ QueueHostSyncInfo<Vk> Queue<Vk>::submit()
 	}
 
 	QueueHostSyncInfo<Vk> syncInfo{{VK_NULL_HANDLE}, maxTimelineValue};
-	// {
-	// 	ZoneScopedN("Queue::submit::vkCreateFence");
-
-	// 	VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-	// 	VK_CHECK(vkCreateFence(
-	// 		*getDevice(),
-	// 		&fenceInfo,
-	// 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
-	// 		&syncInfo.fences.back()));
-	// }
-
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
@@ -317,7 +300,19 @@ QueueContext<Vk>::QueueContext(
 	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
 	QueueCreateDesc<Vk>&& queueDesc)
 	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
-	, myQueue(device, std::forward<QueueCreateDesc<Vk>>(queueDesc))
+	, myQueue(
+		device,
+#if PROFILING_ENABLED
+		[this, &device, &queueDesc]
+		{
+			if (device->getPhysicalDeviceInfo().queueFamilyProperties[queueDesc.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+				queueDesc.tracingInitCmd = commands(CommandBufferAccessScopeDesc<Vk>(false));
+
+			return queueDesc;
+		}())
+#else
+		std::forward<QueueCreateDesc<Vk>>(queueDesc))
+#endif
 {
 	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
 	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);

@@ -82,7 +82,9 @@ struct QueueCreateDesc
 {
 	uint32_t queueIndex = 0ul;
 	uint32_t queueFamilyIndex = 0ul;
-	bool tracingEnable = false;
+#if PROFILING_ENABLED
+	CommandBufferHandle<G> tracingInitCmd{};
+#endif
 };
 
 struct SourceLocationData
@@ -100,7 +102,8 @@ class Queue final : public DeviceObject<G>
 public:
 	constexpr Queue() noexcept = default;
 	Queue(
-		const std::shared_ptr<Device<G>>& device, QueueCreateDesc<G>&& desc);
+		const std::shared_ptr<Device<G>>& device,
+		QueueCreateDesc<G>&& desc);
 	Queue(Queue<G>&& other) noexcept;
 	~Queue();
 
@@ -183,13 +186,13 @@ private:
 };
 
 #if PROFILING_ENABLED
-#	define GPU_SCOPE(cmd, queue, tag)										\
-		auto tag##__scope =													\
-			queue.gpuScope<													\
-				SourceLocationData{											\
-					.name = string_literal<#tag>(),  						\
-					.function = string_literal<__PRETTY_FUNCTION__>(),		\
-					.file = string_literal<__FILE__>(),						\
+#	define GPU_SCOPE(cmd, queue, tag)											\
+		auto tag##__scope =														\
+			queue.gpuScope<														\
+				SourceLocationData{												\
+					.name = string_literal<#tag>().data(),						\
+					.function = string_literal<__PRETTY_FUNCTION__>().data(),	\
+					.file = string_literal<__FILE__>().data(),					\
 					.line = __LINE__}>(cmd);
 #	define GPU_SCOPE_COLLECT(cmd, queue) { queue.gpuScopeCollect(cmd); }
 #else

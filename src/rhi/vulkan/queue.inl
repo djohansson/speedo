@@ -25,7 +25,6 @@ template <>
 template <SourceLocationData Location>
 std::shared_ptr<void> Queue<Vk>::gpuScope(CommandBufferHandle<Vk> cmd)
 {
-	static const auto location = Location;
-	return internalGpuScope(cmd, location);
+	return internalGpuScope(cmd, Location);
 }
 #endif
