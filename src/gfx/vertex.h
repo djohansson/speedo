@@ -60,7 +60,7 @@ public:
 	void* allocate(size_t count = 1);
 
 	// unless freeing the last item this is _very_ inefficient
-	void deallocate(void* ptr, size_t count = 1);
+	void free(void* ptr, size_t count = 1);
 
 	void clear();
 
@@ -136,7 +136,7 @@ public:
 
 	void freeVertices(Vertex* ptr, size_t count = 1)
 	{
-		return myAllocatorRef.deallocate(reinterpret_cast<std::byte*>(ptr), count);
+		return myAllocatorRef.free(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
 	VertexAllocator& allocator() { return myAllocatorRef; }
