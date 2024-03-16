@@ -38,7 +38,7 @@ public:
 
 	const auto& getDesc() const noexcept { return myDesc; }
 	const auto& getBindings() const noexcept { return myBindings; }
-	constexpr auto getIndexOffset() const noexcept { return 0; }
+	static constexpr auto getIndexOffset() { return 0; }
 	const auto& getVertexOffset() const noexcept { return myDesc.indexBufferSize; }
 
 private:

@@ -104,7 +104,7 @@ public:
 
 	const auto& getDesc() const noexcept { return myDesc; }
 
-	constexpr auto capacity() const noexcept { return kDescriptorSetCount; }
+	static constexpr auto capacity() { return kDescriptorSetCount; }
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles

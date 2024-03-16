@@ -20,7 +20,7 @@
 template <GraphicsApi G>
 struct DeviceConfiguration
 {
-	constexpr std::string_view getName() const { return "device"; }
+	consteval std::string_view getName() const { return "device"; }
 
 	uint32_t physicalDeviceIndex = 0ul; // todo: replace with deviceID
 	// std::optional<bool> useShaderFloat16;
