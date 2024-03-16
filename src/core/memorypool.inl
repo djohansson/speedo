@@ -16,8 +16,6 @@ MemoryPool<T, Capacity>::MemoryPool()
 template <typename T, uint32_t Capacity>
 T* MemoryPool<T, Capacity>::allocate()
 {
-	std::unique_lock lock(myMutex);
-
 	assert(myAvailable > 0);
 	assert(myAvailable <= Capacity);
 
@@ -37,8 +35,6 @@ T* MemoryPool<T, Capacity>::allocate()
 template <typename T, uint32_t Capacity>
 void MemoryPool<T, Capacity>::free(T* ptr)
 {
-	std::unique_lock lock(myMutex);
-
 	assert(ptr);
 	assert(myAvailable < Capacity);
 

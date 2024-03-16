@@ -11,6 +11,6 @@ using TaskHandle = Task*;
 
 struct TaskState
 {
-	std::atomic_uint32_t latch;
+	std::atomic_uint32_t latch{1u};
 	std::vector<CopyableAtomic<TaskHandle>> adjacencies; // todo: thread safety
 };

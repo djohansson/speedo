@@ -6,7 +6,6 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
-#include <mutex>
 
 template <typename T, uint32_t Capacity>
 class MemoryPool : public Noncopyable, public Nonmovable
@@ -35,7 +34,6 @@ private:
 	alignas(T) std::array<T, Capacity> myPool;
 	std::array<Entry, Capacity> myEntries;
 	uint32_t myAvailable = 0;
-	std::mutex myMutex;
 };
 
 #include "memorypool.inl"

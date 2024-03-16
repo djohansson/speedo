@@ -9,6 +9,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <semaphore>
 #include <vector>
@@ -26,7 +27,7 @@ public:
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	//void addDependency(TaskHandle a, TaskHandle b); // b will start after a has finished
+	void addDependency(TaskHandle a, TaskHandle b); // b will start after a has finished
 
 	template <
 		typename F,
@@ -39,9 +40,12 @@ public:
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
-	void submit(TaskHandle handle);
+	template <typename T, typename... Ts>
+	void submit(T&& first, Ts&&... rest);
 
 private:
+
+	void internalSubmit(TaskHandle handle);
 
 	void initializeGraph();
 	void scheduleAdjacent(TaskHandle task);
@@ -60,9 +64,9 @@ private:
 	std::atomic_bool myStopSource;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
-	UnorderedMap<TaskHandle, TaskUniquePtr> myTasks;
 	static constexpr uint32_t TaskPoolSize = (1 << 15);
 	static MemoryPool<Task, TaskPoolSize> ourTaskPool;
+	static std::mutex ourTaskPoolMutex;
 };
 
 #include "taskexecutor.inl"

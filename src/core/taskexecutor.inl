@@ -31,21 +31,26 @@ std::pair<TaskHandle, Future<ReturnType>> TaskExecutor::createTask(F&& f, Args&&
 {
 	ZoneScopedN("TaskExecutor::createTask");
 
+	ourTaskPoolMutex.lock();
 	Task* taskPtr = ourTaskPool.allocate();
-	auto [taskIt, wasInserted] = myTasks.emplace(
-		taskPtr,
-		TaskUniquePtr(
-			new (taskPtr) Task(std::forward<F>(f),std::forward<Args>(args)...),
-			[](Task* task)
-			{
-				task->~Task();
-				ourTaskPool.free(task);
-			}));
-
-	assert(wasInserted);
+	std::construct_at(taskPtr, Task(std::forward<F>(f), std::forward<Args>(args)...));
+	ourTaskPoolMutex.unlock();
 
 	return std::make_pair(
-		taskIt->first,
+		taskPtr,
 		Future<ReturnType>(
-			std::static_pointer_cast<typename Future<ReturnType>::FutureState>(taskIt->second->state())));
+			std::static_pointer_cast<typename Future<ReturnType>::FutureState>(taskPtr->state())));
+}
+
+template <typename T, typename... Ts>
+void TaskExecutor::submit(T&& first, Ts&&... rest)
+{
+	ZoneScopedN("TaskExecutor::submit");
+
+	internalSubmit(std::forward<TaskHandle>(first));
+
+	if constexpr (sizeof...(rest) > 0)
+		internalSubmit(std::forward<Ts>(rest)...);
+
+	mySignal.release();
 }

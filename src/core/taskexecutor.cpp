@@ -1,6 +1,7 @@
 #include "taskexecutor.h"
 
 MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::ourTaskPool{};
+std::mutex TaskExecutor::ourTaskPoolMutex{};
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
@@ -28,27 +29,31 @@ TaskExecutor::~TaskExecutor()
 		thread.join();
 }
 
-// void TaskExecutor::addDependency(TaskHandle a, TaskHandle b)
-// {
-// 	handleToTaskRef(a).state()->adjacencies.emplace_back(b);
-// 	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_relaxed);
-// }
-
-void TaskExecutor::submit(TaskHandle handle)
+void TaskExecutor::addDependency(TaskHandle a, TaskHandle b)
 {
-	ZoneScopedN("TaskExecutor::submit");
+	handleToTaskRef(a).state()->adjacencies.emplace_back(b);
+	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_relaxed);
+}
 
-	auto dependencies = handleToTaskRef(handle).state()->latch.fetch_add(1, std::memory_order_relaxed);// self
-	if (dependencies == 0)
-		myReadyQueue.enqueue(handle);
+void TaskExecutor::internalSubmit(TaskHandle handle)
+{
+	ZoneScopedN("TaskExecutor::internalSubmit");
+
+	assert(handleToTaskRef(handle).state()->latch.load(std::memory_order_relaxed) == 1);
+	
+	myReadyQueue.enqueue(handle);
 
 	while (myDeletionQueue.try_dequeue(handle))
 	{
 		if (handleToTaskRef(handle).state()->latch.load(std::memory_order_relaxed) == 0)
-			myTasks.erase(handle);
+		{
+			ourTaskPoolMutex.lock();
+			Task* taskPtr = &handleToTaskRef(handle);
+			taskPtr->~Task();
+			ourTaskPool.free(taskPtr);
+			ourTaskPoolMutex.unlock();
+		}
 	}
-
-	mySignal.release();
 }
 
 void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandle task)
@@ -58,17 +63,14 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandl
 	for (auto& adjacentAtomic : handleToTaskRef(task).state()->adjacencies)
 	{
 		auto adjacentPtr = adjacentAtomic.load(std::memory_order_relaxed);
-		if (!adjacentPtr)
-			continue;
-
+		
+		assert(adjacentPtr);
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
 		Task& adjacent = *adjacentPtr;
 
-		auto counter = adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1;
-
-		if (counter == 1)
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			myReadyQueue.enqueue(readyProducerToken, taskRefToHandle(adjacent));
 			adjacentAtomic.store(nullptr, std::memory_order_release);
@@ -83,17 +85,14 @@ void TaskExecutor::scheduleAdjacent(TaskHandle task)
 	for (auto& adjacentAtomic : handleToTaskRef(task).state()->adjacencies)
 	{
 		auto adjacentPtr = adjacentAtomic.load(std::memory_order_relaxed);
-		if (!adjacentPtr)
-			continue;
-
+		
+		assert(adjacentPtr);
 		assertf(adjacentPtr->state(), "Task has no return state!");
 		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
 
 		Task& adjacent = *adjacentPtr;
 
-		auto counter = adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1;
-
-		if (counter == 1)
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			myReadyQueue.enqueue(taskRefToHandle(adjacent));
 			adjacentAtomic.store(nullptr, std::memory_order_release);
