@@ -509,21 +509,34 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				}, std::move(openFileFuture));
 				
 				executor.addDependency(openFileTask, openFileCallbackTask);
-				executor.submit(openFileTask);
+				executor.call(openFileTask);
 			}
 			
-			// if (MenuItem("Open Image..."))
-			// {
-			// 	auto [task, openFileFuture] = graph.createTask(
-			// 		[&openFileDialogue, &resourcePath, &loadImage]
-			// 		{ return openFileDialogue(resourcePath, "jpg,png", loadImage); });
-			// 	executor().submit(std::move(graph));
-			// 	myOpenFileFuture = std::move(openFileFuture);
-			// }
+			if (MenuItem("Open Image..."))
+			{
+				auto [openFileTask, openFileFuture] = executor.createTask([]
+				{
+					return openFileDialogue(g_resourcePath, "jpg,png", loadImage);;
+				});
 
+				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi](auto openFileFuture)
+				{
+					ZoneScopedN("RhiApplication::draw::openFileCallback");
 
+					assert(openFileFuture.valid());
+					assert(openFileFuture.is_ready());
 
-
+					auto [openFileResult, openFilePath, completionCallback] = openFileFuture.get();
+					if (openFileResult == NFD_OKAY)
+					{
+						completionCallback(rhi, openFilePath);
+						std::free(openFilePath);
+					}
+				}, std::move(openFileFuture));
+				
+				executor.addDependency(openFileTask, openFileCallbackTask);
+				executor.call(openFileTask);
+			}
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
 			// {
 			// 	auto [task, openFileFuture] = graph.createTask(
@@ -846,7 +859,7 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 	const uint32_t graphicsQueueCount = frameCount;
 	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
 	const uint32_t computeQueueCount = 1u;
-	const uint32_t defaultThreadCount = 1u;
+	const uint32_t defaultDrawThreadCount = 2u;
 
 	auto& queueContexts = rhi.queueContexts;
 
@@ -866,7 +879,7 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 			if (queueFamily.flags & (1 << static_cast<uint8_t>(type)))
 			{
 				auto queueCount = queueFamily.queueCount;
-				auto threadCount = defaultThreadCount;
+				auto drawThreadCount = defaultDrawThreadCount;
 
 				auto [it, wasInserted] = queueContexts.emplace(type, CircularContainer<QueueContext<Vk>>());
 
@@ -891,7 +904,7 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 				{
 					it->second.emplace_back(
 						rhi.device,
-						CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, threadCount},
+						CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
 						QueueCreateDesc<Vk>{queueIt, queueFamilyIt});
 				}
 
