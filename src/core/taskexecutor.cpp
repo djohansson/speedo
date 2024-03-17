@@ -35,13 +35,48 @@ void TaskExecutor::addDependency(TaskHandle a, TaskHandle b)
 	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_relaxed);
 }
 
+void TaskExecutor::internalCall(TaskHandle handle)
+{
+	ZoneScopedN("TaskExecutor::internalCall");
+
+	assert(handle);
+
+	Task& task = handleToTaskRef(handle);
+
+	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	
+	task();
+
+	for (auto& adjacentAtomic : handleToTaskRef(handle).state()->adjacencies)
+	{
+		auto adjacentHandle = adjacentAtomic.load(std::memory_order_relaxed);
+		
+		assert(adjacentHandle);
+
+		Task& adjacent = handleToTaskRef(adjacentHandle);
+
+		assertf(adjacent.state(), "Task has no return state!");
+		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
+
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		{
+			adjacent();
+			adjacentAtomic.store(nullptr, std::memory_order_release);
+		}
+	}
+}
+
 void TaskExecutor::internalSubmit(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	assert(handleToTaskRef(handle).state()->latch.load(std::memory_order_relaxed) == 1);
+	assert(handle);
+
+	Task& task = handleToTaskRef(handle);
+
+	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
 	
-	myReadyQueue.enqueue(handle);
+	task();
 
 	while (myDeletionQueue.try_dequeue(handle))
 	{
@@ -56,19 +91,20 @@ void TaskExecutor::internalSubmit(TaskHandle handle)
 	}
 }
 
-void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandle task)
+void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	for (auto& adjacentAtomic : handleToTaskRef(task).state()->adjacencies)
+	for (auto& adjacentAtomic : task.state()->adjacencies)
 	{
-		auto adjacentPtr = adjacentAtomic.load(std::memory_order_relaxed);
+		auto adjacentHandle = adjacentAtomic.load(std::memory_order_relaxed);
 		
-		assert(adjacentPtr);
-		assertf(adjacentPtr->state(), "Task has no return state!");
-		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
+		assert(adjacentHandle);
 
-		Task& adjacent = *adjacentPtr;
+		Task& adjacent = handleToTaskRef(adjacentHandle);
+
+		assertf(adjacent.state(), "Task has no return state!");
+		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
@@ -78,19 +114,20 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandl
 	}
 }
 
-void TaskExecutor::scheduleAdjacent(TaskHandle task)
+void TaskExecutor::scheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	for (auto& adjacentAtomic : handleToTaskRef(task).state()->adjacencies)
+	for (auto& adjacentAtomic : task.state()->adjacencies)
 	{
-		auto adjacentPtr = adjacentAtomic.load(std::memory_order_relaxed);
+		auto adjacentHandle = adjacentAtomic.load(std::memory_order_relaxed);
 		
-		assert(adjacentPtr);
-		assertf(adjacentPtr->state(), "Task has no return state!");
-		assertf(adjacentPtr->state()->latch, "Latch needs to have been constructed!");
+		assert(adjacentHandle);
 
-		Task& adjacent = *adjacentPtr;
+		Task& adjacent = handleToTaskRef(adjacentHandle);
+
+		assertf(adjacent.state(), "Task has no return state!");
+		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
@@ -104,12 +141,13 @@ void TaskExecutor::processReadyQueue()
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
-	TaskHandle task;
-	while (myReadyQueue.try_dequeue(task))
+	TaskHandle handle;
+	while (myReadyQueue.try_dequeue(handle))
 	{
-		handleToTaskRef(task)();
+		Task& task = handleToTaskRef(handle);
+		task();
 		scheduleAdjacent(task);
-		myDeletionQueue.enqueue(task);
+		myDeletionQueue.enqueue(handle);
 	}
 }
 
@@ -117,12 +155,13 @@ void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, Consumer
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
-	TaskHandle task;
-	while (myReadyQueue.try_dequeue(readyConsumerToken, task))
+	TaskHandle handle;
+	while (myReadyQueue.try_dequeue(handle))
 	{
-		handleToTaskRef(task)();
+		Task& task = handleToTaskRef(handle);
+		task();
 		scheduleAdjacent(readyProducerToken, task);
-		myDeletionQueue.enqueue(task);
+		myDeletionQueue.enqueue(handle);
 	}
 }
 

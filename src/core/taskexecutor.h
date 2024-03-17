@@ -40,16 +40,19 @@ public:
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
+	// execute task chain(s) in current thread
+	template <typename T, typename... Ts>
+	void call(T&& first, Ts&&... rest);
+
+	// submit task chain(s) to be executed in thread pool
 	template <typename T, typename... Ts>
 	void submit(T&& first, Ts&&... rest);
 
 private:
-
+	void internalCall(TaskHandle handle);
 	void internalSubmit(TaskHandle handle);
-
-	void initializeGraph();
-	void scheduleAdjacent(TaskHandle task);
-	void scheduleAdjacent(ProducerToken& readyProducerToken, TaskHandle task);
+	void scheduleAdjacent(Task& task);
+	void scheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> processReadyQueue(Future<ReturnType>&& future);

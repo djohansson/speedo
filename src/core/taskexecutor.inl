@@ -14,12 +14,13 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::processReadyQu
 	if (!future.valid())
 		return std::nullopt;
 
-	TaskHandle task;
-	while (!future.is_ready() && myReadyQueue.try_dequeue(task))
+	TaskHandle handle;
+	while (!future.is_ready() && myReadyQueue.try_dequeue(handle))
 	{
-		handleToTaskRef(task)();
+		Task& task = handleToTaskRef(handle);
+		task();
 		scheduleAdjacent(task);
-		myDeletionQueue.enqueue(task);
+		myDeletionQueue.enqueue(handle);
 	}
 
 	return std::make_optional(future.get());
@@ -53,4 +54,15 @@ void TaskExecutor::submit(T&& first, Ts&&... rest)
 		internalSubmit(std::forward<Ts>(rest)...);
 
 	mySignal.release();
+}
+
+template <typename T, typename... Ts>
+void TaskExecutor::call(T&& first, Ts&&... rest)
+{
+	ZoneScopedN("TaskExecutor::call");
+
+	internalCall(std::forward<TaskHandle>(first));
+
+	if constexpr (sizeof...(rest) > 0)
+		internalCall(std::forward<Ts>(rest)...);
 }
