@@ -54,6 +54,6 @@ protected:
 private:
 	std::string myName;
 	Environment myEnvironment;
-	TaskExecutor myExecutor{std::max(1u, std::thread::hardware_concurrency() - 1)};
+	TaskExecutor myExecutor{std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 3)};
 	static std::weak_ptr<Application> theApplication;
 };
