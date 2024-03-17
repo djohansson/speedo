@@ -117,6 +117,7 @@
 		"__verbose_abort": "cpp",
 		"cwctype": "cpp",
 		"memory_resource": "cpp",
-		"codecvt": "cpp"
+		"codecvt": "cpp",
+		"csignal": "cpp"
 	}
 }
