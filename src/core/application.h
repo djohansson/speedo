@@ -64,6 +64,6 @@ private:
 
 	std::string myName;
 	Environment myEnvironment;
-	TaskExecutor myExecutor{std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 3)};
+	std::unique_ptr<TaskExecutor> myExecutor{};
 	
 };
