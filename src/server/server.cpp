@@ -87,6 +87,7 @@ public:
 	}
 
 protected:
+	explicit Server() = default;
 	Server(std::string_view name, Environment&& env)
 	: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
 	, myContext(1)

@@ -992,7 +992,7 @@ const Rhi<Vk>& RhiApplication::internalRhi<Vk>() const
 	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
 }
 
-RhiApplication::RhiApplication(std::string_view appName, Environment&& env)
+RhiApplication::RhiApplication(std::string_view appName, Environment&& env, const WindowState& window)
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
 , myRhi(std::make_shared<Rhi<Vk>>(
 		std::make_shared<Instance<Vk>>(

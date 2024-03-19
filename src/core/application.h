@@ -19,10 +19,12 @@ struct Environment
 	UnorderedMap<std::string, VariableValue> variables;
 };
 
-class Application : public Noncopyable, public Nonmovable
+class Application;
+extern std::weak_ptr<Application> theApplication;
+
+class Application : public Noncopyable, Nonmovable
 {
 public:
-
 	virtual ~Application() = default;
 
 	virtual bool tick() = 0;
@@ -31,9 +33,15 @@ public:
 	static std::shared_ptr<T> create(Args&&... args)
 	{
 		static_assert(std::is_base_of_v<Application, T>);
-		struct U : public T { U(Args&&... args) : T(std::forward<Args>(args)...) {} }; // workaround for protected constructors in T
-		auto app = std::make_shared<U>(std::forward<Args>(args)...);
+
+		 // workaround for protected constructors in T
+		struct U : public T { U() = default; U(Args&&... args) : T(std::forward<Args>(args)...) {} };
+		
+		// silly dance to make Application::instance() work during construction
+		auto app = std::make_shared<U>();
 		theApplication = app;
+		std::construct_at(app.get(), std::forward<Args>(args)...);
+
 		return app;
 	}
 
@@ -43,17 +51,19 @@ public:
 	auto& environment() noexcept { return myEnvironment; }
 	const auto& environment() const noexcept { return myEnvironment; }
 
-	auto& executor() noexcept { return myExecutor; }
-	const auto& executor() const noexcept { return myExecutor; }
-
 	static auto& instance() noexcept { return theApplication; }
 
 protected:
+	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
 
+	auto& internalExecutor() noexcept { return *myExecutor; }
+	const auto& internalExecutor() const noexcept { return *myExecutor; }
+
 private:
+
 	std::string myName;
 	Environment myEnvironment;
 	TaskExecutor myExecutor{std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 3)};
-	static std::weak_ptr<Application> theApplication;
+	
 };

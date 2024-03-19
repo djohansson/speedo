@@ -33,12 +33,9 @@ public:
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
 
-	//void setGraphicsApi(GraphicsApi api);
-	void createDevice(const WindowState& window);
-	const WindowState& createWindow();
-
 protected:
-	RhiApplication(std::string_view name, Environment&& env);
+	explicit RhiApplication() = default;
+	RhiApplication(std::string_view name, Environment&& env, const WindowState& window);
 
 	template <GraphicsApi G>
 	Rhi<G>& internalRhi();

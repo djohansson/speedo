@@ -79,8 +79,7 @@ public:
 	}
 
 protected:
-	Client(std::string_view name, Environment&& env)
-	: RhiApplication(std::forward<std::string_view>(name), std::forward<Environment>(env))
+	explicit Client() = default;
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::req)
 	{
