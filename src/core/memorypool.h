@@ -31,7 +31,7 @@ private:
 		bool operator<(const Entry& other) const { return state < other.state; }
 	};
 
-	alignas(T) std::array<T, Capacity> myPool;
+	alignas(T) std::array<std::byte, Capacity * sizeof(T)> myPool;
 	std::array<Entry, Capacity> myEntries;
 	uint32_t myAvailable = 0;
 };

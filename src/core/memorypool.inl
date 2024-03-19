@@ -19,7 +19,7 @@ T* MemoryPool<T, Capacity>::allocate()
 	assert(myAvailable > 0);
 	assert(myAvailable <= Capacity);
 
-	T* retval = myPool.data() + myEntries[0].offset;
+	T* retval = reinterpret_cast<T*>(myPool.data()) + myEntries[0].offset;
 
 	std::pop_heap(myEntries.begin(), myEntries.end());
 
@@ -41,7 +41,7 @@ void MemoryPool<T, Capacity>::free(T* ptr)
 	if (!ptr || myAvailable >= Capacity)
 		return;
 
-	myEntries[Capacity - 1] = {State::Free, static_cast<uint32_t>(ptr - myPool.data())};
+	myEntries[Capacity - 1] = {State::Free, static_cast<uint32_t>(ptr - reinterpret_cast<T*>(myPool.data()))};
 
 	myAvailable++;
 
