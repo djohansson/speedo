@@ -488,10 +488,8 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask([]
-				{
-					return openFileDialogue(g_resourcePath, "obj", loadModel);
-				});
+				auto [openFileTask, openFileFuture] = executor.createTask(
+					openFileDialogue, g_resourcePath, "obj", loadModel);
 
 				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi](auto openFileFuture)
 				{
@@ -509,15 +507,13 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				}, std::move(openFileFuture));
 				
 				executor.addDependency(openFileTask, openFileCallbackTask);
-				executor.call(openFileTask);
+				rhi.mainCalls.enqueue(openFileTask);
 			}
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask([]
-				{
-					return openFileDialogue(g_resourcePath, "jpg,png", loadImage);;
-				});
+				auto [openFileTask, openFileFuture] = executor.createTask(
+					openFileDialogue, g_resourcePath, "jpg,png", loadImage);
 
 				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi](auto openFileFuture)
 				{
@@ -535,7 +531,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				}, std::move(openFileFuture));
 				
 				executor.addDependency(openFileTask, openFileCallbackTask);
-				executor.call(openFileTask);
+				rhi.mainCalls.enqueue(openFileTask);
 			}
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
 			// {
@@ -1016,6 +1012,9 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 	g_resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
 	g_userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
 
+	createDevice(window);
+
+
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
 }
 
@@ -1184,6 +1183,7 @@ RhiApplication::~RhiApplication()
 
 	ZoneScopedN("~RhiApplication()");
 
+	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
@@ -1193,7 +1193,7 @@ RhiApplication::~RhiApplication()
 	{
 		ZoneScopedN("RhiApplication::draw::waitPresent");
 
-		executor().join(std::move(drawFuture));
+		executor.join(std::move(drawFuture));
 	}
 
 	{
@@ -1234,8 +1234,16 @@ bool RhiApplication::tick()
 
 	IMGUINewFrameFunction();
 
+	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
-	auto& executive = executor();
+	
+	TaskHandle mainCall;
+	while (rhi.mainCalls.try_dequeue(mainCall))
+	{
+		ZoneScopedN("RhiApplication::tick::mainCall");
+
+		executor.call(mainCall);
+	}
 
 	const auto& surfaceCapabilities = rhi.instance->getSwapchainInfo(
 		rhi.device->getPhysicalDevice(),

@@ -44,5 +44,7 @@ protected:
 	const Rhi<G>& internalRhi() const;
 
 private:
+	void createDevice(const WindowState& window);
+
 	std::shared_ptr<void> myRhi;
 };
