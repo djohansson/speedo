@@ -31,12 +31,12 @@ std::pair<TaskHandle, Future<ReturnType>> TaskExecutor::createTask(F&& f, Args&&
 {
 	ZoneScopedN("TaskExecutor::createTask");
 
-	uint32_t poolIndex = ourTaskPool.allocate();
-	Task* taskPtr = ourTaskPool.getPointer(poolIndex);
+	auto handle = ourTaskPool.allocate();
+	Task* taskPtr = ourTaskPool.getPointer(handle);
 	std::construct_at(taskPtr, Task(std::forward<F>(f), std::forward<Args>(args)...));
 
 	return std::make_pair(
-		TaskHandle{poolIndex},
+		handle,
 		Future<ReturnType>(
 			std::static_pointer_cast<typename Future<ReturnType>::FutureState>(taskPtr->state())));
 }

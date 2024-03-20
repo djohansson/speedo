@@ -1,19 +1,13 @@
 #pragma once
 
 #include "copyableatomic.h"
+#include "memorypool.h"
 #include "utils.h"
 
 #include <optional>
 #include <vector>
 
-struct TaskHandle
-{
-	static constexpr uint32_t InvalidIndex = ~0u;
-	uint32_t value = InvalidIndex;
-
-	bool operator!() const { return value == InvalidIndex; }
-	auto operator<=>(const TaskHandle&) const = default;
-};
+using TaskHandle = MemoryPoolHandle;
 
 struct TaskState
 {

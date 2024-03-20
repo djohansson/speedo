@@ -16,14 +16,14 @@ constexpr MemoryPool<T, Capacity>::MemoryPool() noexcept
 }
 
 template <typename T, uint32_t Capacity>
-uint32_t MemoryPool<T, Capacity>::allocate() noexcept
+MemoryPoolHandle MemoryPool<T, Capacity>::allocate() noexcept
 {
 	std::unique_lock lock(myMutex);
 
 	assert(myAvailable > 0);
 	assert(myAvailable <= Capacity);
 
-	uint32_t retval = myEntries[0].index;
+	MemoryPoolHandle handle{myEntries[0].index};
 
 	std::pop_heap(myEntries.begin(), myEntries.end());
 
@@ -33,11 +33,11 @@ uint32_t MemoryPool<T, Capacity>::allocate() noexcept
 
 	assert(std::is_heap(myEntries.begin(), myEntries.end()));
 
-	return retval;
+	return handle;
 }
 
 template <typename T, uint32_t Capacity>
-void MemoryPool<T, Capacity>::free(uint32_t index) noexcept
+void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
 {
 	std::unique_lock lock(myMutex);
 
@@ -46,7 +46,7 @@ void MemoryPool<T, Capacity>::free(uint32_t index) noexcept
 	if (myAvailable >= Capacity)
 		return;
 
-	myEntries[Capacity - 1] = {State::Free, index};
+	myEntries[Capacity - 1] = {State::Free, handle.value};
 
 	myAvailable++;
 

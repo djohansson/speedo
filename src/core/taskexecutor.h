@@ -15,8 +15,6 @@
 #include <thread>
 #include <tuple>
 
-using TaskHandleVector = std::vector<TaskHandle>;
-
 class TaskExecutor
 {
 	using TaskUniquePtr = std::unique_ptr<Task, std::function<void(Task*)>>;

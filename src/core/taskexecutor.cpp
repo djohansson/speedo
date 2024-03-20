@@ -51,7 +51,7 @@ Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
 	assert(handle);
 	assert(handle.value < TaskPoolSize);
 	
-	Task* ptr = ourTaskPool.getPointer(handle.value);
+	Task* ptr = ourTaskPool.getPointer(handle);
 
 	assert(ptr != nullptr);
 	
@@ -121,7 +121,7 @@ void TaskExecutor::internalTryDelete(TaskHandle handle)
 	if (task.state()->latch.load(std::memory_order_acquire) == 0)
 	{
 		task.~Task();
-		ourTaskPool.free(handle.value);
+		ourTaskPool.free(handle);
 	}
 }
 
