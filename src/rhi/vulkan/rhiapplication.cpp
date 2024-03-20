@@ -725,7 +725,6 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 			ZoneScopedN("rhi::draw::waitQueue");
 
 			device.wait(lastPresentSyncInfo.maxTimelineValue);
-			graphicsQueue.waitIdle();
 			graphicsContext.reset();
 		}
 
