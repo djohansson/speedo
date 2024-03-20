@@ -1,7 +1,9 @@
-
+#include <algorithm>
+#include <cassert>
+#include <shared_mutex>
 
 template <typename T, uint32_t Capacity>
-MemoryPool<T, Capacity>::MemoryPool() 
+constexpr MemoryPool<T, Capacity>::MemoryPool() noexcept
 : myAvailable(Capacity)
 {
 	static_assert(Capacity > 0);
@@ -14,12 +16,14 @@ MemoryPool<T, Capacity>::MemoryPool()
 }
 
 template <typename T, uint32_t Capacity>
-T* MemoryPool<T, Capacity>::allocate()
+uint32_t MemoryPool<T, Capacity>::allocate() noexcept
 {
+	std::unique_lock lock(myMutex);
+
 	assert(myAvailable > 0);
 	assert(myAvailable <= Capacity);
 
-	T* retval = reinterpret_cast<T*>(myPool.data()) + myEntries[0].offset;
+	uint32_t retval = myEntries[0].index;
 
 	std::pop_heap(myEntries.begin(), myEntries.end());
 
@@ -33,15 +37,16 @@ T* MemoryPool<T, Capacity>::allocate()
 }
 
 template <typename T, uint32_t Capacity>
-void MemoryPool<T, Capacity>::free(T* ptr)
+void MemoryPool<T, Capacity>::free(uint32_t index) noexcept
 {
-	assert(ptr);
+	std::unique_lock lock(myMutex);
+
 	assert(myAvailable < Capacity);
 
-	if (!ptr || myAvailable >= Capacity)
+	if (myAvailable >= Capacity)
 		return;
 
-	myEntries[Capacity - 1] = {State::Free, static_cast<uint32_t>(ptr - reinterpret_cast<T*>(myPool.data()))};
+	myEntries[Capacity - 1] = {State::Free, index};
 
 	myAvailable++;
 

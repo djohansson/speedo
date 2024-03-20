@@ -1,7 +1,6 @@
 #include "taskexecutor.h"
 
 MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::ourTaskPool{};
-std::mutex TaskExecutor::ourTaskPoolMutex{};
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
@@ -31,19 +30,39 @@ TaskExecutor::~TaskExecutor()
 	assert(myDeletionQueue.size_approx() == 0);
 }
 
-void TaskExecutor::addDependency(TaskHandle a, TaskHandle b)
+void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation)
 {
-	handleToTaskRef(a).state()->adjacencies.emplace_back(b);
-	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_release);
+	ZoneScopedN("TaskExecutor::addDependency");
+
+	assert(a != b);
+
+	TaskState& aState = *handleToTaskPtr(a)->state();
+	TaskState& bState = *handleToTaskPtr(b)->state();
+
+	if (isContinuation)
+		bState.isContinuation = true;
+
+	aState.adjacencies.emplace_back(b);
+	bState.latch.fetch_add(1, std::memory_order_release);
+}
+
+Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
+{
+	assert(handle);
+	assert(handle.value < TaskPoolSize);
+	
+	Task* ptr = ourTaskPool.getPointer(handle.value);
+
+	assert(ptr != nullptr);
+	
+	return ptr;
 }
 
 void TaskExecutor::internalCall(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
-	assert(handle);
-
-	Task& task = handleToTaskRef(handle);
+	Task& task = *handleToTaskPtr(handle);
 
 	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
 	
@@ -52,24 +71,58 @@ void TaskExecutor::internalCall(TaskHandle handle)
 	myDeletionQueue.enqueue(handle);
 }
 
+void TaskExecutor::internalCall(ProducerToken& readyProducerToken, TaskHandle handle)
+{
+	ZoneScopedN("TaskExecutor::internalCall");
+
+	Task& task = *handleToTaskPtr(handle);
+
+	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+	
+	task();
+	scheduleAdjacent(readyProducerToken, task);
+	myDeletionQueue.enqueue(handle);
+}
+
 void TaskExecutor::internalSubmit(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	assert(handle);
-	assert(handleToTaskRef(handle).state()->latch.load(std::memory_order_acquire) == 1);
-	
+	Task& task = *handleToTaskPtr(handle);
+
+	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+
 	myReadyQueue.enqueue(handle);
+
+	if (!task.state()->isContinuation)
+		mySignal.release();
 }
 
 void TaskExecutor::internalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	assert(handle);
-	assert(handleToTaskRef(handle).state()->latch.load(std::memory_order_acquire) == 1);
-	
+	Task& task = *handleToTaskPtr(handle);
+
+	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+
 	myReadyQueue.enqueue(readyProducerToken, handle);
+
+	if (!task.state()->isContinuation)
+		mySignal.release();
+}
+
+void TaskExecutor::internalTryDelete(TaskHandle handle)
+{
+	ZoneScopedN("TaskExecutor::internalTryDelete");
+
+	Task& task = *handleToTaskPtr(handle);
+
+	if (task.state()->latch.load(std::memory_order_acquire) == 0)
+	{
+		task.~Task();
+		ourTaskPool.free(handle.value);
+	}
 }
 
 void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
@@ -83,15 +136,15 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = handleToTaskRef(adjacentHandle);
+		Task& adjacent = *handleToTaskPtr(adjacentHandle);
 
 		assertf(adjacent.state(), "Task has no return state!");
 		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
 		{
-			adjacentAtomic.store(nullptr, std::memory_order_release);
-			myReadyQueue.enqueue(readyProducerToken, adjacentHandle);
+			adjacentAtomic.store(TaskHandle{}, std::memory_order_release);
+			internalSubmit(readyProducerToken, adjacentHandle);
 		}
 	}
 }
@@ -107,15 +160,15 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = handleToTaskRef(adjacentHandle);
+		Task& adjacent = *handleToTaskPtr(adjacentHandle);
 
 		assertf(adjacent.state(), "Task has no return state!");
 		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
 		{
-			adjacentAtomic.store(nullptr, std::memory_order_release);
-			myReadyQueue.enqueue(adjacentHandle);
+			adjacentAtomic.store(TaskHandle{}, std::memory_order_release);
+			internalSubmit(adjacentHandle);
 		}
 	}
 }
@@ -126,14 +179,7 @@ void TaskExecutor::processReadyQueue()
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
-	{
-		Task& task = handleToTaskRef(handle);
-		task();
-		scheduleAdjacent(task);
-		myDeletionQueue.enqueue(handle);
-	}
-
-	purgeDeletionQueue();
+		internalCall(handle);
 }
 
 void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
@@ -142,14 +188,7 @@ void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, Consumer
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
-	{
-		Task& task = handleToTaskRef(handle);
-		task();
-		scheduleAdjacent(readyProducerToken, task);
-		myDeletionQueue.enqueue(handle);
-	}
-
-	purgeDeletionQueue();
+		internalCall(readyProducerToken, handle);
 }
 
 void TaskExecutor::purgeDeletionQueue()
@@ -158,16 +197,7 @@ void TaskExecutor::purgeDeletionQueue()
 
 	TaskHandle handle;
 	while (myDeletionQueue.try_dequeue(handle))
-	{
-		Task& task = handleToTaskRef(handle);
-		if (task.state()->latch.load(std::memory_order_acquire) == 0)
-		{
-			ourTaskPoolMutex.lock();
-			task.~Task();
-			ourTaskPool.free(handle);
-			ourTaskPoolMutex.unlock();
-		}
-	}
+		internalTryDelete(handle);
 }
 
 void TaskExecutor::threadMain(uint32_t threadId)
@@ -180,6 +210,7 @@ void TaskExecutor::threadMain(uint32_t threadId)
 		while (!myStopSource.load(std::memory_order_acquire))
 		{
 			processReadyQueue(readyProducerToken, readyConsumerToken);
+			purgeDeletionQueue();
 
 			mySignal.acquire();
 		}

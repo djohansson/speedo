@@ -3,7 +3,11 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<Re
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	return processReadyQueue(std::forward<Future<ReturnType>>(future));
+	auto retval = processReadyQueue(std::forward<Future<ReturnType>>(future));
+	
+	purgeDeletionQueue();
+
+	return retval;
 }
 
 template <typename ReturnType>
@@ -16,12 +20,7 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::processReadyQu
 
 	TaskHandle handle;
 	while (!future.is_ready() && myReadyQueue.try_dequeue(handle))
-	{
-		Task& task = handleToTaskRef(handle);
-		task();
-		scheduleAdjacent(task);
-		myDeletionQueue.enqueue(handle);
-	}
+		internalCall(handle);
 
 	return std::make_optional(future.get());
 }
@@ -32,13 +31,12 @@ std::pair<TaskHandle, Future<ReturnType>> TaskExecutor::createTask(F&& f, Args&&
 {
 	ZoneScopedN("TaskExecutor::createTask");
 
-	ourTaskPoolMutex.lock();
-	Task* taskPtr = ourTaskPool.allocate();
+	uint32_t poolIndex = ourTaskPool.allocate();
+	Task* taskPtr = ourTaskPool.getPointer(poolIndex);
 	std::construct_at(taskPtr, Task(std::forward<F>(f), std::forward<Args>(args)...));
-	ourTaskPoolMutex.unlock();
 
 	return std::make_pair(
-		taskPtr,
+		TaskHandle{poolIndex},
 		Future<ReturnType>(
 			std::static_pointer_cast<typename Future<ReturnType>::FutureState>(taskPtr->state())));
 }
@@ -52,8 +50,6 @@ void TaskExecutor::submit(T&& first, Ts&&... rest)
 
 	if constexpr (sizeof...(rest) > 0)
 		internalSubmit(std::forward<Ts>(rest)...);
-
-	mySignal.release();
 }
 
 template <typename T, typename... Ts>

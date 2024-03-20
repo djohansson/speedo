@@ -697,7 +697,7 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-static TaskHandle prevDrawTaskHandle{NullTaskHandle};
+static TaskHandle prevDrawTaskHandle{};
 
 void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
@@ -815,7 +815,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 	{
 		auto [drawTask, drawFuture] = executor.createTask(draw, rhi, executor);
 		rhi.drawFutures.enqueue(std::move(drawFuture));
-		executor.addDependency(prevDrawTaskHandle, drawTask);
+		executor.addDependency(prevDrawTaskHandle, drawTask, true);
 		prevDrawTaskHandle = drawTask;
 	}
 }

@@ -78,4 +78,4 @@ public:
 	std::tuple<bool, value_t> try_lock_upgrade() noexcept;
 };
 
-#include "upgradeablesharedmutex.inl"
+#include "upgradablesharedmutex.inl"

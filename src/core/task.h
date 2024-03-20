@@ -54,7 +54,4 @@ private:
 	std::shared_ptr<TaskState> myState;
 };
 
-static constexpr Task& handleToTaskRef(TaskHandle handle) noexcept { return *handle; }
-static constexpr TaskHandle taskRefToHandle(Task& task) noexcept { return &task; }
-
 #include "task.inl"
