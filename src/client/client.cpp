@@ -80,6 +80,11 @@ public:
 
 protected:
 	explicit Client() = default;
+	Client(std::string_view name, Environment&& env, const WindowState& window)
+	: RhiApplication(
+		std::forward<std::string_view>(name),
+		std::forward<Environment>(env),
+		window)
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::req)
 	{
@@ -128,11 +133,10 @@ void client_create(const WindowState* window, const PathConfig* paths)
 			{"RootPath", root},
 			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
 			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".profile").string().c_str(), true)}
-		}});
+		}},
+		*window);
 
 	assert(s_application);
-
-	s_application->createDevice(*window);
 }
 
 bool client_tick()

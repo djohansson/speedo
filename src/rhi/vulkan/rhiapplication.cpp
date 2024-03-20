@@ -117,16 +117,6 @@ static QueueHostSyncInfo<Vk> loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 	return graphicsQueue.submit();
 }
 
-void IMGUINewFrameFunction()
-{
-	ZoneScopedN("RhiApplication::IMGUINewFrame");
-
-	using namespace ImGui;
-
-	ImGui_ImplGlfw_NewFrame();
-	ImGui_ImplVulkan_NewFrame();
-}
-
 void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
 	ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
@@ -538,7 +528,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			// 	auto [task, openFileFuture] = graph.createTask(
 			// 		[&openFileDialogue, &resourcePath, &loadGlTF]
 			// 		{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
-			// 	executor().submit(std::move(graph));
+			// 	executor.submit(std::move(graph));
 			// 	myOpenFileFuture = std::move(openFileFuture);
 			// }
 			Separator();
@@ -705,6 +695,127 @@ static void shutdownIMGUI()
 	ImGui_ImplGlfw_Shutdown();
 
 	ImGui::DestroyContext();
+}
+
+static TaskHandle prevDrawTaskHandle{NullTaskHandle};
+
+void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
+{
+	ZoneScopedN("rhi::draw");
+
+	ImGui_ImplVulkan_NewFrame();
+
+	auto& device = *rhi.device;
+	auto& pipeline = *rhi.pipeline;
+	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
+	auto& graphicsQueue = graphicsContext.queue();
+	auto& mainWindow = *rhi.mainWindow;
+	auto& renderImageSet = *rhi.renderImageSet;
+
+	auto [flipSuccess, lastPresentSyncInfo] = mainWindow.flip();
+
+	if (flipSuccess)
+	{
+		ZoneScopedN("rhi::draw::submit");
+
+		if (lastPresentSyncInfo.maxTimelineValue)
+		{
+			ZoneScopedN("rhi::draw::waitQueue");
+
+			device.wait(lastPresentSyncInfo.maxTimelineValue);
+			graphicsQueue.waitIdle();
+			graphicsContext.reset();
+		}
+
+		auto cmd = graphicsContext.commands();
+
+		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
+		
+		{
+			GPU_SCOPE(cmd, graphicsQueue, clear);
+
+			renderImageSet.clearDepthStencil(cmd, {1.0f, 0});
+			renderImageSet.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, draw);
+
+			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			renderImageSet.transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+			
+			auto renderPassInfo = renderImageSet.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+			
+			auto drawThreadCount = mainWindow.draw(
+				pipeline,
+				graphicsContext,
+				std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
+
+			for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
+				graphicsContext.execute(threadIt);
+
+			renderImageSet.end(cmd);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, blit);
+
+			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+
+			mainWindow.blit(
+				cmd,
+				renderImageSet,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, imgui);
+
+			mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			mainWindow.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+
+			IMGUIPrepareDrawFunction(rhi, executor); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
+			IMGUIDrawFunction(cmd);
+
+			mainWindow.end(cmd);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, transition);
+			
+			mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+		}
+
+		cmd.end();
+
+		auto [imageAquired, renderComplete] = mainWindow.getFrameSyncSemaphores();
+
+		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
+			{device.getTimelineSemaphore(), imageAquired},
+			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+			{lastPresentSyncInfo.maxTimelineValue, 1},
+			{device.getTimelineSemaphore(), renderComplete},
+			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed), 1}
+		}));
+
+		graphicsQueue.enqueuePresent(mainWindow.preparePresent(graphicsQueue.submit()));
+		graphicsQueue.present();
+	}
+
+	if (lastPresentSyncInfo.maxTimelineValue)
+	{
+		ZoneScopedN("rhi::draw::processTimelineCallbacks");
+
+		// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
+		device.processTimelineCallbacks(lastPresentSyncInfo.maxTimelineValue);
+	}
+
+	if (!g_requestExit)
+	{
+		auto [drawTask, drawFuture] = executor.createTask(draw, rhi, executor);
+		rhi.drawFutures.enqueue(std::move(drawFuture));
+		executor.addDependency(prevDrawTaskHandle, drawTask);
+		prevDrawTaskHandle = drawTask;
+	}
 }
 
 static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHandle<Vk> surface)
@@ -1003,6 +1114,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 					nullptr,
 					VK_MAKE_VERSION(1, 0, 0),
 					VK_API_VERSION_1_3}})))
+		//std::make_shared<Device<Vk>>())) // todo: 
 {
 	ZoneScopedN("RhiApplication()");
 
@@ -1014,6 +1126,16 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 
 	createDevice(window);
 
+	auto& executor = internalExecutor();
+	auto& rhi = internalRhi<Vk>();
+
+	// call tick() once here because ImGui_ImplGlfw_NewFrame() in tick() needs to be called before ImGui_ImplVulkan_NewFrame() in draw()
+	tick();
+
+	auto [drawTask, drawFuture] = executor.createTask(draw, rhi, executor);
+	prevDrawTaskHandle = drawTask;
+	rhi.drawFutures.enqueue(std::move(drawFuture));
+	executor.submit(drawTask);
 
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
 }
@@ -1183,6 +1305,8 @@ RhiApplication::~RhiApplication()
 
 	ZoneScopedN("~RhiApplication()");
 
+	g_requestExit = true;
+
 	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
 	auto device = rhi.device;
@@ -1232,7 +1356,7 @@ bool RhiApplication::tick()
 
 	ZoneScopedN("RhiApplication::tick");
 
-	IMGUINewFrameFunction();
+	ImGui_ImplGlfw_NewFrame();
 
 	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
@@ -1250,131 +1374,7 @@ bool RhiApplication::tick()
 		rhi.mainWindow->getSurface()).capabilities;
 
 	Future<void> prevDrawFuture;
-	while (rhi.drawFutures.size_approx() >= surfaceCapabilities.minImageCount && rhi.drawFutures.try_dequeue(prevDrawFuture))
-	{
-		ZoneScopedN("RhiApplication::draw::waitPresent");
-
-		executive.join(std::move(prevDrawFuture));
-	}
-
-	auto [drawTask, drawFuture] = executive.createTask([&rhi, &executive]
-	{
-		ZoneScopedN("RhiApplication::draw");
-
-		static std::mutex drawMutex;
-		std::unique_lock lock(drawMutex);
-
-		auto& device = *rhi.device;
-		auto& pipeline = *rhi.pipeline;
-		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
-		auto& graphicsQueue = graphicsContext.queue();
-		auto& mainWindow = *rhi.mainWindow;
-		auto& renderImageSet = *rhi.renderImageSet;
-
-		auto [flipSuccess, lastPresentSyncInfo] = mainWindow.flip();
-
-		if (flipSuccess)
-		{
-			ZoneScopedN("RhiApplication::draw::submit");
-
-			if (lastPresentSyncInfo.maxTimelineValue)
-			{
-				ZoneScopedN("RhiApplication::draw::waitQueue");
-
-				device.wait(lastPresentSyncInfo.maxTimelineValue);
-				graphicsQueue.waitIdle();
-				graphicsContext.reset();
-			}
-
-			auto cmd = graphicsContext.commands();
-
-			GPU_SCOPE_COLLECT(cmd, graphicsQueue);
-			
-			{
-				GPU_SCOPE(cmd, graphicsQueue, clear);
-
-				renderImageSet.clearDepthStencil(cmd, {1.0f, 0});
-				renderImageSet.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
-			}
-			{
-				GPU_SCOPE(cmd, graphicsQueue, draw);
-
-				renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-				renderImageSet.transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-				
-				auto renderPassInfo = renderImageSet.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-				
-				auto drawThreadCount = mainWindow.draw(
-					pipeline,
-					graphicsContext,
-					std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
-
-				for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
-					graphicsContext.execute(threadIt);
-
-				renderImageSet.end(cmd);
-			}
-			{
-				GPU_SCOPE(cmd, graphicsQueue, blit);
-
-				renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-
-				mainWindow.blit(
-					cmd,
-					renderImageSet,
-					{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-					0,
-					{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-					0);
-			}
-			{
-				GPU_SCOPE(cmd, graphicsQueue, imgui);
-
-				mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-				mainWindow.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-
-				IMGUIPrepareDrawFunction(rhi, executive); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
-				IMGUIDrawFunction(cmd);
-
-				mainWindow.end(cmd);
-			}
-			{
-				GPU_SCOPE(cmd, graphicsQueue, transition);
-				
-				mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
-			}
-
-			cmd.end();
-
-			auto [imageAquired, renderComplete] = mainWindow.getFrameSyncSemaphores();
-
-			graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
-				{device.getTimelineSemaphore(), imageAquired},
-				{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-				{lastPresentSyncInfo.maxTimelineValue, 1},
-				{device.getTimelineSemaphore(), renderComplete},
-				{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed), 1}
-			}));
-
-			graphicsQueue.enqueuePresent(mainWindow.preparePresent(graphicsQueue.submit()));
-			graphicsQueue.present();
-		}
-
-		if (lastPresentSyncInfo.maxTimelineValue)
-		{
-			ZoneScopedN("RhiApplication::draw::processTimelineCallbacks");
-
-			// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-			device.processTimelineCallbacks(lastPresentSyncInfo.maxTimelineValue);
-		}
-	});
-
-	{
-		ZoneScopedN("RhiApplication::draw::submit");
-
-		rhi.drawFutures.enqueue(std::move(drawFuture));
-		executive.submit(drawTask);
-	}
+	while (rhi.drawFutures.try_dequeue(prevDrawFuture)) {}
 	
 	return !g_requestExit;
 }

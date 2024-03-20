@@ -8,6 +8,7 @@
 
 class Task;
 using TaskHandle = Task*;
+static constexpr TaskHandle NullTaskHandle = nullptr;
 
 struct TaskState
 {
