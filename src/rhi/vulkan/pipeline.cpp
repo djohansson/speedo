@@ -510,14 +510,14 @@ PipelineHandle<Vk> Pipeline<Vk>::internalGetPipeline()
 	{
 		ZoneScopedN("Pipeline::internalGetPipeline::store");
 
-		pipelineHandleAtomic.store(internalCreateGraphicsPipeline(key), std::memory_order_relaxed);
+		pipelineHandleAtomic.store(internalCreateGraphicsPipeline(key), std::memory_order_release);
 		pipelineHandleAtomic.notify_all();
 	}
 	else
 	{
 		ZoneScopedN("Pipeline::internalGetPipeline::wait");
 
-		pipelineHandleAtomic.wait(nullptr);
+		pipelineHandleAtomic.wait(nullptr, std::memory_order_acquire);
 	}
 
 	return pipelineHandleAtomic;
