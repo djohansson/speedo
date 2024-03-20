@@ -34,8 +34,6 @@ public:
 
 	bool tick() override
 	{
-		FrameMark;
-		
 		ZoneScopedN("Client::tick");
 
 		{

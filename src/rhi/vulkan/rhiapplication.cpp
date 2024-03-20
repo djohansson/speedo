@@ -701,6 +701,8 @@ static TaskHandle prevDrawTaskHandle{NullTaskHandle};
 
 void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
+	FrameMark;
+
 	ZoneScopedN("rhi::draw");
 
 	ImGui_ImplVulkan_NewFrame();
