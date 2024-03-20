@@ -69,7 +69,7 @@ void Future<T>::wait() const
 		if (current == 0)
 			return;
 
-		myState->latch.wait(current, std::memory_order_relaxed);
+		myState->latch.wait(current, std::memory_order_acq_rel);
 	}
 }
 

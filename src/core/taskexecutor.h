@@ -27,7 +27,8 @@ public:
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
-	void addDependency(TaskHandle a, TaskHandle b); // b will start after a has finished
+	// b will start after a has finished on any thread in the thread pool
+	void addDependency(TaskHandle a, TaskHandle b);
 
 	template <
 		typename F,
@@ -40,25 +41,28 @@ public:
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
 
-	// execute task chain(s) in current thread
+	// call task in current thread. dependency chain(s) will be executed in thread pool
 	template <typename T, typename... Ts>
 	void call(T&& first, Ts&&... rest);
 
-	// submit task chain(s) to be executed in thread pool
+	// submit task + dependency chain(s) to be executed in thread pool
 	template <typename T, typename... Ts>
 	void submit(T&& first, Ts&&... rest);
 
 private:
 	void internalCall(TaskHandle handle);
 	void internalSubmit(TaskHandle handle);
+	void internalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
+	
 	void scheduleAdjacent(Task& task);
 	void scheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 
+	void processReadyQueue();
+	void processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
 	template <typename ReturnType>
 	std::optional<typename Future<ReturnType>::value_t> processReadyQueue(Future<ReturnType>&& future);
 
-	void processReadyQueue();
-	void processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
+	void purgeDeletionQueue();
 
 	void threadMain(uint32_t threadId);
 

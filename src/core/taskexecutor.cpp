@@ -20,19 +20,21 @@ TaskExecutor::~TaskExecutor()
 {
 	ZoneScopedN("~TaskExecutor()");
 
-	myStopSource.store(true, std::memory_order_relaxed);
+	myStopSource.store(true, std::memory_order_release);
 	mySignal.release(mySignal.max());
 
 	processReadyQueue();
 
 	for (auto& [thread, exception] : myThreads)
 		thread.join();
+
+	assert(myDeletionQueue.size_approx() == 0);
 }
 
 void TaskExecutor::addDependency(TaskHandle a, TaskHandle b)
 {
 	handleToTaskRef(a).state()->adjacencies.emplace_back(b);
-	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_relaxed);
+	handleToTaskRef(b).state()->latch.fetch_add(1, std::memory_order_release);
 }
 
 void TaskExecutor::internalCall(TaskHandle handle)
@@ -43,27 +45,11 @@ void TaskExecutor::internalCall(TaskHandle handle)
 
 	Task& task = handleToTaskRef(handle);
 
-	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
 	
 	task();
-
-	for (auto& adjacentAtomic : handleToTaskRef(handle).state()->adjacencies)
-	{
-		auto adjacentHandle = adjacentAtomic.load(std::memory_order_relaxed);
-		
-		assert(adjacentHandle);
-
-		Task& adjacent = handleToTaskRef(adjacentHandle);
-
-		assertf(adjacent.state(), "Task has no return state!");
-		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
-
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
-		{
-			adjacent();
-			adjacentAtomic.store(nullptr, std::memory_order_release);
-		}
-	}
+	scheduleAdjacent(task);
+	myDeletionQueue.enqueue(handle);
 }
 
 void TaskExecutor::internalSubmit(TaskHandle handle)
@@ -71,24 +57,19 @@ void TaskExecutor::internalSubmit(TaskHandle handle)
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
 	assert(handle);
-
-	Task& task = handleToTaskRef(handle);
-
-	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	assert(handleToTaskRef(handle).state()->latch.load(std::memory_order_acquire) == 1);
 	
-	task();
+	myReadyQueue.enqueue(handle);
+}
 
-	while (myDeletionQueue.try_dequeue(handle))
-	{
-		if (handleToTaskRef(handle).state()->latch.load(std::memory_order_relaxed) == 0)
-		{
-			ourTaskPoolMutex.lock();
-			Task* taskPtr = &handleToTaskRef(handle);
-			taskPtr->~Task();
-			ourTaskPool.free(taskPtr);
-			ourTaskPoolMutex.unlock();
-		}
-	}
+void TaskExecutor::internalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
+{
+	ZoneScopedN("TaskExecutor::internalSubmit");
+
+	assert(handle);
+	assert(handleToTaskRef(handle).state()->latch.load(std::memory_order_acquire) == 1);
+	
+	myReadyQueue.enqueue(readyProducerToken, handle);
 }
 
 void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
@@ -97,19 +78,20 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 
 	for (auto& adjacentAtomic : task.state()->adjacencies)
 	{
-		auto adjacentHandle = adjacentAtomic.load(std::memory_order_relaxed);
+		auto adjacentHandle = adjacentAtomic.load(std::memory_order_acquire);
 		
-		assert(adjacentHandle);
+		if (!adjacentHandle) // this is ok, means that another thread has claimed it
+			continue;
 
 		Task& adjacent = handleToTaskRef(adjacentHandle);
 
 		assertf(adjacent.state(), "Task has no return state!");
 		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
 		{
-			myReadyQueue.enqueue(readyProducerToken, taskRefToHandle(adjacent));
 			adjacentAtomic.store(nullptr, std::memory_order_release);
+			myReadyQueue.enqueue(readyProducerToken, adjacentHandle);
 		}
 	}
 }
@@ -120,19 +102,20 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 
 	for (auto& adjacentAtomic : task.state()->adjacencies)
 	{
-		auto adjacentHandle = adjacentAtomic.load(std::memory_order_relaxed);
+		auto adjacentHandle = adjacentAtomic.load(std::memory_order_acquire);
 		
-		assert(adjacentHandle);
+		if (!adjacentHandle) // this is ok, means that another thread has claimed it
+			continue;
 
 		Task& adjacent = handleToTaskRef(adjacentHandle);
 
 		assertf(adjacent.state(), "Task has no return state!");
 		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
 		{
-			myReadyQueue.enqueue(taskRefToHandle(adjacent));
 			adjacentAtomic.store(nullptr, std::memory_order_release);
+			myReadyQueue.enqueue(adjacentHandle);
 		}
 	}
 }
@@ -149,6 +132,8 @@ void TaskExecutor::processReadyQueue()
 		scheduleAdjacent(task);
 		myDeletionQueue.enqueue(handle);
 	}
+
+	purgeDeletionQueue();
 }
 
 void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
@@ -163,6 +148,26 @@ void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, Consumer
 		scheduleAdjacent(readyProducerToken, task);
 		myDeletionQueue.enqueue(handle);
 	}
+
+	purgeDeletionQueue();
+}
+
+void TaskExecutor::purgeDeletionQueue()
+{
+	ZoneScopedN("TaskExecutor::purgeDeletionQueue");
+
+	TaskHandle handle;
+	while (myDeletionQueue.try_dequeue(handle))
+	{
+		Task& task = handleToTaskRef(handle);
+		if (task.state()->latch.load(std::memory_order_acquire) == 0)
+		{
+			ourTaskPoolMutex.lock();
+			task.~Task();
+			ourTaskPool.free(handle);
+			ourTaskPoolMutex.unlock();
+		}
+	}
 }
 
 void TaskExecutor::threadMain(uint32_t threadId)
@@ -172,7 +177,7 @@ void TaskExecutor::threadMain(uint32_t threadId)
 		ProducerToken readyProducerToken(myReadyQueue);
 		ConsumerToken readyConsumerToken(myReadyQueue);
 
-		while (!myStopSource.load(std::memory_order_relaxed))
+		while (!myStopSource.load(std::memory_order_acquire))
 		{
 			processReadyQueue(readyProducerToken, readyConsumerToken);
 
