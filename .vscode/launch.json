@@ -2,7 +2,7 @@
 	"version": "0.2.1",
 	"configurations": [
 		{
-			"name": "(cppdbg-lldb arm64) debug/client",
+			"name": "(cppdbg-lldb arm64-osx) debug/client",
 			"type": "cppdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/client",
@@ -19,12 +19,11 @@
 				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d"}
 			],
 			"targetArchitecture": "arm64",
-			"externalConsole": false,
 			"MIMode": "lldb",
 			"additionalSOLibSearchPath": "${workspaceFolder}/build.vcpkg/$arm64-osx-clang/lib"
 		},
 		{
-			"name": "(cppdbg-lldb arm64) debug/server",
+			"name": "(cppdbg-lldb arm64-osx) debug/server",
 			"type": "cppdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/server",
@@ -39,16 +38,16 @@
 				{ "name": "DYLD_LIBRARY_PATH", "value": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"}
 			],
 			"targetArchitecture": "arm64",
-			"externalConsole": false,
 			"MIMode": "lldb"
 		},
 		{
-			"name": "(lldb arm64) debug/client",
+			"name": "(lldb arm64-osx) debug/client",
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/client",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"env": {
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
@@ -60,12 +59,41 @@
 			}
 		},
 		{
-			"name": "(lldb arm64) debug/server",
+			"name": "(lldb arm64-osx) profile/client",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/client",
+			"args": ["-u ${userHome}"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib",
+				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
+			}
+		},
+		{
+			"name": "(lldb arm64-osx) release/client",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/client",
+			"args": ["-u ${userHome}"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib",
+				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
+			}
+		},
+		{
+			"name": "(lldb arm64-osx) debug/server",
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/server",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"env": {
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
@@ -75,12 +103,39 @@
 			}
 		},
 		{
-			"name": "(Windows) debug/client",
+			"name": "(lldb arm64-osx) profile/server",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/server",
+			"args": ["-u ${userHome}"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"
+			}
+		},
+		{
+			"name": "(lldb arm64-osx) release/server",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/server",
+			"args": ["-u ${userHome}"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"
+			}
+		},
+		{
+			"name": "(x64-windows) debug/client",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/client.exe",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"environment": [
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
@@ -97,7 +152,6 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -109,12 +163,13 @@
 			}
 		},
 		{
-			"name": "(Windows) profile/client",
+			"name": "(x64-windows) profile/client",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/profile/client.exe",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"environment": [
 				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
@@ -127,7 +182,6 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -139,12 +193,13 @@
 			}
 		},
 		{
-			"name": "(Windows) release/client",
+			"name": "(x64-windows) release/client",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/release/client.exe",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"environment": [
 				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
@@ -157,7 +212,6 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -169,12 +223,13 @@
 			}
 		},
 		{
-			"name": "(Windows) debug/server",
+			"name": "(x64-windows) debug/server",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/server.exe",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"environment": [
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
@@ -190,7 +245,6 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -202,12 +256,13 @@
 			}
 		},
 		{
-			"name": "(Windows) profile/server",
+			"name": "(x64-windows) profile/server",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/profile/server.exe",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"environment": [
 				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
@@ -220,7 +275,6 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -232,12 +286,13 @@
 			}
 		},
 		{
-			"name": "(Windows) release/server",
+			"name": "(x64-windows) release/server",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/release/server.exe",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
 			"environment": [
 				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
@@ -250,7 +305,6 @@
 					"excludedModules": []
 				}
 			},
-			"console": "internalConsole",
 			"logging": {
 				"exceptions": true,
 				"engineLogging": false,
@@ -264,34 +318,50 @@
 	],
 	"compounds": [
 		{
-			"name": "(lldb arm64) debug server/client",
+			"name": "(lldb arm64-osx) debug server/client",
 			"configurations": [
-				"(lldb arm64) debug/server",
-				"(lldb arm64) debug/client"
+				"(lldb arm64-osx) debug/server",
+				"(lldb arm64-osx) debug/client"
 			],
 			"stopAll": true
 		},
 		{
-			"name": "(Windows) debug server/client",
+			"name": "(lldb arm64-osx) profile server/client",
 			"configurations": [
-				"(Windows) debug/server",
-				"(Windows) debug/client"
+				"(lldb arm64-osx) profile/server",
+				"(lldb arm64-osx) profile/client"
 			],
 			"stopAll": true
 		},
 		{
-			"name": "(Windows) profile server/client",
+			"name": "(lldb arm64-osx) release server/client",
 			"configurations": [
-				"(Windows) profile/server",
-				"(Windows) profile/client"
+				"(lldb arm64-osx) release/server",
+				"(lldb arm64-osx) release/client"
 			],
 			"stopAll": true
 		},
 		{
-			"name": "(Windows) release server/client",
+			"name": "(x64-windows) debug server/client",
 			"configurations": [
-				"(Windows) release/server",
-				"(Windows) release/client"
+				"(x64-windows) debug/server",
+				"(x64-windows) debug/client"
+			],
+			"stopAll": true
+		},
+		{
+			"name": "(x64-windows) profile server/client",
+			"configurations": [
+				"(x64-windows) profile/server",
+				"(x64-windows) profile/client"
+			],
+			"stopAll": true
+		},
+		{
+			"name": "(x64-windows) release server/client",
+			"configurations": [
+				"(x64-windows) release/server",
+				"(x64-windows) release/client"
 			],
 			"stopAll": true
 		}
