@@ -697,7 +697,7 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-static TaskHandle prevDrawTaskHandle{};
+static std::pair<TaskHandle, Future<void>> prevDraw{};
 
 void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
@@ -705,8 +705,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 
 	ZoneScopedN("rhi::draw");
 
-	ImGui_ImplVulkan_NewFrame();
-
+	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
 	auto& pipeline = *rhi.pipeline;
 	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
@@ -714,17 +713,19 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 	auto& mainWindow = *rhi.mainWindow;
 	auto& renderImageSet = *rhi.renderImageSet;
 
-	auto [flipSuccess, lastPresentSyncInfo] = mainWindow.flip();
+	ImGui_ImplVulkan_NewFrame();
+
+	auto [flipSuccess, prevPresentSyncInfo] = mainWindow.flip();
 
 	if (flipSuccess)
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		if (lastPresentSyncInfo.maxTimelineValue)
+		if (prevPresentSyncInfo.maxTimelineValue)
 		{
-			ZoneScopedN("rhi::draw::waitQueue");
+			ZoneScopedN("rhi::draw::waitGPU");
 
-			device.wait(lastPresentSyncInfo.maxTimelineValue);
+			device.wait(prevPresentSyncInfo.maxTimelineValue);
 			graphicsContext.reset();
 		}
 
@@ -793,7 +794,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
 			{device.getTimelineSemaphore(), imageAquired},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			{lastPresentSyncInfo.maxTimelineValue, 1},
+			{prevPresentSyncInfo.maxTimelineValue, 1},
 			{device.getTimelineSemaphore(), renderComplete},
 			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed), 1}
 		}));
@@ -802,20 +803,20 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		graphicsQueue.present();
 	}
 
-	if (lastPresentSyncInfo.maxTimelineValue)
+	if (prevPresentSyncInfo.maxTimelineValue)
 	{
 		ZoneScopedN("rhi::draw::processTimelineCallbacks");
 
 		// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-		device.processTimelineCallbacks(lastPresentSyncInfo.maxTimelineValue);
+		device.processTimelineCallbacks(prevPresentSyncInfo.maxTimelineValue);
 	}
 
 	if (!g_requestExit)
 	{
-		auto [drawTask, drawFuture] = executor.createTask(draw, rhi, executor);
-		rhi.drawFutures.enqueue(std::move(drawFuture));
-		executor.addDependency(prevDrawTaskHandle, drawTask, true);
-		prevDrawTaskHandle = drawTask;
+		auto drawPair = executor.createTask(draw, rhi, executor);
+		auto& [drawTask, drawFuture] = drawPair;
+		executor.addDependency(prevDraw.first, drawTask, true);
+		prevDraw = drawPair;
 	}
 }
 
@@ -1133,9 +1134,9 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 	// call tick() once here because ImGui_ImplGlfw_NewFrame() in tick() needs to be called before ImGui_ImplVulkan_NewFrame() in draw()
 	tick();
 
-	auto [drawTask, drawFuture] = executor.createTask(draw, rhi, executor);
-	prevDrawTaskHandle = drawTask;
-	rhi.drawFutures.enqueue(std::move(drawFuture));
+	auto drawPair = executor.createTask(draw, rhi, executor);
+	auto& [drawTask, drawFuture] = drawPair;
+	prevDraw = drawPair;
 	executor.submit(drawTask);
 
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
@@ -1307,19 +1308,11 @@ RhiApplication::~RhiApplication()
 	ZoneScopedN("~RhiApplication()");
 
 	g_requestExit = true;
+	prevDraw = {};
 
-	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
-
-	Future<void> drawFuture;
-	while (rhi.drawFutures.try_dequeue(drawFuture))
-	{
-		ZoneScopedN("RhiApplication::draw::waitPresent");
-
-		executor.join(std::move(drawFuture));
-	}
 
 	{
 		ZoneScopedN("~RhiApplication()::waitGPU");
@@ -1369,13 +1362,6 @@ bool RhiApplication::tick()
 
 		executor.call(mainCall);
 	}
-
-	const auto& surfaceCapabilities = rhi.instance->getSwapchainInfo(
-		rhi.device->getPhysicalDevice(),
-		rhi.mainWindow->getSurface()).capabilities;
-
-	Future<void> prevDrawFuture;
-	while (rhi.drawFutures.try_dequeue(prevDrawFuture)) {}
 	
 	return !g_requestExit;
 }

@@ -33,6 +33,5 @@ struct Rhi
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>[]> objects;
 
-	ConcurrentQueue<Future<void>> drawFutures;
 	ConcurrentQueue<TaskHandle> mainCalls;
 };
