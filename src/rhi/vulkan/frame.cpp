@@ -53,26 +53,26 @@ Frame<Vk>::Frame(
 		*getDevice(),
 		&semaphoreInfo,
 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
-		&myRenderCompleteSemaphore));
+		&myRenderSemaphore));
 	VK_CHECK(vkCreateSemaphore(
 		*getDevice(),
 		&semaphoreInfo,
 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
-		&myNewImageAcquiredSemaphore));
+		&myPresentSemaphore));
 
 #if GRAPHICS_VALIDATION_ENABLED
 	{
 		device->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SEMAPHORE,
-			reinterpret_cast<uint64_t>(myRenderCompleteSemaphore),
-			std::format("{0}_RenderCompleteSemaphore", getName()));
+			reinterpret_cast<uint64_t>(myRenderSemaphore),
+			std::format("{0}_RenderSemaphore", getName()));
 
 		device->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_SEMAPHORE,
-			reinterpret_cast<uint64_t>(myNewImageAcquiredSemaphore),
-			std::format("{0}_NewImageAcquiredSemaphore",getName()));
+			reinterpret_cast<uint64_t>(myPresentSemaphore),
+			std::format("{0}_PresentSemaphore",getName()));
 	}
 #endif
 }
@@ -80,10 +80,10 @@ Frame<Vk>::Frame(
 template <>
 Frame<Vk>::Frame(Frame<Vk>&& other) noexcept
 	: BaseType(std::forward<Frame<Vk>>(other))
-	, myRenderCompleteSemaphore(std::exchange(other.myRenderCompleteSemaphore, {}))
-	, myNewImageAcquiredSemaphore(std::exchange(other.myNewImageAcquiredSemaphore, {}))
+	, myRenderSemaphore(std::exchange(other.myRenderSemaphore, {}))
+	, myPresentSemaphore(std::exchange(other.myPresentSemaphore, {}))
 	, myImageLayout(std::exchange(other.myImageLayout, {}))
-	, myLastPresentSyncInfo(std::exchange(other.myLastPresentSyncInfo, {}))
+	, myPresentSyncInfo(std::exchange(other.myPresentSyncInfo, {}))
 {}
 
 template <>
@@ -95,11 +95,11 @@ Frame<Vk>::~Frame()
 	{
 		vkDestroySemaphore(
 			*getDevice(),
-			myRenderCompleteSemaphore,
+			myRenderSemaphore,
 			&getDevice()->getInstance()->getHostAllocationCallbacks());
 		vkDestroySemaphore(
 			*getDevice(),
-			myNewImageAcquiredSemaphore,
+			myPresentSemaphore,
 			&getDevice()->getInstance()->getHostAllocationCallbacks());
 	}
 }
@@ -108,10 +108,10 @@ template <>
 Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
 {
 	BaseType::operator=(std::forward<Frame<Vk>>(other));
-	myRenderCompleteSemaphore = std::exchange(other.myRenderCompleteSemaphore, {});
-	myNewImageAcquiredSemaphore = std::exchange(other.myNewImageAcquiredSemaphore, {});
+	myRenderSemaphore = std::exchange(other.myRenderSemaphore, {});
+	myPresentSemaphore = std::exchange(other.myPresentSemaphore, {});
 	myImageLayout = std::exchange(other.myImageLayout, {});
-	myLastPresentSyncInfo = std::exchange(other.myLastPresentSyncInfo, {});
+	myPresentSyncInfo = std::exchange(other.myPresentSyncInfo, {});
 	return *this;
 }
 
@@ -119,10 +119,10 @@ template <>
 void Frame<Vk>::swap(Frame& rhs) noexcept
 {
 	BaseType::swap(rhs);
-	std::swap(myRenderCompleteSemaphore, rhs.myRenderCompleteSemaphore);
-	std::swap(myNewImageAcquiredSemaphore, rhs.myNewImageAcquiredSemaphore);
+	std::swap(myRenderSemaphore, rhs.myRenderSemaphore);
+	std::swap(myPresentSemaphore, rhs.myPresentSemaphore);
 	std::swap(myImageLayout, rhs.myImageLayout);
-	std::swap(myLastPresentSyncInfo, rhs.myLastPresentSyncInfo);
+	std::swap(myPresentSyncInfo, rhs.myPresentSyncInfo);
 }
 
 template <>
@@ -179,11 +179,11 @@ void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<
 template <>
 QueuePresentInfo<Vk> Frame<Vk>::preparePresent(QueueHostSyncInfo<Vk>&& hostSyncInfo)
 {
-	myLastPresentSyncInfo = std::forward<QueueHostSyncInfo<Vk>>(hostSyncInfo);
+	myPresentSyncInfo = std::forward<QueueHostSyncInfo<Vk>>(hostSyncInfo);
 
 	return QueuePresentInfo<Vk>{
-		{myLastPresentSyncInfo},
-		{myRenderCompleteSemaphore},
+		{myPresentSyncInfo},
+		{myRenderSemaphore},
 		{},
 		{getDesc().index},
 		{}};

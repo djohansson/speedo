@@ -36,15 +36,15 @@ public:
 	virtual void transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
 	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
-	const auto& getRenderCompleteSemaphore() const noexcept { return myRenderCompleteSemaphore; }
-	const auto& getNewImageAcquiredSemaphore() const noexcept { return myNewImageAcquiredSemaphore; }
-	const auto& getLastPresentSyncInfo() const noexcept { return myLastPresentSyncInfo; }
+	const auto& getRenderSemaphore() const noexcept { return myRenderSemaphore; }
+	const auto& getPresentSemaphore() const noexcept { return myPresentSemaphore; }
+	const auto& getPresentSyncInfo() const noexcept { return myPresentSyncInfo; }
 
 	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& hostSyncInfo);
 
 private:
-	SemaphoreHandle<G> myRenderCompleteSemaphore{};
-	SemaphoreHandle<G> myNewImageAcquiredSemaphore{};
+	SemaphoreHandle<G> myRenderSemaphore{};
+	SemaphoreHandle<G> myPresentSemaphore{};
 	ImageLayout<G> myImageLayout{};
-	QueueHostSyncInfo<G> myLastPresentSyncInfo{};
+	QueueHostSyncInfo<G> myPresentSyncInfo{};
 };

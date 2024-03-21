@@ -96,6 +96,8 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 {
 	ZoneScoped;
 
+	auto& device = *getDevice();
+
 	static constexpr std::string_view flipFrameStr = "";
 
 	myLastFrameIndex = myFrameIndex;
@@ -103,10 +105,10 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 	const auto& lastFrame = myFrames[myLastFrameIndex];
 
 	auto flipResult = checkFlipOrPresentResult(vkAcquireNextImageKHR(
-		*getDevice(),
+		device,
 		mySwapchain,
 		UINT64_MAX,
-		lastFrame.getNewImageAcquiredSemaphore(),
+		lastFrame.getPresentSemaphore(),
 		VK_NULL_HANDLE,
 		&myFrameIndex));
 
@@ -120,7 +122,7 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 
 	return std::make_tuple(
 		flipResult == VK_SUCCESS,
-		frame.getLastPresentSyncInfo());
+		frame.getPresentSyncInfo());
 }
 
 template <>
