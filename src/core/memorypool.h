@@ -14,8 +14,8 @@ struct MemoryPoolHandle
 	static constexpr uint32_t InvalidIndex = ~0u;
 	uint32_t value = InvalidIndex;
 
-	bool operator!() const { return value == InvalidIndex; }
-	auto operator<=>(const MemoryPoolHandle&) const = default;
+	constexpr bool operator!() const noexcept { return value == InvalidIndex; }
+	constexpr auto operator<=>(const MemoryPoolHandle&) const noexcept = default;
 };
 
 template <typename T, uint32_t Capacity>
@@ -27,7 +27,7 @@ public:
 	MemoryPoolHandle allocate() noexcept;
 	void free(MemoryPoolHandle handle) noexcept;
 
-	T* getPointer(MemoryPoolHandle handle) noexcept { return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]); }
+	constexpr T* getPointer(MemoryPoolHandle handle) noexcept { return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]); }
 
 private:
 	enum class State : uint32_t
@@ -41,7 +41,7 @@ private:
 		State state : 1;
 		uint32_t index : 31;
 
-		bool operator<(const Entry& other) const { return state < other.state; }
+		bool operator<(const Entry& other) const noexcept { return state < other.state; }
 	};
 
 	alignas(T) std::array<std::byte, Capacity * sizeof(T)> myPool;
