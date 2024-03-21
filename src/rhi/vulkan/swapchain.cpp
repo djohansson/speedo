@@ -98,6 +98,8 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 
 	static constexpr std::string_view flipFrameStr = "";
 
+	myLastFrameIndex = myFrameIndex;
+
 	const auto& lastFrame = myFrames[myLastFrameIndex];
 
 	auto flipResult = checkFlipOrPresentResult(vkAcquireNextImageKHR(
@@ -108,6 +110,8 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 		VK_NULL_HANDLE,
 		&myFrameIndex));
 
+	const auto& frame = myFrames[myFrameIndex];
+
 	auto zoneNameStr = std::format(
 		"Swapchain::flip frame:{0}",
 		flipResult == VK_SUCCESS ? myFrameIndex : ~0u);
@@ -116,15 +120,13 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 
 	return std::make_tuple(
 		flipResult == VK_SUCCESS,
-		lastFrame.getLastPresentSyncInfo());
+		frame.getLastPresentSyncInfo());
 }
 
 template <>
 QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(QueueHostSyncInfo<Vk>&& syncInfo)
 {
 	ZoneScopedN("Swapchain::preparePresent");
-
-	myLastFrameIndex = myFrameIndex;
 
 	auto presentInfo = myFrames[myFrameIndex].preparePresent(std::forward<QueueHostSyncInfo<Vk>>(syncInfo));
 	presentInfo.swapchains.push_back(mySwapchain);
