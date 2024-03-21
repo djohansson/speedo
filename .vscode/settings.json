@@ -118,6 +118,7 @@
 		"cwctype": "cpp",
 		"memory_resource": "cpp",
 		"codecvt": "cpp",
-		"csignal": "cpp"
+		"csignal": "cpp",
+		"__memory": "cpp"
 	}
 }
