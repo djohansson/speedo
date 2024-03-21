@@ -3,11 +3,7 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<Re
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	auto retval = processReadyQueue(std::forward<Future<ReturnType>>(future));
-	
-	purgeDeletionQueue();
-
-	return retval;
+	return processReadyQueue(std::forward<Future<ReturnType>>(future));
 }
 
 template <typename ReturnType>
@@ -20,7 +16,10 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::processReadyQu
 
 	TaskHandle handle;
 	while (!future.is_ready() && myReadyQueue.try_dequeue(handle))
+	{
 		internalCall(handle);
+		purgeDeletionQueue();
+	}
 
 	return std::make_optional(future.get());
 }

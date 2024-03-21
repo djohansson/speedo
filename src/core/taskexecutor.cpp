@@ -179,7 +179,10 @@ void TaskExecutor::processReadyQueue()
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
+	{
 		internalCall(handle);
+		purgeDeletionQueue();
+	}
 }
 
 void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
@@ -188,7 +191,10 @@ void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, Consumer
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
+	{
 		internalCall(readyProducerToken, handle);
+		purgeDeletionQueue();
+	}
 }
 
 void TaskExecutor::purgeDeletionQueue()
@@ -210,8 +216,6 @@ void TaskExecutor::threadMain(uint32_t threadId)
 		while (!myStopSource.load(std::memory_order_acquire))
 		{
 			processReadyQueue(readyProducerToken, readyConsumerToken);
-			purgeDeletionQueue();
-
 			mySignal.acquire();
 		}
 	}
