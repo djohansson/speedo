@@ -321,7 +321,7 @@ void Pipeline<Vk>::internalPrepareDescriptorSets()
 					getDevice(),
 					setLayout,
 					DescriptorSetArrayCreateDesc<Vk>{myDescriptorPool}),
-				~0,
+				0,
 				0));
 		}
 	}
