@@ -27,7 +27,7 @@ public:
 	MemoryPoolHandle allocate() noexcept;
 	void free(MemoryPoolHandle handle) noexcept;
 
-	constexpr T* getPointer(MemoryPoolHandle handle) noexcept { return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]); }
+	constexpr T* getPointer(MemoryPoolHandle handle) noexcept;
 
 private:
 	enum class State : uint32_t

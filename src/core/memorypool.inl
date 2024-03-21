@@ -23,6 +23,9 @@ MemoryPoolHandle MemoryPool<T, Capacity>::allocate() noexcept
 	assert(myAvailable > 0);
 	assert(myAvailable <= Capacity);
 
+	if (myAvailable == 0 || myAvailable > Capacity)
+		return MemoryPoolHandle{};
+
 	MemoryPoolHandle handle{myEntries[0].index};
 
 	std::pop_heap(myEntries.begin(), myEntries.end());
@@ -41,9 +44,10 @@ void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
 {
 	std::unique_lock lock(myMutex);
 
+	assert(!!handle);
 	assert(myAvailable < Capacity);
 
-	if (myAvailable >= Capacity)
+	if (!handle || myAvailable >= Capacity)
 		return;
 
 	myEntries[Capacity - 1] = {State::Free, handle.value};
@@ -53,4 +57,15 @@ void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
 	std::push_heap(myEntries.begin(), myEntries.end());
 
 	assert(std::is_heap(myEntries.begin(), myEntries.end() - 1));
+}
+
+template <typename T, uint32_t Capacity>
+constexpr T* MemoryPool<T, Capacity>::getPointer(MemoryPoolHandle handle) noexcept
+{
+	assert(!!handle);
+
+	if (!handle)
+		return nullptr;
+
+	return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]);
 }
