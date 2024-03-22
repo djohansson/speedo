@@ -25,6 +25,7 @@
 
 #include <array>
 #include <iostream>
+#include <print>
 
 uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 {
@@ -905,14 +906,19 @@ VkResult checkFlipOrPresentResult(VkResult result)
 	{
 	case VK_SUCCESS:
 		break;
-	case VK_SUBOPTIMAL_KHR:
-		std::clog << "warning: flip/present returned VK_SUBOPTIMAL_KHR\n";
-		break;
-	case VK_ERROR_OUT_OF_DATE_KHR:
-		std::clog << "warning: flip/present returned VK_ERROR_OUT_OF_DATE_KHR\n";
-		break;
+	case VK_TIMEOUT:
 	case VK_NOT_READY:
-		std::clog << "warning: flip/present returned VK_NOT_READY\n";
+	case VK_SUBOPTIMAL_KHR:
+		std::println("warning: flip/present returned {}", string_VkResult(result));
+		break;
+	case VK_ERROR_OUT_OF_HOST_MEMORY:
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+	case VK_ERROR_DEVICE_LOST:
+	case VK_ERROR_OUT_OF_DATE_KHR:
+	case VK_ERROR_SURFACE_LOST_KHR:
+	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
+		std::println("error: flip/present returned {}", string_VkResult(result));
+		__debugbreak();
 		break;
 	default:
 		throw std::runtime_error("Invalid error code.");
