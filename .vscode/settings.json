@@ -119,6 +119,7 @@
 		"memory_resource": "cpp",
 		"codecvt": "cpp",
 		"csignal": "cpp",
-		"__memory": "cpp"
+		"__memory": "cpp",
+		"print": "cpp"
 	}
 }
