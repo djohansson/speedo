@@ -57,14 +57,17 @@ Buffer<Vk>::Buffer(
 			  std::get<0>(descAndInitialData).memoryFlags,
 			  "todo_insert_proper_name"))
 {
-	queueContext.addCommandsFinishedCallback(
+	queueContext.addTimelineCallback(
+	{
+		1 + device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
 				allocator,
 				std::get<1>(descAndInitialData),
 				std::get<2>(descAndInitialData));
-		});
+		}
+	});
 }
 
 template <>
@@ -89,11 +92,7 @@ template <>
 Buffer<Vk>::~Buffer()
 {
 	if (BufferHandle<Vk> buffer = *this)
-		getDevice()->addTimelineCallback(
-			[allocator = getDevice()->getAllocator(),
-			 buffer,
-			 bufferMemory = getBufferMemory()](uint64_t)
-			{ vmaDestroyBuffer(allocator, buffer, bufferMemory); });
+		vmaDestroyBuffer(getDevice()->getAllocator(), buffer, getBufferMemory());
 }
 
 template <>
@@ -160,9 +159,7 @@ template <>
 BufferView<Vk>::~BufferView()
 {
 	if (BufferViewHandle<Vk> view = *this)
-		getDevice()->addTimelineCallback(
-			[device = static_cast<DeviceHandle<Vk>>(*getDevice()), callbacks = &getDevice()->getInstance()->getHostAllocationCallbacks(), view](uint64_t)
-			{ vkDestroyBufferView(device, view, callbacks); });
+		vkDestroyBufferView(*getDevice(), view, &getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

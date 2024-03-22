@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fence.h"
 #include "queue.h"
 #include "rendertarget.h"
 #include "types.h"
@@ -21,7 +22,7 @@ public:
 	constexpr Frame() noexcept = default;
 	Frame(const std::shared_ptr<Device<G>>& device, FrameCreateDesc<G>&& desc);
 	Frame(Frame<G>&& other) noexcept;
-	virtual ~Frame();
+	~Frame();
 
 	Frame& operator=(Frame&& other) noexcept;
 
@@ -36,15 +37,14 @@ public:
 	virtual void transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
 	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
-	const auto& getRenderSemaphore() const noexcept { return myRenderSemaphore; }
-	const auto& getPresentSemaphore() const noexcept { return myPresentSemaphore; }
 	const auto& getPresentSyncInfo() const noexcept { return myPresentSyncInfo; }
 
 	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& hostSyncInfo);
 
+	auto& fence() noexcept { return myFence; }
+
 private:
-	SemaphoreHandle<G> myRenderSemaphore{};
-	SemaphoreHandle<G> myPresentSemaphore{};
+	Fence<G> myFence{};
 	ImageLayout<G> myImageLayout{};
 	QueueHostSyncInfo<G> myPresentSyncInfo{};
 };

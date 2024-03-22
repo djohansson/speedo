@@ -92,7 +92,7 @@ void Swapchain<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLay
 }
 
 template <>
-std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
+std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::flip()
 {
 	ZoneScoped;
 
@@ -100,19 +100,21 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 
 	static constexpr std::string_view flipFrameStr = "";
 
-	myLastFrameIndex = myFrameIndex;
-
-	const auto& lastFrame = myFrames[myLastFrameIndex];
+	auto lastFrameIndex = myFrameIndex;
+	
+	Fence<Vk> fence(getDevice(), FenceCreateDesc<Vk>{});
 
 	auto flipResult = checkFlipOrPresentResult(vkAcquireNextImageKHR(
 		device,
 		mySwapchain,
 		UINT64_MAX,
-		lastFrame.getPresentSemaphore(),
 		VK_NULL_HANDLE,
+		fence,
 		&myFrameIndex));
 
-	const auto& frame = myFrames[myFrameIndex];
+	auto& newFrame = myFrames[myFrameIndex];
+
+	newFrame.fence().swap(fence);
 
 	auto zoneNameStr = std::format(
 		"Swapchain::flip frame:{0}",
@@ -120,9 +122,7 @@ std::pair<bool, QueueHostSyncInfo<Vk>> Swapchain<Vk>::flip()
 
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
-	return std::make_tuple(
-		flipResult == VK_SUCCESS,
-		frame.getPresentSyncInfo());
+	return std::make_tuple(flipResult == VK_SUCCESS, lastFrameIndex, myFrameIndex);
 }
 
 template <>
@@ -142,6 +142,8 @@ void Swapchain<Vk>::internalCreateSwapchain(
 {
 	ZoneScopedN("Swapchain::internalCreateSwapchain");
 
+	auto& device = *getDevice();
+
 	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
 	info.minImageCount = config.imageCount;
@@ -158,25 +160,25 @@ void Swapchain<Vk>::internalCreateSwapchain(
 	info.oldSwapchain = previous;
 
 	VK_CHECK(vkCreateSwapchainKHR(
-		*getDevice(),
+		device,
 		&info,
-		&getDevice()->getInstance()->getHostAllocationCallbacks(),
+		&device.getInstance()->getHostAllocationCallbacks(),
 		&mySwapchain));
 
 	if (previous)
 	{
 #if GRAPHICS_VALIDATION_ENABLED
-		getDevice()->eraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous));
+		device.eraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous));
 #endif
 
 		vkDestroySwapchainKHR(
-			*getDevice(),
+			device,
 			previous,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+			&device.getInstance()->getHostAllocationCallbacks());
 	}
 
 #if GRAPHICS_VALIDATION_ENABLED
-	getDevice()->addOwnedObjectHandle(
+	device.addOwnedObjectHandle(
 		getUid(),
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
 		reinterpret_cast<uint64_t>(mySwapchain),
@@ -189,13 +191,13 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 	uint32_t imageCount;
 	VK_CHECK(vkGetSwapchainImagesKHR(
-		*getDevice(), mySwapchain, &imageCount, nullptr));
+		device, mySwapchain, &imageCount, nullptr));
 
 	assert(imageCount == frameCount);
 
 	std::vector<ImageHandle<Vk>> colorImages(imageCount);
 	VK_CHECK(vkGetSwapchainImagesKHR(
-		*getDevice(), mySwapchain, &imageCount, colorImages.data()));
+		device, mySwapchain, &imageCount, colorImages.data()));
 
 	myFrames.clear();
 	myFrames.reserve(frameCount);
@@ -210,7 +212,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 				{colorImages[frameIt]}},
 				frameIt}));
 
-	myLastFrameIndex = frameCount - 1;
+	myFrameIndex = frameCount - 1;
 }
 
 template <>
@@ -220,7 +222,6 @@ Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
 	, mySwapchain(std::exchange(other.mySwapchain, {}))
 	, myFrames(std::exchange(other.myFrames, {}))
 	, myFrameIndex(std::exchange(other.myFrameIndex, 0))
-	, myLastFrameIndex(std::exchange(other.myLastFrameIndex, 0))
 {}
 
 template <>
@@ -264,7 +265,6 @@ Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 	mySwapchain = std::exchange(other.mySwapchain, {});
 	myFrames = std::exchange(other.myFrames, {});
 	myFrameIndex = std::exchange(other.myFrameIndex, 0);
-	myLastFrameIndex = std::exchange(other.myLastFrameIndex, 0);
 	return *this;
 }
 
@@ -276,5 +276,4 @@ void Swapchain<Vk>::swap(Swapchain& rhs) noexcept
 	std::swap(mySwapchain, rhs.mySwapchain);
 	std::swap(myFrames, rhs.myFrames);
 	std::swap(myFrameIndex, rhs.myFrameIndex);
-	std::swap(myLastFrameIndex, rhs.myLastFrameIndex);
 }

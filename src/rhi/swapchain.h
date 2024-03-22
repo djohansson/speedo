@@ -73,21 +73,10 @@ public:
 	auto getRenderPass() { return std::get<0>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
 	auto getFramebuffer() { return std::get<1>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
 	
-	const auto& getLastPresentSyncInfo() const noexcept { return myFrames[myLastFrameIndex].getLastPresentSyncInfo(); }
-
-	// todo: potentially remove this if the drivers will allow us to completely rely on the timeline in the future...
-	std::tuple<SemaphoreHandle<G>, SemaphoreHandle<G>> getFrameSyncSemaphores() const noexcept
-	{
-		const auto& lastFrame = myFrames[myLastFrameIndex];
-		const auto& frame = myFrames[myFrameIndex];
-
-		return std::make_tuple(
-			lastFrame.getNewImageAcquiredSemaphore(), frame.getRenderCompleteSemaphore());
-	}
-	//
-
-	std::pair<bool, QueueHostSyncInfo<G>> flip();
+	std::tuple<bool, uint32_t, uint32_t> flip();
 	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& syncInfo);
+
+	const auto& getFrame(uint16_t index) const noexcept { return myFrames.at(index); }
 
 protected:
 	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }
@@ -101,5 +90,4 @@ private:
 	SwapchainHandle<G> mySwapchain{};
 	std::vector<Frame<G>> myFrames;
 	uint32_t myFrameIndex = 0;
-	uint32_t myLastFrameIndex = 0;
 };

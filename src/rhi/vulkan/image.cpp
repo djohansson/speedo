@@ -425,14 +425,17 @@ Image<Vk>::Image(
 				  std::get<0>(descAndInitialData)),
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
-	queueContext.addCommandsFinishedCallback(
+	queueContext.addTimelineCallback(
+	{
+		1 + device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
 				allocator,
 				std::get<1>(descAndInitialData),
 				std::get<2>(descAndInitialData));
-		});
+		}
+	});
 }
 
 template <>
@@ -463,9 +466,7 @@ template <>
 Image<Vk>::~Image()
 {
 	if (ImageHandle<Vk> image = *this)
-		getDevice()->addTimelineCallback(
-			[allocator = getDevice()->getAllocator(), image, imageMemory = getImageMemory()](
-				uint64_t) { vmaDestroyImage(allocator, image, imageMemory); });
+		vmaDestroyImage(getDevice()->getAllocator(), image, getImageMemory());
 }
 
 template <>
@@ -500,9 +501,7 @@ template <>
 ImageView<Vk>::~ImageView()
 {
 	if (ImageViewHandle<Vk> view = *this)
-		getDevice()->addTimelineCallback(
-			[device = static_cast<DeviceHandle<Vk>>(*getDevice()), view, callbacks = &getDevice()->getInstance()->getHostAllocationCallbacks()](uint64_t)
-			{ vkDestroyImageView(device, view, callbacks); });
+		vkDestroyImageView(*getDevice(), view, &getDevice()->getInstance()->getHostAllocationCallbacks());
 }
 
 template <>

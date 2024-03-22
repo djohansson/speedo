@@ -5,6 +5,7 @@
 #include "types.h"
 
 #include <any>
+#include <deque>
 #include <memory>
 //#include <source_location>
 #include <vector>
@@ -23,7 +24,7 @@ template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
 	std::vector<FenceHandle<G>> fences;
-	uint64_t maxTimelineValue = 0ull;
+	uint64_t maxTimelineValue = 0ull; // todo: need to store all semaphores + values
 
 	QueueHostSyncInfo<G>& operator|=(QueueHostSyncInfo<G>&& other);
 	friend QueueHostSyncInfo<G> operator|(QueueHostSyncInfo<G>&& lhs, QueueHostSyncInfo<G>&& rhs);
@@ -174,15 +175,13 @@ public:
 
 	QueueSubmitInfo<G> prepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 
-	// these will be called when the GPU has reached the timeline value of the submission (prepareSubmit).
-	// useful for ensuring that dependencies are respected when releasing resources. do not remove.
-	void addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback);
+	using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
+	void addTimelineCallback(TimelineCallback&& callback);
+	bool processTimelineCallbacks(uint64_t timelineValue);
 
 private:
-	void internalFlushCommandsFinishedCallbacks(uint32_t timelineValue);
-
 	Queue<G> myQueue;
-	std::list<TimelineCallback> myCommandsFinishedCallbacks;
+	std::deque<TimelineCallback> myTimelineCallbacks;
 };
 
 #if PROFILING_ENABLED

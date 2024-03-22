@@ -1,5 +1,5 @@
 #include "../queue.h"
-
+#include "../fence.h"
 #include "utils.h"
 
 #include <tracy/TracyC.h>
@@ -184,11 +184,11 @@ QueueHostSyncInfo<Vk> Queue<Vk>::submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueHostSyncInfo<Vk> syncInfo{{VK_NULL_HANDLE}, maxTimelineValue};
+	QueueHostSyncInfo<Vk> syncInfo{{}, maxTimelineValue};
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
-		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, syncInfo.fences.back()));
+		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, VK_NULL_HANDLE));
 	}
 
 	myPendingSubmits.clear();
@@ -209,6 +209,8 @@ QueuePresentInfo<Vk> Queue<Vk>::present()
 {
 	ZoneScopedN("Queue::present");
 
+	Fence<Vk>::wait(getDevice(), myPendingPresent.fences);
+
 	PresentInfo<Vk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
@@ -223,22 +225,31 @@ QueuePresentInfo<Vk> Queue<Vk>::present()
 }
 
 template <>
-void QueueContext<Vk>::addCommandsFinishedCallback(std::function<void(uint64_t)>&& callback)
+void QueueContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
 {
-	myCommandsFinishedCallbacks.emplace_back(
-		std::make_tuple(0, std::forward<std::function<void(uint64_t)>>(callback)));
+	ZoneScopedN("QueueContext::addTimelineCallback");
+
+	myTimelineCallbacks.emplace_back(std::forward<TimelineCallback>(callback));
 }
 
 template <>
-void QueueContext<Vk>::internalFlushCommandsFinishedCallbacks(uint32_t timelineValue)
+bool QueueContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
 {
-	while (!myCommandsFinishedCallbacks.empty())
+	ZoneScopedN("QueueContext::processTimelineCallbacks");
+
+	while (!myTimelineCallbacks.empty())
 	{
-		auto& callback = myCommandsFinishedCallbacks.front();
-		std::get<0>(callback) = timelineValue;
-		getDevice()->addTimelineCallback(std::move(callback));
-		myCommandsFinishedCallbacks.pop_front();
+		const auto& [commandBufferTimelineValue, callback] = myTimelineCallbacks.front();
+
+		if (commandBufferTimelineValue > timelineValue)
+			return false;
+
+		callback(commandBufferTimelineValue);
+
+		myTimelineCallbacks.pop_front();
 	}
+
+	return true;
 }
 
 template <>
@@ -269,8 +280,7 @@ QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueDeviceSyncInfo<Vk>&& sy
 	submitInfo.timelineValue = *maxSignalValue;
 
 	internalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
-	internalFlushCommandsFinishedCallbacks(*maxSignalValue);
-
+	
 	return submitInfo;
 }
 
@@ -289,7 +299,6 @@ uint64_t QueueContext<Vk>::execute(uint32_t index)
 	auto timelineValue = getDevice()->timelineValue().load(std::memory_order_relaxed);
 
 	internalEnqueueSubmitted(std::move(pendingCommands), index, timelineValue);
-	internalFlushCommandsFinishedCallbacks(timelineValue);
 
 	return timelineValue;
 }
@@ -326,7 +335,6 @@ template <>
 QueueContext<Vk>::QueueContext(QueueContext&& other) noexcept
 	: CommandPool(std::forward<QueueContext>(other))
 	, myQueue(std::exchange(other.myQueue, {}))
-	, myCommandsFinishedCallbacks(std::exchange(other.myCommandsFinishedCallbacks, {}))
 {}
 
 template <>
@@ -340,17 +348,19 @@ QueueContext<Vk>::~QueueContext()
 		{
 			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
 
-			getDevice()->wait(cmdTimelineValue);
-			getDevice()->processTimelineCallbacks(cmdTimelineValue);
+			processTimelineCallbacks(cmdTimelineValue);
 		}
 	}
+
+	assert(myTimelineCallbacks.empty());
 }
 
 template <>
 QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext&& other) noexcept
 {
 	CommandPool::operator=(std::forward<QueueContext>(other));
-	myCommandsFinishedCallbacks = std::exchange(other.myCommandsFinishedCallbacks, {});
+	myQueue = std::exchange(other.myQueue, {});
+	myTimelineCallbacks = std::exchange(other.myTimelineCallbacks, {});
 	return *this;
 }
 
@@ -358,5 +368,6 @@ template <>
 void QueueContext<Vk>::swap(QueueContext& other) noexcept
 {
 	CommandPool::swap(other);
-	std::swap(myCommandsFinishedCallbacks, other.myCommandsFinishedCallbacks);
+	std::swap(myQueue, other.myQueue);
+	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 }

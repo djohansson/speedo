@@ -67,7 +67,7 @@ template <GraphicsApi G>
 class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>
 {
 public:
-	virtual ~RenderTarget();
+	~RenderTarget();
 
 	operator auto() { return internalGetValues(); };
 

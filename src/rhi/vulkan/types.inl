@@ -288,6 +288,9 @@ template <GraphicsApi G>
 using SemaphoreHandle = std::conditional_t<G == Vk, VkSemaphore, std::nullptr_t>;
 
 template <GraphicsApi G>
+using SemaphoreType = std::conditional_t<G == Vk, VkSemaphoreType, std::nullptr_t>;
+
+template <GraphicsApi G>
 using ClearValue = std::conditional_t<G == Vk, VkClearValue, std::nullptr_t>;
 
 template <GraphicsApi G>

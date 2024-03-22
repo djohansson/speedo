@@ -7,12 +7,12 @@
 #include "pipeline.h"
 #include "queue.h"
 #include "renderimageset.h"
+#include "semaphore.h"
 #include "shaders/shadertypes.h"
 #include "types.h"
 #include "window.h"
 #include "utils.h"
 
-#include <core/circularcontainer.h>
 #include <core/utils.h>
 
 template <GraphicsApi G>
@@ -24,7 +24,7 @@ struct Rhi
 	std::unique_ptr<Window<G>> mainWindow;
 	std::unique_ptr<Pipeline<G>> pipeline;
 
-	UnorderedMap<QueueContextType, CircularContainer<QueueContext<G>>> queueContexts;
+	UnorderedMap<QueueContextType, std::vector<QueueContext<G>>> queueContexts;
 
 	//std::unique_ptr<ResourceContext<G>> resources;
 
@@ -34,4 +34,6 @@ struct Rhi
 	std::unique_ptr<Buffer<G>[]> objects;
 
 	ConcurrentQueue<TaskHandle> mainCalls;
+
+	std::unique_ptr<Semaphore<G>> timelineSemaphore;
 };

@@ -797,8 +797,8 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 
 		setRefCount++;
 
-		getDevice()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t)
-												{ (*refCountPtr)--; });
+		// getDevice()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t)
+		// 										{ (*refCountPtr)--; });
 	}
 	else
 	{
@@ -905,7 +905,5 @@ Pipeline<Vk>::~Pipeline()
 	myDescriptorMap.clear();
 
 	if (myDescriptorPool)
-		getDevice()->addTimelineCallback(
-			[device = static_cast<DeviceHandle<Vk>>(*getDevice()), pool = myDescriptorPool, callbacks = &getDevice()->getInstance()->getHostAllocationCallbacks()](uint64_t)
-			{ vkDestroyDescriptorPool(device, pool, callbacks); });
+		vkDestroyDescriptorPool(*getDevice(), myDescriptorPool, &getDevice()->getInstance()->getHostAllocationCallbacks());
 }

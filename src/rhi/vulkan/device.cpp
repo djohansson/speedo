@@ -22,89 +22,11 @@ static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT{};
 }
 
 template <>
-uint64_t Device<Vk>::getTimelineSemaphoreValue() const
-{
-	uint64_t value;
-	VK_CHECK(vkGetSemaphoreCounterValue(myDevice, myTimelineSemaphore, &value));
-
-	return value;
-}
-
-template <>
-void Device<Vk>::wait(std::span<FenceHandle<Vk>> fences) const
-{
-	ZoneScopedN("Device::wait");
-
-	VK_CHECK(vkWaitForFences(myDevice, fences.size(), fences.data(), VK_TRUE, UINT64_MAX));
-}
-
-template <>
-void Device<Vk>::wait(uint64_t timelineValue) const
-{
-	ZoneScopedN("Device::wait");
-
-	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-	waitInfo.flags = {};
-	waitInfo.semaphoreCount = 1;
-	waitInfo.pSemaphores = &myTimelineSemaphore;
-	waitInfo.pValues = &timelineValue;
-
-	VK_CHECK(vkWaitSemaphores(myDevice, &waitInfo, UINT64_MAX));
-}
-
-template <>
 void Device<Vk>::waitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");
 
 	VK_CHECK(vkDeviceWaitIdle(myDevice));
-}
-
-template <>
-uint64_t Device<Vk>::addTimelineCallback(std::function<void(uint64_t)>&& callback)
-{
-	ZoneScopedN("Device::addTimelineCallback");
-
-	auto timelineValue = myTimelineValue.load(std::memory_order_relaxed);
-
-	myTimelineCallbacks.enqueue(
-		std::make_tuple(timelineValue, std::forward<std::function<void(uint64_t)>>(callback)));
-
-	return timelineValue;
-}
-
-template <>
-uint64_t Device<Vk>::addTimelineCallback(TimelineCallback&& callback)
-{
-	ZoneScopedN("Device::addTimelineCallback");
-
-	auto timelineValue = std::get<0>(callback);
-
-	myTimelineCallbacks.enqueue(std::forward<TimelineCallback>(callback));
-
-	return timelineValue;
-}
-
-template <>
-bool Device<Vk>::processTimelineCallbacks(uint64_t timelineValue)
-{
-	ZoneScopedN("Device::processTimelineCallbacks");
-
-	TimelineCallback callbackTuple;
-	while (myTimelineCallbacks.try_dequeue(callbackTuple))
-	{
-		const auto& [commandBufferTimelineValue, callback] = callbackTuple;
-
-		if (commandBufferTimelineValue > timelineValue)
-		{
-			myTimelineCallbacks.enqueue(std::move(callbackTuple));
-			return false;
-		}
-
-		callback(commandBufferTimelineValue);
-	}
-
-	return true;
 }
 
 #if GRAPHICS_VALIDATION_ENABLED
@@ -421,22 +343,6 @@ Device<Vk>::Device(
 
 		return allocator;
 	}();
-
-	VkSemaphoreTypeCreateInfo timelineCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-	timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-	timelineCreateInfo.initialValue = 0ull;
-
-	VkSemaphoreCreateInfo semaphoreCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-	semaphoreCreateInfo.pNext = &timelineCreateInfo;
-	semaphoreCreateInfo.flags = {};
-
-	VK_CHECK(vkCreateSemaphore(myDevice, &semaphoreCreateInfo, &myInstance->getHostAllocationCallbacks(), &myTimelineSemaphore));
-
-	// addOwnedObjectHandle(
-	//     getUid(),
-	//     VK_OBJECT_TYPE_SEMAPHORE,
-	//     reinterpret_cast<uint64_t>(myTimelineSemaphore),
-	//     "Device_TimelineSemaphore");
 }
 
 template <>
@@ -444,10 +350,7 @@ Device<Vk>::~Device()
 {
 	ZoneScopedN("~Device()");
 
-	// it is the applications responsibility to wait for all queues complete gpu execution before destroying the Device.
-	processTimelineCallbacks(~0ull); // call all timline callbacks
-
-	vkDestroySemaphore(myDevice, myTimelineSemaphore, &myInstance->getHostAllocationCallbacks());
+	// it is the applications responsibility to wait and destroy all queues complete gpu execution before destroying the Device.
 
 #if PROFILING_ENABLED
 	{

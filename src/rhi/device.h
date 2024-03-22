@@ -38,8 +38,6 @@ struct QueueFamilyDesc
 	uint32_t flags = 0ul;
 };
 
-using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
-
 template <GraphicsApi G>
 class Device final : public Noncopyable, public Nonmovable
 {
@@ -66,20 +64,9 @@ public:
 
 	auto getAllocator() const noexcept { return myAllocator; }
 
-	const auto& getTimelineSemaphore() const noexcept { return myTimelineSemaphore; }
-	uint64_t getTimelineSemaphoreValue() const;
-
 	auto& timelineValue() { return myTimelineValue; }
-	bool hasReached(uint64_t timelineValue) const
-	{
-		return timelineValue <= getTimelineSemaphoreValue();
-	}
-	void wait(std::span<FenceHandle<G>> fences) const;
-	void wait(uint64_t timelineValue) const;
+
 	void waitIdle() const;
-	uint64_t addTimelineCallback(std::function<void(uint64_t)>&& callback);
-	uint64_t addTimelineCallback(TimelineCallback&& callback);
-	bool processTimelineCallbacks(uint64_t timelineValue);
 
 #if GRAPHICS_VALIDATION_ENABLED
 	void addOwnedObjectHandle(
@@ -97,15 +84,9 @@ private:
 	file::Object<DeviceConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
 	DeviceHandle<G> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
-
 	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
-
 	AllocatorHandle<G> myAllocator{};
-
-	SemaphoreHandle<G> myTimelineSemaphore{};
 	std::atomic_uint64_t myTimelineValue;
-
-	ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
 #if GRAPHICS_VALIDATION_ENABLED
 	struct ObjectNameInfo : ObjectInfo<G>

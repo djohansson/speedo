@@ -26,7 +26,7 @@ static std::filesystem::path g_rootPath{};
 static std::filesystem::path g_resourcePath{};
 static std::filesystem::path g_userProfilePath{};
 
-using OpenFileCompletionCallback = std::function<QueueHostSyncInfo<Vk>(Rhi<Vk>&, nfdchar_t*)>;
+using OpenFileCompletionCallback = std::function<void(Rhi<Vk>&, nfdchar_t*)>;
 using OpenFileReturnValue = std::tuple<nfdresult_t, nfdchar_t*, OpenFileCompletionCallback>;
 
 static OpenFileReturnValue openFileDialogue(
@@ -42,12 +42,13 @@ static OpenFileReturnValue openFileDialogue(
 		std::forward<OpenFileCompletionCallback>(onCompletionCallback));
 }
 
-static QueueHostSyncInfo<Vk> loadModel(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
+static void loadModel(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 {
-	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
+	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].front();
 	auto& transferQueue = transferContext.queue();
 
-	//rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
+	Semaphore<Vk> semaphore(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE});
+	uint64_t semaphoreValue = 0ull;
 
 	transferContext.reset();
 
@@ -58,18 +59,26 @@ static QueueHostSyncInfo<Vk> loadModel(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 		{},
 		{},
 		{},
-		{rhi.device->getTimelineSemaphore()},
-		{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+		{semaphore},
+		{++semaphoreValue}}));
 
-	return transferQueue.submit();
+	auto syncInfo = transferQueue.submit();
+	
+	{
+		ZoneScopedN("rhi::draw::waitGPU");
+
+		semaphore.wait(syncInfo.maxTimelineValue);
+		transferContext.processTimelineCallbacks(syncInfo.maxTimelineValue);
+	}
 }
 
-static QueueHostSyncInfo<Vk> loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
+static void loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 {
-	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].fetchAdd();
+	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].front();
 	auto& transferQueue = transferContext.queue();
 
-	//rhi.device->wait(rhi.lastQueueSubmitInfo.maxTimelineValue);
+	Semaphore<Vk> semaphore(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE});
+	uint64_t semaphoreValue = 0ull;
 
 	transferContext.reset();
 
@@ -82,15 +91,17 @@ static QueueHostSyncInfo<Vk> loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 		{},
 		{},
 		{},
-		{rhi.device->getTimelineSemaphore()},
-		{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+		{semaphore},
+		{++semaphoreValue}}));
 
-	auto syncInfo = transferQueue.submit();
+	auto transferSyncInfo = transferQueue.submit();
 
 	///////////
 
-	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
+	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].back();
 	auto& graphicsQueue = graphicsContext.queue();
+
+	graphicsContext.reset();
 
 	auto cmd = graphicsContext.commands();
 
@@ -98,12 +109,21 @@ static QueueHostSyncInfo<Vk> loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 
 	cmd.end();
 
-	graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
-		{{rhi.device->getTimelineSemaphore()},
-			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-			{syncInfo.maxTimelineValue},
-			{rhi.device->getTimelineSemaphore()},
-			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+	graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
+		{semaphore},
+		{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
+		{transferSyncInfo.maxTimelineValue},
+		{semaphore},
+		{++semaphoreValue}}));
+
+	auto graphicsSyncInfo = graphicsQueue.submit();
+	
+	{
+		ZoneScopedN("rhi::draw::waitGPU");
+
+		semaphore.wait(graphicsSyncInfo.maxTimelineValue);
+		transferContext.processTimelineCallbacks(graphicsSyncInfo.maxTimelineValue);
+	}
 
 	rhi.pipeline->setDescriptorData(
 		"g_textures",
@@ -113,8 +133,6 @@ static QueueHostSyncInfo<Vk> loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 			rhi.pipeline->resources().image->getImageLayout()},
 		DescriptorSetCategory_GlobalTextures,
 		1);
-
-	return graphicsQueue.submit();
 }
 
 void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
@@ -641,7 +659,7 @@ static void IMGUIInit(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
-	const auto& graphicsContext = rhi.queueContexts.at(QueueContextType_Graphics).get();
+	const auto& graphicsContext = rhi.queueContexts.at(QueueContextType_Graphics).front();
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
@@ -707,28 +725,34 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
-	auto& pipeline = *rhi.pipeline;
-	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
-	auto& graphicsQueue = graphicsContext.queue();
 	auto& mainWindow = *rhi.mainWindow;
-	auto& renderImageSet = *rhi.renderImageSet;
+	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame();
 
-	auto [flipSuccess, prevPresentSyncInfo] = mainWindow.flip();
+	auto [flipSuccess, lastFrameIndex, newFrameIndex] = mainWindow.flip();
+	const auto& lastFrame = mainWindow.getFrame(lastFrameIndex);
+	const auto& newFrame = mainWindow.getFrame(newFrameIndex);
 
 	if (flipSuccess)
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		if (prevPresentSyncInfo.maxTimelineValue)
+		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].at(newFrameIndex);
+		auto& graphicsQueue = graphicsContext.queue();
+		auto& renderImageSet = *rhi.renderImageSet;
+
+		if (auto timelineValue = newFrame.getPresentSyncInfo().maxTimelineValue; timelineValue)
 		{
 			ZoneScopedN("rhi::draw::waitGPU");
 
-			device.wait(prevPresentSyncInfo.maxTimelineValue);
-			graphicsContext.reset();
+			rhi.timelineSemaphore->wait(timelineValue);
+			//graphicsQueue.waitIdle();
+			graphicsContext.processTimelineCallbacks(timelineValue);
 		}
-
+		
+		graphicsContext.reset();
+		
 		auto cmd = graphicsContext.commands();
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
@@ -789,26 +813,16 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 
 		cmd.end();
 
-		auto [imageAquired, renderComplete] = mainWindow.getFrameSyncSemaphores();
-
 		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
-			{device.getTimelineSemaphore(), imageAquired},
+			{*rhi.timelineSemaphore},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			{prevPresentSyncInfo.maxTimelineValue, 1},
-			{device.getTimelineSemaphore(), renderComplete},
-			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed), 1}
+			{lastFrame.getPresentSyncInfo().maxTimelineValue},
+			{*rhi.timelineSemaphore},
+			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}
 		}));
 
 		graphicsQueue.enqueuePresent(mainWindow.preparePresent(graphicsQueue.submit()));
 		graphicsQueue.present();
-	}
-
-	if (prevPresentSyncInfo.maxTimelineValue)
-	{
-		ZoneScopedN("rhi::draw::processTimelineCallbacks");
-
-		// todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
-		device.processTimelineCallbacks(prevPresentSyncInfo.maxTimelineValue);
 	}
 
 	if (!g_requestExit)
@@ -965,7 +979,7 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 	ZoneScopedN("RhiApplication::createQueueContexts");
 
 	const uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
-	const uint32_t graphicsQueueCount = frameCount;
+	const uint32_t graphicsQueueCount = frameCount + 1;
 	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
 	const uint32_t computeQueueCount = 1u;
 	const uint32_t defaultDrawThreadCount = 2u;
@@ -990,7 +1004,7 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 				auto queueCount = queueFamily.queueCount;
 				auto drawThreadCount = defaultDrawThreadCount;
 
-				auto [it, wasInserted] = queueContexts.emplace(type, CircularContainer<QueueContext<Vk>>());
+				auto [it, wasInserted] = queueContexts.emplace(type, std::vector<QueueContext<Vk>>{});
 
 				if (type == QueueContextType_Graphics)
 				{
@@ -1170,6 +1184,8 @@ void RhiApplication::createDevice(const WindowState& window)
 			{window.width, window.height},
 			{1ul, 1ul}});
 
+	rhi.timelineSemaphore = std::make_unique<Semaphore<Vk>>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE});
+
 	createQueueContexts(rhi);
 	createWindowDependentObjects(rhi);
 
@@ -1211,13 +1227,16 @@ void RhiApplication::createDevice(const WindowState& window)
 	//
 
 	// initialize stuff on graphics queue
+	uint32_t timelineValue = 0;
 	constexpr uint32_t textureId = 1;
 	constexpr uint32_t samplerId = 2;
 	static_assert(textureId < ShaderTypes_GlobalTextureCount);
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].fetchAdd();
+		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].back();
 		auto& graphicsQueue = graphicsContext.queue();
+
+		graphicsContext.reset();
 		
 		auto cmd = graphicsContext.commands();
 
@@ -1261,10 +1280,19 @@ void RhiApplication::createDevice(const WindowState& window)
 			{{},
 			 {},
 			 {},
-			 {rhi.device->getTimelineSemaphore()},
+			 {*rhi.timelineSemaphore},
 			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
 
-		graphicsQueue.submit();
+		timelineValue = graphicsQueue.submit().maxTimelineValue;
+
+		if (timelineValue)
+		{
+			ZoneScopedN("rhi::draw::waitGPU");
+
+			rhi.timelineSemaphore->wait(timelineValue);
+			//graphicsQueue.waitIdle();
+			graphicsContext.processTimelineCallbacks(timelineValue);
+		}
 	}
 
 	auto layoutHandle = rhi.pipeline->createLayout(shaderReflection);
@@ -1374,11 +1402,11 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 
 	auto& rhi = internalRhi<Vk>();
 
-	{
-		ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
+	// {
+	// 	ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
 
-		rhi.device->wait(rhi.mainWindow->getLastPresentSyncInfo().maxTimelineValue);
-	}
+	// 	rhi.timelineSemaphore->wait(rhi.mainWindow->getLastPresentSyncInfo().maxTimelineValue);
+	// }
 
 	auto physicalDevice = rhi.device->getPhysicalDevice();
 	rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.mainWindow->getSurface());
