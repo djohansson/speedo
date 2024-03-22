@@ -61,9 +61,7 @@ protected:
 	const auto& internalExecutor() const noexcept { return *myExecutor; }
 
 private:
-
 	std::string myName;
 	Environment myEnvironment;
 	std::unique_ptr<TaskExecutor> myExecutor{};
-	
 };
