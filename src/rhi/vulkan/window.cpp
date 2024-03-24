@@ -54,7 +54,7 @@ void Window<Vk>::internalUpdateViewBuffer() const
 {
 	ZoneScopedN("Window::internalUpdateViewBuffer");
 
-	auto bufferMemory = myViewBuffers[internalGetFrameIndex()].getBufferMemory();
+	auto bufferMemory = myViewBuffers[getCurrentFrameIndex()].getBufferMemory();
 	void* data;
 	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), bufferMemory, &data));
 
@@ -108,7 +108,7 @@ uint32_t Window<Vk>::internalDrawViews(
 			[&pipeline,
 			 &queue,
 			 &renderPassInfo,
-			 frameIndex = internalGetFrameIndex(),
+			 frameIndex = getCurrentFrameIndex(),
 			 &drawAtomic,
 			 &drawCount,
 			 &desc = myConfig](uint32_t threadIt)

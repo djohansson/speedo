@@ -61,7 +61,7 @@ struct IRenderTarget
 };
 
 template <GraphicsApi G>
-using RenderTargetHandle = std::tuple<RenderPassHandle<G>, FramebufferHandle<G>>;
+using RenderTargetHandle = std::pair<RenderPassHandle<G>, FramebufferHandle<G>>;
 
 template <GraphicsApi G>
 class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>

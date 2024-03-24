@@ -70,19 +70,17 @@ public:
 	virtual void end(CommandBufferHandle<G> cmd) final;
 
 	auto getSurface() const noexcept { return mySurface; }
-	auto getRenderPass() { return std::get<0>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
-	auto getFramebuffer() { return std::get<1>(static_cast<RenderTargetHandle<G>>(myFrames[myFrameIndex])); }
 	
 	std::tuple<bool, uint32_t, uint32_t> flip();
 	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& syncInfo);
 
-	const auto& getFrame(uint16_t index) const noexcept { return myFrames.at(index); }
+	auto& frames() noexcept { return myFrames; }
+	const auto& frames() const noexcept { return myFrames; }
+	
+	auto getCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
 protected:
-	auto internalGetFrameIndex() const noexcept { return myFrameIndex; }
-
-	void
-	internalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);
+	void internalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);
 
 private:
 	RenderTargetCreateDesc<G> myDesc{};
