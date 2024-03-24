@@ -17,52 +17,77 @@ struct UserData
 
 } // namespace queue
 
-//
+template <>
+bool Queue<Vk>::processTimelineCallbacks(uint64_t timelineValue)
+{
+	ZoneScopedN("Queue::processTimelineCallbacks");
+
+	while (!myTimelineCallbacks.empty())
+	{
+		const auto& [commandBufferTimelineValue, callback] = myTimelineCallbacks.front();
+
+		if (commandBufferTimelineValue > timelineValue)
+			return false;
+
+		callback(commandBufferTimelineValue);
+
+		myTimelineCallbacks.pop_front();
+	}
+
+	return true;
+}
 
 template <>
 Queue<Vk>::Queue(
 	const std::shared_ptr<Device<Vk>>& device,
-	std::tuple<QueueCreateDesc<Vk>,
-	QueueHandle<Vk>>&& descAndHandle)
-	: DeviceObject(
-		  device,
-		  {"_Queue"},
-		  1,
-		  VK_OBJECT_TYPE_QUEUE,
-		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
+	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
+	std::tuple<QueueCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
+	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
 	, myDesc(std::forward<QueueCreateDesc<Vk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
 {
+	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_Transfer == (uint32_t)VK_QUEUE_TRANSFER_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_SparseBinding == (uint32_t)VK_QUEUE_SPARSE_BINDING_BIT);
+	static_assert((uint32_t)QueueFamilyFlagBits_VideoDecode == (uint32_t)VK_QUEUE_VIDEO_DECODE_BIT_KHR);
+	static_assert((uint32_t)QueueFamilyFlagBits_VideoEncode == (uint32_t)VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
+
 #if PROFILING_ENABLED
-	if (myDesc.tracingInitCmd)
+	if (device->getPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+	{
 		myUserData = queue::UserData{tracy::CreateVkContext(
 			device->getPhysicalDevice(),
 			*device,
 			myQueue,
-			myDesc.tracingInitCmd,
+			commands(CommandBufferAccessScopeDesc<Vk>(false)),
 			nullptr,
 			nullptr)};
+	}
 #endif
 }
 
 template <>
 Queue<Vk>::Queue(
-	const std::shared_ptr<Device<Vk>>& device, QueueCreateDesc<Vk>&& desc)
+	const std::shared_ptr<Device<Vk>>& device,
+	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
+	QueueCreateDesc<Vk>&& queueDesc)
 	: Queue(
-		  device,
-		  std::make_tuple(
-			  std::forward<QueueCreateDesc<Vk>>(desc),
-			  [&device, &desc]()
-			  {
-				  QueueHandle<Vk> queue;
-				  vkGetDeviceQueue(*device, desc.queueFamilyIndex, desc.queueIndex, &queue);
-				  return queue;
-			  }()))
+		device,
+		std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc),
+		std::make_tuple(
+			std::forward<QueueCreateDesc<Vk>>(queueDesc),
+			[&device, &queueDesc]
+			{
+				QueueHandle<Vk> queue;
+				vkGetDeviceQueue(*device, queueDesc.queueFamilyIndex, queueDesc.queueIndex, &queue);
+				return queue;
+			}()))
 {}
 
 template <>
 Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
-	: DeviceObject(std::forward<Queue<Vk>>(other))
+	: CommandPool(std::forward<CommandPool>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myQueue(std::exchange(other.myQueue, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
@@ -73,41 +98,57 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 template <>
 Queue<Vk>::~Queue()
 {
+	ZoneScopedN("Queue::~Queue()");
+
 #if PROFILING_ENABLED
-	if (myDesc.tracingInitCmd)
-		tracy::DestroyVkContext(std::any_cast<queue::UserData>(&myUserData)->tracyContext);
+	if (auto userData = std::any_cast<queue::UserData>(&myUserData))
+		tracy::DestroyVkContext(userData->tracyContext);
 #endif
+	
+	for (auto& submittedCommandList : internalGetSubmittedCommands())
+	{
+		if (!submittedCommandList.empty())
+		{
+			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
+
+			processTimelineCallbacks(cmdTimelineValue);
+		}
+	}
+
+	assert(myTimelineCallbacks.empty());
 }
 
 template <>
 Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<Queue<Vk>>(other));
+	CommandPool::operator=(std::forward<CommandPool>(other));
 	myDesc = std::exchange(other.myDesc, {});
 	myQueue = std::exchange(other.myQueue, {});
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
 	myScratchMemory = std::exchange(other.myScratchMemory, {});
 	myUserData = std::exchange(other.myUserData, {});
+	myTimelineCallbacks = std::exchange(other.myTimelineCallbacks, {});
 	return *this;
 }
 
 template <>
-void Queue<Vk>::swap(Queue& rhs) noexcept
+void Queue<Vk>::swap(Queue& other) noexcept
 {
-	DeviceObject::swap(rhs);
-	std::swap(myDesc, rhs.myDesc);
-	std::swap(myQueue, rhs.myQueue);
-	std::swap(myPendingSubmits, rhs.myPendingSubmits);
-	std::swap(myScratchMemory, rhs.myScratchMemory);
-	std::swap(myUserData, rhs.myUserData);
+	CommandPool::swap(other);
+	std::swap(myDesc, other.myDesc);
+	std::swap(myQueue, other.myQueue);
+	std::swap(myPendingSubmits, other.myPendingSubmits);
+	std::swap(myScratchMemory, other.myScratchMemory);
+	std::swap(myUserData, other.myUserData);
+	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 }
 
 #if PROFILING_ENABLED
 template <>
 void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
 {
-	if (myDesc.tracingInitCmd)
-		TracyVkCollect(std::any_cast<queue::UserData>(&myUserData)->tracyContext, cmd);
+	if (auto userData = std::any_cast<queue::UserData>(&myUserData))
+		TracyVkCollect(userData->tracyContext, cmd);
 }
 
 template <>
@@ -121,10 +162,10 @@ Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-	if (myDesc.tracingInitCmd)
+	if (auto userData = std::any_cast<queue::UserData>(&myUserData))
 	{
 		return std::make_shared<tracy::VkCtxScope>(
-			std::any_cast<queue::UserData>(&myUserData)->tracyContext,
+			userData->tracyContext,
 			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
 			cmd,
 			true);
@@ -225,37 +266,17 @@ QueuePresentInfo<Vk> Queue<Vk>::present()
 }
 
 template <>
-void QueueContext<Vk>::addTimelineCallback(TimelineCallback&& callback)
+void Queue<Vk>::addTimelineCallback(TimelineCallback&& callback)
 {
-	ZoneScopedN("QueueContext::addTimelineCallback");
+	ZoneScopedN("Queue::addTimelineCallback");
 
 	myTimelineCallbacks.emplace_back(std::forward<TimelineCallback>(callback));
 }
 
 template <>
-bool QueueContext<Vk>::processTimelineCallbacks(uint64_t timelineValue)
+QueueSubmitInfo<Vk> Queue<Vk>::internalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& syncInfo)
 {
-	ZoneScopedN("QueueContext::processTimelineCallbacks");
-
-	while (!myTimelineCallbacks.empty())
-	{
-		const auto& [commandBufferTimelineValue, callback] = myTimelineCallbacks.front();
-
-		if (commandBufferTimelineValue > timelineValue)
-			return false;
-
-		callback(commandBufferTimelineValue);
-
-		myTimelineCallbacks.pop_front();
-	}
-
-	return true;
-}
-
-template <>
-QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueDeviceSyncInfo<Vk>&& syncInfo)
-{
-	ZoneScopedN("QueueContext::prepareSubmit");
+	ZoneScopedN("Queue::prepareSubmit");
 
 	internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
@@ -285,9 +306,9 @@ QueueSubmitInfo<Vk> QueueContext<Vk>::prepareSubmit(QueueDeviceSyncInfo<Vk>&& sy
 }
 
 template <>
-uint64_t QueueContext<Vk>::execute(uint32_t index)
+uint64_t Queue<Vk>::execute(uint32_t index)
 {
-	ZoneScopedN("QueueContext::execute");
+	ZoneScopedN("Queue::execute");
 
 	internalEndCommands(index);
 
@@ -301,73 +322,4 @@ uint64_t QueueContext<Vk>::execute(uint32_t index)
 	internalEnqueueSubmitted(std::move(pendingCommands), index, timelineValue);
 
 	return timelineValue;
-}
-
-template <>
-QueueContext<Vk>::QueueContext(
-	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
-	QueueCreateDesc<Vk>&& queueDesc)
-	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
-	, myQueue(
-		device,
-#if PROFILING_ENABLED
-		[this, &device, &queueDesc]
-		{
-			if (device->getPhysicalDeviceInfo().queueFamilyProperties[queueDesc.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-				queueDesc.tracingInitCmd = commands(CommandBufferAccessScopeDesc<Vk>(false));
-
-			return queueDesc;
-		}())
-#else
-		std::forward<QueueCreateDesc<Vk>>(queueDesc))
-#endif
-{
-	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Transfer == (uint32_t)VK_QUEUE_TRANSFER_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_SparseBinding == (uint32_t)VK_QUEUE_SPARSE_BINDING_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_VideoDecode == (uint32_t)VK_QUEUE_VIDEO_DECODE_BIT_KHR);
-	static_assert((uint32_t)QueueFamilyFlagBits_VideoEncode == (uint32_t)VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
-}
-
-template <>
-QueueContext<Vk>::QueueContext(QueueContext&& other) noexcept
-	: CommandPool(std::forward<QueueContext>(other))
-	, myQueue(std::exchange(other.myQueue, {}))
-{}
-
-template <>
-QueueContext<Vk>::~QueueContext()
-{
-	ZoneScopedN("~QueueContext()");
-
-	for (auto& submittedCommandList : internalGetSubmittedCommands())
-	{
-		if (!submittedCommandList.empty())
-		{
-			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
-
-			processTimelineCallbacks(cmdTimelineValue);
-		}
-	}
-
-	assert(myTimelineCallbacks.empty());
-}
-
-template <>
-QueueContext<Vk>& QueueContext<Vk>::operator=(QueueContext&& other) noexcept
-{
-	CommandPool::operator=(std::forward<QueueContext>(other));
-	myQueue = std::exchange(other.myQueue, {});
-	myTimelineCallbacks = std::exchange(other.myTimelineCallbacks, {});
-	return *this;
-}
-
-template <>
-void QueueContext<Vk>::swap(QueueContext& other) noexcept
-{
-	CommandPool::swap(other);
-	std::swap(myQueue, other.myQueue);
-	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 }

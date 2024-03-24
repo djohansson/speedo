@@ -43,13 +43,13 @@ Buffer<Vk>::Buffer(
 template <>
 Buffer<Vk>::Buffer(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	std::tuple<BufferCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
 		  device,
 		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  createBuffer(
-			  queueContext.commands(),
+			  queue.commands(),
 			  device->getAllocator(),
 			  std::get<1>(descAndInitialData),
 			  std::get<0>(descAndInitialData).size,
@@ -57,7 +57,7 @@ Buffer<Vk>::Buffer(
 			  std::get<0>(descAndInitialData).memoryFlags,
 			  "todo_insert_proper_name"))
 {
-	queueContext.addTimelineCallback(
+	queue.addTimelineCallback(
 	{
 		1 + device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
@@ -73,12 +73,12 @@ Buffer<Vk>::Buffer(
 template <>
 Buffer<Vk>::Buffer(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	BufferCreateDesc<Vk>&& desc,
 	const void* initialData)
 	: Buffer(
 		  device,
-		  queueContext,
+		  queue,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(

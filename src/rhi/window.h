@@ -62,7 +62,7 @@ public:
 	// todo: generalize, move out of window. use sorted draw call lists.
 	uint32_t draw(
 		Pipeline<Vk>& pipeline,
-		QueueContext<Vk>& queueContext,
+		Queue<Vk>& queue,
 		RenderPassBeginInfo<Vk>&& renderPassInfo);
 	//
 
@@ -73,7 +73,7 @@ private:
 
 	uint32_t internalDrawViews(
 		Pipeline<G>& pipeline,
-		QueueContext<G>& queueContext,
+		Queue<G>& queue,
 		RenderPassBeginInfo<G>&& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;

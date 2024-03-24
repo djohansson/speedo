@@ -138,14 +138,15 @@ class CommandPool : public DeviceObject<G>
 public:
 	constexpr CommandPool() noexcept = default;
 	CommandPool(
-		const std::shared_ptr<Device<G>>& device, CommandPoolCreateDesc<G>&& desc);
+		const std::shared_ptr<Device<G>>& device,
+		CommandPoolCreateDesc<G>&& desc);
 	CommandPool(CommandPool&& other) noexcept;
 	~CommandPool();
 
 	CommandPool& operator=(CommandPool&& other) noexcept;
 	operator auto() const noexcept { return myPool; }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& getPoolDesc() const noexcept { return myDesc; }
 
 	void swap(CommandPool& rhs) noexcept;
 	friend void swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.swap(rhs); }

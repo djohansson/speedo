@@ -27,7 +27,7 @@ public:
 		BufferCreateDesc<G>&& desc);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
-		QueueContext<G>& queueContext,
+		Queue<G>& queue,
 		BufferCreateDesc<G>&& desc,
 		const void* initialData);
 	~Buffer();
@@ -44,7 +44,7 @@ public:
 protected:
 	Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		QueueContext<G>& queueContext,
+		Queue<G>& queue,
 		std::tuple<BufferCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
 
 private:

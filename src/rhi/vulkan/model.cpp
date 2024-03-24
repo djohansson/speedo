@@ -331,11 +331,11 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 template <>
 Model<Vk>::Model(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
 		  device,
-		  queueContext,
+		  queue,
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
 				  std::get<0>(descAndInitialData).indexBufferSize +
@@ -351,9 +351,9 @@ Model<Vk>::Model(
 template <>
 Model<Vk>::Model(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	const std::filesystem::path& modelFile)
-	: Model(device, queueContext, model::load(modelFile, device))
+	: Model(device, queue, model::load(modelFile, device))
 {}
 
 template <>

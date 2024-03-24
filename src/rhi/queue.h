@@ -49,33 +49,33 @@ struct QueuePresentInfo : QueueHostSyncInfo<G>
 	friend QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs);
 };
 
-enum QueueContextType : uint8_t
+enum QueueType : uint8_t
 {
-	QueueContextType_Graphics = 0,
-	QueueContextType_Compute = 1,
-	QueueContextType_Transfer = 2,
-	QueueContextType_SparseBinding = 3,
-	QueueContextType_VideoDecode = 5,
-	QueueContextType_VideoEncode = 6
+	QueueType_Graphics = 0,
+	QueueType_Compute = 1,
+	QueueType_Transfer = 2,
+	QueueType_SparseBinding = 3,
+	QueueType_VideoDecode = 5,
+	QueueType_VideoEncode = 6
 };
 
-constexpr std::array<QueueContextType, 6> AllQueueContextTypes{
-	QueueContextType_Graphics,
-	QueueContextType_Compute,
-	QueueContextType_Transfer,
-	QueueContextType_SparseBinding,
-	QueueContextType_VideoDecode,
-	QueueContextType_VideoEncode
+constexpr std::array<QueueType, 6> AllQueueTypes{
+	QueueType_Graphics,
+	QueueType_Compute,
+	QueueType_Transfer,
+	QueueType_SparseBinding,
+	QueueType_VideoDecode,
+	QueueType_VideoEncode
 };
 
 enum QueueFamilyFlagBits : uint32_t
 {
-	QueueFamilyFlagBits_Graphics = 1 << QueueContextType_Graphics,
-	QueueFamilyFlagBits_Compute = 1 << QueueContextType_Compute,
-	QueueFamilyFlagBits_Transfer = 1 << QueueContextType_Transfer,
-	QueueFamilyFlagBits_SparseBinding = 1 << QueueContextType_SparseBinding,
-	QueueFamilyFlagBits_VideoDecode = 1 << QueueContextType_VideoDecode,
-	QueueFamilyFlagBits_VideoEncode = 1 << QueueContextType_VideoEncode
+	QueueFamilyFlagBits_Graphics = 1 << QueueType_Graphics,
+	QueueFamilyFlagBits_Compute = 1 << QueueType_Compute,
+	QueueFamilyFlagBits_Transfer = 1 << QueueType_Transfer,
+	QueueFamilyFlagBits_SparseBinding = 1 << QueueType_SparseBinding,
+	QueueFamilyFlagBits_VideoDecode = 1 << QueueType_VideoDecode,
+	QueueFamilyFlagBits_VideoEncode = 1 << QueueType_VideoEncode
 };
 
 template <GraphicsApi G>
@@ -83,9 +83,6 @@ struct QueueCreateDesc
 {
 	uint32_t queueIndex = 0ul;
 	uint32_t queueFamilyIndex = 0ul;
-#if PROFILING_ENABLED
-	CommandBufferHandle<G> tracingInitCmd{};
-#endif
 };
 
 struct SourceLocationData
@@ -98,13 +95,16 @@ struct SourceLocationData
 };
 
 template <GraphicsApi G>
-class Queue final : public DeviceObject<G>
+class Queue final : public CommandPool<G>
 {
+	using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
+
 public:
 	constexpr Queue() noexcept = default;
 	Queue(
 		const std::shared_ptr<Device<G>>& device,
-		QueueCreateDesc<G>&& desc);
+		CommandPoolCreateDesc<G>&& commandPoolDesc,
+		QueueCreateDesc<G>&& queueDesc);
 	Queue(Queue<G>&& other) noexcept;
 	~Queue();
 
@@ -116,16 +116,21 @@ public:
 
 	const auto& getDesc() const noexcept { return myDesc; }
 
-	template <typename... Ts>
-	void enqueueSubmit(Ts&&... args);
+	template <typename T, typename... Ts>
+	void enqueueSubmit(T&& first, Ts&&... rest);
 	QueueHostSyncInfo<G> submit();
 
 	template <typename T, typename... Ts>
 	void enqueuePresent(T&& first, Ts&&... rest);
 	QueuePresentInfo<G> present();
 
+	uint64_t execute(uint32_t index);
+
 	void wait(QueueHostSyncInfo<G>&& syncInfo) const;
 	void waitIdle() const;
+	
+	void addTimelineCallback(TimelineCallback&& callback);
+	bool processTimelineCallbacks(uint64_t timelineValue);
 
 #if PROFILING_ENABLED
 	template <SourceLocationData Location>
@@ -136,7 +141,10 @@ public:
 private:
 	Queue(
 		const std::shared_ptr<Device<G>>& device,
+		CommandPoolCreateDesc<G>&& commandPoolDesc,
 		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
+
+	QueueSubmitInfo<G> internalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 
 #if PROFILING_ENABLED
 	std::shared_ptr<void>
@@ -149,38 +157,6 @@ private:
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
 	std::any myUserData;
-};
-
-template <GraphicsApi G>
-class QueueContext final : public CommandPool<G>
-{
-public:
-	constexpr QueueContext() noexcept = default;
-	QueueContext(
-		const std::shared_ptr<Device<G>>& device,
-		CommandPoolCreateDesc<G>&& commandPoolDesc,
-		QueueCreateDesc<G>&& queueDesc);
-	QueueContext(QueueContext<G>&& other) noexcept;
-	~QueueContext();
-
-	QueueContext& operator=(QueueContext&& other) noexcept;
-
-	void swap(QueueContext& rhs) noexcept;
-	friend void swap(QueueContext& lhs, QueueContext& rhs) noexcept { lhs.swap(rhs); }
-
-	const auto& queue() const noexcept { return myQueue; }
-	auto& queue() noexcept { return myQueue; }
-
-	uint64_t execute(uint32_t index);
-
-	QueueSubmitInfo<G> prepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
-
-	using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
-	void addTimelineCallback(TimelineCallback&& callback);
-	bool processTimelineCallbacks(uint64_t timelineValue);
-
-private:
-	Queue<G> myQueue;
 	std::deque<TimelineCallback> myTimelineCallbacks;
 };
 

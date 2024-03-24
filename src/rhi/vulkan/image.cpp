@@ -412,20 +412,20 @@ Image<Vk>::Image(const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&
 template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Image(
 		  device,
 		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  std::tuple_cat(
 			  image::createImage2D(
-				  queueContext.commands(),
+				  queue.commands(),
 				  device->getAllocator(),
 				  std::get<1>(descAndInitialData),
 				  std::get<0>(descAndInitialData)),
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
-	queueContext.addTimelineCallback(
+	queue.addTimelineCallback(
 	{
 		1 + device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
@@ -441,13 +441,13 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	ImageCreateDesc<Vk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
 		  device,
-		  queueContext,
+		  queue,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(
@@ -457,9 +457,9 @@ Image<Vk>::Image(
 template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	const std::filesystem::path& imageFile)
-	: Image(device, queueContext, image::load(imageFile, device))
+	: Image(device, queue, image::load(imageFile, device))
 {}
 
 template <>

@@ -80,7 +80,7 @@ void Window<Vk>::internalUpdateViewBuffer() const
 template <>
 uint32_t Window<Vk>::internalDrawViews(
 	Pipeline<Vk>& pipeline,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	// setup draw parameters
@@ -95,7 +95,7 @@ uint32_t Window<Vk>::internalDrawViews(
 	{
 		ZoneScopedN("Window::drawViews");
 
-		drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queueContext.getDesc().levelCount - 1));
+		drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queue.getPoolDesc().levelCount - 1));
 
 		std::array<uint32_t, 128> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
@@ -106,7 +106,7 @@ uint32_t Window<Vk>::internalDrawViews(
 			seq.begin(),
 			drawThreadCount,
 			[&pipeline,
-			 &queueContext,
+			 &queue,
 			 &renderPassInfo,
 			 frameIndex = internalGetFrameIndex(),
 			 &drawAtomic,
@@ -134,7 +134,7 @@ uint32_t Window<Vk>::internalDrawViews(
 				beginInfo.pInheritanceInfo = &inheritInfo;
 				beginInfo.level = threadIt + 1;
 
-				auto cmd = queueContext.commands(beginInfo);
+				auto cmd = queue.commands(beginInfo);
 
 				auto bindState = [&pipeline](VkCommandBuffer cmd)
 				{
@@ -416,7 +416,7 @@ void Window<Vk>::internalUpdateInput()
 template <>
 uint32_t Window<Vk>::draw(
 	Pipeline<Vk>& pipeline,
-	QueueContext<Vk>& queueContext,
+	Queue<Vk>& queue,
 	RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	ZoneScopedN("Window::draw");
@@ -428,7 +428,7 @@ uint32_t Window<Vk>::draw(
 
 	return internalDrawViews(
 		pipeline,
-		queueContext,
+		queue,
 		std::forward<RenderPassBeginInfo<Vk>>(renderPassInfo));
 }
 

@@ -24,7 +24,7 @@ struct Rhi
 	std::unique_ptr<Window<G>> mainWindow;
 	std::unique_ptr<Pipeline<G>> pipeline;
 
-	UnorderedMap<QueueContextType, std::vector<QueueContext<G>>> queueContexts;
+	UnorderedMap<QueueType, std::pair<std::vector<Queue<G>>, Semaphore<G>>> queues;
 
 	//std::unique_ptr<ResourceContext<G>> resources;
 
@@ -34,6 +34,4 @@ struct Rhi
 	std::unique_ptr<Buffer<G>[]> objects;
 
 	ConcurrentQueue<TaskHandle> mainCalls;
-
-	std::unique_ptr<Semaphore<G>> timelineSemaphore;
 };

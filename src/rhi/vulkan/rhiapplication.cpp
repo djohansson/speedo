@@ -44,85 +44,83 @@ static OpenFileReturnValue openFileDialogue(
 
 static void loadModel(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 {
-	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].front();
-	auto& transferQueue = transferContext.queue();
-
-	Semaphore<Vk> semaphore(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE});
+	auto& [transferQueues, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& transferQueue = transferQueues.front();
+	
 	uint64_t semaphoreValue = 0ull;
 
-	transferContext.reset();
+	transferQueue.reset();
 
 	rhi.pipeline->setModel(
-		std::make_shared<Model<Vk>>(rhi.device, transferContext, openFilePath));
+		std::make_shared<Model<Vk>>(rhi.device, transferQueue, openFilePath));
 
-	transferQueue.enqueueSubmit(transferContext.prepareSubmit({
+	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 		{},
 		{},
 		{},
-		{semaphore},
-		{++semaphoreValue}}));
+		{transferSemaphore},
+		{++semaphoreValue}});
 
 	auto syncInfo = transferQueue.submit();
-	
+
 	{
 		ZoneScopedN("rhi::draw::waitGPU");
 
-		semaphore.wait(syncInfo.maxTimelineValue);
-		transferContext.processTimelineCallbacks(syncInfo.maxTimelineValue);
+		transferSemaphore.wait(syncInfo.maxTimelineValue);
+		transferQueue.processTimelineCallbacks(syncInfo.maxTimelineValue);
 	}
 }
 
 static void loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 {
-	auto& transferContext = rhi.queueContexts[QueueContextType_Transfer].front();
-	auto& transferQueue = transferContext.queue();
+	auto& [transferQueues, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& transferQueue = transferQueues.front();
 
-	Semaphore<Vk> semaphore(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE});
 	uint64_t semaphoreValue = 0ull;
 
-	transferContext.reset();
+	transferQueue.reset();
 
 	rhi.pipeline->resources().image =
-		std::make_shared<Image<Vk>>(rhi.device, transferContext, openFilePath);
+		std::make_shared<Image<Vk>>(rhi.device, transferQueue, openFilePath);
 	rhi.pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
 		rhi.device, *rhi.pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
-	transferQueue.enqueueSubmit(transferContext.prepareSubmit({
+	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 		{},
 		{},
 		{},
-		{semaphore},
-		{++semaphoreValue}}));
+		{transferSemaphore},
+		{++semaphoreValue}});
 
 	auto transferSyncInfo = transferQueue.submit();
 
 	///////////
 
-	auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].back();
-	auto& graphicsQueue = graphicsContext.queue();
+	auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& graphicsQueue = graphicsQueues.back();
 
-	graphicsContext.reset();
+	graphicsQueue.reset();
 
-	auto cmd = graphicsContext.commands();
+	auto cmd = graphicsQueue.commands();
 
 	rhi.pipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 	cmd.end();
 
-	graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
-		{semaphore},
+	graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+		{transferSemaphore},
 		{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
 		{transferSyncInfo.maxTimelineValue},
-		{semaphore},
-		{++semaphoreValue}}));
+		{transferSemaphore},
+		{++semaphoreValue}});
 
 	auto graphicsSyncInfo = graphicsQueue.submit();
 	
 	{
 		ZoneScopedN("rhi::draw::waitGPU");
 
-		semaphore.wait(graphicsSyncInfo.maxTimelineValue);
-		transferContext.processTimelineCallbacks(graphicsSyncInfo.maxTimelineValue);
+		transferSemaphore.wait(graphicsSyncInfo.maxTimelineValue);
+		transferQueue.processTimelineCallbacks(graphicsSyncInfo.maxTimelineValue);
 	}
 
 	rhi.pipeline->setDescriptorData(
@@ -596,7 +594,7 @@ void IMGUIDrawFunction(CommandBufferHandle<Vk> cmd)
 
 static void IMGUIInit(
 	const WindowState& window,
-	const Rhi<Vk>& rhi,
+	Rhi<Vk>& rhi,
 	CommandBufferHandle<Vk> cmd)
 {
 	ZoneScopedN("RhiApplication::IMGUIInit");
@@ -659,15 +657,16 @@ static void IMGUIInit(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
-	const auto& graphicsContext = rhi.queueContexts.at(QueueContextType_Graphics).front();
+	auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& graphicsQueue = graphicsQueues.front();
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
 	initInfo.Instance = *rhi.instance;
 	initInfo.PhysicalDevice = rhi.device->getPhysicalDevice();
 	initInfo.Device = *rhi.device;
-	initInfo.QueueFamily = graphicsContext.getDesc().queueFamilyIndex;
-	initInfo.Queue = graphicsContext.queue();
+	initInfo.QueueFamily = graphicsQueue.getDesc().queueFamilyIndex;
+	initInfo.Queue = graphicsQueue;
 	initInfo.PipelineCache = rhi.pipeline->getCache();
 	initInfo.DescriptorPool = rhi.pipeline->getDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
@@ -738,22 +737,22 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].at(newFrameIndex);
-		auto& graphicsQueue = graphicsContext.queue();
+		auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& graphicsQueue = graphicsQueues.at(newFrameIndex);
+
 		auto& renderImageSet = *rhi.renderImageSet;
 
 		if (auto timelineValue = newFrame.getPresentSyncInfo().maxTimelineValue; timelineValue)
 		{
 			ZoneScopedN("rhi::draw::waitGPU");
 
-			rhi.timelineSemaphore->wait(timelineValue);
-			//graphicsQueue.waitIdle();
-			graphicsContext.processTimelineCallbacks(timelineValue);
+			graphicsSemaphore.wait(timelineValue);
+			graphicsQueue.processTimelineCallbacks(timelineValue);
 		}
 		
-		graphicsContext.reset();
+		graphicsQueue.reset();
 		
-		auto cmd = graphicsContext.commands();
+		auto cmd = graphicsQueue.commands();
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
@@ -773,11 +772,11 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 			
 			auto drawThreadCount = mainWindow.draw(
 				pipeline,
-				graphicsContext,
+				graphicsQueue,
 				std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
 
 			for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
-				graphicsContext.execute(threadIt);
+				graphicsQueue.execute(threadIt);
 
 			renderImageSet.end(cmd);
 		}
@@ -813,13 +812,13 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 
 		cmd.end();
 
-		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit({
-			{*rhi.timelineSemaphore},
+		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+			{graphicsSemaphore},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 			{lastFrame.getPresentSyncInfo().maxTimelineValue},
-			{*rhi.timelineSemaphore},
+			{graphicsSemaphore},
 			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}
-		}));
+		});
 
 		graphicsQueue.enqueuePresent(mainWindow.preparePresent(graphicsQueue.submit()));
 		graphicsQueue.present();
@@ -974,9 +973,9 @@ static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, Su
 	return config;
 };
 
-static void createQueueContexts(Rhi<Vk>& rhi)
+static void createQueues(Rhi<Vk>& rhi)
 {
-	ZoneScopedN("RhiApplication::createQueueContexts");
+	ZoneScopedN("RhiApplication::createQueues");
 
 	const uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
 	const uint32_t graphicsQueueCount = frameCount + 1;
@@ -984,7 +983,7 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 	const uint32_t computeQueueCount = 1u;
 	const uint32_t defaultDrawThreadCount = 2u;
 
-	auto& queueContexts = rhi.queueContexts;
+	auto& queues = rhi.queues;
 
 	VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
@@ -997,35 +996,41 @@ static void createQueueContexts(Rhi<Vk>& rhi)
 	{
 		const auto& queueFamily = queueFamilies[queueFamilyIt];
 
-		for (auto type : AllQueueContextTypes)
+		for (auto type : AllQueueTypes)
 		{
 			if (queueFamily.flags & (1 << static_cast<uint8_t>(type)))
 			{
 				auto queueCount = queueFamily.queueCount;
 				auto drawThreadCount = defaultDrawThreadCount;
 
-				auto [it, wasInserted] = queueContexts.emplace(type, std::vector<QueueContext<Vk>>{});
+				auto [it, wasInserted] = queues.emplace(
+					type,
+					std::make_pair(
+						std::vector<Queue<Vk>>{},
+						Semaphore<Vk>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE})));
+				
+				auto& [queueVector, semaphore] = it->second;
 
-				if (type == QueueContextType_Graphics)
+				if (type == QueueType_Graphics)
 				{
-					if (it->second.size() >= graphicsQueueCount)
+					if (queueVector.size() >= graphicsQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, graphicsQueueCount);
 				}
-				else if (type == QueueContextType_Compute)
+				else if (type == QueueType_Compute)
 				{
-					if (it->second.size() >= computeQueueCount)
+					if (queueVector.size() >= computeQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, computeQueueCount);
 				}
 
-				it->second.reserve(it->second.size() + queueCount);
+				queueVector.reserve(queueVector.size() + queueCount);
 
 				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 				{
-					it->second.emplace_back(
+					queueVector.emplace_back(
 						rhi.device,
 						CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
 						QueueCreateDesc<Vk>{queueIt, queueFamilyIt});
@@ -1184,9 +1189,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			{window.width, window.height},
 			{1ul, 1ul}});
 
-	rhi.timelineSemaphore = std::make_unique<Semaphore<Vk>>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE});
-
-	createQueueContexts(rhi);
+	createQueues(rhi);
 	createWindowDependentObjects(rhi);
 
 	// todo: create some resource global storage
@@ -1233,12 +1236,12 @@ void RhiApplication::createDevice(const WindowState& window)
 	static_assert(textureId < ShaderTypes_GlobalTextureCount);
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& graphicsContext = rhi.queueContexts[QueueContextType_Graphics].back();
-		auto& graphicsQueue = graphicsContext.queue();
+		auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& graphicsQueue = graphicsQueues.back();
 
-		graphicsContext.reset();
+		graphicsQueue.reset();
 		
-		auto cmd = graphicsContext.commands();
+		auto cmd = graphicsQueue.commands();
 
 		rhi.pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		rhi.pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
@@ -1252,7 +1255,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
 		rhi.materials = std::make_unique<Buffer<Vk>>(
 			rhi.device,
-			graphicsContext,
+			graphicsQueue,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_MaterialCount * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1267,7 +1270,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		rhi.objects = std::make_unique<Buffer<Vk>[]>(ShaderTypes_ObjectSetCount);
 		rhi.objects[0] = Buffer<Vk>(
 			rhi.device,
-			graphicsContext,
+			graphicsQueue,
 			BufferCreateDesc<Vk>{
 				ShaderTypes_ObjectCount * sizeof(ObjectData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1276,12 +1279,12 @@ void RhiApplication::createDevice(const WindowState& window)
 
 		cmd.end();
 
-		graphicsQueue.enqueueSubmit(graphicsContext.prepareSubmit(
-			{{},
-			 {},
-			 {},
-			 {*rhi.timelineSemaphore},
-			 {1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}}));
+		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+			{},
+			{},
+			{},
+			{graphicsSemaphore},
+			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
 		timelineValue = graphicsQueue.submit().maxTimelineValue;
 
@@ -1289,9 +1292,8 @@ void RhiApplication::createDevice(const WindowState& window)
 		{
 			ZoneScopedN("rhi::draw::waitGPU");
 
-			rhi.timelineSemaphore->wait(timelineValue);
-			//graphicsQueue.waitIdle();
-			graphicsContext.processTimelineCallbacks(timelineValue);
+			graphicsSemaphore.wait(timelineValue);
+			graphicsQueue.processTimelineCallbacks(timelineValue);
 		}
 	}
 

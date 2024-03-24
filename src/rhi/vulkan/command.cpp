@@ -248,7 +248,7 @@ void CommandPool<Vk>::reset()
 {
 	ZoneScopedN("CommandPool::reset");
 
-	if (getDesc().flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT)
+	if (myDesc.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT)
 	{
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
@@ -322,7 +322,7 @@ template <>
 void CommandPool<Vk>::internalEnqueueSubmitted(
 	CommandBufferListType<Vk>&& cbList, uint8_t level, uint64_t timelineValue)
 {
-	ZoneScopedN("QueueContext::internalEnqueueSubmitted");
+	ZoneScopedN("CommandPool::internalEnqueueSubmitted");
 
 	for (auto& [cmdArray, cmdTimelineValue] : cbList)
 		cmdTimelineValue = timelineValue;

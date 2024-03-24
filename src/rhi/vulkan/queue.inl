@@ -1,10 +1,13 @@
 template <>
-template <typename... Args>
-void Queue<Vk>::enqueueSubmit(Args&&... args)
+template <typename T, typename... Ts>
+void Queue<Vk>::enqueueSubmit(T&& first, Ts&&... rest)
 {
 	ZoneScopedN("Queue::enqueueSubmit");
 
-	myPendingSubmits.emplace_back(std::forward<Args>(args)...);
+	myPendingSubmits.emplace_back(internalPrepareSubmit(std::forward<T>(first)));
+
+	if constexpr (sizeof...(rest) > 0)
+		enqueueSubmit(std::forward<Ts>(rest)...);
 }
 
 template <>
