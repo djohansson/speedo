@@ -25,14 +25,14 @@ template <
 	typename ReturnType>
 requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 	: myInvokeFcnPtr(
-		[](const void* callablePtr, const void* argsPtr, void* returnPtr)
+		[](const void* callablePtr, const void* argsPtr, void* statePtr)
 		{
 			const auto& callable = *static_cast<const CallableType*>(callablePtr);
 			const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 
-			assertf(returnPtr, "Task::operator() called without any return state!");
+			assertf(statePtr, "Task::operator() called without any return state!");
 
-			auto& state = *static_cast<typename Future<ReturnType>::FutureState*>(returnPtr);
+			auto& state = *static_cast<typename Future<ReturnType>::FutureState*>(statePtr);
 
 			if constexpr (std::is_void_v<ReturnType>)
 				std::apply(callable, args);
