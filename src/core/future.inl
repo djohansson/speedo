@@ -72,16 +72,3 @@ void Future<T>::wait() const
 		myState->latch.wait(current, std::memory_order_acq_rel);
 	}
 }
-
-// template <typename T>
-// template <typename F, typename CallableType, typename... Args, typename ReturnType>
-// requires std::invocable<F&, Args...> Future<ReturnType> Future<T>::then(F&& f)
-// {
-// 	auto& [value, flag, continuation] = *myState;
-
-// 	continuation = Task(
-// 		std::forward<CallableType>(f), std::make_shared<typename Future<ReturnType>::FutureState>());
-
-// 	return Future<ReturnType>(
-// 		continuation.template returnState<typename Future<ReturnType>::FutureState>());
-// }

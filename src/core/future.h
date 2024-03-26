@@ -23,13 +23,6 @@ public:
 	bool valid() const noexcept;
 	void wait() const;
 
-	// template <
-	// 	typename F,
-	// 	typename CallableType = std::decay_t<F>,
-	// 	typename... Args,
-	// 	typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	// requires std::invocable<F&, Args...> Future<ReturnType> then(F&& f);
-
 private:
 	friend class Task;
 	friend class TaskExecutor;
