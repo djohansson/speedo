@@ -222,11 +222,11 @@ int main(int argc, char* argv[], char* envp[])
 	signal(SIGTERM, &onSignal);
 
 	cag_option_context cagContext;
-	cag_option_prepare(&cagContext, g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), argc, argv);
+	cag_option_init(&cagContext, g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), argc, argv);
 	
 	while (cag_option_fetch(&cagContext))
 	{
-		switch (cag_option_get(&cagContext))
+		switch (cag_option_get_identifier(&cagContext))
 		{
 		case 'u':
 			g_paths.userProfilePath = cag_option_get_value(&cagContext);
