@@ -35,6 +35,11 @@ class alignas(Aligmnent) UpgradableSharedMutex
 	template <typename Func>
 	void internalAquireLock(Func lockFn) noexcept;
 
+	template <value_t Expected = None>
+	std::tuple<bool, value_t> internalTryLock() noexcept;
+	std::tuple<bool, value_t> internalTryLockShared() noexcept;
+	std::tuple<bool, value_t> internalTryLockUpgrade() noexcept;
+
 public:
 	// Lockable Concept
 	void lock() noexcept;
@@ -63,8 +68,7 @@ public:
 	void unlock_and_lock_upgrade() noexcept;
 
 	// Attempt to acquire writer permission. Return false if we didn't get it.
-	template <value_t Expected = None>
-	std::tuple<bool, value_t> try_lock() noexcept;
+	bool try_lock() noexcept;
 
 	// Try to get reader permission on the lock. This can fail if we
 	// find out someone is a writer or upgrader.
@@ -72,10 +76,10 @@ public:
 	// its intention to write and block any new readers while waiting
 	// for existing readers to finish and release their read locks. This
 	// helps avoid starving writers (promoted from upgraders).
-	std::tuple<bool, value_t> try_lock_shared() noexcept;
+	bool try_lock_shared() noexcept;
 
 	// try to acquire an upgradable lock.
-	std::tuple<bool, value_t> try_lock_upgrade() noexcept;
+	bool try_lock_upgrade() noexcept;
 };
 
 #include "upgradablesharedmutex.inl"

@@ -27,7 +27,7 @@ void UpgradableSharedMutex<ValueT, Alignment>::internalAquireLock(Func lockFn) n
 template <typename ValueT, uint32_t Alignment>
 void UpgradableSharedMutex<ValueT, Alignment>::lock() noexcept
 {
-	internalAquireLock([this]() { return try_lock(); });
+	internalAquireLock([this]() { return internalTryLock(); });
 }
 
 template <typename ValueT, uint32_t Alignment>
@@ -42,7 +42,7 @@ void UpgradableSharedMutex<ValueT, Alignment>::unlock() noexcept
 template <typename ValueT, uint32_t Alignment>
 void UpgradableSharedMutex<ValueT, Alignment>::lock_shared() noexcept
 {
-	internalAquireLock([this]() { return try_lock_shared(); });
+	internalAquireLock([this]() { return internalTryLockShared(); });
 }
 
 template <typename ValueT, uint32_t Alignment>
@@ -63,7 +63,7 @@ void UpgradableSharedMutex<ValueT, Alignment>::unlock_and_lock_shared() noexcept
 template <typename ValueT, uint32_t Alignment>
 void UpgradableSharedMutex<ValueT, Alignment>::lock_upgrade() noexcept
 {
-	internalAquireLock([this]() { return try_lock_upgrade(); });
+	internalAquireLock([this]() { return internalTryLockUpgrade(); });
 }
 
 template <typename ValueT, uint32_t Alignment>
@@ -77,7 +77,7 @@ template <typename ValueT, uint32_t Alignment>
 void UpgradableSharedMutex<ValueT, Alignment>::unlock_upgrade_and_lock() noexcept
 {
 	// try to unlock upgrade and write lock atomically
-	internalAquireLock([this]() { return try_lock<Upgraded>(); });
+	internalAquireLock([this]() { return internalTryLock<Upgraded>(); });
 }
 
 template <typename ValueT, uint32_t Alignment>
@@ -101,7 +101,7 @@ void UpgradableSharedMutex<ValueT, Alignment>::unlock_and_lock_upgrade() noexcep
 template <typename ValueT, uint32_t Alignment>
 template <typename UpgradableSharedMutex<ValueT, Alignment>::value_t Expected>
 std::tuple<bool, typename UpgradableSharedMutex<ValueT, Alignment>::value_t>
-UpgradableSharedMutex<ValueT, Alignment>::try_lock() noexcept
+UpgradableSharedMutex<ValueT, Alignment>::internalTryLock() noexcept
 {
 	auto result = std::make_tuple(false, Expected);
 	auto& [success, value] = result;
@@ -111,7 +111,7 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock() noexcept
 
 template <typename ValueT, uint32_t Alignment>
 std::tuple<bool, typename UpgradableSharedMutex<ValueT, Alignment>::value_t>
-UpgradableSharedMutex<ValueT, Alignment>::try_lock_shared() noexcept
+UpgradableSharedMutex<ValueT, Alignment>::internalTryLockShared() noexcept
 {
 	// fetch_add is considerably (100%) faster than compare_exchange,
 	// so here we are optimizing for the common (lock success) case.
@@ -126,7 +126,7 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock_shared() noexcept
 
 template <typename ValueT, uint32_t Alignment>
 std::tuple<bool, typename UpgradableSharedMutex<ValueT, Alignment>::value_t>
-UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
+UpgradableSharedMutex<ValueT, Alignment>::internalTryLockUpgrade() noexcept
 {
 	value_t value = internalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
 
@@ -135,4 +135,22 @@ UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
 	// If it's a write lock, the bit will get cleared up when that lock's done
 	// with unlock().
 	return std::make_tuple(((value & (Upgraded | Writer)) == 0), value);
+}
+
+template <typename ValueT, uint32_t Alignment>
+bool UpgradableSharedMutex<ValueT, Alignment>::try_lock() noexcept
+{
+	return std::get<0>(internalTryLock());
+}
+
+template <typename ValueT, uint32_t Alignment>
+bool UpgradableSharedMutex<ValueT, Alignment>::try_lock_shared() noexcept
+{
+	return std::get<0>(internalTryLockShared());
+}
+
+template <typename ValueT, uint32_t Alignment>
+bool UpgradableSharedMutex<ValueT, Alignment>::try_lock_upgrade() noexcept
+{
+	return std::get<0>(internalTryLockUpgrade());
 }
