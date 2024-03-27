@@ -306,20 +306,16 @@ QueueSubmitInfo<Vk> Queue<Vk>::internalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& s
 }
 
 template <>
-uint64_t Queue<Vk>::execute(uint32_t index)
+void Queue<Vk>::execute(uint8_t level, uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::execute");
 
-	internalEndCommands(index);
+	internalEndCommands(level);
 
-	auto& pendingCommands = internalGetPendingCommands()[index];
+	auto& pendingCommands = internalGetPendingCommands()[level];
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
 		vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
 
-	auto timelineValue = getDevice()->timelineValue().load(std::memory_order_relaxed);
-
-	internalEnqueueSubmitted(std::move(pendingCommands), index, timelineValue);
-
-	return timelineValue;
+	internalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
 }

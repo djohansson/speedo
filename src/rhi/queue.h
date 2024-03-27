@@ -2,6 +2,7 @@
 
 #include "command.h"
 #include "device.h"
+#include "semaphore.h"
 #include "types.h"
 
 #include <any>
@@ -124,7 +125,7 @@ public:
 	void enqueuePresent(T&& first, Ts&&... rest);
 	QueuePresentInfo<G> present();
 
-	uint64_t execute(uint32_t index);
+	void execute(uint8_t level, uint64_t timelineValue);
 
 	void wait(QueueHostSyncInfo<G>&& syncInfo) const;
 	void waitIdle() const;
@@ -159,6 +160,9 @@ private:
 	std::any myUserData;
 	std::deque<TimelineCallback> myTimelineCallbacks;
 };
+
+template <GraphicsApi G>
+using QueueGroup = std::tuple<std::vector<Queue<G>>, Semaphore<G>, QueueHostSyncInfo<G>>;
 
 #if PROFILING_ENABLED
 #	define GPU_SCOPE(cmd, queue, tag)											\

@@ -413,6 +413,7 @@ template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Image(
 		  device,
@@ -427,7 +428,7 @@ Image<Vk>::Image(
 {
 	queue.addTimelineCallback(
 	{
-		1 + device->timelineValue().fetch_add(1, std::memory_order_relaxed),
+		timelineValue,
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
@@ -442,12 +443,14 @@ template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	ImageCreateDesc<Vk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
 		  device,
 		  queue,
+		  timelineValue,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(
@@ -458,8 +461,9 @@ template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	const std::filesystem::path& imageFile)
-	: Image(device, queue, image::load(imageFile, device))
+	: Image(device, queue, timelineValue, image::load(imageFile, device))
 {}
 
 template <>

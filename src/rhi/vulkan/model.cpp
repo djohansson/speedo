@@ -332,10 +332,12 @@ template <>
 Model<Vk>::Model(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
 		  device,
 		  queue,
+		  timelineValue,
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
 				  std::get<0>(descAndInitialData).indexBufferSize +
@@ -352,8 +354,9 @@ template <>
 Model<Vk>::Model(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	const std::filesystem::path& modelFile)
-	: Model(device, queue, model::load(modelFile, device))
+	: Model(device, queue, timelineValue, model::load(modelFile, device))
 {}
 
 template <>

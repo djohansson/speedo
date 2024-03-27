@@ -231,7 +231,7 @@ RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 }
 
 template <>
-const std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>>&
+const RenderTargetHandle<Vk>&
 RenderTarget<Vk>::internalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 {
 	ZoneScopedN("RenderTarget::internalUpdateMap");
@@ -406,7 +406,7 @@ void RenderTarget<Vk>::nextSubpass(CommandBufferHandle<Vk> cmd, SubpassContents<
 }
 
 template <>
-const std::tuple<RenderPassHandle<Vk>, FramebufferHandle<Vk>>& RenderTarget<Vk>::internalGetValues()
+const RenderTargetHandle<Vk>& RenderTarget<Vk>::internalGetValues()
 {
 	internalUpdateAttachments(getRenderTargetDesc());
 	internalUpdateRenderPasses(getRenderTargetDesc());

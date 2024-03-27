@@ -15,16 +15,20 @@
 
 #include <core/utils.h>
 
+#include <memory>
+#include <vector>
+#include <tuple>
+
 template <GraphicsApi G>
 struct Rhi
 {
 	std::shared_ptr<Instance<G>> instance;
 	std::shared_ptr<Device<G>> device;
 
-	std::unique_ptr<Window<G>> mainWindow;
+	std::unique_ptr<Window<G>> window;
 	std::unique_ptr<Pipeline<G>> pipeline;
 
-	UnorderedMap<QueueType, std::pair<std::vector<Queue<G>>, Semaphore<G>>> queues;
+	UnorderedMap<QueueType, QueueGroup<G>> queues;
 
 	//std::unique_ptr<ResourceContext<G>> resources;
 
@@ -34,4 +38,5 @@ struct Rhi
 	std::unique_ptr<Buffer<G>[]> objects;
 
 	ConcurrentQueue<TaskHandle> mainCalls;
+	ConcurrentQueue<TaskHandle> drawCalls;
 };

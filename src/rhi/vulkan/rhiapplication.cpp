@@ -3,6 +3,7 @@
 #include "utils.h"
 
 #include <core/application.h>
+#include <core/upgradablesharedmutex.h>
 // #include <core/gltfstream.h>
 // #include <core/nodes/inputoutputnode.h>
 // #include <core/nodes/slangshadernode.h>
@@ -18,15 +19,19 @@
 
 #include <nfd.h>
 
+#include <shared_mutex>
+
 namespace rhiapplication
 {
 
 static volatile bool g_requestExit = false;
+static UpgradableSharedMutex g_drawMutex{};
+static std::pair<TaskHandle, Future<void>> g_prevDraw{};
 static std::filesystem::path g_rootPath{};
 static std::filesystem::path g_resourcePath{};
 static std::filesystem::path g_userProfilePath{};
 
-using OpenFileCompletionCallback = std::function<void(Rhi<Vk>&, nfdchar_t*)>;
+using OpenFileCompletionCallback = std::function<void(Rhi<Vk>&, TaskExecutor&, nfdchar_t*)>;
 using OpenFileReturnValue = std::tuple<nfdresult_t, nfdchar_t*, OpenFileCompletionCallback>;
 
 static OpenFileReturnValue openFileDialogue(
@@ -42,46 +47,60 @@ static OpenFileReturnValue openFileDialogue(
 		std::forward<OpenFileCompletionCallback>(onCompletionCallback));
 }
 
-static void loadModel(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
+static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath)
 {
-	auto& [transferQueues, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
 	auto& transferQueue = transferQueues.front();
+	{
+		ZoneScopedN("rhi::draw::waitGPU");
+
+		transferSemaphore.wait(transferLastSubmit.maxTimelineValue);
+		transferQueue.processTimelineCallbacks(transferLastSubmit.maxTimelineValue);
+	}
 	
-	uint64_t semaphoreValue = 0ull;
+	uint64_t transferSemaphoreValue = 0ull;
 
 	transferQueue.reset();
 
 	rhi.pipeline->setModel(
-		std::make_shared<Model<Vk>>(rhi.device, transferQueue, openFilePath));
+		std::make_shared<Model<Vk>>(
+			rhi.device,
+			transferQueue,
+			++transferSemaphoreValue,
+			openFilePath));
 
 	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 		{},
 		{},
 		{},
 		{transferSemaphore},
-		{++semaphoreValue}});
+		{++transferSemaphoreValue}});
 
-	auto syncInfo = transferQueue.submit();
+	transferLastSubmit = transferQueue.submit();
+}
 
+static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath)
+{
+	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
+	auto& transferQueue = transferQueues.front();
 	{
 		ZoneScopedN("rhi::draw::waitGPU");
 
-		transferSemaphore.wait(syncInfo.maxTimelineValue);
-		transferQueue.processTimelineCallbacks(syncInfo.maxTimelineValue);
+		transferSemaphore.wait(transferLastSubmit.maxTimelineValue);
+		transferQueue.processTimelineCallbacks(transferLastSubmit.maxTimelineValue);
 	}
-}
 
-static void loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
-{
-	auto& [transferQueues, transferSemaphore] = rhi.queues[QueueType_Transfer];
-	auto& transferQueue = transferQueues.front();
-
-	uint64_t semaphoreValue = 0ull;
+	uint64_t transferSemaphoreValue = transferLastSubmit.maxTimelineValue;
 
 	transferQueue.reset();
 
 	rhi.pipeline->resources().image =
-		std::make_shared<Image<Vk>>(rhi.device, transferQueue, openFilePath);
+		std::make_shared<Image<Vk>>(
+			rhi.device,
+			transferQueue,
+			++transferSemaphoreValue,
+			openFilePath);
+
 	rhi.pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
 		rhi.device, *rhi.pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
@@ -90,38 +109,42 @@ static void loadImage(Rhi<Vk>& rhi, nfdchar_t* openFilePath)
 		{},
 		{},
 		{transferSemaphore},
-		{++semaphoreValue}});
+		{++transferSemaphoreValue}});
 
-	auto transferSyncInfo = transferQueue.submit();
+	transferLastSubmit = transferQueue.submit();
 
 	///////////
 
-	auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
-	auto& graphicsQueue = graphicsQueues.back();
-
-	graphicsQueue.reset();
-
-	auto cmd = graphicsQueue.commands();
-
-	rhi.pipeline->resources().image->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-	cmd.end();
-
-	graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT},
-		{transferSyncInfo.maxTimelineValue},
-		{transferSemaphore},
-		{++semaphoreValue}});
-
-	auto graphicsSyncInfo = graphicsQueue.submit();
-	
+	auto [imageTransitionTask, imageTransitionFuture] = executor.createTask([&device = *rhi.device](
+		QueueGroup<Vk>& queueGroup,
+		Image<Vk>& image,
+		SemaphoreHandle<Vk> waitSemaphore,
+		uint64_t waitSemaphoreValue/*,
+		uint32_t frameIndex*/)
 	{
-		ZoneScopedN("rhi::draw::waitGPU");
+		auto& [queues, semaphore, lastSubmit] = queueGroup;
+		//auto& queue = queues.at(frameIndex);
+		auto& queue = queues.at(0);
 
-		transferSemaphore.wait(graphicsSyncInfo.maxTimelineValue);
-		transferQueue.processTimelineCallbacks(graphicsSyncInfo.maxTimelineValue);
-	}
+		auto cmd = queue.commands();
+
+		image.transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		cmd.end();
+
+		queue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+			{waitSemaphore},
+			{VK_PIPELINE_STAGE_TRANSFER_BIT},
+			{waitSemaphoreValue},
+			{semaphore},
+			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}});
+
+		queue.submit();
+	}, rhi.queues[QueueType_Graphics], *rhi.pipeline->resources().image, static_cast<SemaphoreHandle<Vk>>(transferSemaphore), transferLastSubmit.maxTimelineValue);
+
+	rhi.drawCalls.enqueue(imageTransitionTask);
+
+	///////////
 
 	rhi.pipeline->setDescriptorData(
 		"g_textures",
@@ -497,7 +520,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				auto [openFileTask, openFileFuture] = executor.createTask(
 					openFileDialogue, g_resourcePath, "obj", loadModel);
 
-				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi](auto openFileFuture)
+				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi, &executor](auto openFileFuture)
 				{
 					ZoneScopedN("RhiApplication::draw::openFileCallback");
 
@@ -507,7 +530,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 					auto [openFileResult, openFilePath, completionCallback] = openFileFuture.get();
 					if (openFileResult == NFD_OKAY)
 					{
-						completionCallback(rhi, openFilePath);
+						completionCallback(rhi, executor, openFilePath);
 						std::free(openFilePath);
 					}
 				}, std::move(openFileFuture));
@@ -521,9 +544,9 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				auto [openFileTask, openFileFuture] = executor.createTask(
 					openFileDialogue, g_resourcePath, "jpg,png", loadImage);
 
-				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi](auto openFileFuture)
+				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi, &executor](auto openFileFuture)
 				{
-					ZoneScopedN("RhiApplication::draw::openFileCallback");
+					ZoneScopedN("openFileCallback");
 
 					assert(openFileFuture.valid());
 					assert(openFileFuture.is_ready());
@@ -531,7 +554,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 					auto [openFileResult, openFilePath, completionCallback] = openFileFuture.get();
 					if (openFileResult == NFD_OKAY)
 					{
-						completionCallback(rhi, openFilePath);
+						completionCallback(rhi, executor, openFilePath);
 						std::free(openFilePath);
 					}
 				}, std::move(openFileFuture));
@@ -616,12 +639,12 @@ static void IMGUIInit(
 	// 	(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
-		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.mainWindow->getSurface()).capabilities;
+		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.window->getSurface()).capabilities;
 
 	float dpiScaleX = static_cast<float>(surfaceCapabilities.currentExtent.width) /
-					  rhi.mainWindow->getConfig().windowExtent.width;
+					  rhi.window->getConfig().windowExtent.width;
 	float dpiScaleY = static_cast<float>(surfaceCapabilities.currentExtent.height) /
-					  rhi.mainWindow->getConfig().windowExtent.height;
+					  rhi.window->getConfig().windowExtent.height;
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -657,7 +680,7 @@ static void IMGUIInit(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
-	auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
 	auto& graphicsQueue = graphicsQueues.front();
 
 	// Setup Vulkan binding
@@ -670,7 +693,7 @@ static void IMGUIInit(
 	initInfo.PipelineCache = rhi.pipeline->getCache();
 	initInfo.DescriptorPool = rhi.pipeline->getDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
-	initInfo.ImageCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = rhi.window->getConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	// initInfo.DeleteBufferFn = [](void* user_data,
@@ -689,7 +712,9 @@ static void IMGUIInit(
 	// 		});
 	// };
 	// initInfo.UserData = device.get();
-	ImGui_ImplVulkan_Init(&initInfo, rhi.mainWindow->getRenderPass());
+	ImGui_ImplVulkan_Init(
+		&initInfo,
+		static_cast<RenderTargetHandle<Vk>>(rhi.window->frames().at(rhi.window->getCurrentFrameIndex())).first);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
 	// Upload Fonts
@@ -714,35 +739,43 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-static std::pair<TaskHandle, Future<void>> prevDraw{};
-
 void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
+	std::unique_lock lock(g_drawMutex);
+
+	if (!g_requestExit)
+	{
+		auto drawPair = executor.createTask(draw, rhi, executor);
+		auto& [drawTask, drawFuture] = drawPair;
+		executor.addDependency(g_prevDraw.first, drawTask, true);
+		g_prevDraw = drawPair;
+	}
+
 	FrameMark;
 
 	ZoneScopedN("rhi::draw");
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
-	auto& mainWindow = *rhi.mainWindow;
+	auto& window = *rhi.window;
 	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame();
 
-	auto [flipSuccess, lastFrameIndex, newFrameIndex] = mainWindow.flip();
-	const auto& lastFrame = mainWindow.getFrame(lastFrameIndex);
-	const auto& newFrame = mainWindow.getFrame(newFrameIndex);
+	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
+	const auto& lastFrame = window.frames()[lastFrameIndex];
+	const auto& newFrame = window.frames()[newFrameIndex];
 
 	if (flipSuccess)
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
 		auto& graphicsQueue = graphicsQueues.at(newFrameIndex);
 
 		auto& renderImageSet = *rhi.renderImageSet;
 
-		if (auto timelineValue = newFrame.getPresentSyncInfo().maxTimelineValue; timelineValue)
+		if (auto timelineValue = std::max(newFrame.getPresentSyncInfo().maxTimelineValue, graphicsLastSubmit.maxTimelineValue); timelineValue)
 		{
 			ZoneScopedN("rhi::draw::waitGPU");
 
@@ -755,6 +788,14 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		auto cmd = graphicsQueue.commands();
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
+
+		TaskHandle drawCall;
+		while (rhi.drawCalls.try_dequeue(drawCall))
+		{
+			ZoneScopedN("rhi::draw::drawCall");
+
+			executor.call(drawCall/*, newFrameIndex*/);
+		}
 		
 		{
 			GPU_SCOPE(cmd, graphicsQueue, clear);
@@ -770,13 +811,15 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 			
 			auto renderPassInfo = renderImageSet.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 			
-			auto drawThreadCount = mainWindow.draw(
+			auto drawThreadCount = window.draw(
 				pipeline,
 				graphicsQueue,
 				std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
 
 			for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
-				graphicsQueue.execute(threadIt);
+				graphicsQueue.execute(
+					threadIt,
+					1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed));
 
 			renderImageSet.end(cmd);
 		}
@@ -785,7 +828,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 
 			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
 
-			mainWindow.blit(
+			window.blit(
 				cmd,
 				renderImageSet,
 				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
@@ -796,18 +839,18 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
-			mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			mainWindow.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+			window.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			window.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 
 			IMGUIPrepareDrawFunction(rhi, executor); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 			IMGUIDrawFunction(cmd);
 
-			mainWindow.end(cmd);
+			window.end(cmd);
 		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, transition);
 			
-			mainWindow.transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+			window.transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
 		}
 
 		cmd.end();
@@ -820,16 +863,10 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}
 		});
 
-		graphicsQueue.enqueuePresent(mainWindow.preparePresent(graphicsQueue.submit()));
+		auto lastSubmit = graphicsQueue.submit();
+		graphicsLastSubmit = lastSubmit;
+		graphicsQueue.enqueuePresent(window.preparePresent(std::move(lastSubmit)));
 		graphicsQueue.present();
-	}
-
-	if (!g_requestExit)
-	{
-		auto drawPair = executor.createTask(draw, rhi, executor);
-		auto& [drawTask, drawFuture] = drawPair;
-		executor.addDependency(prevDraw.first, drawTask, true);
-		prevDraw = drawPair;
 	}
 }
 
@@ -977,10 +1014,11 @@ static void createQueues(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("RhiApplication::createQueues");
 
-	const uint32_t frameCount = rhi.mainWindow->getConfig().swapchainConfig.imageCount;
-	const uint32_t graphicsQueueCount = frameCount + 1;
+	const uint32_t frameCount = rhi.window->getConfig().swapchainConfig.imageCount;
+	const uint32_t graphicsQueueCount = frameCount;
 	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
 	const uint32_t computeQueueCount = 1u;
+	const uint32_t transferQueueCount = 1u;
 	const uint32_t defaultDrawThreadCount = 2u;
 
 	auto& queues = rhi.queues;
@@ -1005,11 +1043,12 @@ static void createQueues(Rhi<Vk>& rhi)
 
 				auto [it, wasInserted] = queues.emplace(
 					type,
-					std::make_pair(
+					std::make_tuple(
 						std::vector<Queue<Vk>>{},
-						Semaphore<Vk>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE})));
+						Semaphore<Vk>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE}),
+						QueueHostSyncInfo<Vk>{}));
 				
-				auto& [queueVector, semaphore] = it->second;
+				auto& [queueVector, semaphore, lastSubmit] = it->second;
 
 				if (type == QueueType_Graphics)
 				{
@@ -1024,6 +1063,13 @@ static void createQueues(Rhi<Vk>& rhi)
 						continue;
 
 					queueCount = std::min(queueCount, computeQueueCount);
+				}
+				else if (type == QueueType_Transfer)
+				{
+					if (queueVector.size() >= transferQueueCount)
+						continue;
+
+					queueCount = std::min(queueCount, transferQueueCount);
 				}
 
 				queueVector.reserve(queueVector.size() + queueCount);
@@ -1049,8 +1095,8 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto colorImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.mainWindow->getConfig().swapchainConfig.extent}},
-			rhi.mainWindow->getConfig().swapchainConfig.surfaceFormat.format,
+			{{rhi.window->getConfig().swapchainConfig.extent}},
+			rhi.window->getConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -1059,7 +1105,7 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.mainWindow->getConfig().swapchainConfig.extent}},
+			{{rhi.window->getConfig().swapchainConfig.extent}},
 			findSupportedFormat(
 				rhi.device->getPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1155,7 +1201,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 
 	auto drawPair = executor.createTask(draw, rhi, executor);
 	auto& [drawTask, drawFuture] = drawPair;
-	prevDraw = drawPair;
+	g_prevDraw = drawPair;
 	executor.submit(drawTask);
 
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
@@ -1181,7 +1227,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	rhi.pipeline = std::make_unique<Pipeline<Vk>>(
 		rhi.device, PipelineConfiguration<Vk>{(g_userProfilePath / "pipeline.cache").string()});
 
-	rhi.mainWindow = std::make_unique<Window<Vk>>(
+	rhi.window = std::make_unique<Window<Vk>>(
 		rhi.device,
 		std::move(surface),
 		WindowConfiguration<Vk>{
@@ -1230,14 +1276,13 @@ void RhiApplication::createDevice(const WindowState& window)
 	//
 
 	// initialize stuff on graphics queue
-	uint32_t timelineValue = 0;
 	constexpr uint32_t textureId = 1;
 	constexpr uint32_t samplerId = 2;
 	static_assert(textureId < ShaderTypes_GlobalTextureCount);
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& [graphicsQueues, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
-		auto& graphicsQueue = graphicsQueues.back();
+		auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
+		auto& graphicsQueue = graphicsQueues.front();
 
 		graphicsQueue.reset();
 		
@@ -1256,6 +1301,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		rhi.materials = std::make_unique<Buffer<Vk>>(
 			rhi.device,
 			graphicsQueue,
+			1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 			BufferCreateDesc<Vk>{
 				ShaderTypes_MaterialCount * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1271,6 +1317,7 @@ void RhiApplication::createDevice(const WindowState& window)
 		rhi.objects[0] = Buffer<Vk>(
 			rhi.device,
 			graphicsQueue,
+			1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 			BufferCreateDesc<Vk>{
 				ShaderTypes_ObjectCount * sizeof(ObjectData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1286,15 +1333,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			{graphicsSemaphore},
 			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
-		timelineValue = graphicsQueue.submit().maxTimelineValue;
-
-		if (timelineValue)
-		{
-			ZoneScopedN("rhi::draw::waitGPU");
-
-			graphicsSemaphore.wait(timelineValue);
-			graphicsQueue.processTimelineCallbacks(timelineValue);
-		}
+		graphicsLastSubmit = graphicsQueue.submit();
 	}
 
 	auto layoutHandle = rhi.pipeline->createLayout(shaderReflection);
@@ -1305,7 +1344,7 @@ void RhiApplication::createDevice(const WindowState& window)
 	{
 		rhi.pipeline->setDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi.mainWindow->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<Vk>{rhi.window->getViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1335,19 +1374,27 @@ RhiApplication::~RhiApplication()
 {
 	using namespace rhiapplication;
 
+	std::unique_lock lock(g_drawMutex);
+
 	ZoneScopedN("~RhiApplication()");
 
 	g_requestExit = true;
-	prevDraw = {};
+	g_prevDraw = {};
 
 	auto& rhi = internalRhi<Vk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
-	{
-		ZoneScopedN("~RhiApplication()::waitGPU");
+	auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
 
-		device->waitIdle();
+	for (const auto& frame : rhi.window->frames())
+	{
+		if (auto timelineValue = frame.getPresentSyncInfo().maxTimelineValue; timelineValue)
+		{
+			ZoneScopedN("~RhiApplication()::waitGPU");
+
+			graphicsSemaphore.wait(frame.getPresentSyncInfo().maxTimelineValue);
+		}
 	}
 
 	shutdownIMGUI();
@@ -1366,12 +1413,12 @@ RhiApplication::~RhiApplication()
 
 void RhiApplication::onMouse(const MouseState& mouse)
 {
-	internalRhi<Vk>().mainWindow->onMouse(mouse);
+	internalRhi<Vk>().window->onMouse(mouse);
 }
 
 void RhiApplication::onKeyboard(const KeyboardState& keyboard)
 {
-	internalRhi<Vk>().mainWindow->onKeyboard(keyboard);
+	internalRhi<Vk>().window->onKeyboard(keyboard);
 }
 
 bool RhiApplication::tick()
@@ -1400,29 +1447,37 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 {
 	using namespace rhiapplication;
 
+	std::unique_lock lock(g_drawMutex);
+
 	ZoneScopedN("RhiApplication::onResizeFramebuffer");
 
 	auto& rhi = internalRhi<Vk>();
 
-	// {
-	// 	ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
+	auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
 
-	// 	rhi.timelineSemaphore->wait(rhi.mainWindow->getLastPresentSyncInfo().maxTimelineValue);
-	// }
+	for (const auto& frame : rhi.window->frames())
+	{
+		if (auto timelineValue = frame.getPresentSyncInfo().maxTimelineValue; timelineValue)
+		{
+			ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
+
+			graphicsSemaphore.wait(frame.getPresentSyncInfo().maxTimelineValue);
+		}
+	}
 
 	auto physicalDevice = rhi.device->getPhysicalDevice();
-	rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.mainWindow->getSurface());
+	rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
 	auto framebufferExtent =
-		rhi.instance->getSwapchainInfo(physicalDevice, rhi.mainWindow->getSurface())
+		rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
 			.capabilities.currentExtent;
 
-	rhi.mainWindow->onResizeFramebuffer(framebufferExtent);
+	rhi.window->onResizeFramebuffer(framebufferExtent);
 
 	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
 	{
 		rhi.pipeline->setDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi.mainWindow->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<Vk>{rhi.window->getViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1440,10 +1495,10 @@ void RhiApplication::onResizeWindow(const WindowState& state)
 
 	if (state.fullscreenEnabled)
 	{
-		rhi.mainWindow->onResizeWindow({state.fullscreenWidth, state.fullscreenHeight});
+		rhi.window->onResizeWindow({state.fullscreenWidth, state.fullscreenHeight});
 	}
 	else
 	{
-		rhi.mainWindow->onResizeWindow({state.width, state.height});
+		rhi.window->onResizeWindow({state.width, state.height});
 	}
 }

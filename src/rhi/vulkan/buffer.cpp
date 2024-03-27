@@ -44,6 +44,7 @@ template <>
 Buffer<Vk>::Buffer(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	std::tuple<BufferCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
 	: Buffer(
 		  device,
@@ -59,7 +60,7 @@ Buffer<Vk>::Buffer(
 {
 	queue.addTimelineCallback(
 	{
-		1 + device->timelineValue().fetch_add(1, std::memory_order_relaxed),
+		timelineValue,
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
@@ -74,11 +75,13 @@ template <>
 Buffer<Vk>::Buffer(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
+	uint64_t timelineValue,
 	BufferCreateDesc<Vk>&& desc,
 	const void* initialData)
 	: Buffer(
 		  device,
 		  queue,
+		  timelineValue,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
 			  createStagingBuffer(
