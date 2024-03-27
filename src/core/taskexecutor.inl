@@ -1,13 +1,13 @@
-template <typename ReturnType>
-std::optional<typename Future<ReturnType>::value_t> TaskExecutor::join(Future<ReturnType>&& future)
+template <typename R>
+std::optional<typename Future<R>::value_t> TaskExecutor::join(Future<R>&& future)
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	return processReadyQueue(std::forward<Future<ReturnType>>(future));
+	return processReadyQueue(std::forward<Future<R>>(future));
 }
 
-template <typename ReturnType>
-std::optional<typename Future<ReturnType>::value_t> TaskExecutor::processReadyQueue(Future<ReturnType>&& future)
+template <typename R>
+std::optional<typename Future<R>::value_t> TaskExecutor::processReadyQueue(Future<R>&& future)
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
@@ -24,40 +24,49 @@ std::optional<typename Future<ReturnType>::value_t> TaskExecutor::processReadyQu
 	return std::make_optional(future.get());
 }
 
-template <typename F, typename CallableType, typename... Args, typename ReturnType>
-requires std::invocable<F&, Args...>
-std::pair<TaskHandle, Future<ReturnType>> TaskExecutor::createTask(F&& f, Args&&... args)
+template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
+requires applicable<C, tuple_cat_t<ArgsTuple, ParamsTuple>>
+std::pair<TaskHandle, Future<R>> TaskExecutor::createTask(F&& f, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::createTask");
 
 	auto handle = ourTaskPool.allocate();
 	Task* taskPtr = ourTaskPool.getPointer(handle);
-	std::construct_at(taskPtr, Task(std::forward<F>(f), std::forward<Args>(args)...));
+	std::construct_at(taskPtr, Task(std::forward<F>(f), ParamsTuple{}, std::forward<Args>(args)...));
 
-	return std::make_pair(
-		handle,
-		Future<ReturnType>(
-			std::static_pointer_cast<typename Future<ReturnType>::FutureState>(taskPtr->state())));
+	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->state())));
 }
 
-template <typename T, typename... Ts>
-void TaskExecutor::submit(T&& first, Ts&&... rest)
+template <typename... TaskParams>
+void TaskExecutor::internalCall(TaskHandle handle, TaskParams&&... params)
 {
-	ZoneScopedN("TaskExecutor::submit");
+	ZoneScopedN("TaskExecutor::internalCall");
 
-	internalSubmit(std::forward<TaskHandle>(first));
+	Task& task = *handleToTaskPtr(handle);
 
-	if constexpr (sizeof...(rest) > 0)
-		internalSubmit(std::forward<Ts>(rest)...);
+	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+	
+	task(params...);
+	scheduleAdjacent(task);
+	myDeletionQueue.enqueue(handle);
 }
 
-template <typename T, typename... Ts>
-void TaskExecutor::call(T&& first, Ts&&... rest)
+template <typename... TaskParams>
+void TaskExecutor::internalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params)
 {
-	ZoneScopedN("TaskExecutor::call");
+	ZoneScopedN("TaskExecutor::internalCall");
 
-	internalCall(std::forward<TaskHandle>(first));
+	Task& task = *handleToTaskPtr(handle);
 
-	if constexpr (sizeof...(rest) > 0)
-		internalCall(std::forward<Ts>(rest)...);
+	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+	
+	task(params...);
+	scheduleAdjacent(readyProducerToken, task);
+	myDeletionQueue.enqueue(handle);
+}
+
+template <typename... TaskParams>
+void TaskExecutor::call(TaskHandle handle, TaskParams&&... params)
+{
+	internalCall(handle, params...);
 }

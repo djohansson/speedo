@@ -1,5 +1,8 @@
 #include "taskexecutor.h"
 
+#include <cassert>
+#include <shared_mutex>
+
 MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::ourTaskPool{};
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
@@ -39,6 +42,8 @@ void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation
 	TaskState& aState = *handleToTaskPtr(a)->state();
 	TaskState& bState = *handleToTaskPtr(b)->state();
 
+	std::scoped_lock lock(aState.mutex, bState.mutex);
+
 	if (isContinuation)
 		bState.isContinuation = true;
 
@@ -56,32 +61,6 @@ Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
 	assert(ptr != nullptr);
 	
 	return ptr;
-}
-
-void TaskExecutor::internalCall(TaskHandle handle)
-{
-	ZoneScopedN("TaskExecutor::internalCall");
-
-	Task& task = *handleToTaskPtr(handle);
-
-	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
-	
-	task();
-	scheduleAdjacent(task);
-	myDeletionQueue.enqueue(handle);
-}
-
-void TaskExecutor::internalCall(ProducerToken& readyProducerToken, TaskHandle handle)
-{
-	ZoneScopedN("TaskExecutor::internalCall");
-
-	Task& task = *handleToTaskPtr(handle);
-
-	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
-	
-	task();
-	scheduleAdjacent(readyProducerToken, task);
-	myDeletionQueue.enqueue(handle);
 }
 
 void TaskExecutor::internalSubmit(TaskHandle handle)
@@ -129,10 +108,10 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	for (auto& adjacentAtomic : task.state()->adjacencies)
+	std::shared_lock lock(task.state()->mutex);
+
+	for (auto& adjacentHandle : task.state()->adjacencies)
 	{
-		auto adjacentHandle = adjacentAtomic.load(std::memory_order_acquire);
-		
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
@@ -143,8 +122,8 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
 		{
-			adjacentAtomic.store(TaskHandle{}, std::memory_order_release);
 			internalSubmit(readyProducerToken, adjacentHandle);
+			adjacentHandle = {};
 		}
 	}
 }
@@ -153,10 +132,10 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	for (auto& adjacentAtomic : task.state()->adjacencies)
+	std::shared_lock lock(task.state()->mutex);
+
+	for (auto& adjacentHandle : task.state()->adjacencies)
 	{
-		auto adjacentHandle = adjacentAtomic.load(std::memory_order_acquire);
-		
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
@@ -167,8 +146,8 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
 		{
-			adjacentAtomic.store(TaskHandle{}, std::memory_order_release);
 			internalSubmit(adjacentHandle);
+			adjacentHandle = {};
 		}
 	}
 }

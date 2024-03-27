@@ -51,14 +51,8 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 {
 	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
 	auto& transferQueue = transferQueues.front();
-	{
-		ZoneScopedN("rhi::draw::waitGPU");
-
-		transferSemaphore.wait(transferLastSubmit.maxTimelineValue);
-		transferQueue.processTimelineCallbacks(transferLastSubmit.maxTimelineValue);
-	}
 	
-	uint64_t transferSemaphoreValue = 0ull;
+	uint64_t transferSemaphoreValue = transferLastSubmit.maxTimelineValue;
 
 	transferQueue.reset();
 
@@ -70,9 +64,9 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 			openFilePath));
 
 	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
-		{},
-		{},
-		{},
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferLastSubmit.maxTimelineValue},
 		{transferSemaphore},
 		{++transferSemaphoreValue}});
 
@@ -83,12 +77,6 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 {
 	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
 	auto& transferQueue = transferQueues.front();
-	{
-		ZoneScopedN("rhi::draw::waitGPU");
-
-		transferSemaphore.wait(transferLastSubmit.maxTimelineValue);
-		transferQueue.processTimelineCallbacks(transferLastSubmit.maxTimelineValue);
-	}
 
 	uint64_t transferSemaphoreValue = transferLastSubmit.maxTimelineValue;
 
@@ -105,9 +93,9 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 		rhi.device, *rhi.pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
-		{},
-		{},
-		{},
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferLastSubmit.maxTimelineValue},
 		{transferSemaphore},
 		{++transferSemaphoreValue}});
 
@@ -115,16 +103,14 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 
 	///////////
 
-	auto [imageTransitionTask, imageTransitionFuture] = executor.createTask([&device = *rhi.device](
-		QueueGroup<Vk>& queueGroup,
+	auto [imageTransitionTask, imageTransitionFuture] = executor.createTask<uint32_t>([&rhi](
 		Image<Vk>& image,
 		SemaphoreHandle<Vk> waitSemaphore,
-		uint64_t waitSemaphoreValue/*,
-		uint32_t frameIndex*/)
+		uint64_t waitSemaphoreValue,
+		uint32_t frameIndex)
 	{
-		auto& [queues, semaphore, lastSubmit] = queueGroup;
-		//auto& queue = queues.at(frameIndex);
-		auto& queue = queues.at(0);
+		auto& [queues, semaphore, lastSubmit] = rhi.queues[QueueType_Graphics];
+		auto& queue = queues.at(frameIndex);
 
 		auto cmd = queue.commands();
 
@@ -137,23 +123,23 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 			{VK_PIPELINE_STAGE_TRANSFER_BIT},
 			{waitSemaphoreValue},
 			{semaphore},
-			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}});
+			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
 		queue.submit();
-	}, rhi.queues[QueueType_Graphics], *rhi.pipeline->resources().image, static_cast<SemaphoreHandle<Vk>>(transferSemaphore), transferLastSubmit.maxTimelineValue);
+
+		rhi.pipeline->setDescriptorData(
+			"g_textures",
+			DescriptorImageInfo<Vk>{
+				{},
+				*rhi.pipeline->resources().imageView,
+				rhi.pipeline->resources().image->getImageLayout()},
+			DescriptorSetCategory_GlobalTextures,
+			1);
+	}, *rhi.pipeline->resources().image, static_cast<SemaphoreHandle<Vk>>(transferSemaphore), transferLastSubmit.maxTimelineValue);
 
 	rhi.drawCalls.enqueue(imageTransitionTask);
 
 	///////////
-
-	rhi.pipeline->setDescriptorData(
-		"g_textures",
-		DescriptorImageInfo<Vk>{
-			{},
-			*rhi.pipeline->resources().imageView,
-			rhi.pipeline->resources().image->getImageLayout()},
-		DescriptorSetCategory_GlobalTextures,
-		1);
 }
 
 void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
@@ -784,18 +770,18 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		}
 		
 		graphicsQueue.reset();
-		
-		auto cmd = graphicsQueue.commands();
-
-		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
 		{
 			ZoneScopedN("rhi::draw::drawCall");
 
-			executor.call(drawCall/*, newFrameIndex*/);
+			executor.call(drawCall, newFrameIndex);
 		}
+
+		auto cmd = graphicsQueue.commands();
+
+		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
 		{
 			GPU_SCOPE(cmd, graphicsQueue, clear);
@@ -1394,7 +1380,19 @@ RhiApplication::~RhiApplication()
 			ZoneScopedN("~RhiApplication()::waitGPU");
 
 			graphicsSemaphore.wait(frame.getPresentSyncInfo().maxTimelineValue);
+
+			for (auto& graphicsQueue : graphicsQueues)
+				graphicsQueue.processTimelineCallbacks(frame.getPresentSyncInfo().maxTimelineValue);
 		}
+	}
+
+	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
+	for (auto& transferQueue : transferQueues)
+	{
+		ZoneScopedN("~RhiApplication()U");
+
+		transferSemaphore.wait(transferLastSubmit.maxTimelineValue);
+		transferQueue.processTimelineCallbacks(transferLastSubmit.maxTimelineValue);
 	}
 
 	shutdownIMGUI();

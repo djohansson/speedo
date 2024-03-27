@@ -1,61 +1,29 @@
 #include "future.h"
 
-template <typename... Args>
-void Task::operator()(Args&&... args)
-{
-	ZoneScopedN("Task::operator()");
-
-	assertf(myInvokeFcnPtr, "Task is not initialized!");
-
-	using ArgsTuple = std::tuple<Args...>;
-	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
-
-	std::construct_at(
-		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory)),
-		std::forward<Args>(args)...);
-
-	myInvokeFcnPtr(myCallableMemory, myArgsMemory, myState.get());
-}
-
-template <
-	typename F,
-	typename CallableType,
-	typename... Args,
-	typename ArgsTuple,
-	typename ReturnType>
-requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
+template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
+requires applicable<C, tuple_cat_t<ArgsTuple, ParamsTuple>>
+Task::Task(F&& f, ParamsTuple&& params, Args&&... args)
 	: myInvokeFcnPtr(
-		[](const void* callablePtr, const void* argsPtr, void* statePtr)
+		[](const void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
 		{
-			const auto& callable = *static_cast<const CallableType*>(callablePtr);
+			const auto& callable = *static_cast<const C*>(callablePtr);
 			const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
+			const auto& params = *static_cast<const ParamsTuple*>(paramsPtr);
 
 			assertf(statePtr, "Task::operator() called without any return state!");
 
-			auto& state = *static_cast<typename Future<ReturnType>::FutureState*>(statePtr);
+			auto& state = *static_cast<typename Future<R>::FutureState*>(statePtr);
 
-			if constexpr (std::is_void_v<ReturnType>)
-				std::apply(callable, args);
+			if constexpr (std::is_void_v<R>)
+				apply(callable, std::tuple_cat(args, params));
 			else
-				state.value = std::apply(callable, args);
+				state.value = apply(callable, std::tuple_cat(args, params));
 
 			auto counter = state.latch.fetch_sub(1, std::memory_order_release) - 1;
 			(void)counter;
 			assertf(counter == 0, "Latch counter should be zero!");
 
 			state.latch.notify_all();
-
-			// TODO: continuations
-			//   if (continuation)
-			//   {
-			// 	  if constexpr (std::is_tuple_v<ReturnType>)
-			// 		  continuation.apply(
-			// 			  value,
-			// 			  std::make_index_sequence<
-			// 				  std::tuple_size_v<std::remove_reference_t<ArgsTuple>>>{});
-			// 	  else
-			// 		  continuation(value);
-			//   }
 		})
 	, myCopyFcnPtr(
 		  [](void* callablePtr,
@@ -64,29 +32,40 @@ requires std::invocable<F&, Args...> Task::Task(F&& f, Args&&... args)
 			 const void* otherArgsPtr)
 		  {
 			  std::construct_at(
-				  static_cast<CallableType*>(callablePtr),
-				  *static_cast<const CallableType*>(otherCallablePtr));
+				  static_cast<C*>(callablePtr),
+				  *static_cast<const C*>(otherCallablePtr));
 			  std::construct_at(
 				  static_cast<ArgsTuple*>(argsPtr), *static_cast<const ArgsTuple*>(otherArgsPtr));
 		  })
 	, myDeleteFcnPtr(
 		  [](void* callablePtr, void* argsPtr)
 		  {
-			  std::destroy_at(static_cast<CallableType*>(callablePtr));
+			  std::destroy_at(static_cast<C*>(callablePtr));
 			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		  })
 	, myState(std::static_pointer_cast<TaskState>(
-		  std::make_shared<typename Future<ReturnType>::FutureState>()))
+		  std::make_shared<typename Future<R>::FutureState>()))
 {
 	static_assert(sizeof(Task) == 128);
 
-	static_assert(sizeof(CallableType) <= kMaxCallableSizeBytes);
+	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
-		static_cast<CallableType*>(static_cast<void*>(myCallableMemory)),
-		std::forward<CallableType>(f));
+		static_cast<C*>(static_cast<void*>(myCallableMemory)),
+		std::forward<C>(f));
 
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	std::construct_at(
-		static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory)),
-		std::forward<Args>(args)...);
+	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory)),
+	 	std::forward<Args>(args)...);
+}
+
+template <typename... TaskParams>
+void Task::operator()(TaskParams&&... params)
+{
+	ZoneScopedN("Task::operator()");
+
+	assertf(myInvokeFcnPtr, "Task is not initialized!");
+
+	auto taskParams = std::make_tuple(std::forward<TaskParams>(params)...);
+	myInvokeFcnPtr(myCallableMemory, myArgsMemory, myState.get(), &taskParams);
 }

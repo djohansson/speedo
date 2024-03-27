@@ -30,31 +30,36 @@ public:
 	void addDependency(TaskHandle a, TaskHandle b, bool isContinuation = false);
 
 	template <
-		typename F,
-		typename CallableType = std::decay_t<F>,
+		typename... Params,
 		typename... Args,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...>
-	std::pair<TaskHandle, Future<ReturnType>> createTask(F&& f, Args&&... args);
+		typename F,
+		typename C = std::decay_t<F>,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ParamsTuple = std::tuple<Params...>,
+		typename R = apply_result_t<C, tuple_cat_t<ArgsTuple, ParamsTuple>>>
+	requires applicable<C, tuple_cat_t<ArgsTuple, ParamsTuple>>
+	std::pair<TaskHandle, Future<R>> createTask(F&& f, Args&&... args);
 
 	// wait for task to finish while helping out processing the thread pools ready queue
 	// as soon as the task is ready, the function will stop processing the ready queue and return
-	template <typename ReturnType>
-	std::optional<typename Future<ReturnType>::value_t> join(Future<ReturnType>&& future);
+	template <typename R>
+	std::optional<typename Future<R>::value_t> join(Future<R>&& future);
 
-	// call task(s) in current thread. dependency chain(s) will be executed in thread pool
-	template <typename T, typename... Ts>
-	void call(T&& first, Ts&&... rest);
+	// call task in current thread. dependency chain(s) will be executed in thread pool
+	template <typename... TaskParams>
+	void call(TaskHandle handle, TaskParams&&... params);
 
-	// task(s) + dependency chain(s) will be executed in thread pool
-	template <typename T, typename... Ts>
-	void submit(T&& first, Ts&&... rest);
+	// task + dependency chain(s) will be executed in thread pool
+	void submit(TaskHandle handle) { internalSubmit(handle); }
 
 private:
 	Task* handleToTaskPtr(TaskHandle handle) noexcept;
 	
-	void internalCall(TaskHandle handle);
-	void internalCall(ProducerToken& readyProducerToken, TaskHandle handle);
+	template <typename... TaskParams>
+	void internalCall(TaskHandle handle, TaskParams&&... params);
+	template <typename... TaskParams>
+	void internalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params);
+
 	void internalSubmit(TaskHandle handle);
 	void internalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
 	void internalTryDelete(TaskHandle handle);
@@ -64,8 +69,8 @@ private:
 
 	void processReadyQueue();
 	void processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
-	template <typename ReturnType>
-	std::optional<typename Future<ReturnType>::value_t> processReadyQueue(Future<ReturnType>&& future);
+	template <typename R>
+	std::optional<typename Future<R>::value_t> processReadyQueue(Future<R>&& future);
 
 	void purgeDeletionQueue();
 

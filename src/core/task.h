@@ -20,25 +20,22 @@ public:
 	operator bool() const noexcept;
 	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
-	template <typename... Args>
-	void operator()(Args&&... args);
+	template <typename... TaskParams>
+	void operator()(TaskParams&&... params);
 
 private:
 	friend class TaskExecutor;
 
 	template <
-		typename F,
-		typename CallableType = std::decay_t<F>,
+		typename... Params,
 		typename... Args,
+		typename F,
+		typename C = std::decay_t<F>,
 		typename ArgsTuple = std::tuple<Args...>,
-		typename ReturnType = std::invoke_result_t<CallableType, Args...>>
-	requires std::invocable<F&, Args...> Task(F&& f, Args&&... args);
-
-	// template <class Tuple, size_t... I>
-	// constexpr decltype(auto) apply(Tuple&& t, std::index_sequence<I...>)
-	// {
-	// 	return (*this)(std::get<I>(std::forward<Tuple>(t))...);
-	// }
+		typename ParamsTuple = std::tuple<Params...>,
+		typename R = apply_result_t<C, tuple_cat_t<ArgsTuple, ParamsTuple>>>
+	requires applicable<C, tuple_cat_t<ArgsTuple, ParamsTuple>>
+	Task(F&& f, ParamsTuple&& params, Args&&... args);
 
 	auto& state() noexcept { return myState; }
 	const auto& state() const noexcept { return myState; }
@@ -48,7 +45,7 @@ private:
 
 	alignas(intptr_t) std::byte myCallableMemory[kMaxCallableSizeBytes];
 	alignas(intptr_t) std::byte myArgsMemory[kMaxArgsSizeBytes];
-	void (*myInvokeFcnPtr)(const void*, const void*, void*){};
+	void (*myInvokeFcnPtr)(const void*, const void*, void*, const void*){};
 	void (*myCopyFcnPtr)(void*, const void*, void*, const void*){};
 	void (*myDeleteFcnPtr)(void*, void*){};
 	std::shared_ptr<TaskState> myState;
