@@ -127,8 +127,6 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 			{semaphore},
 			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
-		queue.submit();
-
 		rhi.pipeline->setDescriptorData(
 			"g_textures",
 			DescriptorImageInfo<Vk>{
