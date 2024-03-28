@@ -102,11 +102,22 @@ FSOutput fragmentMain(Interpolants input : Interpolants)
 	const float checkerScaleInv = 1.f / checkerScale;
 	float checkers = checkerScale * frac(checkerScaleInv * (floor(input.position.x) + floor(input.position.y) + floor(input.position.z)));
 
-	output.color += 0.2 * float4(float3(checkers), 1.0);
-	output.color += 0.2 * float4(input.normal, 1.0);
-	output.color += 0.2 * float4(input.color, 1.0);
-	output.color += 0.2 * texture.Sample(sampler, input.texCoord);
-	output.color += 0.2 * material.color;
+	float4 sample = texture.Sample(sampler, input.texCoord);
+
+	output.color = 
+		lerp(
+			lerp(
+				lerp(
+					lerp(
+						float4(input.color, 1.0),
+						material.color,
+						0.5),
+					float4(float3(checkers), 1.0),
+					0.2),
+				float4(input.normal, 1.0),
+				0.2),
+			sample,
+			sample.a);
 
 	return output;
 }
