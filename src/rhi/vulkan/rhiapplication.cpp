@@ -761,7 +761,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 
 		auto& renderImageSet = *rhi.renderImageSet;
 
-		if (auto timelineValue = std::max(newFrame.getPresentSyncInfo().maxTimelineValue, graphicsLastSubmit.maxTimelineValue); timelineValue)
+		if (auto timelineValue = newFrame.getPresentSyncInfo().maxTimelineValue; timelineValue)
 		{
 			ZoneScopedN("rhi::draw::waitGPU");
 
