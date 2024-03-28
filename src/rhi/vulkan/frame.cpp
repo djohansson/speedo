@@ -53,7 +53,6 @@ Frame<Vk>::Frame(Frame<Vk>&& other) noexcept
 	: BaseType(std::forward<Frame<Vk>>(other))
 	, myFence(std::exchange(other.myFence, {}))
 	, myImageLayout(std::exchange(other.myImageLayout, {}))
-	, myPresentSyncInfo(std::exchange(other.myPresentSyncInfo, {}))
 {}
 
 template <>
@@ -66,7 +65,6 @@ Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
 	BaseType::operator=(std::forward<Frame<Vk>>(other));
 	myFence = std::exchange(other.myFence, {});
 	myImageLayout = std::exchange(other.myImageLayout, {});
-	myPresentSyncInfo = std::exchange(other.myPresentSyncInfo, {});
 	return *this;
 }
 
@@ -76,7 +74,6 @@ void Frame<Vk>::swap(Frame& rhs) noexcept
 	BaseType::swap(rhs);
 	std::swap(myFence, rhs.myFence);
 	std::swap(myImageLayout, rhs.myImageLayout);
-	std::swap(myPresentSyncInfo, rhs.myPresentSyncInfo);
 }
 
 template <>
@@ -131,13 +128,13 @@ void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<
 }
 
 template <>
-QueuePresentInfo<Vk> Frame<Vk>::preparePresent(QueueHostSyncInfo<Vk>&& hostSyncInfo)
+QueuePresentInfo<Vk> Frame<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
 {
-	myPresentSyncInfo = std::forward<QueueHostSyncInfo<Vk>>(hostSyncInfo);
-	myPresentSyncInfo.fences.push_back(myFence);
+	auto hostSyncInfoCopy = hostSyncInfo;
+	hostSyncInfoCopy.fences.push_back(myFence);
 
 	return QueuePresentInfo<Vk>{
-		{myPresentSyncInfo},
+		{std::move(hostSyncInfoCopy)},
 		{},
 		{},
 		{getDesc().index},

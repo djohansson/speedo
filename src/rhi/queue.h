@@ -25,7 +25,7 @@ template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
 	std::vector<FenceHandle<G>> fences;
-	uint64_t maxTimelineValue = 0ull; // todo: need to store all semaphores + values
+	uint64_t maxTimelineValue = 0ull; // todo: need to store all semaphores + values?
 
 	QueueHostSyncInfo<G>& operator|=(QueueHostSyncInfo<G>&& other);
 	friend QueueHostSyncInfo<G> operator|(QueueHostSyncInfo<G>&& lhs, QueueHostSyncInfo<G>&& rhs);
@@ -162,7 +162,7 @@ private:
 };
 
 template <GraphicsApi G>
-using QueueGroup = std::tuple<std::vector<Queue<G>>, Semaphore<G>, QueueHostSyncInfo<G>>;
+using QueueGroup = std::tuple<std::vector<std::pair<Queue<G>, QueueHostSyncInfo<G>>>, Semaphore<G>>;
 
 #if PROFILING_ENABLED
 #	define GPU_SCOPE(cmd, queue, tag)											\

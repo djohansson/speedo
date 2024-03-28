@@ -114,7 +114,7 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::flip()
 
 	auto& newFrame = myFrames[myFrameIndex];
 
-	newFrame.fence().swap(fence);
+	newFrame.getFence().swap(fence);
 
 	auto zoneNameStr = std::format(
 		"Swapchain::flip frame:{0}",
@@ -126,11 +126,11 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::flip()
 }
 
 template <>
-QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(QueueHostSyncInfo<Vk>&& syncInfo)
+QueuePresentInfo<Vk> Swapchain<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
 {
 	ZoneScopedN("Swapchain::preparePresent");
 
-	auto presentInfo = myFrames[myFrameIndex].preparePresent(std::forward<QueueHostSyncInfo<Vk>>(syncInfo));
+	auto presentInfo = myFrames[myFrameIndex].preparePresent(hostSyncInfo);
 	presentInfo.swapchains.push_back(mySwapchain);
 
 	return presentInfo;

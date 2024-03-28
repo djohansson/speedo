@@ -49,10 +49,10 @@ static OpenFileReturnValue openFileDialogue(
 
 static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath)
 {
-	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
-	auto& transferQueue = transferQueues.front();
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 	
-	uint64_t transferSemaphoreValue = transferLastSubmit.maxTimelineValue;
+	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	transferQueue.reset();
 
@@ -66,19 +66,19 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 		{transferSemaphore},
 		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferLastSubmit.maxTimelineValue},
+		{transferSubmit.maxTimelineValue},
 		{transferSemaphore},
 		{++transferSemaphoreValue}});
 
-	transferLastSubmit = transferQueue.submit();
+	transferSubmit = transferQueue.submit();
 }
 
 static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath)
 {
-	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
-	auto& transferQueue = transferQueues.front();
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 
-	uint64_t transferSemaphoreValue = transferLastSubmit.maxTimelineValue;
+	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	transferQueue.reset();
 
@@ -95,11 +95,11 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 		{transferSemaphore},
 		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferLastSubmit.maxTimelineValue},
+		{transferSubmit.maxTimelineValue},
 		{transferSemaphore},
 		{++transferSemaphoreValue}});
 
-	transferLastSubmit = transferQueue.submit();
+	transferSubmit = transferQueue.submit();
 
 	///////////
 
@@ -109,22 +109,22 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 		uint64_t waitSemaphoreValue,
 		uint32_t frameIndex)
 	{
-		auto& [queues, semaphore, lastSubmit] = rhi.queues[QueueType_Graphics];
-		auto& queue = queues.at(frameIndex);
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(frameIndex);
 
 		{
-			auto cmd = queue.commands();
-			
-			GPU_SCOPE(cmd, queue, transition);
+			auto cmd = graphicsQueue.commands();
+
+			GPU_SCOPE(cmd, graphicsQueue, transition);
 
 			image.transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		}
 
-		queue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 			{waitSemaphore},
 			{VK_PIPELINE_STAGE_TRANSFER_BIT},
 			{waitSemaphoreValue},
-			{semaphore},
+			{graphicsSemaphore},
 			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
 		rhi.pipeline->setDescriptorData(
@@ -135,7 +135,7 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 				rhi.pipeline->resources().image->getImageLayout()},
 			DescriptorSetCategory_GlobalTextures,
 			1);
-	}, *rhi.pipeline->resources().image, static_cast<SemaphoreHandle<Vk>>(transferSemaphore), transferLastSubmit.maxTimelineValue);
+	}, *rhi.pipeline->resources().image, static_cast<SemaphoreHandle<Vk>>(transferSemaphore), transferSubmit.maxTimelineValue);
 
 	rhi.drawCalls.enqueue(imageTransitionTask);
 
@@ -666,8 +666,8 @@ static void IMGUIInit(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
-	auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
-	auto& graphicsQueue = graphicsQueues.front();
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
@@ -700,7 +700,7 @@ static void IMGUIInit(
 	// initInfo.UserData = device.get();
 	ImGui_ImplVulkan_Init(
 		&initInfo,
-		static_cast<RenderTargetHandle<Vk>>(rhi.window->frames().at(rhi.window->getCurrentFrameIndex())).first);
+		static_cast<RenderTargetHandle<Vk>>(rhi.window->getFrames().at(rhi.window->getCurrentFrameIndex())).first);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
 
 	// Upload Fonts
@@ -749,21 +749,20 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 	ImGui_ImplVulkan_NewFrame();
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
-	const auto& lastFrame = window.frames()[lastFrameIndex];
-	const auto& newFrame = window.frames()[newFrameIndex];
 
 	if (flipSuccess)
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
-		auto& graphicsQueue = graphicsQueues.at(newFrameIndex);
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
 
 		auto& renderImageSet = *rhi.renderImageSet;
 
-		if (auto timelineValue = newFrame.getPresentSyncInfo().maxTimelineValue; timelineValue)
+		if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
 		{
-			ZoneScopedN("rhi::draw::waitGPU");
+			ZoneScopedN("rhi::draw::waitGraphics");
 
 			graphicsSemaphore.wait(timelineValue);
 			graphicsQueue.processTimelineCallbacks(timelineValue);
@@ -844,14 +843,13 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 			{graphicsSemaphore},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			{lastFrame.getPresentSyncInfo().maxTimelineValue},
+			{lastGraphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore},
 			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}
 		});
 
-		auto lastSubmit = graphicsQueue.submit();
-		graphicsLastSubmit = lastSubmit;
-		graphicsQueue.enqueuePresent(window.preparePresent(std::move(lastSubmit)));
+		graphicsSubmit = graphicsQueue.submit();
+		graphicsQueue.enqueuePresent(window.preparePresent(graphicsSubmit));
 		graphicsQueue.present();
 	}
 }
@@ -1030,42 +1028,43 @@ static void createQueues(Rhi<Vk>& rhi)
 				auto [it, wasInserted] = queues.emplace(
 					type,
 					std::make_tuple(
-						std::vector<Queue<Vk>>{},
-						Semaphore<Vk>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE}),
-						QueueHostSyncInfo<Vk>{}));
+						std::vector<std::pair<Queue<Vk>, QueueHostSyncInfo<Vk>>>{},
+						Semaphore<Vk>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE})));
 				
-				auto& [queueVector, semaphore, lastSubmit] = it->second;
+				auto& [queueInfos, semaphore] = it->second;
 
 				if (type == QueueType_Graphics)
 				{
-					if (queueVector.size() >= graphicsQueueCount)
+					if (queueInfos.size() >= graphicsQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, graphicsQueueCount);
 				}
 				else if (type == QueueType_Compute)
 				{
-					if (queueVector.size() >= computeQueueCount)
+					if (queueInfos.size() >= computeQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, computeQueueCount);
 				}
 				else if (type == QueueType_Transfer)
 				{
-					if (queueVector.size() >= transferQueueCount)
+					if (queueInfos.size() >= transferQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, transferQueueCount);
 				}
 
-				queueVector.reserve(queueVector.size() + queueCount);
+				queueInfos.reserve(queueInfos.size() + queueCount);
 
 				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 				{
-					queueVector.emplace_back(
-						rhi.device,
-						CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
-						QueueCreateDesc<Vk>{queueIt, queueFamilyIt});
+					queueInfos.emplace_back(std::make_pair(
+						Queue<Vk>(
+							rhi.device,
+							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
+							QueueCreateDesc<Vk>{queueIt, queueFamilyIt}),
+						QueueHostSyncInfo<Vk>{}));
 				}
 
 				break;
@@ -1267,8 +1266,8 @@ void RhiApplication::createDevice(const WindowState& window)
 	static_assert(textureId < ShaderTypes_GlobalTextureCount);
 	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
-		auto& graphicsQueue = graphicsQueues.front();
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 		graphicsQueue.reset();
 		
@@ -1319,7 +1318,7 @@ void RhiApplication::createDevice(const WindowState& window)
 			{graphicsSemaphore},
 			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
-		graphicsLastSubmit = graphicsQueue.submit();
+		graphicsSubmit = graphicsQueue.submit();
 	}
 
 	auto layoutHandle = rhi.pipeline->createLayout(shaderReflection);
@@ -1371,28 +1370,22 @@ RhiApplication::~RhiApplication()
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
-	auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
-
-	for (const auto& frame : rhi.window->frames())
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
-		if (auto timelineValue = frame.getPresentSyncInfo().maxTimelineValue; timelineValue)
-		{
-			ZoneScopedN("~RhiApplication()::waitGPU");
+		ZoneScopedN("~RhiApplication()::waitGraphics");
 
-			graphicsSemaphore.wait(frame.getPresentSyncInfo().maxTimelineValue);
-
-			for (auto& graphicsQueue : graphicsQueues)
-				graphicsQueue.processTimelineCallbacks(frame.getPresentSyncInfo().maxTimelineValue);
-		}
+		graphicsSemaphore.wait(graphicsSubmit.maxTimelineValue);
+		graphicsQueue.processTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
-	auto& [transferQueues, transferSemaphore, transferLastSubmit] = rhi.queues[QueueType_Transfer];
-	for (auto& transferQueue : transferQueues)
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	for (auto& [transferQueue, transferSubmit] : transferQueueInfos)	
 	{
-		ZoneScopedN("~RhiApplication()U");
+		ZoneScopedN("~RhiApplication()::waitTransfer");
 
-		transferSemaphore.wait(transferLastSubmit.maxTimelineValue);
-		transferQueue.processTimelineCallbacks(transferLastSubmit.maxTimelineValue);
+		transferSemaphore.wait(transferSubmit.maxTimelineValue);
+		transferQueue.processTimelineCallbacks(transferSubmit.maxTimelineValue);
 	}
 
 	shutdownIMGUI();
@@ -1451,16 +1444,13 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 
 	auto& rhi = internalRhi<Vk>();
 
-	auto& [graphicsQueues, graphicsSemaphore, graphicsLastSubmit] = rhi.queues[QueueType_Graphics];
-
-	for (const auto& frame : rhi.window->frames())
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
-		if (auto timelineValue = frame.getPresentSyncInfo().maxTimelineValue; timelineValue)
-		{
-			ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGPU");
+		ZoneScopedN("RhiApplication::onResizeFramebuffer::waitGraphics");
 
-			graphicsSemaphore.wait(frame.getPresentSyncInfo().maxTimelineValue);
-		}
+		graphicsSemaphore.wait(graphicsSubmit.maxTimelineValue);
+		graphicsQueue.processTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
 	auto physicalDevice = rhi.device->getPhysicalDevice();

@@ -72,11 +72,10 @@ public:
 	auto getSurface() const noexcept { return mySurface; }
 	
 	std::tuple<bool, uint32_t, uint32_t> flip();
-	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& syncInfo);
+	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
-	auto& frames() noexcept { return myFrames; }
-	const auto& frames() const noexcept { return myFrames; }
-	
+	auto& getFrames() noexcept { return myFrames; }
+	const auto& getFrames() const noexcept { return myFrames; }
 	auto getCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
 protected:

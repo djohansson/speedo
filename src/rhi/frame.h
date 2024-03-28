@@ -37,14 +37,12 @@ public:
 	virtual void transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
 	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
-	const auto& getPresentSyncInfo() const noexcept { return myPresentSyncInfo; }
+	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
-	QueuePresentInfo<G> preparePresent(QueueHostSyncInfo<G>&& hostSyncInfo);
-
-	auto& fence() noexcept { return myFence; }
+	auto& getFence() noexcept { return myFence; }
+	const auto& getFence() const noexcept { return myFence; }
 
 private:
 	Fence<G> myFence{};
 	ImageLayout<G> myImageLayout{};
-	QueueHostSyncInfo<G> myPresentSyncInfo{};
 };
