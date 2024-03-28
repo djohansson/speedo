@@ -169,9 +169,9 @@ using QueueGroup = std::tuple<std::vector<Queue<G>>, Semaphore<G>, QueueHostSync
 		auto tag##__scope =														\
 			queue.gpuScope<														\
 				SourceLocationData{												\
-					.name = string_literal<#tag>().data(),						\
-					.function = string_literal<__PRETTY_FUNCTION__>().data(),	\
-					.file = string_literal<__FILE__>().data(),					\
+					.name = std_extra::make_string_literal<#tag>().data(),						\
+					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(),	\
+					.file = std_extra::make_string_literal<__FILE__>().data(),					\
 					.line = __LINE__}>(cmd);
 #	define GPU_SCOPE_COLLECT(cmd, queue) { queue.gpuScopeCollect(cmd); }
 #else

@@ -36,8 +36,8 @@ public:
 		typename C = std::decay_t<F>,
 		typename ArgsTuple = std::tuple<Args...>,
 		typename ParamsTuple = std::tuple<Params...>,
-		typename R = apply_result_t<C, tuple_cat_t<ArgsTuple, ParamsTuple>>>
-	requires applicable<C, tuple_cat_t<ArgsTuple, ParamsTuple>>
+		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
+	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 	std::pair<TaskHandle, Future<R>> createTask(F&& f, Args&&... args);
 
 	// wait for task to finish while helping out processing the thread pools ready queue

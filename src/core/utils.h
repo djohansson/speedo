@@ -28,8 +28,6 @@
 
 #include <mio/mmap.hpp>
 
-
-
 class Noncopyable
 {
 public:
@@ -288,16 +286,19 @@ public:
 	}
 };
 
-template <size_t N>
-struct StringLiteral
+namespace std_extra
 {
-	consteval StringLiteral(const char (&str)[N]) { std::copy_n(str, N, value); }
+
+template <size_t N>
+struct string_literal
+{
+	consteval string_literal(const char (&str)[N]) { std::copy_n(str, N, value); }
 
 	char value[N];
 };
 
-template <StringLiteral S>
-consteval std::string_view string_literal()
+template <string_literal S>
+consteval std::string_view make_string_literal()
 {
 	return S.value;
 }
@@ -340,5 +341,7 @@ template <class F, class Tuple>
 constexpr apply_result_t<F, Tuple> apply(F&& f, Tuple&& t) noexcept
 {
 	return apply_impl(std::forward<F>(f), std::forward<Tuple>(t), std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
+}
+
 }
 

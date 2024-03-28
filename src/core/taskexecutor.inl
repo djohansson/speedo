@@ -25,7 +25,7 @@ std::optional<typename Future<R>::value_t> TaskExecutor::processReadyQueue(Futur
 }
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
-requires applicable<C, tuple_cat_t<ArgsTuple, ParamsTuple>>
+requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 std::pair<TaskHandle, Future<R>> TaskExecutor::createTask(F&& f, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::createTask");
