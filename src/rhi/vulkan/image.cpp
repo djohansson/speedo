@@ -387,6 +387,13 @@ void Image<Vk>::clear(
 }
 
 template <>
+Image<Vk>::Image(Image&& other) noexcept
+	: DeviceObject(std::forward<Image>(other))
+	, myDesc(std::exchange(other.myDesc, {}))
+	, myImage(std::exchange(other.myImage, {}))
+{}
+
+template <>
 Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&& desc, ValueType&& data)
 	: DeviceObject(
