@@ -112,11 +112,13 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 		auto& [queues, semaphore, lastSubmit] = rhi.queues[QueueType_Graphics];
 		auto& queue = queues.at(frameIndex);
 
-		auto cmd = queue.commands();
+		{
+			auto cmd = queue.commands();
+			
+			GPU_SCOPE(cmd, queue, transition);
 
-		image.transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		cmd.end();
+			image.transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
 
 		queue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 			{waitSemaphore},
