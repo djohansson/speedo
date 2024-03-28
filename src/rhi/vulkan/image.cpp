@@ -420,7 +420,7 @@ Image<Vk>::Image(
 		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  std::tuple_cat(
 			  image::createImage2D(
-				  queue.commands(),
+				  queue.getPool().commands(),
 				  device->getAllocator(),
 				  std::get<1>(descAndInitialData),
 				  std::get<0>(descAndInitialData)),

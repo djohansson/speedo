@@ -11,6 +11,9 @@
 #include <utility>
 
 template <GraphicsApi G>
+class Queue;
+
+template <GraphicsApi G>
 struct CommandBufferArrayCreateDesc
 {
 	CommandPoolHandle<G> pool{};
@@ -146,7 +149,7 @@ public:
 	CommandPool& operator=(CommandPool&& other) noexcept;
 	operator auto() const noexcept { return myPool; }
 
-	const auto& getPoolDesc() const noexcept { return myDesc; }
+	const auto& getDesc() const noexcept { return myDesc; }
 
 	void swap(CommandPool& rhs) noexcept;
 	friend void swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.swap(rhs); }
@@ -155,7 +158,13 @@ public:
 
 	CommandBufferAccessScope<G> commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
 
-protected:
+private:
+	friend class Queue<G>;
+
+	CommandPool(
+		const std::shared_ptr<Device<G>>& device,
+		std::tuple<CommandPoolCreateDesc<G>, CommandPoolHandle<G>>&& descAndData);
+
 	CommandBufferAccessScope<G> internalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
 	CommandBufferAccessScope<G> internalCommands(const CommandBufferAccessScopeDesc<G>& beginInfo) const;
 	void internalEndCommands(uint8_t level);
@@ -167,11 +176,6 @@ protected:
 
 	auto& internalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
 	const auto& internalGetSubmittedCommands() const noexcept { return mySubmittedCommands; }
-
-private:
-	CommandPool(
-		const std::shared_ptr<Device<G>>& device,
-		std::tuple<CommandPoolCreateDesc<G>, CommandPoolHandle<G>>&& descAndData);
 
 	CommandPoolCreateDesc<G> myDesc{};
 	CommandPoolHandle<G> myPool{};

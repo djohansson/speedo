@@ -96,7 +96,7 @@ struct SourceLocationData
 };
 
 template <GraphicsApi G>
-class Queue final : public CommandPool<G>
+class Queue final : public DeviceObject<G>
 {
 	using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
 
@@ -133,6 +133,9 @@ public:
 	void addTimelineCallback(TimelineCallback&& callback);
 	bool processTimelineCallbacks(uint64_t timelineValue);
 
+	auto& getPool() noexcept { return myPool; }
+	const auto& getPool() const noexcept { return myPool; }
+
 #if PROFILING_ENABLED
 	template <SourceLocationData Location>
 	inline std::shared_ptr<void> gpuScope(CommandBufferHandle<G> cmd);
@@ -154,6 +157,7 @@ private:
 
 	QueueCreateDesc<G> myDesc{};
 	QueueHandle<G> myQueue{};
+	CommandPool<G> myPool;
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;

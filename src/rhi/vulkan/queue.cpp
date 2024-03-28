@@ -42,9 +42,15 @@ Queue<Vk>::Queue(
 	const std::shared_ptr<Device<Vk>>& device,
 	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
 	std::tuple<QueueCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
-	: CommandPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
+	: DeviceObject(
+		  device,
+		  {"_Queue"},
+		  1,
+		  VK_OBJECT_TYPE_QUEUE,
+		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
 	, myDesc(std::forward<QueueCreateDesc<Vk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
+	, myPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
 {
 	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
 	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);
@@ -60,7 +66,7 @@ Queue<Vk>::Queue(
 			device->getPhysicalDevice(),
 			*device,
 			myQueue,
-			commands(CommandBufferAccessScopeDesc<Vk>(false)),
+			myPool.commands(CommandBufferAccessScopeDesc<Vk>(false)),
 			nullptr,
 			nullptr)};
 	}
@@ -87,9 +93,10 @@ Queue<Vk>::Queue(
 
 template <>
 Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
-	: CommandPool(std::forward<CommandPool>(other))
+	: DeviceObject(std::forward<Queue<Vk>>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myQueue(std::exchange(other.myQueue, {}))
+	, myPool(std::exchange(other.myPool, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
 	, myUserData(std::exchange(other.myUserData, {}))
@@ -105,7 +112,7 @@ Queue<Vk>::~Queue()
 		tracy::DestroyVkContext(userData->tracyContext);
 #endif
 	
-	for (auto& submittedCommandList : internalGetSubmittedCommands())
+	for (auto& submittedCommandList : myPool.internalGetSubmittedCommands())
 	{
 		if (!submittedCommandList.empty())
 		{
@@ -121,9 +128,10 @@ Queue<Vk>::~Queue()
 template <>
 Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 {
-	CommandPool::operator=(std::forward<CommandPool>(other));
+	DeviceObject::operator=(std::forward<Queue<Vk>>(other));
 	myDesc = std::exchange(other.myDesc, {});
 	myQueue = std::exchange(other.myQueue, {});
+	myPool = std::exchange(other.myPool, {});
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
 	myScratchMemory = std::exchange(other.myScratchMemory, {});
 	myUserData = std::exchange(other.myUserData, {});
@@ -134,9 +142,10 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 template <>
 void Queue<Vk>::swap(Queue& other) noexcept
 {
-	CommandPool::swap(other);
+	DeviceObject::swap(other);
 	std::swap(myDesc, other.myDesc);
 	std::swap(myQueue, other.myQueue);
+	std::swap(myPool, other.myPool);
 	std::swap(myPendingSubmits, other.myPendingSubmits);
 	std::swap(myScratchMemory, other.myScratchMemory);
 	std::swap(myUserData, other.myUserData);
@@ -278,9 +287,9 @@ QueueSubmitInfo<Vk> Queue<Vk>::internalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& s
 {
 	ZoneScopedN("Queue::prepareSubmit");
 
-	internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	myPool.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
-	auto& pendingCommands = internalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
+	auto& pendingCommands = myPool.internalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
 	if (pendingCommands.empty())
 		return {};
@@ -300,7 +309,7 @@ QueueSubmitInfo<Vk> Queue<Vk>::internalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& s
 
 	submitInfo.timelineValue = *maxSignalValue;
 
-	internalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
+	myPool.internalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
 	
 	return submitInfo;
 }
@@ -310,12 +319,12 @@ void Queue<Vk>::execute(uint8_t level, uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::execute");
 
-	internalEndCommands(level);
+	myPool.internalEndCommands(level);
 
-	auto& pendingCommands = internalGetPendingCommands()[level];
+	auto& pendingCommands = myPool.internalGetPendingCommands()[level];
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
-		vkCmdExecuteCommands(commands(), cmdArray.head(), cmdArray.data());
+		vkCmdExecuteCommands(myPool.commands(), cmdArray.head(), cmdArray.data());
 
-	internalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
+	myPool.internalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
 }

@@ -50,7 +50,7 @@ Buffer<Vk>::Buffer(
 		  device,
 		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  createBuffer(
-			  queue.commands(),
+			  queue.getPool().commands(),
 			  device->getAllocator(),
 			  std::get<1>(descAndInitialData),
 			  std::get<0>(descAndInitialData).size,

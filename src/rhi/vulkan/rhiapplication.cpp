@@ -54,8 +54,6 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
-	transferQueue.reset();
-
 	rhi.pipeline->setModel(
 		std::make_shared<Model<Vk>>(
 			rhi.device,
@@ -79,8 +77,6 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
-
-	transferQueue.reset();
 
 	rhi.pipeline->resources().image =
 		std::make_shared<Image<Vk>>(
@@ -113,7 +109,7 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(frameIndex);
 
 		{
-			auto cmd = graphicsQueue.commands();
+			auto cmd = graphicsQueue.getPool().commands();
 
 			GPU_SCOPE(cmd, graphicsQueue, transition);
 
@@ -768,7 +764,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 			graphicsQueue.processTimelineCallbacks(timelineValue);
 		}
 		
-		graphicsQueue.reset();
+		graphicsQueue.getPool().reset();
 
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
@@ -778,7 +774,7 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 			executor.call(drawCall, newFrameIndex);
 		}
 
-		auto cmd = graphicsQueue.commands();
+		auto cmd = graphicsQueue.getPool().commands();
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
@@ -1268,10 +1264,8 @@ void RhiApplication::createDevice(const WindowState& window)
 	{
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
-
-		graphicsQueue.reset();
 		
-		auto cmd = graphicsQueue.commands();
+		auto cmd = graphicsQueue.getPool().commands();
 
 		rhi.pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		rhi.pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});

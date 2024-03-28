@@ -95,7 +95,7 @@ uint32_t Window<Vk>::internalDrawViews(
 	{
 		ZoneScopedN("Window::drawViews");
 
-		drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queue.getPoolDesc().levelCount - 1));
+		drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queue.getPool().getDesc().levelCount - 1));
 
 		std::array<uint32_t, 128> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
@@ -134,7 +134,7 @@ uint32_t Window<Vk>::internalDrawViews(
 				beginInfo.pInheritanceInfo = &inheritInfo;
 				beginInfo.level = threadIt + 1;
 
-				auto cmd = queue.commands(beginInfo);
+				auto cmd = queue.getPool().commands(beginInfo);
 
 				auto bindState = [&pipeline](VkCommandBuffer cmd)
 				{
