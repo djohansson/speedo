@@ -48,7 +48,7 @@ bool Future<T>::is_ready() const noexcept
 {
 	assertf(valid(), "Future is not valid!");
 
-	return myState->latch.load(std::memory_order_acquire) == 0;
+	return myState->latch.load(std::memory_order_relaxed) == 0;
 }
 
 template <typename T>
@@ -62,13 +62,6 @@ void Future<T>::wait() const
 {
 	assertf(valid(), "Future is not valid!");
 
-	while (true)
-	{
-		auto current = myState->latch.load(std::memory_order_acquire);
-
-		if (current == 0)
-			return;
-
-		myState->latch.wait(current, std::memory_order_acq_rel);
-	}
+	while (auto current = myState->latch.load(std::memory_order_relaxed))
+		myState->latch.wait(current, std::memory_order_acquire);
 }

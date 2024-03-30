@@ -48,7 +48,7 @@ void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation
 		bState.isContinuation = true;
 
 	aState.adjacencies.emplace_back(b);
-	bState.latch.fetch_add(1, std::memory_order_release);
+	bState.latch.fetch_add(1, std::memory_order_relaxed);
 }
 
 Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
@@ -69,7 +69,7 @@ void TaskExecutor::internalSubmit(TaskHandle handle)
 
 	Task& task = *handleToTaskPtr(handle);
 
-	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(handle);
 
@@ -83,7 +83,7 @@ void TaskExecutor::internalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 
 	Task& task = *handleToTaskPtr(handle);
 
-	assert(task.state()->latch.load(std::memory_order_acquire) == 1);
+	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(readyProducerToken, handle);
 
@@ -97,7 +97,7 @@ void TaskExecutor::internalTryDelete(TaskHandle handle)
 
 	Task& task = *handleToTaskPtr(handle);
 
-	if (task.state()->latch.load(std::memory_order_acquire) == 0)
+	if (task.state()->latch.load(std::memory_order_relaxed) == 0)
 	{
 		task.~Task();
 		ourTaskPool.free(handle);
@@ -120,7 +120,7 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 		assertf(adjacent.state(), "Task has no return state!");
 		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			internalSubmit(readyProducerToken, adjacentHandle);
 			adjacentHandle = {};
@@ -144,7 +144,7 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 		assertf(adjacent.state(), "Task has no return state!");
 		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_acquire) - 1 == 1)
+		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			internalSubmit(adjacentHandle);
 			adjacentHandle = {};
