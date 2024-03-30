@@ -24,9 +24,8 @@
 namespace rhiapplication
 {
 
-static volatile bool g_requestExit = false;
 static UpgradableSharedMutex g_drawMutex{};
-static std::pair<TaskHandle, Future<void>> g_prevDraw{};
+static std::pair<TaskHandle, Future<void>> g_drawTask{};
 static std::filesystem::path g_rootPath{};
 static std::filesystem::path g_resourcePath{};
 static std::filesystem::path g_userProfilePath{};
@@ -554,7 +553,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			// }
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
-				g_requestExit = true;
+				Application::instance().lock()->requestExit();
 
 			ImGui::EndMenu();
 		}
@@ -723,19 +722,21 @@ static void shutdownIMGUI()
 
 void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 {
+	if (auto app = Application::instance().lock(); !app || app->exitRequested())
+		return;
+
 	std::unique_lock lock(g_drawMutex);
 
-	if (!g_requestExit)
+	FrameMark;
+	ZoneScopedN("rhi::draw");
+
+	// todo: move to own function?
 	{
 		auto drawPair = executor.createTask(draw, rhi, executor);
 		auto& [drawTask, drawFuture] = drawPair;
-		executor.addDependency(g_prevDraw.first, drawTask, true);
-		g_prevDraw = drawPair;
+		executor.addDependency(g_drawTask.first, drawTask, true);
+		g_drawTask = drawPair;
 	}
-
-	FrameMark;
-
-	ZoneScopedN("rhi::draw");
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
@@ -1182,7 +1183,7 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 
 	auto drawPair = executor.createTask(draw, rhi, executor);
 	auto& [drawTask, drawFuture] = drawPair;
-	g_prevDraw = drawPair;
+	g_drawTask = drawPair;
 	executor.submit(drawTask);
 
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
@@ -1357,8 +1358,11 @@ RhiApplication::~RhiApplication()
 
 	ZoneScopedN("~RhiApplication()");
 
-	g_requestExit = true;
-	g_prevDraw = {};
+	auto& executor = internalExecutor();
+
+	executor.join(std::move(g_drawTask.second));
+
+	g_drawTask = {};
 
 	auto& rhi = internalRhi<Vk>();
 	auto device = rhi.device;
@@ -1388,12 +1392,6 @@ RhiApplication::~RhiApplication()
 
 	assert(device.use_count() == 1);
 	assert(instance.use_count() == 2);
-
-#ifdef TRACY_ENABLE
-	tracy::GetProfiler().RequestShutdown();
-	while (!tracy::GetProfiler().HasShutdownFinished())
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-#endif
 }
 
 void RhiApplication::onMouse(const MouseState& mouse)
@@ -1406,7 +1404,7 @@ void RhiApplication::onKeyboard(const KeyboardState& keyboard)
 	internalRhi<Vk>().window->onKeyboard(keyboard);
 }
 
-bool RhiApplication::tick()
+void RhiApplication::tick()
 {
 	using namespace rhiapplication;
 
@@ -1424,8 +1422,6 @@ bool RhiApplication::tick()
 
 		executor.call(mainCall);
 	}
-	
-	return !g_requestExit;
 }
 
 void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)

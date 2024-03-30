@@ -25,7 +25,7 @@ class RhiApplication : public Application
 public:
 	~RhiApplication() override;
 
-	bool tick() override;
+	void tick() override;
 
 	void onResizeWindow(const WindowState& window);
 	void onResizeFramebuffer(uint32_t width, uint32_t height);

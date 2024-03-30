@@ -32,48 +32,11 @@ public:
 		std::cout << "Client shutting down, goodbye." << std::endl;
 	}
 
-	bool tick() override
+	void tick() override
 	{
 		ZoneScopedN("Client::tick");
 
-		{
-			ZoneScopedN("Client::tick::rpc");
-
-			zpp::bits::in in{myResponseData};
-			zpp::bits::out out{myRequestData};
-
-			server::rpc::client client{in, out};
-
-			if (auto result = client.request<"say"_sha256_int>("hello"s); failure(result))
-			{
-				std::cerr << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
-			
-				return false;
-			}
-
-			if (auto sendResult = mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
-			{
-				std::cerr << "mySocket.send() failed" << std::endl;
-			
-				return false;
-			}
-			
-			if (auto recvResult = mySocket.recv(zmq::buffer(myResponseData), zmq::recv_flags::none))
-			{
-				auto result = client.response<"say"_sha256_int>();
-				
-				if (failure(result))
-				{
-					std::cerr << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
-				
-					return false;
-				}
-
-				std::cout << "say(\"hello\") returned: " << result.value() << std::endl;
-			}
-		}
-
-		return RhiApplication::tick();
+		RhiApplication::tick();
 	}
 
 protected:
@@ -92,8 +55,6 @@ protected:
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
-	std::array<std::byte, 64> myResponseData;
-	std::array<std::byte, 64> myRequestData;
 };
 
 static std::shared_ptr<Client> s_application{};
@@ -143,7 +104,9 @@ bool client_tick()
 
 	assert(s_application);
 
-	return s_application->tick();
+	s_application->tick();
+
+	return !s_application->exitRequested();
 }
 
 void client_resizeWindow(const WindowState* state)

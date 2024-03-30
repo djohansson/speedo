@@ -11,7 +11,6 @@
 #include <memory>
 #include <string_view>
 #include <system_error>
-#include <thread>
 
 namespace server
 {
@@ -42,48 +41,13 @@ public:
 		std::cout << "Server shutting down, goodbye." << std::endl;
 	}
 
-	bool tick() override
+	void tick() override
 	{
-		auto frameStart = std::chrono::steady_clock::now();
-
-		FrameMark;
-		
-		ZoneScopedN("Server::tick");
-
-		{
-			ZoneScopedN("Server::tick::rpc");
-
-			zpp::bits::in in{myRequestData};
-			zpp::bits::out out{myResponseData};
-
-			server::rpc::server server{in, out};
-
-			if (auto recvResult = mySocket.recv(zmq::buffer(myRequestData), zmq::recv_flags::dontwait))
-			{
-				if (auto result = server.serve(); failure(result))
-				{
-					std::cerr << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
-				
-					return false;
-				}
-
-				if (auto sendResult = mySocket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
-				{
-					std::cerr << "mySocket.send() failed" << std::endl;
-				
-					return false;
-				}
-			}
-		}
-
-		auto timeElapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - frameStart);
-
-		if (timeElapsed < 16666us)
-			std::this_thread::sleep_for(16666us - timeElapsed);
-
-		std::cout << "Server::tick() time (us):" << timeElapsed.count() << std::endl;
-
-		return true;
+		std::cout << "Press q to quit: ";
+		char input;
+		std::cin >> input;
+		if (input == 'q')
+			requestExit();
 	}
 
 protected:
@@ -103,8 +67,6 @@ protected:
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
-	std::array<std::byte, 64> myRequestData;
-	std::array<std::byte, 64> myResponseData;
 };
 
 static std::shared_ptr<Server> s_application{};
@@ -150,7 +112,9 @@ bool server_tick()
 
 	assert(s_application);
 
-	return s_application->tick();
+	s_application->tick();
+
+	return !s_application->exitRequested();
 }
 
 void server_destroy()

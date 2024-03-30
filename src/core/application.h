@@ -27,7 +27,7 @@ class Application : public Noncopyable, Nonmovable
 public:
 	virtual ~Application() = default;
 
-	virtual bool tick() = 0;
+	virtual void tick() = 0;
 
 	template <typename T, typename... Args>
 	static std::shared_ptr<T> create(Args&&... args)
@@ -53,6 +53,9 @@ public:
 
 	static auto& instance() noexcept { return theApplication; }
 
+	void requestExit() noexcept { myExitRequested = true; }
+	bool exitRequested() const noexcept { return myExitRequested; }
+
 protected:
 	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
@@ -64,4 +67,5 @@ private:
 	std::string myName;
 	Environment myEnvironment;
 	std::unique_ptr<TaskExecutor> myExecutor{};
+	bool myExitRequested = false;
 };
