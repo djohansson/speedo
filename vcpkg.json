@@ -4,7 +4,12 @@
     "catch2",
     "cargs",
     "concurrentqueue",
-    "cppzmq",
+    {
+      "name": "cppzmq",
+      "features": [
+        "draft"
+      ]
+    },
     "fastbuild",
     "glaze",
     "mimalloc",

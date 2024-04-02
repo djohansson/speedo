@@ -10,6 +10,6 @@ namespace server
 std::string say(std::string s);
 
 using namespace zpp::bits::literals;
-using rpc = zpp::bits::rpc<zpp::bits::bind<server::say, "say"_sha256_int>>;
+using rpc_say = zpp::bits::rpc<zpp::bits::bind<server::say, "say"_sha256_int>>;
 
 }

@@ -4,6 +4,7 @@
 #include <server/rpc.h>
 
 #include <zmq.hpp>
+#include <zmq_addon.hpp>
 
 #include <array>
 #include <cassert>
@@ -18,12 +19,88 @@ namespace client
 using namespace std::literals;
 using namespace zpp::bits::literals;
 
+static std::pair<TaskHandle, Future<void>> g_rpcTask{};
+
+void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& poller)
+{
+	ZoneScopedN("client::rpc");
+
+	auto app = Application::instance().lock();
+
+	if (!app || app->exitRequested())
+		return;
+
+	// todo: move to own function?
+	{
+		auto rpcPair = executor.createTask(rpc, executor, socket, poller);
+		auto& [rpcTask, rpcFuture] = rpcPair;
+		executor.addDependency(g_rpcTask.first, rpcTask, true);
+		g_rpcTask = rpcPair;
+	}
+
+	try
+	{
+		std::array<std::byte, 64> responseData;
+		std::array<std::byte, 64> requestData;
+
+		zpp::bits::in in{responseData};
+		zpp::bits::out out{requestData};
+
+		server::rpc_say::client client{in, out};
+
+		if (auto result = client.request<"say"_sha256_int>("hello"s); failure(result))
+			std::cerr << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
+		
+		if (auto sendResult = socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
+			std::cerr << "socket.send() failed" << std::endl;
+
+		static constexpr std::chrono::milliseconds timeout{1};
+		if (auto socketCount = poller.wait(timeout))
+		{
+			//std::cout << "got " << socketCount << " sockets hit" << std::endl;
+		}
+		else
+		{
+			std::cout << "timeout" << std::endl;
+		}
+		
+		if (auto recvResult = socket.recv(zmq::buffer(responseData), zmq::recv_flags::none))
+		{
+			auto result = client.response<"say"_sha256_int>();
+			
+			if (failure(result))
+				std::cerr << "client.response() returned error code: " << std::make_error_code(result.error()).message() << std::endl;
+			
+			//std::cout << "say(\"hello\") returned: " << result.value() << std::endl;
+		}
+		else
+		{
+			std::cerr << "socket.recv() failed" << std::endl;
+		}
+	}
+	catch (zmq::error_t& error)
+	{
+		std::cerr << "zmq exception: " << error.what() << std::endl;
+		app->requestExit(); // todo: something less drastic.
+		return;
+	}
+	catch (...)
+	{
+		std::cerr << "unknown exception" << std::endl;
+		app->requestExit(); // todo: something less drastic.
+		return;
+	}
+}
+
 class Client : public RhiApplication
 {	
 public:
 	~Client()
 	{
 		ZoneScopedN("Client::~Client");
+
+		g_rpcTask.second.wait();
+		g_rpcTask = {};
 
 		mySocket.close();
 		myContext.shutdown();
@@ -49,12 +126,36 @@ protected:
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::req)
 	{
+		auto& executor = internalExecutor();
+
+		// auto toString = [](zmq::event_flags ef) -> std::string {
+		// 	std::string result;
+		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollin) != zmq::event_flags::none)
+		// 		result += "pollin ";
+		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollout) != zmq::event_flags::none)
+		// 		result += "pollout ";
+		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollerr) != zmq::event_flags::none)
+		// 		result += "pollerr ";
+		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollpri) != zmq::event_flags::none)
+		// 		result += "pollpri ";
+		// 	return result;
+		// };
+
 		mySocket.connect("tcp://localhost:5555");
+		myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
+			//std::cout << "socket flags: " << toString(ef) << std::endl;
+		});
+
+		auto rpcPair = executor.createTask(rpc, executor, mySocket, myPoller);
+		auto& [rpcTask, rpcFuture] = rpcPair;
+		g_rpcTask = rpcPair;
+		executor.submit(rpcTask);
 	}
 
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
+	zmq::active_poller_t myPoller;
 };
 
 static std::shared_ptr<Client> s_application{};

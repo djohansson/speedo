@@ -4,6 +4,7 @@
 #include <core/application.h>
 
 #include <zmq.hpp>
+#include <zmq_addon.hpp>
 
 #include <array>
 #include <cassert>
@@ -27,12 +28,85 @@ std::string say(std::string s)
 	return "nothing"s;
 }
 
+static std::pair<TaskHandle, Future<void>> g_rpcTask{};
+
+void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& poller)
+{
+	ZoneScopedN("server::rpc");
+
+	auto app = Application::instance().lock();
+
+	if (!app || app->exitRequested())
+		return;
+
+	// todo: move to own function?
+	{
+		auto rpcPair = executor.createTask(rpc, executor, socket, poller);
+		auto& [rpcTask, rpcFuture] = rpcPair;
+		executor.addDependency(g_rpcTask.first, rpcTask, true);
+		g_rpcTask = rpcPair;
+	}
+
+	try
+	{
+		std::array<std::byte, 64> requestData;
+		std::array<std::byte, 64> responseData;
+
+		zpp::bits::in in{requestData};
+		zpp::bits::out out{responseData};
+
+		server::rpc_say::server server{in, out};
+
+		static constexpr std::chrono::milliseconds timeout{1};
+		if (auto socketCount = poller.wait(timeout))
+		{
+			//std::cout << "got " << socketCount << " sockets hit" << std::endl;
+		}
+		else
+		{
+			std::cout << "timeout" << std::endl;
+		}
+
+		if (auto recvResult = /*inEvent.*/socket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
+		{
+			if (auto result = server.serve(); failure(result))
+				std::cerr << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
+			
+			// if (!outPoller.wait(outEvent, timeout))
+			// {
+			// 	std::cout << "output timeout, try again" << std::endl;
+			// 	return;
+			// }
+
+			if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
+				std::cerr << "socket.send() failed" << std::endl;
+		}
+	}
+	catch (zmq::error_t& error)
+	{
+		std::cerr << "zmq exception: " << error.what() << std::endl;
+		app->requestExit();
+		return;
+	}
+	catch (...)
+	{
+		std::cerr << "unknown exception" << std::endl;
+		app->requestExit();
+		return;
+	}
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
 class Server : public Application
 {	
 public:
 	~Server()
 	{
 		ZoneScopedN("Server::~Server");
+
+		g_rpcTask.second.wait();
+		g_rpcTask = {};
 
 		mySocket.close();
 		myContext.shutdown();
@@ -60,13 +134,24 @@ protected:
 		constexpr std::string_view cx_serverAddress = "tcp://*:5555"sv;
 
 		mySocket.bind(cx_serverAddress.data());
+		myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
+			//std::cout << "socket flags: " << toString(ef) << std::endl;
+		});
 			
 		std::cout << "Server listening on " << cx_serverAddress << std::endl;
+
+		auto& executor = internalExecutor();
+
+		auto rpcPair = executor.createTask(rpc, executor, mySocket, myPoller);
+		auto& [rpcTask, rpcFuture] = rpcPair;
+		g_rpcTask = rpcPair;
+		executor.submit(rpcTask);
 	}
 
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
+	zmq::active_poller_t myPoller;
 };
 
 static std::shared_ptr<Server> s_application{};
