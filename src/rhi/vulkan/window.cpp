@@ -1,6 +1,6 @@
 #include "../window.h"
 #include "../rhiapplication.h"
-#include "../shaders/shadertypes.h"
+#include "../shaders/capi.h"
 
 #include "utils.h"
 
@@ -215,10 +215,10 @@ uint32_t Window<Vk>::internalDrawViews(
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								uint16_t objectSetIndex = 0ui16;
-								uint16_t objectIndex = 666ui16;
+								uint16_t modelInstanceSetIndex = 0ui16;
+								uint16_t modelInstanceIndex = 666ui16;
 
-								pushConstants.objectId = (static_cast<uint32_t>(objectSetIndex) << ShaderTypes_ObjectIndexBits) | objectIndex;
+								pushConstants.objectId = (static_cast<uint32_t>(modelInstanceSetIndex) << ShaderTypes_ModelInstanceIndexBits) | modelInstanceIndex;
 
 								vkCmdPushConstants(
 									cmd,

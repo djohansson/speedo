@@ -1,4 +1,8 @@
-#include "shadertypes.h"
+module speedo;
+
+__include types;
+
+#include "capi.h"
 
 [[vk::binding(0, DescriptorSetCategory_Global)]]
 [[vk::push_constant]]
@@ -20,39 +24,11 @@ StructuredBuffer<ViewData> g_viewData[ShaderTypes_FrameCount];
 StructuredBuffer<MaterialData> g_materialData;
 
 [[vk::binding(0, DescriptorSetCategory_Object)]]
-StructuredBuffer<ObjectData> g_objectData[ShaderTypes_ObjectSetCount];
+StructuredBuffer<ModelInstance> g_modelInstance[ShaderTypes_ModelInstanceSetCount];
 
-struct InputStream
+VertexOutput vertexMain(InputStream input)
 {
-	float3 position : POSITION;
-	float3 normal : NORMAL;
-	float2 texCoord : TEXCOORD0;
-	float3 color : COLOR;
-	uint vertexId : SV_VertexID;
-};
-
-struct Interpolants
-{
-	float3 position;
-	float3 normal;
-	float2 texCoord;
-	float3 color;
-};
-
-struct VSOutput
-{
-	float4 hPos : SV_Position;
-	Interpolants data : Interpolants;
-};
-
-struct FSOutput
-{
-	float4 color : SV_Target;
-};
-
-VSOutput vertexMain(InputStream input)
-{
-	VSOutput output = (VSOutput)0;
+	VertexOutput output;
 
 	uint frameIndex = g_pushConstants.frameIndex;
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
@@ -63,10 +39,10 @@ VSOutput vertexMain(InputStream input)
 
 	uint objectId = g_pushConstants.objectId;
 
-	uint objectSetIndex = objectId >> ShaderTypes_ObjectIndexBits;
-	uint objectIndex = objectId & (ShaderTypes_ObjectCount - 1u);
+	uint objectSetIndex = objectId >> ShaderTypes_ModelInstanceIndexBits;
+	uint objectIndex = objectId & (ShaderTypes_ModelInstanceCount - 1u);
 
-	ObjectData object = g_objectData[objectSetIndex][objectIndex];
+	ModelInstance object = g_modelInstance[objectSetIndex][objectIndex];
 
 	float3 worldPosition = mul(object.modelTransform, float4(input.position, 1.0)).xyz;
 	float3 worldNormal = mul(object.inverseTransposeModelTransform, float4(input.normal, 0.0)).xyz;
@@ -80,9 +56,9 @@ VSOutput vertexMain(InputStream input)
 	return output;
 }
 
-FSOutput fragmentMain(Interpolants input : Interpolants)
+FragmentOutput fragmentMain(Interpolants input : Interpolants)
 {
-	FSOutput output = (FSOutput)0;
+	FragmentOutput output;
 
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
 

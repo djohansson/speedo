@@ -8,7 +8,7 @@
 #include "queue.h"
 #include "renderimageset.h"
 #include "semaphore.h"
-#include "shaders/shadertypes.h"
+#include "shaders/capi.h"
 #include "types.h"
 #include "window.h"
 #include "utils.h"

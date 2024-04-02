@@ -1,7 +1,7 @@
 #include "../pipeline.h"
 #include "../rhiapplication.h"
 
-#include "../shaders/shadertypes.h"
+#include "../shaders/capi.h"
 
 #include "utils.h"
 

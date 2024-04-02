@@ -1288,21 +1288,21 @@ void RhiApplication::createDevice(const WindowState& window)
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			materialData.get());
 
-		auto objectData = std::make_unique<ObjectData[]>(ShaderTypes_ObjectCount);
+		auto modelInstance = std::make_unique<ModelInstance[]>(ShaderTypes_ModelInstanceCount);
 		auto identityMatrix = glm::mat4x4(1.0f);
-		objectData[666].modelTransform = identityMatrix;
-		objectData[666].inverseTransposeModelTransform =
-			glm::transpose(glm::inverse(identityMatrix));
-		rhi.objects = std::make_unique<Buffer<Vk>[]>(ShaderTypes_ObjectSetCount);
+		modelInstance[666].modelTransform = identityMatrix;
+		modelInstance[666].inverseTransposeModelTransform =
+			glm::transpose(glm::inverse(modelInstance[666].modelTransform));
+		rhi.objects = std::make_unique<Buffer<Vk>[]>(ShaderTypes_ModelInstanceSetCount);
 		rhi.objects[0] = Buffer<Vk>(
 			rhi.device,
 			graphicsQueue,
 			1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
 			BufferCreateDesc<Vk>{
-				ShaderTypes_ObjectCount * sizeof(ObjectData),
+				ShaderTypes_ModelInstanceCount * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-			objectData.get());
+			modelInstance.get());
 
 		cmd.end();
 
@@ -1334,10 +1334,10 @@ void RhiApplication::createDevice(const WindowState& window)
 		DescriptorBufferInfo<Vk>{*rhi.materials, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_Material);
 
-	for (uint8_t i = 0; i < ShaderTypes_ObjectSetCount; i++)
+	for (uint8_t i = 0; i < ShaderTypes_ModelInstanceSetCount; i++)
 	{
 		rhi.pipeline->setDescriptorData(
-			"g_objectData",
+			"g_modelInstance",
 			DescriptorBufferInfo<Vk>{rhi.objects[i], 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_Object,
 			i);
