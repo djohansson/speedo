@@ -548,6 +548,11 @@ void Pipeline<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
 		static_cast<uint32_t>(model->getDesc().attributes.size());
 	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model->getDesc().attributes.data();
 
+	setDescriptorData(
+		"g_vertexBuffer",
+		DescriptorBufferInfo<Vk>{model->getVertexBuffer(), 0, VK_WHOLE_SIZE},
+		DescriptorSetCategory_GlobalBuffers);
+
 	myGraphicsState.resources.model = model;
 }
 

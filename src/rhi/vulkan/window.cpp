@@ -141,23 +141,24 @@ uint32_t Window<Vk>::internalDrawViews(
 					ZoneScopedN("bindState");
 
 					// bind descriptor sets
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalBuffers);
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Object);
+					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_ModelInstances);
 
 					// bind pipeline and vertex/index buffers
 					pipeline.bindPipelineAuto(cmd);
 
-					VkBuffer vertexBuffers[]{*pipeline.resources().model};
-					VkDeviceSize vertexOffsets[]{pipeline.resources().model->getVertexOffset()};
+					VkBuffer vertexBuffers[]{ pipeline.resources().model->getVertexBuffer() };
+					VkDeviceSize vertexOffsets[]{ 0 };
 
 					vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
 					vkCmdBindIndexBuffer(
 						cmd,
-						*pipeline.resources().model,
-						pipeline.resources().model->getIndexOffset(),
+						pipeline.resources().model->getIndexBuffer(),
+						0,
 						VK_INDEX_TYPE_UINT32);
 				};
 
@@ -215,10 +216,7 @@ uint32_t Window<Vk>::internalDrawViews(
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								uint16_t modelInstanceSetIndex = 0ui16;
-								uint16_t modelInstanceIndex = 666ui16;
-
-								pushConstants.objectId = (static_cast<uint32_t>(modelInstanceSetIndex) << ShaderTypes_ModelInstanceIndexBits) | modelInstanceIndex;
+								pushConstants.modelInstanceIndex = 666u;
 
 								vkCmdPushConstants(
 									cmd,

@@ -35,7 +35,7 @@ struct Rhi
 	std::shared_ptr<RenderImageSet<G>> renderImageSet;
 
 	std::unique_ptr<Buffer<G>> materials;
-	std::unique_ptr<Buffer<G>[]> objects;
+	std::unique_ptr<Buffer<G>> modelInstances;
 
 	ConcurrentQueue<TaskHandle> mainCalls; // queue with tasks that will be called once on main thread
 	ConcurrentQueue<TaskHandle> drawCalls; // queue with tasks that will be called once on draw thread/task

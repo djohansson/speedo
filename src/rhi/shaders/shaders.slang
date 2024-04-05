@@ -8,6 +8,9 @@ __include types;
 [[vk::push_constant]]
 ConstantBuffer<PushConstants> g_pushConstants;
 
+[[vk::binding(0, DescriptorSetCategory_GlobalBuffers)]]
+StructuredBuffer<Vertex_P3f_N3f_T03f_C03f> g_vertexBuffer;
+
 [[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
 Texture2D g_textures[ShaderTypes_GlobalTextureCount];
 
@@ -23,8 +26,24 @@ StructuredBuffer<ViewData> g_viewData[ShaderTypes_FrameCount];
 [[vk::binding(0, DescriptorSetCategory_Material)]]
 StructuredBuffer<MaterialData> g_materialData;
 
-[[vk::binding(0, DescriptorSetCategory_Object)]]
-StructuredBuffer<ModelInstance> g_modelInstance[ShaderTypes_ModelInstanceSetCount];
+[[vk::binding(0, DescriptorSetCategory_ModelInstances)]]
+StructuredBuffer<ModelInstance> g_modelInstances;
+
+struct InputStream : IInputStream
+{
+	Vertex_P3f_N3f_T03f_C03f vertex;
+	uint vertexId : SV_VertexID;
+};
+struct VertexOutput : IInterpolants
+{
+	Vertex_P3f_N3f_T03f_C03f vertex;
+	float4 hPos : SV_Position;
+};
+
+struct FragmentOutput
+{
+	float4 color : SV_Target;
+};
 
 VertexOutput vertexMain(InputStream input)
 {
@@ -37,27 +56,26 @@ VertexOutput vertexMain(InputStream input)
 
 	ViewData view = g_viewData[frameIndex][viewId];
 
-	uint objectId = g_pushConstants.objectId;
+	ModelInstance modelInstance = g_modelInstances[g_pushConstants.modelInstanceIndex];
 
-	uint objectSetIndex = objectId >> ShaderTypes_ModelInstanceIndexBits;
-	uint objectIndex = objectId & (ShaderTypes_ModelInstanceCount - 1u);
+	Vertex_P3f_N3f_T03f_C03f v = g_vertexBuffer[input.vertexId];
+	//Vertex_P3f_N3f_T03f_C03f v = input.vertex;
 
-	ModelInstance object = g_modelInstance[objectSetIndex][objectIndex];
-
-	float3 worldPosition = mul(object.modelTransform, float4(input.position, 1.0)).xyz;
-	float3 worldNormal = mul(object.inverseTransposeModelTransform, float4(input.normal, 0.0)).xyz;
+	float3 worldPosition = mul(modelInstance.modelTransform, float4(v.position, 1.0)).xyz;
+	float3 worldNormal = mul(modelInstance.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
 
 	output.hPos = mul(view.viewProjectionTransform, float4(worldPosition, 1.0));
-	output.data.position = worldPosition;
-	output.data.normal = worldNormal;
-	output.data.texCoord = input.texCoord;
-	output.data.color = input.color;
+	output.vertex.position = worldPosition;
+	output.vertex.normal = worldNormal;
+	output.vertex.texCoord = v.texCoord;
+	output.vertex.color = v.color;
 
 	return output;
 }
 
-FragmentOutput fragmentMain(Interpolants input : Interpolants)
+FragmentOutput fragmentMain(VertexOutput input)
 {
+	Vertex_P3f_N3f_T03f_C03f v = input.vertex;
 	FragmentOutput output;
 
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
@@ -76,21 +94,21 @@ FragmentOutput fragmentMain(Interpolants input : Interpolants)
 
 	const uint checkerScale = 2;
 	const float checkerScaleInv = 1.f / checkerScale;
-	float checkers = checkerScale * frac(checkerScaleInv * (floor(input.position.x) + floor(input.position.y) + floor(input.position.z)));
+	float checkers = checkerScale * frac(checkerScaleInv * (floor(v.position.x) + floor(v.position.y) + floor(v.position.z)));
 
-	float4 sample = texture.Sample(sampler, input.texCoord);
+	float4 sample = texture.Sample(sampler, v.texCoord);
 
 	output.color = 
 		lerp(
 			lerp(
 				lerp(
 					lerp(
-						float4(input.color, 1.0),
+						float4(v.color, 1.0),
 						material.color,
 						0.5),
 					float4(float3(checkers), 1.0),
 					0.2),
-				float4(input.normal, 1.0),
+				float4(v.normal, 1.0),
 				0.2),
 			sample,
 			sample.a);

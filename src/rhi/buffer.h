@@ -31,6 +31,15 @@ public:
 		uint64_t timelineValue,
 		BufferCreateDesc<G>&& desc,
 		const void* initialData);
+	Buffer( // takes ownership of provided buffer handle and allocation
+		const std::shared_ptr<Device<G>>& device,
+		BufferCreateDesc<G>&& desc,
+		ValueType&& buffer);
+	Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
+		const std::shared_ptr<Device<G>>& device,
+		Queue<G>& queue,
+		uint64_t timelineValue,
+		std::tuple<BufferCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
 	~Buffer();
 
 	Buffer& operator=(Buffer&& other) noexcept;
@@ -41,19 +50,6 @@ public:
 
 	const auto& getDesc() const noexcept { return myDesc; }
 	const auto& getBufferMemory() const noexcept { return std::get<1>(myBuffer); }
-
-protected:
-	Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
-		const std::shared_ptr<Device<G>>& device,
-		Queue<G>& queue,
-		uint64_t timelineValue,
-		std::tuple<BufferCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
-
-private:
-	Buffer( // takes ownership of provided buffer handle and allocation
-		const std::shared_ptr<Device<G>>& device,
-		BufferCreateDesc<G>&& desc,
-		ValueType&& buffer);
 
 	BufferCreateDesc<G> myDesc{};
 	ValueType myBuffer{};

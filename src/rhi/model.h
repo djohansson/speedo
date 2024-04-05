@@ -14,14 +14,13 @@ template <GraphicsApi G>
 struct ModelCreateDesc
 {
 	AABB3f aabb;
-	DeviceSize<G> indexBufferSize = 0;
-	DeviceSize<G> vertexBufferSize = 0;
 	uint32_t indexCount = 0;
+	uint32_t vertexCount = 0;
 	std::vector<VertexInputAttributeDescription<G>> attributes;
 };
 
 template <GraphicsApi G>
-class Model final : public Buffer<G>
+class Model final
 {
 public:
 	constexpr Model() noexcept = default;
@@ -39,16 +38,23 @@ public:
 
 	const auto& getDesc() const noexcept { return myDesc; }
 	const auto& getBindings() const noexcept { return myBindings; }
-	static constexpr auto getIndexOffset() { return 0; }
-	const auto& getVertexOffset() const noexcept { return myDesc.indexBufferSize; }
-
+	const auto& getIndexBuffer() { return myIndexBuffer; }
+	const auto& getVertexBuffer() { return myVertexBuffer; }
+	
 private:
 	Model( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,
 		uint64_t timelineValue,
-		std::tuple<ModelCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
+		std::tuple<
+			ModelCreateDesc<G>,
+			BufferHandle<G>,
+			AllocationHandle<G>,
+			BufferHandle<G>,
+			AllocationHandle<G>>&& descAndInitialData);
 
 	ModelCreateDesc<G> myDesc{};
+	Buffer<Vk> myIndexBuffer;
+	Buffer<Vk> myVertexBuffer;
 	std::vector<VertexInputBindingDescription<G>> myBindings;
 };

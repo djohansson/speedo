@@ -1,4 +1,5 @@
 #include "../model.h"
+#include "../shaders/capi.h"
 
 #include <core/file.h>
 #include <gfx/aabb.h>
@@ -25,7 +26,7 @@
 
 #include <zpp_bits.h>
 
-auto serialize(const ModelCreateDesc<Vk>&) -> zpp::bits::members<5>;
+auto serialize(const ModelCreateDesc<Vk>&) -> zpp::bits::members<4>;
 auto serialize(const AABB<float>&) -> zpp::bits::members<2>;
 
 namespace model
@@ -75,42 +76,67 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 	return {VertexInputBindingDescription<Vk>{0u, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
-std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
-	const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device)
+std::tuple<
+	ModelCreateDesc<Vk>,
+	BufferHandle<Vk>,
+	AllocationHandle<Vk>,
+	BufferHandle<Vk>,
+	AllocationHandle<Vk>>
+load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device)
 {
 	ZoneScopedN("model::load");
 
-	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData;
+	std::tuple<
+		ModelCreateDesc<Vk>,
+		BufferHandle<Vk>,
+		AllocationHandle<Vk>,
+		BufferHandle<Vk>,
+		AllocationHandle<Vk>> descAndInitialData;
 
-	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+	auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 
 	auto loadBin = [&descAndInitialData, &device](auto& in) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
-		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 		
 		if (auto result = in(desc); failure(result))
 			return std::make_error_code(result);
 
-		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
-
-		auto [locBufferHandle, locMemoryHandle] = createBuffer(
+		auto [locIbHandle, locIbMemHandle] = createBuffer(
 			device->getAllocator(),
-			size,
+			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		void* data;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-		auto result = in(std::span(static_cast<char*>(data), size));
-		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
-		if (failure(result))
-			return std::make_error_code(result);
+		void* ibData;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locIbMemHandle, &ibData));
+		auto ibResult = in(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
+		vmaUnmapMemory(device->getAllocator(), locIbMemHandle);
+		if (failure(ibResult))
+			return std::make_error_code(ibResult);
 
-		bufferHandle = locBufferHandle;
-		memoryHandle = locMemoryHandle;
+		ibHandle = locIbHandle;
+		ibMemHandle = locIbMemHandle;
+
+		auto [locVbHandle, locVbMemHandle] = createBuffer(
+			device->getAllocator(),
+			desc.vertexCount * sizeof(Vertex_P3f_N3f_T03f_C03f),
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			"todo_insert_proper_name");
+
+		void* vbData;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locVbMemHandle, &vbData));
+		auto vbResult = in(std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(Vertex_P3f_N3f_T03f_C03f)));
+		vmaUnmapMemory(device->getAllocator(), locVbMemHandle);
+		if (failure(vbResult))
+			return std::make_error_code(vbResult);
+
+		vbHandle = locVbHandle;
+		vbMemHandle = locVbMemHandle;
 
 		return {};
 	};
@@ -119,19 +145,24 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	{
 		ZoneScopedN("model::saveBin");
 
-		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 		
 		if (auto result = out(desc); failure(result))
 			return std::make_error_code(result);
 
-		size_t size = desc.indexBufferSize + desc.vertexBufferSize;
+		void* ibData;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), ibMemHandle, &ibData));
+		auto ibResult = out(std::span(static_cast<const char*>(ibData), desc.indexCount * sizeof(uint32_t)));
+		vmaUnmapMemory(device->getAllocator(), ibMemHandle);
+		if (failure(ibResult))
+			return std::make_error_code(ibResult);
 
-		void* data;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
-		auto result = out(std::span(static_cast<const char*>(data), size));
-		vmaUnmapMemory(device->getAllocator(), memoryHandle);
-		if (failure(result))
-			return std::make_error_code(result);
+		void* vbData;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), vbMemHandle, &vbData));
+		auto vbResult = out(std::span(static_cast<const char*>(vbData), desc.vertexCount * sizeof(Vertex_P3f_N3f_T03f_C03f)));
+		vmaUnmapMemory(device->getAllocator(), vbMemHandle);
+		if (failure(vbResult))
+			return std::make_error_code(vbResult);
 
 		return {};
 	};
@@ -140,96 +171,64 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 	{
 		ZoneScopedN("model::loadOBJ");
 
-		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-		using namespace tinyobj_opt;
-#else
+		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
+
 		using namespace tinyobj;
-#endif
 		attrib_t attrib;
 		std::vector<shape_t> shapes;
 		std::vector<material_t> materials;
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-		std::streambuf* raw_buffer = stream.rdbuf();
-		std::streamsize bufferSize = stream.gcount();
-		std::unique_ptr<char[]> buffer = std::make_unique<char[]>(bufferSize);
-		raw_buffer->sgetn(buffer.get(), bufferSize);
-		LoadOption option;
-		if (!parseObj(&attrib, &shapes, &materials, buffer.get(), bufferSize, option))
-			throw std::runtime_error("Failed to load model.");
-#else
 		std::string warn, err;
 		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()))
 			throw std::runtime_error(err);
-#endif
 
 		uint32_t indexCount = 0;
 		for (const auto& shape : shapes)
-		{
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-			for (uint32_t faceOffset = shape.face_offset;
-				 faceOffset < (shape.face_offset + shape.length);
-				 faceOffset++)
-				indexCount += attrib.face_num_verts[faceOffset];
-#else
 			indexCount += shape.mesh.indices.size();
-#endif
-		}
-
-		uint32_t offset = 0;
-
-		uint32_t posOffset = offset;
 
 		if (!attrib.vertices.empty())
 		{
-			constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
-
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
-
-			offset += getFormatSize(format);
+				VertexInputAttributeDescription<Vk>{
+					static_cast<uint32_t>(desc.attributes.size()),
+					0,
+					VK_FORMAT_R32G32B32_SFLOAT,
+					offsetof(Vertex_P3f_N3f_T03f_C03f, position)});
 		}
-
-		size_t normalOffset = offset;
 
 		if (!attrib.normals.empty())
 		{
-			constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
-
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
-
-			offset += getFormatSize(format);
+				VertexInputAttributeDescription<Vk>{
+					static_cast<uint32_t>(desc.attributes.size()),
+					0, 
+					VK_FORMAT_R32G32B32_SFLOAT,
+					offsetof(Vertex_P3f_N3f_T03f_C03f, normal)});
 		}
-
-		size_t texCoordOffset = offset;
 
 		if (!attrib.texcoords.empty())
 		{
-			constexpr VkFormat format = VK_FORMAT_R32G32_SFLOAT;
-
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
-
-			offset += getFormatSize(format);
+				VertexInputAttributeDescription<Vk>{
+					static_cast<uint32_t>(desc.attributes.size()),
+					0,
+					VK_FORMAT_R32G32_SFLOAT,
+					offsetof(Vertex_P3f_N3f_T03f_C03f, texCoord)});
 		}
-
-		size_t colorOffset = offset;
 
 		if (!attrib.colors.empty())
 		{
-			constexpr VkFormat format = VK_FORMAT_R32G32B32_SFLOAT;
-
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{static_cast<uint32_t>(desc.attributes.size()), 0, format, offset});
-
-			offset += getFormatSize(format);
+				VertexInputAttributeDescription<Vk>{
+					static_cast<uint32_t>(desc.attributes.size()),
+					0,
+					VK_FORMAT_R32G32B32_SFLOAT,
+					offsetof(Vertex_P3f_N3f_T03f_C03f, color)});
 		}
 
 		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
-		vertices.setStride(offset);
+		vertices.setStride(sizeof(Vertex_P3f_N3f_T03f_C03f));
 
 		std::vector<uint32_t> indices;
 
@@ -239,37 +238,29 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 
 		for (const auto& shape : shapes)
 		{
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-			for (uint32_t faceOffset = shape.face_offset;
-				 faceOffset < (shape.face_offset + shape.length);
-				 faceOffset++)
-			{
-				const index_t& index = attrib.indices[faceOffset];
-#else
 			for (const auto& index : shape.mesh.indices)
 			{
-#endif
 				auto& vertex = *vertexScope.createVertices();
 				
 				if (!attrib.vertices.empty())
-					*vertex.dataAs<glm::vec3>(posOffset) = {
+					*vertex.dataAs<decltype(Vertex_P3f_N3f_T03f_C03f::position)>(offsetof(Vertex_P3f_N3f_T03f_C03f, position)) = {
 						attrib.vertices[3 * index.vertex_index + 0],
 						attrib.vertices[3 * index.vertex_index + 1],
 						attrib.vertices[3 * index.vertex_index + 2]};
 
 				if (!attrib.normals.empty())
-					*vertex.dataAs<glm::vec3>(normalOffset) = {
+					*vertex.dataAs<decltype(Vertex_P3f_N3f_T03f_C03f::normal)>(offsetof(Vertex_P3f_N3f_T03f_C03f, normal)) = {
 						attrib.normals[3 * index.normal_index + 0],
 						attrib.normals[3 * index.normal_index + 1],
 						attrib.normals[3 * index.normal_index + 2]};
 
 				if (!attrib.texcoords.empty())
-					*vertex.dataAs<glm::vec2>(texCoordOffset) = {
+					*vertex.dataAs<decltype(Vertex_P3f_N3f_T03f_C03f::texCoord)>(offsetof(Vertex_P3f_N3f_T03f_C03f, texCoord)) = {
 						attrib.texcoords[2 * index.texcoord_index + 0],
 						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
 
 				if (!attrib.colors.empty())
-					*vertex.dataAs<glm::vec3>(colorOffset) = {
+					*vertex.dataAs<decltype(Vertex_P3f_N3f_T03f_C03f::color)>(offsetof(Vertex_P3f_N3f_T03f_C03f, color)) = {
 						attrib.colors[3 * index.vertex_index + 0],
 						attrib.colors[3 * index.vertex_index + 1],
 						attrib.colors[3 * index.vertex_index + 2]};
@@ -280,7 +271,7 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.size() - 1);
 
 					if (!attrib.vertices.empty())
-						desc.aabb.merge(*vertex.dataAs<glm::vec3>(posOffset));
+						desc.aabb.merge(*vertex.dataAs<decltype(Vertex_P3f_N3f_T03f_C03f::position)>(offsetof(Vertex_P3f_N3f_T03f_C03f, position)));
 				}
 				else
 				{
@@ -290,37 +281,47 @@ std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> load(
 			}
 		}
 
-		desc.indexBufferSize = indices.size() * sizeof(uint32_t);
-		desc.vertexBufferSize = vertices.sizeBytes();
 		desc.indexCount = indices.size();
+		desc.vertexCount = vertices.size();
 
-		auto [locBufferHandle, locMemoryHandle] = createBuffer(
+		auto [locIbHandle, locIbMemHandle] = createBuffer(
 			device->getAllocator(),
-			desc.indexBufferSize + desc.vertexBufferSize,
+			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		void* data;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
-		memcpy(data, indices.data(), desc.indexBufferSize);
-		memcpy(
-			static_cast<std::byte*>(data) + desc.indexBufferSize,
-			vertices.data(),
-			desc.vertexBufferSize);
-		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		void* ibData;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locIbMemHandle, &ibData));
+		memcpy(ibData, indices.data(), desc.indexCount * sizeof(uint32_t));
+		vmaUnmapMemory(device->getAllocator(), locIbMemHandle);
 
-		bufferHandle = locBufferHandle;
-		memoryHandle = locMemoryHandle;
+		ibHandle = locIbHandle;
+		ibMemHandle = locIbMemHandle;
+
+		auto [locVbHandle, locVbMemHandle] = createBuffer(
+			device->getAllocator(),
+			desc.vertexCount * sizeof(Vertex_P3f_N3f_T03f_C03f),
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			"todo_insert_proper_name");
+
+		void* vbData;
+		VK_CHECK(vmaMapMemory(device->getAllocator(), locVbMemHandle, &vbData));
+		memcpy(vbData, vertices.data(), desc.vertexCount * sizeof(Vertex_P3f_N3f_T03f_C03f));
+		vmaUnmapMemory(device->getAllocator(), locVbMemHandle);
+
+		vbHandle = locVbHandle;
+		vbMemHandle = locVbMemHandle;
 
 		return {};
 	};
 
 	static constexpr char loaderType[] = "tinyobjloader";
-	static constexpr char loaderVersion[] = "2.0.1";
+	static constexpr char loaderVersion[] = "2.0.12";
 	file::loadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
-	if (!bufferHandle)
+	if (!vbHandle || !ibHandle)
 		throw std::runtime_error("Failed to load model.");
 
 	return descAndInitialData;
@@ -333,20 +334,35 @@ Model<Vk>::Model(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
 	uint64_t timelineValue,
-	std::tuple<ModelCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
-	: Buffer(
+	std::tuple<
+		ModelCreateDesc<Vk>,
+		BufferHandle<Vk>,
+		AllocationHandle<Vk>,
+		BufferHandle<Vk>,
+		AllocationHandle<Vk>>&& descAndInitialData)
+	: myDesc(std::forward<ModelCreateDesc<Vk>>(std::get<0>(descAndInitialData)))
+	, myIndexBuffer(
 		  device,
 		  queue,
 		  timelineValue,
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
-				  std::get<0>(descAndInitialData).indexBufferSize +
-					  std::get<0>(descAndInitialData).vertexBufferSize,
-				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+					std::get<0>(descAndInitialData).indexCount * sizeof(uint32_t),
+					VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
 			  std::get<1>(descAndInitialData),
 			  std::get<2>(descAndInitialData)))
-	, myDesc(std::forward<ModelCreateDesc<Vk>>(std::get<0>(descAndInitialData)))
+	, myVertexBuffer(
+		  device,
+		  queue,
+		  timelineValue,
+		  std::make_tuple(
+			  BufferCreateDesc<Vk>{
+					std::get<0>(descAndInitialData).vertexCount * sizeof(Vertex_P3f_N3f_T03f_C03f),
+					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+			  std::get<3>(descAndInitialData),
+			  std::get<4>(descAndInitialData)))
 	, myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
 {}
 
@@ -362,7 +378,8 @@ Model<Vk>::Model(
 template <>
 void Model<Vk>::swap(Model& rhs) noexcept
 {
-	Buffer<Vk>::swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
+	std::swap(myIndexBuffer, rhs.myIndexBuffer);
+	std::swap(myVertexBuffer, rhs.myVertexBuffer);
 	std::swap(myBindings, rhs.myBindings);
 }

@@ -6,6 +6,7 @@ extern "C"
 #endif
 
 #if defined(SHADERTYPES_H_CPU_TARGET)
+#	include <cstdint>
 #	include <glm/glm.hpp>
 #	define float4x4 glm::mat4x4
 #	define float4 glm::vec4
@@ -17,12 +18,13 @@ extern "C"
 #endif
 
 #define DescriptorSetCategory_Global 0
-#define DescriptorSetCategory_GlobalTextures 1
-#define DescriptorSetCategory_GlobalRWTextures 2
-#define DescriptorSetCategory_GlobalSamplers 3
-#define DescriptorSetCategory_View 4
-#define DescriptorSetCategory_Material 5
-#define DescriptorSetCategory_Object 6
+#define DescriptorSetCategory_GlobalBuffers 1
+#define DescriptorSetCategory_GlobalTextures 2
+#define DescriptorSetCategory_GlobalRWTextures 3
+#define DescriptorSetCategory_GlobalSamplers 4
+#define DescriptorSetCategory_View 5
+#define DescriptorSetCategory_Material 6
+#define DescriptorSetCategory_ModelInstances 7
 
 #define ShaderTypes_GlobalTextureIndexBits		7u
 #define ShaderTypes_GlobalTextureCount			(1u << ShaderTypes_GlobalTextureIndexBits)
@@ -36,8 +38,6 @@ extern "C"
 #define ShaderTypes_ViewCount					(1u << ShaderTypes_ViewIndexBits)
 #define ShaderTypes_MaterialIndexBits			10u
 #define ShaderTypes_MaterialCount				(1u << ShaderTypes_MaterialIndexBits)
-#define ShaderTypes_ModelInstanceSetIndexBits	4u
-#define ShaderTypes_ModelInstanceSetCount		(1u << ShaderTypes_ModelInstanceSetIndexBits)
 #define ShaderTypes_ModelInstanceIndexBits		19u
 #define ShaderTypes_ModelInstanceCount			(1u << ShaderTypes_ModelInstanceIndexBits)
 
@@ -61,6 +61,14 @@ struct ModelInstance
 	alignas(64) float4x4 inverseTransposeModelTransform;
 };
 
+struct Vertex_P3f_N3f_T03f_C03f
+{
+	alignas(16) float3 position;
+	alignas(16) float3 normal;
+	alignas(8) float2 texCoord;
+	alignas(16) float3 color;
+};
+
 struct PushConstants
 {
 	// per frame
@@ -69,7 +77,7 @@ struct PushConstants
 	// per material
 	alignas(4) uint viewAndMaterialId;
 	// per object
-	alignas(4) uint objectId;
+	alignas(4) uint modelInstanceIndex; // todo: replace with SV_PrimitiveId
 };
 
 #ifdef __cplusplus
