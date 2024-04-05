@@ -148,13 +148,9 @@ uint32_t Window<Vk>::internalDrawViews(
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_ModelInstances);
 
-					// bind pipeline and vertex/index buffers
+					// bind pipeline and index buffer
 					pipeline.bindPipelineAuto(cmd);
 
-					VkBuffer vertexBuffers[]{ pipeline.resources().model->getVertexBuffer() };
-					VkDeviceSize vertexOffsets[]{ 0 };
-
-					vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, vertexOffsets);
 					vkCmdBindIndexBuffer(
 						cmd,
 						pipeline.resources().model->getIndexBuffer(),
@@ -216,8 +212,6 @@ uint32_t Window<Vk>::internalDrawViews(
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								pushConstants.modelInstanceIndex = 666u;
-
 								vkCmdPushConstants(
 									cmd,
 									pipeline.getLayout(),
@@ -236,7 +230,7 @@ uint32_t Window<Vk>::internalDrawViews(
 									1,
 									0,
 									0,
-									0);
+									666);
 							}
 						};
 

@@ -76,8 +76,6 @@ struct PushConstants
 	// per view
 	// per material
 	alignas(4) uint viewAndMaterialId;
-	// per object
-	alignas(4) uint modelInstanceIndex; // todo: replace with SV_PrimitiveId
 };
 
 #ifdef __cplusplus

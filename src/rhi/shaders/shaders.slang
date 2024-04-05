@@ -31,8 +31,8 @@ StructuredBuffer<ModelInstance> g_modelInstances;
 
 struct InputStream : IInputStream
 {
-	Vertex_P3f_N3f_T03f_C03f vertex;
 	uint vertexId : SV_VertexID;
+	uint instanceId : SV_InstanceID;
 };
 struct VertexOutput : IInterpolants
 {
@@ -56,13 +56,11 @@ VertexOutput vertexMain(InputStream input)
 
 	ViewData view = g_viewData[frameIndex][viewId];
 
-	ModelInstance modelInstance = g_modelInstances[g_pushConstants.modelInstanceIndex];
-
 	Vertex_P3f_N3f_T03f_C03f v = g_vertexBuffer[input.vertexId];
-	//Vertex_P3f_N3f_T03f_C03f v = input.vertex;
+	ModelInstance i = g_modelInstances[input.instanceId];
 
-	float3 worldPosition = mul(modelInstance.modelTransform, float4(v.position, 1.0)).xyz;
-	float3 worldNormal = mul(modelInstance.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
+	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
+	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
 
 	output.hPos = mul(view.viewProjectionTransform, float4(worldPosition, 1.0));
 	output.vertex.position = worldPosition;
