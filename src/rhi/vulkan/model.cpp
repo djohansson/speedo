@@ -15,14 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
-//#define TINYOBJLOADER_USE_EXPERIMENTAL
-#ifdef TINYOBJLOADER_USE_EXPERIMENTAL
-#	define TINYOBJ_LOADER_OPT_IMPLEMENTATION
-#	include <experimental/tinyobj_loader_opt.h>
-#else
-#	define TINYOBJLOADER_IMPLEMENTATION
-#	include <tiny_obj_loader.h>
-#endif
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
 
 #include <zpp_bits.h>
 
