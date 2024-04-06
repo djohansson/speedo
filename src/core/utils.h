@@ -26,8 +26,6 @@
 
 #include <concurrentqueue/concurrentqueue.h>
 
-#include <mio/mmap.hpp>
-
 class Noncopyable
 {
 public:
