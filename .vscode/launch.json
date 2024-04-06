@@ -140,8 +140,8 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"}
-			//	{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"},
+				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
