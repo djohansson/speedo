@@ -46,11 +46,10 @@ extern "C"
 #define ShaderTypes_ModelInstanceIndexBits		19u
 #define ShaderTypes_ModelInstanceCount			(1u << ShaderTypes_ModelInstanceIndexBits)
 
-// todo: all structs needs to be aligned to VkPhysicalDeviceLimits.min(Uniform|Structured)BufferOffsetAlignment.
-
+// caution: don't change the alignment unless you know what you are doing.
 struct ViewData
 {
-	alignas(64) float4x4 viewProjectionTransform;
+	alignas(16) float4x4 viewProjectionTransform;
 	alignas(16) float3 eyePosition;
 };
 
@@ -62,8 +61,8 @@ struct MaterialData
 
 struct ModelInstance
 {
-	alignas(64) float4x4 modelTransform;
-	alignas(64) float4x4 inverseTransposeModelTransform;
+	alignas(16) float4x4 modelTransform;
+	alignas(16) float4x4 inverseTransposeModelTransform;
 };
 
 struct Vertex_P3f_N3f_T014f_C4f

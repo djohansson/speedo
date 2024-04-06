@@ -214,7 +214,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 	};
 
 	static constexpr char loaderTypeStr[] = "slang";
-	static constexpr char loaderVersionStr[] = "0.9.1-dev";
+	static constexpr char loaderVersionStr[] = "0.9.2";
 	file::loadAsset<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
