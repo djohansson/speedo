@@ -41,7 +41,7 @@ extern "C"
 #define ShaderTypes_ModelInstanceIndexBits		19u
 #define ShaderTypes_ModelInstanceCount			(1u << ShaderTypes_ModelInstanceIndexBits)
 
-// todo: all structs needs to be aligned to VkPhysicalDeviceLimits.minUniformBufferOffsetAlignment.
+// todo: all structs needs to be aligned to VkPhysicalDeviceLimits.min(Uniform|Structured)BufferOffsetAlignment.
 
 struct ViewData
 {
