@@ -17,8 +17,6 @@
 
 class TaskExecutor
 {
-	using TaskUniquePtr = std::unique_ptr<Task, std::function<void(Task*)>>;
-
 public:
 	
 	TaskExecutor(uint32_t threadCount);
@@ -54,7 +52,7 @@ public:
 
 private:
 	Task* handleToTaskPtr(TaskHandle handle) noexcept;
-	
+
 	template <typename... TaskParams>
 	void internalCall(TaskHandle handle, TaskParams&&... params);
 	template <typename... TaskParams>
