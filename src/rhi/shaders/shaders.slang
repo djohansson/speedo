@@ -45,6 +45,32 @@ struct FragmentOutput
 	float4 color : SV_Target;
 };
 
+float3 signedOctEncode(float3 n)
+{
+	float3 OutN;
+
+	n /= (abs(n.x) + abs(n.y) + abs(n.z));
+
+	OutN.y = n.y * 0.5 + 0.5;
+	OutN.x = n.x * 0.5 + OutN.y;
+	OutN.y = n.x * -0.5 + OutN.y;
+	OutN.z = saturate(n.z*FLT_MAX);
+
+	return OutN;
+}
+
+float3 signedOctDecode(float3 n)
+{
+	float3 OutN;
+
+	OutN.x = (n.x - n.y);
+	OutN.y = (n.x + n.y) - 1.0;
+	OutN.z = n.z * 2.0 - 1.0;
+	OutN.z = OutN.z * (1.0 - abs(OutN.x) - abs(OutN.y));
+ 
+	return normalize(OutN);
+}
+
 VertexOutput vertexMain(InputStream input)
 {
 	VertexOutput output;
