@@ -730,14 +730,6 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 	FrameMark;
 	ZoneScopedN("rhi::draw");
 
-	// todo: move to own function?
-	{
-		auto drawPair = executor.createTask(draw, rhi, executor);
-		auto& [drawTask, drawFuture] = drawPair;
-		executor.addDependency(g_drawTask.first, drawTask, true);
-		g_drawTask = drawPair;
-	}
-
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
 	auto& window = *rhi.window;
@@ -848,6 +840,14 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 		graphicsSubmit = graphicsQueue.submit();
 		graphicsQueue.enqueuePresent(window.preparePresent(graphicsSubmit));
 		graphicsQueue.present();
+	}
+
+	// todo: move to own function?
+	{
+		auto drawPair = executor.createTask(draw, rhi, executor);
+		auto& [drawTask, drawFuture] = drawPair;
+		executor.addDependency(g_drawTask.first, drawTask, true);
+		g_drawTask = drawPair;
 	}
 }
 
