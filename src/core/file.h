@@ -64,6 +64,11 @@ using SaveFn = std::function<std::error_code(OutputSerializer&)>;
 
 std::string getTimeStamp(const std::filesystem::path& filePath);
 
+std::filesystem::path getCanonicalPath(
+	const char* pathStr,
+	const char* defaultPathStr,
+	bool createIfMissing = false);
+
 template <bool Sha256ChecksumEnable>
 std::expected<Record, std::error_code> getRecord(const std::filesystem::path& filePath);
 

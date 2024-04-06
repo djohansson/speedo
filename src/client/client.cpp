@@ -1,5 +1,6 @@
 #include "capi.h"
 
+#include <core/file.h>
 #include <rhi/rhiapplication.h>
 #include <server/rpc.h>
 
@@ -162,26 +163,12 @@ private:
 
 static std::shared_ptr<Client> s_application{};
 
-std::filesystem::path
-getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
-{
-	assert(defaultPathStr != nullptr);
-	
-	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-
-	if (createIfMissing && !std::filesystem::exists(path))
-		std::filesystem::create_directory(path);
-
-	assert(std::filesystem::is_directory(path));
-
-	return std::filesystem::canonical(path);
-}
-
 } // namespace client
 
 void client_create(const WindowState* window, const PathConfig* paths)
 {
 	using namespace client;
+	using namespace file;
 
 	assert(window != nullptr);
 	assert(window->handle != nullptr);

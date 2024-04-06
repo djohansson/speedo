@@ -2,6 +2,7 @@
 #include "rpc.h"
 
 #include <core/application.h>
+#include <core/file.h>
 
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
@@ -153,26 +154,12 @@ private:
 
 static std::shared_ptr<Server> s_application{};
 
-std::filesystem::path
-getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
-{
-	assert(defaultPathStr != nullptr);
-	
-	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-
-	if (createIfMissing && !std::filesystem::exists(path))
-		std::filesystem::create_directory(path);
-
-	assert(std::filesystem::is_directory(path));
-
-	return std::filesystem::canonical(path);
-}
-
 } // namespace server
 
 void server_create(const PathConfig* paths)
 {
 	using namespace server;
+	using namespace file;
 
 	assert(paths != nullptr);
 
