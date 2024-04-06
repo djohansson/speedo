@@ -59,6 +59,8 @@ uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 		return 8;
 	case VK_FORMAT_R32G32B32_SFLOAT:
 		return 12;
+	case VK_FORMAT_R32G32B32A32_SFLOAT:
+		return 16;
 	default:
 		assert(false); // please implement me.
 		return 0;
