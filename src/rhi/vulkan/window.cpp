@@ -148,14 +148,13 @@ uint32_t Window<Vk>::internalDrawViews(
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
 					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_ModelInstances);
 
-					// bind pipeline and index buffer
+					// bind pipeline and buffers
 					pipeline.bindPipelineAuto(cmd);
 
-					vkCmdBindIndexBuffer(
-						cmd,
-						pipeline.resources().model->getIndexBuffer(),
-						0,
-						VK_INDEX_TYPE_UINT32);
+					BufferHandle<Vk> vbs[] = {pipeline.resources().model->getVertexBuffer()};
+					DeviceSize<Vk> offsets[] = {0};
+					vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
+					vkCmdBindIndexBuffer(cmd, pipeline.resources().model->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 				};
 
 				bindState(cmd);

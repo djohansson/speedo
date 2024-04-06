@@ -321,7 +321,7 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 	};
 
 	static constexpr char loaderType[] = "tinyobjloader";
-	static constexpr char loaderVersion[] = "2.0.13";
+	static constexpr char loaderVersion[] = "2.0.15";
 	file::loadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
 	if (!vbHandle || !ibHandle)
@@ -362,7 +362,7 @@ Model<Vk>::Model(
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
 					std::get<0>(descAndInitialData).vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
-					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+					VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
 			  std::get<3>(descAndInitialData),
 			  std::get<4>(descAndInitialData)))
