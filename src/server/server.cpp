@@ -2,6 +2,7 @@
 #include "rpc.h"
 
 #include <core/application.h>
+#include <core/file.h>
 
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
@@ -34,18 +35,8 @@ void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& po
 {
 	ZoneScopedN("server::rpc");
 
-	auto app = Application::instance().lock();
-
-	if (!app || app->exitRequested())
+	if (auto app = Application::instance().lock(); !app || app->exitRequested())
 		return;
-
-	// todo: move to own function?
-	{
-		auto rpcPair = executor.createTask(rpc, executor, socket, poller);
-		auto& [rpcTask, rpcFuture] = rpcPair;
-		executor.addDependency(g_rpcTask.first, rpcTask, true);
-		g_rpcTask = rpcPair;
-	}
 
 	try
 	{
@@ -57,20 +48,18 @@ void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& po
 
 		server::rpc_say::server server{in, out};
 
-		static constexpr std::chrono::milliseconds timeout{1};
-		if (auto socketCount = poller.wait(timeout))
+		if (auto socketCount = poller.wait(2ms))
 		{
 			//std::cout << "got " << socketCount << " sockets hit" << std::endl;
-		}
-		else
-		{
-			std::cout << "timeout" << std::endl;
 		}
 
 		if (auto recvResult = /*inEvent.*/socket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
 		{
 			if (auto result = server.serve(); failure(result))
+			{
 				std::cerr << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
+				return;
+			}
 			
 			// if (!outPoller.wait(outEvent, timeout))
 			// {
@@ -79,23 +68,30 @@ void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& po
 			// }
 
 			if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
+			{
 				std::cerr << "socket.send() failed" << std::endl;
+				return;
+			}
 		}
 	}
 	catch (zmq::error_t& error)
 	{
 		std::cerr << "zmq exception: " << error.what() << std::endl;
-		app->requestExit();
 		return;
 	}
 	catch (...)
 	{
 		std::cerr << "unknown exception" << std::endl;
-		app->requestExit();
 		return;
 	}
 
-	std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	// todo: move to own function?
+	{
+		auto rpcPair = executor.createTask(rpc, executor, socket, poller);
+		auto& [rpcTask, rpcFuture] = rpcPair;
+		executor.addDependency(g_rpcTask.first, rpcTask, true);
+		g_rpcTask = rpcPair;
+	}
 }
 
 class Server : public Application
@@ -108,6 +104,7 @@ public:
 		g_rpcTask.second.wait();
 		g_rpcTask = {};
 
+		myPoller.remove(mySocket);
 		mySocket.close();
 		myContext.shutdown();
 		myContext.close();
@@ -133,6 +130,7 @@ protected:
 	{
 		constexpr std::string_view cx_serverAddress = "tcp://*:5555"sv;
 
+		mySocket.set(zmq::sockopt::linger, 0);
 		mySocket.bind(cx_serverAddress.data());
 		myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
 			//std::cout << "socket flags: " << toString(ef) << std::endl;
@@ -156,26 +154,12 @@ private:
 
 static std::shared_ptr<Server> s_application{};
 
-std::filesystem::path
-getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing = false)
-{
-	assert(defaultPathStr != nullptr);
-	
-	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
-
-	if (createIfMissing && !std::filesystem::exists(path))
-		std::filesystem::create_directory(path);
-
-	assert(std::filesystem::is_directory(path));
-
-	return std::filesystem::canonical(path);
-}
-
 } // namespace server
 
 void server_create(const PathConfig* paths)
 {
 	using namespace server;
+	using namespace file;
 
 	assert(paths != nullptr);
 
@@ -207,6 +191,7 @@ void server_destroy()
 	using namespace server;
 
 	assert(s_application);
+	assert(s_application.use_count() == 1);
 	
 	s_application.reset();
 }

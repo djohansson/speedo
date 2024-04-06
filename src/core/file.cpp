@@ -37,4 +37,19 @@ std::string getTimeStamp(const std::filesystem::path& filePath)
 	return std::string(std::asctime(std::localtime(&timestamp)));
 }
 
+std::filesystem::path
+getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing)
+{
+	assert(defaultPathStr != nullptr);
+	
+	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+
+	if (createIfMissing && !std::filesystem::exists(path))
+		std::filesystem::create_directory(path);
+
+	assert(std::filesystem::is_directory(path));
+
+	return std::filesystem::canonical(path);
+}
+
 } // namespace file

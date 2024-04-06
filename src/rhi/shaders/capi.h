@@ -6,7 +6,8 @@ extern "C"
 #endif
 
 #if defined(SHADERTYPES_H_CPU_TARGET)
-#	include <cstdint>
+#	include <stdint.h>
+#	include <limits.h>
 #	include <glm/glm.hpp>
 #	define float4x4 glm::mat4x4
 #	define float4 glm::vec4
@@ -15,6 +16,10 @@ extern "C"
 #	define uint uint32_t
 #else
 #	define alignas(x)
+#	define FLT_MAX 3.402823466e+38
+#	define FLT_MIN 1.175494351e-38
+#	define DBL_MAX 1.7976931348623158e+308
+#	define DBL_MIN 2.2250738585072014e-308
 #endif
 
 #define DescriptorSetCategory_Global 0
@@ -61,12 +66,12 @@ struct ModelInstance
 	alignas(64) float4x4 inverseTransposeModelTransform;
 };
 
-struct Vertex_P3f_N3f_T03f_C03f
+struct Vertex_P3f_N3f_T014f_C4f
 {
 	alignas(16) float3 position;
 	alignas(16) float3 normal;
-	alignas(8) float2 texCoord;
-	alignas(16) float3 color;
+	alignas(16) float4 texCoord01;
+	alignas(16) float4 color;
 };
 
 struct PushConstants

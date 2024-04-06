@@ -39,8 +39,14 @@ void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation
 
 	assert(a != b);
 
-	TaskState& aState = *handleToTaskPtr(a)->state();
-	TaskState& bState = *handleToTaskPtr(b)->state();
+	Task& aTask = *handleToTaskPtr(a);
+	Task& bTask = *handleToTaskPtr(b);
+
+	assertf(aTask.state(), "Task state is not valid!");
+	assertf(bTask.state(), "Task state is not valid!");
+
+	TaskState& aState = *aTask.state();
+	TaskState& bState = *bTask.state();
 
 	std::scoped_lock lock(aState.mutex, bState.mutex);
 
