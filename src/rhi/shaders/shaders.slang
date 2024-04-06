@@ -9,7 +9,7 @@ __include types;
 ConstantBuffer<PushConstants> g_pushConstants;
 
 [[vk::binding(0, DescriptorSetCategory_GlobalBuffers)]]
-StructuredBuffer<Vertex_P3f_N3f_T03f_C03f> g_vertexBuffer;
+StructuredBuffer<Vertex_P3f_N3f_T014f_C4f> g_vertexBuffer;
 
 [[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
 Texture2D g_textures[ShaderTypes_GlobalTextureCount];
@@ -34,9 +34,10 @@ struct InputStream : IInputStream
 	uint vertexId : SV_VertexID;
 	uint instanceId : SV_InstanceID;
 };
+
 struct VertexOutput : IInterpolants
 {
-	Vertex_P3f_N3f_T03f_C03f vertex;
+	Vertex_P3f_N3f_T014f_C4f vertex;
 	float4 hPos : SV_Position;
 };
 
@@ -82,7 +83,7 @@ VertexOutput vertexMain(InputStream input)
 
 	ViewData view = g_viewData[frameIndex][viewId];
 
-	Vertex_P3f_N3f_T03f_C03f v = g_vertexBuffer[input.vertexId];
+	Vertex_P3f_N3f_T014f_C4f v = g_vertexBuffer[input.vertexId];
 	ModelInstance i = g_modelInstances[input.instanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
@@ -91,7 +92,7 @@ VertexOutput vertexMain(InputStream input)
 	output.hPos = mul(view.viewProjectionTransform, float4(worldPosition, 1.0));
 	output.vertex.position = worldPosition;
 	output.vertex.normal = worldNormal;
-	output.vertex.texCoord = v.texCoord;
+	output.vertex.texCoord01 = v.texCoord01;
 	output.vertex.color = v.color;
 
 	return output;
@@ -99,7 +100,7 @@ VertexOutput vertexMain(InputStream input)
 
 FragmentOutput fragmentMain(VertexOutput input)
 {
-	Vertex_P3f_N3f_T03f_C03f v = input.vertex;
+	Vertex_P3f_N3f_T014f_C4f v = input.vertex;
 	FragmentOutput output;
 
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
@@ -120,16 +121,13 @@ FragmentOutput fragmentMain(VertexOutput input)
 	const float checkerScaleInv = 1.f / checkerScale;
 	float checkers = checkerScale * frac(checkerScaleInv * (floor(v.position.x) + floor(v.position.y) + floor(v.position.z)));
 
-	float4 sample = texture.Sample(sampler, v.texCoord);
+	float4 sample = texture.Sample(sampler, v.texCoord01.xy);
 
 	output.color = 
 		lerp(
 			lerp(
 				lerp(
-					lerp(
-						float4(v.color, 1.0),
-						material.color,
-						0.5),
+					lerp(v.color, material.color, 0.5),
 					float4(float3(checkers), 1.0),
 					0.2),
 				float4(v.normal, 1.0),

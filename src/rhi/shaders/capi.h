@@ -66,12 +66,12 @@ struct ModelInstance
 	alignas(64) float4x4 inverseTransposeModelTransform;
 };
 
-struct Vertex_P3f_N3f_T03f_C03f
+struct Vertex_P3f_N3f_T014f_C4f
 {
 	alignas(16) float3 position;
 	alignas(16) float3 normal;
-	alignas(8) float2 texCoord;
-	alignas(16) float3 color;
+	alignas(16) float4 texCoord01;
+	alignas(16) float4 color;
 };
 
 struct PushConstants
