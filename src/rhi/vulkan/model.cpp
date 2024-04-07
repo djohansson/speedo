@@ -76,7 +76,7 @@ std::tuple<
 	AllocationHandle<Vk>,
 	BufferHandle<Vk>,
 	AllocationHandle<Vk>>
-load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device)
+load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device, uint8_t& progress)
 {
 	ZoneScopedN("model::load");
 
@@ -89,9 +89,11 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](auto& in) -> std::error_code
+	auto loadBin = [&descAndInitialData, &device, &progress](auto& in) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
+
+		progress = 32;
 
 		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 		
@@ -115,6 +117,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 		ibHandle = locIbHandle;
 		ibMemHandle = locIbMemHandle;
 
+		progress = 128;
+
 		auto [locVbHandle, locVbMemHandle] = createBuffer(
 			device->getAllocator(),
 			desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
@@ -132,10 +136,12 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 		vbHandle = locVbHandle;
 		vbMemHandle = locVbMemHandle;
 
+		progress = 255;
+
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device](auto& out) -> std::error_code
+	auto saveBin = [&descAndInitialData, &device, &progress](auto& out) -> std::error_code
 	{
 		ZoneScopedN("model::saveBin");
 
@@ -158,12 +164,16 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
 
+		progress = 255;
+
 		return {};
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device, &modelFile](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&descAndInitialData, &device, &modelFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
+
+		progress = 32;
 
 		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 
@@ -174,6 +184,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 		std::string warn, err;
 		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()))
 			throw std::runtime_error(err);
+
+		progress = 64;
 
 		uint32_t indexCount = 0;
 		for (const auto& shape : shapes)
@@ -278,6 +290,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 			}
 		}
 
+		progress = 128;
+
 		desc.indexCount = indices.size();
 		desc.vertexCount = vertices.size();
 
@@ -296,6 +310,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 		ibHandle = locIbHandle;
 		ibMemHandle = locIbMemHandle;
 
+		progress = 192;
+
 		auto [locVbHandle, locVbMemHandle] = createBuffer(
 			device->getAllocator(),
 			desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
@@ -310,6 +326,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 
 		vbHandle = locVbHandle;
 		vbMemHandle = locVbMemHandle;
+
+		progress = 224;
 
 		return {};
 	};
@@ -368,8 +386,9 @@ Model<Vk>::Model(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
 	uint64_t timelineValue,
-	const std::filesystem::path& modelFile)
-	: Model(device, queue, timelineValue, model::load(modelFile, device))
+	const std::filesystem::path& modelFile,
+	uint8_t& progress)
+	: Model(device, queue, timelineValue, model::load(modelFile, device, progress))
 {}
 
 template <>

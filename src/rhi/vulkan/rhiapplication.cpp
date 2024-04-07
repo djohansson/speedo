@@ -30,23 +30,14 @@ static std::filesystem::path g_rootPath{};
 static std::filesystem::path g_resourcePath{};
 static std::filesystem::path g_userProfilePath{};
 
-using OpenFileCompletionCallback = std::function<void(Rhi<Vk>&, TaskExecutor&, nfdchar_t*)>;
-using OpenFileReturnValue = std::tuple<nfdresult_t, nfdchar_t*, OpenFileCompletionCallback>;
-
-static OpenFileReturnValue openFileDialogue(
-	const std::filesystem::path& resourcePath,
-	const nfdchar_t* filterList,
-	OpenFileCompletionCallback&& onCompletionCallback)
+static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
 {
 	auto resourcePathStr = resourcePath.string();
 	nfdchar_t* openFilePath;
-	return std::make_tuple(
-		NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath),
-		openFilePath,
-		std::forward<OpenFileCompletionCallback>(onCompletionCallback));
+	return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath), openFilePath);
 }
 
-static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath)
+static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -58,7 +49,8 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 			rhi.device,
 			transferQueue,
 			++transferSemaphoreValue,
-			openFilePath));
+			openFilePath,
+			progress));
 
 	transferQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
 		{transferSemaphore},
@@ -70,7 +62,7 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	transferSubmit = transferQueue.submit();
 }
 
-static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath)
+static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -82,7 +74,8 @@ static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 			rhi.device,
 			transferQueue,
 			++transferSemaphoreValue,
-			openFilePath);
+			openFilePath,
+			progress);
 
 	rhi.pipeline->resources().imageView = std::make_shared<ImageView<Vk>>(
 		rhi.device, *rhi.pipeline->resources().image, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -277,9 +270,17 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		ShowDemoWindow(&showDemoWindow);
 
 	static bool showAbout = false;
-	if (showAbout)
+	if (showAbout && Begin("About client", &showAbout))
 	{
-		if (Begin("About client", &showAbout)) {}
+		End();
+	}
+	
+	static uint8_t progress = 0;
+	static bool showProgress = false;
+	if (showProgress && Begin("Loading", &showProgress, ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings))
+	{
+		SetWindowSize(ImVec2(160, 0));
+		ProgressBar((1.f/255)*progress);
 		End();
 	}
 
@@ -498,49 +499,51 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask(
-					openFileDialogue, g_resourcePath, "obj", loadModel);
-
-				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi, &executor](auto openFileFuture)
+				auto [openFileTask, openFileFuture] = executor.createTask(openFileDialogue, g_resourcePath, "obj");
+				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
 				{
-					ZoneScopedN("RhiApplication::draw::openFileCallback");
+					ZoneScopedN("RhiApplication::draw::loadTask");
 
 					assert(openFileFuture.valid());
 					assert(openFileFuture.is_ready());
 
-					auto [openFileResult, openFilePath, completionCallback] = openFileFuture.get();
+					auto [openFileResult, openFilePath] = openFileFuture.get();
 					if (openFileResult == NFD_OKAY)
 					{
-						completionCallback(rhi, executor, openFilePath);
+						progress = 0;
+						showProgress = true;
+						loadOp(rhi, executor, openFilePath, progress);
 						std::free(openFilePath);
+						showProgress = false;
 					}
-				}, std::move(openFileFuture));
+				}, std::move(openFileFuture), loadModel);
 				
-				executor.addDependency(openFileTask, openFileCallbackTask);
+				executor.addDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask(
-					openFileDialogue, g_resourcePath, "jpg,png", loadImage);
-
-				auto [openFileCallbackTask, openFileCallbackFuture] = executor.createTask([&rhi, &executor](auto openFileFuture)
+				auto [openFileTask, openFileFuture] = executor.createTask(openFileDialogue, g_resourcePath, "jpg,png");
+				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
 				{
-					ZoneScopedN("openFileCallback");
+					ZoneScopedN("RhiApplication::draw::loadTask");
 
 					assert(openFileFuture.valid());
 					assert(openFileFuture.is_ready());
 
-					auto [openFileResult, openFilePath, completionCallback] = openFileFuture.get();
+					auto [openFileResult, openFilePath] = openFileFuture.get();
 					if (openFileResult == NFD_OKAY)
 					{
-						completionCallback(rhi, executor, openFilePath);
+						progress = 0;
+						showProgress = true;
+						loadOp(rhi, executor, openFilePath, progress);
 						std::free(openFilePath);
+						showProgress = false;
 					}
-				}, std::move(openFileFuture));
+				}, std::move(openFileFuture), loadImage);
 				
-				executor.addDependency(openFileTask, openFileCallbackTask);
+				executor.addDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())

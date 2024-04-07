@@ -29,7 +29,8 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,
 		uint64_t timelineValue,
-		const std::filesystem::path& modelFile);
+		const std::filesystem::path& modelFile,
+		uint8_t& progress);
 
 	Model& operator=(Model&& other) noexcept = default;
 

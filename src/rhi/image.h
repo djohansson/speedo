@@ -41,7 +41,8 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,
 		uint64_t timelineValue,
-		const std::filesystem::path& imageFile);
+		const std::filesystem::path& imageFile,
+		uint8_t& progress);
 	Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,

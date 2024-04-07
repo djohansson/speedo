@@ -67,7 +67,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 }
 
 std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>
-load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& device)
+load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& device, uint8_t& progress)
 {
 	ZoneScopedN("image::load");
 
@@ -75,9 +75,11 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device](auto& in) -> std::error_code
+	auto loadBin = [&descAndInitialData, &device, &progress](auto& in) -> std::error_code
 	{
 		ZoneScopedN("image::loadBin");
+
+		progress = 32;
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -95,6 +97,8 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
+		progress = 64;
+
 		void* data;
 		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
 		auto result = in(std::span(static_cast<char*>(data), size));
@@ -105,10 +109,12 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 
+		progress = 255;
+
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device](auto& out) -> std::error_code
+	auto saveBin = [&descAndInitialData, &device, &progress](auto& out) -> std::error_code
 	{
 		ZoneScopedN("image::saveBin");
 
@@ -128,12 +134,16 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		if (failure(result))
 			return std::make_error_code(result);
 
+		progress = 255;
+
 		return {};
 	};
 
-	auto loadImage = [&descAndInitialData, &device, &imageFile](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&descAndInitialData, &device, &imageFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("image::loadImage");
+
+		progress = 32;
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -238,8 +248,12 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		auto src = stbiImageData;
 		auto dst = static_cast<unsigned char*>(stagingBuffer);
 
+		auto dp = 192 / (2 * desc.mipLevels.size());
+
 		dst += compressBlocks(
 			src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
+
+		progress += 2*dp;
 
 		std::array<std::vector<stbi_uc>, 2> mipBuffers;
 		for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
@@ -273,7 +287,6 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 						uint32_t threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
 
-
 						stbir_resize_uint8(
 							src + threadId * threadRowCount * previousExtent.width * 4,
 							previousExtent.width,
@@ -303,9 +316,13 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 					4);
 			}
 
+			progress += dp;
+
 			src = mipBuffers[currentBuffer].data();
 			dst +=
 				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
+
+			progress += dp;
 		}
 
 		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
@@ -469,8 +486,9 @@ Image<Vk>::Image(
 	const std::shared_ptr<Device<Vk>>& device,
 	Queue<Vk>& queue,
 	uint64_t timelineValue,
-	const std::filesystem::path& imageFile)
-	: Image(device, queue, timelineValue, image::load(imageFile, device))
+	const std::filesystem::path& imageFile,
+	uint8_t& progress)
+	: Image(device, queue, timelineValue, image::load(imageFile, device, progress))
 {}
 
 template <>
