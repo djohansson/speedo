@@ -181,7 +181,7 @@ void client_create(const WindowState* window, const PathConfig* paths)
 		Environment{{
 			{"RootPath", root},
 			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
-			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".profile").string().c_str(), true)}
+			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}},
 		*window);
 
