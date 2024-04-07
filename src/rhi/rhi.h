@@ -37,6 +37,7 @@ struct Rhi
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>> modelInstances;
 
+	// todo: move these elsewhere
 	ConcurrentQueue<TaskHandle> mainCalls; // queue with tasks that will be called once on main thread
 	ConcurrentQueue<TaskHandle> drawCalls; // queue with tasks that will be called once on draw thread/task
 };

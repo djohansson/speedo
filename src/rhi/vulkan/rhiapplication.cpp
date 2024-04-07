@@ -564,6 +564,60 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			// if (MenuItem("Node Editor..."))
 			// 	showNodeEditor = !showNodeEditor;
+			if (BeginMenu("Layout"))
+			{
+				Extent2d<Vk> splitScreenGrid = rhi.window->config().splitScreenGrid;
+
+				static bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
+				static bool selected1x2 = splitScreenGrid.width == 1 && splitScreenGrid.height == 2;
+				static bool selected2x1 = splitScreenGrid.width == 2 && splitScreenGrid.height == 1;
+				static bool selected2x2 = splitScreenGrid.width == 2 && splitScreenGrid.height == 2;
+
+				if (MenuItem("1x1", "Ctrl+1", &selected1x1))
+				{
+					splitScreenGrid.width = 1;
+					splitScreenGrid.height = 1;
+					selected1x2 = false;
+					selected2x1 = false;
+					selected2x2 = false;
+				}
+				else if (MenuItem("1x2", "Ctrl+2", &selected1x2))
+				{
+					splitScreenGrid.width = 1;
+					splitScreenGrid.height = 2;
+					selected1x1 = false;
+					selected2x1 = false;
+					selected2x2 = false;
+				}
+				else if (MenuItem("2x1", "Ctrl+3", &selected2x1))
+				{
+					splitScreenGrid.width = 2;
+					splitScreenGrid.height = 1;
+					selected1x1 = false;
+					selected1x2 = false;
+					selected2x2 = false;
+				}
+				else if (MenuItem("2x2", "Ctrl+4", &selected2x2))
+				{
+					splitScreenGrid.width = 2;
+					splitScreenGrid.height = 2;
+					selected1x1 = false;
+					selected1x2 = false;
+					selected2x1 = false;
+				}
+
+				ImGui::EndMenu();
+
+				if (auto app = static_pointer_cast<RhiApplication>(Application::instance().lock()))
+				{
+					auto [onResizeFramebufferTask, onResizeFramebufferFuture] = executor.createTask([app, splitScreenGrid]
+					{
+						app->onResizeFramebuffer(splitScreenGrid.width, splitScreenGrid.height);
+					});
+
+					rhi.mainCalls.enqueue(onResizeFramebufferTask);
+				}
+			}
 #if GRAPHICS_VALIDATION_ENABLED
 			{
 				if (MenuItem("Statistics..."))
@@ -626,9 +680,9 @@ static void IMGUIInit(
 		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.window->getSurface()).capabilities;
 
 	float dpiScaleX = static_cast<float>(surfaceCapabilities.currentExtent.width) /
-					  rhi.window->getConfig().windowExtent.width;
+					  rhi.window->config().windowExtent.width;
 	float dpiScaleY = static_cast<float>(surfaceCapabilities.currentExtent.height) /
-					  rhi.window->getConfig().windowExtent.height;
+					  rhi.window->config().windowExtent.height;
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -677,7 +731,7 @@ static void IMGUIInit(
 	initInfo.PipelineCache = rhi.pipeline->getCache();
 	initInfo.DescriptorPool = rhi.pipeline->getDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
-	initInfo.ImageCount = rhi.window->getConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = rhi.window->config().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	// initInfo.DeleteBufferFn = [](void* user_data,
@@ -998,7 +1052,7 @@ static void createQueues(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("RhiApplication::createQueues");
 
-	const uint32_t frameCount = rhi.window->getConfig().swapchainConfig.imageCount;
+	const uint32_t frameCount = rhi.window->config().swapchainConfig.imageCount;
 	const uint32_t graphicsQueueCount = frameCount;
 	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
 	const uint32_t computeQueueCount = 1u;
@@ -1080,8 +1134,8 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto colorImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.window->getConfig().swapchainConfig.extent}},
-			rhi.window->getConfig().swapchainConfig.surfaceFormat.format,
+			{{rhi.window->config().swapchainConfig.extent}},
+			rhi.window->config().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -1090,7 +1144,7 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.window->getConfig().swapchainConfig.extent}},
+			{{rhi.window->config().swapchainConfig.extent}},
 			findSupportedFormat(
 				rhi.device->getPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1422,7 +1476,7 @@ void RhiApplication::tick()
 	}
 }
 
-void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
+void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height) // hack!! misusing these for view grid
 {
 	using namespace rhiapplication;
 
@@ -1431,6 +1485,9 @@ void RhiApplication::onResizeFramebuffer(uint32_t, uint32_t)
 	ZoneScopedN("RhiApplication::onResizeFramebuffer");
 
 	auto& rhi = internalRhi<Vk>();
+
+	if (width != 0 && height != 0)
+		rhi.window->config().splitScreenGrid = Extent2d<Vk>{width, height};
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	

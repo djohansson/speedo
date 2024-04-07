@@ -48,7 +48,9 @@ public:
 	void swap(Window& rhs) noexcept;
 	friend void swap(Window& lhs, Window& rhs) noexcept { lhs.swap(rhs); }
 
-	const auto& getConfig() const noexcept { return myConfig; }
+	auto& config() noexcept { return myConfig; }
+	const auto& config() const noexcept { return myConfig; }
+
 	const auto& getViews() const noexcept { return myViews; }
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }

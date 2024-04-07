@@ -29,7 +29,7 @@ void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 		myViewBuffers[i] = Buffer<Vk>(
 			getDevice(),
 			BufferCreateDesc<Vk>{
-				ShaderTypes_ViewCount * sizeof(ViewData),
+				myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height * sizeof(ViewData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 	}
@@ -38,13 +38,8 @@ void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
 
 	for (auto& view : myViews)
 	{
-		if (!view.desc().viewport.width)
-			view.desc().viewport.width = framebufferExtent.width / myConfig.splitScreenGrid.width;
-
-		if (!view.desc().viewport.height)
-			view.desc().viewport.height =
-				framebufferExtent.height / myConfig.splitScreenGrid.height;
-
+		view.desc().viewport.width = framebufferExtent.width / myConfig.splitScreenGrid.width;
+		view.desc().viewport.height = framebufferExtent.height / myConfig.splitScreenGrid.height;
 		view.updateAll();
 	}
 }
@@ -68,11 +63,11 @@ void Window<Vk>::internalUpdateViewBuffer() const
 		viewDataPtr++;
 	}
 
-	vmaFlushAllocation(
-		getDevice()->getAllocator(),
-		bufferMemory,
-		0,
-		viewCount * sizeof(ViewData));
+	// vmaFlushAllocation(
+	// 	getDevice()->getAllocator(),
+	// 	bufferMemory,
+	// 	0,
+	// 	viewCount * sizeof(ViewData));
 
 	vmaUnmapMemory(getDevice()->getAllocator(), bufferMemory);
 }
@@ -164,6 +159,9 @@ uint32_t Window<Vk>::internalDrawViews(
 				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
 				uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 
+				assert(dx > 0);
+				assert(dy > 0);
+
 				while (drawIt < drawCount)
 				{
 					auto drawView = [&pushConstants, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
@@ -188,6 +186,9 @@ uint32_t Window<Vk>::internalDrawViews(
 							viewport.height = static_cast<float>(height);
 							viewport.minDepth = 0.0f;
 							viewport.maxDepth = 1.0f;
+
+							assert(width > 0);
+							assert(height > 0);
 
 							VkRect2D scissor{};
 							scissor.offset = {x, y};
@@ -283,7 +284,7 @@ void Window<Vk>::onMouse(const MouseState& mouse)
 	myInput.mouse.rightPressed = rightPressed;
 	myInput.mouse.hoverScreen = mouse.insideWindow && !myInput.mouse.leftPressed;
 
-	ImGuiIO& io = ImGui::GetIO();
+	auto& io = ImGui::GetIO();
 	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, leftPressed);
 	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, rightPressed);
 }
