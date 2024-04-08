@@ -93,7 +93,7 @@
 			"program": "${workspaceFolder}/build.output/debug/server",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
+			"console": "integratedTerminal",
 			"env": {
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
@@ -109,7 +109,7 @@
 			"program": "${workspaceFolder}/build.output/profile/server",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
+			"console": "integratedTerminal",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin",
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"
@@ -122,7 +122,7 @@
 			"program": "${workspaceFolder}/build.output/release/server",
 			"args": ["-u ${userHome}"],
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
+			"console": "integratedTerminal",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin:/usr/local/bin",
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib:/usr/local/lib"
