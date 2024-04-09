@@ -26,9 +26,6 @@ namespace rhiapplication
 
 static UpgradableSharedMutex g_drawMutex{};
 static std::pair<TaskHandle, Future<void>> g_drawTask{};
-static std::filesystem::path g_rootPath{};
-static std::filesystem::path g_resourcePath{};
-static std::filesystem::path g_userProfilePath{};
 
 static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
 {
@@ -499,7 +496,11 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask(openFileDialogue, g_resourcePath, "obj");
+				auto [openFileTask, openFileFuture] = executor.createTask(
+					openFileDialogue,
+					std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["ResourcePath"]),
+					"obj");
+
 				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
 				{
 					ZoneScopedN("RhiApplication::draw::loadTask");
@@ -524,7 +525,11 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask(openFileDialogue, g_resourcePath, "jpg,png");
+				auto [openFileTask, openFileFuture] = executor.createTask(
+					openFileDialogue,
+					std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["ResourcePath"]),
+					"jpg,png");
+
 				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
 				{
 					ZoneScopedN("RhiApplication::draw::loadTask");
@@ -666,7 +671,7 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	static auto iniFilePath = (g_userProfilePath / "imgui.ini").generic_string();
+	static auto iniFilePath = (std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "imgui.ini").generic_string();
 	io.IniFilename = iniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -693,7 +698,7 @@ static void IMGUIInit(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(g_resourcePath);
+	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["ResourcePath"]));
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -1162,6 +1167,199 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
 
+auto createWindow(const auto& device, const auto& window, auto&& surface)
+{
+	return std::make_unique<Window<Vk>>(
+		device,
+		std::move(surface),
+		WindowConfiguration<Vk>{
+			detectSuitableSwapchain(*device, surface),
+			{window.width, window.height},
+			{1ul, 1ul}});
+}
+
+auto createPipeline(const auto& device)
+{
+	return std::make_unique<Pipeline<Vk>>(
+		device,
+		PipelineConfiguration<Vk>{(std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "pipeline.cache").string()});
+}
+
+auto createDevice(const auto& instance, auto physicalDeviceIndex)
+{
+	return std::make_shared<Device<Vk>>(
+		instance,
+		DeviceConfiguration<Vk>{physicalDeviceIndex});
+}
+
+auto createInstance(const auto& name)
+{
+	return std::make_shared<Instance<Vk>>(
+		InstanceConfiguration<Vk>{
+			name,
+			"speedo",
+			ApplicationInfo<Vk>{
+				VK_STRUCTURE_TYPE_APPLICATION_INFO,
+				nullptr,
+				nullptr,
+				VK_MAKE_VERSION(1, 0, 0),
+				nullptr,
+				VK_MAKE_VERSION(1, 0, 0),
+				VK_API_VERSION_1_3}});
+}
+
+auto createRhi(const auto& name, const auto& windowState)
+{
+	using namespace rhiapplication;
+
+	auto instance = createInstance(name);
+	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), windowState.nativeHandle);
+	auto device = createDevice(instance, detectSuitableGraphicsDevice(*instance, surface));
+	auto window = createWindow(device, windowState, std::move(surface));
+	auto pipeline = createPipeline(device);
+
+	auto rhi = std::make_shared<Rhi<Vk>>(
+		std::move(instance),
+		std::move(device),
+		std::move(window),
+		std::move(pipeline));
+
+	createQueues(*rhi);
+	createWindowDependentObjects(*rhi);
+
+	// todo: create some resource global storage
+	rhi->pipeline->resources().black = std::make_shared<Image<Vk>>(
+		rhi->device,
+		ImageCreateDesc<Vk>{
+			{ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}},
+			VK_FORMAT_R8G8B8A8_UNORM,
+			VK_IMAGE_TILING_LINEAR,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+
+	rhi->pipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
+		rhi->device, *rhi->pipeline->resources().black, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
+	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr,
+		0u,
+		VK_FILTER_LINEAR,
+		VK_FILTER_LINEAR,
+		VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		0.0f,
+		VK_TRUE,
+		16.f,
+		VK_FALSE,
+		VK_COMPARE_OP_ALWAYS,
+		0.0f,
+		1000.0f,
+		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		VK_FALSE});
+	rhi->pipeline->resources().samplers =
+		std::make_shared<SamplerVector<Vk>>(rhi->device, std::move(samplerCreateInfos));
+	//
+
+	// initialize stuff on graphics queue
+	constexpr uint32_t textureId = 1;
+	constexpr uint32_t samplerId = 2;
+	static_assert(textureId < ShaderTypes_GlobalTextureCount);
+	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
+	{
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[QueueType_Graphics];
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
+		
+		auto cmd = graphicsQueue.getPool().commands();
+
+		rhi->pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		rhi->pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
+		rhi->pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		IMGUIInit(windowState, *rhi, cmd);
+
+		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
+		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
+		materialData[0].textureAndSamplerId =
+			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
+		rhi->materials = std::make_unique<Buffer<Vk>>(
+			rhi->device,
+			graphicsQueue,
+			1 + rhi->device->timelineValue().fetch_add(1, std::memory_order_relaxed),
+			BufferCreateDesc<Vk>{
+				ShaderTypes_MaterialCount * sizeof(MaterialData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+			materialData.get());
+
+		auto modelInstances = std::make_unique<ModelInstance[]>(ShaderTypes_ModelInstanceCount);
+		auto identityMatrix = glm::mat4x4(1.0f);
+		modelInstances[666].modelTransform = identityMatrix;
+		modelInstances[666].inverseTransposeModelTransform =
+			glm::transpose(glm::inverse(modelInstances[666].modelTransform));
+		rhi->modelInstances = std::make_unique<Buffer<Vk>>(
+			rhi->device,
+			graphicsQueue,
+			1 + rhi->device->timelineValue().fetch_add(1, std::memory_order_relaxed),
+			BufferCreateDesc<Vk>{
+				ShaderTypes_ModelInstanceCount * sizeof(ModelInstance),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+			modelInstances.get());
+
+		cmd.end();
+
+		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+			{},
+			{},
+			{},
+			{graphicsSemaphore},
+			{1 + rhi->device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
+
+		graphicsSubmit = graphicsQueue.submit();
+	}
+
+	auto shaderIncludePath = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / ".slang.intermediate";
+
+	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
+	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
+
+	auto layoutHandle = rhi->pipeline->createLayout(shaderReflection);
+
+	rhi->pipeline->bindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	{
+		rhi->pipeline->setDescriptorData(
+			"g_viewData",
+			DescriptorBufferInfo<Vk>{rhi->window->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorSetCategory_View,
+			i);
+	}
+
+	rhi->pipeline->setDescriptorData(
+		"g_materialData",
+		DescriptorBufferInfo<Vk>{*rhi->materials, 0, VK_WHOLE_SIZE},
+		DescriptorSetCategory_Material);
+
+	rhi->pipeline->setDescriptorData(
+		"g_modelInstances",
+		DescriptorBufferInfo<Vk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
+		DescriptorSetCategory_ModelInstances);
+
+	rhi->pipeline->setDescriptorData(
+		"g_samplers",
+		DescriptorImageInfo<Vk>{(*rhi->pipeline->resources().samplers)[0]},
+		DescriptorSetCategory_GlobalSamplers,
+		samplerId);
+
+	return rhi;
+}
+
 // auto loadGlTF = [](nfdchar_t* openFilePath)
 // {
 // 	try
@@ -1207,30 +1405,15 @@ const Rhi<Vk>& RhiApplication::internalRhi<Vk>() const
 
 RhiApplication::RhiApplication(std::string_view appName, Environment&& env, const WindowState& window)
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-, myRhi(std::make_shared<Rhi<Vk>>(
-		std::make_shared<Instance<Vk>>(
-			InstanceConfiguration<Vk>{
-				name(),
-				"speedo",
-				ApplicationInfo<Vk>{
-					VK_STRUCTURE_TYPE_APPLICATION_INFO,
-					nullptr,
-					nullptr,
-					VK_MAKE_VERSION(1, 0, 0),
-					nullptr,
-					VK_MAKE_VERSION(1, 0, 0),
-					VK_API_VERSION_1_3}})))
-		//std::make_shared<Device<Vk>>())) // todo: 
+, myRhi(rhiapplication::createRhi(name(), window))
 {
 	ZoneScopedN("RhiApplication()");
 
 	using namespace rhiapplication;
 
-	g_rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
-	g_resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
-	g_userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
-
-	createDevice(window);
+	// g_rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
+	// g_resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
+	// g_userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
 
 	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
@@ -1244,162 +1427,6 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 	executor.submit(drawTask);
 
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
-}
-
-void RhiApplication::createDevice(const WindowState& window)
-{
-	using namespace rhiapplication;
-
-	auto& rhi = internalRhi<Vk>();
-	auto& instance = rhi.instance;
-
-	auto shaderIncludePath = g_rootPath / "src/rhi/shaders";
-	auto shaderIntermediatePath = g_userProfilePath / ".slang.intermediate";
-
-	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
-	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
-	
-	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), window.nativeHandle);
-
-	rhi.device = std::make_shared<Device<Vk>>(instance, DeviceConfiguration<Vk>{detectSuitableGraphicsDevice(*instance, surface)});
-
-	rhi.pipeline = std::make_unique<Pipeline<Vk>>(
-		rhi.device, PipelineConfiguration<Vk>{(g_userProfilePath / "pipeline.cache").string()});
-
-	rhi.window = std::make_unique<Window<Vk>>(
-		rhi.device,
-		std::move(surface),
-		WindowConfiguration<Vk>{
-			detectSuitableSwapchain(*rhi.device, surface),
-			{window.width, window.height},
-			{1ul, 1ul}});
-
-	createQueues(rhi);
-	createWindowDependentObjects(rhi);
-
-	// todo: create some resource global storage
-	rhi.pipeline->resources().black = std::make_shared<Image<Vk>>(
-		rhi.device,
-		ImageCreateDesc<Vk>{
-			{ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}},
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_TILING_LINEAR,
-			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
-
-	rhi.pipeline->resources().blackImageView = std::make_shared<ImageView<Vk>>(
-		rhi.device, *rhi.pipeline->resources().black, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
-	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
-		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		nullptr,
-		0u,
-		VK_FILTER_LINEAR,
-		VK_FILTER_LINEAR,
-		VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0f,
-		VK_TRUE,
-		16.f,
-		VK_FALSE,
-		VK_COMPARE_OP_ALWAYS,
-		0.0f,
-		1000.0f,
-		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-		VK_FALSE});
-	rhi.pipeline->resources().samplers =
-		std::make_shared<SamplerVector<Vk>>(rhi.device, std::move(samplerCreateInfos));
-	//
-
-	// initialize stuff on graphics queue
-	constexpr uint32_t textureId = 1;
-	constexpr uint32_t samplerId = 2;
-	static_assert(textureId < ShaderTypes_GlobalTextureCount);
-	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
-	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
-		
-		auto cmd = graphicsQueue.getPool().commands();
-
-		rhi.pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		rhi.pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
-		rhi.pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		IMGUIInit(window, rhi, cmd);
-
-		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
-		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
-		materialData[0].textureAndSamplerId =
-			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
-		rhi.materials = std::make_unique<Buffer<Vk>>(
-			rhi.device,
-			graphicsQueue,
-			1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
-			BufferCreateDesc<Vk>{
-				ShaderTypes_MaterialCount * sizeof(MaterialData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-			materialData.get());
-
-		auto modelInstances = std::make_unique<ModelInstance[]>(ShaderTypes_ModelInstanceCount);
-		auto identityMatrix = glm::mat4x4(1.0f);
-		modelInstances[666].modelTransform = identityMatrix;
-		modelInstances[666].inverseTransposeModelTransform =
-			glm::transpose(glm::inverse(modelInstances[666].modelTransform));
-		rhi.modelInstances = std::make_unique<Buffer<Vk>>(
-			rhi.device,
-			graphicsQueue,
-			1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed),
-			BufferCreateDesc<Vk>{
-				ShaderTypes_ModelInstanceCount * sizeof(ModelInstance),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
-			modelInstances.get());
-
-		cmd.end();
-
-		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
-			{},
-			{},
-			{},
-			{graphicsSemaphore},
-			{1 + rhi.device->timelineValue().fetch_add(1, std::memory_order_relaxed)}});
-
-		graphicsSubmit = graphicsQueue.submit();
-	}
-
-	auto layoutHandle = rhi.pipeline->createLayout(shaderReflection);
-
-	rhi.pipeline->bindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
-	{
-		rhi.pipeline->setDescriptorData(
-			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi.window->getViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DescriptorSetCategory_View,
-			i);
-	}
-
-	rhi.pipeline->setDescriptorData(
-		"g_materialData",
-		DescriptorBufferInfo<Vk>{*rhi.materials, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_Material);
-
-	rhi.pipeline->setDescriptorData(
-		"g_modelInstances",
-		DescriptorBufferInfo<Vk>{*rhi.modelInstances, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_ModelInstances);
-
-	rhi.pipeline->setDescriptorData(
-		"g_samplers",
-		DescriptorImageInfo<Vk>{(*rhi.pipeline->resources().samplers)[0]},
-		DescriptorSetCategory_GlobalSamplers,
-		samplerId);
 }
 
 RhiApplication::~RhiApplication()
@@ -1506,7 +1533,7 @@ void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height)
 			i);
 	}
 
-	createWindowDependentObjects(internalRhi<Vk>());
+	createWindowDependentObjects(rhi);
 }
 
 void RhiApplication::onResizeWindow(const WindowState& state)
