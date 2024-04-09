@@ -288,7 +288,7 @@ void Pipeline<Vk>::internalPrepareDescriptorSets()
 		auto insertResultPair = myDescriptorMap.emplace(
 			static_cast<DescriptorSetLayoutHandle<Vk>>(setLayout),
 			std::make_tuple(
-				UpgradableSharedMutex<>{},
+				UpgradableSharedMutex{},
 				DescriptorSetStatus::Ready,
 				BindingsMap<Vk>{},
 				BindingsData<Vk>{},

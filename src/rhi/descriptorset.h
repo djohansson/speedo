@@ -202,7 +202,7 @@ enum class DescriptorSetStatus : uint8_t
 
 template <GraphicsApi G>
 using DescriptorSetState = std::tuple<
-	UpgradableSharedMutex<>,
+	UpgradableSharedMutex,
 	DescriptorSetStatus,
 	BindingsMap<G>,
 	BindingsData<G>,

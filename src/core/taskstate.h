@@ -12,7 +12,7 @@ struct TaskState
 {
 	std::atomic_uint32_t latch{1u};
 
-	UpgradableSharedMutex<> mutex; // Protects the variables below
+	UpgradableSharedMutex mutex; // Protects the variables below
 	std::vector<TaskHandle> adjacencies;
 	bool isContinuation = false;
 	//

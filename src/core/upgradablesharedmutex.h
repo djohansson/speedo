@@ -5,17 +5,19 @@
 #include <new>
 #include <tuple>
 
-template <
-	typename ValueT = uint32_t,
-	uint32_t Aligmnent =
-#if __cpp_lib_hardware_interference_size >= 201603
-		std::hardware_destructive_interference_size>
-#else
-		128>
-#endif
-class alignas(Aligmnent) UpgradableSharedMutex
+class UpgradableSharedMutex
 {
-	using value_t = ValueT;
+#if __cpp_lib_hardware_interference_size >= 201603
+	using std::hardware_constructive_interference_size;
+	using std::hardware_destructive_interference_size;
+#else
+	static constexpr std::size_t hardware_constructive_interference_size = 64;
+	static constexpr std::size_t hardware_destructive_interference_size = 64;
+#endif
+
+	using value_t = uint32_t;
+	static constexpr uint32_t Aligmnent = hardware_destructive_interference_size;
+
 	enum : value_t
 	{
 		Reader = 4,
@@ -25,11 +27,11 @@ class alignas(Aligmnent) UpgradableSharedMutex
 	};
 
 #if __cpp_lib_atomic_ref >= 201806
-	value_t myBits = 0;
-	auto internalAtomicRef() noexcept;
+	alignas(Aligmnent) value_t myBits = 0;
+	std::atomic_ref<value_t> internalAtomicRef() noexcept { return std::atomic_ref(myBits); }
 #else
-	CopyableAtomic<value_t> myAtomic;
-	auto& internalAtomicRef() noexcept;
+	alignas(Aligmnent) CopyableAtomic<value_t> myAtomic;
+	CopyableAtomic<value_t>& internalAtomicRef() noexcept { return myAtomic; }
 #endif
 
 	template <typename Func>

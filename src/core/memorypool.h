@@ -49,7 +49,7 @@ private:
 
 	alignas(T) std::array<std::byte, Capacity * sizeof(T)> myPool;
 	std::array<Entry, Capacity> myEntries;
-	UpgradableSharedMutex<> myMutex;
+	UpgradableSharedMutex myMutex;
 	uint32_t myAvailable = 0;
 };
 
