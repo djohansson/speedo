@@ -1476,7 +1476,7 @@ void RhiApplication::tick()
 	}
 }
 
-void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height) // hack!! misusing these for view grid
+void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height)
 {
 	using namespace rhiapplication;
 
@@ -1485,9 +1485,6 @@ void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height) // hac
 	ZoneScopedN("RhiApplication::onResizeFramebuffer");
 
 	auto& rhi = internalRhi<Vk>();
-
-	if (width != 0 && height != 0)
-		rhi.window->config().splitScreenGrid = Extent2d<Vk>{width, height};
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
@@ -1498,13 +1495,7 @@ void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height) // hac
 		graphicsQueue.processTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
-	auto physicalDevice = rhi.device->getPhysicalDevice();
-	rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
-	auto framebufferExtent =
-		rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
-			.capabilities.currentExtent;
-
-	rhi.window->onResizeFramebuffer(framebufferExtent);
+	rhi.window->onResizeFramebuffer(width, height);
 
 	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
 	{

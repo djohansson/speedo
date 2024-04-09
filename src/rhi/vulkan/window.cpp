@@ -250,8 +250,15 @@ uint32_t Window<Vk>::internalDrawViews(
 }
 
 template <>
-void Window<Vk>::onResizeFramebuffer(Extent2d<Vk> framebufferExtent)
+void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
 {
+	// auto physicalDevice = rhi.device->getPhysicalDevice();
+	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
+	// auto framebufferExtent =
+	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
+	// 		.capabilities.currentExtent;
+	auto framebufferExtent = Extent2d<Vk>{width, height};
+
 	myConfig.swapchainConfig.extent = framebufferExtent;
 
 	internalCreateSwapchain(myConfig.swapchainConfig, *this);

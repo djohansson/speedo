@@ -209,13 +209,13 @@ void client_resizeWindow(const WindowState* state)
 	s_application->onResizeWindow(*state);
 }
 
-void client_resizeFramebuffer(uint32_t /*width*/, uint32_t /*height*/)
+void client_resizeFramebuffer(uint32_t width, uint32_t height)
 {
 	using namespace client;
 
 	assert(s_application);
 	
-	s_application->onResizeFramebuffer(0, 0);
+	s_application->onResizeFramebuffer(width, height);
 }
 
 void client_mouse(const MouseState* state)

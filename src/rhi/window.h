@@ -56,7 +56,7 @@ public:
 	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 
 	void onResizeWindow(Extent2d<G> windowExtent) { myConfig.windowExtent = windowExtent; }
-	void onResizeFramebuffer(Extent2d<G> framebufferExtent);
+	void onResizeFramebuffer(uint32_t width, uint32_t height);
 
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
