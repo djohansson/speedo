@@ -1055,7 +1055,7 @@ static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, Su
 
 static void createQueues(Rhi<Vk>& rhi)
 {
-	ZoneScopedN("RhiApplication::createQueues");
+	ZoneScopedN("rhiapplication::createQueues");
 
 	const uint32_t frameCount = rhi.window->config().swapchainConfig.imageCount;
 	const uint32_t graphicsQueueCount = frameCount;
@@ -1134,7 +1134,7 @@ static void createQueues(Rhi<Vk>& rhi)
 
 static void createWindowDependentObjects(Rhi<Vk>& rhi)
 {
-	ZoneScopedN("RhiApplication::createWindowDependentObjects");
+	ZoneScopedN("rhiapplication::createWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<Vk>>(
 		rhi.device,
