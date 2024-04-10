@@ -98,6 +98,16 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 	client_mouse(&g_mouse);
 }
 
+void onScroll(GLFWwindow* window, double xoffset, double yoffset)
+{
+	assert(window != NULL);
+
+	g_mouse.xoffset = xoffset;
+	g_mouse.yoffset = yoffset;
+
+	client_mouse(&g_mouse);
+}
+
 static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	assert(window != NULL);
@@ -213,6 +223,11 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 	}
 }
 
+void onDrop(GLFWwindow* window, int count, const char** paths)
+{
+	assert(window != NULL);
+}
+
 int main(int argc, char* argv[], char* envp[])
 {
 	assert(argv != NULL);
@@ -242,8 +257,6 @@ int main(int argc, char* argv[], char* envp[])
 			break;
 		}
 	}
-
-	printf("mi_version(): %d\n", mi_version());
 
 	glfwSetErrorCallback(onError);
 	
@@ -314,15 +327,17 @@ int main(int argc, char* argv[], char* envp[])
 	glfwSetCursorEnterCallback(window, onMouseEnter);
 	glfwSetMouseButtonCallback(window, onMouseButton);
 	glfwSetCursorPosCallback(window, onMouseCursorPos);
+	glfwSetScrollCallback(window, onScroll);
 	glfwSetKeyCallback(window, onKey);
 	glfwSetWindowSizeCallback(window, onWindowResize);
 	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
 	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
 	glfwSetWindowRefreshCallback(window, onWindowRefresh);
 	glfwSetMonitorCallback(onMonitorChanged);
+	glfwSetDropCallback(window, onDrop);
 	glfwSetWindowTitle(window, client_getAppName());
 
-	do { glfwPollEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isInterrupted);
+	do { glfwWaitEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isInterrupted);
 
 	return EXIT_SUCCESS;
 }

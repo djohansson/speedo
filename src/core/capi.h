@@ -9,8 +9,10 @@ extern "C"
 
 typedef struct _MouseState
 {
-	float xpos;
-	float ypos;
+	double xpos;
+	double ypos;
+	double xoffset;
+	double yoffset;
 	uint32_t mods;
 	uint8_t button;
 	uint8_t action;

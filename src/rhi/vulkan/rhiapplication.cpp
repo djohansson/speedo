@@ -797,7 +797,8 @@ void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
 	auto& window = *rhi.window;
 	auto& pipeline = *rhi.pipeline;
 
-	ImGui_ImplVulkan_NewFrame();
+	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update imgui input state
+	ImGui_ImplVulkan_NewFrame(); // no-op?
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
 
@@ -1488,8 +1489,6 @@ void RhiApplication::tick()
 	using namespace rhiapplication;
 
 	ZoneScopedN("RhiApplication::tick");
-
-	ImGui_ImplGlfw_NewFrame();
 
 	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
