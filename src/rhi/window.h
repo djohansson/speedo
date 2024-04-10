@@ -48,30 +48,29 @@ public:
 	void swap(Window& rhs) noexcept;
 	friend void swap(Window& lhs, Window& rhs) noexcept { lhs.swap(rhs); }
 
-	auto& config() noexcept { return myConfig; }
-	const auto& config() const noexcept { return myConfig; }
-
+	const auto& getConfig() const noexcept { return myConfig; }
 	const auto& getViews() const noexcept { return myViews; }
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 
-	void onResizeWindow(Extent2d<G> windowExtent) { myConfig.windowExtent = windowExtent; }
+	void onResizeWindow(uint32_t width, uint32_t height) { myConfig.windowExtent = {width, height}; }
 	void onResizeFramebuffer(uint32_t width, uint32_t height);
+	void onResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
 	void onMouse(const MouseState& mouse);
 	void onKeyboard(const KeyboardState& keyboard);
 
 	// todo: generalize, move out of window. use sorted draw call lists.
 	uint32_t draw(
-		Pipeline<Vk>& pipeline,
-		Queue<Vk>& queue,
-		RenderPassBeginInfo<Vk>&& renderPassInfo);
+		Pipeline<G>& pipeline,
+		Queue<G>& queue,
+		RenderPassBeginInfo<G>&& renderPassInfo);
 	//
 
 private:
 	void internalUpdateViewBuffer() const;
-	void internalCreateFrameObjects(Extent2d<G> frameBufferExtent);
 	void internalUpdateInput();
+	void internalUpdateViews();
 
 	uint32_t internalDrawViews(
 		Pipeline<G>& pipeline,
@@ -79,6 +78,10 @@ private:
 		RenderPassBeginInfo<G>&& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
+	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
+	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
+	std::vector<View> myViews;
+	std::optional<size_t> myActiveView;
 	struct InputState
 	{
 		std::bitset<512> keysPressed;
@@ -90,8 +93,4 @@ private:
 			uint8_t hoverScreen : 1;
 		} mouse;
 	} myInput{};
-	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
-	std::vector<View> myViews;
-	std::optional<size_t> myActiveView;
-	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
 };

@@ -18,31 +18,6 @@
 #include <string>
 #include <string_view>
 
-template <>
-void Window<Vk>::internalCreateFrameObjects(Extent2d<Vk> framebufferExtent)
-{
-	ZoneScopedN("Window::internalCreateFrameObjects");
-
-	myViewBuffers = std::make_unique<Buffer<Vk>[]>(ShaderTypes_FrameCount);
-	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
-	{
-		myViewBuffers[i] = Buffer<Vk>(
-			getDevice(),
-			BufferCreateDesc<Vk>{
-				myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height * sizeof(ViewData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
-	}
-
-	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
-
-	for (auto& view : myViews)
-	{
-		view.desc().viewport.width = framebufferExtent.width / myConfig.splitScreenGrid.width;
-		view.desc().viewport.height = framebufferExtent.height / myConfig.splitScreenGrid.height;
-		view.updateAll();
-	}
-}
 
 template <>
 void Window<Vk>::internalUpdateViewBuffer() const
@@ -250,6 +225,19 @@ uint32_t Window<Vk>::internalDrawViews(
 }
 
 template <>
+void Window<Vk>::internalUpdateViews()
+{
+	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
+
+	for (auto& view : myViews)
+	{
+		view.desc().viewport.width = myConfig.swapchainConfig.extent.width / myConfig.splitScreenGrid.width;
+		view.desc().viewport.height = myConfig.swapchainConfig.extent.height / myConfig.splitScreenGrid.height;
+		view.updateAll();
+	}
+}
+
+template <>
 void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
 {
 	// auto physicalDevice = rhi.device->getPhysicalDevice();
@@ -257,12 +245,18 @@ void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
 	// auto framebufferExtent =
 	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
 	// 		.capabilities.currentExtent;
-	auto framebufferExtent = Extent2d<Vk>{width, height};
-
-	myConfig.swapchainConfig.extent = framebufferExtent;
+	myConfig.swapchainConfig.extent = Extent2d<Vk>{width, height};
 
 	internalCreateSwapchain(myConfig.swapchainConfig, *this);
-	internalCreateFrameObjects(framebufferExtent);
+	internalUpdateViews();
+}
+
+template <>
+void Window<Vk>::onResizeSplitScreenGrid(uint32_t width, uint32_t height)
+{
+	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
+	
+	internalUpdateViews();
 }
 
 template <>
@@ -443,10 +437,21 @@ Window<Vk>::Window(
 	, myConfig{
 		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json",
 		std::forward<WindowConfiguration<Vk>>(defaultConfig)}
+	, myViewBuffers(std::make_unique<Buffer<Vk>[]>(ShaderTypes_FrameCount))
 {
 	ZoneScopedN("Window()");
 
-	internalCreateFrameObjects(myConfig.swapchainConfig.extent);
+	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	{
+		myViewBuffers[i] = Buffer<Vk>(
+			getDevice(),
+			BufferCreateDesc<Vk>{
+				ShaderTypes_ViewCount * sizeof(ViewData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
+	}
+
+	internalUpdateViews();
 
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 }
@@ -455,10 +460,11 @@ template <>
 Window<Vk>::Window(Window&& other) noexcept
 	: Swapchain(std::forward<Window>(other))
 	, myConfig(std::exchange(other.myConfig, {}))
+	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
 	, myTimestamps(std::exchange(other.myTimestamps, {}))
 	, myViews(std::exchange(other.myViews, {}))
 	, myActiveView(std::exchange(other.myActiveView, {}))
-	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
+	, myInput(std::exchange(other.myInput, {}))
 {}
 
 template <>
@@ -472,10 +478,11 @@ Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 {
 	Swapchain::operator=(std::forward<Window>(other));
 	myConfig = std::exchange(other.myConfig, {});
+	myViewBuffers = std::exchange(other.myViewBuffers, {});
 	myTimestamps = std::exchange(other.myTimestamps, {});
 	myViews = std::exchange(other.myViews, {});
 	myActiveView = std::exchange(other.myActiveView, {});
-	myViewBuffers = std::exchange(other.myViewBuffers, {});
+	myInput = std::exchange(other.myInput, {});
 	return *this;
 }
 
@@ -484,8 +491,9 @@ void Window<Vk>::swap(Window& other) noexcept
 {
 	Swapchain::swap(other);
 	std::swap(myConfig, other.myConfig);
+	std::swap(myViewBuffers, other.myViewBuffers);
 	std::swap(myTimestamps, other.myTimestamps);
 	std::swap(myViews, other.myViews);
 	std::swap(myActiveView, other.myActiveView);
-	std::swap(myViewBuffers, other.myViewBuffers);
+	std::swap(myInput, other.myInput);
 }
