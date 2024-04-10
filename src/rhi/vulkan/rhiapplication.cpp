@@ -1415,9 +1415,6 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
 
-	// call tick() once here because ImGui_ImplGlfw_NewFrame() in tick() needs to be called before ImGui_ImplVulkan_NewFrame() in draw()
-	tick();
-
 	auto drawPair = executor.createTask(draw, rhi, executor);
 	auto& [drawTask, drawFuture] = drawPair;
 	g_drawTask = drawPair;
@@ -1515,7 +1512,9 @@ void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height)
 
 		graphicsSemaphore.wait(graphicsSubmit.maxTimelineValue);
 		graphicsQueue.processTimelineCallbacks(graphicsSubmit.maxTimelineValue);
+		//graphicsQueue.waitIdle();
 	}
+	//rhi.device->waitIdle();
 
 	rhi.window->onResizeFramebuffer(width, height);
 
