@@ -156,9 +156,10 @@ Device<Vk>::Device(
 	ZoneScopedN("Device()");
 
 	const auto& physicalDeviceInfo = getPhysicalDeviceInfo();
-
-	std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName
-			  << "\" is selected as primary graphics device" << '\n';
+	
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+		std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName
+				  << "\" is selected as primary graphics device" << '\n';
 
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 	queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
@@ -172,9 +173,10 @@ Device<Vk>::Device(
 		queuePriorities.resize(queueFamilyProperty.queueCount);
 		std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0f);
 
-		std::cout << "Queue Family " << queueFamilyIt << 
-			", queueFlags: " << queueFamilyProperty.queueFlags <<
-			", queueCount: " << queueFamilyProperty.queueCount << '\n';
+		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+			std::cout << "Queue Family " << queueFamilyIt << 
+				", queueFlags: " << queueFamilyProperty.queueFlags <<
+				", queueCount: " << queueFamilyProperty.queueCount << '\n';
 
 		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
 			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -193,13 +195,17 @@ Device<Vk>::Device(
 	vkEnumerateDeviceExtensionProperties(
 		getPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
 
-	std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << '\n';
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+		std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << '\n';
+
 	std::vector<const char*> deviceExtensions;
 	deviceExtensions.reserve(deviceExtensionCount);
 	for (uint32_t i = 0ul; i < deviceExtensionCount; i++)
 	{
 		deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
-		std::cout << deviceExtensions.back() << '\n';
+
+		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+			std::cout << deviceExtensions.back() << '\n';
 	}
 
 	std::sort(
@@ -242,8 +248,11 @@ Device<Vk>::Device(
 	VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, &myInstance->getHostAllocationCallbacks(), &myDevice));
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-	device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
-		vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
+	{
+		device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+			vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
+		assert(device::vkSetDebugUtilsObjectNameEXT != nullptr);
+	}
 #endif
 
 	// addOwnedObjectHandle(
@@ -352,14 +361,13 @@ Device<Vk>::~Device()
 
 	// it is the applications responsibility to wait and destroy all queues complete gpu execution before destroying the Device.
 
-#if (PROFILING_LEVEL > 0)
+	if constexpr(GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, true);
 		std::cout << allocatorStatsJSON << std::endl;
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
-#endif
 
 	vmaDestroyAllocator(myAllocator);
 	vkDestroyDevice(myDevice, &myInstance->getHostAllocationCallbacks());
@@ -390,9 +398,11 @@ DeviceObject<Vk>::DeviceObject(
 	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc))
 {
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
+	{
 		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
 			device->addOwnedObjectHandle(
 				getUid(), objectType, objectHandles[objectIt], std::format("{0}{1}", getName(), objectIt));
+	}
 #endif
 }
 
