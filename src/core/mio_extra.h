@@ -7,6 +7,7 @@ namespace mio_extra
 
 struct resizeable_mmap_sink : public mio::mmap_sink
 {
+	constexpr resizeable_mmap_sink() noexcept = default;
 	resizeable_mmap_sink(const std::string& path, const size_type offset = 0, const size_type length = mio::map_entire_file)
 		: mio::mmap_sink(path, offset, length)
 	{}
