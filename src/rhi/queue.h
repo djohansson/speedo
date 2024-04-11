@@ -5,6 +5,7 @@
 #include "semaphore.h"
 #include "types.h"
 
+#include <any>
 #include <deque>
 #include <memory>
 //#include <source_location>
@@ -161,6 +162,10 @@ private:
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
 	std::deque<TimelineCallback> myTimelineCallbacks;
+
+#if (PROFILING_LEVEL > 0)
+	std::any myProfilingContext;
+#endif
 };
 
 template <GraphicsApi G>

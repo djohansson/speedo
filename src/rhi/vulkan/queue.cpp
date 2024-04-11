@@ -5,14 +5,6 @@
 #include <tracy/TracyC.h>
 #include <tracy/TracyVulkan.hpp>
 
-namespace queue
-{
-
-#if (PROFILING_LEVEL > 0)
-static TracyVkCtx g_tracyContext{};
-#endif
-
-} // namespace queue
 
 template <>
 bool Queue<Vk>::processTimelineCallbacks(uint64_t timelineValue)
@@ -49,7 +41,6 @@ Queue<Vk>::Queue(
 	, myQueue(std::get<1>(descAndHandle))
 	, myPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
 {
-	using namespace queue;
 	using namespace tracy;
 
 	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
@@ -62,7 +53,7 @@ Queue<Vk>::Queue(
 #if (PROFILING_LEVEL > 0)
 	if (device->getPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
 	{
-		g_tracyContext = CreateVkContext(
+		myProfilingContext = CreateVkContext(
 			device->getPhysicalDevice(),
 			*device,
 			myQueue,
@@ -99,19 +90,21 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 	, myPool(std::exchange(other.myPool, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
+#if (PROFILING_LEVEL > 0)
+	, myProfilingContext(std::exchange(other.myProfilingContext, {}))
+#endif
 {}
 
 template <>
 Queue<Vk>::~Queue()
 {
-	using namespace queue;
 	using namespace tracy;
 
 	ZoneScopedN("Queue::~Queue()");
 
 #if (PROFILING_LEVEL > 0)
-	if (g_tracyContext)
-		DestroyVkContext(g_tracyContext);
+	if (myProfilingContext.has_value())
+		DestroyVkContext(std::any_cast<TracyVkCtx>(myProfilingContext));
 #endif
 	
 	for (auto& submittedCommandList : myPool.internalGetSubmittedCommands())
@@ -137,6 +130,9 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
 	myScratchMemory = std::exchange(other.myScratchMemory, {});
 	myTimelineCallbacks = std::exchange(other.myTimelineCallbacks, {});
+#if (PROFILING_LEVEL > 0)
+	myProfilingContext = std::exchange(other.myProfilingContext, {});
+#endif
 	return *this;
 }
 
@@ -150,23 +146,23 @@ void Queue<Vk>::swap(Queue& other) noexcept
 	std::swap(myPendingSubmits, other.myPendingSubmits);
 	std::swap(myScratchMemory, other.myScratchMemory);
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
+#if (PROFILING_LEVEL > 0)
+	std::swap(myProfilingContext, other.myProfilingContext);
+#endif
 }
 
 #if (PROFILING_LEVEL > 0)
 template <>
 void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
 {
-	using namespace queue;
-
-	TracyVkCollect(g_tracyContext, cmd);
+	if (myProfilingContext.has_value())
+		TracyVkCollect(std::any_cast<TracyVkCtx>(myProfilingContext), cmd);
 }
 
 template <>
 std::shared_ptr<void>
 Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
-	using namespace queue;
-
 	static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
 	static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
 	static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
@@ -174,10 +170,10 @@ Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-	if (g_tracyContext)
+	if (myProfilingContext.has_value())
 	{
 		return std::make_shared<tracy::VkCtxScope>(
-			g_tracyContext,
+			std::any_cast<TracyVkCtx>(myProfilingContext),
 			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
 			cmd,
 			true);
