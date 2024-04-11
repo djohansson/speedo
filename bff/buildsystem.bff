@@ -159,8 +159,8 @@ function AddObjectList(.ObjectList .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 
-		.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
-		.CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
+		.CompilerOptions + ' -DPROFILING_LEVEL=$ProfilingLevel$'
+		.CompilerOptions + ' -DGRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
 		.CompilerOptions + .ObjectListCompilerOptions
 
 		ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
@@ -211,8 +211,8 @@ function AddLibrary(.Library .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 
-		.CompilerOptions + ' -DPROFILING_ENABLED=$ProfilingEnabled$'
-		.CompilerOptions + ' -DGRAPHICS_VALIDATION_ENABLED=$GraphicsValidationEnabled$'
+		.CompilerOptions + ' -DPROFILING_LEVEL=$ProfilingLevel$'
+		.CompilerOptions + ' -DGRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
 		.CompilerOptions + .LibraryCompilerOptions
 
 		ForEach(.CompilerOption in .ConfigDependentCompilerOptions)

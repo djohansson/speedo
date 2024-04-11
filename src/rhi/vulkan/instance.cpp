@@ -192,7 +192,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 	ZoneScopedN("Instance()");
 
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		static const char* VK_LOADER_DEBUG_STR = "VK_LOADER_DEBUG";
 		if (char* vkLoaderDebug = getenv(VK_LOADER_DEBUG_STR))
@@ -210,14 +210,14 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	uint32_t instanceLayerCount;
 	VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
 	
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << instanceLayerCount << " vulkan layer(s) found:" << '\n';
 	
 	if (instanceLayerCount > 0)
 	{
 		auto instanceLayers = std::make_unique<VkLayerProperties[]>(instanceLayerCount);
 		VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
-		if constexpr (GRAPHICS_VALIDATION_ENABLED)
+		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 		{
 			for (uint32_t i = 0; i < instanceLayerCount; ++i)
 				std::cout << instanceLayers[i].layerName << '\n';
@@ -231,7 +231,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	vkEnumerateInstanceExtensionProperties(
 		nullptr, &instanceExtensionCount, availableInstanceExtensions.data());
 
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << instanceExtensionCount << " vulkan instance extension(s) found:" << '\n';
 
 	std::vector<const char*> instanceExtensions(instanceExtensionCount);
@@ -239,7 +239,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	{
 		instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
 		
-		if constexpr (GRAPHICS_VALIDATION_ENABLED)
+		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << instanceExtensions[i] << '\n';
 	}
 
@@ -275,7 +275,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 	VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
 
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		requiredExtensions.emplace_back("VK_EXT_debug_utils");
 
@@ -347,7 +347,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		getPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice);
 	}
 
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		auto vkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
 			vkGetInstanceProcAddr(
@@ -370,7 +370,7 @@ Instance<Vk>::~Instance()
 
 	ZoneScopedN("~Instance()");
 
-	if constexpr (GRAPHICS_VALIDATION_ENABLED)
+	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		auto vkDestroyDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
 			vkGetInstanceProcAddr(

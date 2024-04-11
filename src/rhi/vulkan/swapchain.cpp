@@ -167,7 +167,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 
 	if (previous)
 	{
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 		device.eraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous));
 #endif
 
@@ -177,7 +177,7 @@ void Swapchain<Vk>::internalCreateSwapchain(
 			&device.getInstance()->getHostAllocationCallbacks());
 	}
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	device.addOwnedObjectHandle(
 		getUid(),
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,

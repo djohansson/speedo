@@ -23,7 +23,7 @@ void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
 }
 
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 template <>
 template <SourceLocationData Location>
 std::shared_ptr<void> Queue<Vk>::gpuScope(CommandBufferHandle<Vk> cmd)

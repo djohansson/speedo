@@ -1,18 +1,18 @@
 #define VMA_IMPLEMENTATION
-// #ifdef _DEBUG
-// #	define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
-// #	define VMA_DEBUG_DETECT_CORRUPTION 1
-// #	define VMA_DEBUG_MARGIN 16
-// #	define VMA_DEBUG_LOG(format, ...) do \
-// 	{ \
-// 		printf(format, __VA_ARGS__); \
-// 		printf("\n"); \
-// 	} while(false)
-// #endif
+#if (GRAPHICS_VALIDATION_LEVEL > 1)
+#	define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
+#	define VMA_DEBUG_DETECT_CORRUPTION 1
+#	define VMA_DEBUG_MARGIN 16
+#	define VMA_DEBUG_LOG(format, ...) \
+	{ \
+		printf(format, __VA_ARGS__); \
+		printf("\n"); \
+	}
+#endif
 #if defined(__WINDOWS__)
-#include <vma/vk_mem_alloc.h>
+#	include <vma/vk_mem_alloc.h>
 #else
-#include <vk_mem_alloc.h>
+#	include <vk_mem_alloc.h>
 #endif
 
 #include <GLFW/glfw3.h>
@@ -911,7 +911,7 @@ VkResult checkFlipOrPresentResult(VkResult result)
 	case VK_TIMEOUT:
 	case VK_NOT_READY:
 	case VK_SUBOPTIMAL_KHR:
-		std::println("warning: flip/present returned {}", string_VkResult(result));
+		std::println(std::clog, "warning: flip/present returned {}", string_VkResult(result));
 		break;
 	case VK_ERROR_OUT_OF_HOST_MEMORY:
 	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
@@ -919,8 +919,7 @@ VkResult checkFlipOrPresentResult(VkResult result)
 	case VK_ERROR_OUT_OF_DATE_KHR:
 	case VK_ERROR_SURFACE_LOST_KHR:
 	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
-		std::println("error: flip/present returned {}", string_VkResult(result));
-		__debugbreak();
+		std::println(std::clog, "error: flip/present returned {}", string_VkResult(result));
 		break;
 	default:
 		throw std::runtime_error("Invalid error code.");

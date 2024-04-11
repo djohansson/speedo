@@ -485,7 +485,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 		&getDevice()->getInstance()->getHostAllocationCallbacks(),
 		&pipelineHandle));
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		getDevice()->addOwnedObjectHandle(
 			getUid(),
@@ -864,7 +864,7 @@ Pipeline<Vk>::Pipeline(
 	// todo: refactor, since this will be called to excessivly
 	internalResetState();
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	device->addOwnedObjectHandle(
 		getUid(),
 		VK_OBJECT_TYPE_PIPELINE_CACHE,

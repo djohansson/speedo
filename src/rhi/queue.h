@@ -135,7 +135,7 @@ public:
 	auto& getPool() noexcept { return myPool; }
 	const auto& getPool() const noexcept { return myPool; }
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 	template <SourceLocationData Location>
 	inline std::shared_ptr<void> gpuScope(CommandBufferHandle<G> cmd);
 	void gpuScopeCollect(CommandBufferHandle<G> cmd);
@@ -149,7 +149,7 @@ private:
 
 	QueueSubmitInfo<G> internalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 	std::shared_ptr<void>
 	internalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 #endif
@@ -166,7 +166,7 @@ private:
 template <GraphicsApi G>
 using QueueGroup = std::tuple<std::vector<std::pair<Queue<G>, QueueHostSyncInfo<G>>>, Semaphore<G>>;
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag)											\
 		auto tag##__scope =														\
 			queue.gpuScope<														\

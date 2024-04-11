@@ -8,7 +8,7 @@
 namespace queue
 {
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 static TracyVkCtx g_tracyContext{};
 #endif
 
@@ -59,7 +59,7 @@ Queue<Vk>::Queue(
 	static_assert((uint32_t)QueueFamilyFlagBits_VideoDecode == (uint32_t)VK_QUEUE_VIDEO_DECODE_BIT_KHR);
 	static_assert((uint32_t)QueueFamilyFlagBits_VideoEncode == (uint32_t)VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 	if (device->getPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
 	{
 		g_tracyContext = CreateVkContext(
@@ -109,7 +109,7 @@ Queue<Vk>::~Queue()
 
 	ZoneScopedN("Queue::~Queue()");
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 	if (g_tracyContext)
 		DestroyVkContext(g_tracyContext);
 #endif
@@ -152,7 +152,7 @@ void Queue<Vk>::swap(Queue& other) noexcept
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 }
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 template <>
 void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
 {

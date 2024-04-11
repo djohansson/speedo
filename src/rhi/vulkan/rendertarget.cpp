@@ -26,7 +26,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			1));
 
-	#if GRAPHICS_VALIDATION_ENABLED
+	#if (GRAPHICS_VALIDATION_LEVEL > 0)
 		getDevice()->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
@@ -64,7 +64,7 @@ void RenderTarget<Vk>::internalInitializeAttachments(const RenderTargetCreateDes
 			depthAspectFlags,
 			1));
 
-	#if GRAPHICS_VALIDATION_ENABLED
+	#if (GRAPHICS_VALIDATION_LEVEL > 0)
 		getDevice()->addOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
@@ -213,7 +213,7 @@ RenderTargetHandle<Vk> RenderTarget<Vk>::internalCreateRenderPassAndFrameBuffer(
 		desc.extent.height,
 		desc.layerCount);
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	getDevice()->addOwnedObjectHandle(
 		getUid(),
 		VK_OBJECT_TYPE_RENDER_PASS,

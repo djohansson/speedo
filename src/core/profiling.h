@@ -1,6 +1,6 @@
 #pragma once
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 #	ifndef TRACY_ENABLE
 #		define TRACY_ENABLE
 #	endif

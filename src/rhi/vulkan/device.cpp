@@ -15,7 +15,7 @@
 namespace device
 {
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT{};
 #endif
 
@@ -29,7 +29,7 @@ void Device<Vk>::waitIdle() const
 	VK_CHECK(vkDeviceWaitIdle(myDevice));
 }
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 template <>
 void Device<Vk>::addOwnedObjectHandle(
 	const uuids::uuid& ownerId,
@@ -141,7 +141,7 @@ uint32_t Device<Vk>::getTypeCount(ObjectType<Vk> type)
 
 	return myObjectTypeToCountMap[type];
 }
-#endif // GRAPHICS_VALIDATION_ENABLED
+#endif // GRAPHICS_VALIDATION_LEVEL > 0
 
 template <>
 Device<Vk>::Device(
@@ -241,7 +241,7 @@ Device<Vk>::Device(
 
 	VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, &myInstance->getHostAllocationCallbacks(), &myDevice));
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
 		vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
 #endif
@@ -352,7 +352,7 @@ Device<Vk>::~Device()
 
 	// it is the applications responsibility to wait and destroy all queues complete gpu execution before destroying the Device.
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, true);
@@ -389,7 +389,7 @@ DeviceObject<Vk>::DeviceObject(
 	const uint64_t* objectHandles)
 	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc))
 {
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
 			device->addOwnedObjectHandle(
 				getUid(), objectType, objectHandles[objectIt], std::format("{0}{1}", getName(), objectIt));
@@ -399,7 +399,7 @@ DeviceObject<Vk>::DeviceObject(
 template <>
 DeviceObject<Vk>::~DeviceObject()
 {
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (myDevice)
 			myDevice->clearOwnedObjectHandles(getUid());

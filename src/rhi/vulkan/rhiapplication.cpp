@@ -206,7 +206,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 	};
 	*/
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	static bool showStatistics = false;
 	{
 		if (showStatistics)
@@ -610,7 +610,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				if (anyChanged)
 					rhi.window->onResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
 			}
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
 					showStatistics = !showStatistics;

@@ -94,8 +94,8 @@
 #endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
-	.ProfilingEnabled = '0'
-	.GraphicsValidationEnabled = '0'
+	.ProfilingLevel = '0'
+	.GraphicsValidationLevel = '0'
 ]
 
 .Clang_Native_BaseConfig =
@@ -110,8 +110,8 @@
 	Using(.Clang_Native_BaseConfig)
 
 	.ConfigName = 'debug'
-	.ProfilingEnabled = '1'
-	.GraphicsValidationEnabled = '1'
+	.ProfilingLevel = '1'
+	.GraphicsValidationLevel = '1'
 	.CompilerOptions + ' -O0'
 		+ ' -D_DEBUG'
 		+ ' -fno-omit-frame-pointer'
@@ -143,7 +143,7 @@
 	Using(.Clang_Native_ReleaseConfig)
 
 	.ConfigName = 'profile'
-	.ProfilingEnabled = '1'
+	.ProfilingLevel = '1'
 ]
 
 .Clang_Native_Configs = {

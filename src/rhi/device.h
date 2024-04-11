@@ -68,7 +68,7 @@ public:
 
 	void waitIdle() const;
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	void addOwnedObjectHandle(
 		const uuids::uuid& ownerId,
 		ObjectType<G> objectType,
@@ -88,7 +88,7 @@ private:
 	AllocatorHandle<G> myAllocator{};
 	std::atomic_uint64_t myTimelineValue;
 
-#if GRAPHICS_VALIDATION_ENABLED
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	struct ObjectNameInfo : ObjectInfo<G>
 	{
 		std::string name;

@@ -14,7 +14,7 @@
 
 #include <vector>
 
-#if PROFILING_ENABLED
+#if (PROFILING_LEVEL > 0)
 #	define VK_CHECK(expr)                                                                         \
 		do                                                                                         \
 		{                                                                                          \
