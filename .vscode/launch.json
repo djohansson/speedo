@@ -6,7 +6,7 @@
 			"type": "cppdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/client",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"stopAtEntry": false,
 			"cwd": "${workspaceFolder}",
 			"environment": [
@@ -27,7 +27,7 @@
 			"type": "cppdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/server",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"stopAtEntry": false,
 			"cwd": "${workspaceFolder}",
 			"environment": [
@@ -45,7 +45,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/client",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"env": {
@@ -63,7 +63,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/profile/client",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"env": {
@@ -77,7 +77,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/release/client",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"env": {
@@ -91,7 +91,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/server",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"env": {
@@ -107,7 +107,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/profile/server",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"env": {
@@ -120,7 +120,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/release/server",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"env": {
@@ -133,7 +133,7 @@
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/client.exe",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
@@ -167,7 +167,7 @@
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/profile/client.exe",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
@@ -197,7 +197,7 @@
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/release/client.exe",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
@@ -227,9 +227,9 @@
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/debug/server.exe",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
+			"console": "integratedTerminal",
 			"environment": [
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
@@ -260,9 +260,9 @@
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/profile/server.exe",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
+			"console": "integratedTerminal",
 			"environment": [
 				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
@@ -290,9 +290,9 @@
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}/build.output/release/server.exe",
-			"args": ["-u ${userHome}"],
+			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
+			"console": "integratedTerminal",
 			"environment": [
 				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
 			],
