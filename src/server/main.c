@@ -95,7 +95,7 @@ int main(int argc, char* argv[], char* envp[])
 		}
 	}
 
-	printf("mi_version(): %d\n", mi_version());
+	(void)mi_version();
 
 	server_create(&g_paths);
 

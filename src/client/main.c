@@ -258,6 +258,8 @@ int main(int argc, char* argv[], char* envp[])
 		}
 	}
 
+	(void)mi_version();
+
 	glfwSetErrorCallback(onError);
 	
 	if (!glfwInit())
@@ -281,6 +283,7 @@ int main(int argc, char* argv[], char* envp[])
 		return EXIT_FAILURE;
 	}
 
+#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
 	{
 		GLFWmonitor* monitor = monitors[monitorIt];
@@ -308,6 +311,7 @@ int main(int argc, char* argv[], char* envp[])
 			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
 			xscale, yscale);
 	}
+#endif
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "", NULL, NULL);
