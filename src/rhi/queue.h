@@ -5,7 +5,6 @@
 #include "semaphore.h"
 #include "types.h"
 
-#include <any>
 #include <deque>
 #include <memory>
 //#include <source_location>
@@ -161,7 +160,6 @@ private:
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	std::any myUserData;
 	std::deque<TimelineCallback> myTimelineCallbacks;
 };
 

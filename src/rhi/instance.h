@@ -4,7 +4,6 @@
 
 #include <core/utils.h>
 
-#include <any>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -65,5 +64,4 @@ private:
 	UnorderedMap<PhysicalDeviceHandle<G>, std::unique_ptr<PhysicalDeviceInfo<G>>> myPhysicalDeviceInfos;
 	UnorderedMap<std::tuple<PhysicalDeviceHandle<G>, SurfaceHandle<G>>, SwapchainInfo<G>, TupleHash>
 		myPhysicalDeviceSwapchainInfos;
-	std::any myUserData;
 };
