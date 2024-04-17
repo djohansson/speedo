@@ -674,10 +674,8 @@ static void IMGUIInit(
 	const auto& surfaceCapabilities =
 		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.window->getSurface()).capabilities;
 
-	float dpiScaleX = static_cast<float>(surfaceCapabilities.currentExtent.width) /
-					  rhi.window->getConfig().windowExtent.width;
-	float dpiScaleY = static_cast<float>(surfaceCapabilities.currentExtent.height) /
-					  rhi.window->getConfig().windowExtent.height;
+	float dpiScaleX = rhi.window->getConfig().contentScale.x;
+	float dpiScaleY = rhi.window->getConfig().contentScale.y;
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -1035,8 +1033,9 @@ auto createWindow(const auto& device, const auto& window, auto&& surface)
 		std::move(surface),
 		WindowConfiguration<Vk>{
 			detectSuitableSwapchain(*device, surface),
-			{window.width, window.height},
-			{1ul, 1ul}});
+			glm::vec2(window.xscale, window.yscale),
+			{1ul, 1ul},
+			static_cast<bool>(window.fullscreenEnabled)});
 }
 
 auto createPipeline(const auto& device)
@@ -1585,7 +1584,7 @@ void RhiApplication::tick()
 	}
 }
 
-void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height)
+void RhiApplication::onResizeFramebuffer(const WindowState& state)
 {
 	using namespace rhiapplication;
 
@@ -1602,27 +1601,9 @@ void RhiApplication::onResizeFramebuffer(uint32_t width, uint32_t height)
 
 		graphicsSemaphore.wait(graphicsSubmit.maxTimelineValue);
 		graphicsQueue.processTimelineCallbacks(graphicsSubmit.maxTimelineValue);
-		//graphicsQueue.waitIdle();
 	}
-	//rhi.device->waitIdle();
 
-	rhi.window->onResizeFramebuffer(width, height);
+	rhi.window->onResizeFramebuffer(state);
 
 	createWindowDependentObjects(rhi);
-}
-
-void RhiApplication::onResizeWindow(const WindowState& state)
-{
-	ZoneScopedN("RhiApplication::onResizeWindow");
-
-	auto& rhi = internalRhi<Vk>();
-
-	if (state.fullscreenEnabled)
-	{
-		rhi.window->onResizeWindow(state.fullscreenWidth, state.fullscreenHeight);
-	}
-	else
-	{
-		rhi.window->onResizeWindow(state.width, state.height);
-	}
 }

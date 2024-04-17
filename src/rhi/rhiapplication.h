@@ -28,8 +28,7 @@ public:
 
 	void tick() override;
 
-	void onResizeWindow(const WindowState& window);
-	void onResizeFramebuffer(uint32_t width, uint32_t height);
+	void onResizeFramebuffer(const WindowState& window);
 
 	void onMouse(const MouseEvent& mouse);
 	void onKeyboard(const KeyboardEvent& keyboard);

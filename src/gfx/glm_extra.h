@@ -10,6 +10,14 @@
 #include <glm/gtx/hash.hpp>
 //#include <glm/gtx/matrix_interpolation.hpp>
 
+#include <glaze/glaze.hpp>
+
+template <>
+struct glz::meta<glm::vec2>
+{
+	using T = glm::vec2;
+	static constexpr auto value = object(&T::x, &T::y);
+};
 
 namespace glm
 {

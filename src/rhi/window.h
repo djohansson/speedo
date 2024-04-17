@@ -12,7 +12,7 @@
 #include <core/inputstate.h>
 #include <core/utils.h>
 
-#include <gfx/glm.h>
+#include <gfx/glm_extra.h>
 #include <gfx/view.h>
 
 #include <array>
@@ -27,9 +27,10 @@
 template <GraphicsApi G>
 struct WindowConfiguration
 {
-	SwapchainConfiguration<G> swapchainConfig;
-	Extent2d<G> windowExtent;
-	Extent2d<G> splitScreenGrid;
+	SwapchainConfiguration<G> swapchainConfig{};
+	glm::vec2 contentScale = glm::vec2(1.0f, 1.0);
+	Extent2d<G> splitScreenGrid{}; // todo: replace with view list
+	bool fullscreen = false;
 };
 
 template <GraphicsApi G>
@@ -55,8 +56,7 @@ public:
 	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 
 	void onInputStateChanged(const InputState& input);
-	void onResizeWindow(uint32_t width, uint32_t height) { myConfig.windowExtent = {width, height}; }
-	void onResizeFramebuffer(uint32_t width, uint32_t height);
+	void onResizeFramebuffer(const WindowState& state);
 	void onResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
 	// todo: generalize, move out of window. use sorted draw call lists.

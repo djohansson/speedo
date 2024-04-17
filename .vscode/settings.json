@@ -120,6 +120,7 @@
 		"codecvt": "cpp",
 		"csignal": "cpp",
 		"__memory": "cpp",
-		"print": "cpp"
+		"print": "cpp",
+		"version": "cpp"
 	}
 }

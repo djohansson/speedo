@@ -244,6 +244,28 @@ void Window<Vk>::internalInitializeViews()
 }
 
 template <>
+void Window<Vk>::onResizeFramebuffer(const WindowState& state)
+{
+	// auto physicalDevice = rhi.device->getPhysicalDevice();
+	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
+	// auto framebufferExtent =
+	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
+	// 		.capabilities.currentExtent;
+	myConfig.swapchainConfig.extent = Extent2d<Vk>{static_cast<uint32_t>(state.width * state.xscale), static_cast<uint32_t>(state.height * state.yscale)};
+
+	internalCreateSwapchain(myConfig.swapchainConfig, *this);
+	internalInitializeViews();
+}
+
+template <>
+void Window<Vk>::onResizeSplitScreenGrid(uint32_t width, uint32_t height)
+{
+	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
+	
+	internalInitializeViews();
+}
+
+template <>
 void Window<Vk>::internalUpdateViews(const InputState& input)
 {
 	ZoneScopedN("Window::internalUpdateViews");
@@ -256,12 +278,9 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = input.mouse.position[0] /
-						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-		size_t viewIdy = input.mouse.position[1] /
-						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
-		myActiveView =
-			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+		size_t viewIdx = myConfig.contentScale.x * myConfig.splitScreenGrid.width * input.mouse.position[0] / myConfig.swapchainConfig.extent.width;
+		size_t viewIdy = myConfig.contentScale.y * myConfig.splitScreenGrid.height * input.mouse.position[1] / myConfig.swapchainConfig.extent.height;
+		myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
 		//std::cout << *myActiveView << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
 	}
@@ -279,6 +298,7 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 		float dx = 0.f;
 		float dz = 0.f;
 
+		// todo: make a bitset iterator, and use a range based for loop here, use <bit> for __cpp_lib_bitops
 		for (unsigned key = 0; key < input.keyboard.keysDown.size(); key++)
 		{
 			if (input.keyboard.keysDown[key])
@@ -356,28 +376,6 @@ void Window<Vk>::onInputStateChanged(const InputState& input)
 {
 	internalUpdateViews(input);
 	internalUpdateViewBuffer();
-}
-
-template <>
-void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
-{
-	// auto physicalDevice = rhi.device->getPhysicalDevice();
-	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
-	// auto framebufferExtent =
-	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
-	// 		.capabilities.currentExtent;
-	myConfig.swapchainConfig.extent = Extent2d<Vk>{width, height};
-
-	internalCreateSwapchain(myConfig.swapchainConfig, *this);
-	internalInitializeViews();
-}
-
-template <>
-void Window<Vk>::onResizeSplitScreenGrid(uint32_t width, uint32_t height)
-{
-	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
-	
-	internalInitializeViews();
 }
 
 template <>
