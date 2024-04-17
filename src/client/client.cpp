@@ -199,23 +199,13 @@ bool client_tick()
 	return !s_application->exitRequested();
 }
 
-void client_resizeWindow(const WindowState* state)
-{
-	using namespace client;
-
-	assert(state != nullptr);
-	assert(s_application);
-	
-	s_application->onResizeWindow(*state);
-}
-
-void client_resizeFramebuffer(uint32_t width, uint32_t height)
+void client_resizeFramebuffer(const WindowState* state)
 {
 	using namespace client;
 
 	assert(s_application);
 	
-	s_application->onResizeFramebuffer(width, height);
+	s_application->onResizeFramebuffer(*state);
 }
 
 void client_mouse(const MouseState* state)

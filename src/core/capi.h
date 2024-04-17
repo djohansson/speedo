@@ -31,14 +31,15 @@ typedef struct _WindowState
 {
 	void* handle;
 	void* nativeHandle;
-	uint32_t x;
-	uint32_t y;
-	uint32_t width;
-	uint32_t height;
-	uint32_t fullscreenWidth;
-	uint32_t fullscreenHeight;
-	uint32_t fullscreenRefresh;
-	uint8_t fullscreenEnabled : 1;
+	float xscale; // content x scale factor
+	float yscale; // content y scale factor
+	uint32_t x; // screen x position. multiply by xscale to get framebuffer x position
+	uint32_t y; // screen y position multiply by yscale to get framebuffer y position
+	uint32_t width; // screen width. multiply by xscale to get framebuffer width
+	uint32_t height; // screen height. multiply by yscale to get framebuffer height
+	uint32_t fullscreenRefresh : 16;
+	uint32_t fullscreenMonitor : 15;
+	uint32_t fullscreenEnabled : 1;
 } WindowState;
 
 typedef struct _PathConfig

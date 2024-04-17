@@ -1,6 +1,6 @@
 #pragma once
 
-#include "glm.h"
+#include <gfx/glm_extra.h>
 
 #include <cassert>
 #include <cstdint>

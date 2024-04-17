@@ -43,7 +43,7 @@ static struct cag_option g_cmdArgs[] =
 
 static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
 static KeyboardState g_keyboard = {0, 0, 0, 0};
-static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
+static WindowState g_window = {NULL, NULL, 1.0f, 1.0f, 0, 0, 1280, 720, 0, 0, false};
 static PathConfig g_paths = { NULL, NULL };
 
 static volatile bool g_isInterrupted = false;
@@ -126,7 +126,13 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 				g_window.fullscreenEnabled = false;
 
 				glfwSetWindowMonitor(
-					window, NULL, g_window.x, g_window.y, g_window.width, g_window.height, 0);
+					window,
+					NULL,
+					g_window.x,
+					g_window.y,
+					g_window.width,
+					g_window.height,
+					0);
 			}
 			else
 			{
@@ -136,27 +142,34 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 				{
 					const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
 
-					g_window.fullscreenWidth = mode->width;
-					g_window.fullscreenHeight = mode->height;
+					assert(mode != NULL);
+
+					float xscale, yscale;
+					glfwGetMonitorContentScale(primaryMonitor, &xscale, &yscale);
+
+					g_window.xscale = xscale;
+					g_window.yscale = yscale;
+					g_window.width = mode->width;
+					g_window.height = mode->height;
 					g_window.fullscreenRefresh = mode->refreshRate;
 					g_window.fullscreenEnabled = true;
 
-					int x, y, width, height;
-					glfwGetWindowPos(window, &x, &y);
-					glfwGetWindowSize(window, &width, &height);
+					// int x, y, width, height;
+					// glfwGetWindowPos(window, &x, &y);
+					// glfwGetWindowSize(window, &width, &height);
 
-					g_window.x = x;
-					g_window.y = y;
-					g_window.width = width;
-					g_window.height = height;
+					// g_window.x = x;
+					// g_window.y = y;
+					// g_window.width = width;
+					// g_window.height = height;
 
 					glfwSetWindowMonitor(
 						window,
 						primaryMonitor,
-						0,
-						0,
-						g_window.fullscreenWidth,
-						g_window.fullscreenHeight,
+						g_window.x,
+						g_window.y,
+						g_window.width,
+						g_window.height,
 						g_window.fullscreenRefresh);
 				}
 			}
@@ -180,23 +193,13 @@ static void onFramebufferResize(GLFWwindow* window, int w, int h)
 	assert(window != NULL);
 	assert(w > 0);
 	assert(h > 0);
+	assert(g_window.xscale > 0);
+	assert(g_window.yscale > 0);
 
-	client_resizeFramebuffer(w, h);
-}
+	g_window.width = w / g_window.xscale;
+	g_window.height = h / g_window.yscale;
 
-static void onWindowResize(GLFWwindow* window, int w, int h)
-{
-	assert(window != NULL);
-	assert(w > 0);
-	assert(h > 0);
-
-	if (!g_window.fullscreenEnabled)
-	{
-		g_window.width = w;
-		g_window.height = h;
-	}
-
-	client_resizeWindow(&g_window);
+	client_resizeFramebuffer(&g_window);
 }
 
 static void onWindowFocusChanged(GLFWwindow* window, int focused)
@@ -204,7 +207,7 @@ static void onWindowFocusChanged(GLFWwindow* window, int focused)
 	assert(window != NULL);
 }
 
-static void onWindowRefresh(GLFWwindow* window)
+static void onWindowRefreshChanged(GLFWwindow* window)
 {
 	assert(window != NULL);
 }
@@ -292,8 +295,8 @@ int main(int argc, char* argv[], char* envp[])
 		int x, y;
 		glfwGetMonitorPos(monitor, &x, &y);
 		
-		int width, height;
-		glfwGetMonitorPhysicalSize(monitor, &width, &height);
+		int physicalWidth, physicalHeight;
+		glfwGetMonitorPhysicalSize(monitor, &physicalWidth, &physicalHeight);
 		
 		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
 		assert(mode != NULL);
@@ -304,9 +307,20 @@ int main(int argc, char* argv[], char* envp[])
 		printf("GLFW: Connected Monitor %i: %s, Position: %ix%i, Physical Size: %ix%i, Video Mode: %ix%i@%i[%i:%i:%i], Content Scale: %fx%f\n",
 			monitorIt, name,
 			x, y,
-			width, height,
+			physicalWidth, physicalHeight,
 			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
 			xscale, yscale);
+	}
+
+	GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+
+	if (primaryMonitor)
+	{
+		float xscale, yscale;
+		glfwGetMonitorContentScale(primaryMonitor, &xscale, &yscale);
+
+		g_window.xscale = xscale;
+		g_window.yscale = yscale;
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -329,10 +343,9 @@ int main(int argc, char* argv[], char* envp[])
 	glfwSetCursorPosCallback(window, onMouseCursorPos);
 	glfwSetScrollCallback(window, onScroll);
 	glfwSetKeyCallback(window, onKey);
-	glfwSetWindowSizeCallback(window, onWindowResize);
 	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
 	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
-	glfwSetWindowRefreshCallback(window, onWindowRefresh);
+	glfwSetWindowRefreshCallback(window, onWindowRefreshChanged);
 	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetDropCallback(window, onDrop);
 	glfwSetWindowTitle(window, client_getAppName());

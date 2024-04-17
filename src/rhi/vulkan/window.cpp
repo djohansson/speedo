@@ -238,14 +238,14 @@ void Window<Vk>::internalUpdateViews()
 }
 
 template <>
-void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
+void Window<Vk>::onResizeFramebuffer(const WindowState& state)
 {
 	// auto physicalDevice = rhi.device->getPhysicalDevice();
 	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
 	// auto framebufferExtent =
 	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
 	// 		.capabilities.currentExtent;
-	myConfig.swapchainConfig.extent = Extent2d<Vk>{width, height};
+	myConfig.swapchainConfig.extent = Extent2d<Vk>{state.width * state.xscale, state.height * state.yscale};
 
 	internalCreateSwapchain(myConfig.swapchainConfig, *this);
 	internalUpdateViews();
@@ -314,14 +314,11 @@ void Window<Vk>::internalUpdateInput()
 	if (myInput.mouse.hoverScreen)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = myInput.mouse.position[0][0] /
-						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-		size_t viewIdy = myInput.mouse.position[0][1] /
-						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
-		myActiveView =
-			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+		size_t viewIdx = myConfig.contentScale.x * myConfig.splitScreenGrid.width * myInput.mouse.position[0][0] / myConfig.swapchainConfig.extent.width;
+		size_t viewIdy = myConfig.contentScale.y * myConfig.splitScreenGrid.height * myInput.mouse.position[0][1] / myConfig.swapchainConfig.extent.height;
+		myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-		//std::cout << *myActiveView << ":[" << myInput.mouse.position[0][0] << ", " << myInput.mouse.position[0][1] << "]" << '\n';
+		std::cout << *myActiveView << ":[" << myInput.mouse.position[0][0] << ", " << myInput.mouse.position[0][1] << "]" << '\n';
 	}
 	else if (!myInput.mouse.leftPressed)
 	{
@@ -337,6 +334,7 @@ void Window<Vk>::internalUpdateInput()
 		float dx = 0.f;
 		float dz = 0.f;
 
+		// todo: make a bitset iterator, and use a range based for loop here, use <bit> for __cpp_lib_bitops
 		for (unsigned key = 0; key < myInput.keysPressed.size(); key++)
 		{
 			if (myInput.keysPressed[key])
