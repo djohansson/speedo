@@ -41,9 +41,9 @@ static struct cag_option g_cmdArgs[] =
 	}
 };
 
-static MouseState g_mouse = {-1.0, -1.0, 0, 0, 0, false};
-static KeyboardState g_keyboard = {0, 0, 0, 0};
-static WindowState g_window = {NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false};
+static MouseEvent g_mouse = {};
+static KeyboardEvent g_keyboard = {};
+static WindowState g_window = { NULL, NULL, 0, 0, 1920, 1080, 0, 0, 0, false };
 static PathConfig g_paths = { NULL, NULL };
 
 static volatile bool g_isInterrupted = false;
@@ -73,6 +73,7 @@ static void onMouseEnter(GLFWwindow* window, int entered)
 	assert(window != NULL);
 
 	g_mouse.insideWindow = entered;
+	g_mouse.flags = Window;
 
 	client_mouse(&g_mouse);
 }
@@ -84,6 +85,7 @@ static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 	g_mouse.button = button;
 	g_mouse.action = action;
 	g_mouse.mods = mods;
+	g_mouse.flags = Button;
 
 	client_mouse(&g_mouse);
 }
@@ -94,6 +96,7 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 	g_mouse.xpos = xpos;
 	g_mouse.ypos = ypos;
+	g_mouse.flags = Position;
 
 	client_mouse(&g_mouse);
 }
@@ -104,6 +107,7 @@ void onScroll(GLFWwindow* window, double xoffset, double yoffset)
 
 	g_mouse.xoffset = xoffset;
 	g_mouse.yoffset = yoffset;
+	g_mouse.flags = Scroll;
 
 	client_mouse(&g_mouse);
 }
@@ -270,7 +274,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	if (!glfwVulkanSupported())
 	{
-		fprintf(stderr, "GLFW: Vulkan Not Supported.\n");
+		fprintf(stderr, "GLFW: Vulkan not supported.\n");
 		return 1;
 	}
 
@@ -315,6 +319,15 @@ int main(int argc, char* argv[], char* envp[])
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	GLFWwindow* window = glfwCreateWindow(g_window.width, g_window.height, "", NULL, NULL);
+
+	if (!glfwRawMouseMotionSupported())
+	{
+		fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
+		return 1;
+	}
+
+	// glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+	// glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
 	g_window.handle = window;
 #if __WINDOWS__

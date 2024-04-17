@@ -18,7 +18,6 @@
 #include <string>
 #include <string_view>
 
-
 template <>
 void Window<Vk>::internalUpdateViewBuffer() const
 {
@@ -225,105 +224,48 @@ uint32_t Window<Vk>::internalDrawViews(
 }
 
 template <>
-void Window<Vk>::internalUpdateViews()
+void Window<Vk>::internalInitializeViews()
 {
 	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
-	for (auto& view : myViews)
-	{
-		view.desc().viewport.width = myConfig.swapchainConfig.extent.width / myConfig.splitScreenGrid.width;
-		view.desc().viewport.height = myConfig.swapchainConfig.extent.height / myConfig.splitScreenGrid.height;
-		view.updateAll();
-	}
+	unsigned width = myConfig.swapchainConfig.extent.width / myConfig.splitScreenGrid.width;
+	unsigned height = myConfig.swapchainConfig.extent.height / myConfig.splitScreenGrid.height;
+
+	for (unsigned j = 0; j < myConfig.splitScreenGrid.height; j++)
+		for (unsigned i = 0; i < myConfig.splitScreenGrid.width; i++)
+		{
+			auto& view = myViews[j * myConfig.splitScreenGrid.width + i];
+			view.desc().viewport.x = i * width;
+			view.desc().viewport.y = j * height;
+			view.desc().viewport.width = width;
+			view.desc().viewport.height = height;
+			view.updateAll();
+		}
 }
 
 template <>
-void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
+void Window<Vk>::internalUpdateViews(const InputState& input)
 {
-	// auto physicalDevice = rhi.device->getPhysicalDevice();
-	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
-	// auto framebufferExtent =
-	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
-	// 		.capabilities.currentExtent;
-	myConfig.swapchainConfig.extent = Extent2d<Vk>{width, height};
-
-	internalCreateSwapchain(myConfig.swapchainConfig, *this);
-	internalUpdateViews();
-}
-
-template <>
-void Window<Vk>::onResizeSplitScreenGrid(uint32_t width, uint32_t height)
-{
-	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
-	
-	internalUpdateViews();
-}
-
-template <>
-void Window<Vk>::onMouse(const MouseState& mouse)
-{
-	bool leftPressed = mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS;
-	bool rightPressed = mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS;
-
-	auto screenPos = glm::vec2(mouse.xpos, mouse.ypos);
-
-	myInput.mouse.position[0][0] = static_cast<float>(screenPos.x);
-	myInput.mouse.position[0][1] = static_cast<float>(screenPos.y);
-	
-	if (leftPressed && !myInput.mouse.leftPressed)
-	{
-		myInput.mouse.position[1][0] = myInput.mouse.position[0][0];
-		myInput.mouse.position[1][1] = myInput.mouse.position[0][1]; 
-	}
-	else
-	{
-		myInput.mouse.position[1][0] = myInput.mouse.position[1][0];
-		myInput.mouse.position[1][1] = myInput.mouse.position[1][1];
-	}
-
-	myInput.mouse.leftPressed = leftPressed;
-	myInput.mouse.rightPressed = rightPressed;
-	myInput.mouse.hoverScreen = mouse.insideWindow && !myInput.mouse.leftPressed;
-
-	auto& io = ImGui::GetIO();
-	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, leftPressed);
-	io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, rightPressed);
-}
-
-template <>
-void Window<Vk>::onKeyboard(const KeyboardState& keyboard)
-{
-	assert(keyboard.key < myInput.keysPressed.size());
-	
-	if (keyboard.action == GLFW_PRESS)
-		myInput.keysPressed[keyboard.key] = true;
-	else if (keyboard.action == GLFW_RELEASE)
-		myInput.keysPressed[keyboard.key] = false;
-}
-
-template <>
-void Window<Vk>::internalUpdateInput()
-{
-	ZoneScopedN("Window::internalUpdateInput");
+	ZoneScopedN("Window::internalUpdateViews");
 
 	myTimestamps[1] = myTimestamps[0];
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
 	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
-	if (myInput.mouse.hoverScreen)
+	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = myInput.mouse.position[0][0] /
+		size_t viewIdx = input.mouse.position[0] /
 						 (myConfig.windowExtent.width / myConfig.splitScreenGrid.width);
-		size_t viewIdy = myInput.mouse.position[0][1] /
+		size_t viewIdy = input.mouse.position[1] /
 						 (myConfig.windowExtent.height / myConfig.splitScreenGrid.height);
 		myActiveView =
 			std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
-		//std::cout << *myActiveView << ":[" << myInput.mouse.position[0][0] << ", " << myInput.mouse.position[0][1] << "]" << '\n';
+		//std::cout << *myActiveView << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
 	}
-	else if (!myInput.mouse.leftPressed)
+	else if (!input.mouse.leftDown)
 	{
 		myActiveView.reset();
 
@@ -337,9 +279,9 @@ void Window<Vk>::internalUpdateInput()
 		float dx = 0.f;
 		float dz = 0.f;
 
-		for (unsigned key = 0; key < myInput.keysPressed.size(); key++)
+		for (unsigned key = 0; key < input.keyboard.keysDown.size(); key++)
 		{
-			if (myInput.keysPressed[key])
+			if (input.keyboard.keysDown[key])
 			{
 				switch (key)
 				{
@@ -381,11 +323,14 @@ void Window<Vk>::internalUpdateInput()
 			doUpdateViewMatrix = true;
 		}
 
-		if (myInput.mouse.leftPressed)
+		if (input.mouse.leftDown)
 		{
-			constexpr auto rotSpeed = 0.00000001f;
+			constexpr auto rotSpeed = 0.000000001f;
 
-			float dM[2] = {myInput.mouse.position[1][0] - myInput.mouse.position[0][0], myInput.mouse.position[1][1] - myInput.mouse.position[0][1]};
+			float cx = view.desc().viewport.x + (view.desc().viewport.width / 2);
+			float cy = view.desc().viewport.y + (view.desc().viewport.height / 2);
+
+			float dM[2] = {cx - input.mouse.position[0], cy - input.mouse.position[1]};
 
 			view.desc().cameraRotation +=
 				dt *
@@ -407,17 +352,41 @@ void Window<Vk>::internalUpdateInput()
 }
 
 template <>
+void Window<Vk>::onInputStateChanged(const InputState& input)
+{
+	internalUpdateViews(input);
+	internalUpdateViewBuffer();
+}
+
+template <>
+void Window<Vk>::onResizeFramebuffer(uint32_t width, uint32_t height)
+{
+	// auto physicalDevice = rhi.device->getPhysicalDevice();
+	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
+	// auto framebufferExtent =
+	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
+	// 		.capabilities.currentExtent;
+	myConfig.swapchainConfig.extent = Extent2d<Vk>{width, height};
+
+	internalCreateSwapchain(myConfig.swapchainConfig, *this);
+	internalInitializeViews();
+}
+
+template <>
+void Window<Vk>::onResizeSplitScreenGrid(uint32_t width, uint32_t height)
+{
+	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
+	
+	internalInitializeViews();
+}
+
+template <>
 uint32_t Window<Vk>::draw(
 	Pipeline<Vk>& pipeline,
 	Queue<Vk>& queue,
 	RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	ZoneScopedN("Window::draw");
-
-	if (!ImGui::GetIO().WantCaptureMouse)
-		internalUpdateInput();
-
-	internalUpdateViewBuffer();
 
 	return internalDrawViews(
 		pipeline,
@@ -451,7 +420,7 @@ Window<Vk>::Window(
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 	}
 
-	internalUpdateViews();
+	internalInitializeViews();
 
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 }
@@ -464,7 +433,6 @@ Window<Vk>::Window(Window&& other) noexcept
 	, myTimestamps(std::exchange(other.myTimestamps, {}))
 	, myViews(std::exchange(other.myViews, {}))
 	, myActiveView(std::exchange(other.myActiveView, {}))
-	, myInput(std::exchange(other.myInput, {}))
 {}
 
 template <>
@@ -482,7 +450,6 @@ Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 	myTimestamps = std::exchange(other.myTimestamps, {});
 	myViews = std::exchange(other.myViews, {});
 	myActiveView = std::exchange(other.myActiveView, {});
-	myInput = std::exchange(other.myInput, {});
 	return *this;
 }
 
@@ -495,5 +462,4 @@ void Window<Vk>::swap(Window& other) noexcept
 	std::swap(myTimestamps, other.myTimestamps);
 	std::swap(myViews, other.myViews);
 	std::swap(myActiveView, other.myActiveView);
-	std::swap(myInput, other.myInput);
 }

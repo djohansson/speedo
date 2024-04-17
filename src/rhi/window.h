@@ -9,6 +9,7 @@
 
 #include <core/capi.h>
 #include <core/file.h>
+#include <core/inputstate.h>
 #include <core/utils.h>
 
 #include <gfx/glm.h>
@@ -53,12 +54,10 @@ public:
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 
+	void onInputStateChanged(const InputState& input);
 	void onResizeWindow(uint32_t width, uint32_t height) { myConfig.windowExtent = {width, height}; }
 	void onResizeFramebuffer(uint32_t width, uint32_t height);
 	void onResizeSplitScreenGrid(uint32_t width, uint32_t height);
-
-	void onMouse(const MouseState& mouse);
-	void onKeyboard(const KeyboardState& keyboard);
 
 	// todo: generalize, move out of window. use sorted draw call lists.
 	uint32_t draw(
@@ -68,9 +67,10 @@ public:
 	//
 
 private:
+	
 	void internalUpdateViewBuffer() const;
-	void internalUpdateInput();
-	void internalUpdateViews();
+	void internalInitializeViews();
+	void internalUpdateViews(const InputState& input);
 
 	uint32_t internalDrawViews(
 		Pipeline<G>& pipeline,
@@ -82,15 +82,4 @@ private:
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
 	std::optional<size_t> myActiveView;
-	struct InputState
-	{
-		std::bitset<512> keysPressed;
-		struct MouseState
-		{
-			float position[2][2];
-			uint8_t leftPressed : 1;
-			uint8_t rightPressed : 1;
-			uint8_t hoverScreen : 1;
-		} mouse;
-	} myInput{};
 };

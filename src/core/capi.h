@@ -7,8 +7,15 @@ extern "C"
 {
 #endif
 
-typedef struct _MouseState
+typedef struct _MouseEvent
 {
+	enum
+	{
+		Position = 1 << 0,
+		Button = 1 << 1,
+		Scroll = 1 << 2,
+		Window = 1 << 3,
+	} flags;
 	double xpos;
 	double ypos;
 	double xoffset;
@@ -17,15 +24,15 @@ typedef struct _MouseState
 	uint8_t button;
 	uint8_t action;
 	uint8_t insideWindow : 1;
-} MouseState;
+} MouseEvent;
 
-typedef struct _KeyboardState
+typedef struct _KeyboardEvent
 {
 	uint32_t scancode;
 	uint32_t mods;
 	uint16_t key;
 	uint8_t action;
-} KeyboardState;
+} KeyboardEvent;
 
 typedef struct _WindowState
 {

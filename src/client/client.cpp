@@ -218,7 +218,7 @@ void client_resizeFramebuffer(uint32_t width, uint32_t height)
 	s_application->onResizeFramebuffer(width, height);
 }
 
-void client_mouse(const MouseState* state)
+void client_mouse(const MouseEvent* state)
 {
 	using namespace client;
 
@@ -228,7 +228,7 @@ void client_mouse(const MouseState* state)
 	s_application->onMouse(*state);
 }
 
-void client_keyboard(const KeyboardState* state)
+void client_keyboard(const KeyboardEvent* state)
 {
 	using namespace client;
 

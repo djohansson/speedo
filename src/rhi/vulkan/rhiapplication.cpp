@@ -3,6 +3,7 @@
 #include "utils.h"
 
 #include <core/application.h>
+#include <core/inputstate.h>
 #include <core/upgradablesharedmutex.h>
 // #include <core/gltfstream.h>
 // #include <core/nodes/inputoutputnode.h>
@@ -25,7 +26,9 @@ namespace rhiapplication
 {
 
 static UpgradableSharedMutex g_drawMutex{};
+static std::pair<TaskHandle, Future<void>> g_updateTask{};
 static std::pair<TaskHandle, Future<void>> g_drawTask{};
+// drawTask -> updateTask -> drawTask -> updateTask -> ...
 
 static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
 {
@@ -769,138 +772,6 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-void draw(Rhi<Vk>& rhi, TaskExecutor& executor)
-{
-	if (auto app = Application::instance().lock(); !app || app->exitRequested())
-		return;
-
-	std::unique_lock lock(g_drawMutex);
-
-	FrameMark;
-	ZoneScopedN("rhi::draw");
-
-	auto& instance = *rhi.instance;
-	auto& device = *rhi.device;
-	auto& window = *rhi.window;
-	auto& pipeline = *rhi.pipeline;
-
-	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update imgui input state
-	ImGui_ImplVulkan_NewFrame(); // no-op?
-	IMGUIPrepareDrawFunction(rhi, executor); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
-
-	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
-
-	if (flipSuccess)
-	{
-		ZoneScopedN("rhi::draw::submit");
-
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
-		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
-
-		auto& renderImageSet = *rhi.renderImageSet;
-
-		if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
-		{
-			ZoneScopedN("rhi::draw::waitGraphics");
-
-			graphicsSemaphore.wait(timelineValue);
-			graphicsQueue.processTimelineCallbacks(timelineValue);
-		}
-		
-		graphicsQueue.getPool().reset();
-
-		TaskHandle drawCall;
-		while (rhi.drawCalls.try_dequeue(drawCall))
-		{
-			ZoneScopedN("rhi::draw::drawCall");
-
-			executor.call(drawCall, newFrameIndex);
-		}
-
-		auto cmd = graphicsQueue.getPool().commands();
-
-		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
-		
-		{
-			GPU_SCOPE(cmd, graphicsQueue, clear);
-
-			renderImageSet.clearDepthStencil(cmd, {1.0f, 0});
-			renderImageSet.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, draw);
-
-			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			renderImageSet.transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-			
-			auto renderPassInfo = renderImageSet.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-			
-			auto drawThreadCount = window.draw(
-				pipeline,
-				graphicsQueue,
-				std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
-
-			for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
-				graphicsQueue.execute(
-					threadIt,
-					1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed));
-
-			renderImageSet.end(cmd);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, blit);
-
-			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-
-			window.blit(
-				cmd,
-				renderImageSet,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, imgui);
-
-			window.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			window.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-
-			IMGUIDrawFunction(cmd);
-
-			window.end(cmd);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, transition);
-			
-			window.transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
-		}
-
-		cmd.end();
-
-		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
-			{graphicsSemaphore},
-			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			{lastGraphicsSubmit.maxTimelineValue},
-			{graphicsSemaphore},
-			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}
-		});
-
-		graphicsSubmit = graphicsQueue.submit();
-		graphicsQueue.enqueuePresent(window.preparePresent(graphicsSubmit));
-		graphicsQueue.present();
-	}
-
-	// todo: move to own function?
-	{
-		auto drawPair = executor.createTask(draw, rhi, executor);
-		auto& [drawTask, drawFuture] = drawPair;
-		executor.addDependency(g_drawTask.first, drawTask, true);
-		g_drawTask = drawPair;
-	}
-}
-
 static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHandle<Vk> surface)
 {
 	const auto& physicalDevices = instance.getPhysicalDevices();
@@ -1402,6 +1273,223 @@ const Rhi<Vk>& RhiApplication::internalRhi<Vk>() const
 	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
 }
 
+void RhiApplication::internalUpdateInput()
+{
+	using namespace rhiapplication;
+
+	if (exitRequested())
+		return;
+
+	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
+
+	auto& rhi = internalRhi<Vk>();
+	auto& executor = internalExecutor();
+	auto& imguiIO = ImGui::GetIO();
+	// io.WantCaptureMouse = true;
+	// io.WantCaptureKeyboard = true;
+
+	static InputState input;
+
+	MouseEvent mouse;
+	while (myMouseQueue.try_dequeue(mouse))
+	{
+		if (mouse.flags & MouseEvent::Position)
+		{
+			input.mouse.position[0] = static_cast<float>(mouse.xpos);
+			input.mouse.position[1] = static_cast<float>(mouse.ypos);
+			input.mouse.insideWindow = mouse.insideWindow;
+
+			imguiIO.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
+		}
+
+		if (mouse.flags & MouseEvent::Button)
+		{
+			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
+			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);
+			bool leftReleased = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_RELEASE);
+			bool rightReleased = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_RELEASE);
+
+			if (leftPressed)
+			{
+				input.mouse.leftDown = true;
+				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
+			}
+			else if (rightPressed)
+			{
+				input.mouse.rightDown = true;
+				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
+			}
+			else if (leftReleased)
+			{
+				input.mouse.leftDown = false;
+				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
+			}
+			else if (rightReleased)
+			{
+				input.mouse.rightDown = false;
+				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
+			}
+		}
+	}
+
+	KeyboardEvent keyboard;
+	while (myKeyboardQueue.try_dequeue(keyboard))
+	{
+		if (keyboard.action == GLFW_PRESS)
+			input.keyboard.keysDown[keyboard.key] = true;
+		else if (keyboard.action == GLFW_RELEASE)
+			input.keyboard.keysDown[keyboard.key] = false;
+
+		//imguiIO.AddKeyEvent(keyboard.key, keyboard.action);
+		//...
+	}
+
+	rhi.window->onInputStateChanged(input);
+
+	{
+		auto drawPair = executor.createTask([this]{ draw(); });
+		auto& [drawTask, drawFuture] = drawPair;
+		executor.addDependency(g_updateTask.first, drawTask, true);
+		g_drawTask = drawPair;
+	}
+}
+
+void RhiApplication::internalDraw()
+{
+	using namespace rhiapplication;
+
+	if (exitRequested())
+		return;
+
+	std::unique_lock lock(g_drawMutex);
+
+	auto& rhi = internalRhi<Vk>();
+	auto& executor = internalExecutor();
+
+	FrameMark;
+	ZoneScopedN("rhi::draw");
+
+	auto& instance = *rhi.instance;
+	auto& device = *rhi.device;
+	auto& window = *rhi.window;
+	auto& pipeline = *rhi.pipeline;
+
+	ImGui_ImplVulkan_NewFrame(); // no-op?
+	IMGUIPrepareDrawFunction(rhi, executor); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame or ImGio::Newframe())
+
+	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
+
+	if (flipSuccess)
+	{
+		ZoneScopedN("rhi::draw::submit");
+
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
+
+		auto& renderImageSet = *rhi.renderImageSet;
+
+		if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
+		{
+			ZoneScopedN("rhi::draw::waitGraphics");
+
+			graphicsSemaphore.wait(timelineValue);
+			graphicsQueue.processTimelineCallbacks(timelineValue);
+		}
+		
+		graphicsQueue.getPool().reset();
+
+		TaskHandle drawCall;
+		while (rhi.drawCalls.try_dequeue(drawCall))
+		{
+			ZoneScopedN("rhi::draw::drawCall");
+
+			executor.call(drawCall, newFrameIndex);
+		}
+
+		auto cmd = graphicsQueue.getPool().commands();
+
+		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
+		
+		{
+			GPU_SCOPE(cmd, graphicsQueue, clear);
+
+			renderImageSet.clearDepthStencil(cmd, {1.0f, 0});
+			renderImageSet.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, draw);
+
+			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			renderImageSet.transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+			
+			auto renderPassInfo = renderImageSet.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+			
+			auto drawThreadCount = window.draw(
+				pipeline,
+				graphicsQueue,
+				std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
+
+			for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
+				graphicsQueue.execute(
+					threadIt,
+					1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed));
+
+			renderImageSet.end(cmd);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, blit);
+
+			renderImageSet.transitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+
+			window.blit(
+				cmd,
+				renderImageSet,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, imgui);
+
+			window.transitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			window.begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+
+			IMGUIDrawFunction(cmd);
+
+			window.end(cmd);
+		}
+		{
+			GPU_SCOPE(cmd, graphicsQueue, transition);
+			
+			window.transitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+		}
+
+		cmd.end();
+
+		graphicsQueue.enqueueSubmit(QueueDeviceSyncInfo<Vk>{
+			{graphicsSemaphore},
+			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+			{lastGraphicsSubmit.maxTimelineValue},
+			{graphicsSemaphore},
+			{1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed)}
+		});
+
+		graphicsSubmit = graphicsQueue.submit();
+		graphicsQueue.enqueuePresent(window.preparePresent(graphicsSubmit));
+		graphicsQueue.present();
+	}
+
+	// todo: move to own function?
+	{
+		auto updatePair = executor.createTask([this]{ updateInput(); });
+		auto& [updateTask, updateFuture] = updatePair;
+		executor.addDependency(g_drawTask.first, updateTask, true);
+		g_updateTask = updatePair;
+	}
+}
+
 RhiApplication::RhiApplication(std::string_view appName, Environment&& env, const WindowState& window)
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
 , myRhi(rhiapplication::createRhi(name(), window))
@@ -1417,10 +1505,10 @@ RhiApplication::RhiApplication(std::string_view appName, Environment&& env, cons
 	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
 
-	auto drawPair = executor.createTask(draw, rhi, executor);
-	auto& [drawTask, drawFuture] = drawPair;
-	g_drawTask = drawPair;
-	executor.submit(drawTask);
+	auto updatePair = executor.createTask([this]{ updateInput(); });
+	auto& [updateTask, updateFuture] = updatePair;
+	g_updateTask = updatePair;
+	executor.submit(updateTask);
 
 	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
 }
@@ -1469,14 +1557,14 @@ RhiApplication::~RhiApplication()
 	assert(instance.use_count() == 2);
 }
 
-void RhiApplication::onMouse(const MouseState& mouse)
+void RhiApplication::onMouse(const MouseEvent& mouse)
 {
-	internalRhi<Vk>().window->onMouse(mouse);
+	myMouseQueue.enqueue(mouse);
 }
 
-void RhiApplication::onKeyboard(const KeyboardState& keyboard)
+void RhiApplication::onKeyboard(const KeyboardEvent& keyboard)
 {
-	internalRhi<Vk>().window->onKeyboard(keyboard);
+	myKeyboardQueue.enqueue(keyboard);
 }
 
 void RhiApplication::tick()

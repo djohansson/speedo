@@ -6,6 +6,7 @@
 #include <core/capi.h>
 #include <core/file.h>
 #include <core/future.h>
+#include <core/utils.h>
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
@@ -30,8 +31,11 @@ public:
 	void onResizeWindow(const WindowState& window);
 	void onResizeFramebuffer(uint32_t width, uint32_t height);
 
-	void onMouse(const MouseState& mouse);
-	void onKeyboard(const KeyboardState& keyboard);
+	void onMouse(const MouseEvent& mouse);
+	void onKeyboard(const KeyboardEvent& keyboard);
+
+	void updateInput() { internalUpdateInput(); };
+	void draw() { internalDraw(); };
 
 protected:
 	explicit RhiApplication() = default;
@@ -44,5 +48,10 @@ protected:
 	const Rhi<G>& internalRhi() const;
 
 private:
+	void internalUpdateInput();
+	void internalDraw();
+
 	std::shared_ptr<void> myRhi;
+	ConcurrentQueue<MouseEvent> myMouseQueue;
+	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 };
