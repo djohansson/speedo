@@ -276,7 +276,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-	assert(monitors != NULL);
+	assert(monitors != NULL); (void)monitors;
 	if (monitorCount <= 0)
 	{
 		fprintf(stderr, "GLFW: No monitor connected?\n");
