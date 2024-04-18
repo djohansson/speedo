@@ -1522,8 +1522,10 @@ RhiApplication::~RhiApplication()
 
 	auto& executor = internalExecutor();
 
+	executor.join(std::move(g_updateTask.second));
 	executor.join(std::move(g_drawTask.second));
 
+	g_updateTask = {};
 	g_drawTask = {};
 
 	auto& rhi = internalRhi<Vk>();
