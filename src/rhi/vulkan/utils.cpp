@@ -874,30 +874,15 @@ VkRenderPass createRenderPass(
 		{dependency});
 }
 
+// todo: use callback
 VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)
 {
 	VkSurfaceKHR surface;
-#ifdef __WINDOWS__
-	auto vkCreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(
-		vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR"));
-	assert(vkCreateWin32SurfaceKHR);
-	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo{
-		VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
-	surfaceCreateInfo.hinstance = GetModuleHandle(NULL);
-	surfaceCreateInfo.hwnd = *reinterpret_cast<HWND*>(view);
-	VK_CHECK(vkCreateWin32SurfaceKHR(
+	VK_CHECK(glfwCreateWindowSurface(
 		instance,
-		&surfaceCreateInfo,
+		reinterpret_cast<GLFWwindow*>(view),
 		hostAllocator,
 		&surface));
-#else
-	VK_CHECK(
-		glfwCreateWindowSurface(
-			instance,
-			reinterpret_cast<GLFWwindow*>(view),
-			hostAllocator,
-			&surface));
-#endif
 
 	return surface;
 }
