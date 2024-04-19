@@ -246,12 +246,14 @@ void Window<Vk>::internalInitializeViews()
 template <>
 void Window<Vk>::onResizeFramebuffer(const WindowState& state)
 {
-	// auto physicalDevice = rhi.device->getPhysicalDevice();
-	// rhi.instance->updateSurfaceCapabilities(physicalDevice, rhi.window->getSurface());
-	// auto framebufferExtent =
-	// 	rhi.instance->getSwapchainInfo(physicalDevice, rhi.window->getSurface())
-	// 		.capabilities.currentExtent;
-	myConfig.swapchainConfig.extent = Extent2d<Vk>{static_cast<uint32_t>(state.width * state.xscale), static_cast<uint32_t>(state.height * state.yscale)};
+	auto& device = *getDevice();
+	auto& instance = *device.getInstance();
+	auto surface = getSurface();
+	auto physicalDevice = device.getPhysicalDevice();
+
+	instance.updateSurfaceCapabilities(physicalDevice, surface);
+
+	myConfig.swapchainConfig.extent = instance.getSwapchainInfo(physicalDevice, surface).capabilities.currentExtent;
 
 	internalCreateSwapchain(myConfig.swapchainConfig, *this);
 	internalInitializeViews();
