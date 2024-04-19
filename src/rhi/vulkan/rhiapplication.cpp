@@ -679,6 +679,8 @@ static void IMGUIInit(
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
+	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
+
 	ImFontConfig config;
 	config.OversampleH = 2;
 	config.OversampleV = 2;
@@ -703,8 +705,10 @@ static void IMGUIInit(
 	for (auto font : fonts)
 	{
 		fontPath.replace_filename(font);
-		defaultFont =
-			io.Fonts->AddFontFromFileTTF(fontPath.generic_string().c_str(), 16.0f, &config);
+		defaultFont = io.Fonts->AddFontFromFileTTF(
+			fontPath.generic_string().c_str(),
+			16.0f * std::max(dpiScaleX, dpiScaleY),
+			&config);
 	}
 
 	// Setup style
