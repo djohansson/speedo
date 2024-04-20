@@ -11,10 +11,10 @@
 template <GraphicsApi G>
 struct SwapchainConfiguration
 {
-	Extent2d<G> extent;
-	SurfaceFormat<G> surfaceFormat;
-	PresentMode<G> presentMode;
-	uint8_t imageCount;
+	Extent2d<G> extent{1280, 720};
+	SurfaceFormat<G> surfaceFormat{};
+	PresentMode<G> presentMode{};
+	uint8_t imageCount{};
 };
 
 template <GraphicsApi G>

@@ -280,8 +280,8 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = myConfig.contentScale.x * myConfig.splitScreenGrid.width * input.mouse.position[0] / myConfig.swapchainConfig.extent.width;
-		size_t viewIdy = myConfig.contentScale.y * myConfig.splitScreenGrid.height * input.mouse.position[1] / myConfig.swapchainConfig.extent.height;
+		size_t viewIdx = myConfig.splitScreenGrid.width * input.mouse.position[0] / myConfig.swapchainConfig.extent.width;
+		size_t viewIdy = myConfig.splitScreenGrid.height * input.mouse.position[1] / myConfig.swapchainConfig.extent.height;
 		myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
 		//std::cout << *myActiveView << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
@@ -398,14 +398,12 @@ template <>
 Window<Vk>::Window(
 	const std::shared_ptr<Device<Vk>>& device,
 	SurfaceHandle<Vk>&& surface,
-	WindowConfiguration<Vk>&& defaultConfig)
+	ConfigFile&& config)
 	: Swapchain(
 		device,
-		defaultConfig.swapchainConfig,
+		config.swapchainConfig,
 		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
-	, myConfig{
-		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json",
-		std::forward<WindowConfiguration<Vk>>(defaultConfig)}
+	, myConfig(std::forward<ConfigFile>(config))
 	, myViewBuffers(std::make_unique<Buffer<Vk>[]>(ShaderTypes_FrameCount))
 {
 	ZoneScopedN("Window()");

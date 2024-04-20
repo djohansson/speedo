@@ -37,7 +37,6 @@ typedef struct _KeyboardEvent
 typedef struct _WindowState
 {
 	void* handle;
-	void* nativeHandle;
 	float xscale; // content x scale factor
 	float yscale; // content y scale factor
 	uint32_t x; // screen x position. multiply by xscale to get framebuffer x position
@@ -48,6 +47,8 @@ typedef struct _WindowState
 	uint32_t fullscreenMonitor : 15;
 	uint32_t fullscreenEnabled : 1;
 } WindowState;
+
+typedef void* (*CreateWindowFunc)(WindowState* window);
 
 typedef struct _PathConfig
 {

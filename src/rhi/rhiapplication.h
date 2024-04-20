@@ -38,7 +38,11 @@ public:
 
 protected:
 	explicit RhiApplication() = default;
-	RhiApplication(std::string_view name, Environment&& env, const WindowState& window);
+	RhiApplication(
+		std::string_view name,
+		Environment&& env,
+		CreateWindowFunc createWindowFunc,
+		WindowState& window);
 
 	template <GraphicsApi G>
 	Rhi<G>& internalRhi();

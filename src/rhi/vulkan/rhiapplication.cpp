@@ -1030,16 +1030,9 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
 
-auto createWindow(const auto& device, const auto& window, auto&& surface)
+auto createWindow(const auto& device, auto&& surface, auto&& windowConfig)
 {
-	return std::make_unique<Window<Vk>>(
-		device,
-		std::move(surface),
-		WindowConfiguration<Vk>{
-			detectSuitableSwapchain(*device, surface),
-			glm::vec2(window.xscale, window.yscale),
-			{1ul, 1ul},
-			static_cast<bool>(window.fullscreenEnabled)});
+	return std::make_unique<Window<Vk>>(device, std::move(surface), std::move(windowConfig));
 }
 
 auto createPipeline(const auto& device)
@@ -1072,14 +1065,24 @@ auto createInstance(const auto& name)
 				VK_API_VERSION_1_3}});
 }
 
-auto createRhi(const auto& name, const auto& windowState)
+auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& windowState)
 {
 	using namespace rhiapplication;
 
+	Window<Vk>::ConfigFile windowConfig = Window<Vk>::ConfigFile{
+		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json"};
+
+	windowState.width = windowConfig.swapchainConfig.extent.width;
+	windowState.height = windowConfig.swapchainConfig.extent.height;
+
 	auto instance = createInstance(name);
-	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), windowState.nativeHandle);
+	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), createWindowFunc(&windowState));
 	auto device = createDevice(instance, detectSuitableGraphicsDevice(*instance, surface));
-	auto window = createWindow(device, windowState, std::move(surface));
+
+	windowConfig.swapchainConfig = detectSuitableSwapchain(*device, surface);
+	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
+
+	auto window = createWindow(device, std::move(surface), std::move(windowConfig));
 	auto pipeline = createPipeline(device);
 
 	auto rhi = std::make_shared<Rhi<Vk>>(
@@ -1493,9 +1496,13 @@ void RhiApplication::internalDraw()
 	}
 }
 
-RhiApplication::RhiApplication(std::string_view appName, Environment&& env, const WindowState& window)
+RhiApplication::RhiApplication(
+	std::string_view appName,
+	Environment&& env,
+	CreateWindowFunc createWindowFunc,
+	WindowState& window)
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-, myRhi(rhiapplication::createRhi(name(), window))
+, myRhi(rhiapplication::createRhi(name(), createWindowFunc, window))
 {
 	ZoneScopedN("RhiApplication()");
 

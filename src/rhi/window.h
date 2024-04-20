@@ -29,19 +29,21 @@ struct WindowConfiguration
 {
 	SwapchainConfiguration<G> swapchainConfig{};
 	glm::vec2 contentScale = glm::vec2(1.0f, 1.0);
-	Extent2d<G> splitScreenGrid{}; // todo: replace with view list
-	bool fullscreen = false;
+	Extent2d<G> splitScreenGrid{1, 1}; // todo: replace with view list
+	bool fullscreen{false};
 };
 
 template <GraphicsApi G>
 class Window final : public Swapchain<G>
 {
 public:
+	using ConfigFile = file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true>;
+
 	constexpr Window() noexcept = default;
 	Window(
 		const std::shared_ptr<Device<G>>& device,
 		SurfaceHandle<G>&& surface, // swapchain base class takes ownership of surface
-		WindowConfiguration<G>&& defaultConfig = {});
+		ConfigFile&& config);
 	Window(Window&& other) noexcept;
 	~Window();
 

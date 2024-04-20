@@ -120,10 +120,11 @@ public:
 
 protected:
 	explicit Client() = default;
-	Client(std::string_view name, Environment&& env, const WindowState& window)
+	Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc, WindowState& window)
 	: RhiApplication(
 		std::forward<std::string_view>(name),
 		std::forward<Environment>(env),
+		createWindowFunc,
 		window)
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::req)
@@ -165,13 +166,12 @@ static std::shared_ptr<Client> s_application{};
 
 } // namespace client
 
-void client_create(const WindowState* window, const PathConfig* paths)
+void client_create(CreateWindowFunc createWindowFunc, WindowState* window, const PathConfig* paths)
 {
 	using namespace client;
 	using namespace file;
 
 	assert(window != nullptr);
-	assert(window->handle != nullptr);
 	assert(paths != nullptr);
 
 	auto root = getCanonicalPath(nullptr, "./");
@@ -183,6 +183,7 @@ void client_create(const WindowState* window, const PathConfig* paths)
 			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
 			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}},
+		createWindowFunc,
 		*window);
 
 	assert(s_application);
