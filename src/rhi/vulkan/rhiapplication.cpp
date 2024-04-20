@@ -1072,8 +1072,8 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& window
 	Window<Vk>::ConfigFile windowConfig = Window<Vk>::ConfigFile{
 		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json"};
 
-	windowState.width = windowConfig.swapchainConfig.extent.width;
-	windowState.height = windowConfig.swapchainConfig.extent.height;
+	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
+	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
 	auto instance = createInstance(name);
 	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), createWindowFunc(&windowState));
