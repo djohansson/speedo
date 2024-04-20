@@ -48,14 +48,14 @@ static PathConfig g_paths;
 
 static volatile bool g_isInterrupted = false;
 
-void onExit(void) 
+static void onExit(void) 
 {
 	glfwDestroyWindow(g_window.handle);
 	client_destroy();
 	glfwTerminate();
 }
 
-void onSignal(int signal)
+static void onSignal(int signal)
 {
 	if (signal == SIGINT || signal == SIGTERM)
 		g_isInterrupted = true;
@@ -101,7 +101,7 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 	client_mouse(&g_mouse);
 }
 
-void onScroll(GLFWwindow* window, double xoffset, double yoffset)
+static void onScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
 	assert(window != NULL);
 
@@ -113,8 +113,10 @@ void onScroll(GLFWwindow* window, double xoffset, double yoffset)
 }
 
 
-static void onFullscreenChanged(GLFWwindow* window)
+static void onWindowFullscreenChanged(GLFWwindow* window)
 {
+	assert(window != NULL);
+
 	GLFWmonitor* windowMonitor = glfwGetWindowMonitor(window);
 
 	if (windowMonitor)
@@ -172,7 +174,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 		{
 			fullscreenChangeTriggered = true;
 
-			onFullscreenChanged(window);
+			onWindowFullscreenChanged(window);
 		}
 	}
 	else
@@ -186,6 +188,25 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 	g_keyboard.mods = mods;
 
 	client_keyboard(&g_keyboard);
+}
+
+static void onMonitorChanged(GLFWmonitor* monitor, int event)
+{
+	assert(monitor != NULL);
+
+	if (event == GLFW_CONNECTED)
+	{
+		// The monitor was connected
+	}
+	else if (event == GLFW_DISCONNECTED)
+	{
+		// The monitor was disconnected
+	}
+}
+
+static void onDrop(GLFWwindow* window, int count, const char** paths)
+{
+	assert(window != NULL);
 }
 
 static void onFramebufferResize(GLFWwindow* window, int w, int h)
@@ -202,7 +223,7 @@ static void onFramebufferResize(GLFWwindow* window, int w, int h)
 	client_resizeFramebuffer(&g_window);
 }
 
-void onContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
+static void onWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
 {
 	assert(window != NULL);
 	assert(xscale > 0);
@@ -223,26 +244,40 @@ static void onWindowRefreshChanged(GLFWwindow* window)
 	assert(window != NULL);
 }
 
-static void onMonitorChanged(GLFWmonitor* monitor, int event)
+static void onWindowIconifyChanged(GLFWwindow* window, int iconified)
 {
-	assert(monitor != NULL);
+	assert(window != NULL);
 
-	if (event == GLFW_CONNECTED)
+	if (iconified)
 	{
-		// The monitor was connected
+		// The window was iconified
 	}
-	else if (event == GLFW_DISCONNECTED)
+	else
 	{
-		// The monitor was disconnected
+		// The window was restored
 	}
 }
 
-void onDrop(GLFWwindow* window, int count, const char** paths)
+static void onWindowMaximizeChanged(GLFWwindow* window, int maximized)
+{
+	assert(window != NULL);
+
+	if (maximized)
+	{
+		// The window was maximized
+	}
+	else
+	{
+		// The window was restored
+	}
+}
+
+static void onWindowSizeChanged(GLFWwindow* window, int width, int height)
 {
 	assert(window != NULL);
 }
 
-void* onCreateWindow(WindowState* state)
+static void* onCreateWindow(WindowState* state)
 {
 	assert(state);
 
@@ -351,12 +386,12 @@ int main(int argc, char* argv[], char* envp[])
 	}
 #endif
 
-	if (!glfwRawMouseMotionSupported())
-	{
-		fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
-		return 1;
-	}
-
+	// todo: enable raw mouse input
+	// if (!glfwRawMouseMotionSupported())
+	// {
+	// 	fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
+	// 	return 1;
+	// }
 	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 	// glfwSetInputMode(g_window.handle, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
@@ -369,12 +404,15 @@ int main(int argc, char* argv[], char* envp[])
 	glfwSetCursorPosCallback(g_window.handle, onMouseCursorPos);
 	glfwSetScrollCallback(g_window.handle, onScroll);
 	glfwSetKeyCallback(g_window.handle, onKey);
+	glfwSetDropCallback(g_window.handle, onDrop);
+	glfwSetMonitorCallback(onMonitorChanged);
 	glfwSetFramebufferSizeCallback(g_window.handle, onFramebufferResize);
 	glfwSetWindowFocusCallback(g_window.handle, onWindowFocusChanged);
 	glfwSetWindowRefreshCallback(g_window.handle, onWindowRefreshChanged);
-	glfwSetWindowContentScaleCallback(g_window.handle, onContentScaleChanged);
-	glfwSetMonitorCallback(onMonitorChanged);
-	glfwSetDropCallback(g_window.handle, onDrop);
+	glfwSetWindowContentScaleCallback(g_window.handle, onWindowContentScaleChanged);
+	glfwSetWindowIconifyCallback(g_window.handle, onWindowIconifyChanged);
+	glfwSetWindowMaximizeCallback(g_window.handle, onWindowMaximizeChanged);
+	glfwSetWindowSizeCallback(g_window.handle, onWindowSizeChanged);
 	glfwSetWindowTitle(g_window.handle, client_getAppName());
 
 	do { glfwWaitEvents(); } while (!glfwWindowShouldClose(g_window.handle) && client_tick() && !g_isInterrupted);
