@@ -280,8 +280,8 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{
 		// todo: generic view index calculation
-		size_t viewIdx = myConfig.splitScreenGrid.width * input.mouse.position[0] / myConfig.swapchainConfig.extent.width;
-		size_t viewIdy = myConfig.splitScreenGrid.height * input.mouse.position[1] / myConfig.swapchainConfig.extent.height;
+		size_t viewIdx = myConfig.splitScreenGrid.width * input.mouse.position[0] / (myConfig.swapchainConfig.extent.width / myConfig.contentScale.x);
+		size_t viewIdy = myConfig.splitScreenGrid.height * input.mouse.position[1] / (myConfig.swapchainConfig.extent.height / myConfig.contentScale.y);
 		myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
 
 		//std::cout << *myActiveView << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
@@ -349,16 +349,16 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 		{
 			constexpr auto rotSpeed = 0.000000001f;
 
-			float cx = view.desc().viewport.x + (view.desc().viewport.width / 2);
-			float cy = view.desc().viewport.y + (view.desc().viewport.height / 2);
+			const float viewportWidth = view.desc().viewport.width / myConfig.contentScale.x;
+			const float viewportHeight = view.desc().viewport.height / myConfig.contentScale.y;
+
+			float cx = view.desc().viewport.x + 0.5f * viewportWidth;
+			float cy = view.desc().viewport.y + 0.5f * viewportHeight;
 
 			float dM[2] = {cx - input.mouse.position[0], cy - input.mouse.position[1]};
 
 			view.desc().cameraRotation +=
-				dt *
-				glm::vec3(
-					dM[1] / view.desc().viewport.height, dM[0] / view.desc().viewport.width, 0.0f) *
-				rotSpeed;
+				dt * glm::vec3(dM[1] / viewportHeight, dM[0] / viewportWidth, 0.0f) * rotSpeed;
 
 			// std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
 			//     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << '\n';

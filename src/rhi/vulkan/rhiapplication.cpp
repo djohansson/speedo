@@ -674,8 +674,13 @@ static void IMGUIInit(
 	const auto& surfaceCapabilities =
 		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.window->getSurface()).capabilities;
 
+#if defined(__APPLE__)
+	constexpr float dpiScaleX = 1.0f;
+	constexpr float dpiScaleY = 1.0f;
+#else
 	float dpiScaleX = rhi.window->getConfig().contentScale.x;
 	float dpiScaleY = rhi.window->getConfig().contentScale.y;
+#endif
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
