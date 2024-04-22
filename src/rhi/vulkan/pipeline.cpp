@@ -6,6 +6,7 @@
 #include "utils.h"
 
 #include <format>
+#include <print>
 
 #pragma pack(push, 1)
 template <>
@@ -104,7 +105,7 @@ std::expected<Record, std::error_code> savePipelineCache(
 
 		if (cacheData.empty())
 		{
-			std::clog << "Failed to get pipeline cache." << '\n';
+			std::println("Failed to get pipeline cache.");
 		
 			return std::make_error_code(std::errc::invalid_argument);
 		}
@@ -113,7 +114,7 @@ std::expected<Record, std::error_code> savePipelineCache(
 
 		if (!isCacheValid(*header, physicalDeviceProperties))
 		{
-			std::clog << "Invalid pipeline cache, will not save." << '\n';
+			std::println("Invalid pipeline cache, will not save.");
 
 			return std::make_error_code(std::errc::invalid_argument);
 		}
@@ -892,7 +893,7 @@ Pipeline<Vk>::~Pipeline()
 	}
 	else
 	{
-		std::clog << "Failed to save pipeline cache, error: " << fileInfo.error() << '\n';
+		std::println("Failed to save pipeline cache, error: {}", fileInfo.error().message());
 	}
 
 	for (const auto& pipelineIt : myPipelineMap)
