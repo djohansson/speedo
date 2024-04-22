@@ -8,6 +8,7 @@
 
 #include <imgui.h>
 
+#include <cmath>
 #if defined(__WINDOWS__)
 #	include <execution>
 #endif
@@ -347,17 +348,20 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 
 		if (input.mouse.leftDown)
 		{
-			constexpr auto rotSpeed = 0.000000001f;
+			constexpr auto rotSpeed = 0.00000001f;
 
 			const float windowWidth = view.desc().viewport.width / myConfig.contentScale.x;
 			const float windowHeight = view.desc().viewport.height / myConfig.contentScale.y;
-			const float windowX = view.desc().viewport.x / myConfig.contentScale.x;
-			const float windowY = view.desc().viewport.y / myConfig.contentScale.y;
+			const float cx = std::fmod(input.mouse.leftLastEventPosition[0], windowWidth);
+			const float cy = std::fmod(input.mouse.leftLastEventPosition[1], windowHeight);
+			const float px = std::fmod(input.mouse.position[0], windowWidth);
+			const float py = std::fmod(input.mouse.position[1], windowHeight);
 
-			float cx = windowX + 0.5f * windowWidth;
-			float cy = windowY + 0.5f * windowHeight;
+			//std::cout << "cx:" << cx << ", cy:" << cy << '\n';
 
-			float dM[2] = {cx - input.mouse.position[0], cy - input.mouse.position[1]};
+			float dM[2] = {cx - px, cy - py};
+
+			//std::cout << "dM[0]:" << dM[0] << ", dM[1]:" << dM[1] << '\n';
 
 			view.desc().cameraRotation +=
 				dt * glm::vec3(dM[1] / windowHeight, dM[0] / windowWidth, 0.0f) * rotSpeed;

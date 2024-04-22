@@ -1323,21 +1323,29 @@ void RhiApplication::internalUpdateInput()
 			if (leftPressed)
 			{
 				input.mouse.leftDown = true;
+				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
 			}
 			else if (rightPressed)
 			{
 				input.mouse.rightDown = true;
+				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
 			}
 			else if (leftReleased)
 			{
 				input.mouse.leftDown = false;
+				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
 			}
 			else if (rightReleased)
 			{
 				input.mouse.rightDown = false;
+				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
 			}
 		}
