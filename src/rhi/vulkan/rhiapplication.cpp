@@ -1532,9 +1532,9 @@ RhiApplication::~RhiApplication()
 {
 	using namespace rhiapplication;
 
-	std::unique_lock lock(g_drawMutex);
-
 	ZoneScopedN("~RhiApplication()");
+
+	requestExit();
 
 	auto& executor = internalExecutor();
 
