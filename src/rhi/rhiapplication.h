@@ -6,6 +6,7 @@
 #include <core/capi.h>
 #include <core/file.h>
 #include <core/future.h>
+#include <core/inputstate.h>
 #include <core/utils.h>
 
 // todo: move to Config.h
@@ -57,4 +58,5 @@ private:
 	std::shared_ptr<void> myRhi;
 	ConcurrentQueue<MouseEvent> myMouseQueue;
 	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
+	InputState myInput{};
 };

@@ -3,7 +3,6 @@
 #include "utils.h"
 
 #include <core/application.h>
-#include <core/inputstate.h>
 #include <core/upgradablesharedmutex.h>
 // #include <core/gltfstream.h>
 // #include <core/nodes/inputoutputnode.h>
@@ -665,7 +664,7 @@ static void IMGUIInit(
 	io.IniFilename = iniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-	io.FontGlobalScale = 1.0f;
+	//io.FontGlobalScale = 1.0f;
 	//io.FontAllowUserScaling = true;
 	// auto& platformIo = ImGui::GetPlatformIO();
 	// platformIo.Platform_CreateVkSurface =
@@ -1296,10 +1295,7 @@ void RhiApplication::internalUpdateInput()
 	auto& rhi = internalRhi<Vk>();
 	auto& executor = internalExecutor();
 	auto& imguiIO = ImGui::GetIO();
-	// io.WantCaptureMouse = true;
-	// io.WantCaptureKeyboard = true;
-
-	static InputState input;
+	auto& input = myInput;
 
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))
@@ -1360,10 +1356,10 @@ void RhiApplication::internalUpdateInput()
 			input.keyboard.keysDown[keyboard.key] = false;
 
 		//imguiIO.AddKeyEvent(keyboard.key, keyboard.action);
-		//...
 	}
 
-	rhi.window->onInputStateChanged(input);
+	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
+		rhi.window->onInputStateChanged(input);
 
 	{
 		auto drawPair = executor.createTask([this]{ draw(); });
