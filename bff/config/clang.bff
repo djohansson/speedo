@@ -88,8 +88,10 @@
 	.ReleaseLinkerOptions = ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
+		+ ' -L $LLVMPath$/lib/c++'
 #if !__WINDOWS__
 		+ ' -Wl,-rpath,$LLVMPath$/lib'
+		+ ' -Wl,-rpath,$LLVMPath$/lib/c++'
 		+ ' -lc++'
 #endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
