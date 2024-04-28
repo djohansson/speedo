@@ -1,27 +1,17 @@
+From 3be01c1316f45ec5966a1d236c01da399194a488 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Mon, 29 Apr 2024 00:00:46 +0200
+Subject: [PATCH] properly set exports on windows with clang compiler
+
+---
+ layers/CMakeLists.txt | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
 diff --git a/layers/CMakeLists.txt b/layers/CMakeLists.txt
-index 55ad677..4f6da1d 100644
+index efd5d27..6dbf93d 100644
 --- a/layers/CMakeLists.txt
 +++ b/layers/CMakeLists.txt
-@@ -83,18 +83,6 @@ if (USE_ROBIN_HOOD_HASHING)
-     target_compile_definitions(VkLayer_utils PUBLIC USE_ROBIN_HOOD_HASHING)
- endif()
- 
--# Using mimalloc on non-Windows OSes currently results in unit test instability with some
--# OS version / driver combinations. On 32-bit systems, using mimalloc cause an increase in
--# the amount of virtual address space needed, which can also cause stability problems.
--if (WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
--   find_package(mimalloc CONFIG)
--   option(USE_MIMALLOC "Use mimalloc, a fast malloc/free replacement library" ${mimalloc_FOUND})
--   if (USE_MIMALLOC)
--      target_compile_definitions(VkLayer_utils PUBLIC USE_MIMALLOC)
--      target_link_libraries(VkLayer_utils PUBLIC mimalloc-static)
--   endif()
--endif()
--
- if(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
-     target_compile_options(VkLayer_utils PRIVATE
-         -Wno-sign-conversion
-@@ -312,13 +300,17 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${LAYER_SOURCES})
+@@ -326,13 +326,17 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${LAYER_SOURCES})
  
  set_target_properties(vvl PROPERTIES OUTPUT_NAME ${LAYER_NAME})
  
@@ -44,5 +34,8 @@ index 55ad677..4f6da1d 100644
 +        target_link_options(vvl PRIVATE -Wl,/DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
 +    endif()
  elseif(APPLE)
-     set_target_properties(vvl PROPERTIES SUFFIX ".dylib")
-     target_link_options(vvl PRIVATE -exported_symbols_list ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.exp)
+ 
+ # IOS and APPLE can both be true (FYI)
+-- 
+2.44.0.windows.1
+
