@@ -18,6 +18,8 @@ vcpkg_cmake_configure(
   SOURCE_PATH "${SOURCE_PATH}"
   OPTIONS
     -DBUILD_TESTS:BOOL=OFF
+    -DUSE_ROBIN_HOOD_HASHING:BOOL=OFF
+    -DUSE_MIMALLOC:BOOL=OFF
 )
 vcpkg_cmake_install()
 
