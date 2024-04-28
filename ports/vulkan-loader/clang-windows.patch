@@ -1,0 +1,27 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0bdd522..eb0e1ff 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -163,7 +163,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+     target_compile_options(loader_common_options INTERFACE -Wno-missing-field-initializers)
+ 
+     # need to prepend /clang: to compiler arguments when using clang-cl
+-    if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC")
++    if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "MSVC")
+         target_compile_options(loader_common_options INTERFACE /clang:-fno-strict-aliasing)
+     else()
+         target_compile_options(loader_common_options INTERFACE -fno-strict-aliasing)
+@@ -192,6 +192,13 @@ if(CMAKE_C_COMPILER_ID MATCHES "MSVC" OR (CMAKE_C_COMPILER_ID STREQUAL "Clang" A
+ 
+     # Prevent <windows.h> from polluting the code. guards against things like MIN and MAX
+     target_compile_definitions(loader_common_options INTERFACE WIN32_LEAN_AND_MEAN)
++elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "GNU")
++    # Disable RTTI
++    # Enable control flow guard
++    target_compile_options(loader_common_options INTERFACE
++        "SHELL:-Xclang -fno-rtti"
++        "SHELL:-Xclang -cfguard"
++    )
+ endif()
+ 
+ # DEBUG enables runtime loader ICD verification
