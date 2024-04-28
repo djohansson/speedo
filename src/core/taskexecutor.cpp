@@ -23,12 +23,10 @@ TaskExecutor::~TaskExecutor()
 	ZoneScopedN("~TaskExecutor()");
 
 	myStopSource.store(true, std::memory_order_release);
+	mySignal.release(myThreads.size());
 
 	for (auto& [thread, exception] : myThreads)
-	{
-		mySignal.release(mySignal.max());
 		thread.join();
-	}
 		
 	assert(myReadyQueue.size_approx() == 0);
 	assert(myDeletionQueue.size_approx() == 0);
