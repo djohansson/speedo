@@ -19,7 +19,7 @@ function Initialize-Vcpkg
 
 	Write-Host "Installing vcpkg packages for $triplet using manifest..."
 
-	Initialize-DevEnv
+	Initialize-SystemEnv
 
 	vcpkg install --x-install-root="build.vcpkg" --overlay-triplets=$PSScriptRoot --triplet $triplet --x-feature=client --x-feature=server --no-print-usage
 }

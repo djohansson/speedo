@@ -14,6 +14,8 @@ struct InputState
 		float position[2];
 		uint8_t insideWindow : 1;
 		uint8_t leftDown : 1;
+		float leftLastEventPosition[2];
 		uint8_t rightDown : 1;
+		float rightLastEventPosition[2];
 	} mouse{};
 };

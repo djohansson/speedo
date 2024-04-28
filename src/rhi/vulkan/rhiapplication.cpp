@@ -3,7 +3,6 @@
 #include "utils.h"
 
 #include <core/application.h>
-#include <core/inputstate.h>
 #include <core/upgradablesharedmutex.h>
 // #include <core/gltfstream.h>
 // #include <core/nodes/inputoutputnode.h>
@@ -665,7 +664,7 @@ static void IMGUIInit(
 	io.IniFilename = iniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-	io.FontGlobalScale = 1.0f;
+	//io.FontGlobalScale = 1.0f;
 	//io.FontAllowUserScaling = true;
 	// auto& platformIo = ImGui::GetPlatformIO();
 	// platformIo.Platform_CreateVkSurface =
@@ -676,8 +675,13 @@ static void IMGUIInit(
 			rhi.device->getPhysicalDevice(),
 			window.getSurface()).capabilities;
 
+#if defined(__APPLE__)
+	constexpr float dpiScaleX = 1.0f;
+	constexpr float dpiScaleY = 1.0f;
+#else
 	float dpiScaleX = window.getConfig().contentScale.x;
 	float dpiScaleY = window.getConfig().contentScale.y;
+#endif
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -1306,10 +1310,7 @@ void RhiApplication::internalUpdateInput()
 	auto& rhi = internalRhi<Vk>();
 	auto& executor = internalExecutor();
 	auto& imguiIO = ImGui::GetIO();
-	// io.WantCaptureMouse = true;
-	// io.WantCaptureKeyboard = true;
-
-	static InputState input;
+	auto& input = myInput;
 
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))
@@ -1333,21 +1334,29 @@ void RhiApplication::internalUpdateInput()
 			if (leftPressed)
 			{
 				input.mouse.leftDown = true;
+				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
 			}
 			else if (rightPressed)
 			{
 				input.mouse.rightDown = true;
+				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
 			}
 			else if (leftReleased)
 			{
 				input.mouse.leftDown = false;
+				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
 			}
 			else if (rightReleased)
 			{
 				input.mouse.rightDown = false;
+				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
 				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
 			}
 		}
@@ -1362,10 +1371,10 @@ void RhiApplication::internalUpdateInput()
 			input.keyboard.keysDown[keyboard.key] = false;
 
 		//imguiIO.AddKeyEvent(keyboard.key, keyboard.action);
-		//...
 	}
 
-	rhi.windows.at(rhi_getCurrentWindow()).onInputStateChanged(input);
+	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
+		rhi.windows.at(rhi_getCurrentWindow()).onInputStateChanged(input);
 
 	{
 		auto drawPair = executor.createTask([this]{ draw(); });
@@ -1541,9 +1550,9 @@ RhiApplication::~RhiApplication()
 {
 	using namespace rhiapplication;
 
-	std::unique_lock lock(g_drawMutex);
-
 	ZoneScopedN("~RhiApplication()");
+
+	requestExit();
 
 	auto& executor = internalExecutor();
 

@@ -4,7 +4,7 @@
 
 int main(int argc, char* argv[])
 {
-	printf("mi_version(): %d\n", mi_version());
+	(void)mi_version();
 
 	return Catch::Session().run( argc, argv );
 }
