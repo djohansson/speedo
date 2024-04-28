@@ -121,6 +121,8 @@
 		"csignal": "cpp",
 		"__memory": "cpp",
 		"print": "cpp",
-		"version": "cpp"
+		"version": "cpp",
+		"*.rh": "cpp",
+		"capi.h": "c"
 	}
 }
