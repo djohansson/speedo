@@ -14,6 +14,8 @@ if (-not ($pwshCmd))
 
 	Install-WinGetPackage -Mode Silent -Id Microsoft.PowerShell | Out-Null
 
+	$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
+
 	$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
 }
 	
@@ -23,6 +25,8 @@ if (-not ($gitCmd))
 	Write-Host "Installing Git..."
 
 	Install-WinGetPackage -Mode Silent -Id Git.Git | Out-Null
+
+	$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
 
 	$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
 }
