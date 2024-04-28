@@ -77,4 +77,5 @@ $global:myEnv | Add-Member -Force -PassThru -NotePropertyName WINDOWS_SDK_VERSIO
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName VISUAL_STUDIO_PATH -NotePropertyValue $VSSetupInstance.InstallationPath | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName VISUAL_STUDIO_VCTOOLS_VERSION -NotePropertyValue (Get-Content -Path ($VSSetupInstance.InstallationPath + "\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt")) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue "C:\Program Files\LLVM" | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION -NotePropertyValue $llvmVersionShort | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION -NotePropertyValue $llvmVersion | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION_MAJOR -NotePropertyValue $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) | Out-Null

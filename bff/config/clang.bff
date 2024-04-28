@@ -8,12 +8,12 @@
 #else
 	Error('LLVM_PATH not set')
 #endif // exists(LLVM_PATH)
-#if exists(LLVM_VERSION)
-	#import LLVM_VERSION
-	.LLVMVersion = '$LLVM_VERSION$'
+#if exists(LLVM_VERSION_MAJOR)
+	#import LLVM_VERSION_MAJOR
+	.LLVMVersionMajor = '$LLVM_VERSION_MAJOR$'
 #else
-	Error('LLVM_VERSION not set')
-#endif // exists(LLVM_VERSION)
+	Error('LLVM_VERSION_MAJOR not set')
+#endif // exists(LLVM_VERSION_MAJOR)
 	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
 	.CompilerInfo = 'Clang'
     .Librarian = '$LLVMPath$/bin/llvm-ar$ExeSuffix$'
@@ -32,7 +32,7 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -Wall'
-		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersion$/include'
+		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
@@ -90,7 +90,7 @@
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 		+ ' -L $LLVMPath$/lib/c++'
 #if __OSX__
-		+ ' -L $LLVMPath$/lib/clang/$LLVMVersion$/lib/darwin'
+		+ ' -L $LLVMPath$/lib/clang/$LLVMVersionMajor$/lib/darwin'
 #endif
 #if !__WINDOWS__
 		+ ' -Wl,-rpath,$LLVMPath$/lib'
