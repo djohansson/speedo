@@ -1,7 +1,8 @@
 #pragma once
 
-#include <core/taskexecutor.h>
-#include <core/utils.h>
+#include "capi.h"
+#include "taskexecutor.h"
+#include "utils.h"
 
 #include <filesystem>
 #include <memory>
@@ -11,7 +12,6 @@
 #include <type_traits>
 #include <variant>
 
-
 struct Environment
 {
 	using VariableValue = std::variant<std::string, std::filesystem::path, int64_t, float, bool>;
@@ -20,14 +20,13 @@ struct Environment
 };
 
 class Application;
-extern std::weak_ptr<Application> theApplication;
-
+CORE_API extern std::weak_ptr<Application> theApplication;
 class Application : public Noncopyable, Nonmovable
 {
 public:
 	virtual ~Application() = default;
 
-	virtual void tick() = 0;
+	virtual void tick() { internalUpdateInput(); };
 
 	template <typename T, typename... Args>
 	static std::shared_ptr<T> create(Args&&... args)
@@ -56,12 +55,20 @@ public:
 	void requestExit() noexcept { myExitRequested = true; }
 	bool exitRequested() const noexcept { return myExitRequested; }
 
+	void onMouse(const MouseEvent& mouse);
+	void onKeyboard(const KeyboardEvent& keyboard);
+
 protected:
 	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
 
 	auto& internalExecutor() noexcept { return *myExecutor; }
 	const auto& internalExecutor() const noexcept { return *myExecutor; }
+
+	virtual void internalUpdateInput();
+
+	ConcurrentQueue<MouseEvent> myMouseQueue;
+	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 
 private:
 	std::string myName;

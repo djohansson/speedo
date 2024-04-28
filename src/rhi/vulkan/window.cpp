@@ -244,8 +244,12 @@ void Window<Vk>::internalInitializeViews()
 }
 
 template <>
-void Window<Vk>::onResizeFramebuffer(const WindowState& state)
+void Window<Vk>::onResizeFramebuffer(int w, int h)
 {
+	assert(w > 0);
+	assert(h > 0);
+	(void)w; (void)h;
+
 	auto& device = *getDevice();
 	auto& instance = *device.getInstance();
 	auto surface = getSurface();
@@ -254,6 +258,12 @@ void Window<Vk>::onResizeFramebuffer(const WindowState& state)
 	instance.updateSurfaceCapabilities(physicalDevice, surface);
 
 	myConfig.swapchainConfig.extent = instance.getSwapchainInfo(physicalDevice, surface).capabilities.currentExtent;
+
+	assert(myConfig.contentScale.x == myState.xscale);
+	assert(myConfig.contentScale.y == myState.yscale);
+
+	myState.width = myConfig.swapchainConfig.extent.width / myState.xscale;
+	myState.height = myConfig.swapchainConfig.extent.height / myState.yscale;
 
 	internalCreateSwapchain(myConfig.swapchainConfig, *this);
 	internalInitializeViews();
@@ -398,12 +408,14 @@ template <>
 Window<Vk>::Window(
 	const std::shared_ptr<Device<Vk>>& device,
 	SurfaceHandle<Vk>&& surface,
-	ConfigFile&& config)
+	ConfigFile&& config,
+	WindowState&& state)
 	: Swapchain(
 		device,
 		config.swapchainConfig,
 		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
 	, myConfig(std::forward<ConfigFile>(config))
+	, myState(std::forward<WindowState>(state))
 	, myViewBuffers(std::make_unique<Buffer<Vk>[]>(ShaderTypes_FrameCount))
 {
 	ZoneScopedN("Window()");
@@ -427,6 +439,7 @@ template <>
 Window<Vk>::Window(Window&& other) noexcept
 	: Swapchain(std::forward<Window>(other))
 	, myConfig(std::exchange(other.myConfig, {}))
+	, myState(std::exchange(other.myState, {}))
 	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
 	, myTimestamps(std::exchange(other.myTimestamps, {}))
 	, myViews(std::exchange(other.myViews, {}))
@@ -444,6 +457,7 @@ Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 {
 	Swapchain::operator=(std::forward<Window>(other));
 	myConfig = std::exchange(other.myConfig, {});
+	myState = std::exchange(other.myState, {});
 	myViewBuffers = std::exchange(other.myViewBuffers, {});
 	myTimestamps = std::exchange(other.myTimestamps, {});
 	myViews = std::exchange(other.myViews, {});
@@ -456,6 +470,7 @@ void Window<Vk>::swap(Window& other) noexcept
 {
 	Swapchain::swap(other);
 	std::swap(myConfig, other.myConfig);
+	std::swap(myState, other.myState);
 	std::swap(myViewBuffers, other.myViewBuffers);
 	std::swap(myTimestamps, other.myTimestamps);
 	std::swap(myViews, other.myViews);

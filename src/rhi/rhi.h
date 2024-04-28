@@ -24,11 +24,10 @@ struct Rhi
 {
 	std::shared_ptr<Instance<G>> instance;
 	std::shared_ptr<Device<G>> device;
-
-	std::unique_ptr<Window<G>> window;
 	std::unique_ptr<Pipeline<G>> pipeline;
 
 	UnorderedMap<QueueType, QueueGroup<G>> queues;
+	UnorderedMap<WindowHandle, Window<G>> windows;
 
 	//std::unique_ptr<ResourceContext<G>> resources;
 

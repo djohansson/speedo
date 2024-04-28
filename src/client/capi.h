@@ -1,23 +1,26 @@
 #pragma once
 
-#include <core/capi.h>
+#if defined(__WINDOWS__) && defined(CLIENT_DYNAMIC_LINKING)
+#	if defined(CLIENT_DLL_EXPORT) && (CLIENT_DLL_EXPORT==1)
+#		define CLIENT_API __declspec(dllexport)
+#	else
+#		define CLIENT_API __declspec(dllimport)
+#	endif
+#else
+#	define CLIENT_API
+#endif
 
-#include <stdbool.h>
-#include <stdint.h>
+#include <core/capi.h>
+#include <rhi/capi.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-void client_create(CreateWindowFunc createWindowFunc, WindowState* window, const PathConfig* paths);
-void client_destroy(void);
-bool client_tick();
-void client_resizeWindow(const WindowState* state);
-void client_resizeFramebuffer(const WindowState* state);
-void client_mouse(const MouseEvent* state);
-void client_keyboard(const KeyboardEvent* state);
-const char* client_getAppName(void);
+CLIENT_API void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths);
+CLIENT_API void client_destroy(void);
+CLIENT_API bool client_tick();
 
 #ifdef __cplusplus
 }

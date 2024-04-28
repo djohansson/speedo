@@ -119,6 +119,8 @@ public:
 		std::cin >> input;
 		if (input == 'q')
 			requestExit();
+
+		Application::tick();
 	}
 
 protected:

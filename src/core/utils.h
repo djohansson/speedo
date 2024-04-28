@@ -223,6 +223,14 @@ public:
 
 		return result;
 	}
+
+	iterator find(const Key& key)
+	{
+		auto elementIt = std::lower_bound(
+			begin(), end(), key, [](const value_type& a, const Key& b) { return a < b; });
+
+		return elementIt;
+	}
 };
 
 template <typename T, typename ContainerT = FlatMap<T, T>>

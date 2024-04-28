@@ -28,21 +28,19 @@ public:
 
 	void tick() override;
 
-	void onResizeFramebuffer(const WindowState& window);
-
-	void onMouse(const MouseEvent& mouse);
-	void onKeyboard(const KeyboardEvent& keyboard);
+	void onResizeFramebuffer(WindowHandle window, int w, int h);
 
 	void updateInput() { internalUpdateInput(); };
 	void draw() { internalDraw(); };
+
+	WindowState* getWindowState(WindowHandle window);
 
 protected:
 	explicit RhiApplication() = default;
 	RhiApplication(
 		std::string_view name,
 		Environment&& env,
-		CreateWindowFunc createWindowFunc,
-		WindowState& window);
+		CreateWindowFunc createWindowFunc);
 
 	template <GraphicsApi G>
 	Rhi<G>& internalRhi();
@@ -50,11 +48,10 @@ protected:
 	template <GraphicsApi G>
 	const Rhi<G>& internalRhi() const;
 
+	virtual void internalUpdateInput() override;
+
 private:
-	void internalUpdateInput();
 	void internalDraw();
 
 	std::shared_ptr<void> myRhi;
-	ConcurrentQueue<MouseEvent> myMouseQueue;
-	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 };

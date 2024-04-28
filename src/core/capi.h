@@ -1,11 +1,27 @@
 #pragma once
 
+#if defined(__WINDOWS__) && defined(CORE_DYNAMIC_LINKING)
+#	if defined(CORE_DLL_EXPORT) && (CORE_DLL_EXPORT==1)
+#		define CORE_API __declspec(dllexport)
+#	else
+#		define CORE_API __declspec(dllimport)
+#	endif
+#else
+#	define CORE_API
+#endif
+
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
+
+typedef struct _PathConfig
+{
+	const char* userProfilePath;
+	const char* resourcePath;
+} PathConfig;
 
 typedef struct _MouseEvent
 {
@@ -34,27 +50,9 @@ typedef struct _KeyboardEvent
 	uint8_t action;
 } KeyboardEvent;
 
-typedef struct _WindowState
-{
-	void* handle;
-	float xscale; // content x scale factor
-	float yscale; // content y scale factor
-	uint32_t x; // screen x position. multiply by xscale to get framebuffer x position
-	uint32_t y; // screen y position multiply by yscale to get framebuffer y position
-	uint32_t width; // screen width. multiply by xscale to get framebuffer width
-	uint32_t height; // screen height. multiply by yscale to get framebuffer height
-	uint32_t fullscreenRefresh : 16;
-	uint32_t fullscreenMonitor : 15;
-	uint32_t fullscreenEnabled : 1;
-} WindowState;
-
-typedef void* (*CreateWindowFunc)(WindowState* window);
-
-typedef struct _PathConfig
-{
-	const char* userProfilePath;
-	const char* resourcePath;
-} PathConfig;
+CORE_API void core_mouse(const MouseEvent* state);
+CORE_API void core_keyboard(const KeyboardEvent* state);
+CORE_API const char* core_getAppName(void);
 
 #ifdef __cplusplus
 }

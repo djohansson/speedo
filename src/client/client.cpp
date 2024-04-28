@@ -120,12 +120,11 @@ public:
 
 protected:
 	explicit Client() = default;
-	Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc, WindowState& window)
+	Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
 	: RhiApplication(
 		std::forward<std::string_view>(name),
 		std::forward<Environment>(env),
-		createWindowFunc,
-		window)
+		createWindowFunc)
 	, myContext(1)
 	, mySocket(myContext, zmq::socket_type::req)
 	{
@@ -166,12 +165,11 @@ static std::shared_ptr<Client> s_application{};
 
 } // namespace client
 
-void client_create(CreateWindowFunc createWindowFunc, WindowState* window, const PathConfig* paths)
+void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 {
 	using namespace client;
 	using namespace file;
 
-	assert(window != nullptr);
 	assert(paths != nullptr);
 
 	auto root = getCanonicalPath(nullptr, "./");
@@ -183,8 +181,7 @@ void client_create(CreateWindowFunc createWindowFunc, WindowState* window, const
 			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
 			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}},
-		createWindowFunc,
-		*window);
+		createWindowFunc);
 
 	assert(s_application);
 }
@@ -200,35 +197,6 @@ bool client_tick()
 	return !s_application->exitRequested();
 }
 
-void client_resizeFramebuffer(const WindowState* state)
-{
-	using namespace client;
-
-	assert(s_application);
-	
-	s_application->onResizeFramebuffer(*state);
-}
-
-void client_mouse(const MouseEvent* state)
-{
-	using namespace client;
-
-	assert(state != nullptr);
-	assert(s_application);
-	
-	s_application->onMouse(*state);
-}
-
-void client_keyboard(const KeyboardEvent* state)
-{
-	using namespace client;
-
-	assert(state != nullptr);
-	assert(s_application);
-	
-	s_application->onKeyboard(*state);
-}
-
 void client_destroy()
 {
 	using namespace client;
@@ -237,13 +205,4 @@ void client_destroy()
 	assert(s_application.use_count() == 1);
 	
 	s_application.reset();
-}
-
-const char* client_getAppName(void)
-{
-	using namespace client;
-
-	assert(s_application);
-
-	return s_application->name().data();
 }

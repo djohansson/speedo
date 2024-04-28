@@ -574,7 +574,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<Vk> splitScreenGrid = rhi.window->getConfig().splitScreenGrid;
+				Extent2d<Vk> splitScreenGrid = rhi.windows.at(rhi_getCurrentWindow()).getConfig().splitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -611,7 +611,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				ImGui::EndMenu();
 
 				if (anyChanged)
-					rhi.window->onResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
+					rhi.windows.at(rhi_getCurrentWindow()).onResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
 			}
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 			{
@@ -649,7 +649,7 @@ void IMGUIDrawFunction(CommandBufferHandle<Vk> cmd)
 }
 
 static void IMGUIInit(
-	const WindowState& window,
+	Window<Vk>& window,
 	Rhi<Vk>& rhi,
 	CommandBufferHandle<Vk> cmd)
 {
@@ -672,10 +672,12 @@ static void IMGUIInit(
 	// 	(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
 
 	const auto& surfaceCapabilities =
-		rhi.instance->getSwapchainInfo(rhi.device->getPhysicalDevice(), rhi.window->getSurface()).capabilities;
+		rhi.instance->getSwapchainInfo(
+			rhi.device->getPhysicalDevice(),
+			window.getSurface()).capabilities;
 
-	float dpiScaleX = rhi.window->getConfig().contentScale.x;
-	float dpiScaleY = rhi.window->getConfig().contentScale.y;
+	float dpiScaleX = window.getConfig().contentScale.x;
+	float dpiScaleY = window.getConfig().contentScale.y;
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
@@ -728,7 +730,7 @@ static void IMGUIInit(
 	initInfo.PipelineCache = rhi.pipeline->getCache();
 	initInfo.DescriptorPool = rhi.pipeline->getDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
-	initInfo.ImageCount = rhi.window->getConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = window.getConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->getInstance()->getHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	// initInfo.DeleteBufferFn = [](void* user_data,
@@ -749,8 +751,8 @@ static void IMGUIInit(
 	// initInfo.UserData = device.get();
 	ImGui_ImplVulkan_Init(
 		&initInfo,
-		static_cast<RenderTargetHandle<Vk>>(rhi.window->getFrames().at(rhi.window->getCurrentFrameIndex())).first);
-	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window.handle), true);
+		static_cast<RenderTargetHandle<Vk>>(window.getFrames().at(window.getCurrentFrameIndex())).first);
+	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(rhi_getCurrentWindow()), true);
 
 	// Upload Fonts
 	ImGui_ImplVulkan_CreateFontsTexture();
@@ -920,7 +922,7 @@ static void createQueues(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
-	const uint32_t frameCount = rhi.window->getConfig().swapchainConfig.imageCount;
+	const uint32_t frameCount = rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.imageCount;
 	const uint32_t graphicsQueueCount = frameCount;
 	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
 	const uint32_t computeQueueCount = 1u;
@@ -1002,8 +1004,8 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto colorImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.window->getConfig().swapchainConfig.extent}},
-			rhi.window->getConfig().swapchainConfig.surfaceFormat.format,
+			{{rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.extent}},
+			rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -1012,7 +1014,7 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.window->getConfig().swapchainConfig.extent}},
+			{{rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.extent}},
 			findSupportedFormat(
 				rhi.device->getPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1030,9 +1032,9 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
 
-auto createWindow(const auto& device, auto&& surface, auto&& windowConfig)
+auto createWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
 {
-	return std::make_unique<Window<Vk>>(device, std::move(surface), std::move(windowConfig));
+	return Window<Vk>(device, std::move(surface), std::move(windowConfig), std::move(windowState));
 }
 
 auto createPipeline(const auto& device)
@@ -1065,9 +1067,11 @@ auto createInstance(const auto& name)
 				VK_API_VERSION_1_3}});
 }
 
-auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& windowState)
+auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 {
 	using namespace rhiapplication;
+
+	WindowState windowState{};
 
 	Window<Vk>::ConfigFile windowConfig = Window<Vk>::ConfigFile{
 		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json"};
@@ -1075,21 +1079,32 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& window
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
-	auto instance = createInstance(name);
-	auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), createWindowFunc(&windowState));
-	auto device = createDevice(instance, detectSuitableGraphicsDevice(*instance, surface));
+	std::shared_ptr<Rhi<Vk>> rhi;
+	{
+		auto windowHandle = createWindowFunc(&windowState);
+		auto instance = createInstance(name);
+		auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), windowHandle);
+		auto device = createDevice(instance, detectSuitableGraphicsDevice(*instance, surface));
+		auto pipeline = createPipeline(device);
+		rhi = std::make_shared<Rhi<Vk>>(
+			std::move(instance),
+			std::move(device),
+			std::move(pipeline));
 
-	windowConfig.swapchainConfig = detectSuitableSwapchain(*device, surface);
-	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
+		windowConfig.swapchainConfig = detectSuitableSwapchain(*rhi->device, surface);
+		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
-	auto window = createWindow(device, std::move(surface), std::move(windowConfig));
-	auto pipeline = createPipeline(device);
+		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
+			windowHandle,
+			createWindow(
+				rhi->device,
+				std::move(surface),
+				std::move(windowConfig),
+				std::move(windowState)));
 
-	auto rhi = std::make_shared<Rhi<Vk>>(
-		std::move(instance),
-		std::move(device),
-		std::move(window),
-		std::move(pipeline));
+		rhi_setWindows(&windowHandle, 1);
+		rhi_setCurrentWindow(windowHandle);
+	}
 
 	createQueues(*rhi);
 	createWindowDependentObjects(*rhi);
@@ -1146,7 +1161,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& window
 		rhi->pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
 		rhi->pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		IMGUIInit(windowState, *rhi, cmd);
+		IMGUIInit(rhi->windows.at(rhi_getCurrentWindow()), *rhi, cmd);
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
@@ -1203,7 +1218,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& window
 	{
 		rhi->pipeline->setDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi->window->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<Vk>{rhi->windows.at(rhi_getCurrentWindow()).getViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1228,7 +1243,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc, auto& window
 	{
 		rhi->pipeline->setDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi->window->getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<Vk>{rhi->windows.at(rhi_getCurrentWindow()).getViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1350,7 +1365,7 @@ void RhiApplication::internalUpdateInput()
 		//...
 	}
 
-	rhi.window->onInputStateChanged(input);
+	rhi.windows.at(rhi_getCurrentWindow()).onInputStateChanged(input);
 
 	{
 		auto drawPair = executor.createTask([this]{ draw(); });
@@ -1377,7 +1392,7 @@ void RhiApplication::internalDraw()
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
-	auto& window = *rhi.window;
+	auto& window = rhi.windows.at(rhi_getCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame(); // no-op?
@@ -1499,10 +1514,9 @@ void RhiApplication::internalDraw()
 RhiApplication::RhiApplication(
 	std::string_view appName,
 	Environment&& env,
-	CreateWindowFunc createWindowFunc,
-	WindowState& window)
+	CreateWindowFunc createWindowFunc)
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-, myRhi(rhiapplication::createRhi(name(), createWindowFunc, window))
+, myRhi(rhiapplication::createRhi(name(), createWindowFunc))
 {
 	ZoneScopedN("RhiApplication()");
 
@@ -1569,16 +1583,6 @@ RhiApplication::~RhiApplication()
 	assert(instance.use_count() == 2);
 }
 
-void RhiApplication::onMouse(const MouseEvent& mouse)
-{
-	myMouseQueue.enqueue(mouse);
-}
-
-void RhiApplication::onKeyboard(const KeyboardEvent& keyboard)
-{
-	myKeyboardQueue.enqueue(keyboard);
-}
-
 void RhiApplication::tick()
 {
 	using namespace rhiapplication;
@@ -1597,7 +1601,7 @@ void RhiApplication::tick()
 	}
 }
 
-void RhiApplication::onResizeFramebuffer(const WindowState& state)
+void RhiApplication::onResizeFramebuffer(WindowHandle window, int w, int h)
 {
 	using namespace rhiapplication;
 
@@ -1616,7 +1620,16 @@ void RhiApplication::onResizeFramebuffer(const WindowState& state)
 		graphicsQueue.processTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
-	rhi.window->onResizeFramebuffer(state);
+	rhi.windows.at(window).onResizeFramebuffer(w, h);
 
 	createWindowDependentObjects(rhi);
+}
+
+WindowState* RhiApplication::getWindowState(WindowHandle window)
+{
+	using namespace rhiapplication;
+
+	auto& rhi = internalRhi<Vk>();
+
+	return &rhi.windows.at(window).getState();
 }

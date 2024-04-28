@@ -11,3 +11,24 @@ Application::Application(std::string_view name, Environment&& env)
 {
 	assertf(theApplication.use_count() == 1, "There can only be one application at a time");
 }
+
+void Application::onMouse(const MouseEvent& mouse)
+{
+	myMouseQueue.enqueue(mouse);
+}
+
+void Application::onKeyboard(const KeyboardEvent& keyboard)
+{
+	myKeyboardQueue.enqueue(keyboard);
+}
+
+void Application::internalUpdateInput()
+{
+	MouseEvent mouse;
+	while (myMouseQueue.try_dequeue(mouse))
+	{}
+
+	KeyboardEvent keyboard;
+	while (myKeyboardQueue.try_dequeue(keyboard))
+	{}
+}

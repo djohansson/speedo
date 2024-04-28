@@ -219,6 +219,7 @@ template <>
 Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
 	: DeviceObject(std::forward<Swapchain>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
+	, mySurface(std::exchange(other.mySurface, {}))
 	, mySwapchain(std::exchange(other.mySwapchain, {}))
 	, myFrames(std::exchange(other.myFrames, {}))
 	, myFrameIndex(std::exchange(other.myFrameIndex, 0))
@@ -244,17 +245,20 @@ Swapchain<Vk>::~Swapchain()
 {
 	ZoneScopedN("~Swapchain()");
 
-	if (mySwapchain)
-		vkDestroySwapchainKHR(
-			*getDevice(),
-			mySwapchain,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+	if (auto device = getDevice())
+	{
+		if (mySwapchain)
+			vkDestroySwapchainKHR(
+				*device,
+				mySwapchain,
+				&device->getInstance()->getHostAllocationCallbacks());
 
-	if (mySurface)
-		vkDestroySurfaceKHR(
-			*getDevice()->getInstance(),
-			mySurface,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+		if (mySurface)
+			vkDestroySurfaceKHR(
+				*device->getInstance(),
+				mySurface,
+				&device->getInstance()->getHostAllocationCallbacks());
+	}
 }
 
 template <>
@@ -262,6 +266,7 @@ Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<Swapchain>(other));
 	myDesc = std::exchange(other.myDesc, {});
+	mySurface = std::exchange(other.mySurface, {});
 	mySwapchain = std::exchange(other.mySwapchain, {});
 	myFrames = std::exchange(other.myFrames, {});
 	myFrameIndex = std::exchange(other.myFrameIndex, 0);
@@ -273,6 +278,7 @@ void Swapchain<Vk>::swap(Swapchain& rhs) noexcept
 {
 	DeviceObject::swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
+	std::swap(mySurface, rhs.mySurface);
 	std::swap(mySwapchain, rhs.mySwapchain);
 	std::swap(myFrames, rhs.myFrames);
 	std::swap(myFrameIndex, rhs.myFrameIndex);

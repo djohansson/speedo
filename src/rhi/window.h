@@ -43,7 +43,8 @@ public:
 	Window(
 		const std::shared_ptr<Device<G>>& device,
 		SurfaceHandle<G>&& surface, // swapchain base class takes ownership of surface
-		ConfigFile&& config);
+		ConfigFile&& config,
+		WindowState&& state);
 	Window(Window&& other) noexcept;
 	~Window();
 
@@ -56,9 +57,11 @@ public:
 	const auto& getViews() const noexcept { return myViews; }
 	const auto& getActiveView() const noexcept { return myActiveView; }
 	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
+	auto& getState() noexcept { return myState; }
+	const auto& getState() const noexcept { return myState; }
 
 	void onInputStateChanged(const InputState& input);
-	void onResizeFramebuffer(const WindowState& state);
+	void onResizeFramebuffer(int w, int h);
 	void onResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
 	// todo: generalize, move out of window. use sorted draw call lists.
@@ -80,6 +83,7 @@ private:
 		RenderPassBeginInfo<G>&& renderPassInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
+	WindowState myState{};
 	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	std::vector<View> myViews;
