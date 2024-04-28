@@ -51,6 +51,10 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
         "!defined(MI_SHARED_LIB)"
         "0 // !defined(MI_SHARED_LIB)"
     )
+    execute_process(
+        COMMAND ln -sf libmimalloc.2.dylib ${CURRENT_PACKAGES_DIR}/lib/libmimalloc.dylib
+        COMMAND ln -sf libmimalloc-debug.2.dylib ${CURRENT_PACKAGES_DIR}/debug/lib/libmimalloc.dylib
+    )
 endif()
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")

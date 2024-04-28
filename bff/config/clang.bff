@@ -89,6 +89,9 @@
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 		+ ' -L $LLVMPath$/lib/c++'
+#if __OSX__
+		+ ' -L $LLVMPath$/lib/clang/$LLVMVersion$/lib/darwin'
+#endif
 #if !__WINDOWS__
 		+ ' -Wl,-rpath,$LLVMPath$/lib'
 		+ ' -Wl,-rpath,$LLVMPath$/lib/c++'

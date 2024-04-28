@@ -215,7 +215,7 @@
 			+ ' -lvulkan-1'
 			+ ' -lole32'
 	#else
-		.CommonExecutableLinkerOptions + ' -lglfw3'
+		.CommonExecutableLinkerOptions + ' -lglfw'
 			+ ' -lvulkan'
 	#endif //__WINDOWS__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'

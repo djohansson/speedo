@@ -26,6 +26,27 @@ function Add-EnvPath
 	}
 }
 
+function Add-EnvDylibPath
+{
+	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
+
+	if (-not (Test-Path $path))
+	{
+		Write-Error "Path does not exist: $path"
+
+		return
+	}
+
+	if ("" -eq $env:DYLD_LIBRARY_PATH -or $null -eq $env:DYLD_LIBRARY_PATH)
+	{
+		$env:DYLD_LIBRARY_PATH = $path
+	}
+	else
+	{
+		$env:DYLD_LIBRARY_PATH += ":$path"
+	}
+}
+
 function Read-EnvFile
 {
 	param([Parameter(Mandatory = $True, Position = 0)] [string] $envFile)
@@ -52,23 +73,24 @@ function Invoke-Sudo
 	& /usr/bin/env sudo pwsh -command "& $args" 
 }
 
-function Initialize-DevEnv
+function Initialize-VcpkgEnv
 {
-	#Write-Host "Initializing development environment..."
-	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
-	$env:TARGET_OS = Get-NativeOS
-	$env:TARGET_COMPILER = Get-NativeDefaultCompiler
-	
 	$triplet = Get-NativeTriplet
 
 	#Write-Host "Adding installed vcpkg packages to env:PATH..."
-
 	$BinDirectory = "$PSScriptRoot/build.vcpkg/$triplet/bin"
-	
 	if (Test-Path $BinDirectory)
 	{
 		#Write-Host $BinDirectory
 		Add-EnvPath $BinDirectory
+	}
+
+	#Write-Host "Adding installed vcpkg packages to env:DYLD_LIBRARY_PATH..."
+	$LibDirectory = "$PSScriptRoot/build.vcpkg/$triplet/lib"
+	if (Test-Path $LibDirectory)
+	{
+		#Write-Host $LibDirectory
+		Add-EnvDylibPath $LibDirectory
 	}
 
 	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/build.vcpkg/$triplet/tools -Directory -ErrorAction SilentlyContinue)
@@ -86,19 +108,28 @@ function Initialize-DevEnv
 			}
 		}
 	}
+}
+
+function Initialize-SystemEnv
+{
+	#Write-Host "Initializing development environment..."
+	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
+	$env:TARGET_OS = Get-NativeOS
+	$env:TARGET_COMPILER = Get-NativeDefaultCompiler
 	
-	#Write-Host "Setting environment variables..."
+	#Write-Host "Setting system (package manager) environment variables..."
 	Read-EnvFile "$PSScriptRoot/env.json"
 }
 
-function Invoke-DevEnv
+function Invoke-VcpkgEnv
 {
 	param(
 		[Parameter(Mandatory = $True, Position = 0)] [string] $command,
 		[Parameter(Mandatory = $True, ValueFromRemainingArguments = $true, Position = 1)][string[]] $argsList
 	)
 
-	Initialize-DevEnv
+	Initialize-SystemEnv
+	Initialize-VcpkgEnv
 
 	$arguments = Join-String -Separator " " -InputObject $argsList
 	$expr = ($command + " " + $arguments)
