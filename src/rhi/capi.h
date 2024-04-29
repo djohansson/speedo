@@ -10,6 +10,7 @@
 #	define RHI_API
 #endif
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
