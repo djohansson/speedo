@@ -38,6 +38,7 @@
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
+			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/core'
 		.CompilerInputPattern = "*.cpp"
 	]
@@ -71,6 +72,7 @@
 			+ ' -Wno-unused-function'
 			+ ' -Wno-unused-variable'
 			+ ' -Wno-unused-private-field'
+			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/rhi'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -86,6 +88,7 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -Wno-deprecated-builtins'
+			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -104,6 +107,7 @@
 			+ ' -DZMQ_BUILD_DRAFT_API'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
+			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -166,6 +170,7 @@
 			+ ' -DZMQ_BUILD_DRAFT_API'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
+			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.cpp'
 	]
