@@ -27,9 +27,8 @@ void getPhysicalDeviceInfo2(PhysicalDeviceInfo<Vk>& deviceInfo, InstanceHandle<V
 	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
 
-	deviceInfo.deviceRobustnessFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
 	deviceInfo.inlineUniformBlockFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
-	deviceInfo.inlineUniformBlockFeatures.pNext = &deviceInfo.deviceRobustnessFeatures;
+	deviceInfo.inlineUniformBlockFeatures.pNext = nullptr;
 	deviceInfo.inlineUniformBlockFeatures.inlineUniformBlock = true;
 	deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.inlineUniformBlockFeatures;
