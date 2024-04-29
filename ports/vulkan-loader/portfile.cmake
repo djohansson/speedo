@@ -18,7 +18,7 @@ vcpkg_cmake_configure(
   SOURCE_PATH "${SOURCE_PATH}"
   OPTIONS
     -DBUILD_TESTS:BOOL=OFF
-    -DLOADER_CODEGEN:BOOL=OFF
+    -DLOADER_CODEGEN:BOOL=ON
     -DUSE_MASM:BOOL=OFF
 )
 vcpkg_cmake_install()
