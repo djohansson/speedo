@@ -26,7 +26,12 @@ TaskExecutor::~TaskExecutor()
 	mySignal.release(myThreads.size());
 
 	for (auto& [thread, exception] : myThreads)
+	{
+		if constexpr (__OSX__) // todo: remove this once the issue is fixed
+			mySignal.release(myThreads.size());
+
 		thread.join();
+	}
 		
 	assert(myReadyQueue.size_approx() == 0);
 	assert(myDeletionQueue.size_approx() == 0);
