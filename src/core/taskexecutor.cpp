@@ -27,8 +27,9 @@ TaskExecutor::~TaskExecutor()
 
 	for (auto& [thread, exception] : myThreads)
 	{
-		if constexpr (__OSX__) // todo: remove this once the issue is fixed
-			mySignal.release(myThreads.size());
+	#if defined (__OSX__) // todo: remove this once the issue is fixed
+		mySignal.release(myThreads.size());
+	#endif
 
 		thread.join();
 	}
