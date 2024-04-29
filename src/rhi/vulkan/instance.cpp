@@ -257,7 +257,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 #elif defined(__WINDOWS__)
 		"VK_KHR_surface",
 		"VK_KHR_win32_surface",
-#elif defined(__linux__)
+#elif defined(__LINUX__)
 		"VK_KHR_surface",
 #	if defined(VK_USE_PLATFORM_XCB_KHR)
 		"VK_KHR_xcb_surface",

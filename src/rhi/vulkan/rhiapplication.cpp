@@ -675,7 +675,7 @@ static void IMGUIInit(
 			rhi.device->getPhysicalDevice(),
 			window.getSurface()).capabilities;
 
-#if defined(__APPLE__)
+#if defined(__OSX__)
 	constexpr float dpiScaleX = 1.0f;
 	constexpr float dpiScaleY = 1.0f;
 #else
