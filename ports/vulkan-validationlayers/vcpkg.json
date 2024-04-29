@@ -5,8 +5,6 @@
   "homepage": "https://github.com/KhronosGroup/Vulkan-ValidationLayers",
   "license": null,
   "dependencies": [
-    "mimalloc",
-    "robin-hood-hashing",
     "spirv-cross",
     "spirv-headers",
     "spirv-reflect",
