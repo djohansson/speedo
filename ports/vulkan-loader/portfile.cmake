@@ -7,7 +7,7 @@ vcpkg_from_github(
     SHA512 8ec98e0da867f829e048e100a97d7b94a3c40f56f858e3eb81f11f6f58e20e59da6ca8785a9642958ff3b698c618b9968407028cc66dfa0ad296576bf9db45ca
     HEAD_REF main
     PATCHES
-        clang-windows.patch
+        0001-clang-windows.patch
 )
 
 vcpkg_find_acquire_program(PYTHON3)

@@ -1,0 +1,67 @@
+From 4a188fbec6c101c53627735b7b9280396c88d1d9 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Mon, 29 Apr 2024 09:58:41 +0200
+Subject: [PATCH] clang-windows
+
+---
+ CMakeLists.txt | 37 +++++++++++++++++++++++--------------
+ 1 file changed, 23 insertions(+), 14 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0bdd522..4e0ddb0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -163,7 +163,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+     target_compile_options(loader_common_options INTERFACE -Wno-missing-field-initializers)
+ 
+     # need to prepend /clang: to compiler arguments when using clang-cl
+-    if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC")
++    if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "MSVC")
+         target_compile_options(loader_common_options INTERFACE /clang:-fno-strict-aliasing)
+     else()
+         target_compile_options(loader_common_options INTERFACE -fno-strict-aliasing)
+@@ -179,19 +179,28 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+     target_compile_options(loader_common_options INTERFACE -Wpointer-arith)
+ endif()
+ 
+-if(CMAKE_C_COMPILER_ID MATCHES "MSVC" OR (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "MSVC"))
+-    # /sdl: Enable additional security checks
+-    # /GR-: Disable RTTI
+-    # /guard:cf: Enable control flow guard
+-    # /wd4152: Disable warning on conversion of a function pointer to a data pointer
+-    # /wd4201: Disable warning on anonymous struct/unions
+-    target_compile_options(loader_common_options INTERFACE /sdl /GR- /guard:cf /wd4152 /wd4201)
+-
+-    # Enable control flow guard
+-    target_link_options(loader_common_options INTERFACE "LINKER:/guard:cf")
+-
+-    # Prevent <windows.h> from polluting the code. guards against things like MIN and MAX
+-    target_compile_definitions(loader_common_options INTERFACE WIN32_LEAN_AND_MEAN)
++if (WIN32)
++    if(CMAKE_C_COMPILER_ID MATCHES "MSVC" OR (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "MSVC"))
++        # /sdl: Enable additional security checks
++        # /GR-: Disable RTTI
++        # /guard:cf: Enable control flow guard
++        # /wd4152: Disable warning on conversion of a function pointer to a data pointer
++        # /wd4201: Disable warning on anonymous struct/unions
++        target_compile_options(loader_common_options INTERFACE /sdl /GR- /guard:cf /wd4152 /wd4201)
++
++        # Enable control flow guard
++        target_link_options(loader_common_options INTERFACE "LINKER:/guard:cf")
++
++        # Prevent <windows.h> from polluting the code. guards against things like MIN and MAX
++        target_compile_definitions(loader_common_options INTERFACE WIN32_LEAN_AND_MEAN)
++    elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "GNU")
++        # Disable RTTI
++        # Enable control flow guard
++        target_compile_options(loader_common_options INTERFACE
++            "SHELL:-Xclang -fno-rtti"
++            "SHELL:-Xclang -cfguard"
++        )
++    endif()
+ endif()
+ 
+ # DEBUG enables runtime loader ICD verification
+-- 
+2.44.0.windows.1
+
