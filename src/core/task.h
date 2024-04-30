@@ -14,6 +14,16 @@ class Task : public Noncopyable
 {
 public:
 	constexpr Task() noexcept = default;
+	template <
+		typename... Params,
+		typename... Args,
+		typename F,
+		typename C = std::decay_t<F>,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ParamsTuple = std::tuple<Params...>,
+		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
+	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+	Task(F&& f, ParamsTuple&& params, Args&&... args);
 	Task(Task&& other) noexcept;
 	~Task();
 
@@ -25,17 +35,6 @@ public:
 
 private:
 	friend class TaskExecutor;
-
-	template <
-		typename... Params,
-		typename... Args,
-		typename F,
-		typename C = std::decay_t<F>,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ParamsTuple = std::tuple<Params...>,
-		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	Task(F&& f, ParamsTuple&& params, Args&&... args);
 
 	auto& state() noexcept { return myState; }
 	const auto& state() const noexcept { return myState; }

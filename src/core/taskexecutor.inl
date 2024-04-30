@@ -32,7 +32,7 @@ std::pair<TaskHandle, Future<R>> TaskExecutor::createTask(F&& f, Args&&... args)
 
 	auto handle = ourTaskPool.allocate();
 	Task* taskPtr = ourTaskPool.getPointer(handle);
-	std::construct_at(taskPtr, Task(std::forward<F>(f), ParamsTuple{}, std::forward<Args>(args)...));
+	std::construct_at(taskPtr, std::forward<F>(f), ParamsTuple{}, std::forward<Args>(args)...);
 
 	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->state())));
 }
