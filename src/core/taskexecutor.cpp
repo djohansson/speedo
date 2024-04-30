@@ -22,20 +22,14 @@ TaskExecutor::~TaskExecutor()
 {
 	ZoneScopedN("~TaskExecutor()");
 
+	assert(myReadyQueue.size_approx() == 0);
+	assert(myDeletionQueue.size_approx() == 0);
+
 	myStopSource.store(true, std::memory_order_release);
 	mySignal.release(myThreads.size());
 
 	for (auto& [thread, exception] : myThreads)
-	{
-	#if defined (__OSX__) // todo: remove this once the issue is fixed
-		mySignal.release(myThreads.size());
-	#endif
-
-		thread.join();
-	}
-		
-	assert(myReadyQueue.size_approx() == 0);
-	assert(myDeletionQueue.size_approx() == 0);
+		thread.detach();
 }
 
 void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation)
