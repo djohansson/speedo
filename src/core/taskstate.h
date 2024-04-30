@@ -7,6 +7,7 @@
 #include <vector>
 
 using TaskHandle = MemoryPoolHandle;
+static constexpr TaskHandle NullTaskHandle{};
 
 struct TaskState
 {

@@ -1,42 +1,57 @@
 #include "capi.h"
+#include "server.h"
 #include "rpc.h"
 
 #include <core/application.h>
 #include <core/file.h>
 
-#include <zmq.hpp>
-#include <zmq_addon.hpp>
-
 #include <array>
 #include <cassert>
 #include <iostream>
 #include <memory>
-#include <string_view>
 #include <system_error>
 
 namespace server
 {
 
-using namespace std::literals;
-using namespace std::literals::chrono_literals;
-using namespace zpp::bits::literals;
+using TaskPair = std::pair<TaskHandle, Future<void>>;
+static TaskPair g_rpcTask{};
+static UpgradableSharedMutex g_applicationMutex;
+static std::shared_ptr<Server> g_application;
 
-std::string say(std::string s)
+template <typename F>
+static TaskPair continuation(F&& f, TaskHandle dependency)
 {
+	std::shared_lock lock{g_applicationMutex};
+
+	if (g_application->exitRequested())
+		return {NullTaskHandle, Future<void>{}};
+
+	auto taskPair = g_application->executor().createTask(std::forward<F>(f));
+	
+	g_application->executor().addDependency(dependency, taskPair.first, true);
+
+	return taskPair;
+}
+
+static std::string say(std::string s)
+{
+	using namespace std::literals;
+
 	if (s == "hello"s)
 		return "world"s;
 	
 	return "nothing"s;
 }
 
-static std::pair<TaskHandle, Future<void>> g_rpcTask{};
-
-void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& poller)
+static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("server::rpc");
 
-	if (auto app = Application::instance().lock(); !app || app->exitRequested())
-		return;
+	using namespace std::literals::chrono_literals;
+	using namespace zpp::bits::literals;
+
+	std::shared_lock lock{g_applicationMutex};
 
 	try
 	{
@@ -85,78 +100,55 @@ void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& po
 		return;
 	}
 
-	// todo: move to own function?
-	{
-		auto rpcPair = executor.createTask(rpc, executor, socket, poller);
-		auto& [rpcTask, rpcFuture] = rpcPair;
-		executor.addDependency(g_rpcTask.first, rpcTask, true);
-		g_rpcTask = rpcPair;
-	}
+	g_rpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, g_rpcTask.first);
 }
 
-class Server : public Application
-{	
-public:
-	~Server()
-	{
-		ZoneScopedN("Server::~Server");
-
-		g_rpcTask.second.wait();
-		g_rpcTask = {};
-
-		myPoller.remove(mySocket);
-		mySocket.close();
-		myContext.shutdown();
-		myContext.close();
-
-		std::cout << "Server shutting down, goodbye." << std::endl;
-	}
-
-	void tick() override
-	{
-		std::cout << "Press q to quit: ";
-		char input;
-		std::cin >> input;
-		if (input == 'q')
-			requestExit();
-
-		Application::tick();
-	}
-
-protected:
-	explicit Server() = default;
-	Server(std::string_view name, Environment&& env)
-	: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
-	, myContext(1)
-	, mySocket(myContext, zmq::socket_type::rep)
-	{
-		constexpr std::string_view cx_serverAddress = "tcp://*:5555"sv;
-
-		mySocket.set(zmq::sockopt::linger, 0);
-		mySocket.bind(cx_serverAddress.data());
-		myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
-			//std::cout << "socket flags: " << toString(ef) << std::endl;
-		});
-			
-		std::cout << "Server listening on " << cx_serverAddress << std::endl;
-
-		auto& executor = internalExecutor();
-
-		auto rpcPair = executor.createTask(rpc, executor, mySocket, myPoller);
-		auto& [rpcTask, rpcFuture] = rpcPair;
-		g_rpcTask = rpcPair;
-		executor.submit(rpcTask);
-	}
-
-private:
-	zmq::context_t myContext;
-	zmq::socket_t mySocket;
-	zmq::active_poller_t myPoller;
-};
-
-static std::shared_ptr<Server> s_application{};
-
 } // namespace server
+
+Server::~Server()
+{
+	ZoneScopedN("Server::~Server");
+
+	myPoller.remove(mySocket);
+	mySocket.close();
+	myContext.shutdown();
+	myContext.close();
+
+	std::cout << "Server shutting down, goodbye." << std::endl;
+}
+
+void Server::tick()
+{
+	std::cout << "Press q to quit: ";
+	char input;
+	std::cin >> input;
+	if (input == 'q')
+		requestExit();
+
+	Application::tick();
+}
+
+Server::Server(std::string_view name, Environment&& env)
+: Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
+, myContext(1)
+, mySocket(myContext, zmq::socket_type::rep)
+{
+	using namespace server;
+	using namespace std::literals;
+
+	constexpr std::string_view cx_serverAddress = "tcp://*:5555"sv;
+
+	mySocket.set(zmq::sockopt::linger, 0);
+	mySocket.bind(cx_serverAddress.data());
+	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
+		//std::cout << "socket flags: " << toString(ef) << std::endl;
+	});
+		
+	std::cout << "Server listening on " << cx_serverAddress << std::endl;
+
+	g_rpcTask = executor().createTask(rpc, mySocket, myPoller);
+	executor().submit(g_rpcTask.first);
+}
 
 void server_create(const PathConfig* paths)
 {
@@ -167,42 +159,51 @@ void server_create(const PathConfig* paths)
 
 	auto root = getCanonicalPath(nullptr, "./");
 
-	s_application = Application::create<Server>(
+	std::unique_lock lock{g_applicationMutex};
+
+	g_application = Application::create<Server>(
 		"server",
 		Environment{{
 			{"RootPath", root},
 			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
 			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}});
-	assert(s_application);
-}
 
-bool server_tick()
-{
-	using namespace server;
-
-	assert(s_application);
-
-	s_application->tick();
-
-	return !s_application->exitRequested();
+	assert(g_application);
 }
 
 void server_destroy()
 {
 	using namespace server;
 
-	assert(s_application);
-	assert(s_application.use_count() == 1);
+	std::unique_lock lock{g_applicationMutex};
+
+	assert(g_application);
+	assert(g_application.use_count() == 1);
 	
-	s_application.reset();
+	g_application.reset();
+}
+
+bool server_tick()
+{
+	using namespace server;
+
+	std::shared_lock lock{g_applicationMutex};
+
+	assert(g_application);
+
+	g_application->tick();
+
+	return !g_application->exitRequested();
 }
 
 const char* server_getAppName(void)
 {
 	using namespace server;
 
-	assert(s_application);
+	std::shared_lock lock{g_applicationMutex};
 
-	return s_application->name().data();
+	assert(g_application);
+
+	return g_application->name().data();
 }

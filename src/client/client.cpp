@@ -1,33 +1,50 @@
 #include "capi.h"
+#include "client.h"
 
 #include <core/file.h>
-#include <rhi/rhiapplication.h>
+#include <core/upgradablesharedmutex.h>
 #include <server/rpc.h>
-
-#include <zmq.hpp>
-#include <zmq_addon.hpp>
 
 #include <array>
 #include <cassert>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <system_error>
 
 namespace client
 {
 
-using namespace std::literals;
-using namespace zpp::bits::literals;
+using TaskPair = std::pair<TaskHandle, Future<void>>;
+static TaskPair g_updateTask, g_drawTask, g_rpcTask;
+static UpgradableSharedMutex g_applicationMutex;
+static std::shared_ptr<Client> g_application;
 
-static std::pair<TaskHandle, Future<void>> g_rpcTask{};
+template <typename F>
+static TaskPair continuation(F&& f, TaskHandle dependency)
+{
+	std::shared_lock lock{g_applicationMutex};
 
-void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& poller)
+	if (g_application->exitRequested())
+		return {NullTaskHandle, Future<void>{}};
+
+	auto taskPair = g_application->executor().createTask(std::forward<F>(f));
+	
+	g_application->executor().addDependency(dependency, taskPair.first, true);
+
+	return taskPair;
+}
+
+static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::rpc");
 
-	if (auto app = Application::instance().lock(); !app || app->exitRequested())
-		return;
+	std::shared_lock lock{g_applicationMutex};
+
+	using namespace std::literals;
+	using namespace zpp::bits::literals;
 
 	try
 	{
@@ -69,7 +86,7 @@ void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& po
 				}
 			}
 
-			if (auto app = Application::instance().lock(); !app || app->exitRequested())
+			if (g_application->exitRequested()) // IMPORTANT: check for exitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing g_applicationMutex.
 				return;
 		}
 	}
@@ -84,86 +101,97 @@ void rpc(TaskExecutor& executor, zmq::socket_t& socket, zmq::active_poller_t& po
 		return;
 	}
 
-	// todo: move to own function?
-	{
-		auto rpcPair = executor.createTask(rpc, executor, socket, poller);
-		auto& [rpcTask, rpcFuture] = rpcPair;
-		executor.addDependency(g_rpcTask.first, rpcTask, true);
-		g_rpcTask = rpcPair;
-	}
+	g_rpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, g_rpcTask.first);
 }
 
-class Client : public RhiApplication
-{	
-public:
-	~Client()
-	{
-		ZoneScopedN("Client::~Client");
+static void	draw();
+static void	updateInput()
+{
+	ZoneScopedN("client::updateInput");
 
-		g_rpcTask.second.wait();
-		g_rpcTask = {};
+	std::shared_lock lock{g_applicationMutex};
 
-		myPoller.remove(mySocket);
-		mySocket.close();
-		myContext.shutdown();
-		myContext.close();
+	g_application->updateInput();
+	g_drawTask = continuation(draw, g_updateTask.first);
+}
 
-		std::cout << "Client shutting down, goodbye." << std::endl;
-	}
+static void	draw()
+{
+	ZoneScopedN("client::draw");
 
-	void tick() override
-	{
-		ZoneScopedN("Client::tick");
+	std::shared_lock lock{g_applicationMutex};
 
-		RhiApplication::tick();
-	}
+	g_application->draw();
+	g_updateTask = continuation(updateInput, g_drawTask.first);
+}
 
-protected:
-	explicit Client() = default;
-	Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
-	: RhiApplication(
-		std::forward<std::string_view>(name),
-		std::forward<Environment>(env),
-		createWindowFunc)
-	, myContext(1)
-	, mySocket(myContext, zmq::socket_type::req)
-	{
-		auto& executor = internalExecutor();
-
-		// auto toString = [](zmq::event_flags ef) -> std::string {
-		// 	std::string result;
-		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollin) != zmq::event_flags::none)
-		// 		result += "pollin ";
-		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollout) != zmq::event_flags::none)
-		// 		result += "pollout ";
-		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollerr) != zmq::event_flags::none)
-		// 		result += "pollerr ";
-		// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollpri) != zmq::event_flags::none)
-		// 		result += "pollpri ";
-		// 	return result;
-		// };
-
-		mySocket.set(zmq::sockopt::linger, 0);
-		mySocket.connect("tcp://localhost:5555");
-		myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
-			//std::cout << "socket flags: " << toString(ef) << std::endl;
-		});
-
-		auto rpcPair = executor.createTask(rpc, executor, mySocket, myPoller);
-		auto& [rpcTask, rpcFuture] = rpcPair;
-		g_rpcTask = rpcPair;
-		executor.submit(rpcTask);
-	}
-
-private:
-	zmq::context_t myContext;
-	zmq::socket_t mySocket;
-	zmq::active_poller_t myPoller;
-};
-
-static std::shared_ptr<Client> s_application{};
+// updateInput -> draw -> updateInput -> draw -> ... until app termination
 
 } // namespace client
+
+Client::~Client()
+{
+	ZoneScopedN("Client::~Client");
+
+	myPoller.remove(mySocket);
+	mySocket.close();
+	myContext.shutdown();
+	myContext.close();
+
+	std::cout << "Client shutting down, goodbye." << std::endl;
+}
+
+void Client::tick()
+{
+	ZoneScopedN("Client::tick");
+
+	RhiApplication::tick();
+}
+
+Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
+: RhiApplication(
+	std::forward<std::string_view>(name),
+	std::forward<Environment>(env),
+	createWindowFunc)
+, myContext(1)
+, mySocket(myContext, zmq::socket_type::req)
+{
+	using namespace client;
+	// auto toString = [](zmq::event_flags ef) -> std::string {
+	// 	std::string result;
+	// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollin) != zmq::event_flags::none)
+	// 		result += "pollin ";
+	// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollout) != zmq::event_flags::none)
+	// 		result += "pollout ";
+	// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollerr) != zmq::event_flags::none)
+	// 		result += "pollerr ";
+	// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollpri) != zmq::event_flags::none)
+	// 		result += "pollpri ";
+	// 	return result;
+	// };
+
+	mySocket.set(zmq::sockopt::linger, 0);
+	mySocket.connect("tcp://localhost:5555");
+	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
+		//std::cout << "socket flags: " << toString(ef) << std::endl;
+	});
+
+	g_rpcTask = executor().createTask(rpc, mySocket, myPoller);
+	executor().submit(g_rpcTask.first);
+}
+
+bool client_tick()
+{	
+	using namespace client;
+
+	std::shared_lock lock{g_applicationMutex};
+
+	assert(g_application);
+
+	g_application->tick();
+
+	return !g_application->exitRequested();
+}
 
 void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 {
@@ -174,7 +202,9 @@ void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	auto root = getCanonicalPath(nullptr, "./");
 
-	s_application = Application::create<Client>(
+	std::unique_lock lock{g_applicationMutex};
+
+	g_application = Application::create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root},
@@ -183,26 +213,20 @@ void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	assert(s_application);
-}
-
-bool client_tick()
-{
-	using namespace client;
-
-	assert(s_application);
-
-	s_application->tick();
-
-	return !s_application->exitRequested();
+	assert(g_application);
+	
+	g_updateTask = g_application->executor().createTask(updateInput);
+	g_application->executor().submit(g_updateTask.first);
 }
 
 void client_destroy()
 {
 	using namespace client;
 
-	assert(s_application);
-	assert(s_application.use_count() == 1);
+	std::unique_lock lock{g_applicationMutex};
+
+	assert(g_application);
+	assert(g_application.use_count() == 1);
 	
-	s_application.reset();
+	g_application.reset();
 }

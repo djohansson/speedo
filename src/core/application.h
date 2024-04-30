@@ -34,10 +34,10 @@ public:
 		static_assert(std::is_base_of_v<Application, T>);
 
 		 // workaround for protected constructors in T
-		struct U : public T { U() = default; U(Args&&... args) : T(std::forward<Args>(args)...) {} };
+		struct U : public T { constexpr U() = default; U(Args&&... args) : T(std::forward<Args>(args)...) {} };
 		
 		// silly dance to make Application::instance() work during construction
-		auto app = std::make_shared<U>();
+		auto app = std::make_shared_for_overwrite<U>();
 		theApplication = app;
 		std::construct_at(app.get(), std::forward<Args>(args)...);
 
@@ -49,6 +49,9 @@ public:
 
 	auto& environment() noexcept { return myEnvironment; }
 	const auto& environment() const noexcept { return myEnvironment; }
+
+	auto& executor() noexcept { return *myExecutor; }
+	const auto& executor() const noexcept { return *myExecutor; }
 
 	static auto& instance() noexcept { return theApplication; }
 
@@ -62,9 +65,6 @@ protected:
 	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
 
-	auto& internalExecutor() noexcept { return *myExecutor; }
-	const auto& internalExecutor() const noexcept { return *myExecutor; }
-
 	virtual void internalUpdateInput();
 
 	ConcurrentQueue<MouseEvent> myMouseQueue;
@@ -73,6 +73,6 @@ protected:
 private:
 	std::string myName;
 	Environment myEnvironment;
-	std::unique_ptr<TaskExecutor> myExecutor{};
-	bool myExitRequested = false;
+	std::unique_ptr<TaskExecutor> myExecutor;
+	std::atomic_bool myExitRequested = false;
 };

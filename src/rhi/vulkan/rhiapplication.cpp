@@ -25,9 +25,6 @@ namespace rhiapplication
 {
 
 static UpgradableSharedMutex g_drawMutex{};
-static std::pair<TaskHandle, Future<void>> g_updateTask{};
-static std::pair<TaskHandle, Future<void>> g_drawTask{};
-// drawTask -> updateTask -> drawTask -> updateTask -> ...
 
 static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
 {
@@ -1302,13 +1299,9 @@ void RhiApplication::internalUpdateInput()
 {
 	using namespace rhiapplication;
 
-	if (exitRequested())
-		return;
-
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
 
 	auto& rhi = internalRhi<Vk>();
-	auto& executor = internalExecutor();
 	auto& imguiIO = ImGui::GetIO();
 	auto& input = myInput;
 
@@ -1375,26 +1368,15 @@ void RhiApplication::internalUpdateInput()
 
 	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
 		rhi.windows.at(rhi_getCurrentWindow()).onInputStateChanged(input);
-
-	{
-		auto drawPair = executor.createTask([this]{ draw(); });
-		auto& [drawTask, drawFuture] = drawPair;
-		executor.addDependency(g_updateTask.first, drawTask, true);
-		g_drawTask = drawPair;
-	}
 }
 
 void RhiApplication::internalDraw()
 {
 	using namespace rhiapplication;
 
-	if (exitRequested())
-		return;
-
 	std::unique_lock lock(g_drawMutex);
 
 	auto& rhi = internalRhi<Vk>();
-	auto& executor = internalExecutor();
 
 	FrameMark;
 	ZoneScopedN("rhi::draw");
@@ -1405,7 +1387,7 @@ void RhiApplication::internalDraw()
 	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame(); // no-op?
-	IMGUIPrepareDrawFunction(rhi, executor); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame or ImGio::Newframe())
+	IMGUIPrepareDrawFunction(rhi, executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame or ImGio::Newframe())
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
 
@@ -1434,7 +1416,7 @@ void RhiApplication::internalDraw()
 		{
 			ZoneScopedN("rhi::draw::drawCall");
 
-			executor.call(drawCall, newFrameIndex);
+			executor().call(drawCall, newFrameIndex);
 		}
 
 		auto cmd = graphicsQueue.getPool().commands();
@@ -1510,14 +1492,6 @@ void RhiApplication::internalDraw()
 		graphicsQueue.enqueuePresent(window.preparePresent(graphicsSubmit));
 		graphicsQueue.present();
 	}
-
-	// todo: move to own function?
-	{
-		auto updatePair = executor.createTask([this]{ updateInput(); });
-		auto& [updateTask, updateFuture] = updatePair;
-		executor.addDependency(g_drawTask.first, updateTask, true);
-		g_updateTask = updatePair;
-	}
 }
 
 RhiApplication::RhiApplication(
@@ -1527,23 +1501,6 @@ RhiApplication::RhiApplication(
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
 , myRhi(rhiapplication::createRhi(name(), createWindowFunc))
 {
-	ZoneScopedN("RhiApplication()");
-
-	using namespace rhiapplication;
-
-	// g_rootPath = std::get<std::filesystem::path>(environment().variables["RootPath"]);
-	// g_resourcePath = std::get<std::filesystem::path>(environment().variables["ResourcePath"]);
-	// g_userProfilePath = std::get<std::filesystem::path>(environment().variables["UserProfilePath"]);
-
-	auto& executor = internalExecutor();
-	auto& rhi = internalRhi<Vk>();
-
-	auto updatePair = executor.createTask([this]{ updateInput(); });
-	auto& [updateTask, updateFuture] = updatePair;
-	g_updateTask = updatePair;
-	executor.submit(updateTask);
-
-	//myNodeGraph = g_userProfilePath / "nodegraph.json"; // temp - this should be stored in the resource path
 }
 
 RhiApplication::~RhiApplication()
@@ -1551,16 +1508,6 @@ RhiApplication::~RhiApplication()
 	using namespace rhiapplication;
 
 	ZoneScopedN("~RhiApplication()");
-
-	requestExit();
-
-	auto& executor = internalExecutor();
-
-	executor.join(std::move(g_updateTask.second));
-	executor.join(std::move(g_drawTask.second));
-
-	g_updateTask = {};
-	g_drawTask = {};
 
 	auto& rhi = internalRhi<Vk>();
 	auto device = rhi.device;
@@ -1598,7 +1545,6 @@ void RhiApplication::tick()
 
 	ZoneScopedN("RhiApplication::tick");
 
-	auto& executor = internalExecutor();
 	auto& rhi = internalRhi<Vk>();
 	
 	TaskHandle mainCall;
@@ -1606,7 +1552,7 @@ void RhiApplication::tick()
 	{
 		ZoneScopedN("RhiApplication::tick::mainCall");
 
-		executor.call(mainCall);
+		executor().call(mainCall);
 	}
 }
 
