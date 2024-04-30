@@ -30,7 +30,7 @@ public:
 		Queue<G>& queue,
 		uint64_t timelineValue,
 		const std::filesystem::path& modelFile,
-		uint8_t& progress);
+		std::atomic_uint8_t& progress);
 
 	Model& operator=(Model&& other) noexcept = default;
 

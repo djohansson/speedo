@@ -76,7 +76,7 @@ std::tuple<
 	AllocationHandle<Vk>,
 	BufferHandle<Vk>,
 	AllocationHandle<Vk>>
-load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device, uint8_t& progress)
+load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device, std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("model::load");
 
@@ -387,7 +387,7 @@ Model<Vk>::Model(
 	Queue<Vk>& queue,
 	uint64_t timelineValue,
 	const std::filesystem::path& modelFile,
-	uint8_t& progress)
+	std::atomic_uint8_t& progress)
 	: Model(device, queue, timelineValue, model::load(modelFile, device, progress))
 {}
 

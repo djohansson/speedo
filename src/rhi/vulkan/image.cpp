@@ -67,7 +67,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 }
 
 std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>
-load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& device, uint8_t& progress)
+load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& device, std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("image::load");
 
@@ -487,7 +487,7 @@ Image<Vk>::Image(
 	Queue<Vk>& queue,
 	uint64_t timelineValue,
 	const std::filesystem::path& imageFile,
-	uint8_t& progress)
+	std::atomic_uint8_t& progress)
 	: Image(device, queue, timelineValue, image::load(imageFile, device, progress))
 {}
 

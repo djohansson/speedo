@@ -36,7 +36,7 @@ static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesyste
 	return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath), openFilePath);
 }
 
-static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, uint8_t& progress)
+static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -61,7 +61,7 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	transferSubmit = transferQueue.submit();
 }
 
-static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, uint8_t& progress)
+static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -274,9 +274,9 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		End();
 	}
 	
-	static uint8_t progress = 0;
-	static bool showProgress = false;
-	if (showProgress && Begin("Loading", &showProgress, ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings))
+	static std::atomic_uint8_t progress = 0;
+	static std::atomic_bool showProgress = false;
+	if (bool b = showProgress.load(std::memory_order_relaxed) && Begin("Loading", &b, ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings))
 	{
 		SetWindowSize(ImVec2(160, 0));
 		ProgressBar((1.f/255)*progress);
