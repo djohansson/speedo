@@ -120,11 +120,15 @@
 	.CompilerOptions + ' -O0'
 		+ ' -D_DEBUG'
 		+ ' -fno-omit-frame-pointer'
-	//	+ ' -fsanitize=undefined'
-	// 	+ ' -fsanitize=address'
-	// 	+ ' -D_DISABLE_STRING_ANNOTATION'
-	// 	+ ' -D_DISABLE_VECTOR_ANNOTATION'
-	// .LinkerOptions + ' -fsanitize=address'
+#if __OSX__
+		+ ' -fsanitize=undefined'
+		+ ' -fsanitize=thread'
+	//	+ ' -fsanitize=address' // not reliable together with mimalloc yet unfortunately
+	//.LinkerOptions + ' -fsanitize=address'
+	.LinkerOptions + ' -lclang_rt.ubsan_osx_dynamic'
+		+ ' -lclang_rt.tsan_osx_dynamic'
+	//	+ ' -lclang_rt.asan_osx_dynamic' // not reliable together with mimalloc yet unfortunately
+#endif
 ]
 
 .Clang_Native_ReleaseConfig =
