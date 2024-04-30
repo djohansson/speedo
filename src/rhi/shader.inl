@@ -182,8 +182,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 			{
 				auto parameterBlockIndex = ++parameterBlockCounter;
 				auto* elementTypeLayout = typeLayout->getElementTypeLayout();
-				auto kind = elementTypeLayout->getKind();
-				if (kind == slang::TypeReflection::Kind::GenericTypeParameter)
+				if (elementTypeLayout && elementTypeLayout->getKind() == slang::TypeReflection::Kind::GenericTypeParameter)
 				{
 					auto genericParamIndex = elementTypeLayout->getGenericParamIndex();
 					genericParameterIndices[genericParamIndex] = parameterBlockIndex;

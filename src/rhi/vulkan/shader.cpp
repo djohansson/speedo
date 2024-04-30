@@ -118,6 +118,8 @@ void addBinding(
 	std::string_view name,
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
 {
+	assert(typeLayout);
+
 	auto& layout = layouts[bindingSpace];
 
 	bool isArray = typeLayout->isArray();
@@ -180,7 +182,7 @@ void addBinding(
 	std::cout << "ADD BINDING \"" << name << "\": Set: " << bindingSpace
 			  << ", Binding: " << slot.binding << ", Count: " << descriptorCount
 			  << ", Size: " << sizeBytes << '\n';
-};
+}
 
 template <>
 uint32_t createLayoutBindings<Vk>(
@@ -190,24 +192,29 @@ uint32_t createLayoutBindings<Vk>(
 	const unsigned* parentSpace,
 	const char* parentName)
 {
+	assert(parameter);
 	auto space = parameter->getBindingSpace();
 	auto index = parameter->getBindingIndex();
 	auto name = std::string(parameter->getName());
 	auto stage = parameter->getStage();
 	auto categoryCount = parameter->getCategoryCount();
 	auto* typeLayout = parameter->getTypeLayout();
+	assert(typeLayout);
 	auto arrayElementCount = typeLayout->getElementCount();
 	auto fieldCount = typeLayout->getFieldCount();
 	auto* elementTypeLayout = typeLayout->getElementTypeLayout();
-	auto elementFieldCount = elementTypeLayout->getFieldCount();
+	//assert(elementTypeLayout);
+	auto elementFieldCount = elementTypeLayout ? elementTypeLayout->getFieldCount() : 0;
 
 	auto category = parameter->getCategory();
 	auto typeName = typeLayout->getName();
+	assert(typeName);
 	auto kind = typeLayout->getKind();
 	auto type = typeLayout->getType();
+	assert(type);
 	auto userAttributeCount = type->getUserAttributeCount();
-	auto elementKind = elementTypeLayout->getKind();
-	auto genericParamIndex = elementTypeLayout->getGenericParamIndex();
+	auto elementKind = elementTypeLayout ? elementTypeLayout->getKind() : slang::TypeReflection::Kind::None;
+	auto genericParamIndex = elementTypeLayout ? elementTypeLayout->getGenericParamIndex() : 0;
 
 	std::string fullName;
 	if (parentName)
@@ -225,13 +232,13 @@ uint32_t createLayoutBindings<Vk>(
 	{
 		auto subCategory = static_cast<SlangParameterCategory>(parameter->getCategoryByIndex(categoryIndex));
 		auto spaceForCategory = parameter->getBindingSpace(subCategory);
-		auto elementSize = elementTypeLayout->getSize(subCategory);
-		auto elementAlignment = elementTypeLayout->getAlignment(subCategory);
+		auto elementSize = elementTypeLayout ? elementTypeLayout->getSize(subCategory) : 0;
+		auto elementAlignment = elementTypeLayout ? elementTypeLayout->getAlignment(subCategory) : 0;
 		auto size = typeLayout->getSize(subCategory);
 		auto alignment = typeLayout->getAlignment(subCategory);
 
 		auto offsetForCategory = parameter->getOffset(subCategory);
-		auto elementStride = elementTypeLayout->getElementStride(subCategory);
+		auto elementStride = elementTypeLayout ? elementTypeLayout->getElementStride(subCategory) : 0;
 
 		std::cout << "DEBUG: name: " << name << ", fullName: " << fullName << ", space: " << space
 				  << ", parent space: "
@@ -265,9 +272,11 @@ uint32_t createLayoutBindings<Vk>(
 
 	for (auto elementFieldIndex = 0; elementFieldIndex < elementFieldCount; elementFieldIndex++)
 	{
-		auto elementField = elementTypeLayout->getFieldByIndex(elementFieldIndex);
-		auto elementFieldType = elementField->getTypeLayout();
-		auto count = elementFieldType->isArray() ? elementFieldType->getFieldCount() : 1;
+		auto elementField = elementTypeLayout ? elementTypeLayout->getFieldByIndex(elementFieldIndex) : nullptr;
+		//assert(elementField);
+		auto elementFieldType = elementField ? elementField->getTypeLayout() : nullptr;
+		//assert(elementFieldType);
+		auto count = elementFieldType && elementFieldType->isArray() ? elementFieldType->getFieldCount() : 1;
 		uniformsTotalSize +=
 			count *
 			createLayoutBindings<Vk>(
