@@ -1,11 +1,10 @@
+. $PSScriptRoot/../../winget.ps1
+. $PSScriptRoot/../../vs.ps1
+
 Write-Host "Installing Windows dependencies..."
 
-if (-not (Get-InstalledModule Microsoft.WinGet.Client -ErrorAction SilentlyContinue))
-{
-	Write-Host "Installing Microsoft.WinGet.Client package..."
-
-	Install-Package Microsoft.WinGet.Client -Scope CurrentUser -Force -Confirm:$False | Out-Null
-}
+Install-WinGetClient
+Install-VSSetup
 
 $pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
 if (-not ($pwshCmd))
@@ -44,13 +43,6 @@ $winSDKManifest = [xml](Get-Content -Path "C:\Program Files (x86)\Windows Kits\1
 $platformIndentityStr = $winSDKManifest.FileList.PlatformIdentity
 $windowsSdkVersion = $platformIndentityStr.SubString($platformIndentityStr.LastIndexOf("Version=") + 8)
 
-if (-not (Get-InstalledModule VSSetup -ErrorAction SilentlyContinue))
-{
-	Write-Host "Installing VSSetup module..."
-
-	Install-Module VSSetup -Scope CurrentUser -Confirm:$False -Force
-}
-
 $VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools"
 if (-not ($VSSetupInstance))
 {
@@ -72,7 +64,6 @@ if (-not ($llvmInfo) -or ($llvmInfo.InstalledVersion -lt ([System.Version]"17.0.
 	$llvmInfo = Get-WinGetPackage LLVM.LLVM
 }
 $llvmVersion = $llvmInfo.InstalledVersion
-$llvmVersionShort = $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) #workaround for paths not matching the full version number
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue (Split-Path -Path $pwshCmd.Source) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName GIT_PATH -NotePropertyValue (Split-Path -Path $gitCmd.Source) | Out-Null

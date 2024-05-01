@@ -78,7 +78,7 @@ function Initialize-VcpkgEnv
 	$triplet = Get-NativeTriplet
 
 	#Write-Host "Adding installed vcpkg packages to env:PATH..."
-	$BinDirectory = "$PSScriptRoot/build.vcpkg/$triplet/bin"
+	$BinDirectory = "$PSScriptRoot/../build.vcpkg/$triplet/bin"
 	if (Test-Path $BinDirectory)
 	{
 		#Write-Host $BinDirectory
@@ -86,14 +86,14 @@ function Initialize-VcpkgEnv
 	}
 
 	#Write-Host "Adding installed vcpkg packages to env:DYLD_LIBRARY_PATH..."
-	$LibDirectory = "$PSScriptRoot/build.vcpkg/$triplet/lib"
+	$LibDirectory = "$PSScriptRoot/../build.vcpkg/$triplet/lib"
 	if (Test-Path $LibDirectory)
 	{
 		#Write-Host $LibDirectory
 		Add-EnvDylibPath $LibDirectory
 	}
 
-	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/build.vcpkg/$triplet/tools -Directory -ErrorAction SilentlyContinue)
+	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/../build.vcpkg/$triplet/tools -Directory -ErrorAction SilentlyContinue)
 	{
 		#Write-Host "Adding " $ToolsDirectory " to env:PATH..."
 		Add-EnvPath $ToolsDirectory
@@ -115,7 +115,7 @@ function Initialize-SystemEnv
 	#Write-Host "Initializing development environment..."
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
-	$env:TARGET_COMPILER = Get-NativeDefaultCompiler
+	$env:TARGET_COMPILER = Get-NativeCompiler
 	
 	#Write-Host "Setting system (package manager) environment variables..."
 	Read-EnvFile "$PSScriptRoot/env.json"

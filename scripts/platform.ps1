@@ -26,7 +26,7 @@ function Get-NativeArchitecture
 	}
 	else
 	{
-		Write-Error "Unsupported architecture: $ArchInfo"
+		Write-Error "Unsupported architecture: $ArchInfo" # please implement me
 	}
 
 	return $Arch
@@ -46,13 +46,13 @@ function Get-NativeOS
 	}
 	else
 	{
-		Write-Error "Unsupported Operating System"
+		Write-Error "Unsupported Operating System" # please implement me
 	}
 
 	return $OS
 }
 
-function Get-NativeDefaultCompiler
+function Get-NativeCompiler
 {
 	$Compiler = ""
 
@@ -62,7 +62,7 @@ function Get-NativeDefaultCompiler
 	}
 	else
 	{
-		Write-Error "Unsupported Operating System"
+		Write-Error "Unsupported Operating System" # please implement me
 	}
 
 	return $Compiler
@@ -72,7 +72,7 @@ function Get-NativeTriplet
 {
 	$Arch = Get-NativeArchitecture
 	$OS = Get-NativeOS
-	$Compiler = Get-NativeDefaultCompiler
+	$Compiler = Get-NativeCompiler
 
 	$Triplet = "$Arch-$OS"
 

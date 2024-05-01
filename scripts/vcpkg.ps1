@@ -21,5 +21,5 @@ function Initialize-Vcpkg
 
 	Initialize-SystemEnv
 
-	vcpkg install --x-install-root="build.vcpkg" --overlay-triplets=$PSScriptRoot --triplet $triplet --x-feature=client --x-feature=server --no-print-usage
+	vcpkg install --x-install-root=$PSScriptRoot/../build.vcpkg --overlay-triplets=$PSScriptRoot/triplets --triplet $triplet --x-feature=client --x-feature=server --no-print-usage
 }

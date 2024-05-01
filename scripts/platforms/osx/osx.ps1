@@ -1,4 +1,4 @@
-. $PSScriptRoot\homebrew.ps1
+. $PSScriptRoot/../../homebrew.ps1
 
 Write-Host "Installing MacOS dependencies..."
 
@@ -13,7 +13,6 @@ Install-HomebrewPackage llvm
 Install-HomebrewPackage molten-vk
 
 $llvmVersion = $(brew info llvm | grep "llvm:" | egrep -o '(\d+\.\d+\.\d+-?\w*)')
-$llvmVersionShort = $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) #workaround for paths not matching the full version number
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName MACOS_SDK_PATH -NotePropertyValue $(xcrun --show-sdk-path) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue $($(brew --prefix powershell) + '/bin') | Out-Null

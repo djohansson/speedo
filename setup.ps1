@@ -1,9 +1,9 @@
-. $PSScriptRoot/platform.ps1
-. $PSScriptRoot/vcpkg.ps1
+. $PSScriptRoot/scripts/platform.ps1
+. $PSScriptRoot/scripts/vcpkg.ps1
 
 $global:myEnv = New-Object -TypeName PSObject
 
-$myEnvFile = "$PSScriptRoot/env.json"
+$myEnvFile = "$PSScriptRoot/scripts/env.json"
 
 if (Test-Path $myEnvFile)
 {
@@ -12,15 +12,15 @@ if (Test-Path $myEnvFile)
 
 if ($IsWindows)
 {
-	& $PSScriptRoot/setup_windows.ps1
+	& $PSScriptRoot/scripts/platforms/windows/windows.ps1
 }
 elseif ($IsMacOS)
 {
-	& $PSScriptRoot/setup_macos.ps1
+	& $PSScriptRoot/scripts/platforms/osx/osx.ps1
 }
 else
 {
-	Write-Error "Unsupported Operating System"
+	Write-Error "Unsupported Operating System" # please implement me
 }
 
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile
