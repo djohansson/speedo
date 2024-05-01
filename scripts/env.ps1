@@ -118,7 +118,7 @@ function Initialize-SystemEnv
 	$env:TARGET_COMPILER = Get-NativeCompiler
 	
 	#Write-Host "Setting system (package manager) environment variables..."
-	Read-EnvFile "$PSScriptRoot/env.json"
+	Read-EnvFile "$PSScriptRoot/../.env.json"
 }
 
 function Invoke-VcpkgEnv

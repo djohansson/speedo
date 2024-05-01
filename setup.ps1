@@ -3,7 +3,7 @@
 
 $global:myEnv = New-Object -TypeName PSObject
 
-$myEnvFile = "$PSScriptRoot/scripts/env.json"
+$myEnvFile = "$PSScriptRoot/.env.json"
 
 if (Test-Path $myEnvFile)
 {
