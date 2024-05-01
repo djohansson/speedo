@@ -23,10 +23,10 @@
 			"group": "build"
 		},
 		{
-			"label": "(WIP) Clang-Format (All)",
+			"label": "Clang-Format (All)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1 ; Invoke-VcpkgEnv Get-ChildItem ${workspaceFolder}/src -Include *.c,*.cpp,*.h -Recurs -File | Foreach {& clang-format $_.fullname} -i -style=file} 2>&1'",
-			"group": "build"
+			"command": "pwsh -f ${workspaceFolder}/scripts/clang-format.ps1",
+			"group": "none"
 		}
 	]
 }

@@ -8,4 +8,5 @@ build.*/*
 *.DS_Store
 *.cap
 
-env.json
+scripts/env.json
+.clang-format-files
