@@ -19,7 +19,6 @@ vcpkg_cmake_configure(
   OPTIONS
     -DBUILD_TESTS:BOOL=OFF
     -DUSE_ROBIN_HOOD_HASHING:BOOL=OFF
-  MAYBE_UNUSED_VARIABLES
     -DUSE_MIMALLOC:BOOL=OFF
 )
 vcpkg_cmake_install()
