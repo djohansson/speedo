@@ -25,7 +25,7 @@
 		{
 			"label": "Clang-Format (All)",
 			"type": "shell",
-			"command": "pwsh -f ${workspaceFolder}/scripts/clang-format.ps1",
+			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Initialize-SystemEnv ; (Get-ChildItem -Path ${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath ${workspaceFolder}/.clang-format-files -Force ; & \"$Env:LLVM_PATH/bin/clang-format\" -i -style=file -files ${workspaceFolder}/.clang-format-files } 2>&1'",
 			"group": "none"
 		}
 	]
