@@ -23,6 +23,6 @@ else
 	Write-Error "Unsupported Operating System" # please implement me
 }
 
-$global:myEnv | ConvertTo-Json | Out-File $myEnvFile
+$global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Get-NativeTriplet | Initialize-Vcpkg 
