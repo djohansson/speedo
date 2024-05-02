@@ -253,13 +253,13 @@
 	[
 		Using(.ObjectListCommon)
 
-		.ProjectBasePath = '$BuildRootPath$/tests'
+		.ProjectBasePath = '$BuildRootPath$/src/tests'
 		
 		.Name = 'core-tests'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/src'
 			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
-		.CompilerInputPath = '$ProjectBasePath$/core'
+		.CompilerInputPath = '$ProjectBasePath$'
 		.CompilerInputPattern = '*.cpp'
 	]
 
