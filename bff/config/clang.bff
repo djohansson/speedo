@@ -31,9 +31,10 @@
 	.PlatformInfo = 'Linux'
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
-	.CompilerOptions = '-o "%2" "%1" -c -g -fms-extensions -Wall'
+	.CompilerOptions = '-o "%2" "%1" -c -g -Wall'
 		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths
+		+ ' -fms-extensions'
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'
@@ -63,13 +64,13 @@
 		+ ' -fPIE'
 		+ ' -fno-plt'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c2x -nostdinc'
+	.CompilerOptionsC = ' -std=c23 -nostdinc'
 	.CompilerOptionsCpp = ' -std=c++23 -nostdinc++'
 #if !__WINDOWS__
 		+ ' -stdlib=libc++'
 		+ ' -I $LLVMPath$/include/c++/v1' // libc++ location
 #endif
-	.LinkerOptions = '"%1" -o "%2" -g -v'
+	.LinkerOptions = '"%1" -o "%2" -g'
 		+ .PlatformLibPaths
 		+ ' -fuse-ld=lld'
 #if !__WINDOWS__
