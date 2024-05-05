@@ -74,4 +74,3 @@ $global:myEnv | Add-Member -Force -PassThru -NotePropertyName VISUAL_STUDIO_VCTO
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue "C:\Program Files\LLVM" | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION -NotePropertyValue $llvmVersion | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION_MAJOR -NotePropertyValue $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName CRT_LINKAGE -NotePropertyValue "dynamic" | Out-Null
