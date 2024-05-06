@@ -25,11 +25,13 @@
     "client": {
       "description": "Game Client Executable",
       "dependencies": [
+        "freetype",
         "glfw3",
         "glm",
         {
           "name": "imgui",
           "features": [
+            "freetype",
             "glfw-binding",
             "vulkan-binding"
           ]
