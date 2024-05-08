@@ -10,3 +10,4 @@ build.*/*
 
 .env.json
 .clang-format-files
+compile_commands.json
