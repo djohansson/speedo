@@ -25,7 +25,7 @@ public:
 	// b will start after a has finished
 	// isContinuation == true : b will most likely start on the same thread as a, but may start on any thread in the thread pool
 	// isContinuation == false: b will start on any thread in the thread pool
-	void addDependency(TaskHandle a, TaskHandle b, bool isContinuation = false);
+	void addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 	template <
 		typename... Params,

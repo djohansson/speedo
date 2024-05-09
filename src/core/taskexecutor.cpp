@@ -32,14 +32,14 @@ TaskExecutor::~TaskExecutor()
 		thread.detach();
 }
 
-void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation)
+void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
 	ZoneScopedN("TaskExecutor::addDependency");
 
-	assert(a != b);
+	assert(aTaskHandle != bTaskHandle);
 
-	Task& aTask = *handleToTaskPtr(a);
-	Task& bTask = *handleToTaskPtr(b);
+	Task& aTask = *handleToTaskPtr(aTaskHandle);
+	Task& bTask = *handleToTaskPtr(bTaskHandle);
 
 	assertf(aTask.state(), "Task state is not valid!");
 	assertf(bTask.state(), "Task state is not valid!");
@@ -52,7 +52,7 @@ void TaskExecutor::addDependency(TaskHandle a, TaskHandle b, bool isContinuation
 	if (isContinuation)
 		bState.isContinuation = true;
 
-	aState.adjacencies.emplace_back(b);
+	aState.adjacencies.emplace_back(bTaskHandle);
 	bState.latch.fetch_add(1, std::memory_order_relaxed);
 }
 
