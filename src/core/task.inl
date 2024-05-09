@@ -2,7 +2,7 @@
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-Task::Task(F&& f, ParamsTuple&& params, Args&&... args)
+Task::Task(F&& callable, ParamsTuple&& params, Args&&... args)
 	: myInvokeFcnPtr(
 		[](const void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
 		{
@@ -51,7 +51,7 @@ Task::Task(F&& f, ParamsTuple&& params, Args&&... args)
 	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
 		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),
-		std::forward<C>(f));
+		std::forward<C>(callable));
 
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	std::construct_at(

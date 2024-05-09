@@ -23,7 +23,7 @@ public:
 		typename ParamsTuple = std::tuple<Params...>,
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	Task(F&& f, ParamsTuple&& params, Args&&... args);
+	Task(F&& callable, ParamsTuple&& params, Args&&... args);
 	Task(Task&& other) noexcept;
 	~Task();
 
