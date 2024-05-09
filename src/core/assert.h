@@ -1,15 +1,13 @@
 #pragma once
 
 #include <cassert>
-#include <cerrno>
-#include <cstdio>
-#include <cstring>
+#include <print>
 
 #define clean_errno() (errno == 0 ? "None" : strerror(errno))
 #define log_error(M, ...)                                                                          \
-	fprintf(                                                                                       \
+	std::println(                                                                                       \
 		stderr,                                                                                    \
-		"[ERROR] (%s:%d: errno: %s) " M "\n",                                                      \
+		"[ERROR] ({}:{}: errno: {}) " M,                                                      \
 		__FILE__,                                                                                  \
 		__LINE__,                                                                                  \
 		clean_errno(),                                                                             \
