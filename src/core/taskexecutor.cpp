@@ -26,7 +26,7 @@ TaskExecutor::~TaskExecutor()
 	assert(myDeletionQueue.size_approx() == 0);
 
 	myStopSource.store(true, std::memory_order_release);
-	mySignal.release(myThreads.size());
+	mySignal.release(static_cast<ptrdiff_t>(myThreads.size()));
 
 	for (auto& [thread, exception] : myThreads)
 		thread.detach();
