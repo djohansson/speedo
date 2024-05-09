@@ -50,12 +50,12 @@ Task::Task(F&& f, ParamsTuple&& params, Args&&... args)
 
 	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
-		static_cast<C*>(static_cast<void*>(myCallableMemory)),
+		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),
 		std::forward<C>(f));
 
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	std::construct_at(
-	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory)),
+	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
 	 	std::forward<Args>(args)...);
 }
 
@@ -67,5 +67,5 @@ void Task::operator()(TaskParams&&... params)
 	assertf(myInvokeFcnPtr, "Task is not initialized!");
 
 	auto taskParams = std::make_tuple(std::forward<TaskParams>(params)...);
-	myInvokeFcnPtr(myCallableMemory, myArgsMemory, myState.get(), &taskParams);
+	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);
 }

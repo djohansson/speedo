@@ -8,13 +8,13 @@ Task::Task(Task&& other) noexcept
 Task::~Task()
 {
 	if (myDeleteFcnPtr)
-		myDeleteFcnPtr(myCallableMemory, myArgsMemory);
+		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 }
 
 Task& Task::operator=(Task&& other) noexcept
 {
 	if (myDeleteFcnPtr)
-		myDeleteFcnPtr(myCallableMemory, myArgsMemory);
+		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 
 	myState = std::exchange(other.myState, {});
 	myInvokeFcnPtr = std::exchange(other.myInvokeFcnPtr, nullptr);
@@ -23,13 +23,13 @@ Task& Task::operator=(Task&& other) noexcept
 
 	if (myCopyFcnPtr)
 		myCopyFcnPtr(
-			myCallableMemory,
-			other.myCallableMemory,
-			myArgsMemory,
-			other.myArgsMemory);
+			myCallableMemory.data(),
+			other.myCallableMemory.data(),
+			myArgsMemory.data(),
+			other.myArgsMemory.data());
 
 	if (myDeleteFcnPtr)
-		myDeleteFcnPtr(other.myCallableMemory, other.myArgsMemory);
+		myDeleteFcnPtr(other.myCallableMemory.data(), other.myArgsMemory.data());
 
 	return *this;
 }
