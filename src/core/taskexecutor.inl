@@ -26,13 +26,13 @@ std::optional<typename Future<R>::value_t> TaskExecutor::processReadyQueue(Futur
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-std::pair<TaskHandle, Future<R>> TaskExecutor::createTask(F&& f, Args&&... args)
+std::pair<TaskHandle, Future<R>> TaskExecutor::createTask(F&& callable, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::createTask");
 
 	auto handle = ourTaskPool.allocate();
 	Task* taskPtr = ourTaskPool.getPointer(handle);
-	std::construct_at(taskPtr, std::forward<F>(f), ParamsTuple{}, std::forward<Args>(args)...);
+	std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
 
 	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->state())));
 }
