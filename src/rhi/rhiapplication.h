@@ -27,11 +27,11 @@ class RhiApplication : public Application
 public:
 	~RhiApplication() noexcept(false) override;
 
-	void tick() override;
+	void Tick() override;
 
 	void onResizeFramebuffer(WindowHandle window, int w, int h);
 
-	void updateInput() { internalUpdateInput(); };
+	void updateInput() { InternalUpdateInput(); };
 	void draw() { internalDraw(); };
 
 	WindowState* getWindowState(WindowHandle window);
@@ -49,7 +49,7 @@ protected:
 	template <GraphicsApi G>
 	const Rhi<G>& internalRhi() const;
 
-	virtual void internalUpdateInput() override;
+	virtual void InternalUpdateInput() override;
 
 private:
 	void internalDraw();

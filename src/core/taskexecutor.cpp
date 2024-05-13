@@ -3,7 +3,7 @@
 #include <cassert>
 #include <shared_mutex>
 
-MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::gTaskPool{};
+MemoryPool<Task, TaskExecutor::kTaskPoolSize> TaskExecutor::gTaskPool{};
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
@@ -59,7 +59,7 @@ void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle,
 Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
 {
 	assert(handle);
-	assert(handle.value < TaskPoolSize);
+	assert(handle.value < kTaskPoolSize);
 	
 	Task* ptr = gTaskPool.getPointer(handle);
 

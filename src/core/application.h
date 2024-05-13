@@ -26,17 +26,17 @@ CORE_API class Application : public Noncopyable, Nonmovable
 public:
 	virtual ~Application() noexcept(false) {};
 
-	virtual void tick() { internalUpdateInput(); };
+	virtual void Tick() { InternalUpdateInput(); };
 
 	template <typename T, typename... Args>
-	static std::shared_ptr<T> create(Args&&... args)
+	static std::shared_ptr<T> Create(Args&&... args)
 	{
 		static_assert(std::is_base_of_v<Application, T>);
 
 		 // workaround for protected constructors in T
 		struct U : public T { constexpr U() = default; U(Args&&... args) : T(std::forward<Args>(args)...) {} };
 		
-		// silly dance to make Application::instance() work during construction
+		// silly dance to make Application::Instance() work during construction
 		auto app = std::make_shared_for_overwrite<U>();
 		gApplication = app;
 		std::construct_at(app.get(), std::forward<Args>(args)...);
@@ -44,28 +44,28 @@ public:
 		return app;
 	}
 
-	auto& name() noexcept { return myName; }
-	const auto& name() const noexcept { return myName; }
+	auto& Name() noexcept { return myName; }
+	const auto& Name() const noexcept { return myName; }
 
-	auto& environment() noexcept { return myEnvironment; }
-	const auto& environment() const noexcept { return myEnvironment; }
+	auto& Env() noexcept { return myEnvironment; }
+	const auto& Env() const noexcept { return myEnvironment; }
 
-	auto& executor() noexcept { return *myExecutor; }
-	const auto& executor() const noexcept { return *myExecutor; }
+	auto& Executor() noexcept { return *myExecutor; }
+	const auto& Executor() const noexcept { return *myExecutor; }
 
-	static auto& instance() noexcept { return gApplication; }
+	static auto& Instance() noexcept { return gApplication; }
 
-	void requestExit() noexcept { myExitRequested = true; }
-	bool exitRequested() const noexcept { return myExitRequested; }
+	void RequestExit() noexcept { myExitRequested = true; }
+	bool IsExitRequested() const noexcept { return myExitRequested; }
 
-	void onMouse(const MouseEvent& mouse);
-	void onKeyboard(const KeyboardEvent& keyboard);
+	void OnMouse(const MouseEvent& mouse);
+	void OnKeyboard(const KeyboardEvent& keyboard);
 
 protected:
 	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
 
-	virtual void internalUpdateInput();
+	virtual void InternalUpdateInput();
 
 	ConcurrentQueue<MouseEvent> myMouseQueue;
 	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;

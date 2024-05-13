@@ -303,7 +303,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			IMNODES_NAMESPACE::BeginNodeTitleBar();
 
 			float titleBarTextWidth =
-				editableTextField(node->id(), buffer, node->name(), 160.0f, node->selected());
+				editableTextField(node->id(), buffer, node->Name(), 160.0f, node->selected());
 
 			IMNODES_NAMESPACE::EndNodeTitleBar();
 
@@ -497,7 +497,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			{
 				auto [openFileTask, openFileFuture] = executor.createTask(
 					openFileDialogue,
-					std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["ResourcePath"]),
+					std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"obj");
 
 				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
@@ -526,7 +526,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			{
 				auto [openFileTask, openFileFuture] = executor.createTask(
 					openFileDialogue,
-					std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["ResourcePath"]),
+					std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"jpg,png");
 
 				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
@@ -560,7 +560,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			// }
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
-				Application::instance().lock()->requestExit();
+				Application::Instance().lock()->RequestExit();
 
 			ImGui::EndMenu();
 		}
@@ -657,7 +657,7 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	static auto iniFilePath = (std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "imgui.ini").generic_string();
+	static auto iniFilePath = (std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string();
 	io.IniFilename = iniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -691,7 +691,7 @@ static void IMGUIInit(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["ResourcePath"]));
+	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]));
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -1042,7 +1042,7 @@ auto createPipeline(const auto& device)
 {
 	return std::make_unique<Pipeline<Vk>>(
 		device,
-		PipelineConfiguration<Vk>{(std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "pipeline.cache").string()});
+		PipelineConfiguration<Vk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
 }
 
 auto createDevice(const auto& instance, auto physicalDeviceIndex)
@@ -1075,7 +1075,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	WindowState windowState{};
 
 	Window<Vk>::ConfigFile windowConfig = Window<Vk>::ConfigFile{
-		std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / "window.json"};
+		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
 
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
@@ -1205,8 +1205,8 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		graphicsSubmit = graphicsQueue.submit();
 	}
 
-	auto shaderIncludePath = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["RootPath"]) / "src/rhi/shaders";
-	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]) / ".slang.intermediate";
+	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
@@ -1295,7 +1295,7 @@ const Rhi<Vk>& RhiApplication::internalRhi<Vk>() const
 	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
 }
 
-void RhiApplication::internalUpdateInput()
+void RhiApplication::InternalUpdateInput()
 {
 	using namespace rhiapplication;
 
@@ -1387,7 +1387,7 @@ void RhiApplication::internalDraw()
 	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame(); // no-op?
-	IMGUIPrepareDrawFunction(rhi, executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame or ImGio::Newframe())
+	IMGUIPrepareDrawFunction(rhi, Executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame or ImGio::Newframe())
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.flip();
 
@@ -1416,7 +1416,7 @@ void RhiApplication::internalDraw()
 		{
 			ZoneScopedN("rhi::draw::drawCall");
 
-			executor().call(drawCall, newFrameIndex);
+			Executor().call(drawCall, newFrameIndex);
 		}
 
 		auto cmd = graphicsQueue.getPool().commands();
@@ -1499,7 +1499,7 @@ RhiApplication::RhiApplication(
 	Environment&& env,
 	CreateWindowFunc createWindowFunc)
 : Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-, myRhi(rhiapplication::createRhi(name(), createWindowFunc))
+, myRhi(rhiapplication::createRhi(Name(), createWindowFunc))
 {
 }
 
@@ -1539,7 +1539,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 	assert(instance.use_count() == 2);
 }
 
-void RhiApplication::tick()
+void RhiApplication::Tick()
 {
 	using namespace rhiapplication;
 
@@ -1552,7 +1552,7 @@ void RhiApplication::tick()
 	{
 		ZoneScopedN("RhiApplication::tick::mainCall");
 
-		executor().call(mainCall);
+		Executor().call(mainCall);
 	}
 }
 

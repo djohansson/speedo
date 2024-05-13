@@ -14,22 +14,29 @@
 namespace server
 {
 
-using TaskPair = std::pair<TaskHandle, Future<void>>;
-static TaskPair gRpcTask{};
+static TaskCreateInfo<void> gRpcTask{};
 static UpgradableSharedMutex gServerApplicationMutex;
 static std::shared_ptr<Server> gServerApplication;
 
-template <typename F>
-static TaskPair continuation(F&& f, TaskHandle dependency)
+template <
+	typename... Params,
+	typename... Args,
+	typename F,
+	typename C = std::decay_t<F>,
+	typename ArgsTuple = std::tuple<Args...>,
+	typename ParamsTuple = std::tuple<Params...>,
+	typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
+requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 {
 	std::shared_lock lock{gServerApplicationMutex};
 
-	if (gServerApplication->exitRequested())
+	if (gServerApplication->IsExitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = gServerApplication->executor().createTask(std::forward<F>(f));
+	auto taskPair = gServerApplication->Executor().createTask(std::forward<F>(callable));
 	
-	gServerApplication->executor().addDependency(dependency, taskPair.first, true);
+	gServerApplication->Executor().addDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -44,9 +51,9 @@ static std::string Say(std::string s)
 	return "nothing"s;
 }
 
-static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
+static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
-	ZoneScopedN("server::rpc");
+	ZoneScopedN("server::Rpc");
 
 	using namespace std::literals::chrono_literals;
 	using namespace zpp::bits::literals;
@@ -100,7 +107,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	gRpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, gRpcTask.first);
+	gRpcTask = Continuation([&socket, &poller]{ Rpc(socket, poller); }, gRpcTask.first);
 }
 
 } // namespace server
@@ -117,15 +124,15 @@ Server::~Server()
 	std::cout << "Server shutting down, goodbye." << std::endl;
 }
 
-void Server::tick()
+void Server::Tick()
 {
 	std::cout << "Press q to quit: ";
 	char input;
 	std::cin >> input;
 	if (input == 'q')
-		requestExit();
+		RequestExit();
 
-	Application::tick();
+	Application::Tick();
 }
 
 Server::Server(std::string_view name, Environment&& env)
@@ -146,8 +153,8 @@ Server::Server(std::string_view name, Environment&& env)
 		
 	std::cout << "Server listening on " << cx_serverAddress << std::endl;
 
-	gRpcTask = executor().createTask(rpc, mySocket, myPoller);
-	executor().submit(gRpcTask.first);
+	gRpcTask = Executor().createTask(Rpc, mySocket, myPoller);
+	Executor().submit(gRpcTask.first);
 }
 
 void CreateServer(const PathConfig* paths)
@@ -161,7 +168,7 @@ void CreateServer(const PathConfig* paths)
 
 	std::unique_lock lock{gServerApplicationMutex};
 
-	gServerApplication = Application::create<Server>(
+	gServerApplication = Application::Create<Server>(
 		"server",
 		Environment{{
 			{"RootPath", root},
@@ -192,9 +199,9 @@ bool TickServer()
 
 	assert(gServerApplication);
 
-	gServerApplication->tick();
+	gServerApplication->Tick();
 
-	return !gServerApplication->exitRequested();
+	return !gServerApplication->IsExitRequested();
 }
 
 const char* GetServerName(void)
@@ -205,5 +212,5 @@ const char* GetServerName(void)
 
 	assert(gServerApplication);
 
-	return gServerApplication->name().data();
+	return gServerApplication->Name().data();
 }

@@ -13,7 +13,7 @@ void rhi_resizeFramebuffer(WindowHandle window, int w, int h)
 {
 	using namespace rhi;
 
-	if (auto app = static_pointer_cast<RhiApplication>(Application::instance().lock()); app)
+	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
 		app->onResizeFramebuffer(window, w, h);
 }
 
@@ -62,7 +62,7 @@ WindowState* rhi_getWindowState(WindowHandle window)
 {
 	using namespace rhi;
 
-	if (auto app = static_pointer_cast<RhiApplication>(Application::instance().lock()); app)
+	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
 		return app->getWindowState(window);
 
 	return nullptr;

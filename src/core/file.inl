@@ -302,7 +302,7 @@ void loadAsset(
 	{
 		ZoneScopedN("loadAsset::importSourceFile");
 
-		auto cacheDir = std::get<std::filesystem::path>(Application::instance().lock()->environment().variables["UserProfilePath"]);
+		auto cacheDir = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]);
 		auto cacheDirStatus = std::filesystem::status(cacheDir);
 		if (!std::filesystem::exists(cacheDirStatus) ||
 			!std::filesystem::is_directory(cacheDirStatus))

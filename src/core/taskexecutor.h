@@ -15,6 +15,9 @@
 #include <thread>
 #include <tuple>
 
+template <typename T>
+using TaskCreateInfo = std::pair<TaskHandle, Future<T>>;
+
 class TaskExecutor
 {
 public:
@@ -36,7 +39,7 @@ public:
 		typename ParamsTuple = std::tuple<Params...>,
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	std::pair<TaskHandle, Future<R>> createTask(F&& callable, Args&&... args);
+	TaskCreateInfo<R> createTask(F&& callable, Args&&... args);
 
 	// wait for task to finish while helping out processing the thread pools ready queue
 	// as soon as the task is ready, the function will stop processing the ready queue and return
@@ -79,8 +82,8 @@ private:
 	std::atomic_bool myStopSource;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
-	static constexpr uint32_t TaskPoolSize = (1 << 10); // todo: make this configurable
-	static MemoryPool<Task, TaskPoolSize> gTaskPool;
+	static constexpr uint32_t kTaskPoolSize = (1 << 10); // todo: make this configurable
+	static MemoryPool<Task, kTaskPoolSize> gTaskPool;
 };
 
 #include "taskexecutor.inl"

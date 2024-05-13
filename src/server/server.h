@@ -12,7 +12,7 @@ class Server : public Application
 public:
 	~Server() override;
 	
-	void tick() override;
+	void Tick() override;
 
 protected:
 	explicit Server() = default;

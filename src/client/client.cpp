@@ -17,22 +17,29 @@
 namespace client
 {
 
-using TaskPair = std::pair<TaskHandle, Future<void>>;
-static TaskPair gUpdateTask, gDrawTask, gRpcTask;
+static TaskCreateInfo<void> gUpdateTask, gDrawTask, gRpcTask;
 static UpgradableSharedMutex gClientApplicationMutex;
 static std::shared_ptr<Client> gClientApplication;
 
-template <typename F>
-static TaskPair Continuation(F&& callable, TaskHandle dependency)
+template <
+	typename... Params,
+	typename... Args,
+	typename F,
+	typename C = std::decay_t<F>,
+	typename ArgsTuple = std::tuple<Args...>,
+	typename ParamsTuple = std::tuple<Params...>,
+	typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
+requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 {
 	std::shared_lock lock{gClientApplicationMutex};
 
-	if (gClientApplication->exitRequested())
+	if (gClientApplication->IsExitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = gClientApplication->executor().createTask(std::forward<F>(callable));
+	auto taskPair = gClientApplication->Executor().createTask(std::forward<F>(callable));
 	
-	gClientApplication->executor().addDependency(dependency, taskPair.first, true);
+	gClientApplication->Executor().addDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -89,7 +96,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				}
 			}
 
-			if (gClientApplication->exitRequested()) // IMPORTANT: check for exitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
+			if (gClientApplication->IsExitRequested()) // IMPORTANT: check for IsExitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
 				return;
 		}
 	}
@@ -144,11 +151,11 @@ Client::~Client() noexcept(false)
 	std::cout << "Client shutting down, goodbye." << '\n';
 }
 
-void Client::tick()
+void Client::Tick()
 {
 	ZoneScopedN("Client::tick");
 
-	RhiApplication::tick();
+	RhiApplication::Tick();
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
@@ -179,8 +186,8 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	gRpcTask = executor().createTask(Rpc, mySocket, myPoller);
-	executor().submit(gRpcTask.first);
+	gRpcTask = Executor().createTask(Rpc, mySocket, myPoller);
+	Executor().submit(gRpcTask.first);
 }
 
 bool TickClient()
@@ -191,9 +198,9 @@ bool TickClient()
 
 	assert(gClientApplication);
 
-	gClientApplication->tick();
+	gClientApplication->Tick();
 
-	return !gClientApplication->exitRequested();
+	return !gClientApplication->IsExitRequested();
 }
 
 void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
@@ -207,7 +214,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	std::unique_lock lock{gClientApplicationMutex};
 
-	gClientApplication = Application::create<Client>(
+	gClientApplication = Application::Create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root},
@@ -218,8 +225,8 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	assert(gClientApplication);
 
-	gUpdateTask = gClientApplication->executor().createTask(UpdateInput);
-	gClientApplication->executor().submit(gUpdateTask.first);
+	gUpdateTask = gClientApplication->Executor().createTask(UpdateInput);
+	gClientApplication->Executor().submit(gUpdateTask.first);
 }
 
 void DestroyClient()
