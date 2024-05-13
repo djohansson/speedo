@@ -3,7 +3,7 @@
 #include <cassert>
 #include <shared_mutex>
 
-MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::ourTaskPool{};
+MemoryPool<Task, TaskExecutor::TaskPoolSize> TaskExecutor::gTaskPool{};
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
@@ -61,7 +61,7 @@ Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
 	assert(handle);
 	assert(handle.value < TaskPoolSize);
 	
-	Task* ptr = ourTaskPool.getPointer(handle);
+	Task* ptr = gTaskPool.getPointer(handle);
 
 	assert(ptr != nullptr);
 	
@@ -105,7 +105,7 @@ void TaskExecutor::internalTryDelete(TaskHandle handle)
 	if (task.state()->latch.load(std::memory_order_relaxed) == 0)
 	{
 		task.~Task();
-		ourTaskPool.free(handle);
+		gTaskPool.free(handle);
 	}
 }
 

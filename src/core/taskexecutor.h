@@ -80,7 +80,7 @@ private:
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
 	static constexpr uint32_t TaskPoolSize = (1 << 10); // todo: make this configurable
-	static MemoryPool<Task, TaskPoolSize> ourTaskPool;
+	static MemoryPool<Task, TaskPoolSize> gTaskPool;
 };
 
 #include "taskexecutor.inl"

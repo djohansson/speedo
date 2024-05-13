@@ -18,21 +18,21 @@ namespace client
 {
 
 using TaskPair = std::pair<TaskHandle, Future<void>>;
-static TaskPair g_updateTask, g_drawTask, g_rpcTask;
-static UpgradableSharedMutex g_applicationMutex;
-static std::shared_ptr<Client> g_application;
+static TaskPair gUpdateTask, gDrawTask, gRpcTask;
+static UpgradableSharedMutex gApplicationMutex;
+static std::shared_ptr<Client> gApplication;
 
 template <typename F>
 static TaskPair continuation(F&& f, TaskHandle dependency)
 {
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gApplicationMutex};
 
-	if (g_application->exitRequested())
+	if (gApplication->exitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = g_application->executor().createTask(std::forward<F>(f));
+	auto taskPair = gApplication->executor().createTask(std::forward<F>(f));
 	
-	g_application->executor().addDependency(dependency, taskPair.first, true);
+	gApplication->executor().addDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -41,7 +41,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::rpc");
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gApplicationMutex};
 
 	using namespace std::literals;
 	using namespace zpp::bits::literals;
@@ -54,9 +54,9 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		zpp::bits::in in{responseData};
 		zpp::bits::out out{requestData};
 
-		server::rpc_say::client client{in, out};
+		server::RpcSay::client client{in, out};
 
-		if (auto result = client.request<"say"_sha256_int>("hello"s); failure(result))
+		if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
 			std::cerr << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
 		
 		if (auto sendResult = socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
@@ -69,7 +69,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				//std::cout << "got " << socketCount << " sockets hit" << std::endl;
 				if (auto recvResult = socket.recv(zmq::buffer(responseData), zmq::recv_flags::dontwait); recvResult)
 				{
-					auto responseResult = client.response<"say"_sha256_int>();
+					auto responseResult = client.response<"Say"_sha256_int>();
 					responseFailure = failure(responseResult);
 					if (responseFailure)
 					{
@@ -77,7 +77,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 						return;
 					}
 					
-					//std::cout << "say(\"hello\") returned: " << responseResult.value() << std::endl;
+					//std::cout << "Say(\"hello\") returned: " << responseResult.value() << std::endl;
 				}
 				else
 				{
@@ -86,7 +86,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				}
 			}
 
-			if (g_application->exitRequested()) // IMPORTANT: check for exitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing g_applicationMutex.
+			if (gApplication->exitRequested()) // IMPORTANT: check for exitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing gApplicationMutex.
 				return;
 		}
 	}
@@ -101,7 +101,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	g_rpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, g_rpcTask.first);
+	gRpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, gRpcTask.first);
 }
 
 static void	draw();
@@ -109,20 +109,20 @@ static void	updateInput()
 {
 	ZoneScopedN("client::updateInput");
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gApplicationMutex};
 
-	g_application->updateInput();
-	g_drawTask = continuation(draw, g_updateTask.first);
+	gApplication->updateInput();
+	gDrawTask = continuation(draw, gUpdateTask.first);
 }
 
 static void	draw()
 {
 	ZoneScopedN("client::draw");
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gApplicationMutex};
 
-	g_application->draw();
-	g_updateTask = continuation(updateInput, g_drawTask.first);
+	gApplication->draw();
+	gUpdateTask = continuation(updateInput, gDrawTask.first);
 }
 
 // updateInput -> draw -> updateInput -> draw -> ... until app termination
@@ -176,24 +176,24 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	g_rpcTask = executor().createTask(rpc, mySocket, myPoller);
-	executor().submit(g_rpcTask.first);
+	gRpcTask = executor().createTask(rpc, mySocket, myPoller);
+	executor().submit(gRpcTask.first);
 }
 
-bool client_tick()
+bool TickClient()
 {	
 	using namespace client;
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gApplicationMutex};
 
-	assert(g_application);
+	assert(gApplication);
 
-	g_application->tick();
+	gApplication->tick();
 
-	return !g_application->exitRequested();
+	return !gApplication->exitRequested();
 }
 
-void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
+void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 {
 	using namespace client;
 	using namespace file;
@@ -202,9 +202,9 @@ void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	auto root = getCanonicalPath(nullptr, "./");
 
-	std::unique_lock lock{g_applicationMutex};
+	std::unique_lock lock{gApplicationMutex};
 
-	g_application = Application::create<Client>(
+	gApplication = Application::create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root},
@@ -213,20 +213,20 @@ void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	assert(g_application);
+	assert(gApplication);
 	
-	g_updateTask = g_application->executor().createTask(updateInput);
-	g_application->executor().submit(g_updateTask.first);
+	gUpdateTask = gApplication->executor().createTask(updateInput);
+	gApplication->executor().submit(gUpdateTask.first);
 }
 
-void client_destroy()
+void DestroyClient()
 {
 	using namespace client;
 
-	std::unique_lock lock{g_applicationMutex};
+	std::unique_lock lock{gApplicationMutex};
 
-	assert(g_application);
-	assert(g_application.use_count() == 1);
+	assert(gApplication);
+	assert(gApplication.use_count() == 1);
 	
-	g_application.reset();
+	gApplication.reset();
 }

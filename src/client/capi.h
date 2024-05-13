@@ -18,9 +18,9 @@ extern "C"
 {
 #endif
 
-CLIENT_API void client_create(CreateWindowFunc createWindowFunc, const PathConfig* paths);
-CLIENT_API void client_destroy(void);
-CLIENT_API bool client_tick();
+CLIENT_API void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths);
+CLIENT_API void DestroyClient(void);
+CLIENT_API bool TickClient();
 
 #ifdef __cplusplus
 }

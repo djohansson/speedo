@@ -9,10 +9,10 @@ extern "C"
 {
 #endif
 
-void server_create(const PathConfig* paths);
-void server_destroy(void);
-bool server_tick();
-const char* server_getAppName(void);
+void CreateServer(const PathConfig* paths);
+void DestroyServer(void);
+bool TickServer();
+const char* GetServerName(void);
 
 #ifdef __cplusplus
 }

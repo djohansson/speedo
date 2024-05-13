@@ -34,7 +34,7 @@ static TaskPair continuation(F&& f, TaskHandle dependency)
 	return taskPair;
 }
 
-static std::string say(std::string s)
+static std::string Say(std::string s)
 {
 	using namespace std::literals;
 
@@ -61,7 +61,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		zpp::bits::in in{requestData};
 		zpp::bits::out out{responseData};
 
-		server::rpc_say::server server{in, out};
+		server::RpcSay::server server{in, out};
 
 		if (auto socketCount = poller.wait(2ms))
 		{
@@ -150,7 +150,7 @@ Server::Server(std::string_view name, Environment&& env)
 	executor().submit(g_rpcTask.first);
 }
 
-void server_create(const PathConfig* paths)
+void CreateServer(const PathConfig* paths)
 {
 	using namespace server;
 	using namespace file;
@@ -172,7 +172,7 @@ void server_create(const PathConfig* paths)
 	assert(g_application);
 }
 
-void server_destroy()
+void DestroyServer()
 {
 	using namespace server;
 
@@ -184,7 +184,7 @@ void server_destroy()
 	g_application.reset();
 }
 
-bool server_tick()
+bool TickServer()
 {
 	using namespace server;
 
@@ -197,7 +197,7 @@ bool server_tick()
 	return !g_application->exitRequested();
 }
 
-const char* server_getAppName(void)
+const char* GetServerName(void)
 {
 	using namespace server;
 

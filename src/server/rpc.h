@@ -7,9 +7,9 @@
 namespace server
 {
 
-std::string say(std::string s);
+std::string Say(std::string s);
 
 using namespace zpp::bits::literals;
-using rpc_say = zpp::bits::rpc<zpp::bits::bind<server::say, "say"_sha256_int>>;
+using RpcSay = zpp::bits::rpc<zpp::bits::bind<server::Say, "Say"_sha256_int>>;
 
 }

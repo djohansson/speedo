@@ -20,7 +20,7 @@
 
 #include <mimalloc.h>
 
-static struct cag_option g_cmdArgs[] =
+static struct cag_option gCmdArgs[] =
 {
 	{
 		.identifier = 'r',
@@ -43,12 +43,10 @@ static struct cag_option g_cmdArgs[] =
 		.description = "Shows the command help"
 	}
 };
-
-static MouseEvent g_mouse;
-static KeyboardEvent g_keyboard;
-static PathConfig g_paths;
-
-static volatile bool g_isInterrupted = false;
+static MouseEvent gMouse;
+static KeyboardEvent gKeyboard;
+static PathConfig gPaths;
+static volatile bool gIsInterrupted = false;
 
 static void onExit(void) 
 {
@@ -57,14 +55,14 @@ static void onExit(void)
 	for (size_t i = 0; i < windowCount; ++i)
 		glfwDestroyWindow(windows[i]);
 
-	client_destroy();
+	DestroyClient();
 	glfwTerminate();
 }
 
 static void onSignal(int signal)
 {
 	if (signal == SIGINT || signal == SIGTERM)
-		g_isInterrupted = true;
+		gIsInterrupted = true;
 }
 
 static void onError(int error, const char* description)
@@ -81,44 +79,44 @@ static void onMouseEnter(GLFWwindow* window, int entered)
 	if (entered)
 		rhi_setCurrentWindow(window);
 
-	g_mouse.insideWindow = entered;
-	g_mouse.flags = Window;
+	gMouse.insideWindow = entered;
+	gMouse.flags = Window;
 
-	core_mouse(&g_mouse);
+	core_mouse(&gMouse);
 }
 
 static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
 	assert(window != NULL);
 
-	g_mouse.button = button;
-	g_mouse.action = action;
-	g_mouse.mods = mods;
-	g_mouse.flags = Button;
+	gMouse.button = button;
+	gMouse.action = action;
+	gMouse.mods = mods;
+	gMouse.flags = Button;
 
-	core_mouse(&g_mouse);
+	core_mouse(&gMouse);
 }
 
 static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
 	assert(window != NULL);
 
-	g_mouse.xpos = xpos;
-	g_mouse.ypos = ypos;
-	g_mouse.flags = Position;
+	gMouse.xpos = xpos;
+	gMouse.ypos = ypos;
+	gMouse.flags = Position;
 
-	core_mouse(&g_mouse);
+	core_mouse(&gMouse);
 }
 
 static void onScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
 	assert(window != NULL);
 
-	g_mouse.xoffset = xoffset;
-	g_mouse.yoffset = yoffset;
-	g_mouse.flags = Scroll;
+	gMouse.xoffset = xoffset;
+	gMouse.yoffset = yoffset;
+	gMouse.flags = Scroll;
 
-	core_mouse(&g_mouse);
+	core_mouse(&gMouse);
 }
 
 
@@ -195,12 +193,12 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 		fullscreenChangeTriggered = false;
 	}
 
-	g_keyboard.key = key;
-	g_keyboard.scancode = scancode;
-	g_keyboard.action = action;
-	g_keyboard.mods = mods;
+	gKeyboard.key = key;
+	gKeyboard.scancode = scancode;
+	gKeyboard.action = action;
+	gKeyboard.mods = mods;
 
-	core_keyboard(&g_keyboard);
+	core_keyboard(&gKeyboard);
 }
 
 static void onMonitorChanged(GLFWmonitor* monitor, int event)
@@ -340,21 +338,21 @@ int main(int argc, char* argv[], char* envp[])
 	signal(SIGTERM, &onSignal);
 
 	cag_option_context cagContext;
-	cag_option_init(&cagContext, g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), argc, argv);
+	cag_option_init(&cagContext, gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), argc, argv);
 	
 	while (cag_option_fetch(&cagContext))
 	{
 		switch (cag_option_get_identifier(&cagContext))
 		{
 		case 'u':
-			g_paths.userProfilePath = cag_option_get_value(&cagContext);
+			gPaths.userProfilePath = cag_option_get_value(&cagContext);
 			break;
 		case 'r':
-			g_paths.resourcePath = cag_option_get_value(&cagContext);
+			gPaths.resourcePath = cag_option_get_value(&cagContext);
 			break;
 		case 'h':
 			printf("Usage: client [OPTION]...\n");
-			cag_option_print(g_cmdArgs, CAG_ARRAY_SIZE(g_cmdArgs), stdout);
+			cag_option_print(gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), stdout);
 			return EXIT_SUCCESS;
 		default:
 			break;
@@ -425,7 +423,7 @@ int main(int argc, char* argv[], char* envp[])
 	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 	// glfwSetInputMode(g_window.handle, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
-	client_create(onCreateWindow, &g_paths);
+	CreateClient(onCreateWindow, &gPaths);
 
 	atexit(onExit);
 
@@ -436,7 +434,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	setWindowCallbacks(window);
 
-	do { glfwWaitEvents(); } while (!glfwWindowShouldClose(window) && client_tick() && !g_isInterrupted);
+	do { glfwWaitEvents(); } while (!glfwWindowShouldClose(window) && TickClient() && !gIsInterrupted);
 
 	return EXIT_SUCCESS;
 }

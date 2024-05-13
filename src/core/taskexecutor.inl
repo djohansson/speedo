@@ -30,8 +30,8 @@ std::pair<TaskHandle, Future<R>> TaskExecutor::createTask(F&& callable, Args&&..
 {
 	ZoneScopedN("TaskExecutor::createTask");
 
-	auto handle = ourTaskPool.allocate();
-	Task* taskPtr = ourTaskPool.getPointer(handle);
+	auto handle = gTaskPool.allocate();
+	Task* taskPtr = gTaskPool.getPointer(handle);
 	std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
 
 	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->state())));
