@@ -98,8 +98,6 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::flip()
 
 	auto& device = *getDevice();
 
-	static constexpr std::string_view flipFrameStr = "";
-
 	auto lastFrameIndex = myFrameIndex;
 	
 	Fence<Vk> fence(getDevice(), FenceCreateDesc<Vk>{});
