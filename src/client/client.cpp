@@ -19,20 +19,20 @@ namespace client
 
 using TaskPair = std::pair<TaskHandle, Future<void>>;
 static TaskPair gUpdateTask, gDrawTask, gRpcTask;
-static UpgradableSharedMutex gApplicationMutex;
-static std::shared_ptr<Client> gApplication;
+static UpgradableSharedMutex gClientApplicationMutex;
+static std::shared_ptr<Client> gClientApplication;
 
 template <typename F>
 static TaskPair Continuation(F&& callable, TaskHandle dependency)
 {
-	std::shared_lock lock{gApplicationMutex};
+	std::shared_lock lock{gClientApplicationMutex};
 
-	if (gApplication->exitRequested())
+	if (gClientApplication->exitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = gApplication->executor().createTask(std::forward<F>(callable));
+	auto taskPair = gClientApplication->executor().createTask(std::forward<F>(callable));
 	
-	gApplication->executor().addDependency(dependency, taskPair.first, true);
+	gClientApplication->executor().addDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -41,7 +41,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::rpc");
 
-	std::shared_lock lock{gApplicationMutex};
+	std::shared_lock lock{gClientApplicationMutex};
 
 	using namespace std::literals;
 	using namespace zpp::bits::literals;
@@ -89,7 +89,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				}
 			}
 
-			if (gApplication->exitRequested()) // IMPORTANT: check for exitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing gApplicationMutex.
+			if (gClientApplication->exitRequested()) // IMPORTANT: check for exitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
 				return;
 		}
 	}
@@ -112,9 +112,9 @@ static void UpdateInput()
 {
 	ZoneScopedN("client::updateInput");
 
-	std::shared_lock lock{gApplicationMutex};
+	std::shared_lock lock{gClientApplicationMutex};
 
-	gApplication->updateInput();
+	gClientApplication->updateInput();
 	gDrawTask = Continuation(Draw, gUpdateTask.first);
 }
 
@@ -122,9 +122,9 @@ static void Draw()
 {
 	ZoneScopedN("client::draw");
 
-	std::shared_lock lock{gApplicationMutex};
+	std::shared_lock lock{gClientApplicationMutex};
 
-	gApplication->draw();
+	gClientApplication->draw();
 	gUpdateTask = Continuation(UpdateInput, gDrawTask.first);
 }
 
@@ -187,13 +187,13 @@ bool TickClient()
 {	
 	using namespace client;
 
-	std::shared_lock lock{gApplicationMutex};
+	std::shared_lock lock{gClientApplicationMutex};
 
-	assert(gApplication);
+	assert(gClientApplication);
 
-	gApplication->tick();
+	gClientApplication->tick();
 
-	return !gApplication->exitRequested();
+	return !gClientApplication->exitRequested();
 }
 
 void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
@@ -205,9 +205,9 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	auto root = getCanonicalPath(nullptr, "./");
 
-	std::unique_lock lock{gApplicationMutex};
+	std::unique_lock lock{gClientApplicationMutex};
 
-	gApplication = Application::create<Client>(
+	gClientApplication = Application::create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root},
@@ -216,20 +216,20 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	assert(gApplication);
+	assert(gClientApplication);
 
-	gUpdateTask = gApplication->executor().createTask(UpdateInput);
-	gApplication->executor().submit(gUpdateTask.first);
+	gUpdateTask = gClientApplication->executor().createTask(UpdateInput);
+	gClientApplication->executor().submit(gUpdateTask.first);
 }
 
 void DestroyClient()
 {
 	using namespace client;
 
-	std::unique_lock lock{gApplicationMutex};
+	std::unique_lock lock{gClientApplicationMutex};
 
-	assert(gApplication);
-	assert(gApplication.use_count() == 1);
+	assert(gClientApplication);
+	assert(gClientApplication.use_count() == 1);
 	
-	gApplication.reset();
+	gClientApplication.reset();
 }

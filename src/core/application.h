@@ -20,8 +20,8 @@ struct Environment
 };
 
 class Application;
-CORE_API extern std::weak_ptr<Application> theApplication;
-class Application : public Noncopyable, Nonmovable
+CORE_API extern std::weak_ptr<Application> gApplication;
+CORE_API class Application : public Noncopyable, Nonmovable
 {
 public:
 	virtual ~Application() noexcept(false) {};
@@ -38,7 +38,7 @@ public:
 		
 		// silly dance to make Application::instance() work during construction
 		auto app = std::make_shared_for_overwrite<U>();
-		theApplication = app;
+		gApplication = app;
 		std::construct_at(app.get(), std::forward<Args>(args)...);
 
 		return app;
@@ -53,7 +53,7 @@ public:
 	auto& executor() noexcept { return *myExecutor; }
 	const auto& executor() const noexcept { return *myExecutor; }
 
-	static auto& instance() noexcept { return theApplication; }
+	static auto& instance() noexcept { return gApplication; }
 
 	void requestExit() noexcept { myExitRequested = true; }
 	bool exitRequested() const noexcept { return myExitRequested; }

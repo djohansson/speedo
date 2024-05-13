@@ -15,21 +15,21 @@ namespace server
 {
 
 using TaskPair = std::pair<TaskHandle, Future<void>>;
-static TaskPair g_rpcTask{};
-static UpgradableSharedMutex g_applicationMutex;
-static std::shared_ptr<Server> g_application;
+static TaskPair gRpcTask{};
+static UpgradableSharedMutex gServerApplicationMutex;
+static std::shared_ptr<Server> gServerApplication;
 
 template <typename F>
 static TaskPair continuation(F&& f, TaskHandle dependency)
 {
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gServerApplicationMutex};
 
-	if (g_application->exitRequested())
+	if (gServerApplication->exitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = g_application->executor().createTask(std::forward<F>(f));
+	auto taskPair = gServerApplication->executor().createTask(std::forward<F>(f));
 	
-	g_application->executor().addDependency(dependency, taskPair.first, true);
+	gServerApplication->executor().addDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -51,7 +51,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	using namespace std::literals::chrono_literals;
 	using namespace zpp::bits::literals;
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gServerApplicationMutex};
 
 	try
 	{
@@ -100,7 +100,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	g_rpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, g_rpcTask.first);
+	gRpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, gRpcTask.first);
 }
 
 } // namespace server
@@ -146,8 +146,8 @@ Server::Server(std::string_view name, Environment&& env)
 		
 	std::cout << "Server listening on " << cx_serverAddress << std::endl;
 
-	g_rpcTask = executor().createTask(rpc, mySocket, myPoller);
-	executor().submit(g_rpcTask.first);
+	gRpcTask = executor().createTask(rpc, mySocket, myPoller);
+	executor().submit(gRpcTask.first);
 }
 
 void CreateServer(const PathConfig* paths)
@@ -159,9 +159,9 @@ void CreateServer(const PathConfig* paths)
 
 	auto root = getCanonicalPath(nullptr, "./");
 
-	std::unique_lock lock{g_applicationMutex};
+	std::unique_lock lock{gServerApplicationMutex};
 
-	g_application = Application::create<Server>(
+	gServerApplication = Application::create<Server>(
 		"server",
 		Environment{{
 			{"RootPath", root},
@@ -169,41 +169,41 @@ void CreateServer(const PathConfig* paths)
 			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}});
 
-	assert(g_application);
+	assert(gServerApplication);
 }
 
 void DestroyServer()
 {
 	using namespace server;
 
-	std::unique_lock lock{g_applicationMutex};
+	std::unique_lock lock{gServerApplicationMutex};
 
-	assert(g_application);
-	assert(g_application.use_count() == 1);
+	assert(gServerApplication);
+	assert(gServerApplication.use_count() == 1);
 	
-	g_application.reset();
+	gServerApplication.reset();
 }
 
 bool TickServer()
 {
 	using namespace server;
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gServerApplicationMutex};
 
-	assert(g_application);
+	assert(gServerApplication);
 
-	g_application->tick();
+	gServerApplication->tick();
 
-	return !g_application->exitRequested();
+	return !gServerApplication->exitRequested();
 }
 
 const char* GetServerName(void)
 {
 	using namespace server;
 
-	std::shared_lock lock{g_applicationMutex};
+	std::shared_lock lock{gServerApplicationMutex};
 
-	assert(g_application);
+	assert(gServerApplication);
 
-	return g_application->name().data();
+	return gServerApplication->name().data();
 }
