@@ -16,8 +16,8 @@ class UpgradableSharedMutex
 		None = 0
 	};
 #if __cpp_lib_atomic_ref >= 201806
-	static constexpr uint32_t Aligmnent = std::atomic_ref<value_t>::required_alignment;
-	alignas(Aligmnent) value_t myBits = 0;
+	static constexpr uint32_t kAligmnent = std::atomic_ref<value_t>::required_alignment;
+	alignas(kAligmnent) value_t myBits = 0;
 	std::atomic_ref<value_t> internalAtomicRef() noexcept { return std::atomic_ref(myBits); }
 #else
 #if __cpp_lib_hardware_interference_size >= 201603
@@ -27,8 +27,8 @@ class UpgradableSharedMutex
 	static constexpr std::size_t hardware_constructive_interference_size = 64;
 	static constexpr std::size_t hardware_destructive_interference_size = 64;
 #endif
-	static constexpr uint32_t Aligmnent = hardware_constructive_interference_size;
-	alignas(Aligmnent) CopyableAtomic<value_t> myAtomic;
+	static constexpr uint32_t kAligmnent = hardware_constructive_interference_size;
+	alignas(kAligmnent) CopyableAtomic<value_t> myAtomic;
 	CopyableAtomic<value_t>& internalAtomicRef() noexcept { return myAtomic; }
 #endif
 

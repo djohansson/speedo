@@ -16,7 +16,7 @@ class AABB
 	template <typename U>
 	using OtherVectorType = glm::vec<N, U, glm::defaultp>;
 
-	static constexpr size_t CornerCount = 1 << N;
+	static constexpr size_t kCornerCount = 1 << N;
 
 public:
 	friend zpp::bits::access;
@@ -129,11 +129,11 @@ public:
 	ScalarType radius() const { return glm::length(myMax - myMin) * ScalarType(0.5); }
 
 	template <typename U = VectorType>
-	std::array<U, CornerCount> corners() const
+	auto corners() const
 	{
-		std::array<U, CornerCount> somePointsOut;
+		std::array<U, kCornerCount> somePointsOut;
 
-		for (size_t i = 0; i < CornerCount; i++)
+		for (size_t i = 0; i < kCornerCount; i++)
 			for (size_t j = 0; j < N; j++)
 				somePointsOut[i][j] = (i & (1 << j)) ? myMax[j] : myMin[j];
 
