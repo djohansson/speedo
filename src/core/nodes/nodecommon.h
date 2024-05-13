@@ -10,7 +10,7 @@ struct INode
     virtual ~INode() {};
     virtual int& id() = 0;
     virtual std::optional<int>& selected() = 0;
-    virtual std::string& name() = 0;
+    virtual std::string& Name() = 0;
 };
 
 struct Attribute

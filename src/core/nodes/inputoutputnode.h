@@ -20,7 +20,7 @@ public:
 
     int& id() final;
     std::optional<int>& selected() final;
-    std::string& name() final;
+    std::string& Name() final;
 
     std::vector<Attribute>& inputAttributes();
     std::vector<Attribute>& outputAttributes();

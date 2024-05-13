@@ -22,7 +22,7 @@ std::optional<int>& InputOutputNode::selected()
     return mySelected;
 }
 
-std::string& InputOutputNode::name()
+std::string& InputOutputNode::Name()
 {
     return myName;
 }
