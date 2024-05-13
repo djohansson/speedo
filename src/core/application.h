@@ -24,7 +24,7 @@ CORE_API extern std::weak_ptr<Application> theApplication;
 class Application : public Noncopyable, Nonmovable
 {
 public:
-	virtual ~Application() = default;
+	virtual ~Application() noexcept(false) {};
 
 	virtual void tick() { internalUpdateInput(); };
 

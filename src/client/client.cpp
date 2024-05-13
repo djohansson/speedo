@@ -23,21 +23,21 @@ static UpgradableSharedMutex gApplicationMutex;
 static std::shared_ptr<Client> gApplication;
 
 template <typename F>
-static TaskPair continuation(F&& f, TaskHandle dependency)
+static TaskPair Continuation(F&& callable, TaskHandle dependency)
 {
 	std::shared_lock lock{gApplicationMutex};
 
 	if (gApplication->exitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = gApplication->executor().createTask(std::forward<F>(f));
+	auto taskPair = gApplication->executor().createTask(std::forward<F>(callable));
 	
 	gApplication->executor().addDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
 
-static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
+static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::rpc");
 
@@ -48,19 +48,21 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	try
 	{
-		std::array<std::byte, 64> responseData;
-		std::array<std::byte, 64> requestData;
+		static constexpr unsigned kBufferSize = 64;
+		std::array<std::byte, kBufferSize> responseData;
+		std::array<std::byte, kBufferSize> requestData;
 
-		zpp::bits::in in{responseData};
-		zpp::bits::out out{requestData};
+		zpp::bits::in inStream{responseData};
+		zpp::bits::out outStream{requestData};
 
-		server::RpcSay::client client{in, out};
+		server::RpcSay::client client{inStream, outStream};
 
 		if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
-			std::cerr << "client.request() returned error code: " << std::make_error_code(result).message() << std::endl;
-		
-		if (auto sendResult = socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
-			std::cerr << "socket.send() failed" << std::endl;
+			std::cerr << "client.request() returned error code: "
+					  << std::make_error_code(result).message() << '\n';
+
+		if (auto sendResult = socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
+			std::cerr << "socket.send() failed" << '\n';
 
 		for (bool responseFailure = true; responseFailure;)
 		{
@@ -73,7 +75,8 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 					responseFailure = failure(responseResult);
 					if (responseFailure)
 					{
-						std::cerr << "client.response() returned error code: " << std::make_error_code(responseResult.error()).message() << std::endl;
+						std::cerr << "client.response() returned error code: "
+								  << std::make_error_code(responseResult.error()).message() << '\n';
 						return;
 					}
 					
@@ -81,7 +84,7 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				}
 				else
 				{
-					std::cerr << "socket.recv() failed" << std::endl;
+					std::cerr << "socket.recv() failed" << '\n';
 					return;
 				}
 			}
@@ -92,44 +95,44 @@ static void rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	}
 	catch (zmq::error_t& error)
 	{
-		std::cerr << "zmq exception: " << error.what() << std::endl;
+		std::cerr << "zmq exception: " << error.what() << '\n';
 		return;
 	}
 	catch (...)
 	{
-		std::cerr << "unknown exception" << std::endl;
+		std::cerr << "unknown exception" << '\n';
 		return;
 	}
 
-	gRpcTask = continuation([&socket, &poller]{ rpc(socket, poller); }, gRpcTask.first);
+	gRpcTask = Continuation([&socket, &poller] { Rpc(socket, poller); }, gRpcTask.first);
 }
 
-static void	draw();
-static void	updateInput()
+static void Draw();
+static void UpdateInput()
 {
 	ZoneScopedN("client::updateInput");
 
 	std::shared_lock lock{gApplicationMutex};
 
 	gApplication->updateInput();
-	gDrawTask = continuation(draw, gUpdateTask.first);
+	gDrawTask = Continuation(Draw, gUpdateTask.first);
 }
 
-static void	draw()
+static void Draw()
 {
 	ZoneScopedN("client::draw");
 
 	std::shared_lock lock{gApplicationMutex};
 
 	gApplication->draw();
-	gUpdateTask = continuation(updateInput, gDrawTask.first);
+	gUpdateTask = Continuation(UpdateInput, gDrawTask.first);
 }
 
 // updateInput -> draw -> updateInput -> draw -> ... until app termination
 
 } // namespace client
 
-Client::~Client()
+Client::~Client() noexcept(false)
 {
 	ZoneScopedN("Client::~Client");
 
@@ -138,7 +141,7 @@ Client::~Client()
 	myContext.shutdown();
 	myContext.close();
 
-	std::cout << "Client shutting down, goodbye." << std::endl;
+	std::cout << "Client shutting down, goodbye." << '\n';
 }
 
 void Client::tick()
@@ -172,11 +175,11 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 
 	mySocket.set(zmq::sockopt::linger, 0);
 	mySocket.connect("tcp://localhost:5555");
-	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
+	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags /*evf*/) {
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	gRpcTask = executor().createTask(rpc, mySocket, myPoller);
+	gRpcTask = executor().createTask(Rpc, mySocket, myPoller);
 	executor().submit(gRpcTask.first);
 }
 
@@ -214,8 +217,8 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		createWindowFunc);
 
 	assert(gApplication);
-	
-	gUpdateTask = gApplication->executor().createTask(updateInput);
+
+	gUpdateTask = gApplication->executor().createTask(UpdateInput);
 	gApplication->executor().submit(gUpdateTask.first);
 }
 

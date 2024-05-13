@@ -25,7 +25,7 @@ struct Rhi;
 class RhiApplication : public Application
 {	
 public:
-	~RhiApplication() override;
+	~RhiApplication() noexcept(false) override;
 
 	void tick() override;
 

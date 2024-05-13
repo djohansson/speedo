@@ -1503,7 +1503,7 @@ RhiApplication::RhiApplication(
 {
 }
 
-RhiApplication::~RhiApplication()
+RhiApplication::~RhiApplication() noexcept(false)
 {
 	using namespace rhiapplication;
 

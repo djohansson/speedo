@@ -10,7 +10,7 @@
 class Client : public RhiApplication
 {	
 public:
-	~Client() override;
+	~Client() noexcept(false) override;
 
 	void tick() override;
 
