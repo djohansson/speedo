@@ -41,7 +41,7 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	return taskPair;
 }
 
-static std::string Say(std::string s)
+static std::string Say(const std::string& s)
 {
 	using namespace std::literals;
 
@@ -79,7 +79,8 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		{
 			if (auto result = server.serve(); failure(result))
 			{
-				std::cerr << "server.serve() returned error code: " << std::make_error_code(result).message() << std::endl;
+				std::cerr << "server.serve() returned error code: "
+						  << std::make_error_code(result).message() << '\n';
 				return;
 			}
 			
@@ -91,19 +92,19 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 			if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
 			{
-				std::cerr << "socket.send() failed" << std::endl;
+				std::cerr << "socket.send() failed" << '\n';
 				return;
 			}
 		}
 	}
 	catch (zmq::error_t& error)
 	{
-		std::cerr << "zmq exception: " << error.what() << std::endl;
+		std::cerr << "zmq exception: " << error.what() << '\n';
 		return;
 	}
 	catch (...)
 	{
-		std::cerr << "unknown exception" << std::endl;
+		std::cerr << "unknown exception" << '\n';
 		return;
 	}
 
@@ -121,7 +122,7 @@ Server::~Server()
 	myContext.shutdown();
 	myContext.close();
 
-	std::cout << "Server shutting down, goodbye." << std::endl;
+	std::cout << "Server shutting down, goodbye." << '\n';
 }
 
 void Server::Tick()
@@ -143,15 +144,15 @@ Server::Server(std::string_view name, Environment&& env)
 	using namespace server;
 	using namespace std::literals;
 
-	constexpr std::string_view cx_serverAddress = "tcp://*:5555"sv;
+	constexpr std::string_view kCxServerAddress = "tcp://*:5555"sv;
 
 	mySocket.set(zmq::sockopt::linger, 0);
-	mySocket.bind(cx_serverAddress.data());
+	mySocket.bind(kCxServerAddress.data());
 	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
-		
-	std::cout << "Server listening on " << cx_serverAddress << std::endl;
+
+	std::cout << "Server listening on " << kCxServerAddress << '\n';
 
 	gRpcTask = Executor().createTask(Rpc, mySocket, myPoller);
 	Executor().submit(gRpcTask.first);
@@ -202,15 +203,4 @@ bool TickServer()
 	gServerApplication->Tick();
 
 	return !gServerApplication->IsExitRequested();
-}
-
-const char* GetServerName(void)
-{
-	using namespace server;
-
-	std::shared_lock lock{gServerApplicationMutex};
-
-	assert(gServerApplication);
-
-	return gServerApplication->Name().data();
 }

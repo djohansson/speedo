@@ -29,12 +29,12 @@ public:
 
 	void Tick() override;
 
-	void onResizeFramebuffer(WindowHandle window, int w, int h);
+	void OnResizeFramebuffer(WindowHandle window, int w, int h);
 
-	void updateInput() { InternalUpdateInput(); };
-	void draw() { internalDraw(); };
+	void UpdateInput() { InternalUpdateInput(); };
+	void Draw() { InternalDraw(); };
 
-	WindowState* getWindowState(WindowHandle window);
+	WindowState* GetWindowState(WindowHandle window);
 
 protected:
 	explicit RhiApplication() = default;
@@ -44,15 +44,15 @@ protected:
 		CreateWindowFunc createWindowFunc);
 
 	template <GraphicsApi G>
-	Rhi<G>& internalRhi();
+	Rhi<G>& InternalRhi();
 
 	template <GraphicsApi G>
-	const Rhi<G>& internalRhi() const;
+	const Rhi<G>& InternalRhi() const;
 
-	virtual void InternalUpdateInput() override;
+	void InternalUpdateInput() override;
 
 private:
-	void internalDraw();
+	void InternalDraw();
 
 	std::shared_ptr<void> myRhi;
 	InputState myInput{};

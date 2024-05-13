@@ -39,14 +39,14 @@ typedef struct _WindowState
 typedef WindowHandle (*CreateWindowFunc)(WindowState* window);
 static const WindowHandle NullWindowHandle = NULL;
 
-RHI_API void rhi_resizeFramebuffer(WindowHandle window, int w, int h);
-RHI_API WindowHandle* rhi_getWindows(size_t* count);
-RHI_API void rhi_setWindows(WindowHandle* windows, size_t count);
-RHI_API WindowHandle rhi_getCurrentWindow(void);
-RHI_API void rhi_setCurrentWindow(WindowHandle window);
+RHI_API void ResizeFramebuffer(WindowHandle window, int w, int h);
+RHI_API WindowHandle* GetWindows(size_t* count);
+RHI_API void SetWindows(WindowHandle* windows, size_t count);
+RHI_API WindowHandle GetCurrentWindow(void);
+RHI_API void SetCurrentWindow(WindowHandle window);
 
 // todo: make all state opaque
-WindowState* rhi_getWindowState(WindowHandle window);
+RHI_API WindowState* GetWindowState(WindowHandle window);
 //
 
 

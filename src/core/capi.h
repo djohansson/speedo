@@ -50,9 +50,9 @@ typedef struct _KeyboardEvent
 	uint8_t action;
 } KeyboardEvent;
 
-CORE_API void core_mouse(const MouseEvent* state);
-CORE_API void core_keyboard(const KeyboardEvent* state);
-CORE_API const char* core_getAppName(void);
+CORE_API void UpdateMouse(const MouseEvent* state);
+CORE_API void UpdateKeyboard(const KeyboardEvent* state);
+CORE_API const char* GetApplicationName(void);
 
 #ifdef __cplusplus
 }

@@ -48,10 +48,10 @@ static KeyboardEvent gKeyboard;
 static PathConfig gPaths;
 static volatile bool gIsInterrupted = false;
 
-static void onExit(void) 
+static void OnExit(void) 
 {
 	size_t windowCount;
-	WindowHandle* windows = rhi_getWindows(&windowCount);
+	WindowHandle* windows = GetWindows(&windowCount);
 	for (size_t i = 0; i < windowCount; ++i)
 		glfwDestroyWindow(windows[i]);
 
@@ -59,33 +59,33 @@ static void onExit(void)
 	glfwTerminate();
 }
 
-static void onSignal(int signal)
+static void OnSignal(int signal)
 {
 	if (signal == SIGINT || signal == SIGTERM)
 		gIsInterrupted = true;
 }
 
-static void onError(int error, const char* description)
+static void OnError(int error, const char* description)
 {
 	assert(description != NULL);
 
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-static void onMouseEnter(GLFWwindow* window, int entered)
+static void OnMouseEnter(GLFWwindow* window, int entered)
 {
 	assert(window != NULL);
 
 	if (entered)
-		rhi_setCurrentWindow(window);
+		SetCurrentWindow(window);
 
 	gMouse.insideWindow = entered;
 	gMouse.flags = Window;
 
-	core_mouse(&gMouse);
+	UpdateMouse(&gMouse);
 }
 
-static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
+static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
 	assert(window != NULL);
 
@@ -94,10 +94,10 @@ static void onMouseButton(GLFWwindow* window, int button, int action, int mods)
 	gMouse.mods = mods;
 	gMouse.flags = Button;
 
-	core_mouse(&gMouse);
+	UpdateMouse(&gMouse);
 }
 
-static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
+static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
 	assert(window != NULL);
 
@@ -105,10 +105,10 @@ static void onMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 	gMouse.ypos = ypos;
 	gMouse.flags = Position;
 
-	core_mouse(&gMouse);
+	UpdateMouse(&gMouse);
 }
 
-static void onScroll(GLFWwindow* window, double xoffset, double yoffset)
+static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
 	assert(window != NULL);
 
@@ -116,15 +116,15 @@ static void onScroll(GLFWwindow* window, double xoffset, double yoffset)
 	gMouse.yoffset = yoffset;
 	gMouse.flags = Scroll;
 
-	core_mouse(&gMouse);
+	UpdateMouse(&gMouse);
 }
 
 
-static void onWindowFullscreenChanged(GLFWwindow* window)
+static void OnWindowFullscreenChanged(GLFWwindow* window)
 {
 	assert(window != NULL);
 
-	WindowState* windowState = rhi_getWindowState(window);
+	WindowState* windowState = GetWindowState(window);
 
 	assert(windowState != NULL);
 
@@ -174,7 +174,7 @@ static void onWindowFullscreenChanged(GLFWwindow* window)
 	}
 }
 
-static void onKey(GLFWwindow* window, int key, int scancode, int action, int mods)
+static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	assert(window != NULL);
 
@@ -185,7 +185,7 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 		{
 			fullscreenChangeTriggered = true;
 
-			onWindowFullscreenChanged(window);
+			OnWindowFullscreenChanged(window);
 		}
 	}
 	else
@@ -198,10 +198,10 @@ static void onKey(GLFWwindow* window, int key, int scancode, int action, int mod
 	gKeyboard.action = action;
 	gKeyboard.mods = mods;
 
-	core_keyboard(&gKeyboard);
+	UpdateKeyboard(&gKeyboard);
 }
 
-static void onMonitorChanged(GLFWmonitor* monitor, int event)
+static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 {
 	assert(monitor != NULL);
 
@@ -215,27 +215,27 @@ static void onMonitorChanged(GLFWmonitor* monitor, int event)
 	}
 }
 
-static void onDrop(GLFWwindow* window, int count, const char** paths)
+static void OnDrop(GLFWwindow* window, int count, const char** paths)
 {
 	assert(window != NULL);
 }
 
-static void onFramebufferResize(GLFWwindow* window, int w, int h)
+static void OnFramebufferResize(GLFWwindow* window, int w, int h)
 {
 	assert(window != NULL);
 	assert(w > 0);
 	assert(h > 0);
 
-	rhi_resizeFramebuffer(window, w, h);
+	ResizeFramebuffer(window, w, h);
 }
 
-static void onWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
+static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
 {
 	assert(window != NULL);
 	assert(xscale > 0);
 	assert(yscale > 0);
 
-	WindowState* windowState = rhi_getWindowState(window);
+	WindowState* windowState = GetWindowState(window);
 
 	assert(windowState != NULL);
 
@@ -244,17 +244,17 @@ static void onWindowContentScaleChanged(GLFWwindow* window, float xscale, float 
 }
 
 
-static void onWindowFocusChanged(GLFWwindow* window, int focused)
+static void OnWindowFocusChanged(GLFWwindow* window, int focused)
 {
 	assert(window != NULL);
 }
 
-static void onWindowRefreshChanged(GLFWwindow* window)
+static void OnWindowRefreshChanged(GLFWwindow* window)
 {
 	assert(window != NULL);
 }
 
-static void onWindowIconifyChanged(GLFWwindow* window, int iconified)
+static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 {
 	assert(window != NULL);
 
@@ -268,7 +268,7 @@ static void onWindowIconifyChanged(GLFWwindow* window, int iconified)
 	}
 }
 
-static void onWindowMaximizeChanged(GLFWwindow* window, int maximized)
+static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 {
 	assert(window != NULL);
 
@@ -282,12 +282,12 @@ static void onWindowMaximizeChanged(GLFWwindow* window, int maximized)
 	}
 }
 
-static void onWindowSizeChanged(GLFWwindow* window, int width, int height)
+static void OnWindowSizeChanged(GLFWwindow* window, int width, int height)
 {
 	assert(window != NULL);
 }
 
-static WindowHandle onCreateWindow(WindowState* state)
+static WindowHandle OnCreateWindow(WindowState* state)
 {
 	assert(state);
 
@@ -313,20 +313,20 @@ static void setWindowCallbacks(GLFWwindow* window)
 {
 	assert(window != NULL);
 
-	glfwSetCursorEnterCallback(window, onMouseEnter);
-	glfwSetMouseButtonCallback(window, onMouseButton);
-	glfwSetCursorPosCallback(window, onMouseCursorPos);
-	glfwSetScrollCallback(window, onScroll);
-	glfwSetKeyCallback(window, onKey);
-	glfwSetDropCallback(window, onDrop);
-	glfwSetFramebufferSizeCallback(window, onFramebufferResize);
-	glfwSetWindowFocusCallback(window, onWindowFocusChanged);
-	glfwSetWindowRefreshCallback(window, onWindowRefreshChanged);
-	glfwSetWindowContentScaleCallback(window, onWindowContentScaleChanged);
-	glfwSetWindowIconifyCallback(window, onWindowIconifyChanged);
-	glfwSetWindowMaximizeCallback(window, onWindowMaximizeChanged);
-	glfwSetWindowSizeCallback(window, onWindowSizeChanged);
-	glfwSetWindowTitle(window, core_getAppName());
+	glfwSetCursorEnterCallback(window, OnMouseEnter);
+	glfwSetMouseButtonCallback(window, OnMouseButton);
+	glfwSetCursorPosCallback(window, OnMouseCursorPos);
+	glfwSetScrollCallback(window, OnScroll);
+	glfwSetKeyCallback(window, OnKey);
+	glfwSetDropCallback(window, OnDrop);
+	glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
+	glfwSetWindowFocusCallback(window, OnWindowFocusChanged);
+	glfwSetWindowRefreshCallback(window, OnWindowRefreshChanged);
+	glfwSetWindowContentScaleCallback(window, OnWindowContentScaleChanged);
+	glfwSetWindowIconifyCallback(window, OnWindowIconifyChanged);
+	glfwSetWindowMaximizeCallback(window, OnWindowMaximizeChanged);
+	glfwSetWindowSizeCallback(window, OnWindowSizeChanged);
+	glfwSetWindowTitle(window, GetApplicationName());
 }
 
 int main(int argc, char* argv[], char* envp[])
@@ -334,8 +334,8 @@ int main(int argc, char* argv[], char* envp[])
 	assert(argv != NULL);
 	assert(envp != NULL);
 
-	signal(SIGINT, &onSignal);
-	signal(SIGTERM, &onSignal);
+	signal(SIGINT, &OnSignal);
+	signal(SIGTERM, &OnSignal);
 
 	cag_option_context cagContext;
 	cag_option_init(&cagContext, gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), argc, argv);
@@ -361,7 +361,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	(void)mi_version();
 
-	glfwSetErrorCallback(onError);
+	glfwSetErrorCallback(OnError);
 	
 	if (!glfwInit())
 	{
@@ -423,13 +423,13 @@ int main(int argc, char* argv[], char* envp[])
 	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 	// glfwSetInputMode(g_window.handle, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
-	CreateClient(onCreateWindow, &gPaths);
+	CreateClient(OnCreateWindow, &gPaths);
 
-	atexit(onExit);
+	atexit(OnExit);
 
-	glfwSetMonitorCallback(onMonitorChanged);
+	glfwSetMonitorCallback(OnMonitorChanged);
 
-	WindowHandle window = rhi_getCurrentWindow();
+	WindowHandle window = GetCurrentWindow();
 	assert(window != NullWindowHandle);
 
 	setWindowCallbacks(window);

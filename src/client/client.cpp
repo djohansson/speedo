@@ -121,7 +121,7 @@ static void UpdateInput()
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	gClientApplication->updateInput();
+	gClientApplication->UpdateInput();
 	gDrawTask = Continuation(Draw, gUpdateTask.first);
 }
 
@@ -131,7 +131,7 @@ static void Draw()
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	gClientApplication->draw();
+	gClientApplication->Draw();
 	gUpdateTask = Continuation(UpdateInput, gDrawTask.first);
 }
 

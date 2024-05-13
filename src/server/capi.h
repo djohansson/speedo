@@ -12,7 +12,6 @@ extern "C"
 void CreateServer(const PathConfig* paths);
 void DestroyServer(void);
 bool TickServer();
-const char* GetServerName(void);
 
 #ifdef __cplusplus
 }

@@ -1,19 +1,19 @@
 #include "capi.h"
 #include "application.h"
 
-void core_mouse(const MouseEvent* state)
+void UpdateMouse(const MouseEvent* state)
 {
 	if (auto app = Application::Instance().lock(); app)
 		app->OnMouse(*state);
 }
 
-void core_keyboard(const KeyboardEvent* state)
+void UpdateKeyboard(const KeyboardEvent* state)
 {
 	if (auto app = Application::Instance().lock(); app)
 		app->OnKeyboard(*state);
 }
 
-const char* core_getAppName(void)
+const char* GetApplicationName(void)
 {
 	if (auto app = Application::Instance().lock(); app)
 		return app->Name().data();

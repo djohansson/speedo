@@ -26,14 +26,16 @@ namespace rhiapplication
 
 static UpgradableSharedMutex gDrawMutex{};
 
-static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
+static std::tuple<nfdresult_t, nfdchar_t*>
+OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
 {
 	auto resourcePathStr = resourcePath.string();
 	nfdchar_t* openFilePath;
 	return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath), openFilePath);
 }
 
-static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
+static void LoadModel(
+	Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -58,7 +60,8 @@ static void loadModel(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFileP
 	transferSubmit = transferQueue.submit();
 }
 
-static void loadImage(Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
+static void LoadImage(
+	Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -206,11 +209,11 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 	*/
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-	static bool showStatistics = false;
+	static bool gshowStatistics = false;
 	{
-		if (showStatistics)
+		if (gshowStatistics)
 		{
-			if (Begin("Statistics", &showStatistics))
+			if (Begin("Statistics", &gshowStatistics))
 			{
 				Text("Unknowns: %u", rhi.device->getTypeCount(VK_OBJECT_TYPE_UNKNOWN));
 				Text("Instances: %u", rhi.device->getTypeCount(VK_OBJECT_TYPE_INSTANCE));
@@ -261,22 +264,27 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 	}
 #endif
 
-	static bool showDemoWindow = false;
-	if (showDemoWindow)
-		ShowDemoWindow(&showDemoWindow);
+	static bool gshowDemoWindow = false;
+	if (gshowDemoWindow)
+		ShowDemoWindow(&gshowDemoWindow);
 
-	static bool showAbout = false;
-	if (showAbout && Begin("About client", &showAbout))
+	static bool gshowAbout = false;
+	if (gshowAbout && Begin("About client", &gshowAbout))
 	{
 		End();
 	}
-	
-	static std::atomic_uint8_t progress = 0;
-	static std::atomic_bool showProgress = false;
-	if (bool b = showProgress.load(std::memory_order_relaxed) && Begin("Loading", &b, ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoSavedSettings))
+
+	static std::atomic_uint8_t gprogress = 0;
+	static std::atomic_bool gshowProgress = false;
+	if (bool b = gshowProgress.load(std::memory_order_relaxed) &&
+				 Begin(
+					 "Loading",
+					 &b,
+					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
+						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
 	{
 		SetWindowSize(ImVec2(160, 0));
-		ProgressBar((1.f/255)*progress);
+		ProgressBar((1.F / 255) * gprogress);
 		End();
 	}
 
@@ -496,28 +504,32 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			if (MenuItem("Open OBJ..."))
 			{
 				auto [openFileTask, openFileFuture] = executor.createTask(
-					openFileDialogue,
-					std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]),
+					OpenFileDialogue,
+					std::get<std::filesystem::path>(
+						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"obj");
 
-				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
-				{
-					ZoneScopedN("RhiApplication::draw::loadTask");
-
-					assert(openFileFuture.valid());
-					assert(openFileFuture.is_ready());
-
-					auto [openFileResult, openFilePath] = openFileFuture.get();
-					if (openFileResult == NFD_OKAY)
+				auto [loadTask, loadFuture] = executor.createTask(
+					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
-						progress = 0;
-						showProgress = true;
-						loadOp(rhi, executor, openFilePath, progress);
-						std::free(openFilePath);
-						showProgress = false;
-					}
-				}, std::move(openFileFuture), loadModel);
-				
+						ZoneScopedN("RhiApplication::draw::loadTask");
+
+						assert(openFileFuture.valid());
+						assert(openFileFuture.is_ready());
+
+						auto [openFileResult, openFilePath] = openFileFuture.get();
+						if (openFileResult == NFD_OKAY)
+						{
+							gprogress = 0;
+							gshowProgress = true;
+							loadOp(rhi, executor, openFilePath, gprogress);
+							std::free(openFilePath);
+							gshowProgress = false;
+						}
+					},
+					std::move(openFileFuture),
+					LoadModel);
+
 				executor.addDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
@@ -525,28 +537,32 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			if (MenuItem("Open Image..."))
 			{
 				auto [openFileTask, openFileFuture] = executor.createTask(
-					openFileDialogue,
-					std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]),
+					OpenFileDialogue,
+					std::get<std::filesystem::path>(
+						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"jpg,png");
 
-				auto [loadTask, loadFuture] = executor.createTask([&rhi, &executor](auto openFileFuture, auto loadOp)
-				{
-					ZoneScopedN("RhiApplication::draw::loadTask");
-
-					assert(openFileFuture.valid());
-					assert(openFileFuture.is_ready());
-
-					auto [openFileResult, openFilePath] = openFileFuture.get();
-					if (openFileResult == NFD_OKAY)
+				auto [loadTask, loadFuture] = executor.createTask(
+					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
-						progress = 0;
-						showProgress = true;
-						loadOp(rhi, executor, openFilePath, progress);
-						std::free(openFilePath);
-						showProgress = false;
-					}
-				}, std::move(openFileFuture), loadImage);
-				
+						ZoneScopedN("RhiApplication::draw::loadTask");
+
+						assert(openFileFuture.valid());
+						assert(openFileFuture.is_ready());
+
+						auto [openFileResult, openFilePath] = openFileFuture.get();
+						if (openFileResult == NFD_OKAY)
+						{
+							gprogress = 0;
+							gshowProgress = true;
+							loadOp(rhi, executor, openFilePath, gprogress);
+							std::free(openFilePath);
+							gshowProgress = false;
+						}
+					},
+					std::move(openFileFuture),
+					LoadImage);
+
 				executor.addDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
@@ -570,7 +586,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<Vk> splitScreenGrid = rhi.windows.at(rhi_getCurrentWindow()).getConfig().splitScreenGrid;
+				Extent2d<Vk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).getConfig().splitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -607,12 +623,12 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 				ImGui::EndMenu();
 
 				if (anyChanged)
-					rhi.windows.at(rhi_getCurrentWindow()).onResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
+					rhi.windows.at(GetCurrentWindow()).onResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
 			}
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
-					showStatistics = !showStatistics;
+					gshowStatistics = !gshowStatistics;
 			}
 #endif
 			ImGui::EndMenu();
@@ -620,10 +636,10 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		if (BeginMenu("About"))
 		{
 			if (MenuItem("Show IMGUI Demo..."))
-				showDemoWindow = !showDemoWindow;
+				gshowDemoWindow = !gshowDemoWindow;
 			Separator();
 			if (MenuItem("About client..."))
-				showAbout = !showAbout;
+				gshowAbout = !gshowAbout;
 			ImGui::EndMenu();
 		}
 
@@ -657,8 +673,12 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	static auto iniFilePath = (std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string();
-	io.IniFilename = iniFilePath.c_str();
+	static auto giniFilePath =
+		(std::get<std::filesystem::path>(
+			 Application::Instance().lock()->Env().variables["UserProfilePath"]) /
+		 "imgui.ini")
+			.generic_string();
+	io.IniFilename = giniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	//io.FontGlobalScale = 1.0f;
@@ -673,16 +693,16 @@ static void IMGUIInit(
 			window.getSurface()).capabilities;
 
 #if defined(__OSX__)
-	constexpr float dpiScaleX = 1.0f;
-	constexpr float dpiScaleY = 1.0f;
+	constexpr float kDpiScaleX = 1.0F;
+	constexpr float kDpiScaleY = 1.0F;
 #else
 	float dpiScaleX = window.getConfig().contentScale.x;
 	float dpiScaleY = window.getConfig().contentScale.y;
 #endif
 
-	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
+	io.DisplayFramebufferScale = ImVec2(kDpiScaleX, kDpiScaleY);
 
-	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
+	GetStyle().ScaleAllSizes(std::max(kDpiScaleX, kDpiScaleY));
 
 	ImFontConfig config;
 	config.OversampleH = 2;
@@ -695,7 +715,7 @@ static void IMGUIInit(
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
-	constexpr const char* fonts[]{
+	constexpr const char* kFonts[]{
 		"Cousine-Regular.ttf",
 		"DroidSans.ttf",
 		"Karla-Regular.ttf",
@@ -705,13 +725,11 @@ static void IMGUIInit(
 	};
 
 	ImFont* defaultFont = nullptr;
-	for (auto font : fonts)
+	for (const auto* font : kFonts)
 	{
 		fontPath.replace_filename(font);
 		defaultFont = io.Fonts->AddFontFromFileTTF(
-			fontPath.generic_string().c_str(),
-			16.0f * std::max(dpiScaleX, dpiScaleY),
-			&config);
+			fontPath.generic_string().c_str(), 16.0F * std::max(kDpiScaleX, kDpiScaleY), &config);
 	}
 
 	// Setup style
@@ -753,7 +771,7 @@ static void IMGUIInit(
 	ImGui_ImplVulkan_Init(
 		&initInfo,
 		static_cast<RenderTargetHandle<Vk>>(window.getFrames().at(window.getCurrentFrameIndex())).first);
-	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(rhi_getCurrentWindow()), true);
+	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
 
 	// Upload Fonts
 	ImGui_ImplVulkan_CreateFontsTexture();
@@ -763,7 +781,7 @@ static void IMGUIInit(
 	//	myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
 }
 
-static void shutdownIMGUI()
+static void ShutdownImgui()
 {
 	// size_t count;
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
@@ -777,7 +795,7 @@ static void shutdownIMGUI()
 	ImGui::DestroyContext();
 }
 
-static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHandle<Vk> surface)
+static uint32_t DetectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHandle<Vk> surface)
 {
 	const auto& physicalDevices = instance.getPhysicalDevices();
 
@@ -785,18 +803,18 @@ static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHand
 	graphicsDeviceCandidates.reserve(physicalDevices.size());
 
 	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << std::endl;
+		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << '\n';
 
 	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
 			physicalDeviceIt++)
 	{
-		auto physicalDevice = physicalDevices[physicalDeviceIt];
+		auto* physicalDevice = physicalDevices[physicalDeviceIt];
 
 		const auto& physicalDeviceInfo = instance.getPhysicalDeviceInfo(physicalDevice);
 		const auto& swapchainInfo = instance.updateSwapchainInfo(physicalDevice, surface);
 
 		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
-			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << std::endl;
+			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << '\n';
 
 		for (uint32_t queueFamilyIt = 0;
 				queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
@@ -807,10 +825,9 @@ static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHand
 			const auto& queueFamilyPresentSupport =
 				swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
 
-			if (queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
-				queueFamilyPresentSupport)
-				graphicsDeviceCandidates.emplace_back(
-					std::make_tuple(physicalDeviceIt, queueFamilyIt));
+			if (((queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0u) &&
+				(queueFamilyPresentSupport != 0u))
+				graphicsDeviceCandidates.emplace_back(physicalDeviceIt, queueFamilyIt);
 		}
 	}
 
@@ -819,7 +836,7 @@ static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHand
 		graphicsDeviceCandidates.end(),
 		[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
 		{
-			constexpr uint32_t deviceTypePriority[]{
+			constexpr uint32_t kDeviceTypePriority[]{
 				4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
 				1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
 				0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
@@ -837,7 +854,7 @@ static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHand
 				instance.getPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex])
 					.deviceProperties.properties.deviceType;
 
-			return deviceTypePriority[lhsDeviceType] < deviceTypePriority[rhsDeviceType];
+			return kDeviceTypePriority[lhsDeviceType] < kDeviceTypePriority[rhsDeviceType];
 		});
 
 	if (graphicsDeviceCandidates.empty())
@@ -846,7 +863,8 @@ static uint32_t detectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHand
 	return std::get<0>(graphicsDeviceCandidates.front());
 }
 
-static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, SurfaceHandle<Vk> surface)
+static SwapchainConfiguration<Vk>
+DetectSuitableSwapchain(Device<Vk>& device, SurfaceHandle<Vk> surface)
 {
 	const auto& swapchainInfo =
 		device.getInstance()->getSwapchainInfo(device.getPhysicalDevice(), surface);
@@ -858,8 +876,7 @@ static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, Su
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_B8G8R8_UNORM,
 		VK_FORMAT_R8G8B8_UNORM};
-	constexpr ColorSpace<Vk> requestSurfaceColorSpace =
-		VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	constexpr ColorSpace<Vk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 	constexpr PresentMode<Vk> requestPresentMode[]{
 		VK_PRESENT_MODE_MAILBOX_KHR,
 		VK_PRESENT_MODE_FIFO_RELAXED_KHR,
@@ -868,10 +885,9 @@ static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, Su
 
 	// Request several formats, the first found will be used
 	// If none of the requested image formats could be found, use the first available
-	for (unsigned requestIt = 0; requestIt < std::size(requestSurfaceImageFormat);
-			requestIt++)
+	for (auto requestIt : requestSurfaceImageFormat)
 	{
-		SurfaceFormat<Vk> requestedFormat{requestSurfaceImageFormat[requestIt], requestSurfaceColorSpace};
+		SurfaceFormat<Vk> requestedFormat{requestIt, kRequestSurfaceColorSpace};
 
 		auto formatIt = std::find_if(
 			swapchainInfo.formats.begin(),
@@ -891,12 +907,10 @@ static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, Su
 
 	// Request a certain mode and confirm that it is available. If not use
 	// VK_PRESENT_MODE_FIFO_KHR which is mandatory
-	for (unsigned requestIt = 0; requestIt < std::size(requestPresentMode); requestIt++)
+	for (auto requestIt : requestPresentMode)
 	{
 		auto modeIt = std::find(
-			swapchainInfo.presentModes.begin(),
-			swapchainInfo.presentModes.end(),
-			requestPresentMode[requestIt]);
+			swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(), requestIt);
 
 		if (modeIt != swapchainInfo.presentModes.end())
 		{
@@ -919,23 +933,23 @@ static SwapchainConfiguration<Vk> detectSuitableSwapchain(Device<Vk>& device, Su
 	return config;
 };
 
-static void createQueues(Rhi<Vk>& rhi)
+static void CreateQueues(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
-	const uint32_t frameCount = rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.imageCount;
+	const uint32_t frameCount = rhi.windows.at(GetCurrentWindow()).getConfig().swapchainConfig.imageCount;
 	const uint32_t graphicsQueueCount = frameCount;
-	const uint32_t graphicsThreadCount = std::max(1u, std::thread::hardware_concurrency());
-	const uint32_t computeQueueCount = 1u;
-	const uint32_t transferQueueCount = 1u;
-	const uint32_t defaultDrawThreadCount = 2u;
+	const uint32_t graphicsThreadCount = std::max(1U, std::thread::hardware_concurrency());
+	const uint32_t computeQueueCount = 1U;
+	const uint32_t transferQueueCount = 1U;
+	const uint32_t defaultDrawThreadCount = 2U;
 
 	auto& queues = rhi.queues;
 
 	VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-	constexpr bool usePoolReset = true;
-	if (usePoolReset)
+	constexpr bool kUsePoolReset = true;
+	if (kUsePoolReset)
 		cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
 	const auto& queueFamilies = rhi.device->getQueueFamilies();
@@ -945,7 +959,7 @@ static void createQueues(Rhi<Vk>& rhi)
 
 		for (auto type : AllQueueTypes)
 		{
-			if (queueFamily.flags & (1 << static_cast<uint8_t>(type)))
+			if ((queueFamily.flags & (1 << static_cast<uint8_t>(type))) != 0u)
 			{
 				auto queueCount = queueFamily.queueCount;
 				auto drawThreadCount = defaultDrawThreadCount;
@@ -998,15 +1012,15 @@ static void createQueues(Rhi<Vk>& rhi)
 	}
 }
 
-static void createWindowDependentObjects(Rhi<Vk>& rhi)
+static void CreateWindowDependentObjects(Rhi<Vk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.extent}},
-			rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.surfaceFormat.format,
+			{{rhi.windows.at(GetCurrentWindow()).getConfig().swapchainConfig.extent}},
+			rhi.windows.at(GetCurrentWindow()).getConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -1015,7 +1029,7 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<Vk>>(
 		rhi.device,
 		ImageCreateDesc<Vk>{
-			{{rhi.windows.at(rhi_getCurrentWindow()).getConfig().swapchainConfig.extent}},
+			{{rhi.windows.at(GetCurrentWindow()).getConfig().swapchainConfig.extent}},
 			findSupportedFormat(
 				rhi.device->getPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1033,26 +1047,30 @@ static void createWindowDependentObjects(Rhi<Vk>& rhi)
 	rhi.pipeline->setRenderTarget(rhi.renderImageSet);
 }
 
-auto createWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
+auto CreateWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
 {
-	return Window<Vk>(device, std::move(surface), std::move(windowConfig), std::move(windowState));
+	return Window<Vk>(
+		device,
+		std::forward<decltype(surface)>(surface),
+		std::forward<decltype(windowConfig)>(windowConfig),
+		std::forward<decltype(windowState)>(windowState));
 }
 
-auto createPipeline(const auto& device)
+auto CreatePipeline(const auto& device)
 {
 	return std::make_unique<Pipeline<Vk>>(
 		device,
 		PipelineConfiguration<Vk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
 }
 
-auto createDevice(const auto& instance, auto physicalDeviceIndex)
+auto CreateDevice(const auto& instance, auto physicalDeviceIndex)
 {
 	return std::make_shared<Device<Vk>>(
 		instance,
 		DeviceConfiguration<Vk>{physicalDeviceIndex});
 }
 
-auto createInstance(const auto& name)
+auto CreateInstance(const auto& name)
 {
 	return std::make_shared<Instance<Vk>>(
 		InstanceConfiguration<Vk>{
@@ -1068,7 +1086,7 @@ auto createInstance(const auto& name)
 				VK_API_VERSION_1_3}});
 }
 
-auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
+auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 {
 	using namespace rhiapplication;
 
@@ -1082,33 +1100,29 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 	std::shared_ptr<Rhi<Vk>> rhi;
 	{
-		auto windowHandle = createWindowFunc(&windowState);
-		auto instance = createInstance(name);
+		auto* windowHandle = createWindowFunc(&windowState);
+		auto instance = CreateInstance(name);
 		auto surface = createSurface(*instance, &instance->getHostAllocationCallbacks(), windowHandle);
-		auto device = createDevice(instance, detectSuitableGraphicsDevice(*instance, surface));
-		auto pipeline = createPipeline(device);
+		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
+		auto pipeline = CreatePipeline(device);
 		rhi = std::make_shared<Rhi<Vk>>(
 			std::move(instance),
 			std::move(device),
 			std::move(pipeline));
 
-		windowConfig.swapchainConfig = detectSuitableSwapchain(*rhi->device, surface);
+		windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi->device, surface);
 		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
 		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
 			windowHandle,
-			createWindow(
-				rhi->device,
-				std::move(surface),
-				std::move(windowConfig),
-				std::move(windowState)));
+			CreateWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
 
-		rhi_setWindows(&windowHandle, 1);
-		rhi_setCurrentWindow(windowHandle);
+		SetWindows(&windowHandle, 1);
+		SetCurrentWindow(windowHandle);
 	}
 
-	createQueues(*rhi);
-	createWindowDependentObjects(*rhi);
+	CreateQueues(*rhi);
+	CreateWindowDependentObjects(*rhi);
 
 	// todo: create some resource global storage
 	rhi->pipeline->resources().black = std::make_shared<Image<Vk>>(
@@ -1127,20 +1141,20 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 		nullptr,
-		0u,
+		0U,
 		VK_FILTER_LINEAR,
 		VK_FILTER_LINEAR,
 		VK_SAMPLER_MIPMAP_MODE_LINEAR,
 		VK_SAMPLER_ADDRESS_MODE_REPEAT,
 		VK_SAMPLER_ADDRESS_MODE_REPEAT,
 		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0f,
+		0.0F,
 		VK_TRUE,
-		16.f,
+		16.F,
 		VK_FALSE,
 		VK_COMPARE_OP_ALWAYS,
-		0.0f,
-		1000.0f,
+		0.0F,
+		1000.0F,
 		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 		VK_FALSE});
 	rhi->pipeline->resources().samplers =
@@ -1148,10 +1162,10 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	//
 
 	// initialize stuff on graphics queue
-	constexpr uint32_t textureId = 1;
-	constexpr uint32_t samplerId = 2;
-	static_assert(textureId < ShaderTypes_GlobalTextureCount);
-	static_assert(samplerId < ShaderTypes_GlobalSamplerCount);
+	constexpr uint32_t kTextureId = 1;
+	constexpr uint32_t kSamplerId = 2;
+	static_assert(kTextureId < ShaderTypes_GlobalTextureCount);
+	static_assert(kSamplerId < ShaderTypes_GlobalSamplerCount);
 	{
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[QueueType_Graphics];
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
@@ -1159,15 +1173,15 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		auto cmd = graphicsQueue.getPool().commands();
 
 		rhi->pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		rhi->pipeline->resources().black->clear(cmd, {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}});
+		rhi->pipeline->resources().black->clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
 		rhi->pipeline->resources().black->transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		IMGUIInit(rhi->windows.at(rhi_getCurrentWindow()), *rhi, cmd);
+		IMGUIInit(rhi->windows.at(GetCurrentWindow()), *rhi, cmd);
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
 		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
 		materialData[0].textureAndSamplerId =
-			(textureId << ShaderTypes_GlobalTextureIndexBits) | samplerId;
+			(kTextureId << ShaderTypes_GlobalTextureIndexBits) | kSamplerId;
 		rhi->materials = std::make_unique<Buffer<Vk>>(
 			rhi->device,
 			graphicsQueue,
@@ -1179,7 +1193,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			materialData.get());
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(ShaderTypes_ModelInstanceCount);
-		auto identityMatrix = glm::mat4x4(1.0f);
+		auto identityMatrix = glm::mat4x4(1.0F);
 		modelInstances[666].modelTransform = identityMatrix;
 		modelInstances[666].inverseTransposeModelTransform =
 			glm::transpose(glm::inverse(modelInstances[666].modelTransform));
@@ -1211,7 +1225,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 	auto shaderReflection = shaderLoader.load<Vk>(shaderIncludePath / "shaders.slang");
 
-	auto layoutHandle = rhi->pipeline->createLayout(shaderReflection);
+	auto* layoutHandle = rhi->pipeline->createLayout(shaderReflection);
 
 	rhi->pipeline->bindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
@@ -1219,7 +1233,7 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	{
 		rhi->pipeline->setDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi->windows.at(rhi_getCurrentWindow()).getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<Vk>{rhi->windows.at(GetCurrentWindow()).getViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1238,13 +1252,13 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		"g_samplers",
 		DescriptorImageInfo<Vk>{(*rhi->pipeline->resources().samplers)[0]},
 		DescriptorSetCategory_GlobalSamplers,
-		samplerId);
+		kSamplerId);
 
 	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
 	{
 		rhi->pipeline->setDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi->windows.at(rhi_getCurrentWindow()).getViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<Vk>{rhi->windows.at(GetCurrentWindow()).getViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1284,13 +1298,13 @@ auto createRhi(const auto& name, CreateWindowFunc createWindowFunc)
 } // namespace rhiapplication
 
 template <>
-Rhi<Vk>& RhiApplication::internalRhi<Vk>()
+Rhi<Vk>& RhiApplication::InternalRhi<Vk>()
 {
 	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
 }
 
 template <>
-const Rhi<Vk>& RhiApplication::internalRhi<Vk>() const
+const Rhi<Vk>& RhiApplication::InternalRhi<Vk>() const
 {
 	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
 }
@@ -1301,14 +1315,14 @@ void RhiApplication::InternalUpdateInput()
 
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
 
-	auto& rhi = internalRhi<Vk>();
+	auto& rhi = InternalRhi<Vk>();
 	auto& imguiIO = ImGui::GetIO();
 	auto& input = myInput;
 
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))
 	{
-		if (mouse.flags & MouseEvent::Position)
+		if ((mouse.flags & MouseEvent::Position) != 0)
 		{
 			input.mouse.position[0] = static_cast<float>(mouse.xpos);
 			input.mouse.position[1] = static_cast<float>(mouse.ypos);
@@ -1317,7 +1331,7 @@ void RhiApplication::InternalUpdateInput()
 			imguiIO.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
 		}
 
-		if (mouse.flags & MouseEvent::Button)
+		if ((mouse.flags & MouseEvent::Button) != 0)
 		{
 			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
 			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);
@@ -1367,23 +1381,23 @@ void RhiApplication::InternalUpdateInput()
 	}
 
 	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
-		rhi.windows.at(rhi_getCurrentWindow()).onInputStateChanged(input);
+		rhi.windows.at(GetCurrentWindow()).onInputStateChanged(input);
 }
 
-void RhiApplication::internalDraw()
+void RhiApplication::InternalDraw()
 {
 	using namespace rhiapplication;
 
 	std::unique_lock lock(gDrawMutex);
 
-	auto& rhi = internalRhi<Vk>();
+	auto& rhi = InternalRhi<Vk>();
 
 	FrameMark;
 	ZoneScopedN("rhi::draw");
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
-	auto& window = rhi.windows.at(rhi_getCurrentWindow());
+	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame(); // no-op?
@@ -1426,8 +1440,8 @@ void RhiApplication::internalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, clear);
 
-			renderImageSet.clearDepthStencil(cmd, {1.0f, 0});
-			renderImageSet.clearColor(cmd, {{0.2f, 0.2f, 0.2f, 1.0f}}, 0);
+			renderImageSet.clearDepthStencil(cmd, {1.0F, 0});
+			renderImageSet.clearColor(cmd, {{0.2F, 0.2F, 0.2F, 1.0F}}, 0);
 		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
@@ -1436,13 +1450,14 @@ void RhiApplication::internalDraw()
 			renderImageSet.transitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 			
 			auto renderPassInfo = renderImageSet.begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-			
+
 			auto drawThreadCount = window.draw(
 				pipeline,
 				graphicsQueue,
-				std::move(renderPassInfo)); // TODO: kick off jobs for this earier and join here
+				std::move(
+					renderPassInfo)); // TODO(djohansson): kick off jobs for this earier and join here
 
-			for (uint32_t threadIt = 1ul; threadIt <= drawThreadCount; threadIt++)
+			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
 				graphicsQueue.execute(
 					threadIt,
 					1 + device.timelineValue().fetch_add(1, std::memory_order_relaxed));
@@ -1495,11 +1510,9 @@ void RhiApplication::internalDraw()
 }
 
 RhiApplication::RhiApplication(
-	std::string_view appName,
-	Environment&& env,
-	CreateWindowFunc createWindowFunc)
-: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-, myRhi(rhiapplication::createRhi(Name(), createWindowFunc))
+	std::string_view appName, Environment&& env, CreateWindowFunc createWindowFunc)
+	: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
+	, myRhi(rhiapplication::CreateRhi(Name(), createWindowFunc))
 {
 }
 
@@ -1509,7 +1522,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 
 	ZoneScopedN("~RhiApplication()");
 
-	auto& rhi = internalRhi<Vk>();
+	auto& rhi = InternalRhi<Vk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
@@ -1531,7 +1544,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 		transferQueue.processTimelineCallbacks(transferSubmit.maxTimelineValue);
 	}
 
-	shutdownIMGUI();
+	ShutdownImgui();
 
 	myRhi.reset();
 
@@ -1545,7 +1558,7 @@ void RhiApplication::Tick()
 
 	ZoneScopedN("RhiApplication::tick");
 
-	auto& rhi = internalRhi<Vk>();
+	auto& rhi = InternalRhi<Vk>();
 	
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
@@ -1556,7 +1569,7 @@ void RhiApplication::Tick()
 	}
 }
 
-void RhiApplication::onResizeFramebuffer(WindowHandle window, int w, int h)
+void RhiApplication::OnResizeFramebuffer(WindowHandle window, int w, int h)
 {
 	using namespace rhiapplication;
 
@@ -1564,7 +1577,7 @@ void RhiApplication::onResizeFramebuffer(WindowHandle window, int w, int h)
 
 	ZoneScopedN("RhiApplication::onResizeFramebuffer");
 
-	auto& rhi = internalRhi<Vk>();
+	auto& rhi = InternalRhi<Vk>();
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
@@ -1577,14 +1590,14 @@ void RhiApplication::onResizeFramebuffer(WindowHandle window, int w, int h)
 
 	rhi.windows.at(window).onResizeFramebuffer(w, h);
 
-	createWindowDependentObjects(rhi);
+	CreateWindowDependentObjects(rhi);
 }
 
-WindowState* RhiApplication::getWindowState(WindowHandle window)
+WindowState* RhiApplication::GetWindowState(WindowHandle window)
 {
 	using namespace rhiapplication;
 
-	auto& rhi = internalRhi<Vk>();
+	auto& rhi = InternalRhi<Vk>();
 
 	return &rhi.windows.at(window).getState();
 }

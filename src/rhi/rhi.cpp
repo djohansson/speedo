@@ -9,22 +9,22 @@ static std::optional<WindowHandle> s_currentWindow{};
 
 }
 
-void rhi_resizeFramebuffer(WindowHandle window, int w, int h)
+void ResizeFramebuffer(WindowHandle window, int w, int h)
 {
 	using namespace rhi;
 
 	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
-		app->onResizeFramebuffer(window, w, h);
+		app->OnResizeFramebuffer(window, w, h);
 }
 
-WindowHandle rhi_getCurrentWindow(void)
+WindowHandle GetCurrentWindow(void)
 {
 	using namespace rhi;
 
 	return s_currentWindow.value_or(nullptr);
 }
 
-WindowHandle* rhi_getWindows(size_t* count)
+WindowHandle* GetWindows(size_t* count)
 {
 	using namespace rhi;
 
@@ -38,7 +38,7 @@ WindowHandle* rhi_getWindows(size_t* count)
 	return s_windows.data();
 }
 
-void rhi_setWindows(WindowHandle* windows, size_t count)
+void SetWindows(WindowHandle* windows, size_t count)
 {
 	using namespace rhi;
 
@@ -48,7 +48,7 @@ void rhi_setWindows(WindowHandle* windows, size_t count)
 		s_windows.emplace(windows[i]);
 }
 
-void rhi_setCurrentWindow(WindowHandle window)
+void SetCurrentWindow(WindowHandle window)
 {
 	using namespace rhi;
 
@@ -58,12 +58,12 @@ void rhi_setCurrentWindow(WindowHandle window)
 		s_currentWindow = window;
 }
 
-WindowState* rhi_getWindowState(WindowHandle window)
+WindowState* GetWindowState(WindowHandle window)
 {
 	using namespace rhi;
 
 	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
-		return app->getWindowState(window);
+		return app->GetWindowState(window);
 
 	return nullptr;
 }
