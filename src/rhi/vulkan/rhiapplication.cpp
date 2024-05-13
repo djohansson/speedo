@@ -24,7 +24,7 @@
 namespace rhiapplication
 {
 
-static UpgradableSharedMutex g_drawMutex{};
+static UpgradableSharedMutex gDrawMutex{};
 
 static std::tuple<nfdresult_t, nfdchar_t*> openFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
 {
@@ -1374,7 +1374,7 @@ void RhiApplication::internalDraw()
 {
 	using namespace rhiapplication;
 
-	std::unique_lock lock(g_drawMutex);
+	std::unique_lock lock(gDrawMutex);
 
 	auto& rhi = internalRhi<Vk>();
 
@@ -1560,7 +1560,7 @@ void RhiApplication::onResizeFramebuffer(WindowHandle window, int w, int h)
 {
 	using namespace rhiapplication;
 
-	std::unique_lock lock(g_drawMutex);
+	std::unique_lock lock(gDrawMutex);
 
 	ZoneScopedN("RhiApplication::onResizeFramebuffer");
 
