@@ -19,7 +19,7 @@
 		do                                                                                         \
 		{                                                                                          \
 			VkResult __result = (expr);                                                            \
-			assertf(                                                                               \
+			ASSERT(                                                                               \
 				__result == VK_SUCCESS,                                                            \
 				"'%s' failed with %s",                                                             \
 				#expr,                                                                             \

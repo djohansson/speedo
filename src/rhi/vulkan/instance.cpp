@@ -121,7 +121,7 @@ VkBool32 debugUtilsMessengerCallback(
 	std::cerr << pCallbackData->pMessage << std::endl;
 
 	if (messageSeverity > VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-		__debugbreak();
+		TRAP();
 
 	return VK_FALSE;
 }
@@ -312,7 +312,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 		requiredExtensions.end(),
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
-	assertf(
+	ASSERT(
 		std::includes(
 			instanceExtensions.begin(),
 			instanceExtensions.end(),
@@ -334,7 +334,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
-	assertf(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
+	ASSERT(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
 	
 	myPhysicalDevices.resize(physicalDeviceCount);
 	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));

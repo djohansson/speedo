@@ -8,7 +8,7 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 {
 	RenderTargetCreateDesc<G> outDesc{};
 
-	assertf(colorImages.size(), "colorImages cannot be empty");
+	ASSERT(colorImages.size(), "colorImages cannot be empty");
 
 	auto firstColorImageExtent = colorImages.front()->getDesc().mipLevels[0].extent;
 
@@ -19,10 +19,10 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 
 	for (const auto& image : colorImages)
 	{
-		assertf(
+		ASSERT(
 			outDesc.extent.width == image->getDesc().mipLevels[0].extent.width,
 			"all colorImages needs to have same width");
-		assertf(
+		ASSERT(
 			outDesc.extent.height == image->getDesc().mipLevels[0].extent.height,
 			"all colorImages needs to have same height");
 

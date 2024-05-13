@@ -607,7 +607,7 @@ void Pipeline<Vk>::bindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindP
 	case VK_PIPELINE_BIND_POINT_COMPUTE:
 		break;
 	default:
-		assertf(false, "Not implemented");
+		ASSERT(false, "Not implemented");
 		break;
 	};
 

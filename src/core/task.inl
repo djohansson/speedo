@@ -10,7 +10,7 @@ Task::Task(F&& callable, ParamsTuple&& params, Args&&... args)
 			const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 			const auto& params = *static_cast<const ParamsTuple*>(paramsPtr);
 
-			assertf(statePtr, "Task::operator() called without any return state!");
+			ASSERT(statePtr, "Task::operator() called without any return state!");
 
 			auto& state = *static_cast<typename Future<R>::FutureState*>(statePtr);
 
@@ -21,7 +21,7 @@ Task::Task(F&& callable, ParamsTuple&& params, Args&&... args)
 
 			auto counter = state.latch.fetch_sub(1, std::memory_order_release) - 1;
 			(void)counter;
-			assertf(counter == 0, "Latch counter should be zero!");
+			ASSERT(counter == 0, "Latch counter should be zero!");
 
 			state.latch.notify_all();
 		})
@@ -64,7 +64,7 @@ void Task::operator()(TaskParams&&... params)
 {
 	ZoneScopedN("Task::operator()");
 
-	assertf(myInvokeFcnPtr, "Task is not initialized!");
+	ASSERT(myInvokeFcnPtr, "Task is not initialized!");
 
 	auto taskParams = std::make_tuple(std::forward<TaskParams>(params)...);
 	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);

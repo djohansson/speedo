@@ -9,7 +9,7 @@ Application::Application(std::string_view name, Environment&& env)
 , myEnvironment(std::forward<Environment>(env))
 , myExecutor(std::make_unique<TaskExecutor>(std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 3)))
 {
-	assertf(gApplication.use_count() == 1, "There can only be one application at a time");
+	ASSERT(gApplication.use_count() == 1, "There can only be one application at a time");
 }
 
 void Application::OnMouse(const MouseEvent& mouse)

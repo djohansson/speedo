@@ -10,7 +10,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 {
 	ZoneScopedN("TaskExecutor()");
 
-	assertf(threadCount > 0, "Thread count must be nonzero");
+	ASSERT(threadCount > 0, "Thread count must be nonzero");
 
 	myThreads.reserve(threadCount);
 
@@ -41,8 +41,8 @@ void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle,
 	Task& aTask = *handleToTaskPtr(aTaskHandle);
 	Task& bTask = *handleToTaskPtr(bTaskHandle);
 
-	assertf(aTask.state(), "Task state is not valid!");
-	assertf(bTask.state(), "Task state is not valid!");
+	ASSERT(aTask.state(), "Task state is not valid!");
+	ASSERT(bTask.state(), "Task state is not valid!");
 
 	TaskState& aState = *aTask.state();
 	TaskState& bState = *bTask.state();
@@ -122,8 +122,8 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 
 		Task& adjacent = *handleToTaskPtr(adjacentHandle);
 
-		assertf(adjacent.state(), "Task has no return state!");
-		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
+		ASSERT(adjacent.state(), "Task has no return state!");
+		ASSERT(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
@@ -146,8 +146,8 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 
 		Task& adjacent = *handleToTaskPtr(adjacentHandle);
 
-		assertf(adjacent.state(), "Task has no return state!");
-		assertf(adjacent.state()->latch, "Latch needs to have been constructed!");
+		ASSERT(adjacent.state(), "Task has no return state!");
+		ASSERT(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{

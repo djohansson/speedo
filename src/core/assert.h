@@ -1,25 +1,34 @@
 #pragma once
 
-#include <cassert>
+#include <cstring>
 #include <print>
 
-#define clean_errno() (errno == 0 ? "None" : strerror(errno))
-#define log_error(M, ...)                                                                          \
-	std::println(                                                                                       \
+#ifndef __has_builtin
+#	define __has_builtin(x) 0
+#endif
+#if __has_builtin(__builtin_trap)
+#	define TRAP() __builtin_trap()
+#else
+#	define TRAP() abort()
+#endif
+
+#define CLEAN_ERRNO() (errno == 0 ? "NULL" : std::strerror(errno))
+#define LOG_ERROR(M, ...)                                                                          \
+	std::println(                                                                                  \
 		stderr,                                                                                    \
-		"[ERROR] ({}:{}: errno: {}) " M,                                                      \
+		"[ERROR] ({}:{}: errno: {}) " M,                                                           \
 		__FILE__,                                                                                  \
 		__LINE__,                                                                                  \
-		clean_errno(),                                                                             \
+		CLEAN_ERRNO(),                                                                             \
 		##__VA_ARGS__)
 
 #ifdef NDEBUG
-#	define assertf(A, M, ...)
+#	define ASSERT(A, M, ...)
 #else
-#	define assertf(A, M, ...)                                                                      \
+#	define ASSERT(A, M, ...)                                                                       \
 		if (!(A))                                                                                  \
 		{                                                                                          \
-			log_error(M, ##__VA_ARGS__);                                                           \
-			assert(A);                                                                             \
+			LOG_ERROR(M, ##__VA_ARGS__);                                                           \
+			TRAP();                                                                                \
 		}
 #endif
