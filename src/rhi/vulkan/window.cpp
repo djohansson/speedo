@@ -33,8 +33,8 @@ void Window<Vk>::internalUpdateViewBuffer() const
 	assert(viewCount <= ShaderTypes_ViewCount);
 	for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
 	{
-		viewDataPtr->viewProjectionTransform =
-			myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
+		auto mvp = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
+		std::copy_n(&mvp[0][0], 16, &viewDataPtr->viewProjection[0][0]);
 		viewDataPtr++;
 	}
 

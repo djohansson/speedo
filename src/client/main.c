@@ -80,7 +80,7 @@ static void OnMouseEnter(GLFWwindow* window, int entered)
 		SetCurrentWindow(window);
 
 	gMouse.insideWindow = entered;
-	gMouse.flags = Window;
+	gMouse.flags = kWindow;
 
 	UpdateMouse(&gMouse);
 }
@@ -92,7 +92,7 @@ static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
 	gMouse.button = button;
 	gMouse.action = action;
 	gMouse.mods = mods;
-	gMouse.flags = Button;
+	gMouse.flags = kButton;
 
 	UpdateMouse(&gMouse);
 }
@@ -103,7 +103,7 @@ static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 	gMouse.xpos = xpos;
 	gMouse.ypos = ypos;
-	gMouse.flags = Position;
+	gMouse.flags = kPosition;
 
 	UpdateMouse(&gMouse);
 }
@@ -114,7 +114,7 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 
 	gMouse.xoffset = xoffset;
 	gMouse.yoffset = yoffset;
-	gMouse.flags = Scroll;
+	gMouse.flags = kScroll;
 
 	UpdateMouse(&gMouse);
 }
@@ -135,10 +135,10 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 		glfwSetWindowMonitor(
 			window,
 			NULL,
-			windowState->x,
-			windowState->y,
-			windowState->width,
-			windowState->height,
+			(int)windowState->x,
+			(int)windowState->y,
+			(int)windowState->width,
+			(int)windowState->height,
 			0);
 		
 		windowState->fullscreenRefresh = 0;
@@ -162,11 +162,11 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 			glfwSetWindowMonitor(
 				window,
 				primaryMonitor,
-				windowState->x,
-				windowState->y,
-				windowState->width,
-				windowState->height,
-				windowState->fullscreenRefresh);
+				(int)windowState->x,
+				(int)windowState->y,
+				(int)windowState->width,
+				(int)windowState->height,
+				(int)windowState->fullscreenRefresh);
 
 			windowState->fullscreenRefresh = mode->refreshRate;
 			windowState->fullscreenEnabled = true;
@@ -178,19 +178,19 @@ static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mod
 {
 	assert(window != NULL);
 
-	static bool fullscreenChangeTriggered = false;
+	static bool gFullscreenChangeTriggered = false;
 	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
 	{
-		if (!fullscreenChangeTriggered)
+		if (!gFullscreenChangeTriggered)
 		{
-			fullscreenChangeTriggered = true;
+			gFullscreenChangeTriggered = true;
 
 			OnWindowFullscreenChanged(window);
 		}
 	}
 	else
 	{
-		fullscreenChangeTriggered = false;
+		gFullscreenChangeTriggered = false;
 	}
 
 	gKeyboard.key = key;
@@ -205,6 +205,7 @@ static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 {
 	assert(monitor != NULL);
 
+	/*
 	if (event == GLFW_CONNECTED)
 	{
 		// The monitor was connected
@@ -213,6 +214,7 @@ static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 	{
 		// The monitor was disconnected
 	}
+	*/
 }
 
 static void OnDrop(GLFWwindow* window, int count, const char** paths)
@@ -220,13 +222,13 @@ static void OnDrop(GLFWwindow* window, int count, const char** paths)
 	assert(window != NULL);
 }
 
-static void OnFramebufferResize(GLFWwindow* window, int w, int h)
+static void OnFramebufferResize(GLFWwindow* window, int width, int height)
 {
 	assert(window != NULL);
-	assert(w > 0);
-	assert(h > 0);
+	assert(width > 0);
+	assert(height > 0);
 
-	ResizeFramebuffer(window, w, h);
+	ResizeFramebuffer(window, width, height);
 }
 
 static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
@@ -258,6 +260,7 @@ static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 {
 	assert(window != NULL);
 
+	/*
 	if (iconified)
 	{
 		// The window was iconified
@@ -266,12 +269,14 @@ static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 	{
 		// The window was restored
 	}
+	*/
 }
 
 static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 {
 	assert(window != NULL);
 
+	/*
 	if (maximized)
 	{
 		// The window was maximized
@@ -280,6 +285,7 @@ static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 	{
 		// The window was restored
 	}
+	*/
 }
 
 static void OnWindowSizeChanged(GLFWwindow* window, int width, int height)
@@ -296,11 +302,17 @@ static WindowHandle OnCreateWindow(WindowState* state)
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
-	GLFWwindow* window  = glfwCreateWindow(state->width, state->height, "", NULL, NULL);
+	GLFWwindow* window  = glfwCreateWindow(
+		(int)state->width,
+		(int)state->height,
+		"",
+		NULL,
+		NULL);
 
 	assert(window);
 
-	float xscale, yscale;
+	float xscale;
+	float yscale;
 	glfwGetWindowContentScale(window, &xscale, &yscale);
 
 	state->xscale = xscale;
@@ -309,7 +321,7 @@ static WindowHandle OnCreateWindow(WindowState* state)
 	return window;
 }
 
-static void setWindowCallbacks(GLFWwindow* window)
+static void SetWindowCallbacks(GLFWwindow* window)
 {
 	assert(window != NULL);
 
@@ -393,10 +405,12 @@ int main(int argc, char* argv[], char* envp[])
 		const char* name = glfwGetMonitorName(monitor);
 		assert(name != NULL);
 
-		int x, y;
-		glfwGetMonitorPos(monitor, &x, &y);
+		int monitorx;
+		int monitory;
+		glfwGetMonitorPos(monitor, &monitorx, &monitory);
 		
-		int physicalWidth, physicalHeight;
+		int physicalWidth;
+		int physicalHeight;
 		glfwGetMonitorPhysicalSize(monitor, &physicalWidth, &physicalHeight);
 		
 		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
@@ -407,7 +421,7 @@ int main(int argc, char* argv[], char* envp[])
 
 		printf("GLFW: Connected Monitor %i: %s, Position: %ix%i, Physical Size: %ix%i, Video Mode: %ix%i@%i[%i:%i:%i], Content Scale: %fx%f\n",
 			monitorIt, name,
-			x, y,
+			monitorx, monitory,
 			physicalWidth, physicalHeight,
 			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
 			xscale, yscale);
@@ -432,9 +446,9 @@ int main(int argc, char* argv[], char* envp[])
 	WindowHandle window = GetCurrentWindow();
 	assert(window != NullWindowHandle);
 
-	setWindowCallbacks(window);
+	SetWindowCallbacks(window);
 
-	do { glfwWaitEvents(); } while (!glfwWindowShouldClose(window) && TickClient() && !gIsInterrupted);
+	do { glfwWaitEvents(); } while (glfwWindowShouldClose(window) == 0 && TickClient() && !gIsInterrupted);
 
 	return EXIT_SUCCESS;
 }

@@ -249,30 +249,33 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 				auto& vertex = *vertexScope.createVertices();
 				
 				if (!attrib.vertices.empty())
-					*vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)) = {
-						attrib.vertices[3 * index.vertex_index + 0],
-						attrib.vertices[3 * index.vertex_index + 1],
-						attrib.vertices[3 * index.vertex_index + 2]};
+					std::copy_n(
+						&attrib.vertices[3 * index.vertex_index],
+						3,
+						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
 
 				if (!attrib.normals.empty())
-					*vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::normal)>(offsetof(Vertex_P3f_N3f_T014f_C4f, normal)) = {
-						attrib.normals[3 * index.normal_index + 0],
-						attrib.normals[3 * index.normal_index + 1],
-						attrib.normals[3 * index.normal_index + 2]};
+					std::copy_n(
+						&attrib.normals[3 * index.normal_index],
+						3,
+						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, normal)));
 
 				if (!attrib.texcoords.empty())
-					*vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::texCoord01)>(offsetof(Vertex_P3f_N3f_T014f_C4f, texCoord01)) = {
+				{
+					float uvs[2] = {
 						attrib.texcoords[2 * index.texcoord_index + 0],
-						1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
-						0.0f,
-						0.0f};
+						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+					std::copy_n(
+						uvs,
+						2,
+						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, texCoord01)));
+				}
 
 				if (!attrib.colors.empty())
-					*vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::color)>(offsetof(Vertex_P3f_N3f_T014f_C4f, color)) = {
-						attrib.colors[3 * index.vertex_index + 0],
-						attrib.colors[3 * index.vertex_index + 1],
-						attrib.colors[3 * index.vertex_index + 2],
-						0.0f};
+					std::copy_n(
+						&attrib.colors[3 * index.vertex_index + 0],
+						3,
+						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, color)));
 
 				uint64_t vertexIndex = vertex.hash();
 				if (uniqueVertices.count(vertexIndex) == 0)
@@ -280,7 +283,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.size() - 1);
 
 					if (!attrib.vertices.empty())
-						desc.aabb.merge(*vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
+						desc.aabb.merge(
+							vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
 				}
 				else
 				{

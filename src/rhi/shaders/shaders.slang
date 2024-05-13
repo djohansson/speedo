@@ -89,7 +89,7 @@ VertexOutput vertexMain(InputStream input)
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
 	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
 
-	output.hPos = mul(view.viewProjectionTransform, float4(worldPosition, 1.0));
+	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
 	output.vertex.position = worldPosition;
 	output.vertex.normal = worldNormal;
 	output.vertex.texCoord01 = v.texCoord01;

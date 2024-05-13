@@ -8,18 +8,22 @@ extern "C"
 #if defined(SHADERTYPES_H_CPU_TARGET)
 #	include <stdint.h>
 #	include <limits.h>
-#	include <glm/glm.hpp>
-#	define float4x4 glm::mat4x4
-#	define float4 glm::vec4
-#	define float3 glm::vec3
-#	define float2 glm::vec2
-#	define uint uint32_t
+#	define FLOAT4X4(name) float name[4][4]
+#	define FLOAT4(name) float name[4]
+#	define FLOAT3(name) float name[3]
+#	define FLOAT2(name) float name[2]
+#	define UINT(name) uint32_t name
 #else
 #	define alignas(x)
 #	define FLT_MAX 3.402823466e+38
 #	define FLT_MIN 1.175494351e-38
 #	define DBL_MAX 1.7976931348623158e+308
 #	define DBL_MIN 2.2250738585072014e-308
+#	define FLOAT4X4(name) float4x4 name
+#	define FLOAT4(name) float4 name
+#	define FLOAT3(name) float3 name
+#	define FLOAT2(name) float2 name
+#	define UINT(name) uint32_t name
 #endif
 
 #define DescriptorSetCategory_Global 0
@@ -49,37 +53,37 @@ extern "C"
 // caution: don't change the alignment unless you know what you are doing.
 struct ViewData
 {
-	alignas(16) float4x4 viewProjectionTransform;
-	alignas(16) float3 eyePosition;
+	alignas(16) FLOAT4X4(viewProjection);
+	alignas(16) FLOAT3(eyePosition);
 };
 
 struct MaterialData
 {
-	alignas(16) float4 color;
-	alignas(4) uint textureAndSamplerId;
+	alignas(16) FLOAT4(color);
+	alignas(4) UINT(textureAndSamplerId);
 };
 
 struct ModelInstance
 {
-	alignas(16) float4x4 modelTransform;
-	alignas(16) float4x4 inverseTransposeModelTransform;
+	alignas(16) FLOAT4X4(modelTransform);
+	alignas(16) FLOAT4X4(inverseTransposeModelTransform);
 };
 
 struct Vertex_P3f_N3f_T014f_C4f
 {
-	alignas(16) float3 position;
-	alignas(16) float3 normal;
-	alignas(16) float4 texCoord01;
-	alignas(16) float4 color;
+	alignas(16) FLOAT3(position);
+	alignas(16) FLOAT3(normal);
+	alignas(16) FLOAT4(texCoord01);
+	alignas(16) FLOAT4(color);
 };
 
 struct PushConstants
 {
 	// per frame
-	alignas(4) uint frameIndex;
+	alignas(4) UINT(frameIndex);
 	// per view
 	// per material
-	alignas(4) uint viewAndMaterialId;
+	alignas(4) UINT(viewAndMaterialId);
 };
 
 #ifdef __cplusplus

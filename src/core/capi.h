@@ -10,12 +10,12 @@
 #	define CORE_API
 #endif
 
-#include <stdint.h>
-
 #ifdef __cplusplus
 extern "C"
 {
 #endif
+
+#include <stdint.h>
 
 typedef struct _PathConfig
 {
@@ -27,10 +27,10 @@ typedef struct _MouseEvent
 {
 	enum
 	{
-		Position = 1 << 0,
-		Button = 1 << 1,
-		Scroll = 1 << 2,
-		Window = 1 << 3,
+		kPosition = 1 << 0,
+		kButton = 1 << 1,
+		kScroll = 1 << 2,
+		kWindow = 1 << 3,
 	} flags;
 	double xpos;
 	double ypos;

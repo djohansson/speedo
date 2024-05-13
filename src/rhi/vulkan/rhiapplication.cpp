@@ -1179,7 +1179,10 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		IMGUIInit(rhi->windows.at(GetCurrentWindow()), *rhi, cmd);
 
 		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
-		materialData[0].color = glm::vec4(1.0, 0.0, 0.0, 1.0);
+		materialData[0].color[0] = 1.0;
+		materialData[0].color[1] = 0.0;
+		materialData[0].color[2] = 0.0;
+		materialData[0].color[3] = 1.0;
 		materialData[0].textureAndSamplerId =
 			(kTextureId << ShaderTypes_GlobalTextureIndexBits) | kSamplerId;
 		rhi->materials = std::make_unique<Buffer<Vk>>(
@@ -1193,10 +1196,11 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			materialData.get());
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(ShaderTypes_ModelInstanceCount);
-		auto identityMatrix = glm::mat4x4(1.0F);
-		modelInstances[666].modelTransform = identityMatrix;
-		modelInstances[666].inverseTransposeModelTransform =
-			glm::transpose(glm::inverse(modelInstances[666].modelTransform));
+		constexpr auto identityMatrix = glm::mat4x4(1.0);
+		std::copy_n(&identityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
+		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
+		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
+		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
 		rhi->modelInstances = std::make_unique<Buffer<Vk>>(
 			rhi->device,
 			graphicsQueue,
@@ -1322,7 +1326,7 @@ void RhiApplication::InternalUpdateInput()
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))
 	{
-		if ((mouse.flags & MouseEvent::Position) != 0)
+		if ((mouse.flags & MouseEvent::kPosition) != 0)
 		{
 			input.mouse.position[0] = static_cast<float>(mouse.xpos);
 			input.mouse.position[1] = static_cast<float>(mouse.ypos);
@@ -1331,7 +1335,7 @@ void RhiApplication::InternalUpdateInput()
 			imguiIO.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
 		}
 
-		if ((mouse.flags & MouseEvent::Button) != 0)
+		if ((mouse.flags & MouseEvent::kButton) != 0)
 		{
 			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
 			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);

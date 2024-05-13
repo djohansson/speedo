@@ -21,7 +21,7 @@ class AABB
 public:
 	friend zpp::bits::access;
 
-	constexpr AABB() noexcept
+	constexpr explicit AABB() noexcept
 		: myMin(std::numeric_limits<ScalarType>::max())
 		, myMax(std::numeric_limits<ScalarType>::lowest())
 	{}
@@ -37,6 +37,13 @@ public:
 		: myMin(static_cast<VectorType>(aMin))
 		, myMax(static_cast<VectorType>(aMax))
 	{}
+
+	AABB(const ScalarType aMin[N], const ScalarType aMax[N])
+		: myMin(glm::make_vec3(aMin))
+		, myMax(glm::make_vec3(aMax))
+	{
+		static_assert(N == 3, "Only 3 dimensions is supported.");
+	}
 
 	operator bool() const { return (myMax < myMin) == 0; }
 
@@ -113,6 +120,16 @@ public:
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(aPoint));
 		myMax = glm::max(myMax, static_cast<VectorType>(aPoint));
+	}
+
+	void merge(const ScalarType aPoint[N])
+	{
+		static_assert(N == 3, "Only 3 dimensions is supported.");
+
+		auto aPointVec = glm::make_vec3(aPoint);
+		
+		myMin = glm::min(myMin, aPointVec);
+		myMax = glm::max(myMax, aPointVec);
 	}
 
 	template <typename U = ScalarType>

@@ -91,15 +91,15 @@ public:
 	}
 
 	template <typename T>
-	T* dataAs(size_t offset = 0)
+	T& dataAs(size_t offset = 0)
 	{
-		return reinterpret_cast<T*>(reinterpret_cast<std::byte*>(this) + offset);
+		return *reinterpret_cast<T*>(reinterpret_cast<std::byte*>(this) + offset);
 	}
 
 	template <typename T>
-	const T* dataAs(size_t offset = 0) const
+	const T& dataAs(size_t offset = 0) const
 	{
-		return reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
+		return *reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
 	static ScopedVertexAllocation* const getScope() { return st_allocationScope; }
