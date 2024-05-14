@@ -90,7 +90,7 @@ static void LoadImage(
 
 	///////////
 
-	auto [imageTransitionTask, imageTransitionFuture] = executor.CreateTask<uint32_t>([&rhi](
+	auto [imageTransitionTask, imageTransitionFuture] = Task::CreateTask<uint32_t>([&rhi](
 		Image<Vk>& image,
 		SemaphoreHandle<Vk> waitSemaphore,
 		uint64_t waitSemaphoreValue,
@@ -503,13 +503,13 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.CreateTask(
+				auto [openFileTask, openFileFuture] = Task::CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"obj");
 
-				auto [loadTask, loadFuture] = executor.CreateTask(
+				auto [loadTask, loadFuture] = Task::CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
 						ZoneScopedN("RhiApplication::draw::loadTask");
@@ -530,19 +530,19 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 					std::move(openFileFuture),
 					LoadModel);
 
-				executor.AddDependency(openFileTask, loadTask);
+				Task::AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.CreateTask(
+				auto [openFileTask, openFileFuture] = Task::CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"jpg,png");
 
-				auto [loadTask, loadFuture] = executor.CreateTask(
+				auto [loadTask, loadFuture] = Task::CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
 						ZoneScopedN("RhiApplication::draw::loadTask");
@@ -563,7 +563,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 					std::move(openFileFuture),
 					LoadImage);
 
-				executor.AddDependency(openFileTask, loadTask);
+				Task::AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.Valid())

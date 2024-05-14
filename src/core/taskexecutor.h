@@ -15,32 +15,12 @@
 #include <thread>
 #include <tuple>
 
-template <typename T>
-using TaskCreateInfo = std::pair<TaskHandle, Future<T>>;
-
 class TaskExecutor
 {
 public:
 	
 	TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
-
-	// b will start after a has finished
-	// isContinuation == true : b will most likely start on the same thread as a, but may start on any thread in the thread pool
-	// isContinuation == false: b will start on any thread in the thread pool
-	static void
-	AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
-
-	template <
-		typename... Params,
-		typename... Args,
-		typename F,
-		typename C = std::decay_t<F>,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ParamsTuple = std::tuple<Params...>,
-		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args);
 
 	// wait for task to finish while helping out processing the thread pools ready queue
 	// as soon as the task is ready, the function will stop processing the ready queue and return
@@ -55,8 +35,6 @@ public:
 	void Submit(TaskHandle handle) { InternalSubmit(handle); }
 
 private:
-	static Task* HandleToTaskPtr(TaskHandle handle) noexcept;
-
 	template <typename... TaskParams>
 	void InternalCall(TaskHandle handle, TaskParams&&... params);
 	template <typename... TaskParams>
@@ -83,8 +61,6 @@ private:
 	std::atomic_bool myStopSource;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
-	static constexpr uint32_t kTaskPoolSize = (1 << 10); // todo: make this configurable
-	static MemoryPool<Task, kTaskPoolSize> gTaskPool;
 };
 
 #include "taskexecutor.inl"

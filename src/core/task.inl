@@ -3,7 +3,7 @@
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-Task::Task(F&& callable, ParamsTuple&& params, Args&&... args)
+constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept
 	: myInvokeFcnPtr(
 		[](const void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
 		{
@@ -69,4 +69,17 @@ void Task::operator()(TaskParams&&... params)
 
 	auto taskParams = std::make_tuple(std::forward<TaskParams>(params)...);
 	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);
+}
+
+template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
+requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
+{
+	ZoneScopedN("Task::CreateTask");
+
+	auto handle = Task::InternalAllocate();
+	auto taskPtr = Task::InternalHandleToPtr(handle);
+	//std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
+	new (taskPtr) Task(std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
+	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->InternalState())));
 }

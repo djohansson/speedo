@@ -3,8 +3,6 @@
 
 #include <shared_mutex>
 
-MemoryPool<Task, TaskExecutor::kTaskPoolSize> TaskExecutor::gTaskPool{};
-
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 	: mySignal(threadCount)
 {
@@ -32,53 +30,17 @@ TaskExecutor::~TaskExecutor()
 		thread.detach();
 }
 
-void TaskExecutor::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
-{
-	ZoneScopedN("TaskExecutor::AddDependency");
-
-	ASSERT(aTaskHandle != bTaskHandle);
-
-	Task& aTask = *HandleToTaskPtr(aTaskHandle);
-	Task& bTask = *HandleToTaskPtr(bTaskHandle);
-
-	ASSERTF(aTask.State(), "Task state is not valid!");
-	ASSERTF(bTask.State(), "Task state is not valid!");
-
-	TaskState& aState = *aTask.State();
-	TaskState& bState = *bTask.State();
-
-	std::scoped_lock lock(aState.mutex, bState.mutex);
-
-	if (isContinuation)
-		bState.isContinuation = true;
-
-	aState.adjacencies.emplace_back(bTaskHandle);
-	bState.latch.fetch_add(1, std::memory_order_relaxed);
-}
-
-Task* TaskExecutor::HandleToTaskPtr(TaskHandle handle) noexcept
-{
-	ASSERT(handle);
-	ASSERT(handle.value < kTaskPoolSize);
-	
-	Task* ptr = gTaskPool.GetPointer(handle);
-
-	ASSERT(ptr != nullptr);
-	
-	return ptr;
-}
-
 void TaskExecutor::InternalSubmit(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	Task& task = *HandleToTaskPtr(handle);
+	Task& task = *Task::InternalHandleToPtr(handle);
 
-	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(handle);
 
-	if (!task.State()->isContinuation)
+	if (!task.InternalState()->isContinuation)
 		mySignal.release();
 }
 
@@ -86,13 +48,13 @@ void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	Task& task = *HandleToTaskPtr(handle);
+	Task& task = *Task::InternalHandleToPtr(handle);
 
-	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(readyProducerToken, handle);
 
-	if (!task.State()->isContinuation)
+	if (!task.InternalState()->isContinuation)
 		mySignal.release();
 }
 
@@ -100,12 +62,11 @@ void TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalTryDelete");
 
-	Task& task = *HandleToTaskPtr(handle);
+	Task& task = *Task::InternalHandleToPtr(handle);
 
-	if (task.State()->latch.load(std::memory_order_relaxed) == 0)
+	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0)
 	{
 		task.~Task();
-		gTaskPool.Free(handle);
 	}
 }
 
@@ -113,19 +74,19 @@ void TaskExecutor::ScheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	std::shared_lock lock(task.State()->mutex);
+	std::shared_lock lock(task.InternalState()->mutex);
 
-	for (auto& adjacentHandle : task.State()->adjacencies)
+	for (auto& adjacentHandle : task.InternalState()->adjacencies)
 	{
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = *HandleToTaskPtr(adjacentHandle);
+		Task& adjacent = *Task::InternalHandleToPtr(adjacentHandle);
 
-		ASSERTF(adjacent.State(), "Task has no return state!");
-		ASSERTF(adjacent.State()->latch, "Latch needs to have been constructed!");
+		ASSERTF(adjacent.InternalState(), "Task has no return state!");
+		ASSERTF(adjacent.InternalState()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.State()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacent.InternalState()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			InternalSubmit(readyProducerToken, adjacentHandle);
 			adjacentHandle = {};
@@ -137,19 +98,19 @@ void TaskExecutor::ScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	std::shared_lock lock(task.State()->mutex);
+	std::shared_lock lock(task.InternalState()->mutex);
 
-	for (auto& adjacentHandle : task.State()->adjacencies)
+	for (auto& adjacentHandle : task.InternalState()->adjacencies)
 	{
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = *HandleToTaskPtr(adjacentHandle);
+		Task& adjacent = *Task::InternalHandleToPtr(adjacentHandle);
 
-		ASSERTF(adjacent.State(), "Task has no return state!");
-		ASSERTF(adjacent.State()->latch, "Latch needs to have been constructed!");
+		ASSERTF(adjacent.InternalState(), "Task has no return state!");
+		ASSERTF(adjacent.InternalState()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.State()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacent.InternalState()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			InternalSubmit(adjacentHandle);
 			adjacentHandle = {};

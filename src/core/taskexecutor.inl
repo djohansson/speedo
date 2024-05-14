@@ -24,27 +24,14 @@ std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Futur
 	return std::make_optional(future.Get());
 }
 
-template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
-requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-TaskCreateInfo<R> TaskExecutor::CreateTask(F&& callable, Args&&... args)
-{
-	ZoneScopedN("TaskExecutor::CreateTask");
-
-	auto handle = gTaskPool.Allocate();
-	Task* taskPtr = gTaskPool.GetPointer(handle);
-	std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
-
-	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->State())));
-}
-
 template <typename... TaskParams>
 void TaskExecutor::InternalCall(TaskHandle handle, TaskParams&&... params)
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
-	Task& task = *HandleToTaskPtr(handle);
+	Task& task = *Task::InternalHandleToPtr(handle);
 
-	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	ScheduleAdjacent(task);
@@ -56,9 +43,9 @@ void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle ha
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
-	Task& task = *HandleToTaskPtr(handle);
+	Task& task = *Task::InternalHandleToPtr(handle);
 
-	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	ScheduleAdjacent(readyProducerToken, task);

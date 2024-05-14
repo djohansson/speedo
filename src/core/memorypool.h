@@ -31,6 +31,9 @@ public:
 	[[nodiscard]]
 	constexpr T* GetPointer(MemoryPoolHandle handle) noexcept;
 
+	[[nodiscard]]
+	constexpr MemoryPoolHandle GetHandle(const T* ptr) noexcept;
+
 private:
 	enum class State : uint32_t
 	{

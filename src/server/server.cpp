@@ -32,11 +32,11 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	std::shared_lock lock{gServerApplicationMutex};
 
 	if (gServerApplication->IsExitRequested())
-		return {NullTaskHandle, Future<void>{}};
+		return {InvalidTaskHandle, Future<void>{}};
 
-	auto taskPair = gServerApplication->Executor().CreateTask(std::forward<F>(callable));
+	auto taskPair = Task::CreateTask(std::forward<F>(callable));
 	
-	gServerApplication->Executor().AddDependency(dependency, taskPair.first, true);
+	Task::AddDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -154,7 +154,7 @@ Server::Server(std::string_view name, Environment&& env)
 
 	std::cout << "Server listening on " << kCxServerAddress << '\n';
 
-	gRpcTask = Executor().CreateTask(Rpc, mySocket, myPoller);
+	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
 	Executor().Submit(gRpcTask.first);
 }
 

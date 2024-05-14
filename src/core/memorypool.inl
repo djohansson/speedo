@@ -67,3 +67,14 @@ constexpr T* MemoryPool<T, Capacity>::GetPointer(MemoryPoolHandle handle) noexce
 
 	return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]);
 }
+
+template <typename T, uint32_t Capacity>
+constexpr MemoryPoolHandle MemoryPool<T, Capacity>::GetHandle(const T* ptr) noexcept
+{
+	ASSERT(ptr != nullptr);
+	
+	if (!ptr)
+		return MemoryPoolHandle{};
+
+	return MemoryPoolHandle{static_cast<uint32_t>(reinterpret_cast<const std::byte*>(ptr) - myPool.data()) / sizeof(T)};
+}

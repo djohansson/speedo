@@ -35,11 +35,11 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	std::shared_lock lock{gClientApplicationMutex};
 
 	if (gClientApplication->IsExitRequested())
-		return {NullTaskHandle, Future<void>{}};
+		return {InvalidTaskHandle, Future<void>{}};
 
-	auto taskPair = gClientApplication->Executor().CreateTask(std::forward<F>(callable));
+	auto taskPair = Task::CreateTask(std::forward<F>(callable));
 	
-	gClientApplication->Executor().AddDependency(dependency, taskPair.first, true);
+	Task::AddDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -186,7 +186,7 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	gRpcTask = Executor().CreateTask(Rpc, mySocket, myPoller);
+	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
 	Executor().Submit(gRpcTask.first);
 }
 
@@ -225,7 +225,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	ASSERT(gClientApplication);
 
-	gUpdateTask = gClientApplication->Executor().CreateTask(UpdateInput);
+	gUpdateTask = Task::CreateTask(UpdateInput);
 	gClientApplication->Executor().Submit(gUpdateTask.first);
 }
 
