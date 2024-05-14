@@ -28,17 +28,17 @@ public:
 	std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
 	// call task in current thread. dependency chain(s) will be executed in thread pool
-	template <typename... TaskParams>
-	void Call(TaskHandle handle, TaskParams&&... params);
+	template <typename... Params>
+	void Call(TaskHandle handle, Params&&... params);
 
 	// task + dependency chain(s) will be executed in thread pool
 	void Submit(TaskHandle handle) { InternalSubmit(handle); }
 
 private:
-	template <typename... TaskParams>
-	void InternalCall(TaskHandle handle, TaskParams&&... params);
-	template <typename... TaskParams>
-	void InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params);
+	template <typename... Params>
+	void InternalCall(TaskHandle handle, Params&&... params);
+	template <typename... Params>
+	void InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, Params&&... params);
 
 	void InternalSubmit(TaskHandle handle);
 	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);

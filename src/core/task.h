@@ -19,10 +19,6 @@ class Task : public Noncopyable
 	friend class TaskExecutor;
 
 public:
-	constexpr Task() noexcept = default;
-	Task(Task&& other) noexcept;
-	~Task();
-
 	template <
 		typename... Params,
 		typename... Args,
@@ -36,8 +32,8 @@ public:
 
 	operator bool() const noexcept;
 	Task& operator=(Task&& other) noexcept;
-	template <typename... TaskParams>
-	void operator()(TaskParams&&... params);
+	template <typename... Params>
+	void operator()(Params&&... params);
 
 	// b will start after a has finished
 	// isContinuation == true : b will most likely start on the same thread as a, but may start on any thread in the thread pool
@@ -45,6 +41,9 @@ public:
 	static void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 private:
+	constexpr Task() noexcept = default;
+	Task(Task&& other) noexcept;
+	~Task();
 	template <
 		typename... Params,
 		typename... Args,

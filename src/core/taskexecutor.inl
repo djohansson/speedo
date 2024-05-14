@@ -24,8 +24,8 @@ std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Futur
 	return std::make_optional(future.Get());
 }
 
-template <typename... TaskParams>
-void TaskExecutor::InternalCall(TaskHandle handle, TaskParams&&... params)
+template <typename... Params>
+void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
@@ -38,8 +38,8 @@ void TaskExecutor::InternalCall(TaskHandle handle, TaskParams&&... params)
 	myDeletionQueue.enqueue(handle);
 }
 
-template <typename... TaskParams>
-void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params)
+template <typename... Params>
+void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, Params&&... params)
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
@@ -52,8 +52,8 @@ void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle ha
 	myDeletionQueue.enqueue(handle);
 }
 
-template <typename... TaskParams>
-void TaskExecutor::Call(TaskHandle handle, TaskParams&&... params)
+template <typename... Params>
+void TaskExecutor::Call(TaskHandle handle, Params&&... params)
 {
 	InternalCall(handle, params...);
 }

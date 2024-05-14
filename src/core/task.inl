@@ -60,14 +60,14 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 	 	std::forward<Args>(args)...);
 }
 
-template <typename... TaskParams>
-void Task::operator()(TaskParams&&... params)
+template <typename... Params>
+void Task::operator()(Params&&... params)
 {
 	ZoneScopedN("Task::operator()");
 
 	ASSERTF(myInvokeFcnPtr, "Task is not initialized!");
 
-	auto taskParams = std::make_tuple(std::forward<TaskParams>(params)...);
+	auto taskParams = std::make_tuple(std::forward<Params>(params)...);
 	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);
 }
 
