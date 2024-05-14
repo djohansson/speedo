@@ -46,11 +46,6 @@ Task::operator bool() const noexcept
 		   (myDeleteFcnPtr != nullptr) && myState;
 }
 
-bool Task::operator!() const noexcept
-{
-	return !static_cast<bool>(*this);
-}
-
 void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
 	ASSERT(aTaskHandle != bTaskHandle);

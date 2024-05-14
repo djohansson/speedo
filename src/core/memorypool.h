@@ -13,7 +13,7 @@ struct MemoryPoolHandle
 	static constexpr uint32_t InvalidIndex = ~0u;
 	uint32_t value = InvalidIndex;
 
-	constexpr bool operator!() const noexcept { return value == InvalidIndex; }
+	constexpr operator bool() const noexcept { return value != InvalidIndex; }
 	constexpr auto operator<=>(const MemoryPoolHandle&) const noexcept = default;
 };
 

@@ -35,7 +35,6 @@ public:
 	static TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
 
 	operator bool() const noexcept;
-	bool operator!() const noexcept;
 	Task& operator=(Task&& other) noexcept;
 	template <typename... TaskParams>
 	void operator()(TaskParams&&... params);
