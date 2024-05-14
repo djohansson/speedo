@@ -415,8 +415,9 @@ int main(int argc, char* argv[], char* envp[])
 		
 		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
 		ASSERT(mode != NULL);
-		
-		float xscale, yscale;
+
+		float xscale;
+		float yscale;
 		glfwGetMonitorContentScale(monitor, &xscale, &yscale);
 
 		printf("GLFW: Connected Monitor %i: %s, Position: %ix%i, Physical Size: %ix%i, Video Mode: %ix%i@%i[%i:%i:%i], Content Scale: %fx%f\n",
@@ -448,7 +449,8 @@ int main(int argc, char* argv[], char* envp[])
 
 	SetWindowCallbacks(window);
 
-	do { glfwWaitEvents(); } while (glfwWindowShouldClose(window) == 0 && TickClient() && !gIsInterrupted);
+	do { glfwWaitEvents();
+	} while ((glfwWindowShouldClose(window) == 0) && TickClient() && !gIsInterrupted);
 
 	return EXIT_SUCCESS;
 }
