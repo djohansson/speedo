@@ -52,9 +52,9 @@ public:
 	friend void Swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.Swap(rhs); }
 
 	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& getImmutableSamplers() const noexcept { return std::get<1>(myLayout); }
-	const auto& getShaderVariableBindings() const noexcept { return std::get<2>(myLayout); }
-	const auto& getShaderVariableBinding(uint64_t shaderVariableNameHash) const
+	const auto& GetImmutableSamplers() const noexcept { return std::get<1>(myLayout); }
+	const auto& GetShaderVariableBindings() const noexcept { return std::get<2>(myLayout); }
+	const auto& GetShaderVariableBinding(uint64_t shaderVariableNameHash) const
 	{
 		return std::get<2>(myLayout).at(shaderVariableNameHash);
 	}
@@ -157,7 +157,7 @@ public:
 	}
 
 	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& getEntries() const noexcept { return myEntries; }
+	const auto& GetEntries() const noexcept { return myEntries; }
 
 	void SetEntries(std::vector<DescriptorUpdateTemplateEntry<G>>&& entries);
 

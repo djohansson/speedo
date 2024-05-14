@@ -2,6 +2,8 @@
 
 #include "utils.h"
 
+#include <core/profiling.h>
+
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -416,7 +418,7 @@ Instance<Vk>::~Instance()
 		ASSERT(vkDestroyDebugUtilsMessengerEXT != nullptr);
 
 		vkDestroyDebugUtilsMessengerEXT(
-			myInstance, gdebugUtilsMessenger, &getHostAllocationCallbacks());
+			myInstance, gdebugUtilsMessenger, &GetHostAllocationCallbacks());
 	}
 
 	vkDestroyInstance(myInstance, &myHostAllocationCallbacks);

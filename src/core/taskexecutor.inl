@@ -11,17 +11,17 @@ std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Futur
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
-	if (!future.valid())
+	if (!future.Valid())
 		return std::nullopt;
 
 	TaskHandle handle;
-	while (!future.is_ready() && myReadyQueue.try_dequeue(handle))
+	while (!future.IsReady() && myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(handle);
 		PurgeDeletionQueue();
 	}
 
-	return std::make_optional(future.get());
+	return std::make_optional(future.Get());
 }
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
@@ -30,11 +30,11 @@ TaskCreateInfo<R> TaskExecutor::CreateTask(F&& callable, Args&&... args)
 {
 	ZoneScopedN("TaskExecutor::CreateTask");
 
-	auto handle = gTaskPool.allocate();
-	Task* taskPtr = gTaskPool.getPointer(handle);
+	auto handle = gTaskPool.Allocate();
+	Task* taskPtr = gTaskPool.GetPointer(handle);
 	std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
 
-	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->state())));
+	return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->State())));
 }
 
 template <typename... TaskParams>
@@ -44,7 +44,7 @@ void TaskExecutor::InternalCall(TaskHandle handle, TaskParams&&... params)
 
 	Task& task = *HandleToTaskPtr(handle);
 
-	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	ScheduleAdjacent(task);
@@ -58,7 +58,7 @@ void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle ha
 
 	Task& task = *HandleToTaskPtr(handle);
 
-	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	ScheduleAdjacent(readyProducerToken, task);

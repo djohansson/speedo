@@ -49,7 +49,7 @@ public:
 	friend void Swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.Swap(rhs); }
 
 	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& getBufferMemory() const noexcept { return std::get<1>(myBuffer); }
+	const auto& GetBufferMemory() const noexcept { return std::get<1>(myBuffer); }
 
 	BufferCreateDesc<G> myDesc{};
 	ValueType myBuffer{};

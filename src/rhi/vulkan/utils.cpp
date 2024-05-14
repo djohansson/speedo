@@ -27,7 +27,7 @@
 #include <iostream>
 #include <print>
 
-uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
+uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor)
 {
 	outDivisor = 1;
 	switch (format)
@@ -67,13 +67,13 @@ uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 	};
 }
 
-uint32_t getFormatSize(VkFormat format)
+uint32_t GetFormatSize(VkFormat format)
 {
 	uint32_t unused;
-	return getFormatSize(format, unused);
+	return GetFormatSize(format, unused);
 }
 
-bool hasStencilComponent(VkFormat format)
+bool HasStencilComponent(VkFormat format)
 {
 	switch (format)
 	{
@@ -85,7 +85,7 @@ bool hasStencilComponent(VkFormat format)
 	}
 }
 
-bool hasDepthComponent(VkFormat format)
+bool HasDepthComponent(VkFormat format)
 {
 	switch (format)
 	{
@@ -99,7 +99,7 @@ bool hasDepthComponent(VkFormat format)
 }
 
 uint32_t
-findMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFlags properties)
+FindMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFlags properties)
 {
 	VkPhysicalDeviceMemoryProperties memProperties;
 	vkGetPhysicalDeviceMemoryProperties(device, &memProperties);
@@ -112,7 +112,7 @@ findMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFla
 	return 0;
 }
 
-VkFormat findSupportedFormat(
+VkFormat FindSupportedFormat(
 	VkPhysicalDevice device,
 	const std::vector<VkFormat>& candidates,
 	VkImageTiling tiling,
@@ -133,90 +133,7 @@ VkFormat findSupportedFormat(
 	return VK_FORMAT_UNDEFINED;
 }
 
-std::vector<VkCommandBuffer> allocateCommandBuffers(
-	VkDevice device, VkCommandPool pool, VkCommandBufferLevel level, uint32_t count)
-{
-	std::vector<VkCommandBuffer> commandBuffers(count);
-
-	VkCommandBufferAllocateInfo cmdInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-	cmdInfo.commandPool = pool;
-	cmdInfo.level = level;
-	cmdInfo.commandBufferCount = count;
-	VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, commandBuffers.data()));
-
-	return commandBuffers;
-}
-
-VkDescriptorSet
-allocateDescriptorSet(VkDevice device, VkDescriptorPool pool, VkDescriptorSetLayout layout)
-{
-	VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-	allocInfo.descriptorPool = pool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &layout;
-
-	VkDescriptorSet outDescriptorSet;
-	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &outDescriptorSet));
-
-	return outDescriptorSet;
-}
-
-std::vector<VkDescriptorSet> allocateDescriptorSets(
-	VkDevice device,
-	VkDescriptorPool pool,
-	const VkDescriptorSetLayout* layouts,
-	uint32_t layoutCount)
-{
-	VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-	allocInfo.descriptorPool = pool;
-	allocInfo.descriptorSetCount = layoutCount;
-	allocInfo.pSetLayouts = layouts;
-
-	std::vector<VkDescriptorSet> outDescriptorSets(layoutCount);
-	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, outDescriptorSets.data()));
-
-	return outDescriptorSets;
-}
-
-VkShaderModule createShaderModule(VkDevice device, const VkAllocationCallbacks* hostAllocator, size_t codeSize, const uint32_t* codePtr)
-{
-	VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-	info.codeSize = codeSize;
-	info.pCode = codePtr;
-
-	VkShaderModule vkShaderModule;
-	VK_CHECK(vkCreateShaderModule(device, &info, hostAllocator, &vkShaderModule));
-
-	return vkShaderModule;
-};
-
-VkDescriptorSetLayout createDescriptorSetLayout(
-	VkDevice device,
-	const VkAllocationCallbacks* hostAllocator,
-	VkDescriptorSetLayoutCreateFlags flags,
-	const VkDescriptorSetLayoutBinding* bindings,
-	const VkDescriptorBindingFlags* bindingFlags,
-	uint32_t bindingCount)
-{
-	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
-		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-	bindingFlagsInfo.bindingCount = bindingCount;
-	bindingFlagsInfo.pBindingFlags = bindingFlags;
-
-	VkDescriptorSetLayoutCreateInfo layoutInfo{
-		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-	layoutInfo.pNext = &bindingFlagsInfo;
-	layoutInfo.flags = flags;
-	layoutInfo.bindingCount = bindingCount;
-	layoutInfo.pBindings = bindings;
-
-	VkDescriptorSetLayout layout;
-	VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, hostAllocator, &layout));
-
-	return layout;
-}
-
-void copyBuffer(
+void CopyBuffer(
 	VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	VkBufferCopy copyRegion{};
@@ -226,7 +143,7 @@ void copyBuffer(
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 }
 
-std::tuple<VkBuffer, VmaAllocation> createBuffer(
+std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VmaAllocator allocator,
 	VkDeviceSize size,
 	VkBufferUsageFlags usage,
@@ -255,7 +172,7 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	return std::make_tuple(outBuffer, outBufferMemory);
 }
 
-std::tuple<VkBuffer, VmaAllocation> createBuffer(
+std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VkCommandBuffer commandBuffer,
 	VmaAllocator allocator,
 	VkBuffer stagingBuffer,
@@ -271,28 +188,28 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 
 	if (stagingBuffer != nullptr)
 	{
-		std::tie(outBuffer, outBufferMemory) = createBuffer(
+		std::tie(outBuffer, outBufferMemory) = CreateBuffer(
 			allocator,
 			bufferSize,
 			usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			memoryFlags,
 			debugName);
 
-		copyBuffer(commandBuffer, stagingBuffer, outBuffer, bufferSize);
+		CopyBuffer(commandBuffer, stagingBuffer, outBuffer, bufferSize);
 	}
 	else
 	{
 		std::tie(outBuffer, outBufferMemory) =
-			createBuffer(allocator, bufferSize, usage, memoryFlags, debugName);
+			CreateBuffer(allocator, bufferSize, usage, memoryFlags, debugName);
 	}
 
 	return std::make_tuple(outBuffer, outBufferMemory);
 }
 
-std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
+std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
 	VmaAllocator allocator, const void* srcData, size_t srcDataSize, const char* debugName)
 {
-	auto bufferData = createBuffer(
+	auto bufferData = CreateBuffer(
 		allocator,
 		srcDataSize,
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -324,11 +241,11 @@ void TransitionImageLayout(
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
 
-	if (hasDepthComponent(format))
+	if (HasDepthComponent(format))
 	{
 		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
-		if (hasStencilComponent(format))
+		if (HasStencilComponent(format))
 			barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
 	}
 	else
@@ -593,7 +510,7 @@ void TransitionImageLayout(
 		commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-void copyBufferToImage(
+void CopyBufferToImage(
 	VkCommandBuffer commandBuffer,
 	VkBuffer buffer,
 	VkImage image,
@@ -630,7 +547,7 @@ void copyBufferToImage(
 		regions.data());
 }
 
-std::tuple<VkImage, VmaAllocation> createImage2D(
+std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VmaAllocator allocator,
 	uint32_t width,
 	uint32_t height,
@@ -675,7 +592,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	return std::make_tuple(outImage, outImageMemory);
 }
 
-std::tuple<VkImage, VmaAllocation> createImage2D(
+std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkCommandBuffer commandBuffer,
 	VmaAllocator allocator,
 	VkBuffer stagingBuffer,
@@ -693,7 +610,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 {
 	ASSERT(stagingBuffer);
 
-	auto result = createImage2D(
+	auto result = CreateImage2D(
 		allocator,
 		width,
 		height,
@@ -715,7 +632,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		mipLevels);
 
-	copyBufferToImage(
+	CopyBufferToImage(
 		commandBuffer,
 		stagingBuffer,
 		outImage,
@@ -728,7 +645,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	return result;
 }
 
-VkImageView createImageView2D(
+VkImageView CreateImageView2D(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocationCallbacks,
 	VkImageViewCreateFlags flags,
@@ -758,7 +675,7 @@ VkImageView createImageView2D(
 	return outImageView;
 }
 
-VkFramebuffer createFramebuffer(
+VkFramebuffer CreateFramebuffer(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	VkRenderPass renderPass,
@@ -782,7 +699,7 @@ VkFramebuffer createFramebuffer(
 	return outFramebuffer;
 }
 
-VkRenderPass createRenderPass(
+VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	const std::vector<VkAttachmentDescription>& attachments,
@@ -803,7 +720,7 @@ VkRenderPass createRenderPass(
 	return outRenderPass;
 }
 
-VkRenderPass createRenderPass(
+VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	VkPipelineBindPoint bindPoint,
@@ -867,7 +784,7 @@ VkRenderPass createRenderPass(
 	dependency.srcAccessMask = {};
 	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-	return createRenderPass(
+	return CreateRenderPass(
 		device,
 		hostAllocator,
 		attachments,
@@ -888,7 +805,7 @@ VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hos
 	return surface;
 }
 
-VkResult checkFlipOrPresentResult(VkResult result)
+VkResult CheckFlipOrPresentResult(VkResult result)
 {
 	switch (result)
 	{

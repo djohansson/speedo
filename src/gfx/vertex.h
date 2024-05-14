@@ -14,55 +14,51 @@ class VertexAllocator
 public:
 	VertexAllocator() noexcept = default;
 
-	void lock()
+	void Lock()
 	{
 		ASSERT(!myIsLocked);
 
 		myIsLocked = true;
 	}
 
-	void unlock()
+	void Unlock()
 	{
 		ASSERT(myIsLocked);
 
 		myIsLocked = false;
 	}
 
-	bool isLocked() const { return myIsLocked; }
+	bool IsLocked() const { return myIsLocked; }
+	size_t Size() const { return myData.size() / Stride(); }
+	size_t SizeBytes() const { return myData.size(); }
 
-	size_t size() const { return myData.size() / stride(); }
-
-	size_t sizeBytes() const { return myData.size(); }
-
-	void reserve(size_t size)
+	void Reserve(size_t size)
 	{
 		ASSERT(myIsLocked);
 
-		myData.reserve(size * stride());
+		myData.reserve(size * Stride());
 	}
 
-	void setStride(size_t stride)
+	void SetStride(size_t stride)
 	{
 		ASSERT(!myIsLocked);
 
 		myStride = stride;
 	}
 
-	size_t stride() const { return myStride; }
-
-	const void* data() const { return myData.data(); }
-
-	bool empty() const { return myData.size() == 0; }
+	size_t Stride() const { return myStride; }
+	const void* Data() const { return myData.data(); }
+	bool Empty() const { return myData.size() == 0; }
 
 	// todo: handle alignment properly
 	// todo: rewrite without vector
 	// todo: handle pointer invalidation. std::deque? needs to be flattened before upload to gpu in that case.
-	void* allocate(size_t count = 1);
+	void* Allocate(size_t count = 1);
 
 	// unless freeing the last item this is _very_ inefficient
-	void free(void* ptr, size_t count = 1);
+	void Free(void* ptr, size_t count = 1);
 
-	void clear();
+	void Clear();
 
 private:
 	std::vector<char> myData;
@@ -81,42 +77,42 @@ public:
 		return std::equal(
 			this,
 			reinterpret_cast<const Vertex*>(
-				reinterpret_cast<const std::byte*>(this) + allocator().stride()),
+				reinterpret_cast<const std::byte*>(this) + Allocator().Stride()),
 			&other);
 	}
 
-	uint64_t hash(size_t seed = 42) const
+	uint64_t Hash(size_t seed = 42) const
 	{
-		return XXH64(reinterpret_cast<const std::byte*>(this), allocator().stride(), seed);
+		return XXH64(reinterpret_cast<const std::byte*>(this), Allocator().Stride(), seed);
 	}
 
 	template <typename T>
-	T& dataAs(size_t offset = 0)
+	T& DataAs(size_t offset = 0)
 	{
 		return *reinterpret_cast<T*>(reinterpret_cast<std::byte*>(this) + offset);
 	}
 
 	template <typename T>
-	const T& dataAs(size_t offset = 0) const
+	const T& DataAs(size_t offset = 0) const
 	{
 		return *reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
-	static ScopedVertexAllocation* const getScope() { return st_allocationScope; }
+	static ScopedVertexAllocation* const GetScope() { return gAllocationScope; }
 
 private:
 	friend ScopedVertexAllocation;
 
-	static VertexAllocator& allocator();
+	static VertexAllocator& Allocator();
 
-	static void setScope(ScopedVertexAllocation* scope) { st_allocationScope = scope; }
+	static void SetScope(ScopedVertexAllocation* scope) { gAllocationScope = scope; }
 
 	Vertex() = delete;
 	~Vertex() = delete;
 	Vertex(const Vertex& other) = delete;
 	Vertex& operator=(const Vertex& other) = delete;
 
-	static thread_local ScopedVertexAllocation* st_allocationScope;
+	static thread_local ScopedVertexAllocation* gAllocationScope;
 };
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
@@ -129,17 +125,17 @@ public:
 	ScopedVertexAllocation(VertexAllocator& allocator);
 	~ScopedVertexAllocation();
 
-	Vertex* createVertices(size_t count = 1)
+	Vertex* CreateVertices(size_t count = 1)
 	{
-		return reinterpret_cast<Vertex*>(myAllocatorRef.allocate(count));
+		return reinterpret_cast<Vertex*>(myAllocatorRef.Allocate(count));
 	}
 
-	void freeVertices(Vertex* ptr, size_t count = 1)
+	void FreeVertices(Vertex* ptr, size_t count = 1)
 	{
-		return myAllocatorRef.free(reinterpret_cast<std::byte*>(ptr), count);
+		return myAllocatorRef.Free(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
-	VertexAllocator& allocator() { return myAllocatorRef; }
+	VertexAllocator& Allocator() { return myAllocatorRef; }
 
 private:
 	VertexAllocator& myAllocatorRef;

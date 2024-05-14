@@ -24,12 +24,12 @@ public:
 	constexpr MemoryPool() noexcept;
 
 	[[nodiscard]]
-	MemoryPoolHandle allocate() noexcept;
-	void free(MemoryPoolHandle handle) noexcept;
+	MemoryPoolHandle Allocate() noexcept;
+	void Free(MemoryPoolHandle handle) noexcept;
 	
 	// never store the returned pointer, it may become invalid if the pool is resized
 	[[nodiscard]]
-	constexpr T* getPointer(MemoryPoolHandle handle) noexcept;
+	constexpr T* GetPointer(MemoryPoolHandle handle) noexcept;
 
 private:
 	enum class State : uint32_t

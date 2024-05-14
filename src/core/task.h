@@ -1,7 +1,7 @@
 #pragma once
 
+#include "std_extra.h"
 #include "taskstate.h"
-#include "utils.h"
 
 #include <memory>
 #include <optional>
@@ -36,8 +36,8 @@ public:
 private:
 	friend class TaskExecutor;
 
-	auto& state() noexcept { return myState; }
-	const auto& state() const noexcept { return myState; }
+	auto& State() noexcept { return myState; }
+	const auto& State() const noexcept { return myState; }
 
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;

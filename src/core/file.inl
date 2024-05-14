@@ -41,7 +41,7 @@ using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::
 
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<AssetManifest, AssetManifestError>
-loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
+LoadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
 {
 	ZoneScoped;
 
@@ -54,7 +54,7 @@ loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 		std::string_view(LoaderVersion).compare(manifestInfo->loaderVersion) != 0)
 		return std::unexpected(AssetManifestErrorCode::InvalidVersion);
 
-	auto assetFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
+	auto assetFileInfo = GetRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
 
 	if (!assetFileInfo ||
 		(assetFileInfo->size != manifestInfo->assetFileInfo.size) ||
@@ -62,7 +62,7 @@ loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 		(Sha256ChecksumEnable ? (assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2) : false))
 		return std::unexpected(AssetManifestErrorCode::InvalidSourceFile);
 
-	auto cacheFileInfo = getRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
+	auto cacheFileInfo = GetRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
 
 	if (!cacheFileInfo ||
 		(cacheFileInfo->size != manifestInfo->cacheFileInfo.size) ||
@@ -76,7 +76,7 @@ loadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 } // namespace detail
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> getRecord(const std::filesystem::path& filePath)
+std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
@@ -91,13 +91,13 @@ std::expected<Record, std::error_code> getRecord(const std::filesystem::path& fi
 
 	auto fileInfo = Record{
 		filePath.string(),
-		getTimeStamp(filePath),
+		GetTimeStamp(filePath),
 		{},
 		std::filesystem::file_size(filePath)};
 
 	if constexpr (Sha256ChecksumEnable)
 	{
-		ZoneScopedN("getRecord::sha2");
+		ZoneScopedN("GetRecord::sha2");
 
 		std::array<uint8_t, 32> sha2;
 		mio::mmap_source file(filePath.string());
@@ -109,7 +109,7 @@ std::expected<Record, std::error_code> getRecord(const std::filesystem::path& fi
 }
 
 template <typename T>
-std::expected<T, std::error_code> loadJSONObject(std::string_view buffer)
+std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer)
 {
 	auto obj = glz::read_json<T>(buffer);
 
@@ -124,7 +124,7 @@ std::expected<T, std::error_code> loadJSONObject(std::string_view buffer)
 };
 
 template <typename T>
-std::expected<T, std::error_code> loadJSONObject(const std::filesystem::path& filePath)
+std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath)
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -137,18 +137,18 @@ std::expected<T, std::error_code> loadJSONObject(const std::filesystem::path& fi
 
 	auto file = mio::mmap_source(filePath.string());
 
-	return loadJSONObject<T>(std::string_view(file.cbegin(), file.cend()));
+	return LoadJSONObject<T>(std::string_view(file.cbegin(), file.cend()));
 }
 
 template <typename T>
-std::expected<void, std::error_code> saveJSONObject(const T& object, const std::string& filePath)
+std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath)
 {
-	auto file = mio_extra::resizeable_mmap_sink(filePath);
+	auto file = mio_extra::ResizeableMemoryMapSink(filePath);
 
 	glz::write<glz::opts{.prettify = true}>(T{object}, file);
 
 	std::error_code error;
-	file.truncate(file.hightWaterMark(), error);
+	file.truncate(file.HighWaterMark(), error);
 
 	if (error)
 		return std::unexpected(error);
@@ -188,7 +188,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 {
 	ZoneScoped;
 
-	auto fileInfo = getRecord<Sha256ChecksumEnable>(filePath);
+	auto fileInfo = GetRecord<Sha256ChecksumEnable>(filePath);
 
 	if (fileInfo)
 	{
@@ -210,9 +210,9 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 	ZoneScoped;
 
 	// todo: check if file exist and prompt for overwrite?
-	// intended scope - file needs to be closed before we call getRecord (due to internal call to std::filesystem::file_size)
+	// intended scope - file needs to be closed before we call GetRecord (due to internal call to std::filesystem::file_size)
 	{
-		auto file = mio_extra::resizeable_mmap_sink(filePath.string());
+		auto file = mio_extra::ResizeableMemoryMapSink(filePath.string());
 		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 
 		if (auto error = saveOp(out))
@@ -225,13 +225,13 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 			return std::unexpected(error);
 	}
 
-	return getRecord<Sha256ChecksumEnable>(filePath);
+	return GetRecord<Sha256ChecksumEnable>(filePath);
 }
 
 template <typename T, AccessMode Mode, bool SaveOnClose>
 Object<T, Mode, SaveOnClose>::Object(
 	const std::filesystem::path& filePath, T&& defaultObject)
-	: T(loadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
+	: T(LoadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
 
@@ -268,7 +268,7 @@ void Object<T, Mode, SaveOnClose>::Swap(Object& rhs) noexcept
 template <typename T, AccessMode Mode, bool SaveOnClose>
 void Object<T, Mode, SaveOnClose>::Reload()
 {
-	static_cast<T&>(*this) = loadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
+	static_cast<T&>(*this) = LoadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
 template <typename T, AccessMode Mode, bool SaveOnClose>
@@ -276,7 +276,7 @@ template <AccessMode M>
 typename std::enable_if<M == AccessMode::ReadWrite, void>::type
 Object<T, Mode, SaveOnClose>::Save() const
 {
-	if (!saveJSONObject(static_cast<const T&>(*this), myInfo.path))
+	if (!SaveJSONObject(static_cast<const T&>(*this), myInfo.path))
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
 }
 
@@ -311,7 +311,7 @@ void LoadAsset(
 		auto id = uuids::uuid_system_generator{}();
 		auto idStr = uuids::to_string(id);
 
-		auto manifestFile = mio_extra::resizeable_mmap_sink(manifestPath.string());
+		auto manifestFile = mio_extra::ResizeableMemoryMapSink(manifestPath.string());
 
 		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn);
 		if (!asset)
@@ -325,7 +325,7 @@ void LoadAsset(
 			AssetManifest{LoaderType, LoaderVersion, asset.value(), cache.value()}, manifestFile);
 
 		std::error_code error;
-		manifestFile.truncate(manifestFile.hightWaterMark(), error);
+		manifestFile.truncate(manifestFile.HighWaterMark(), error);
 
 		if (error)
 			throw std::system_error(std::move(error));
@@ -333,13 +333,13 @@ void LoadAsset(
 
 	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
 	{
-		ZoneScopedN("LoadAsset::loadJSONAssetManifest");
+		ZoneScopedN("LoadAsset::LoadJSONAssetManifest");
 
 		auto manifestFile = mio::mmap_source(manifestPath.string());
 
-		manifest = loadJSONAssetManifest<LoaderType, LoaderVersion, false>(
+		manifest = LoadJSONAssetManifest<LoaderType, LoaderVersion, false>(
 			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
-			[](std::string_view buffer){ return loadJSONObject<AssetManifest>(buffer); });
+			[](std::string_view buffer){ return LoadJSONObject<AssetManifest>(buffer); });
 	}
 	else
 	{

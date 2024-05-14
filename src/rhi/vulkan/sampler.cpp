@@ -29,7 +29,7 @@ SamplerVector<Vk>::SamplerVector(
 			for (const auto& createInfo : createInfos)
 			{
 				SamplerHandle<Vk> outSampler;
-				VK_CHECK(vkCreateSampler(*device, &createInfo, &device->getInstance()->getHostAllocationCallbacks(), &outSampler));
+				VK_CHECK(vkCreateSampler(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outSampler));
 
 				outSamplers.emplace_back(std::move(outSampler));
 			}
@@ -49,9 +49,9 @@ SamplerVector<Vk>::~SamplerVector()
 {
 	for (auto* sampler : mySamplers)
 		vkDestroySampler(
-			*getDevice(),
+			*GetDevice(),
 			sampler,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

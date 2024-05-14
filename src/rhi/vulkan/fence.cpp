@@ -23,7 +23,7 @@ Fence<Vk>::Fence(
 		FenceHandle<Vk> fence;
 		VkFenceCreateInfo createInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 		createInfo.flags = desc.flags;
-		VK_CHECK(vkCreateFence(*device, &createInfo, &device->getInstance()->getHostAllocationCallbacks(), &fence));
+		VK_CHECK(vkCreateFence(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &fence));
 		return fence;
 	}())
 {}
@@ -38,7 +38,7 @@ template <>
 Fence<Vk>::~Fence()
 {
 	if (myFence != nullptr)
-		vkDestroyFence(*getDevice(), myFence, &getDevice()->getInstance()->getHostAllocationCallbacks());
+		vkDestroyFence(*GetDevice(), myFence, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -61,7 +61,7 @@ void Fence<Vk>::Wait(bool waitAll, uint64_t timeout) const
 {
 	ZoneScopedN("Fence::wait");
 
-	VK_CHECK(vkWaitForFences(*getDevice(), 1, &myFence, waitAll, timeout));
+	VK_CHECK(vkWaitForFences(*GetDevice(), 1, &myFence, waitAll, timeout));
 }
 
 template <>

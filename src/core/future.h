@@ -18,9 +18,9 @@ public:
 	Future& operator=(Future&& other) noexcept;
 	Future& operator=(const Future& other) noexcept;
 
-	value_t get();
-	bool is_ready() const noexcept;
-	bool valid() const noexcept;
+	value_t Get();
+	bool IsReady() const noexcept;
+	bool Valid() const noexcept;
 	void Wait() const;
 
 private:

@@ -3,7 +3,7 @@ namespace descriptorset
 
 template <GraphicsApi G>
 std::vector<DescriptorSetLayoutHandle<G>>
-getDescriptorSetLayoutHandles(const DescriptorSetLayoutFlatMap<G>& layouts)
+GetDescriptorSetLayoutHandles(const DescriptorSetLayoutFlatMap<G>& layouts)
 {
 	std::vector<DescriptorSetLayoutHandle<Vk>> handles;
 	if (!layouts.empty())

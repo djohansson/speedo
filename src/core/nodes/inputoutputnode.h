@@ -18,15 +18,14 @@ public:
     void Swap(InputOutputNode& rhs) noexcept;
     friend void Swap(InputOutputNode& lhs, InputOutputNode& rhs) noexcept { lhs.Swap(rhs); }
 
-    int& id() final;
-    std::optional<int>& selected() final;
+    int& Id() final;
+    std::optional<int>& Selected() final;
     std::string& Name() final;
 
-    std::vector<Attribute>& inputAttributes();
-    std::vector<Attribute>& outputAttributes();
+    std::vector<Attribute>& InputAttributes();
+    std::vector<Attribute>& OutputAttributes();
 
 private:
-
     int myId = 0;
     std::optional<int> mySelected;
     std::string myName;

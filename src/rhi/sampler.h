@@ -22,8 +22,8 @@ public:
 	void Swap(SamplerVector& rhs) noexcept;
 	friend void Swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.Swap(rhs); }
 
-	auto size() const noexcept { return mySamplers.size(); }
-	auto data() const noexcept { return mySamplers.data(); }
+	auto Size() const noexcept { return mySamplers.size(); }
+	auto Data() const noexcept { return mySamplers.data(); }
 
 private:
 	SamplerVector( // takes ownership of provided handle

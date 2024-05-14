@@ -8,8 +8,8 @@
 struct INode
 {
     virtual ~INode() {};
-    virtual int& id() = 0;
-    virtual std::optional<int>& selected() = 0;
+    virtual int& Id() = 0;
+    virtual std::optional<int>& Selected() = 0;
     virtual std::string& Name() = 0;
 };
 

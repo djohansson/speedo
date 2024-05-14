@@ -3,6 +3,7 @@
 #include "utils.h"
 
 #include <core/file.h>
+#include <core/math.h>
 
 #include <cstdint>
 #if defined(__WINDOWS__)
@@ -33,7 +34,7 @@ namespace image
 std::tuple<VkImage, VmaAllocation>
 CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
 {
-	return createImage2D(
+	return CreateImage2D(
 		allocator,
 		desc.mipLevels[0].extent.width,
 		desc.mipLevels[0].extent.height,
@@ -49,7 +50,7 @@ CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
 std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<Vk>& desc)
 {
-	return createImage2D(
+	return CreateImage2D(
 		cmd,
 		allocator,
 		buffer,
@@ -92,8 +93,8 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		for (const auto& mipLevel : desc.mipLevels)
 			size += mipLevel.size;
 
-		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			device->getAllocator(),
+		auto [locBufferHandle, locMemoryHandle] = CreateBuffer(
+			device->GetAllocator(),
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -102,9 +103,9 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		progress = 64;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
 		auto result = in(std::span(static_cast<char*>(data), size));
-		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
 
@@ -130,9 +131,9 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 			size += mipLevel.size;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), memoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
 		auto result = out(std::span(static_cast<const char*>(data), size));
-		vmaUnmapMemory(device->getAllocator(), memoryHandle);
+		vmaUnmapMemory(device->GetAllocator(), memoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
 
@@ -168,7 +169,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		{
 			uint32_t mipWidth = width >> mipIt;
 			uint32_t mipHeight = height >> mipIt;
-			auto mipSize = roundUp(mipWidth, 4) * roundUp(mipHeight, 4);
+			auto mipSize = RoundUp(mipWidth, 4) * RoundUp(mipHeight, 4);
 
 			if (!hasAlpha)
 				mipSize >>= 1;
@@ -180,15 +181,15 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 			mipOffset += mipSize;
 		}
 
-		auto [locBufferHandle, locMemoryHandle] = createBuffer(
-			device->getAllocator(),
+		auto [locBufferHandle, locMemoryHandle] = CreateBuffer(
+			device->GetAllocator(),
 			mipOffset,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* stagingBuffer;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locMemoryHandle, &stagingBuffer));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
 
 		auto compressBlocks = [](const stbi_uc* src,
 								 unsigned char* dst,
@@ -329,7 +330,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 			progress += dp;
 		}
 
-		vmaUnmapMemory(device->getAllocator(), locMemoryHandle);
+		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
 		stbi_image_free(stbiImageData);
 
 		bufferHandle = locBufferHandle;
@@ -433,7 +434,7 @@ Image<Vk>::Image(const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&
 		  device,
 		  std::forward<ImageCreateDesc<Vk>>(desc),
 		  std::tuple_cat(
-			  image::CreateImage2D(device->getAllocator(), desc),
+			  image::CreateImage2D(device->GetAllocator(), desc),
 			  std::make_tuple(desc.initialLayout)))
 {}
 
@@ -449,7 +450,7 @@ Image<Vk>::Image(
 		  std::tuple_cat(
 			  image::CreateImage2D(
 				  queue.GetPool().Commands(),
-				  device->getAllocator(),
+				  device->GetAllocator(),
 				  std::get<1>(descAndInitialData),
 				  std::get<0>(descAndInitialData)),
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
@@ -457,7 +458,7 @@ Image<Vk>::Image(
 	queue.AddTimelineCallback(
 	{
 		timelineValue,
-		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
+		[allocator = device->GetAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
 				allocator,
@@ -481,8 +482,8 @@ Image<Vk>::Image(
 		  timelineValue,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
-			  createStagingBuffer(
-				  device->getAllocator(), initialData, initialDataSize, "todo_insert_proper_name")))
+			  CreateStagingBuffer(
+				  device->GetAllocator(), initialData, initialDataSize, "todo_insert_proper_name")))
 {}
 
 template <>
@@ -499,7 +500,7 @@ template <>
 Image<Vk>::~Image()
 {
 	if (ImageHandle<Vk> image = *this)
-		vmaDestroyImage(getDevice()->getAllocator(), image, GetImageMemory());
+		vmaDestroyImage(GetDevice()->GetAllocator(), image, GetImageMemory());
 }
 
 template <>
@@ -520,9 +521,9 @@ ImageView<Vk>::ImageView(
 	const std::shared_ptr<Device<Vk>>& device, const Image<Vk>& image, Flags<Vk> aspectFlags)
 	: ImageView<Vk>(
 		  device,
-		  createImageView2D(
+		  CreateImageView2D(
 			  *device,
-			  &device->getInstance()->getHostAllocationCallbacks(),
+			  &device->GetInstance()->GetHostAllocationCallbacks(),
 			  0, // "reserved for future use"
 			  image,
 			  image.GetDesc().format,
@@ -534,7 +535,7 @@ template <>
 ImageView<Vk>::~ImageView()
 {
 	if (ImageViewHandle<Vk> view = *this)
-		vkDestroyImageView(*getDevice(), view, &getDevice()->getInstance()->getHostAllocationCallbacks());
+		vkDestroyImageView(*GetDevice(), view, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

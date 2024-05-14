@@ -1,10 +1,10 @@
 #include "../model.h"
 #include "../shaders/capi.h"
+#include "utils.h"
 
 #include <core/file.h>
 #include <gfx/aabb.h>
 #include <gfx/vertex.h>
-#include <rhi/utils.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -59,7 +59,7 @@ std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 		if (offset < (lastOffset + lastSize))
 			return {};
 
-		lastSize = getFormatSize(format);
+		lastSize = GetFormatSize(format);
 		lastOffset = offset;
 
 		stride = lastOffset + lastSize;
@@ -103,17 +103,17 @@ Load(
 		if (auto result = in(desc); failure(result))
 			return std::make_error_code(result);
 
-		auto [locIbHandle, locIbMemHandle] = createBuffer(
-			device->getAllocator(),
+		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
+			device->GetAllocator(),
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locIbMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
 		auto ibResult = in(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
-		vmaUnmapMemory(device->getAllocator(), locIbMemHandle);
+		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
 
@@ -122,17 +122,17 @@ Load(
 
 		progress = 128;
 
-		auto [locVbHandle, locVbMemHandle] = createBuffer(
-			device->getAllocator(),
+		auto [locVbHandle, locVbMemHandle] = CreateBuffer(
+			device->GetAllocator(),
 			desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locVbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
 		auto vbResult = in(std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f)));
-		vmaUnmapMemory(device->getAllocator(), locVbMemHandle);
+		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
 
@@ -154,16 +154,16 @@ Load(
 			return std::make_error_code(result);
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), ibMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), ibMemHandle, &ibData));
 		auto ibResult = out(std::span(static_cast<const char*>(ibData), desc.indexCount * sizeof(uint32_t)));
-		vmaUnmapMemory(device->getAllocator(), ibMemHandle);
+		vmaUnmapMemory(device->GetAllocator(), ibMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), vbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
 		auto vbResult = out(std::span(static_cast<const char*>(vbData), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f)));
-		vmaUnmapMemory(device->getAllocator(), vbMemHandle);
+		vmaUnmapMemory(device->GetAllocator(), vbMemHandle);
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
 
@@ -238,31 +238,31 @@ Load(
 		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
-		vertices.setStride(sizeof(Vertex_P3f_N3f_T014f_C4f));
+		vertices.SetStride(sizeof(Vertex_P3f_N3f_T014f_C4f));
 
 		std::vector<uint32_t> indices;
 
 		ScopedVertexAllocation vertexScope(vertices);
-		vertices.reserve(indexCount / 3); // guesstimate
+		vertices.Reserve(indexCount / 3); // guesstimate
 		indices.reserve(indexCount);
 
 		for (const auto& shape : shapes)
 		{
 			for (const auto& index : shape.mesh.indices)
 			{
-				auto& vertex = *vertexScope.createVertices();
+				auto& vertex = *vertexScope.CreateVertices();
 				
 				if (!attrib.vertices.empty())
 					std::copy_n(
 						&attrib.vertices[3 * index.vertex_index],
 						3,
-						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
+						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
 
 				if (!attrib.normals.empty())
 					std::copy_n(
 						&attrib.normals[3 * index.normal_index],
 						3,
-						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, normal)));
+						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, normal)));
 
 				if (!attrib.texcoords.empty())
 				{
@@ -272,27 +272,27 @@ Load(
 					std::copy_n(
 						uvs,
 						2,
-						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, texCoord01)));
+						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, texCoord01)));
 				}
 
 				if (!attrib.colors.empty())
 					std::copy_n(
 						&attrib.colors[3 * index.vertex_index + 0],
 						3,
-						&vertex.dataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, color)));
+						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, color)));
 
-				uint64_t vertexIndex = vertex.hash();
+				uint64_t vertexIndex = vertex.Hash();
 				if (uniqueVertices.count(vertexIndex) == 0)
 				{
-					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.size() - 1);
+					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.Size() - 1);
 
 					if (!attrib.vertices.empty())
-						desc.aabb.merge(
-							vertex.dataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
+						desc.aabb.Merge(
+							vertex.DataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
 				}
 				else
 				{
-					vertexScope.freeVertices(&vertex);
+					vertexScope.FreeVertices(&vertex);
 				}
 				indices.push_back(uniqueVertices[vertexIndex]);
 			}
@@ -301,36 +301,36 @@ Load(
 		progress = 128;
 
 		desc.indexCount = indices.size();
-		desc.vertexCount = vertices.size();
+		desc.vertexCount = vertices.Size();
 
-		auto [locIbHandle, locIbMemHandle] = createBuffer(
-			device->getAllocator(),
+		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
+			device->GetAllocator(),
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locIbMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
 		memcpy(ibData, indices.data(), desc.indexCount * sizeof(uint32_t));
-		vmaUnmapMemory(device->getAllocator(), locIbMemHandle);
+		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 
 		ibHandle = locIbHandle;
 		ibMemHandle = locIbMemHandle;
 
 		progress = 192;
 
-		auto [locVbHandle, locVbMemHandle] = createBuffer(
-			device->getAllocator(),
+		auto [locVbHandle, locVbMemHandle] = CreateBuffer(
+			device->GetAllocator(),
 			desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->getAllocator(), locVbMemHandle, &vbData));
-		memcpy(vbData, vertices.data(), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f));
-		vmaUnmapMemory(device->getAllocator(), locVbMemHandle);
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f));
+		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 
 		vbHandle = locVbHandle;
 		vbMemHandle = locVbMemHandle;

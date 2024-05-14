@@ -12,12 +12,12 @@ void InputOutputNode::Swap(InputOutputNode& rhs) noexcept
     std::swap(myName, rhs.myName);
 }
 
-int& InputOutputNode::id()
+int& InputOutputNode::Id()
 {
     return myId;
 }
 
-std::optional<int>& InputOutputNode::selected()
+std::optional<int>& InputOutputNode::Selected()
 {
     return mySelected;
 }
@@ -27,12 +27,12 @@ std::string& InputOutputNode::Name()
     return myName;
 }
 
-std::vector<Attribute>& InputOutputNode::inputAttributes()
+std::vector<Attribute>& InputOutputNode::InputAttributes()
 {
     return myInputAttributes;
 }
 
-std::vector<Attribute>& InputOutputNode::outputAttributes()
+std::vector<Attribute>& InputOutputNode::OutputAttributes()
 {
     return myOutputAttributes;
 }

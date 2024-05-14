@@ -335,15 +335,20 @@ ShaderModule<Vk>::ShaderModule(
 {}
 
 template <>
-ShaderModule<Vk>::ShaderModule(
-	const std::shared_ptr<Device<Vk>>& device, const Shader<Vk>& shader)
+ShaderModule<Vk>::ShaderModule(const std::shared_ptr<Device<Vk>>& device, const Shader<Vk>& shader)
 	: ShaderModule<Vk>(
 		  device,
-		  createShaderModule(
-			  *device,
-			  &device->getInstance()->getHostAllocationCallbacks(),
-			  std::get<0>(shader).size(),
-			  reinterpret_cast<const uint32_t*>(std::get<0>(shader).data())),
+		  [&device]
+		  (const auto& codePtr, size_t codeSize)
+		  {
+			  VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+			  info.codeSize = codeSize;
+			  info.pCode = codePtr;
+
+			  VkShaderModule vkShaderModule;
+			  VK_CHECK(vkCreateShaderModule(*device, &info, &device->GetInstance()->GetHostAllocationCallbacks(), &vkShaderModule));
+			  return vkShaderModule;
+		  }(reinterpret_cast<const uint32_t*>(std::get<0>(shader).data()), std::get<0>(shader).size()),
 		  std::get<1>(shader))
 {}
 
@@ -359,9 +364,9 @@ ShaderModule<Vk>::~ShaderModule()
 {
 	if (myShaderModule != nullptr)
 		vkDestroyShaderModule(
-			*getDevice(),
+			*GetDevice(),
 			myShaderModule,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

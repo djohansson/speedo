@@ -19,7 +19,7 @@ public:
     void Swap(SlangShaderNode& rhs) noexcept;
     friend void Swap(SlangShaderNode& lhs, SlangShaderNode& rhs) noexcept { lhs.Swap(rhs); }
 
-    std::filesystem::path& path();
+    std::filesystem::path& Path();
 
 private:
     std::filesystem::path myPath;

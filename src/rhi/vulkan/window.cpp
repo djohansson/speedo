@@ -24,27 +24,27 @@ void Window<Vk>::InternalUpdateViewBuffer() const
 {
 	ZoneScopedN("Window::InternalUpdateViewBuffer");
 
-	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].getBufferMemory();
+	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].GetBufferMemory();
 	void* data;
-	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), bufferMemory, &data));
+	VK_CHECK(vmaMapMemory(GetDevice()->GetAllocator(), bufferMemory, &data));
 
 	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 	ASSERT(viewCount <= ShaderTypes_ViewCount);
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
-		auto mvp = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
+		auto mvp = myViews[viewIt].GetProjectionMatrix() * glm::mat4(myViews[viewIt].GetViewMatrix());
 		std::copy_n(&mvp[0][0], 16, &viewDataPtr->viewProjection[0][0]);
 		viewDataPtr++;
 	}
 
 	// vmaFlushAllocation(
-	// 	getDevice()->getAllocator(),
+	// 	GetDevice()->GetAllocator(),
 	// 	bufferMemory,
 	// 	0,
 	// 	viewCount * sizeof(ViewData));
 
-	vmaUnmapMemory(getDevice()->getAllocator(), bufferMemory);
+	vmaUnmapMemory(GetDevice()->GetAllocator(), bufferMemory);
 }
 
 template <>
@@ -59,7 +59,7 @@ uint32_t Window<Vk>::InternalDrawViews(
 
 	// draw views using secondary command buffers
 	// todo: generalize this to other types of draws
-	if (pipeline.resources().model)
+	if (pipeline.GetResources().model)
 	{
 		ZoneScopedN("Window::drawViews");
 
@@ -120,10 +120,10 @@ uint32_t Window<Vk>::InternalDrawViews(
 					// bind pipeline and buffers
 					pipeline.BindPipelineAuto(cmd);
 
-					BufferHandle<Vk> vbs[] = {pipeline.resources().model->getVertexBuffer()};
+					BufferHandle<Vk> vbs[] = {pipeline.GetResources().model->GetVertexBuffer()};
 					DeviceSize<Vk> offsets[] = {0};
 					vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
-					vkCmdBindIndexBuffer(cmd, pipeline.resources().model->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+					vkCmdBindIndexBuffer(cmd, pipeline.GetResources().model->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 				};
 
 				bindState(cmd);
@@ -188,7 +188,7 @@ uint32_t Window<Vk>::InternalDrawViews(
 
 								vkCmdPushConstants(
 									cmd,
-									pipeline.getLayout(),
+									pipeline.GetLayout(),
 									VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
 									0,
 									sizeof(pushConstants),
@@ -200,7 +200,7 @@ uint32_t Window<Vk>::InternalDrawViews(
 
 								vkCmdDrawIndexed(
 									cmd,
-									pipeline.resources().model->GetDesc().indexCount,
+									pipeline.GetResources().model->GetDesc().indexCount,
 									1,
 									0,
 									0,
@@ -235,11 +235,11 @@ void Window<Vk>::InternalInitializeViews()
 		for (unsigned i = 0; i < myConfig.splitScreenGrid.width; i++)
 		{
 			auto& view = myViews[j * myConfig.splitScreenGrid.width + i];
-			view.desc().viewport.x = i * width;
-			view.desc().viewport.y = j * height;
-			view.desc().viewport.width = width;
-			view.desc().viewport.height = height;
-			view.updateAll();
+			view.GetDesc().viewport.x = i * width;
+			view.GetDesc().viewport.y = j * height;
+			view.GetDesc().viewport.width = width;
+			view.GetDesc().viewport.height = height;
+			view.UpdateAll();
 		}
 }
 
@@ -250,10 +250,10 @@ void Window<Vk>::OnResizeFramebuffer(int w, int h)
 	ASSERT(h > 0);
 	(void)w; (void)h;
 
-	auto& device = *getDevice();
-	auto& instance = *device.getInstance();
+	auto& device = *GetDevice();
+	auto& instance = *device.GetInstance();
 	auto* surface = GetSurface();
-	auto* physicalDevice = device.getPhysicalDevice();
+	auto* physicalDevice = device.GetPhysicalDevice();
 
 	instance.UpdateSurfaceCapabilities(physicalDevice, surface);
 
@@ -341,16 +341,16 @@ void Window<Vk>::InternalUpdateViews(const InputState& input)
 
 		if (dx != 0 || dz != 0)
 		{
-			const auto& viewMatrix = view.getViewMatrix();
+			const auto& viewMatrix = view.GetViewMatrix();
 			auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
 			auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
 			constexpr auto kMoveSpeed = 0.000000002F;
 
-			view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * kMoveSpeed;
+			view.GetDesc().cameraPosition += dt * (dz * forward + dx * strafe) * kMoveSpeed;
 
-			// std::cout << *myActiveView << ":pos:[" << view.desc().cameraPosition.x << ", " <<
-			//     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << '\n';
+			// std::cout << *myActiveView << ":pos:[" << view.GetDesc().cameraPosition.x << ", " <<
+			//     view.GetDesc().cameraPosition.y << ", " << view.GetDesc().cameraPosition.z << "]" << '\n';
 
 			doUpdateViewMatrix = true;
 		}
@@ -359,8 +359,8 @@ void Window<Vk>::InternalUpdateViews(const InputState& input)
 		{
 			constexpr auto kRotSpeed = 0.00000001F;
 
-			const float windowWidth = view.desc().viewport.width / myConfig.contentScale.x;
-			const float windowHeight = view.desc().viewport.height / myConfig.contentScale.y;
+			const float windowWidth = view.GetDesc().viewport.width / myConfig.contentScale.x;
+			const float windowHeight = view.GetDesc().viewport.height / myConfig.contentScale.y;
 			const float cx = std::fmod(input.mouse.leftLastEventPosition[0], windowWidth);
 			const float cy = std::fmod(input.mouse.leftLastEventPosition[1], windowHeight);
 			const float px = std::fmod(input.mouse.position[0], windowWidth);
@@ -372,18 +372,18 @@ void Window<Vk>::InternalUpdateViews(const InputState& input)
 
 			//std::cout << "dM[0]:" << dM[0] << ", dM[1]:" << dM[1] << '\n';
 
-			view.desc().cameraRotation +=
+			view.GetDesc().cameraRotation +=
 				dt * glm::vec3(dM[1] / windowHeight, dM[0] / windowWidth, 0.0F) * kRotSpeed;
 
-			// std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
-			//     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << '\n';
+			// std::cout << *myActiveView << ":rot:[" << view.GetDesc().cameraRotation.x << ", " <<
+			//     view.GetDesc().cameraRotation.y << ", " << view.GetDesc().cameraRotation.z << "]" << '\n';
 
 			doUpdateViewMatrix = true;
 		}
 
 		if (doUpdateViewMatrix)
 		{
-			myViews[*myActiveView].updateViewMatrix();
+			myViews[*myActiveView].UpdateViewMatrix();
 		}
 	}
 }
@@ -424,7 +424,7 @@ Window<Vk>::Window(
 	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
 	{
 		myViewBuffers[i] = Buffer<Vk>(
-			getDevice(),
+			GetDevice(),
 			BufferCreateDesc<Vk>{
 				ShaderTypes_ViewCount * sizeof(ViewData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,

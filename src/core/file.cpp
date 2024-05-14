@@ -25,7 +25,7 @@ const char* to_string(AssetManifestErrorCode code)
 
 } // namespace detail
 
-std::string getTimeStamp(const std::filesystem::path& filePath)
+std::string GetTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
@@ -38,7 +38,7 @@ std::string getTimeStamp(const std::filesystem::path& filePath)
 }
 
 std::filesystem::path
-getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing)
+GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing)
 {
 	ASSERT(defaultPathStr != nullptr);
 

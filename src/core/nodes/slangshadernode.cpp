@@ -12,7 +12,7 @@ void SlangShaderNode::Swap(SlangShaderNode& rhs) noexcept
     std::swap(myPath, rhs.myPath);
 }
 
-std::filesystem::path& SlangShaderNode::path()
+std::filesystem::path& SlangShaderNode::Path()
 {
     return myPath;
 }

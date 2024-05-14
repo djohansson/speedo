@@ -165,7 +165,7 @@ void CreateServer(const PathConfig* paths)
 
 	ASSERT(paths != nullptr);
 
-	auto root = getCanonicalPath(nullptr, "./");
+	auto root = GetCanonicalPath(nullptr, "./");
 
 	std::unique_lock lock{gServerApplicationMutex};
 
@@ -173,8 +173,8 @@ void CreateServer(const PathConfig* paths)
 		"server",
 		Environment{{
 			{"RootPath", root},
-			{"ResourcePath", getCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
-			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
+			{"ResourcePath", GetCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
+			{"UserProfilePath", GetCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}});
 
 	ASSERT(gServerApplication);

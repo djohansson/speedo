@@ -1,21 +1,21 @@
 // TODO(djohansson): remove vertex.h/inl/cpp
 #include "vertex.h"
 
-void* VertexAllocator::allocate(size_t count)
+void* VertexAllocator::Allocate(size_t count)
 {
-	auto bytes = count * stride();
+	auto bytes = count * Stride();
 	myData.resize(myData.size() + bytes);
 	return (myData.data() + myData.size()) - bytes;
 }
 
-void VertexAllocator::free(void* ptr, size_t count)
+void VertexAllocator::Free(void* ptr, size_t count)
 {
 	ASSERT(ptr != nullptr);
 
 	auto* first = myData.data();
 	auto* last = first + myData.size();
 
-	auto bytes = count * stride();
+	auto bytes = count * Stride();
 	ASSERT(bytes > 0);
 
 	auto* next = static_cast<char*>(ptr) + bytes;
@@ -24,7 +24,7 @@ void VertexAllocator::free(void* ptr, size_t count)
 	{
 		myData.resize(myData.size() - bytes);
 	}
-	else if ((next - first) % stride() != 0) // else check alignment
+	else if ((next - first) % Stride() != 0) // else check alignment
 	{
 		if ((next < last && next > first)) // and that we are inside the right range
 		{
@@ -35,7 +35,7 @@ void VertexAllocator::free(void* ptr, size_t count)
 	}
 }
 
-void VertexAllocator::clear()
+void VertexAllocator::Clear()
 {
 	myData.clear();
 	myStride = 0;
@@ -44,25 +44,27 @@ void VertexAllocator::clear()
 
 ScopedVertexAllocation::ScopedVertexAllocation(VertexAllocator& allocator)
 	: myAllocatorRef(allocator)
-	, myPrevScope(Vertex::getScope())
+	, myPrevScope(Vertex::GetScope())
 {
-	myAllocatorRef.lock();
-	Vertex::setScope(this);
+	myAllocatorRef.Lock();
+	Vertex::SetScope(this);
 }
 
 ScopedVertexAllocation::~ScopedVertexAllocation()
 {
-	Vertex::setScope(myPrevScope);
-	myAllocatorRef.unlock();
+	Vertex::SetScope(myPrevScope);
+	myAllocatorRef.Unlock();
 }
 
-VertexAllocator& Vertex::allocator()
+VertexAllocator& Vertex::Allocator()
 {
-	ASSERT(st_allocationScope != nullptr);
-	return st_allocationScope->allocator();
+	ASSERT(gAllocationScope != nullptr);
+	return gAllocationScope->Allocator();
 }
 
-thread_local ScopedVertexAllocation* Vertex::st_allocationScope = nullptr;
+thread_local ScopedVertexAllocation* Vertex::gAllocationScope = nullptr;
+
+// NOLINTBEGIN(readability-identifier-naming.*)
 
 namespace std
 {
@@ -70,7 +72,9 @@ namespace std
 template <>
 struct hash<Vertex>
 {
-	size_t operator()(Vertex const& vertex) const { return vertex.hash(); }
+	size_t operator()(Vertex const& vertex) const { return vertex.Hash(); }
 };
 
 } // namespace std
+
+// NOLINTEND(readability-identifier-naming.*)

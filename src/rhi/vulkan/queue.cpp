@@ -62,11 +62,11 @@ Queue<Vk>::Queue(
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (PROFILING_LEVEL > 0)
-	if ((device->getPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags &
+	if ((device->GetPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags &
 		 VK_QUEUE_GRAPHICS_BIT) != 0u)
 	{
 		myProfilingContext = CreateVkContext(
-			device->getPhysicalDevice(),
+			device->GetPhysicalDevice(),
 			*device,
 			myQueue,
 			myPool.Commands(CommandBufferAccessScopeDesc<Vk>(false)),
@@ -271,7 +271,7 @@ QueuePresentInfo<Vk> Queue<Vk>::Present()
 {
 	ZoneScopedN("Queue::present");
 
-	Fence<Vk>::Wait(getDevice(), myPendingPresent.fences);
+	Fence<Vk>::Wait(GetDevice(), myPendingPresent.fences);
 
 	PresentInfo<Vk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
@@ -281,7 +281,7 @@ QueuePresentInfo<Vk> Queue<Vk>::Present()
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
 	presentInfo.pResults = myPendingPresent.results.data();
 
-	checkFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
+	CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
 	return std::move(myPendingPresent);
 }

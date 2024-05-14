@@ -41,11 +41,11 @@ void TaskExecutor::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle,
 	Task& aTask = *HandleToTaskPtr(aTaskHandle);
 	Task& bTask = *HandleToTaskPtr(bTaskHandle);
 
-	ASSERTF(aTask.state(), "Task state is not valid!");
-	ASSERTF(bTask.state(), "Task state is not valid!");
+	ASSERTF(aTask.State(), "Task state is not valid!");
+	ASSERTF(bTask.State(), "Task state is not valid!");
 
-	TaskState& aState = *aTask.state();
-	TaskState& bState = *bTask.state();
+	TaskState& aState = *aTask.State();
+	TaskState& bState = *bTask.State();
 
 	std::scoped_lock lock(aState.mutex, bState.mutex);
 
@@ -61,7 +61,7 @@ Task* TaskExecutor::HandleToTaskPtr(TaskHandle handle) noexcept
 	ASSERT(handle);
 	ASSERT(handle.value < kTaskPoolSize);
 	
-	Task* ptr = gTaskPool.getPointer(handle);
+	Task* ptr = gTaskPool.GetPointer(handle);
 
 	ASSERT(ptr != nullptr);
 	
@@ -74,11 +74,11 @@ void TaskExecutor::InternalSubmit(TaskHandle handle)
 
 	Task& task = *HandleToTaskPtr(handle);
 
-	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(handle);
 
-	if (!task.state()->isContinuation)
+	if (!task.State()->isContinuation)
 		mySignal.release();
 }
 
@@ -88,11 +88,11 @@ void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 
 	Task& task = *HandleToTaskPtr(handle);
 
-	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.State()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(readyProducerToken, handle);
 
-	if (!task.state()->isContinuation)
+	if (!task.State()->isContinuation)
 		mySignal.release();
 }
 
@@ -102,10 +102,10 @@ void TaskExecutor::InternalTryDelete(TaskHandle handle)
 
 	Task& task = *HandleToTaskPtr(handle);
 
-	if (task.state()->latch.load(std::memory_order_relaxed) == 0)
+	if (task.State()->latch.load(std::memory_order_relaxed) == 0)
 	{
 		task.~Task();
-		gTaskPool.free(handle);
+		gTaskPool.Free(handle);
 	}
 }
 
@@ -113,19 +113,19 @@ void TaskExecutor::ScheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	std::shared_lock lock(task.state()->mutex);
+	std::shared_lock lock(task.State()->mutex);
 
-	for (auto& adjacentHandle : task.state()->adjacencies)
+	for (auto& adjacentHandle : task.State()->adjacencies)
 	{
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
 		Task& adjacent = *HandleToTaskPtr(adjacentHandle);
 
-		ASSERTF(adjacent.state(), "Task has no return state!");
-		ASSERTF(adjacent.state()->latch, "Latch needs to have been constructed!");
+		ASSERTF(adjacent.State(), "Task has no return state!");
+		ASSERTF(adjacent.State()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacent.State()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			InternalSubmit(readyProducerToken, adjacentHandle);
 			adjacentHandle = {};
@@ -137,19 +137,19 @@ void TaskExecutor::ScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
-	std::shared_lock lock(task.state()->mutex);
+	std::shared_lock lock(task.State()->mutex);
 
-	for (auto& adjacentHandle : task.state()->adjacencies)
+	for (auto& adjacentHandle : task.State()->adjacencies)
 	{
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
 		Task& adjacent = *HandleToTaskPtr(adjacentHandle);
 
-		ASSERTF(adjacent.state(), "Task has no return state!");
-		ASSERTF(adjacent.state()->latch, "Latch needs to have been constructed!");
+		ASSERTF(adjacent.State(), "Task has no return state!");
+		ASSERTF(adjacent.State()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacent.State()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			InternalSubmit(adjacentHandle);
 			adjacentHandle = {};

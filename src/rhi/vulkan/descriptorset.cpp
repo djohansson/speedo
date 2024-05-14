@@ -35,7 +35,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 		  std::forward<DescriptorSetLayoutCreateDesc<Vk>>(desc),
 		  [&device, &desc]
 		  {
-			  ZoneScopedN("DescriptorSetLayout::createDescriptorSetLayout");
+			  ZoneScopedN("DescriptorSetLayout::CreateDescriptorSetLayout");
 
 			  auto samplers = SamplerVector<Vk>(device, desc.immutableSamplers);
 
@@ -44,7 +44,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 			  for (size_t bindingIt = 0; bindingIt < bindings.size(); bindingIt++)
 			  {
 				  auto& binding = bindings[bindingIt];
-				  binding.pImmutableSamplers = samplers.data();
+				  binding.pImmutableSamplers = samplers.Data();
 				  bindingsMap.emplace(
 					  desc.variableNameHashes.at(bindingIt),
 					  std::make_tuple(
@@ -55,13 +55,24 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 
 			  ASSERT(bindings.size() == bindingFlags.size());
 
-			  auto* layout = createDescriptorSetLayout(
+			  VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
+				  VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
+			  bindingFlagsInfo.bindingCount = bindings.size();
+			  bindingFlagsInfo.pBindingFlags = bindingFlags.data();
+
+			  VkDescriptorSetLayoutCreateInfo layoutInfo{
+				  VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+			  layoutInfo.pNext = &bindingFlagsInfo;
+			  layoutInfo.flags = desc.flags;
+			  layoutInfo.bindingCount = bindings.size();
+			  layoutInfo.pBindings = bindings.data();
+
+			  VkDescriptorSetLayout layout;
+			  VK_CHECK(vkCreateDescriptorSetLayout(
 				  *device,
-				  &device->getInstance()->getHostAllocationCallbacks(),
-				  desc.flags,
-				  bindings.data(),
-				  bindingFlags.data(),
-				  bindings.size());
+				  &layoutInfo,
+				  &device->GetInstance()->GetHostAllocationCallbacks(),
+				  &layout));
 
 			  return std::make_tuple(layout, std::move(samplers), std::move(bindingsMap));
 		  }())
@@ -75,9 +86,9 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 		ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorSetLayout");
 
 		vkDestroyDescriptorSetLayout(
-			*getDevice(),
+			*GetDevice(),
 			layout,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 	}
 }
 
@@ -150,8 +161,8 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 template <>
 DescriptorSetArray<Vk>::~DescriptorSetArray()
 {
-	if (isValid())
-		vkFreeDescriptorSets(*getDevice(), myDesc.pool, myDescriptorSets.size(), myDescriptorSets.data());
+	if (IsValid())
+		vkFreeDescriptorSets(*GetDevice(), myDesc.pool, myDescriptorSets.size(), myDescriptorSets.data());
 }
 
 template <>
@@ -177,9 +188,9 @@ void DescriptorUpdateTemplate<Vk>::InternalDestroyTemplate()
 	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
 
 	vkDestroyDescriptorUpdateTemplate(
-		*getDevice(),
+		*GetDevice(),
 		myHandle,
-		&getDevice()->getInstance()->getHostAllocationCallbacks());
+		&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -205,9 +216,9 @@ void DescriptorUpdateTemplate<Vk>::SetEntries(
 			GetDesc().pipelineLayout,
 			GetDesc().set};
 		vkCreateDescriptorUpdateTemplate(
-			*getDevice(),
+			*GetDevice(),
 			&createInfo,
-			&getDevice()->getInstance()->getHostAllocationCallbacks(),
+			&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 			&descriptorTemplate);
 
 		return descriptorTemplate;

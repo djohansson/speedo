@@ -57,20 +57,20 @@ private:
 };
 
 using InputSerializer = zpp::bits::in<mio::mmap_source>;
-using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
+using OutputSerializer = zpp::bits::out<mio_extra::ResizeableMemoryMapSink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
 
 using LoadFn = std::function<std::error_code(InputSerializer&)>;
 using SaveFn = std::function<std::error_code(OutputSerializer&)>;
 
-std::string getTimeStamp(const std::filesystem::path& filePath);
+std::string GetTimeStamp(const std::filesystem::path& filePath);
 
-std::filesystem::path getCanonicalPath(
+std::filesystem::path GetCanonicalPath(
 	const char* pathStr,
 	const char* defaultPathStr,
 	bool createIfMissing = false);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> getRecord(const std::filesystem::path& filePath);
+std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
 std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, LoadFn loadOp);
@@ -82,13 +82,13 @@ template <typename T>
 std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
 
 template <typename T>
-std::expected<T, std::error_code> loadJSONObject(std::string_view buffer);
+std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer);
 
 template <typename T>
-std::expected<T, std::error_code> loadJSONObject(const std::filesystem::path& filePath);
+std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath);
 
 template <typename T>
-std::expected<void, std::error_code> saveJSONObject(const T& object, const std::string& filePath);
+std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
 
 template <const char* LoaderType, const char* LoaderVersion>
 void LoadAsset(const std::filesystem::path& filePath, LoadFn loadFileFn, LoadFn loadBinaryCacheFn, SaveFn SaveBinaryCacheFn);

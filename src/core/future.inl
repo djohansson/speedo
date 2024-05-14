@@ -31,7 +31,7 @@ Future<T>& Future<T>::operator=(const Future& other) noexcept
 }
 
 template <typename T>
-typename Future<T>::value_t Future<T>::get()
+typename Future<T>::value_t Future<T>::Get()
 {
 	Wait();
 
@@ -44,15 +44,15 @@ typename Future<T>::value_t Future<T>::get()
 }
 
 template <typename T>
-bool Future<T>::is_ready() const noexcept
+bool Future<T>::IsReady() const noexcept
 {
-	ASSERTF(valid(), "Future is not valid!");
+	ASSERTF(Valid(), "Future is not valid!");
 
 	return myState->latch.load(std::memory_order_relaxed) == 0;
 }
 
 template <typename T>
-bool Future<T>::valid() const noexcept
+bool Future<T>::Valid() const noexcept
 {
 	return !!myState;
 }
@@ -60,7 +60,7 @@ bool Future<T>::valid() const noexcept
 template <typename T>
 void Future<T>::Wait() const
 {
-	ASSERTF(valid(), "Future is not valid!");
+	ASSERTF(Valid(), "Future is not valid!");
 
 	while (auto current = myState->latch.load(std::memory_order_relaxed))
 		myState->latch.wait(current, std::memory_order_acquire);

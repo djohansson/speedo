@@ -14,7 +14,7 @@ constexpr MemoryPool<T, Capacity>::MemoryPool() noexcept
 }
 
 template <typename T, uint32_t Capacity>
-MemoryPoolHandle MemoryPool<T, Capacity>::allocate() noexcept
+MemoryPoolHandle MemoryPool<T, Capacity>::Allocate() noexcept
 {
 	std::unique_lock lock(myMutex);
 
@@ -38,7 +38,7 @@ MemoryPoolHandle MemoryPool<T, Capacity>::allocate() noexcept
 }
 
 template <typename T, uint32_t Capacity>
-void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
+void MemoryPool<T, Capacity>::Free(MemoryPoolHandle handle) noexcept
 {
 	std::unique_lock lock(myMutex);
 
@@ -58,7 +58,7 @@ void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
 }
 
 template <typename T, uint32_t Capacity>
-constexpr T* MemoryPool<T, Capacity>::getPointer(MemoryPoolHandle handle) noexcept
+constexpr T* MemoryPool<T, Capacity>::GetPointer(MemoryPoolHandle handle) noexcept
 {
 	ASSERT(!!handle);
 

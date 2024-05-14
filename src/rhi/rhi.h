@@ -11,7 +11,6 @@
 #include "shaders/capi.h"
 #include "types.h"
 #include "window.h"
-#include "utils.h"
 
 #include <core/utils.h>
 

@@ -13,6 +13,8 @@
 
 #include <glaze/glaze.hpp>
 
+// NOLINTBEGIN(readability-identifier-naming.*)
+
 template <>
 struct glz::meta<glm::vec2>
 {
@@ -34,3 +36,5 @@ constexpr auto serialize(auto& archive, const vec3& v)
 }
 
 } // namespace glm
+
+// NOLINTEND(readability-identifier-naming.*)

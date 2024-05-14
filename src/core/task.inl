@@ -1,4 +1,5 @@
 #include "future.h"
+#include "profiling.h"
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>

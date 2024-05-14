@@ -44,11 +44,7 @@ RHI_API WindowHandle* GetWindows(size_t* count);
 RHI_API void SetWindows(WindowHandle* windows, size_t count);
 RHI_API WindowHandle GetCurrentWindow(void);
 RHI_API void SetCurrentWindow(WindowHandle window);
-
-// todo: make all state opaque
 RHI_API struct WindowState* GetWindowState(WindowHandle window);
-//
-
 
 #ifdef __cplusplus
 }

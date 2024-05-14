@@ -26,7 +26,7 @@ uint32_t CreateLayoutBindings(
 } // namespace shader
 
 template <GraphicsApi G>
-ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
+ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<G>{};
 

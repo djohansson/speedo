@@ -35,8 +35,8 @@ public:
 	friend void Swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.Swap(rhs); }
 
 	const auto& GetShaderModules() const noexcept { return myShaderModules; }
-	const auto& getDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
-	const DescriptorSetLayout<G>& getDescriptorSetLayout(uint32_t set) const noexcept;
+	const auto& GetDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
+	const DescriptorSetLayout<G>& GetDescriptorSetLayout(uint32_t set) const noexcept;
 
 private:
 	friend Pipeline<G>;
@@ -104,10 +104,10 @@ public:
 	~Pipeline();
 
 	const auto& GetConfig() const noexcept { return myConfig; }
-	auto getCache() const noexcept { return myCache; }
-	auto getDescriptorPool() const noexcept { return myDescriptorPool; }
-	auto getBindPoint() const noexcept { return myBindPoint; }
-	auto getLayout() const noexcept { return myLayout; }
+	auto GetCache() const noexcept { return myCache; }
+	auto GetDescriptorPool() const noexcept { return myDescriptorPool; }
+	auto GetBindPoint() const noexcept { return myBindPoint; }
+	auto GetLayout() const noexcept { return myLayout; }
 
 	PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
 
@@ -167,7 +167,7 @@ public:
 		uint32_t index);	
 
 	// temp
-	auto& getRenderTarget() const noexcept
+	auto& GetRenderTarget() const noexcept
 	{
 		ASSERT(myRenderTarget);
 		return *myRenderTarget;
@@ -176,7 +176,8 @@ public:
 	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
 	void SetModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
 
-	auto& resources() noexcept { return myGraphicsState.resources; }
+	auto& GetResources() noexcept { return myGraphicsState.resources; }
+	const auto& GetResources() const noexcept { return myGraphicsState.resources; }
 	//
 
 	// "auto" api end	

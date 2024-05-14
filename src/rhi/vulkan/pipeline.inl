@@ -8,7 +8,7 @@ void Pipeline<Vk>::SetDescriptorData(
 	uint64_t shaderVariableNameHash, const DescriptorSetLayout<Vk>& layout, T&& data)
 {
 	const auto& [binding, descriptorType, descriptorCount] =
-		layout.getShaderVariableBinding(shaderVariableNameHash);
+		layout.GetShaderVariableBinding(shaderVariableNameHash);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(layout);
 
@@ -61,7 +61,7 @@ void Pipeline<Vk>::SetDescriptorData(
 {
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		InternalGetLayout().getDescriptorSetLayout(set),
+		InternalGetLayout().GetDescriptorSetLayout(set),
 		std::forward<T>(data));
 }
 
@@ -73,7 +73,7 @@ void Pipeline<Vk>::SetDescriptorData(
 	const std::vector<T>& data)
 {
 	const auto& [binding, descriptorType, descriptorCount] =
-		layout.getShaderVariableBinding(shaderVariableNameHash);
+		layout.GetShaderVariableBinding(shaderVariableNameHash);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(layout);
 
@@ -154,7 +154,7 @@ void Pipeline<Vk>::SetDescriptorData(
 {
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		InternalGetLayout().getDescriptorSetLayout(set),
+		InternalGetLayout().GetDescriptorSetLayout(set),
 		data);
 }
 
@@ -167,7 +167,7 @@ void Pipeline<Vk>::SetDescriptorData(
 	uint32_t index)
 {
 	const auto& [binding, descriptorType, descriptorCount] =
-		layout.getShaderVariableBinding(shaderVariableNameHash);
+		layout.GetShaderVariableBinding(shaderVariableNameHash);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(layout);
 
@@ -251,7 +251,7 @@ void Pipeline<Vk>::SetDescriptorData(
 {
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		InternalGetLayout().getDescriptorSetLayout(set),
+		InternalGetLayout().GetDescriptorSetLayout(set),
 		std::forward<T>(data),
 		index);
 }

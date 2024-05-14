@@ -2,7 +2,6 @@
 
 #include <gfx/glm_extra.h>
 
-#include "assert.h"
 #include <cstdint>
 
 enum class ViewType : uint8_t
@@ -35,21 +34,22 @@ public:
 	View(ViewCreateDesc&& data)
 		: myDesc(std::forward<ViewCreateDesc>(data))
 	{
-		updateAll();
+		UpdateAll();
 	}
 
-	const auto& getViewMatrix() const noexcept { return myViewMatrix; }
-	const auto& getProjectionMatrix() const noexcept { return myProjectionMatrix; }
+	const auto& GetViewMatrix() const noexcept { return myViewMatrix; }
+	const auto& GetProjectionMatrix() const noexcept { return myProjectionMatrix; }
 
-	auto& desc() { return myDesc; }
+	auto& GetDesc() noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 
-	void updateViewMatrix();
-	void updateProjectionMatrix();
+	void UpdateViewMatrix();
+	void UpdateProjectionMatrix();
 
-	void updateAll()
+	void UpdateAll()
 	{
-		updateViewMatrix();
-		updateProjectionMatrix();
+		UpdateViewMatrix();
+		UpdateProjectionMatrix();
 	}
 
 private:

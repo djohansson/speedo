@@ -43,7 +43,7 @@ public:
 		std::optional<std::filesystem::path>&& intermediatePath = std::nullopt);
 
 	template <GraphicsApi G>
-	ShaderSet<G> load(const std::filesystem::path& slangFile);
+	ShaderSet<G> Load(const std::filesystem::path& slangFile);
 
 private:
 	std::vector<std::filesystem::path> myIncludePaths;

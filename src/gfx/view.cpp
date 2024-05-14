@@ -2,7 +2,7 @@
 
 #include <core/assert.h>
 
-void View::updateViewMatrix()
+void View::UpdateViewMatrix()
 {
 	auto rx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
 	auto ry = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
@@ -11,7 +11,7 @@ void View::updateViewMatrix()
 	myViewMatrix = glm::inverse(t * ry * rx);
 }
 
-void View::updateProjectionMatrix()
+void View::UpdateProjectionMatrix()
 {
 	switch (myDesc.type)
 	{

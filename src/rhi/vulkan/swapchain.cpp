@@ -96,13 +96,13 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::Flip()
 {
 	ZoneScoped;
 
-	auto& device = *getDevice();
+	auto& device = *GetDevice();
 
 	auto lastFrameIndex = myFrameIndex;
 	
-	Fence<Vk> fence(getDevice(), FenceCreateDesc<Vk>{});
+	Fence<Vk> fence(GetDevice(), FenceCreateDesc<Vk>{});
 
-	auto flipResult = checkFlipOrPresentResult(vkAcquireNextImageKHR(
+	auto flipResult = CheckFlipOrPresentResult(vkAcquireNextImageKHR(
 		device,
 		mySwapchain,
 		UINT64_MAX,
@@ -139,7 +139,7 @@ void Swapchain<Vk>::InternalCreateSwapchain(
 {
 	ZoneScopedN("Swapchain::InternalCreateSwapchain");
 
-	auto& device = *getDevice();
+	auto& device = *GetDevice();
 
 	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
@@ -159,27 +159,27 @@ void Swapchain<Vk>::InternalCreateSwapchain(
 	VK_CHECK(vkCreateSwapchainKHR(
 		device,
 		&info,
-		&device.getInstance()->getHostAllocationCallbacks(),
+		&device.GetInstance()->GetHostAllocationCallbacks(),
 		&mySwapchain));
 
 	if (previous != nullptr)
 	{
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-		device.EraseOwnedObjectHandle(getUid(), reinterpret_cast<uint64_t>(previous));
+		device.EraseOwnedObjectHandle(GetUid(), reinterpret_cast<uint64_t>(previous));
 #endif
 
 		vkDestroySwapchainKHR(
 			device,
 			previous,
-			&device.getInstance()->getHostAllocationCallbacks());
+			&device.GetInstance()->GetHostAllocationCallbacks());
 	}
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	device.AddOwnedObjectHandle(
-		getUid(),
+		GetUid(),
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
 		reinterpret_cast<uint64_t>(mySwapchain),
-		std::format("{0}_Swapchain", getName()));
+		std::format("{0}_Swapchain", GetName()));
 #endif
 
 	uint32_t frameCount = config.imageCount;
@@ -201,7 +201,7 @@ void Swapchain<Vk>::InternalCreateSwapchain(
 
 	for (uint32_t frameIt = 0UL; frameIt < frameCount; frameIt++)
 		myFrames.emplace_back(
-			getDevice(),
+			GetDevice(),
 			FrameCreateDesc<Vk>{
 				{config.extent,
 				 {config.surfaceFormat.format},
@@ -242,19 +242,19 @@ Swapchain<Vk>::~Swapchain()
 {
 	ZoneScopedN("~Swapchain()");
 
-	if (auto device = getDevice())
+	if (auto device = GetDevice())
 	{
 		if (mySwapchain != nullptr)
 			vkDestroySwapchainKHR(
 				*device,
 				mySwapchain,
-				&device->getInstance()->getHostAllocationCallbacks());
+				&device->GetInstance()->GetHostAllocationCallbacks());
 
 		if (mySurface != nullptr)
 			vkDestroySurfaceKHR(
-				*device->getInstance(),
+				*device->GetInstance(),
 				mySurface,
-				&device->getInstance()->getHostAllocationCallbacks());
+				&device->GetInstance()->GetHostAllocationCallbacks());
 	}
 }
 

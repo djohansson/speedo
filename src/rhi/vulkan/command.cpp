@@ -69,12 +69,12 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 {
 	ZoneScopedN("~CommandBufferArray()");
 
-	if (isValid())
+	if (IsValid())
 	{
 		ZoneScopedN("~CommandBufferArray()::vkFreeCommandBuffers");
 
 		vkFreeCommandBuffers(
-			*getDevice(), myDesc.pool, kCommandBufferCount, myArray.data());
+			*GetDevice(), myDesc.pool, kCommandBufferCount, myArray.data());
 	}
 }
 
@@ -183,7 +183,7 @@ CommandPool<Vk>::CommandPool(
 					VK_CHECK(vkCreateCommandPool(
 						*device,
 						&cmdPoolInfo,
-						&device->getInstance()->getHostAllocationCallbacks(),
+						&device->GetInstance()->GetHostAllocationCallbacks(),
 						&outPool));
 
 					return outPool;
@@ -211,9 +211,9 @@ CommandPool<Vk>::~CommandPool()
 
 	if (myPool != nullptr)
 		vkDestroyCommandPool(
-			*getDevice(),
+			*GetDevice(),
 			myPool,
-			&getDevice()->getInstance()->getHostAllocationCallbacks());
+			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -251,7 +251,7 @@ void CommandPool<Vk>::Reset()
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
 		VK_CHECK(vkResetCommandPool(
-			*getDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
+			*GetDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
 	}
 
 	for (uint32_t levelIt = 0UL; levelIt < mySubmittedCommands.size(); levelIt++)
@@ -290,7 +290,7 @@ void CommandPool<Vk>::InternalEnqueueOnePending(uint8_t level)
 
 		myPendingCommands[level].emplace_back(std::make_tuple(
 			CommandBufferArray<Vk>(
-				getDevice(), CommandBufferArrayCreateDesc<Vk>{*this, level}),
+				GetDevice(), CommandBufferArrayCreateDesc<Vk>{*this, level}),
 			0));
 	}
 }

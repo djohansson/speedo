@@ -20,7 +20,7 @@
 template <GraphicsApi G>
 struct DeviceConfiguration
 {
-	consteval std::string_view getName() const { return "device"; }
+	consteval std::string_view GetName() const { return "device"; }
 
 	uint32_t physicalDeviceIndex = 0ul; // todo: replace with deviceID
 	// std::optional<bool> useShaderFloat16;
@@ -49,22 +49,22 @@ public:
 
 	operator auto() const noexcept { return myDevice; }
 
-	auto getInstance() const noexcept { return myInstance; } // todo: make global?
+	auto GetInstance() const noexcept { return myInstance; } // todo: make global?
 	const auto& GetConfig() const noexcept { return myConfig; }
-	auto getPhysicalDevice() const noexcept
+	auto GetPhysicalDevice() const noexcept
 	{
-		return myInstance->getPhysicalDevices()[myPhysicalDeviceIndex];
+		return myInstance->GetPhysicalDevices()[myPhysicalDeviceIndex];
 	}
-	const auto& getPhysicalDeviceInfo() const noexcept
+	const auto& GetPhysicalDeviceInfo() const noexcept
 	{
-		return myInstance->getPhysicalDeviceInfo(getPhysicalDevice());
+		return myInstance->GetPhysicalDeviceInfo(GetPhysicalDevice());
 	}
 
-	const auto& getQueueFamilies() const noexcept { return myQueueFamilyDescs; }
+	const auto& GetQueueFamilies() const noexcept { return myQueueFamilyDescs; }
 
-	auto getAllocator() const noexcept { return myAllocator; }
+	auto GetAllocator() const noexcept { return myAllocator; }
 
-	auto& timelineValue() { return myTimelineValue; }
+	auto& TimelineValue() { return myTimelineValue; }
 
 	void WaitIdle() const;
 
@@ -116,9 +116,9 @@ public:
 	DeviceObject& operator=(DeviceObject&& other) noexcept;
 	void Swap(DeviceObject& rhs) noexcept;
 
-	std::string_view getName() const noexcept { return myDesc.name; }
-	const uuids::uuid& getUid() const noexcept { return myUid; }
-	bool isValid() const noexcept { return !myUid.is_nil(); }
+	std::string_view GetName() const noexcept { return myDesc.name; }
+	const uuids::uuid& GetUid() const noexcept { return myUid; }
+	bool IsValid() const noexcept { return !myUid.is_nil(); }
 
 protected:
 	constexpr DeviceObject() noexcept = default;
@@ -133,7 +133,7 @@ protected:
 		ObjectType<G> objectType,
 		const uint64_t* objectHandles);
 
-	const auto& getDevice() const noexcept { return myDevice; }
+	const auto& GetDevice() const noexcept { return myDevice; }
 
 private:
 	std::shared_ptr<Device<G>> myDevice;

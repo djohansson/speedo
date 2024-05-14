@@ -32,8 +32,8 @@ Buffer<Vk>::Buffer(
 	: Buffer(
 		  device,
 		  std::forward<BufferCreateDesc<Vk>>(desc),
-		  createBuffer(
-			  device->getAllocator(),
+		  CreateBuffer(
+			  device->GetAllocator(),
 			  desc.size,
 			  desc.usageFlags,
 			  desc.memoryFlags,
@@ -49,9 +49,9 @@ Buffer<Vk>::Buffer(
 	: Buffer(
 		  device,
 		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
-		  createBuffer(
+		  CreateBuffer(
 			  queue.GetPool().Commands(),
-			  device->getAllocator(),
+			  device->GetAllocator(),
 			  std::get<1>(descAndInitialData),
 			  std::get<0>(descAndInitialData).size,
 			  std::get<0>(descAndInitialData).usageFlags,
@@ -61,7 +61,7 @@ Buffer<Vk>::Buffer(
 	queue.AddTimelineCallback(
 	{
 		timelineValue,
-		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
+		[allocator = device->GetAllocator(), descAndInitialData](uint64_t)
 		{
 			vmaDestroyBuffer(
 				allocator,
@@ -84,8 +84,8 @@ Buffer<Vk>::Buffer(
 		  timelineValue,
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
-			  createStagingBuffer(
-				  device->getAllocator(),
+			  CreateStagingBuffer(
+				  device->GetAllocator(),
 				  initialData,
 				  desc.size,
 				  "todo_insert_proper_name")))
@@ -95,7 +95,7 @@ template <>
 Buffer<Vk>::~Buffer()
 {
 	if (BufferHandle<Vk> buffer = *this)
-		vmaDestroyBuffer(getDevice()->getAllocator(), buffer, getBufferMemory());
+		vmaDestroyBuffer(GetDevice()->GetAllocator(), buffer, GetBufferMemory());
 }
 
 template <>
@@ -152,7 +152,7 @@ BufferView<Vk>::BufferView(
 				viewInfo.range = range;
 
 				VkBufferView outBufferView;
-				VK_CHECK(vkCreateBufferView(*device, &viewInfo, &device->getInstance()->getHostAllocationCallbacks(), &outBufferView));
+				VK_CHECK(vkCreateBufferView(*device, &viewInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outBufferView));
 
 				return outBufferView;
 		  }())
@@ -162,7 +162,7 @@ template <>
 BufferView<Vk>::~BufferView()
 {
 	if (BufferViewHandle<Vk> view = *this)
-		vkDestroyBufferView(*getDevice(), view, &getDevice()->getInstance()->getHostAllocationCallbacks());
+		vkDestroyBufferView(*GetDevice(), view, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

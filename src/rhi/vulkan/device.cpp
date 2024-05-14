@@ -155,7 +155,7 @@ Device<Vk>::Device(
 {
 	ZoneScopedN("Device()");
 
-	const auto& physicalDeviceInfo = getPhysicalDeviceInfo();
+	const auto& physicalDeviceInfo = GetPhysicalDeviceInfo();
 	
 	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName
@@ -189,11 +189,11 @@ Device<Vk>::Device(
 
 	uint32_t deviceExtensionCount;
 	vkEnumerateDeviceExtensionProperties(
-		getPhysicalDevice(), nullptr, &deviceExtensionCount, nullptr);
+		GetPhysicalDevice(), nullptr, &deviceExtensionCount, nullptr);
 
 	std::vector<VkExtensionProperties> availableDeviceExtensions(deviceExtensionCount);
 	vkEnumerateDeviceExtensionProperties(
-		getPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
+		GetPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
 
 	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << '\n';
@@ -245,7 +245,7 @@ Device<Vk>::Device(
 	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size());
 	deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
-	VK_CHECK(vkCreateDevice(getPhysicalDevice(), &deviceCreateInfo, &myInstance->getHostAllocationCallbacks(), &myDevice));
+	VK_CHECK(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
@@ -256,21 +256,21 @@ Device<Vk>::Device(
 #endif
 
 	// AddOwnedObjectHandle(
-	//     getUid(),
+	//     GetUid(),
 	//     VK_OBJECT_TYPE_INSTANCE,
-	//     reinterpret_cast<uint64_t>(myInstance->getInstance()),
+	//     reinterpret_cast<uint64_t>(myInstance->GetInstance()),
 	//     "Instance");
 
 	// AddOwnedObjectHandle(
-	//     getUid(),
+	//     GetUid(),
 	//     VK_OBJECT_TYPE_SURFACE_KHR,
 	//     reinterpret_cast<uint64_t>(myInstance->GetSurface()),
 	//     "Instance_Surface");
 
 	// char stringBuffer[256];
-	// for (uint32_t physicalDeviceIt = 0ul; physicalDeviceIt < myInstance->getPhysicalDevices().size(); physicalDeviceIt++)
+	// for (uint32_t physicalDeviceIt = 0ul; physicalDeviceIt < myInstance->GetPhysicalDevices().size(); physicalDeviceIt++)
 	// {
-	//     auto physicalDevice = myInstance->getPhysicalDevices()[physicalDeviceIt];
+	//     auto physicalDevice = myInstance->GetPhysicalDevices()[physicalDeviceIt];
 
 	//     static constexpr std::string_view physicalDeviceStr = "Instance_PhysicalDevice";
 
@@ -282,14 +282,14 @@ Device<Vk>::Device(
 	//         physicalDeviceIt);
 
 	//     AddOwnedObjectHandle(
-	//         getUid(),
+	//         GetUid(),
 	//         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
 	//         reinterpret_cast<uint64_t>(physicalDevice),
 	//         stringBuffer);
 	// }
 
 	// AddOwnedObjectHandle(
-	//     getUid(),
+	//     GetUid(),
 	//     VK_OBJECT_TYPE_DEVICE,
 	//     reinterpret_cast<uint64_t>(myDevice),
 	//     "Device");
@@ -311,12 +311,12 @@ Device<Vk>::Device(
 	{
 		auto vkGetBufferMemoryRequirements2KHR =
 			reinterpret_cast<PFN_vkGetBufferMemoryRequirements2KHR>(
-				vkGetInstanceProcAddr(*getInstance(), "vkGetBufferMemoryRequirements2KHR"));
+				vkGetInstanceProcAddr(*GetInstance(), "vkGetBufferMemoryRequirements2KHR"));
 		ASSERT(vkGetBufferMemoryRequirements2KHR != nullptr);
 
 		auto vkGetImageMemoryRequirements2KHR =
 			reinterpret_cast<PFN_vkGetImageMemoryRequirements2KHR>(
-				vkGetInstanceProcAddr(*getInstance(), "vkGetImageMemoryRequirements2KHR"));
+				vkGetInstanceProcAddr(*GetInstance(), "vkGetImageMemoryRequirements2KHR"));
 		ASSERT(vkGetImageMemoryRequirements2KHR != nullptr);
 
 		VmaVulkanFunctions functions{};
@@ -342,11 +342,11 @@ Device<Vk>::Device(
 		VmaAllocator allocator;
 		VmaAllocatorCreateInfo allocatorInfo{};
 		allocatorInfo.flags = {};
-		allocatorInfo.physicalDevice = getPhysicalDevice();
+		allocatorInfo.physicalDevice = GetPhysicalDevice();
         allocatorInfo.preferredLargeHeapBlockSize = 0; // 0 = default (256Mb)
 		allocatorInfo.device = myDevice;
-		allocatorInfo.instance = *getInstance();
-        allocatorInfo.pAllocationCallbacks = &getInstance()->getHostAllocationCallbacks();
+		allocatorInfo.instance = *GetInstance();
+        allocatorInfo.pAllocationCallbacks = &GetInstance()->GetHostAllocationCallbacks();
 		allocatorInfo.pVulkanFunctions = &functions;
 		vmaCreateAllocator(&allocatorInfo, &allocator);
 
@@ -370,7 +370,7 @@ Device<Vk>::~Device()
 	}
 
 	vmaDestroyAllocator(myAllocator);
-	vkDestroyDevice(myDevice, &myInstance->getHostAllocationCallbacks());
+	vkDestroyDevice(myDevice, &myInstance->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -401,10 +401,10 @@ DeviceObject<Vk>::DeviceObject(
 	{
 		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
 			device->AddOwnedObjectHandle(
-				getUid(),
+				GetUid(),
 				objectType,
 				objectHandles[objectIt],
-				std::format("{0}{1}", getName(), objectIt));
+				std::format("{0}{1}", GetName(), objectIt));
 	}
 #endif
 }
@@ -415,7 +415,7 @@ DeviceObject<Vk>::~DeviceObject()
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (myDevice)
-			myDevice->ClearOwnedObjectHandles(getUid());
+			myDevice->ClearOwnedObjectHandles(GetUid());
 	}
 #endif
 }
