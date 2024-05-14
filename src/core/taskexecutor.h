@@ -28,7 +28,8 @@ public:
 	// b will start after a has finished
 	// isContinuation == true : b will most likely start on the same thread as a, but may start on any thread in the thread pool
 	// isContinuation == false: b will start on any thread in the thread pool
-	void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
+	static void
+	AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 	template <
 		typename... Params,
@@ -63,8 +64,8 @@ private:
 
 	void InternalSubmit(TaskHandle handle);
 	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
-	void InternalTryDelete(TaskHandle handle);
-	
+	static void InternalTryDelete(TaskHandle handle);
+
 	void ScheduleAdjacent(Task& task);
 	void ScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 

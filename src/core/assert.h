@@ -21,7 +21,7 @@
 		__FILE__,                                                                                  \
 		__LINE__,                                                                                  \
 		CLEAN_ERRNO(),                                                                             \
-		##__VA_ARGS__)
+		##__VA_ARGS__) //NOLINT(modernize-use-std-print)
 
 #ifdef NDEBUG
 #	define ASSERT(A)

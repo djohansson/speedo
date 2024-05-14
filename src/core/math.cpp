@@ -1,4 +1,4 @@
-#include "math.h"
+#include "math.h"//NOLINT(modernize-deprecated-headers)
 
 uint32_t RoundUp(uint32_t numToRound, uint32_t multiple)
 {
