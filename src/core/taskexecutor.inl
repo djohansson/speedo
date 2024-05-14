@@ -1,13 +1,13 @@
 template <typename R>
-std::optional<typename Future<R>::value_t> TaskExecutor::join(Future<R>&& future)
+std::optional<typename Future<R>::value_t> TaskExecutor::Join(Future<R>&& future)
 {
 	ZoneScopedN("TaskExecutor::join");
 
-	return processReadyQueue(std::forward<Future<R>>(future));
+	return ProcessReadyQueue(std::forward<Future<R>>(future));
 }
 
 template <typename R>
-std::optional<typename Future<R>::value_t> TaskExecutor::processReadyQueue(Future<R>&& future)
+std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Future<R>&& future)
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
@@ -17,8 +17,8 @@ std::optional<typename Future<R>::value_t> TaskExecutor::processReadyQueue(Futur
 	TaskHandle handle;
 	while (!future.is_ready() && myReadyQueue.try_dequeue(handle))
 	{
-		internalCall(handle);
-		purgeDeletionQueue();
+		InternalCall(handle);
+		PurgeDeletionQueue();
 	}
 
 	return std::make_optional(future.get());
@@ -26,9 +26,9 @@ std::optional<typename Future<R>::value_t> TaskExecutor::processReadyQueue(Futur
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-TaskCreateInfo<R> TaskExecutor::createTask(F&& callable, Args&&... args)
+TaskCreateInfo<R> TaskExecutor::CreateTask(F&& callable, Args&&... args)
 {
-	ZoneScopedN("TaskExecutor::createTask");
+	ZoneScopedN("TaskExecutor::CreateTask");
 
 	auto handle = gTaskPool.allocate();
 	Task* taskPtr = gTaskPool.getPointer(handle);
@@ -38,36 +38,36 @@ TaskCreateInfo<R> TaskExecutor::createTask(F&& callable, Args&&... args)
 }
 
 template <typename... TaskParams>
-void TaskExecutor::internalCall(TaskHandle handle, TaskParams&&... params)
+void TaskExecutor::InternalCall(TaskHandle handle, TaskParams&&... params)
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
-	Task& task = *handleToTaskPtr(handle);
+	Task& task = *HandleToTaskPtr(handle);
 
 	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
-	scheduleAdjacent(task);
+	ScheduleAdjacent(task);
 	myDeletionQueue.enqueue(handle);
 }
 
 template <typename... TaskParams>
-void TaskExecutor::internalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params)
+void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params)
 {
 	ZoneScopedN("TaskExecutor::internalCall");
 
-	Task& task = *handleToTaskPtr(handle);
+	Task& task = *HandleToTaskPtr(handle);
 
 	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
-	scheduleAdjacent(readyProducerToken, task);
+	ScheduleAdjacent(readyProducerToken, task);
 	myDeletionQueue.enqueue(handle);
 }
 
 template <typename... TaskParams>
-void TaskExecutor::call(TaskHandle handle, TaskParams&&... params)
+void TaskExecutor::Call(TaskHandle handle, TaskParams&&... params)
 {
-	internalCall(handle, params...);
+	InternalCall(handle, params...);
 }
 

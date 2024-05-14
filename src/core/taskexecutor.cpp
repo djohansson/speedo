@@ -15,7 +15,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::thread(&TaskExecutor::threadMain, this, threadIt), nullptr);
+		myThreads.emplace_back(std::thread(&TaskExecutor::ThreadMain, this, threadIt), nullptr);
 }
 
 TaskExecutor::~TaskExecutor()
@@ -32,14 +32,14 @@ TaskExecutor::~TaskExecutor()
 		thread.detach();
 }
 
-void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
+void TaskExecutor::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
-	ZoneScopedN("TaskExecutor::addDependency");
+	ZoneScopedN("TaskExecutor::AddDependency");
 
 	ASSERT(aTaskHandle != bTaskHandle);
 
-	Task& aTask = *handleToTaskPtr(aTaskHandle);
-	Task& bTask = *handleToTaskPtr(bTaskHandle);
+	Task& aTask = *HandleToTaskPtr(aTaskHandle);
+	Task& bTask = *HandleToTaskPtr(bTaskHandle);
 
 	ASSERTF(aTask.state(), "Task state is not valid!");
 	ASSERTF(bTask.state(), "Task state is not valid!");
@@ -56,7 +56,7 @@ void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle,
 	bState.latch.fetch_add(1, std::memory_order_relaxed);
 }
 
-Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
+Task* TaskExecutor::HandleToTaskPtr(TaskHandle handle) noexcept
 {
 	ASSERT(handle);
 	ASSERT(handle.value < kTaskPoolSize);
@@ -68,11 +68,11 @@ Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
 	return ptr;
 }
 
-void TaskExecutor::internalSubmit(TaskHandle handle)
+void TaskExecutor::InternalSubmit(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	Task& task = *handleToTaskPtr(handle);
+	Task& task = *HandleToTaskPtr(handle);
 
 	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 
@@ -82,11 +82,11 @@ void TaskExecutor::internalSubmit(TaskHandle handle)
 		mySignal.release();
 }
 
-void TaskExecutor::internalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
+void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalSubmit");
 
-	Task& task = *handleToTaskPtr(handle);
+	Task& task = *HandleToTaskPtr(handle);
 
 	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 
@@ -96,11 +96,11 @@ void TaskExecutor::internalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 		mySignal.release();
 }
 
-void TaskExecutor::internalTryDelete(TaskHandle handle)
+void TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::internalTryDelete");
 
-	Task& task = *handleToTaskPtr(handle);
+	Task& task = *HandleToTaskPtr(handle);
 
 	if (task.state()->latch.load(std::memory_order_relaxed) == 0)
 	{
@@ -109,7 +109,7 @@ void TaskExecutor::internalTryDelete(TaskHandle handle)
 	}
 }
 
-void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
+void TaskExecutor::ScheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
@@ -120,20 +120,20 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = *handleToTaskPtr(adjacentHandle);
+		Task& adjacent = *HandleToTaskPtr(adjacentHandle);
 
 		ASSERTF(adjacent.state(), "Task has no return state!");
 		ASSERTF(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
-			internalSubmit(readyProducerToken, adjacentHandle);
+			InternalSubmit(readyProducerToken, adjacentHandle);
 			adjacentHandle = {};
 		}
 	}
 }
 
-void TaskExecutor::scheduleAdjacent(Task& task)
+void TaskExecutor::ScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::scheduleAdjacent");
 
@@ -144,53 +144,53 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = *handleToTaskPtr(adjacentHandle);
+		Task& adjacent = *HandleToTaskPtr(adjacentHandle);
 
 		ASSERTF(adjacent.state(), "Task has no return state!");
 		ASSERTF(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
-			internalSubmit(adjacentHandle);
+			InternalSubmit(adjacentHandle);
 			adjacentHandle = {};
 		}
 	}
 }
 
-void TaskExecutor::processReadyQueue()
+void TaskExecutor::ProcessReadyQueue()
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
-		internalCall(handle);
-		purgeDeletionQueue();
+		InternalCall(handle);
+		PurgeDeletionQueue();
 	}
 }
 
-void TaskExecutor::processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
+void TaskExecutor::ProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
 {
 	ZoneScopedN("TaskExecutor::processReadyQueue");
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
-		internalCall(readyProducerToken, handle);
-		purgeDeletionQueue();
+		InternalCall(readyProducerToken, handle);
+		PurgeDeletionQueue();
 	}
 }
 
-void TaskExecutor::purgeDeletionQueue()
+void TaskExecutor::PurgeDeletionQueue()
 {
 	ZoneScopedN("TaskExecutor::purgeDeletionQueue");
 
 	TaskHandle handle;
 	while (myDeletionQueue.try_dequeue(handle))
-		internalTryDelete(handle);
+		InternalTryDelete(handle);
 }
 
-void TaskExecutor::threadMain(uint32_t threadId)
+void TaskExecutor::ThreadMain(uint32_t threadId)
 {
 	try
 	{
@@ -199,7 +199,7 @@ void TaskExecutor::threadMain(uint32_t threadId)
 
 		while (!myStopSource.load(std::memory_order_acquire))
 		{
-			processReadyQueue(readyProducerToken, readyConsumerToken);
+			ProcessReadyQueue(readyProducerToken, readyConsumerToken);
 			mySignal.acquire();
 		}
 	}

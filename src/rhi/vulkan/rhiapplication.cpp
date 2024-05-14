@@ -90,7 +90,7 @@ static void LoadImage(
 
 	///////////
 
-	auto [imageTransitionTask, imageTransitionFuture] = executor.createTask<uint32_t>([&rhi](
+	auto [imageTransitionTask, imageTransitionFuture] = executor.CreateTask<uint32_t>([&rhi](
 		Image<Vk>& image,
 		SemaphoreHandle<Vk> waitSemaphore,
 		uint64_t waitSemaphoreValue,
@@ -503,13 +503,13 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask(
+				auto [openFileTask, openFileFuture] = executor.CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"obj");
 
-				auto [loadTask, loadFuture] = executor.createTask(
+				auto [loadTask, loadFuture] = executor.CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
 						ZoneScopedN("RhiApplication::draw::loadTask");
@@ -530,19 +530,19 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 					std::move(openFileFuture),
 					LoadModel);
 
-				executor.addDependency(openFileTask, loadTask);
+				executor.AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = executor.createTask(
+				auto [openFileTask, openFileFuture] = executor.CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"jpg,png");
 
-				auto [loadTask, loadFuture] = executor.createTask(
+				auto [loadTask, loadFuture] = executor.CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
 						ZoneScopedN("RhiApplication::draw::loadTask");
@@ -563,15 +563,15 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 					std::move(openFileFuture),
 					LoadImage);
 
-				executor.addDependency(openFileTask, loadTask);
+				executor.AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.valid())
 			// {
-			// 	auto [task, openFileFuture] = graph.createTask(
+			// 	auto [task, openFileFuture] = graph.CreateTask(
 			// 		[&openFileDialogue, &resourcePath, &loadGlTF]
 			// 		{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
-			// 	executor.submit(std::move(graph));
+			// 	executor.Submit(std::move(graph));
 			// 	myOpenFileFuture = std::move(openFileFuture);
 			// }
 			Separator();
@@ -1434,7 +1434,7 @@ void RhiApplication::InternalDraw()
 		{
 			ZoneScopedN("rhi::draw::drawCall");
 
-			Executor().call(drawCall, newFrameIndex);
+			Executor().Call(drawCall, newFrameIndex);
 		}
 
 		auto cmd = graphicsQueue.GetPool().Commands();
@@ -1569,7 +1569,7 @@ void RhiApplication::Tick()
 	{
 		ZoneScopedN("RhiApplication::tick::mainCall");
 
-		Executor().call(mainCall);
+		Executor().Call(mainCall);
 	}
 }
 

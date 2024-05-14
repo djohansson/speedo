@@ -28,7 +28,7 @@ public:
 	// b will start after a has finished
 	// isContinuation == true : b will most likely start on the same thread as a, but may start on any thread in the thread pool
 	// isContinuation == false: b will start on any thread in the thread pool
-	void addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
+	void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 	template <
 		typename... Params,
@@ -39,43 +39,43 @@ public:
 		typename ParamsTuple = std::tuple<Params...>,
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	TaskCreateInfo<R> createTask(F&& callable, Args&&... args);
+	TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args);
 
 	// wait for task to finish while helping out processing the thread pools ready queue
 	// as soon as the task is ready, the function will stop processing the ready queue and return
 	template <typename R>
-	std::optional<typename Future<R>::value_t> join(Future<R>&& future);
+	std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
 	// call task in current thread. dependency chain(s) will be executed in thread pool
 	template <typename... TaskParams>
-	void call(TaskHandle handle, TaskParams&&... params);
+	void Call(TaskHandle handle, TaskParams&&... params);
 
 	// task + dependency chain(s) will be executed in thread pool
-	void submit(TaskHandle handle) { internalSubmit(handle); }
+	void Submit(TaskHandle handle) { InternalSubmit(handle); }
 
 private:
-	static Task* handleToTaskPtr(TaskHandle handle) noexcept;
+	static Task* HandleToTaskPtr(TaskHandle handle) noexcept;
 
 	template <typename... TaskParams>
-	void internalCall(TaskHandle handle, TaskParams&&... params);
+	void InternalCall(TaskHandle handle, TaskParams&&... params);
 	template <typename... TaskParams>
-	void internalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params);
+	void InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, TaskParams&&... params);
 
-	void internalSubmit(TaskHandle handle);
-	void internalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
-	void internalTryDelete(TaskHandle handle);
+	void InternalSubmit(TaskHandle handle);
+	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
+	void InternalTryDelete(TaskHandle handle);
 	
-	void scheduleAdjacent(Task& task);
-	void scheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
+	void ScheduleAdjacent(Task& task);
+	void ScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 
-	void processReadyQueue();
-	void processReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
+	void ProcessReadyQueue();
+	void ProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
 	template <typename R>
-	std::optional<typename Future<R>::value_t> processReadyQueue(Future<R>&& future);
+	std::optional<typename Future<R>::value_t> ProcessReadyQueue(Future<R>&& future);
 
-	void purgeDeletionQueue();
+	void PurgeDeletionQueue();
 
-	void threadMain(uint32_t threadId);
+	void ThreadMain(uint32_t threadId);
 
 	std::vector<std::tuple<std::thread, std::exception_ptr>> myThreads;
 	std::counting_semaphore<> mySignal;

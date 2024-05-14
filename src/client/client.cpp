@@ -37,9 +37,9 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	if (gClientApplication->IsExitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = gClientApplication->Executor().createTask(std::forward<F>(callable));
+	auto taskPair = gClientApplication->Executor().CreateTask(std::forward<F>(callable));
 	
-	gClientApplication->Executor().addDependency(dependency, taskPair.first, true);
+	gClientApplication->Executor().AddDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -186,8 +186,8 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	gRpcTask = Executor().createTask(Rpc, mySocket, myPoller);
-	Executor().submit(gRpcTask.first);
+	gRpcTask = Executor().CreateTask(Rpc, mySocket, myPoller);
+	Executor().Submit(gRpcTask.first);
 }
 
 bool TickClient()
@@ -225,8 +225,8 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	ASSERT(gClientApplication);
 
-	gUpdateTask = gClientApplication->Executor().createTask(UpdateInput);
-	gClientApplication->Executor().submit(gUpdateTask.first);
+	gUpdateTask = gClientApplication->Executor().CreateTask(UpdateInput);
+	gClientApplication->Executor().Submit(gUpdateTask.first);
 }
 
 void DestroyClient()

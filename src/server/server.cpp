@@ -34,9 +34,9 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	if (gServerApplication->IsExitRequested())
 		return {NullTaskHandle, Future<void>{}};
 
-	auto taskPair = gServerApplication->Executor().createTask(std::forward<F>(callable));
+	auto taskPair = gServerApplication->Executor().CreateTask(std::forward<F>(callable));
 	
-	gServerApplication->Executor().addDependency(dependency, taskPair.first, true);
+	gServerApplication->Executor().AddDependency(dependency, taskPair.first, true);
 
 	return taskPair;
 }
@@ -154,8 +154,8 @@ Server::Server(std::string_view name, Environment&& env)
 
 	std::cout << "Server listening on " << kCxServerAddress << '\n';
 
-	gRpcTask = Executor().createTask(Rpc, mySocket, myPoller);
-	Executor().submit(gRpcTask.first);
+	gRpcTask = Executor().CreateTask(Rpc, mySocket, myPoller);
+	Executor().Submit(gRpcTask.first);
 }
 
 void CreateServer(const PathConfig* paths)
