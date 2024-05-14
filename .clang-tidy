@@ -35,9 +35,10 @@ CheckOptions:
   - { key: readability-identifier-naming.PrivateMethodCase,      value: CamelCase  }
   - { key: readability-identifier-naming.PrivateMethodPrefix,    value: Internal   }
   - { key: readability-identifier-naming.VariableCase,           value: camelBack  }
-  - { key: readability-identifier-naming.MemberCase,             value: camelBack  }
+  - { key: readability-identifier-naming.StructMemberCase,       value: camelBack  }
+  - { key: readability-identifier-naming.GlobalVariableCase,     value: CamelCase  }
   - { key: readability-identifier-naming.GlobalVariablePrefix,   value: g          }
-  - { key: readability-identifier-naming.StaticVariableCase,     value: camelBack  }
+  - { key: readability-identifier-naming.StaticVariableCase,     value: CamelCase  }
   - { key: readability-identifier-naming.StaticVariablePrefix,   value: g          }
   - { key: readability-identifier-naming.MacroDefinitionCase,    value: UPPER_CASE }
   - { key: readability-identifier-naming.EnumConstantCase,       value: CamelCase  }
